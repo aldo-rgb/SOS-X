@@ -60,34 +60,111 @@ const buildWhatsAppUrl = (order: PaymentOrder): string => {
 };
 
 // ── HTML template for PDF ─────────────────────────────────────────────────────
-const buildPdfHtml = (order: PaymentOrder): string => {
-  const mxn    = Number(order.total_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+interface OrderDetailItem {
+  id: number;
+  tracking: string | null;
+  service_type: string;
+  description?: string | null;
+  weight?: number;
+  total_boxes?: number;
+  tipo: 'POBOX' | 'MARITIMO' | 'DHL';
+  venta_usd?: number;
+  venta_mxn?: number;
+  exchange_rate?: number;
+  cbm?: number;
+  children?: Array<{
+    id: number;
+    tracking: string | null;
+    child_no: string | null;
+    n_level: string | null;
+    venta_usd: number;
+    venta_mxn: number;
+    weight: number;
+    description?: string | null;
+  }>;
+}
+
+const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = []): string => {
+  const fmtMxn = (n: number) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtUsd = (n: number) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const mxn    = fmtMxn(Number(order.total_mxn));
   const ref    = order.payment_reference || order.folio || '—';
   const date   = new Date(order.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
-  const guides = (order.trackings || []).map((t, i) => `<tr><td>${i + 1}</td><td style="font-family:monospace">${t}</td></tr>`).join('');
+
+  // Si no llegan items con desglose, fallback a la lista plana de trackings
+  const useDetail = items && items.length > 0;
+  const detailBlocks = useDetail ? items.map((it, idx) => {
+    const tcTxt = it.exchange_rate ? `TC: $${Number(it.exchange_rate).toFixed(2)}` : '';
+    const headerRight = it.venta_usd
+      ? `$${fmtUsd(it.venta_usd)} USD &middot; $${fmtMxn(it.venta_mxn || 0)} MXN`
+      : `$${fmtMxn(it.venta_mxn || 0)} MXN`;
+    const childrenHtml = (it.children || []).length > 0
+      ? `<table class="detail-table">
+          <thead><tr>
+            <th style="width:36px">#</th>
+            <th>Guía hija</th>
+            <th style="width:50px">Nivel</th>
+            <th style="width:90px;text-align:right">USD</th>
+            <th style="width:110px;text-align:right">MXN</th>
+          </tr></thead>
+          <tbody>${(it.children || []).map((c, ci) => `
+            <tr>
+              <td>${ci + 1}</td>
+              <td style="font-family:monospace;font-size:11px">${c.tracking || '—'}</td>
+              <td><span class="badge">${c.n_level || '—'}</span></td>
+              <td style="text-align:right">$${fmtUsd(c.venta_usd)}</td>
+              <td style="text-align:right;font-weight:700">$${fmtMxn(c.venta_mxn)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`
+      : '';
+    return `
+      <div class="item-card">
+        <div class="item-head">
+          <div>
+            <div class="item-tracking">${it.tracking || '—'}</div>
+            <div class="item-meta">${it.tipo}${it.total_boxes ? ` &middot; ${it.total_boxes} cajas` : ''}${tcTxt ? ' &middot; ' + tcTxt : ''}</div>
+          </div>
+          <div class="item-amount">${headerRight}</div>
+        </div>
+        ${childrenHtml}
+      </div>`;
+  }).join('') : `<table class="detail-table">
+    <thead><tr><th style="width:36px">#</th><th>Número de guía</th></tr></thead>
+    <tbody>${(order.trackings || []).map((t, i) => `<tr><td>${i + 1}</td><td style="font-family:monospace">${t}</td></tr>`).join('')}</tbody>
+  </table>`;
+
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>
-    body{font-family:Helvetica,Arial,sans-serif;margin:0;padding:0;color:#111}
-    .hdr{background:#111;padding:24px 32px;display:flex;justify-content:space-between;align-items:center}
-    .hdr-brand{color:#F05A28;font-size:22px;font-weight:800;letter-spacing:1px}
-    .hdr-sub{color:#aaa;font-size:11px;margin-top:2px}
+    *{box-sizing:border-box}
+    body{font-family:Helvetica,Arial,sans-serif;margin:0;padding:0;color:#0F172A;background:#FFFFFF}
+    .hdr{background:#111827;padding:24px 32px;display:flex;justify-content:space-between;align-items:center}
+    .hdr-brand{color:#F05A28;font-size:24px;font-weight:900;letter-spacing:1px}
+    .hdr-sub{color:#E5E7EB;font-size:11px;margin-top:2px;font-weight:600}
+    .body{padding:24px 32px}
+    .section{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;margin-bottom:14px}
+    .label{font-size:10px;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;font-weight:700}
+    .value{font-size:13px;font-weight:700;color:#0F172A}
     .accent{color:#F05A28}
-    .body{padding:28px 32px}
-    .section{background:#F9F9F9;border-radius:8px;padding:16px;margin-bottom:16px}
-    .label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
-    .value{font-size:13px;font-weight:700;color:#111}
-    .ref{font-family:monospace;font-size:18px;color:#F05A28;font-weight:800}
-    .bank-box{background:#E3F2FD;border-radius:8px;padding:16px;margin-bottom:16px}
-    .bank-title{color:#1565C0;font-weight:800;font-size:13px;margin-bottom:10px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
-    table{width:100%;border-collapse:collapse;margin-bottom:16px}
-    th{background:#111;color:#F05A28;font-size:11px;padding:8px;text-align:left}
-    td{padding:7px 8px;font-size:12px;border-bottom:1px solid #eee}
-    .total-row td{background:#111;color:#F05A28;font-weight:800;font-size:14px}
-    .footer{border-top:3px solid #F05A28;padding:12px 32px;font-size:10px;color:#888;text-align:center}
+    .ref{font-family:monospace;font-size:20px;color:#F05A28;font-weight:900;background:#FFF7ED;padding:4px 10px;border-radius:6px;display:inline-block}
+    .bank-box{background:#EFF6FF;border:2px solid #1D4ED8;border-radius:8px;padding:16px;margin-bottom:14px}
+    .bank-title{color:#1D4ED8;font-weight:800;font-size:14px;margin-bottom:10px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .section-title{font-size:13px;font-weight:800;color:#0F172A;margin:18px 0 8px;padding-bottom:6px;border-bottom:2px solid #F05A28}
+    .item-card{border:1px solid #E2E8F0;border-radius:8px;margin-bottom:10px;overflow:hidden}
+    .item-head{background:#F1F5F9;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #E2E8F0}
+    .item-tracking{font-family:monospace;font-size:13px;font-weight:800;color:#0F172A}
+    .item-meta{font-size:11px;color:#334155;margin-top:2px;font-weight:600}
+    .item-amount{font-size:13px;font-weight:800;color:#0F172A;text-align:right}
+    .detail-table{width:100%;border-collapse:collapse}
+    .detail-table th{background:#FFF7ED;color:#9A3412;font-size:10px;padding:6px 8px;text-align:left;border-bottom:1px solid #FED7AA;font-weight:800;text-transform:uppercase;letter-spacing:.4px}
+    .detail-table td{padding:7px 8px;font-size:11px;color:#0F172A;border-bottom:1px solid #F1F5F9}
+    .badge{display:inline-block;background:#FEE2E2;color:#B91C1C;font-weight:800;font-size:10px;padding:2px 6px;border-radius:4px}
+    .total-box{background:#F05A28;color:#fff;padding:14px 18px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:16px;font-weight:900}
+    .footer{border-top:3px solid #F05A28;padding:12px 32px;font-size:10px;color:#475569;text-align:center;font-weight:600}
   </style></head><body>
   <div class="hdr">
     <div><div class="hdr-brand">EntregaX</div><div class="hdr-sub">Orden de Pago</div></div>
-    <div style="text-align:right"><div class="ref">${ref}</div><div class="hdr-sub">${date}</div></div>
+    <div style="text-align:right"><div class="ref">${ref}</div><div class="hdr-sub" style="margin-top:6px">${date}</div></div>
   </div>
   <div class="body">
     <div class="section">
@@ -107,11 +184,12 @@ const buildPdfHtml = (order: PaymentOrder): string => {
         <div><div class="label">Concepto / Referencia</div><div class="value accent">${ref}</div></div>
       </div>
     </div>` : ''}
-    ${(order.trackings || []).length > 0 ? `<table>
-      <thead><tr><th>#</th><th>Número de guía</th></tr></thead>
-      <tbody>${guides}</tbody>
-      <tfoot><tr class="total-row"><td colspan="2">TOTAL A PAGAR: $${mxn} MXN</td></tr></tfoot>
-    </table>` : ''}
+    <div class="section-title">📦 Desglose de guías</div>
+    ${detailBlocks}
+    <div class="total-box">
+      <span>TOTAL A PAGAR</span>
+      <span>$${mxn} MXN</span>
+    </div>
   </div>
   <div class="footer">EntregaX Paquetería · Este documento es válido como comprobante de cobro.</div>
   </body></html>`;
@@ -183,7 +261,21 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
   const handlePdf = async (order: PaymentOrder) => {
     setPdfLoadingId(order.id);
     try {
-      const html  = buildPdfHtml(order);
+      // Intentar obtener detalle con desglose por guía hija
+      let items: OrderDetailItem[] = [];
+      try {
+        const res = await fetch(`${API_URL}/api/advisor/payment-orders/${order.id}/detail`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          items = Array.isArray(data?.items) ? data.items : [];
+        }
+      } catch (e) {
+        // Si falla el detail, seguimos con el PDF básico (fallback a trackings)
+        console.warn('[PDF] detail fetch failed', e);
+      }
+      const html = buildPdfHtml(order, items);
       const { uri } = await Print.printToFileAsync({ html, base64: false });
       await Sharing.shareAsync(uri, {
         mimeType: 'application/pdf',

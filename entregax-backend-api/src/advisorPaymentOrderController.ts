@@ -475,3 +475,146 @@ export const deleteAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     return res.status(500).json({ error: 'Error al eliminar orden' });
   }
 };
+
+// ─── DETAIL (con desglose por guía hija) ────────────────────────────────────
+// Devuelve la orden + items por package: master con sus hijos (N1/N2/N3 USD + MXN)
+export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureTable();
+    const aid = advisorId(req);
+    if (!aid) return res.status(401).json({ error: 'No autenticado' });
+    const { id } = req.params;
+
+    // Obtener la orden (apo o pobox_payments) — reusamos la lógica del list filtrando por id
+    const orderRes = await pool.query(`
+      SELECT * FROM (
+        SELECT
+          apo.id, apo.folio, 'advisor' AS created_by,
+          apo.client_id, apo.client_name, apo.client_box_id,
+          apo.package_uids, apo.trackings, apo.notes, apo.total_mxn,
+          apo.status, apo.payment_reference, apo.pobox_payment_id,
+          apo.created_at, apo.advisor_id
+        FROM advisor_payment_orders apo
+        WHERE apo.id = $1 AND apo.advisor_id = $2
+        UNION ALL
+        SELECT
+          pp.id, NULL AS folio, 'client' AS created_by,
+          pp.user_id AS client_id, u.full_name AS client_name, u.box_id AS client_box_id,
+          COALESCE(pp.package_ids, '[]'::jsonb) AS package_uids,
+          '[]'::jsonb AS trackings,
+          NULL AS notes, pp.amount AS total_mxn, pp.status, pp.payment_reference,
+          pp.id AS pobox_payment_id, pp.created_at, $2::int AS advisor_id
+        FROM pobox_payments pp
+        JOIN users u ON u.id = pp.user_id
+        WHERE pp.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2)
+      ) o LIMIT 1
+    `, [id, aid]);
+
+    if (orderRes.rowCount === 0) {
+      return res.status(404).json({ error: 'Orden no encontrada' });
+    }
+    const order = orderRes.rows[0];
+
+    // Extraer IDs de packages desde package_uids (PKG-XX, MAR-XX, DHL-XX, o int)
+    const uids: any[] = Array.isArray(order.package_uids) ? order.package_uids : [];
+    const pkgIds: number[] = [];
+    const marIds: number[] = [];
+    const dhlIds: number[] = [];
+    for (const u of uids) {
+      const s = String(u);
+      if (s.startsWith('PKG-')) pkgIds.push(parseInt(s.slice(4)));
+      else if (s.startsWith('MAR-')) marIds.push(parseInt(s.slice(4)));
+      else if (s.startsWith('DHL-')) dhlIds.push(parseInt(s.slice(4)));
+      else if (/^\d+$/.test(s)) pkgIds.push(parseInt(s));
+    }
+
+    // Para packages: traer master + hijos con desglose POBOX (n_level, USD, MXN)
+    const items: any[] = [];
+    if (pkgIds.length > 0) {
+      const pkgRes = await pool.query(`
+        SELECT
+          p.id, p.tracking_internal, p.is_master, p.master_id, p.child_no,
+          p.weight, p.pkg_length, p.pkg_width, p.pkg_height, p.description,
+          p.pobox_tarifa_nivel, p.pobox_venta_usd, p.pobox_service_cost,
+          p.assigned_cost_mxn, p.saldo_pendiente, p.monto_pagado,
+          p.air_sale_price, p.registered_exchange_rate,
+          p.service_type::text AS service_type,
+          p.box_number, p.total_boxes
+        FROM packages p
+        WHERE p.id = ANY($1::int[])
+           OR p.master_id = ANY($1::int[])
+        ORDER BY p.master_id NULLS FIRST, p.id
+      `, [pkgIds]);
+
+      // Agrupar por master
+      const masters = pkgRes.rows.filter((r: any) => pkgIds.includes(r.id));
+      for (const m of masters) {
+        const children = pkgRes.rows.filter((r: any) => r.master_id === m.id);
+        const tc = parseFloat(m.registered_exchange_rate) || (children.find((c: any) => c.registered_exchange_rate) as any)?.registered_exchange_rate || 18.5;
+        items.push({
+          id: m.id,
+          tracking: m.tracking_internal,
+          service_type: m.service_type,
+          description: m.description,
+          weight: parseFloat(m.weight) || 0,
+          is_master: m.is_master,
+          total_boxes: m.total_boxes || (children.length || 1),
+          tipo: 'POBOX',
+          venta_usd: parseFloat(m.pobox_venta_usd) || children.reduce((s: number, c: any) => s + (parseFloat(c.pobox_venta_usd) || 0), 0),
+          venta_mxn: parseFloat(m.pobox_service_cost) || parseFloat(m.assigned_cost_mxn) || parseFloat(m.saldo_pendiente) || 0,
+          exchange_rate: parseFloat(tc) || 18.5,
+          children: children.map((c: any) => ({
+            id: c.id,
+            tracking: c.tracking_internal,
+            child_no: c.child_no,
+            n_level: c.pobox_tarifa_nivel ? `N${c.pobox_tarifa_nivel}` : null,
+            venta_usd: parseFloat(c.pobox_venta_usd) || 0,
+            venta_mxn: parseFloat(c.pobox_service_cost) || 0,
+            weight: parseFloat(c.weight) || 0,
+            description: c.description,
+          })),
+        });
+      }
+    }
+
+    if (marIds.length > 0) {
+      const marRes = await pool.query(`
+        SELECT mo.id, mo.ordersn AS tracking, mo.bl_number, mo.goods_name AS description,
+               mo.weight, mo.cbm, mo.assigned_cost_mxn, mo.saldo_pendiente, mo.monto_pagado
+        FROM maritime_orders mo WHERE mo.id = ANY($1::int[])
+      `, [marIds]);
+      for (const m of marRes.rows) {
+        items.push({
+          id: m.id, tracking: m.tracking, service_type: 'SEA_CHN_MX',
+          description: m.description, weight: parseFloat(m.weight) || 0,
+          tipo: 'MARITIMO', cbm: parseFloat(m.cbm) || 0,
+          venta_mxn: parseFloat(m.assigned_cost_mxn) || parseFloat(m.saldo_pendiente) || 0,
+          children: [],
+        });
+      }
+    }
+
+    if (dhlIds.length > 0) {
+      const dhlRes = await pool.query(`
+        SELECT ds.id, ds.inbound_tracking AS tracking, ds.secondary_tracking,
+               ds.description, ds.weight_kg AS weight,
+               ds.total_cost_mxn, ds.saldo_pendiente, ds.monto_pagado
+        FROM dhl_shipments ds WHERE ds.id = ANY($1::int[])
+      `, [dhlIds]);
+      for (const d of dhlRes.rows) {
+        items.push({
+          id: d.id, tracking: d.secondary_tracking || d.tracking, service_type: 'AA_DHL',
+          description: d.description, weight: parseFloat(d.weight) || 0,
+          tipo: 'DHL',
+          venta_mxn: parseFloat(d.total_cost_mxn) || parseFloat(d.saldo_pendiente) || 0,
+          children: [],
+        });
+      }
+    }
+
+    return res.json({ order, items });
+  } catch (e: any) {
+    console.error('[payment-orders] detail:', e);
+    return res.status(500).json({ error: 'Error al obtener detalle de orden' });
+  }
+};
