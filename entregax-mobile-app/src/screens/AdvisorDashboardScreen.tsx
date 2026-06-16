@@ -1087,29 +1087,61 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                             <Text style={{ color: '#475569', fontSize: 12, marginBottom: 10 }}>Sin pendientes activos en sistemaentregax.com</Text>
                           )}
                           {/* Último envío aéreo */}
-                          {ls && (
-                            <>
-                              <Text style={{ color: '#60A5FA', fontWeight: '700', fontSize: 13, marginTop: 10, marginBottom: 6 }}>✈️ Último envío aéreo</Text>
-                              {Object.entries(ls).slice(0, 6).map(([k, v]) => (
-                                <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
-                                  <Text style={{ color: '#64748B', fontSize: 11 }}>{k}</Text>
-                                  <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600', maxWidth: '60%', textAlign: 'right' }}>{String(v)}</Text>
-                                </View>
-                              ))}
-                            </>
-                          )}
+                          {ls && (() => {
+                            const rawFecha = ls['Fecha de ingreso'] || ls['Fecha de salida'];
+                            const fechaLabel = (() => {
+                              if (!rawFecha || rawFecha.startsWith('0000')) return null;
+                              const d = new Date(rawFecha);
+                              if (isNaN(d.getTime())) return null;
+                              return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+                            })();
+                            const displayKeys = ['kilos', 'Estado', 'Guia unica', 'Guia de ingreso'];
+                            return (
+                              <>
+                                <Text style={{ color: '#60A5FA', fontWeight: '700', fontSize: 13, marginTop: 10, marginBottom: 6 }}>✈️ Último envío aéreo</Text>
+                                {displayKeys.filter(k => ls[k] !== undefined && ls[k] !== null && ls[k] !== '').map(k => (
+                                  <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                                    <Text style={{ color: '#64748B', fontSize: 11 }}>{k}</Text>
+                                    <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600', maxWidth: '60%', textAlign: 'right' }}>{String(ls[k])}</Text>
+                                  </View>
+                                ))}
+                                {fechaLabel && (
+                                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                                    <Text style={{ color: '#64748B', fontSize: 11 }}>fecha</Text>
+                                    <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600', maxWidth: '60%', textAlign: 'right' }}>{fechaLabel}</Text>
+                                  </View>
+                                )}
+                              </>
+                            );
+                          })()}
                           {/* Último envío marítimo */}
-                          {lm && (
-                            <>
-                              <Text style={{ color: '#34D399', fontWeight: '700', fontSize: 13, marginTop: 10, marginBottom: 6 }}>🚢 Último envío marítimo</Text>
-                              {Object.entries(lm).slice(0, 6).map(([k, v]) => (
-                                <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
-                                  <Text style={{ color: '#64748B', fontSize: 11 }}>{k}</Text>
-                                  <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600', maxWidth: '60%', textAlign: 'right' }}>{String(v)}</Text>
-                                </View>
-                              ))}
-                            </>
-                          )}
+                          {lm && (() => {
+                            const rawFecha = lm['Fecha de ingreso'] || lm['Fecha de salida'];
+                            const fechaLabel = (() => {
+                              if (!rawFecha || rawFecha.startsWith('0000')) return null;
+                              const d = new Date(rawFecha);
+                              if (isNaN(d.getTime())) return null;
+                              return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+                            })();
+                            const displayKeys = ['cbm', 'ctz', 'log', 'peso', 'week', 'bultos', 'estado'];
+                            return (
+                              <>
+                                <Text style={{ color: '#34D399', fontWeight: '700', fontSize: 13, marginTop: 10, marginBottom: 6 }}>🚢 Último envío marítimo</Text>
+                                {displayKeys.filter(k => lm[k] !== undefined && lm[k] !== '' && lm[k] !== '0').map(k => (
+                                  <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                                    <Text style={{ color: '#64748B', fontSize: 11 }}>{k}</Text>
+                                    <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600', maxWidth: '60%', textAlign: 'right' }}>{String(lm[k])}</Text>
+                                  </View>
+                                ))}
+                                {fechaLabel && (
+                                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                                    <Text style={{ color: '#64748B', fontSize: 11 }}>fecha</Text>
+                                    <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600', maxWidth: '60%', textAlign: 'right' }}>{fechaLabel}</Text>
+                                  </View>
+                                )}
+                              </>
+                            );
+                          })()}
                           {!ls && !lm && !hasPending && (
                             <Text style={{ color: '#666', textAlign: 'center', marginTop: 20 }}>Sin información de carga disponible</Text>
                           )}
