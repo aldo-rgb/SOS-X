@@ -4,8 +4,9 @@ import {
   TableHead, TableRow, TextField, InputAdornment, Select, MenuItem,
   FormControl, InputLabel, Chip, CircularProgress, Alert, Button,
   Checkbox, Tooltip, Stack, IconButton, Dialog, DialogTitle,
-  DialogContent, DialogActions, Divider, Grid2 as Grid,
+  DialogContent, DialogActions, Divider,
 } from '@mui/material';
+import Grid from '@mui/material/Unstable_Grid2';
 import {
   Search as SearchIcon,
   Refresh as RefreshIcon,
