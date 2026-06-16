@@ -920,6 +920,7 @@ import {
   assignChartbackAdvisor,
   getAdminChartbackClients,
   getChartbackClientCargo,
+  adminMarkRecovered,
   uploadMiddleware,
   syncExternalLegacyClients,
   listCustomersForExternalSync
@@ -6058,6 +6059,7 @@ app.post('/api/advisor/legacy/chartback/:id/action', authenticateToken, chartbac
 // ========== ADMIN: GESTIÓN CHARTBACK ==========
 app.get('/api/admin/legacy/chartback', authenticateToken, requireMinLevel(ROLES.ADMIN), getAdminChartbackClients);
 app.patch('/api/admin/legacy/chartback/assign', authenticateToken, requireMinLevel(ROLES.ADMIN), assignChartbackAdvisor);
+app.patch('/api/admin/legacy/chartback/:id/recover', authenticateToken, requireMinLevel(ROLES.ADMIN), adminMarkRecovered);
 app.get('/api/admin/legacy/chartback/:boxId/cargo', authenticateToken, requireMinLevel(ROLES.ADMIN), getChartbackClientCargo);
 app.get('/api/advisor/dashboard', authenticateToken, getAdvisorDashboard);
 app.get('/api/advisor/packages', authenticateToken, getAdvisorPackages);

@@ -1471,6 +1471,46 @@ export const chartbackAction = async (req: Request, res: Response): Promise<any>
 };
 
 /**
+ * Admin: marcar cliente chartback como recuperado
+ * PATCH /api/admin/legacy/chartback/:id/recover
+ */
+export const adminMarkRecovered = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { id } = req.params;
+        const { notes } = req.body;
+        const userId = (req as any).user?.userId;
+
+        const userRes = await pool.query('SELECT full_name FROM users WHERE id = $1', [userId]);
+        const advisorName = userRes.rows[0]?.full_name || 'Admin';
+
+        const entry = {
+            ts: new Date().toISOString(),
+            type: 'recovered',
+            advisor: advisorName,
+            advisor_id: userId,
+            ...(notes ? { note: notes } : {}),
+        };
+
+        const result = await pool.query(
+            `UPDATE legacy_clients
+             SET chartback = false, chartback_status = 'recovered', next_contact_at = NULL,
+                 chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $1::jsonb
+             WHERE id = $2
+             RETURNING box_id`,
+            [JSON.stringify(entry), id]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Cliente no encontrado' });
+        }
+        return res.json({ success: true, box_id: result.rows[0].box_id });
+    } catch (error: any) {
+        console.error('Error marcando como recuperado:', error);
+        res.status(500).json({ error: 'Error al marcar como recuperado' });
+    }
+};
+
+/**
  * Marcar/desmarcar chartback en bulk
  * POST /api/legacy/clients/chartback
  * body: { ids: number[], chartback: boolean }

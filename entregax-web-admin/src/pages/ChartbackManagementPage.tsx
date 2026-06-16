@@ -16,6 +16,7 @@ import {
   Close as CloseIcon,
   Inventory2 as BoxIcon,
   History as HistoryIcon,
+  CheckCircle as RecoveredIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -60,6 +61,7 @@ export default function ChartbackManagementPage() {
     open: false, client: null, data: null, loading: false,
   });
   const [cargoTab, setCargoTab] = useState<'carga' | 'historial'>('carga');
+  const [recoveringId, setRecoveringId] = useState<number | null>(null);
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
@@ -167,6 +169,22 @@ export default function ChartbackManagementPage() {
       setError(e?.response?.data?.error || 'Error al asignar');
     } finally {
       setAssigning(false);
+    }
+  };
+
+  const handleMarkRecovered = async (clientId: number, clientName: string | null) => {
+    if (!window.confirm(`¿Marcar a "${clientName || clientId}" como Recuperado? Desaparecerá de esta lista.`)) return;
+    setRecoveringId(clientId);
+    setError(null);
+    try {
+      await api.patch(`/admin/legacy/chartback/${clientId}/recover`);
+      setSuccess(`Cliente marcado como Recuperado`);
+      setCargoModal(prev => ({ ...prev, open: false }));
+      fetchClients();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Error al marcar como recuperado');
+    } finally {
+      setRecoveringId(null);
     }
   };
 
@@ -294,18 +312,19 @@ export default function ChartbackManagementPage() {
               <TableCell><strong>Estado CRM</strong></TableCell>
               <TableCell><strong>Próximo contacto</strong></TableCell>
               <TableCell><strong>Asesor asignado</strong></TableCell>
+              <TableCell><strong>Acciones</strong></TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : clients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 4, color: 'text.secondary' }}>
                   No hay clientes chartback
                 </TableCell>
               </TableRow>
@@ -360,6 +379,23 @@ export default function ChartbackManagementPage() {
                     ) : (
                       <Typography variant="caption" color="text.disabled">Sin asignar</Typography>
                     )}
+                  </TableCell>
+                  <TableCell onClick={e => e.stopPropagation()}>
+                    <Tooltip title="Marcar como Recuperado — desaparece de esta lista">
+                      <span>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="success"
+                          startIcon={recoveringId === client.id ? <CircularProgress size={12} color="inherit" /> : <RecoveredIcon />}
+                          disabled={recoveringId === client.id}
+                          onClick={() => handleMarkRecovered(client.id, client.full_name)}
+                          sx={{ textTransform: 'none', fontSize: 11, py: 0.3, px: 1, whiteSpace: 'nowrap' }}
+                        >
+                          Recuperado
+                        </Button>
+                      </span>
+                    </Tooltip>
                   </TableCell>
                 </TableRow>
               );
@@ -612,7 +648,17 @@ export default function ChartbackManagementPage() {
             </Stack>
           )}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ justifyContent: 'space-between' }}>
+          <Button
+            variant="contained"
+            color="success"
+            startIcon={recoveringId === cargoModal.client?.id ? <CircularProgress size={14} color="inherit" /> : <RecoveredIcon />}
+            disabled={!cargoModal.client || recoveringId === cargoModal.client?.id}
+            onClick={() => cargoModal.client && handleMarkRecovered(cargoModal.client.id, cargoModal.client.full_name)}
+            sx={{ textTransform: 'none' }}
+          >
+            Marcar como Recuperado
+          </Button>
           <Button onClick={() => setCargoModal(prev => ({ ...prev, open: false }))}>Cerrar</Button>
         </DialogActions>
       </Dialog>
