@@ -1603,3 +1603,35 @@ export const deleteLegacyClient = async (req: Request, res: Response): Promise<a
         res.status(500).json({ error: 'Error al eliminar' });
     }
 };
+
+/**
+ * Obtener datos completos del cliente desde sistemaentregax.com (incluye INE)
+ * GET /api/legacy/clients/:boxId/external
+ * Proxy al endpoint público: sistemaentregax.com/api/customers/getCustomer/:boxId
+ */
+export const getLegacyClientExternalData = async (req: Request, res: Response): Promise<any> => {
+    const rawBoxId = req.params.boxId;
+    const pick = Array.isArray(rawBoxId) ? (rawBoxId[0] ?? '') : (rawBoxId ?? '');
+    const boxId = String(pick).trim();
+    if (!boxId) return res.status(400).json({ error: 'boxId requerido' });
+
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 15000);
+    try {
+        const url = `https://sistemaentregax.com/api/customers/getCustomer/${encodeURIComponent(boxId.toLowerCase())}`;
+        const r = await (globalThis as any).fetch(url, {
+            headers: { 'Accept': 'application/json' },
+            signal: ctrl.signal as any,
+        });
+        if (!r.ok) {
+            return res.status(r.status).json({ error: `Sistema externo respondió ${r.status}` });
+        }
+        const payload = await r.json();
+        return res.json(payload);
+    } catch (error: any) {
+        console.error('Error consultando cliente externo:', error?.message);
+        return res.status(502).json({ error: 'No se pudo consultar el sistema externo' });
+    } finally {
+        clearTimeout(t);
+    }
+};

@@ -912,6 +912,7 @@ import {
   verifyLegacyBox,
   verifyLegacyName,
   deleteLegacyClient,
+  getLegacyClientExternalData,
   setChartback,
   getAdvisorChartbackClients,
   getAdvisorChartbackClientCargo,
@@ -2479,6 +2480,7 @@ app.get('/api/legacy/clients', authenticateToken, requireRole(ROLES.SUPER_ADMIN,
 app.get('/api/legacy/stats', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER), getLegacyStats);
 app.post('/api/legacy/clients/chartback', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.DIRECTOR), setChartback);
 app.delete('/api/legacy/clients/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteLegacyClient);
+app.get('/api/legacy/clients/:boxId/external', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.WAREHOUSE_OPS, ROLES.CUSTOMER_SERVICE), getLegacyClientExternalData);
 
 // Multer + S3 upload helper para registrar gastos desde la app
 const pcExpenseUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } })

@@ -42,7 +42,9 @@ import {
   HowToReg as ClaimedIcon,
   CloudSync as SyncIcon,
   Replay as ReplayIcon,
-  CheckBox as CheckBoxIcon
+  CheckBox as CheckBoxIcon,
+  Badge as BadgeIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import * as XLSX from 'xlsx';
@@ -154,6 +156,23 @@ export default function LegacyClientsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [chartbackSaving, setChartbackSaving] = useState(false);
   const [snackMsg, setSnackMsg] = useState('');
+
+  // INE / Datos externos del cliente
+  const [ineDialog, setIneDialog] = useState<{ open: boolean; boxId: string | null; loading: boolean; data: any | null; error: string | null }>({
+    open: false, boxId: null, loading: false, data: null, error: null,
+  });
+
+  const openIneDialog = async (boxId: string) => {
+    setIneDialog({ open: true, boxId, loading: true, data: null, error: null });
+    try {
+      const res = await fetch(`${API_URL}/api/legacy/clients/${encodeURIComponent(boxId)}/external`, { headers });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Error al consultar');
+      setIneDialog(prev => ({ ...prev, loading: false, data: json?.data || json, error: null }));
+    } catch (e: any) {
+      setIneDialog(prev => ({ ...prev, loading: false, error: e?.message || 'Error al consultar' }));
+    }
+  };
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
@@ -860,7 +879,17 @@ export default function LegacyClientsPage() {
                       </Box>
                     ) : '-'}
                   </TableCell>
-                  <TableCell align="center" />
+                  <TableCell align="center">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<BadgeIcon />}
+                      onClick={() => openIneDialog(client.box_id)}
+                      sx={{ textTransform: 'none', fontSize: 11, py: 0.3, px: 1, whiteSpace: 'nowrap' }}
+                    >
+                      Ver INE
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -1079,6 +1108,133 @@ export default function LegacyClientsPage() {
         message={snackMsg}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
+
+      {/* Modal: INE / Datos externos del cliente */}
+      <Dialog
+        open={ineDialog.open}
+        onClose={() => setIneDialog({ open: false, boxId: null, loading: false, data: null, error: null })}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#111', color: '#fff' }}>
+          <BadgeIcon />
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle1" fontWeight={700}>
+              Identificación oficial — {ineDialog.boxId || ''}
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+              Datos consultados en sistemaentregax.com
+            </Typography>
+          </Box>
+          <Button
+            size="small"
+            onClick={() => setIneDialog({ open: false, boxId: null, loading: false, data: null, error: null })}
+            sx={{ color: '#fff', minWidth: 'auto' }}
+          >
+            <CloseIcon />
+          </Button>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {ineDialog.loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+              <CircularProgress />
+            </Box>
+          ) : ineDialog.error ? (
+            <Alert severity="error">{ineDialog.error}</Alert>
+          ) : ineDialog.data ? (
+            <Box>
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                {ineDialog.data.claveCliente || ineDialog.data.claveCliente === 0 ? (
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Typography variant="caption" color="text.secondary">Clave Cliente</Typography>
+                    <Typography variant="body2" fontWeight={700}>{ineDialog.data.claveCliente}</Typography>
+                  </Grid>
+                ) : null}
+                {ineDialog.data.wechat ? (
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Typography variant="caption" color="text.secondary">WeChat</Typography>
+                    <Typography variant="body2" fontWeight={700}>{ineDialog.data.wechat}</Typography>
+                  </Grid>
+                ) : null}
+                {ineDialog.data.facebook ? (
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Typography variant="caption" color="text.secondary">Facebook</Typography>
+                    <Typography variant="body2" fontWeight={700}>{ineDialog.data.facebook}</Typography>
+                  </Grid>
+                ) : null}
+                {ineDialog.data.token ? (
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Typography variant="caption" color="text.secondary">Token externo</Typography>
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: 11 }}>{ineDialog.data.token}</Typography>
+                  </Grid>
+                ) : null}
+              </Grid>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Paper variant="outlined" sx={{ p: 1.5, textAlign: 'center' }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 700 }}>
+                      INE — Lado Frontal
+                    </Typography>
+                    {ineDialog.data.ladoa ? (
+                      <Box
+                        component="a"
+                        href={ineDialog.data.ladoa}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        sx={{ display: 'block' }}
+                      >
+                        <Box
+                          component="img"
+                          src={ineDialog.data.ladoa}
+                          alt="INE lado frontal"
+                          sx={{ maxWidth: '100%', maxHeight: 320, objectFit: 'contain', cursor: 'zoom-in', border: '1px solid #eee', borderRadius: 1 }}
+                        />
+                      </Box>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">No disponible</Typography>
+                    )}
+                  </Paper>
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Paper variant="outlined" sx={{ p: 1.5, textAlign: 'center' }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 700 }}>
+                      INE — Lado Reverso
+                    </Typography>
+                    {ineDialog.data.ladob ? (
+                      <Box
+                        component="a"
+                        href={ineDialog.data.ladob}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        sx={{ display: 'block' }}
+                      >
+                        <Box
+                          component="img"
+                          src={ineDialog.data.ladob}
+                          alt="INE lado reverso"
+                          sx={{ maxWidth: '100%', maxHeight: 320, objectFit: 'contain', cursor: 'zoom-in', border: '1px solid #eee', borderRadius: 1 }}
+                        />
+                      </Box>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">No disponible</Typography>
+                    )}
+                  </Paper>
+                </Grid>
+              </Grid>
+              {!ineDialog.data.ladoa && !ineDialog.data.ladob && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  Este cliente no tiene INE registrada en el sistema externo.
+                </Alert>
+              )}
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIneDialog({ open: false, boxId: null, loading: false, data: null, error: null })}>
+            Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
