@@ -2940,7 +2940,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   Alert.alert('No disponible', 'Los pagos están temporalmente desactivados.');
                   return;
                 }
-                const blocked = selectedPackages.filter((p: any) => !isEntregaxPaymentEnabledFor(p.servicio || p.shipment_type));
+                const blocked = selectedPackages.filter((p: any) => !isEntregaxPaymentEnabledFor(p.service_type || p.servicio || p.shipment_type));
                 if (blocked.length > 0) {
                   Alert.alert('Servicio sin pagos habilitados',
                     'Algunos paquetes seleccionados corresponden a un tipo de servicio cuyos pagos están temporalmente deshabilitados. Por favor desmarca esos paquetes para continuar.');

@@ -688,7 +688,10 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
             }
         } catch (e: any) {
             const rawErr = e.response?.data?.error;
-            const msg = typeof rawErr === 'string' ? rawErr : rawErr ? JSON.stringify(rawErr) : (e.message || 'Error generando guía Paquete Express');
+            const rawMsg = typeof rawErr === 'string' ? rawErr : rawErr ? JSON.stringify(rawErr) : (e.message || 'Error generando guía Paquete Express');
+            const msg = rawMsg.toLowerCase().includes('cobertura') || rawMsg.toLowerCase().includes('postal')
+                ? `Sin cobertura para este código postal. Verifica la dirección de entrega asignada al paquete.`
+                : rawMsg;
             setPqtxError(msg);
         } finally {
             setGeneratingPqtx(false);
@@ -1884,8 +1887,8 @@ ${labelsHtml}
                                     ) : isPaqueteExpressAssigned ? (
                                         <>
                                             <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
-                                                {(shipment.master.totalBoxes || 1) > 1
-                                                    ? `Aún no generada. Se creará 1 guía multipieza para ${shipment.master.totalBoxes} cajas con la API de Paquete Express usando la dirección de entrega asignada.`
+                                                {(shipment?.master?.totalBoxes || 1) > 1
+                                                    ? `Aún no generada. Se creará 1 guía multipieza para ${shipment?.master?.totalBoxes} cajas con la API de Paquete Express usando la dirección de entrega asignada.`
                                                     : 'Aún no generada. Se creará en línea con la API de Paquete Express usando la dirección de entrega asignada.'}
                                             </Typography>
                                             {pqtxError && (
