@@ -388,14 +388,14 @@ export default function ChartbackManagementPage() {
                       <span>
                         <Button
                           size="small"
-                          variant="outlined"
+                          variant="contained"
                           color="success"
                           startIcon={recoveringId === client.id ? <CircularProgress size={12} color="inherit" /> : <RecoveredIcon />}
                           disabled={recoveringId === client.id}
                           onClick={() => handleMarkRecovered(client.id, client.full_name)}
-                          sx={{ textTransform: 'none', fontSize: 11, py: 0.3, px: 1, whiteSpace: 'nowrap' }}
+                          sx={{ textTransform: 'none', fontSize: 11, py: 0.3, px: 1, whiteSpace: 'nowrap', boxShadow: 'none', '&:hover': { boxShadow: 'none' } }}
                         >
-                          Recuperado
+                          Marcar Recuperado
                         </Button>
                       </span>
                     </Tooltip>
