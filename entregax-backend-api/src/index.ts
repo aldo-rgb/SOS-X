@@ -5539,15 +5539,12 @@ app.patch('/api/admin/packages/:id/mark-paid-manual', authenticateToken, require
     await pool.query(
       `UPDATE packages
        SET client_paid = TRUE,
-           costing_paid = TRUE,
-           costing_paid_at = NOW(),
-           costing_paid_by = $2,
            payment_status = 'paid',
            saldo_pendiente = 0,
            monto_pagado = COALESCE(NULLIF(monto_pagado, 0), NULLIF(pobox_service_cost, 0), NULLIF(assigned_cost_mxn, 0), NULLIF(air_sale_price, 0), 1),
            updated_at = NOW()
        WHERE id = $1`,
-      [pkgId, req.user?.userId || null]
+      [pkgId]
     );
     res.json({ success: true });
   } catch (e: any) {
