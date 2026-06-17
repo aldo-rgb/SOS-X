@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { API_URL } from '../services/api';
 
@@ -210,6 +211,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
   const [proofsLoading, setProofsLoading] = useState(false);
   const [uploadingProof, setUploadingProof] = useState(false);
   const [declaredAmount, setDeclaredAmount] = useState<string>('');
+  const [proofFile, setProofFile] = useState<{ uri: string; name: string; type: string } | null>(null);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -323,8 +325,32 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
   const handleProofsPress = async (order: PaymentOrder) => {
     setSelectedOrderForProof(order);
     setDeclaredAmount('');
+    setProofFile(null);
     setShowProofModal(true);
     await loadProofs(order.id);
+  };
+
+  const handlePickProofFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/*', 'application/pdf'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (result.canceled) return;
+      const file = result.assets?.[0];
+      if (!file?.uri) return;
+
+      setProofFile({
+        uri: file.uri,
+        name: file.name || 'comprobante.pdf',
+        type: file.mimeType || (file.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+      });
+    } catch (error) {
+      console.error('Error selecting proof file:', error);
+      Alert.alert('Error', 'No se pudo abrir el selector de archivos');
+    }
   };
 
   const handleUploadProof = async () => {
@@ -332,45 +358,38 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
       Alert.alert('Error', 'Por favor ingresa el monto del comprobante');
       return;
     }
+    if (!proofFile) {
+      Alert.alert('Error', 'Selecciona un archivo de comprobante');
+      return;
+    }
 
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        aspect: [4, 3],
-      });
+      setUploadingProof(true);
 
-      if (!result.canceled && result.assets[0]) {
-        setUploadingProof(true);
-        const asset = result.assets[0];
-        
-        // Crear FormData
-        const formData = new FormData();
-        formData.append('proof', {
-          uri: asset.uri,
-          name: asset.filename || 'proof.jpg',
-          type: asset.mimeType || 'image/jpeg',
-        } as any);
-        formData.append('declared_amount', declaredAmount);
-        formData.append('currency', 'MXN');
+      // Crear FormData
+      const formData = new FormData();
+      formData.append('proof', proofFile as any);
+      formData.append('declared_amount', declaredAmount);
+      formData.append('currency', 'MXN');
 
-        // Subir
-        const res = await fetch(
-          `${API_URL}/api/advisor/payment-orders/${selectedOrderForProof.id}/proof`,
-          {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-            body: formData,
-          }
-        );
-
-        if (res.ok) {
-          Alert.alert('Éxito', 'Comprobante subido correctamente');
-          setDeclaredAmount('');
-          await loadProofs(selectedOrderForProof.id);
-        } else {
-          Alert.alert('Error', 'No se pudo subir el comprobante');
+      const res = await fetch(
+        `${API_URL}/api/advisor/payment-orders/${selectedOrderForProof.id}/proof`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
         }
+      );
+
+      if (res.ok) {
+        Alert.alert('Éxito', 'Comprobante subido correctamente');
+        setDeclaredAmount('');
+        setProofFile(null);
+        await loadProofs(selectedOrderForProof.id);
+        await load();
+      } else {
+        const err = await res.json().catch(() => null);
+        Alert.alert('Error', err?.error || 'No se pudo subir el comprobante');
       }
     } catch (err) {
       Alert.alert('Error', 'Error al subir el comprobante');
@@ -491,16 +510,16 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
       )}
 
       {/* Proofs Modal */}
-      <Modal visible={showProofModal} transparent={true} animationType="slide">
+      <Modal visible={showProofModal} transparent={true} animationType="slide" statusBarTranslucent>
         <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
-            <Text style={{ fontSize: 16, fontWeight: '600' }}>Comprobantes de Pago</Text>
-            <TouchableOpacity onPress={() => setShowProofModal(false)}>
-              <Ionicons name="close" size={24} color={BLACK} />
+          <View style={{ paddingTop: 14, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#eee', zIndex: 20, elevation: 4 }}>
+            <Text style={{ fontSize: 16, fontWeight: '600', flex: 1, paddingRight: 12 }}>Comprobantes de Pago</Text>
+            <TouchableOpacity onPress={() => setShowProofModal(false)} hitSlop={20} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="close" size={28} color={BLACK} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={{ flex: 1, padding: 12 }}>
+          <ScrollView style={{ flex: 1, padding: 12 }} contentContainerStyle={{ paddingBottom: 24 }}>
             {/* Existing proofs */}
             {proofsLoading ? (
               <ActivityIndicator size="large" color={ORANGE} />
@@ -558,11 +577,33 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                 </View>
               </View>
 
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 12, fontWeight: '500', color: '#666', marginBottom: 6 }}>Archivo del comprobante</Text>
+                <TouchableOpacity
+                  onPress={handlePickProofFile}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: '#ddd',
+                    borderRadius: 6,
+                    paddingVertical: 12,
+                    paddingHorizontal: 12,
+                    backgroundColor: '#fff',
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Ionicons name="cloud-upload-outline" size={16} color={ORANGE} />
+                    <Text style={{ fontSize: 13, color: proofFile ? BLACK : '#777', fontWeight: '500', flex: 1 }} numberOfLines={1}>
+                      {proofFile ? proofFile.name : 'Seleccionar imagen o PDF'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
               <TouchableOpacity
                 onPress={handleUploadProof}
-                disabled={uploadingProof || !declaredAmount}
+                disabled={uploadingProof || !declaredAmount || !proofFile}
                 style={{
-                  backgroundColor: uploadingProof || !declaredAmount ? '#ddd' : ORANGE,
+                  backgroundColor: uploadingProof || !declaredAmount || !proofFile ? '#ddd' : ORANGE,
                   padding: 12,
                   borderRadius: 6,
                   alignItems: 'center',
@@ -572,11 +613,15 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="image-outline" size={16} color="#fff" />
-                    <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Seleccionar Comprobante</Text>
+                    <Ionicons name="paper-plane-outline" size={16} color="#fff" />
+                    <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Subir Comprobante</Text>
                   </View>
                 )}
               </TouchableOpacity>
+
+              <Text style={{ fontSize: 11, color: '#888', marginTop: 8 }}>
+                Primero selecciona el archivo y luego pulsa subir.
+              </Text>
             </View>
           </ScrollView>
         </SafeAreaView>
