@@ -1021,8 +1021,8 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                     <Text style={styles.paymentEmoji}>💵</Text>
                   </View>
                   <View style={styles.paymentOptionInfo}>
-                    <Text style={styles.paymentOptionLabel}>Pago en efectivo</Text>
-                    <Text style={styles.paymentOptionSublabel}>Depósito en efectivo</Text>
+                    <Text style={styles.paymentOptionLabel}>Pago a cuenta</Text>
+                    <Text style={styles.paymentOptionSublabel}>Pago en efectivo o transferencia</Text>
                   </View>
                 </TouchableOpacity>
               </RadioButton.Group>
