@@ -369,13 +369,6 @@ export default function MyPaymentMethodsScreen({ navigation, route }: Props) {
                   <Ionicons name="card" size={40} color={ORANGE} />
                   <Text style={styles.typeText}>{t('payment.card')}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.typeOption}
-                  onPress={() => setSelectedType('paypal')}
-                >
-                  <Ionicons name="logo-paypal" size={40} color="#003087" />
-                  <Text style={styles.typeText}>PayPal</Text>
-                </TouchableOpacity>
               </View>
             ) : (
               <ScrollView style={styles.formContainer}>
