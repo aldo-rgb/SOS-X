@@ -190,7 +190,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
       });
       const data = await response.json();
       if (response.ok) {
-        setAddresses(data.addresses || []);
+        setAddresses((data.addresses || []).filter((a: Address) => !a.alias?.startsWith('EntregaX Sync')));
       }
     } catch (error) {
       console.error('Error fetching addresses:', error);
