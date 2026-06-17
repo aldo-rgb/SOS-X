@@ -3,7 +3,7 @@ import {
   Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
   Chip, CircularProgress, TextField, Button, ToggleButtonGroup, ToggleButton,
   TablePagination, InputAdornment, Tooltip, IconButton, LinearProgress,
-  Select, MenuItem, FormControl, InputLabel, Checkbox,
+  Select, MenuItem, FormControl, InputLabel, Checkbox, Snackbar, Alert,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -163,6 +163,30 @@ export default function ServiceInventoryPage() {
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncAllProgress, setSyncAllProgress] = useState({ done: 0, total: 0 });
   const [selectedGuias, setSelectedGuias] = useState<Set<string>>(new Set());
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'success' });
+  const isSuperAdmin = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; } catch { return false; } })();
+
+  const handleMarkPaid = async (r: PackageRow) => {
+    if (!r.pkg_id) return;
+    try {
+      await api.post('/pobox/costing/mark-paid', { package_ids: [r.pkg_id], total_cost: 0, payment_reference: 'manual-superadmin' });
+      setRows(prev => prev.map(row => row.pkg_id === r.pkg_id ? { ...row, costing_paid: true } : row));
+      setSnackbar({ open: true, message: `✅ Paquete ${r.guia} marcado como pagado`, severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al marcar como pagado', severity: 'error' });
+    }
+  };
+
+  const handleMarkInstruccion = async (r: PackageRow) => {
+    if (!r.pkg_id) return;
+    try {
+      await api.patch(`/admin/packages/${r.pkg_id}/mark-label-printed`);
+      setRows(prev => prev.map(row => row.pkg_id === r.pkg_id ? { ...row, has_instructions: true } : row));
+      setSnackbar({ open: true, message: `✅ Paquete ${r.guia} marcado con instrucción/etiqueta`, severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al marcar instrucción', severity: 'error' });
+    }
+  };
 
   const fmt = (d?: string | null) =>
     d ? new Date(d).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—';
@@ -633,19 +657,25 @@ export default function ServiceInventoryPage() {
     );
   };
 
-  const renderPagoInst = (paid: boolean | undefined, hasInst: boolean | undefined, small = false) => (
+  const renderPagoInst = (paid: boolean | undefined, hasInst: boolean | undefined, small = false, row?: PackageRow) => (
     <TableCell align="center">
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-        <Tooltip title={paid ? 'Pago registrado' : 'Sin pago registrado'}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-            {paid ? <CheckCircleIcon sx={{ fontSize: small ? 14 : 16, color: '#2E7D32' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: small ? 14 : 16, color: '#BDBDBD' }} />}
-            <Typography variant="caption" sx={{ color: paid ? '#2E7D32' : '#9E9E9E', fontSize: small ? '0.6rem' : '0.65rem', lineHeight: 1 }}>Pago</Typography>
+        <Tooltip title={paid ? 'Pago registrado' : isSuperAdmin && row && !paid ? 'Click para marcar como pagado' : 'Sin pago registrado'}>
+          <Box
+            onClick={isSuperAdmin && row && !paid ? () => handleMarkPaid(row) : undefined}
+            sx={{ display: 'flex', alignItems: 'center', gap: 0.25, cursor: isSuperAdmin && row && !paid ? 'pointer' : 'default', borderRadius: 1, px: 0.25, '&:hover': isSuperAdmin && row && !paid ? { bgcolor: '#E8F5E9' } : {} }}
+          >
+            {paid ? <CheckCircleIcon sx={{ fontSize: small ? 14 : 16, color: '#2E7D32' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: small ? 14 : 16, color: isSuperAdmin && row ? '#F05A28' : '#BDBDBD' }} />}
+            <Typography variant="caption" sx={{ color: paid ? '#2E7D32' : isSuperAdmin && row ? '#F05A28' : '#9E9E9E', fontSize: small ? '0.6rem' : '0.65rem', lineHeight: 1 }}>Pago</Typography>
           </Box>
         </Tooltip>
-        <Tooltip title={hasInst ? 'Con instrucciones de envío' : 'Sin instrucciones'}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-            {hasInst ? <CheckCircleIcon sx={{ fontSize: small ? 14 : 16, color: '#1565C0' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: small ? 14 : 16, color: '#BDBDBD' }} />}
-            <Typography variant="caption" sx={{ color: hasInst ? '#1565C0' : '#9E9E9E', fontSize: small ? '0.6rem' : '0.65rem', lineHeight: 1 }}>Inst.</Typography>
+        <Tooltip title={hasInst ? 'Con instrucciones de envío' : isSuperAdmin && row && !hasInst ? 'Click para marcar etiqueta impresa' : 'Sin instrucciones'}>
+          <Box
+            onClick={isSuperAdmin && row && !hasInst ? () => handleMarkInstruccion(row) : undefined}
+            sx={{ display: 'flex', alignItems: 'center', gap: 0.25, cursor: isSuperAdmin && row && !hasInst ? 'pointer' : 'default', borderRadius: 1, px: 0.25, '&:hover': isSuperAdmin && row && !hasInst ? { bgcolor: '#E3F2FD' } : {} }}
+          >
+            {hasInst ? <CheckCircleIcon sx={{ fontSize: small ? 14 : 16, color: '#1565C0' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: small ? 14 : 16, color: isSuperAdmin && row ? '#1976D2' : '#BDBDBD' }} />}
+            <Typography variant="caption" sx={{ color: hasInst ? '#1565C0' : isSuperAdmin && row ? '#1976D2' : '#9E9E9E', fontSize: small ? '0.6rem' : '0.65rem', lineHeight: 1 }}>Inst.</Typography>
           </Box>
         </Tooltip>
       </Box>
@@ -698,7 +728,7 @@ export default function ServiceInventoryPage() {
       <TableCell><Typography variant="caption">{fmt(r.received_at)}</Typography></TableCell>
       <TableCell><Typography variant="caption" color="text.secondary">{fmt(r.updated_at)}</Typography></TableCell>
       <TableCell>{statusChip(r.status)}</TableCell>
-      {renderPagoInst(r.costing_paid, r.has_instructions)}
+      {renderPagoInst(r.costing_paid, r.has_instructions, false, r)}
       {renderExCells(r)}
       {service === 'pobox_usa' && (() => {
         const us = usGuias[r.guia];
@@ -815,7 +845,7 @@ export default function ServiceInventoryPage() {
           <TableCell><Typography variant="caption">{fmt(r.received_at)}</Typography></TableCell>
           <TableCell><Typography variant="caption" color="text.secondary">{fmt(r.updated_at)}</Typography></TableCell>
           <TableCell>{statusChip(r.status)}</TableCell>
-          {renderPagoInst(r.costing_paid, r.has_instructions)}
+          {renderPagoInst(r.costing_paid, r.has_instructions, false, r)}
           {renderExCells(r)}
         </TableRow>
         {isMasterRow && children.map((child, ci) => (
@@ -841,7 +871,7 @@ export default function ServiceInventoryPage() {
             <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{fmt(child.received_at)}</Typography></TableCell>
             <TableCell><Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>{fmt(child.updated_at)}</Typography></TableCell>
             <TableCell>{statusChip(child.status)}</TableCell>
-            {renderPagoInst(r.costing_paid, r.has_instructions, true)}
+            {renderPagoInst(r.costing_paid, r.has_instructions, true, r)}
             <TableCell colSpan={3} />
           </TableRow>
         ))}
@@ -1065,6 +1095,9 @@ export default function ServiceInventoryPage() {
           />
         )}
       </Paper>
+      <Snackbar open={snackbar.open} autoHideDuration={3500} onClose={() => setSnackbar(s => ({ ...s, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar(s => ({ ...s, open: false }))} sx={{ width: '100%' }}>{snackbar.message}</Alert>
+      </Snackbar>
     </Box>
   );
 }
