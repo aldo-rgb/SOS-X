@@ -44,7 +44,8 @@ import {
   Replay as ReplayIcon,
   CheckBox as CheckBoxIcon,
   Badge as BadgeIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  ContentCopy as CopyIcon
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import * as XLSX from 'xlsx';
@@ -155,6 +156,21 @@ export default function LegacyClientsPage() {
 
   // Chartback selection
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [copySnack, setCopySnack] = useState(false);
+
+  const handleCopyGuias = () => {
+    const guias: string[] = [];
+    clients.forEach(c => {
+      if (!selectedIds.has(c.id)) return;
+      const g1 = c.last_send?.['Guia de ingreso'];
+      const g2 = c.last_send_maritimo?.['Guia de ingreso'];
+      if (g1) guias.push(String(g1).trim());
+      if (g2) guias.push(String(g2).trim());
+    });
+    if (guias.length === 0) return;
+    navigator.clipboard.writeText(guias.join('\n'));
+    setCopySnack(true);
+  };
   const [chartbackSaving, setChartbackSaving] = useState(false);
   const [snackMsg, setSnackMsg] = useState('');
 
@@ -729,11 +745,27 @@ export default function LegacyClientsPage() {
           >
             Quitar Chartback
           </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            sx={{ borderColor: '#1565c0', color: '#1565c0' }}
+            startIcon={<CopyIcon />}
+            onClick={handleCopyGuias}
+          >
+            Copiar Guías
+          </Button>
           <Button size="small" color="inherit" onClick={() => setSelectedIds(new Set())}>
             Cancelar
           </Button>
         </Paper>
       )}
+      <Snackbar
+        open={copySnack}
+        autoHideDuration={2500}
+        onClose={() => setCopySnack(false)}
+        message="Guías copiadas al portapapeles"
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
 
       {/* Table */}
       <TableContainer component={Paper}>

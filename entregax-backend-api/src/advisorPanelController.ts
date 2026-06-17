@@ -1809,6 +1809,28 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
          WHERE id = $6`,
         [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId]
       );
+
+      // Propagar instrucciones a cajas hijas del mismo master (multipieza)
+      // Ej: US-2045325393-1, US-2045325393-2 → reciben el mismo assigned_address_id
+      const masterPkg = await pool.query(`SELECT tracking_internal FROM packages WHERE id = $1`, [shipmentId]);
+      if (masterPkg.rows.length > 0) {
+        const masterTracking = masterPkg.rows[0].tracking_internal;
+        if (masterTracking) {
+          await pool.query(
+            `UPDATE packages SET
+              assigned_address_id = $1,
+              carrier = $2,
+              national_carrier = $2,
+              is_collect = $3,
+              collect_carrier = $4,
+              wants_factura_paqueteria = $5,
+              instructions_assigned_by_id = $6
+             WHERE tracking_internal ~ ('^' || $7 || '-\\d{1,4}$')
+               AND assigned_address_id IS NULL`,
+            [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, advisorId, masterTracking]
+          );
+        }
+      }
       try {
         const fileUrl = (f: any) => (f as any).location || `${baseUrl}/uploads/delivery/${f.filename}`;
         if (files?.factura?.[0]) {
