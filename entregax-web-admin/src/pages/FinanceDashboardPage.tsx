@@ -634,6 +634,67 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     }
   };
 
+  const handleExtraerRefs = async () => {
+    const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
+    if (!empresaFilt) {
+      setSnackbar({ open: true, message: 'Selecciona una empresa primero', severity: 'warning' });
+      return;
+    }
+
+    // Usar movimientos ya cargados o recargar desde DB
+    let rows = estadoCuentaRows;
+    if (rows.length === 0) {
+      setSnackbar({ open: true, message: '⏳ Cargando movimientos...', severity: 'info' });
+      try {
+        const res = await api.get(`/admin/finance/bank-entries?empresa_id=${empresaFilt.id}`);
+        rows = (res.data.entries || []).map((e: any) => {
+          const isoDate = (e.fecha || '').substring(0, 10);
+          const [yyyy, mm, dd] = isoDate.split('-');
+          return {
+            fecha: `${dd}-${mm}-${yyyy}`,
+            concepto: e.concepto,
+            referencia: e.referencia,
+            cargo: e.cargo ? parseFloat(e.cargo) : null,
+            abono: e.abono ? parseFloat(e.abono) : null,
+            saldo: e.saldo ? parseFloat(e.saldo) : 0,
+            seq: e.seq ?? 0,
+          };
+        });
+      } catch {
+        setSnackbar({ open: true, message: 'Error cargando movimientos', severity: 'error' });
+        return;
+      }
+    }
+
+    const refs = extractReferences(rows);
+    if (refs.length === 0) {
+      setSnackbar({ open: true, message: 'No se detectaron referencias de pago en los movimientos actuales', severity: 'info' });
+      return;
+    }
+
+    setRefMatchModal({ open: true, loading: true, matches: [], wrongAccount: [], unmatched: [], summary: null });
+    try {
+      const res = await api.post('/admin/finance/match-references', {
+        references: refs,
+        empresa_id: empresaFilt.id,
+      });
+      if (res.data.success) {
+        setRefMatchModal({
+          open: true,
+          loading: false,
+          matches: res.data.matches || [],
+          wrongAccount: res.data.wrongAccount || [],
+          unmatched: res.data.unmatched || [],
+          summary: { ...res.data.summary, infoMsg: `🔍 ${refs.length} referencias detectadas en ${rows.length} movimientos` },
+        });
+      }
+    } catch (err) {
+      console.error('Error extracting refs:', err);
+      setRefMatchModal(null);
+      setSnackbar({ open: true, message: 'Error buscando referencias de pago', severity: 'error' });
+    }
+  };
+
   const handleAutorizarBankPayments = () => {
     if (!refMatchModal?.matches?.length) return;
     const toAuthorize = refMatchModal.matches.filter((m: any) => m.status !== 'paid' && m.total_bank_abonos >= m.amount);
@@ -1869,6 +1930,14 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                       await loadSavedBankEntries();
                     }}
                   />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    sx={{ ml: 1, borderColor: '#7B1FA2', color: '#7B1FA2' }}
+                    onClick={handleExtraerRefs}
+                  >
+                    Extraer
+                  </Button>
                   <SyncfyRefreshButton
                     emitterId={empresaFiltrada.id}
                     size="small"
