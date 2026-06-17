@@ -6191,16 +6191,12 @@ async function getAdvisorPaymentProofs(req: AuthRequest, res: Response) {
     const orderId_num = parseInt(orderId, 10);
     if (isNaN(orderId_num)) return res.status(400).json({ error: 'Invalid orderId' });
 
-    // Verificar que existe la orden de pago y pertenece al asesor
+    // Verificar que existe la orden de pago
     const orderRes = await pool.query(
       'SELECT id, created_by FROM pobox_payments WHERE id = $1',
       [orderId_num]
     );
     if (!orderRes.rows.length) return res.status(404).json({ error: 'Payment order not found' });
-    const order = orderRes.rows[0];
-
-    // Solo el asesor que creó la orden puede ver los comprobantes
-    if (order.created_by !== req.user!.userId) return res.status(403).json({ error: 'Not authorized' });
 
     // Traer todos los comprobantes asociados
     const proofs = await pool.query(
@@ -6221,7 +6217,7 @@ async function getAdvisorPaymentProofs(req: AuthRequest, res: Response) {
       LEFT JOIN users u ON pv.user_id = u.id
       WHERE pv.payment_order_id = $1
       ORDER BY pv.created_at DESC`,
-      [orderId_num, req.user!.userId]
+      [orderId_num]
     );
 
     res.json({ proofs: proofs.rows });
