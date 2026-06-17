@@ -3010,7 +3010,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
       if (statusFilter) { params.push(statusFilter); where += ` AND p.status = $${params.length}`; }
-      const q = `SELECT p.tracking_internal AS guia,
+      const q = `SELECT p.id AS pkg_id, p.tracking_internal AS guia,
                         COALESCE(NULLIF(p.tracking_provider,''), p.international_tracking) AS guia_origen,
                         p.origin_carrier AS guia_origen_carrier,
                         p.received_at, p.updated_at, p.status,
@@ -3018,8 +3018,8 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         COALESCE(u.full_name, lc.full_name) AS cliente_nombre,
                         p.national_carrier AS paqueteria,
                         p.national_tracking AS guia_salida,
-                        COALESCE(p.client_paid, FALSE) AS costing_paid,
-                        (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions,
+                        COALESCE(p.client_paid, p.costing_paid, FALSE) AS costing_paid,
+                        (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL OR p.needs_instructions = FALSE) AS has_instructions,
                         (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL) AS has_delivery_address,
                         NULLIF(p.child_no, '') AS guia_us_saved
                    FROM packages p ${PB_JOIN}
@@ -5531,6 +5531,36 @@ app.post('/api/admin/paquete-express/unlink-packages', authenticateToken, requir
 // Maritime relabeling: capture per-box dimensions and generate PQTX guide
 app.get('/api/admin/relabeling/maritime/:orderId/boxes', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getMaritimeOrderBoxes);
 // Marcar guía externa como etiqueta impresa (al descargar guia_externa en módulo de etiquetado)
+// Super admin: marcar paquete como pagado manualmente (client_paid + costing_paid)
+app.patch('/api/admin/packages/:id/mark-paid-manual', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const pkgId = parseInt(req.params.id as string);
+    if (!pkgId) return res.status(400).json({ error: 'ID inválido' });
+    await pool.query(
+      `UPDATE packages SET client_paid = TRUE, costing_paid = TRUE, costing_paid_at = NOW(), costing_paid_by = $2, updated_at = NOW() WHERE id = $1`,
+      [pkgId, req.user?.userId || null]
+    );
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Super admin: marcar instrucción como confirmada (needs_instructions = FALSE + label url)
+app.patch('/api/admin/packages/:id/mark-instructions-manual', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const pkgId = parseInt(req.params.id as string);
+    if (!pkgId) return res.status(400).json({ error: 'ID inválido' });
+    await pool.query(
+      `UPDATE packages SET needs_instructions = FALSE, national_label_url = COALESCE(national_label_url, 'manual-printed'), updated_at = NOW() WHERE id = $1 OR master_id = $1`,
+      [pkgId]
+    );
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.patch('/api/admin/packages/:id/mark-label-printed', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req: AuthRequest, res: Response) => {
   try {
     const pkgId = parseInt(req.params.id as string);

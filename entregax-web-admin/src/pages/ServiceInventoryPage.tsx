@@ -167,9 +167,9 @@ export default function ServiceInventoryPage() {
   const isSuperAdmin = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; } catch { return false; } })();
 
   const handleMarkPaid = async (r: PackageRow) => {
-    if (!r.pkg_id) return;
+    if (!r.pkg_id) { setSnackbar({ open: true, message: 'Sin ID de paquete en esta fila', severity: 'error' }); return; }
     try {
-      await api.post('/pobox/costing/mark-paid', { package_ids: [r.pkg_id], total_cost: 0, payment_reference: 'manual-superadmin' });
+      await api.patch(`/admin/packages/${r.pkg_id}/mark-paid-manual`);
       setRows(prev => prev.map(row => row.pkg_id === r.pkg_id ? { ...row, costing_paid: true } : row));
       setSnackbar({ open: true, message: `✅ Paquete ${r.guia} marcado como pagado`, severity: 'success' });
     } catch (e: any) {
@@ -178,11 +178,11 @@ export default function ServiceInventoryPage() {
   };
 
   const handleMarkInstruccion = async (r: PackageRow) => {
-    if (!r.pkg_id) return;
+    if (!r.pkg_id) { setSnackbar({ open: true, message: 'Sin ID de paquete en esta fila', severity: 'error' }); return; }
     try {
-      await api.patch(`/admin/packages/${r.pkg_id}/mark-label-printed`);
+      await api.patch(`/admin/packages/${r.pkg_id}/mark-instructions-manual`);
       setRows(prev => prev.map(row => row.pkg_id === r.pkg_id ? { ...row, has_instructions: true } : row));
-      setSnackbar({ open: true, message: `✅ Paquete ${r.guia} marcado con instrucción/etiqueta`, severity: 'success' });
+      setSnackbar({ open: true, message: `✅ Paquete ${r.guia} marcado con instrucción`, severity: 'success' });
     } catch (e: any) {
       setSnackbar({ open: true, message: e.response?.data?.error || 'Error al marcar instrucción', severity: 'error' });
     }
