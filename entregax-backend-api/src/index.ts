@@ -4843,6 +4843,7 @@ app.get('/webhooks/pobox/openpay/callback', handlePoboxOpenpayCallback); // Call
 
 // --- RUTAS DE COMPROBANTES DE PAGO (VOUCHERS) ---
 const voucherUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB max
+const advisorProofUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } }); // 15MB max
 app.post('/api/payment/voucher/upload', authenticateToken, voucherUpload.single('voucher'), uploadVoucher);
 app.post('/api/payment/voucher/confirm', authenticateToken, confirmVoucherAmount);
 app.post('/api/payment/voucher/complete', authenticateToken, completeVoucherPayment);
@@ -6167,6 +6168,8 @@ app.get('/api/advisor/payment-orders/:id/detail', authenticateToken, getAdvisorP
 app.post('/api/advisor/payment-orders', authenticateToken, createAdvisorPaymentOrder);
 app.put('/api/advisor/payment-orders/:id/status', authenticateToken, updateAdvisorPaymentOrderStatus);
 app.delete('/api/advisor/payment-orders/:id', authenticateToken, deleteAdvisorPaymentOrder);
+app.get('/api/advisor/payment-orders/:orderId/proofs', authenticateToken, getAdvisorPaymentProofs);
+app.post('/api/advisor/payment-orders/:orderId/proof', authenticateToken, advisorProofUpload.single('proof'), uploadAdvisorPaymentProof);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
 app.get('/api/advisor/shipment/:uid', authenticateToken, getAdvisorShipmentDetail);
 app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);
@@ -6177,6 +6180,118 @@ app.get('/api/advisor/client-tickets', authenticateToken, getAdvisorClientTicket
 app.get('/api/advisor/client-tickets/:ticketId', authenticateToken, getAdvisorTicketDetail);
 app.get('/api/advisor/notifications', authenticateToken, getAdvisorNotifications);
 app.get('/api/advisor/notifications/unread-count', authenticateToken, getAdvisorUnreadCount);
+
+// ========== ADVISOR PAYMENT PROOFS (COMPROBANTES DE PAGO) ==========
+// Declarar funciones ANTES de los endpoints
+
+// GET /api/advisor/payment-orders/:orderId/proofs
+async function getAdvisorPaymentProofs(req: AuthRequest, res: Response) {
+  try {
+    const orderId = String(req.params.orderId);
+    const orderId_num = parseInt(orderId, 10);
+    if (isNaN(orderId_num)) return res.status(400).json({ error: 'Invalid orderId' });
+
+    // Verificar que existe la orden de pago y pertenece al asesor
+    const orderRes = await pool.query(
+      'SELECT id, created_by FROM pobox_payments WHERE id = $1',
+      [orderId_num]
+    );
+    if (!orderRes.rows.length) return res.status(404).json({ error: 'Payment order not found' });
+    const order = orderRes.rows[0];
+
+    // Solo el asesor que creó la orden puede ver los comprobantes
+    if (order.created_by !== req.user!.userId) return res.status(403).json({ error: 'Not authorized' });
+
+    // Traer todos los comprobantes asociados
+    const proofs = await pool.query(
+      `SELECT 
+        pv.id, 
+        pv.file_url, 
+        pv.file_type, 
+        pv.detected_amount, 
+        pv.declared_amount, 
+        pv.status,
+        pv.created_at,
+        u.full_name as uploaded_by,
+        CASE 
+          WHEN pv.user_id = $2 THEN 'advisor'
+          ELSE 'client'
+        END as uploader_type
+      FROM payment_vouchers pv
+      LEFT JOIN users u ON pv.user_id = u.id
+      WHERE pv.payment_order_id = $1
+      ORDER BY pv.created_at DESC`,
+      [orderId_num, req.user!.userId]
+    );
+
+    res.json({ proofs: proofs.rows });
+  } catch (error) {
+    console.error('Error fetching advisor payment proofs:', error);
+    res.status(500).json({ error: 'Failed to fetch proofs' });
+  }
+}
+
+// POST /api/advisor/payment-orders/:orderId/proof
+async function uploadAdvisorPaymentProof(req: AuthRequest, res: Response) {
+  try {
+    const orderId = String(req.params.orderId);
+    const { declared_amount, currency } = req.body;
+    const orderId_num = parseInt(orderId, 10);
+    
+    if (isNaN(orderId_num)) return res.status(400).json({ error: 'Invalid orderId' });
+    if (!req.file) return res.status(400).json({ error: 'No file provided' });
+    if (!declared_amount) return res.status(400).json({ error: 'Missing declared_amount' });
+
+    // Verificar que existe la orden de pago y pertenece al asesor
+    const orderRes = await pool.query(
+      'SELECT id, created_by FROM pobox_payments WHERE id = $1',
+      [orderId_num]
+    );
+    if (!orderRes.rows.length) return res.status(404).json({ error: 'Payment order not found' });
+    const order = orderRes.rows[0];
+
+    if (order.created_by !== req.user!.userId) return res.status(403).json({ error: 'Not authorized' });
+
+    // Importar uploadToS3
+    const { uploadToS3 } = require('./s3Service');
+
+    // Subir archivo a S3
+    const originalname = req.file.originalname || 'proof';
+    const filename = `proof-${orderId_num}-${Date.now()}-${originalname}`;
+    const fileExtension = (originalname.split('.').pop() || 'jpg').toLowerCase();
+    const key = `payment-proofs/${filename}`;
+    
+    const fileUrl = await uploadToS3(req.file.buffer, key, req.file.mimetype || 'application/octet-stream');
+
+    // Guardar en BD
+    const result = await pool.query(
+      `INSERT INTO payment_vouchers 
+        (payment_order_id, user_id, service_type, file_url, file_key, file_type, declared_amount, currency, status, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      RETURNING id, created_at`,
+      [
+        orderId_num,
+        req.user!.userId,
+        'POBOX_PAYMENT',
+        fileUrl,
+        key,
+        fileExtension,
+        declared_amount,
+        currency || 'MXN',
+        'pending_review'
+      ]
+    );
+
+    res.json({
+      success: true,
+      voucherId: result.rows[0].id,
+      message: 'Proof uploaded successfully'
+    });
+  } catch (error) {
+    console.error('Error uploading advisor payment proof:', error);
+    res.status(500).json({ error: 'Failed to upload proof' });
+  }
+}
 
 // ========== CRM - SOLICITUDES DE ASESOR ==========
 
