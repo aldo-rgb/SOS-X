@@ -159,16 +159,14 @@ export default function LegacyClientsPage() {
   const [copySnack, setCopySnack] = useState(false);
 
   const handleCopyGuias = () => {
-    const guias: string[] = [];
+    const lines: string[] = [];
     clients.forEach(c => {
       if (!selectedIds.has(c.id)) return;
-      const g1 = c.last_send?.['Guia de ingreso'];
-      const g2 = c.last_send_maritimo?.['Guia de ingreso'];
-      if (g1) guias.push(String(g1).trim());
-      if (g2) guias.push(String(g2).trim());
+      if (!c.box_id) return;
+      lines.push(String(c.box_id).trim());
     });
-    if (guias.length === 0) return;
-    navigator.clipboard.writeText(guias.join('\n'));
+    if (lines.length === 0) return;
+    navigator.clipboard.writeText(lines.join('\n'));
     setCopySnack(true);
   };
   const [chartbackSaving, setChartbackSaving] = useState(false);
@@ -752,7 +750,7 @@ export default function LegacyClientsPage() {
             startIcon={<CopyIcon />}
             onClick={handleCopyGuias}
           >
-            Copiar Guías
+            Copiar
           </Button>
           <Button size="small" color="inherit" onClick={() => setSelectedIds(new Set())}>
             Cancelar
@@ -763,7 +761,7 @@ export default function LegacyClientsPage() {
         open={copySnack}
         autoHideDuration={2500}
         onClose={() => setCopySnack(false)}
-        message="Guías copiadas al portapapeles"
+        message="Casilleros y asesores copiados al portapapeles"
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
 
