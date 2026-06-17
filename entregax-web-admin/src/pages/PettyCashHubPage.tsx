@@ -179,7 +179,11 @@ export default function PettyCashHubPage() {
     } catch { return ''; }
   })();
   const canFundBranch = ['super_admin', 'admin', 'director'].includes(currentUserRole);
-  const isSuperAdmin = currentUserRole === 'super_admin';
+  const normalizedRole = (currentUserRole || '').toLowerCase();
+  const isSuperAdmin = normalizedRole === 'super_admin';
+  const isAccountant = ['accountant', 'contador'].includes(normalizedRole);
+  const isOperations = ['operaciones', 'operations'].includes(normalizedRole);
+  const canEditWalletMovements = ['super_admin', 'accountant', 'contador', 'operaciones', 'operations'].includes(normalizedRole);
   const isDirector = currentUserRole === 'director';
   // Bloques de Ruta: solo super_admin, admin y operaciones de CEDIS GDL
   const canSeeRouteBlocks = ['super_admin', 'admin'].includes(currentUserRole)
@@ -525,6 +529,20 @@ export default function PettyCashHubPage() {
   };
 
   const handleOpenEditMovement = (mov: Movement) => {
+    if (isOperations) {
+      const created = new Date(mov.created_at);
+      const now = new Date();
+      const isSameDay =
+        created.getFullYear() === now.getFullYear() &&
+        created.getMonth() === now.getMonth() &&
+        created.getDate() === now.getDate();
+
+      if (!isSameDay) {
+        setSnack({ severity: 'warning', msg: 'Operaciones solo puede editar movimientos creados el mismo día.' });
+        return;
+      }
+    }
+
     setEditingMovement(mov);
     setEditAmount(String(mov.amount_mxn));
     setEditConcept(mov.concept || '');
@@ -1599,7 +1617,7 @@ export default function PettyCashHubPage() {
                     <TableCell align="right">Saldo</TableCell>
                     <TableCell align="center">Estado</TableCell>
                     <TableCell align="center">Evidencia</TableCell>
-                    {isSuperAdmin && <TableCell align="center" />}
+                    {canEditWalletMovements && <TableCell align="center" />}
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1632,6 +1650,13 @@ export default function PettyCashHubPage() {
                       }
                       const st = STATUS_META[effStatus] || { label: effStatus, color: 'default' as const };
                       const cat = m.category ? (CATEGORY_LABELS[m.category] || { label: m.category, icon: '📝' }) : null;
+                      const created = new Date(m.created_at);
+                      const now = new Date();
+                      const isSameDay =
+                        created.getFullYear() === now.getFullYear() &&
+                        created.getMonth() === now.getMonth() &&
+                        created.getDate() === now.getDate();
+                      const canEditThisMovement = isSuperAdmin || isAccountant || (isOperations && isSameDay);
                       return (
                         <TableRow key={m.id} hover>
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>
@@ -1670,31 +1695,34 @@ export default function PettyCashHubPage() {
                               </Tooltip>
                             ) : '—'}
                           </TableCell>
-                          {isSuperAdmin && (
+                          {canEditWalletMovements && (
                             <TableCell align="center">
-                              <Tooltip title="Editar movimiento (solo super admin)">
+                              <Tooltip title={canEditThisMovement ? 'Editar movimiento' : 'Operaciones: solo editable el mismo día de creación'}>
                                 <span>
                                   <IconButton
                                     size="small"
                                     color="primary"
+                                    disabled={!canEditThisMovement}
                                     onClick={() => handleOpenEditMovement(m)}
                                   >
                                     <EditIcon fontSize="small" />
                                   </IconButton>
                                 </span>
                               </Tooltip>
-                              <Tooltip title="Eliminar movimiento (solo super admin)">
-                                <span>
-                                  <IconButton
-                                    size="small"
-                                    color="error"
-                                    disabled={deletingMovId === m.id}
-                                    onClick={() => handleDeleteMovement(m.id)}
-                                  >
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
+                              {isSuperAdmin && (
+                                <Tooltip title="Eliminar movimiento (solo super admin)">
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      color="error"
+                                      disabled={deletingMovId === m.id}
+                                      onClick={() => handleDeleteMovement(m.id)}
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                              )}
                             </TableCell>
                           )}
                         </TableRow>
@@ -1702,7 +1730,7 @@ export default function PettyCashHubPage() {
                     });
                   })()}
                   {detailMovs.length === 0 && !detailLoading && (
-                    <TableRow><TableCell colSpan={isSuperAdmin ? 9 : 8} align="center">Sin movimientos registrados</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={canEditWalletMovements ? 9 : 8} align="center">Sin movimientos registrados</TableCell></TableRow>
                   )}
                   {detailMovs.length > 0 && !detailLoading && (detailDateFrom || detailDateTo) && detailMovs.filter(m => {
                     const d = new Date(m.created_at);
@@ -1710,7 +1738,7 @@ export default function PettyCashHubPage() {
                     if (detailDateTo && d > new Date(detailDateTo + 'T23:59:59')) return false;
                     return true;
                   }).length === 0 && (
-                    <TableRow><TableCell colSpan={isSuperAdmin ? 9 : 8} align="center">Sin movimientos en el rango de fechas seleccionado</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={canEditWalletMovements ? 9 : 8} align="center">Sin movimientos en el rango de fechas seleccionado</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
