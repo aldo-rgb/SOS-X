@@ -484,7 +484,7 @@ export const listCustomersForExternalSync = async (req: Request, res: Response):
  */
 export const getLegacyClients = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { page = 1, limit = 50, search, claimed, asesor, chartback, recovered, hideRecovered, lastSendFrom, lastSendTo } = req.query;
+        const { page = 1, limit = 50, search, claimed, asesor, chartback, recovered, retention, hideRecovered, lastSendFrom, lastSendTo } = req.query;
         const offset = (Number(page) - 1) * Number(limit);
         const limitNum = Number(limit);
 
@@ -524,6 +524,11 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
         // Filtro recuperados
         if (recovered === 'true') {
             conditions.push(`lc.chartback_status = 'recovered'`);
+        }
+
+        // Filtro retención
+        if (retention === 'true') {
+            conditions.push(`lc.chartback_status = 'retention'`);
         }
 
         // Ocultar recuperados
@@ -1386,7 +1391,7 @@ export const getChartbackClientCargo = async (req: Request, res: Response): Prom
 /**
  * Acción CRM sobre un cliente chartback
  * POST /api/advisor/legacy/chartback/:id/action
- * body: { action: 'no_answer'|'callback'|'recovered'|'whatsapp'|'call_note', callback_at?, notes? }
+ * body: { action: 'no_answer'|'callback'|'recovered'|'retention'|'whatsapp'|'call_note', callback_at?, notes? }
  */
 export const chartbackAction = async (req: Request, res: Response): Promise<any> => {
     try {
@@ -1427,6 +1432,22 @@ export const chartbackAction = async (req: Request, res: Response): Promise<any>
                 [userId, JSON.stringify(entry), id]
             );
             return res.json({ success: true, action: 'recovered' });
+        } else if (action === 'retention') {
+            if (!notes || !String(notes).trim()) {
+                return res.status(400).json({ error: 'notes requerido para retención' });
+            }
+            entry.type = 'retention';
+            entry.note = String(notes).trim();
+            await pool.query(
+                `UPDATE legacy_clients
+                 SET chartback = true, chartback_status = 'retention', next_contact_at = NULL,
+                     chartback_notes = $1,
+                     recovery_advisor_id = $2,
+                     chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $3::jsonb
+                 WHERE id = $4`,
+                [String(notes).trim(), userId, JSON.stringify(entry), id]
+            );
+            return res.json({ success: true, action: 'retention' });
         } else if (action === 'whatsapp') {
             // Solo registra actividad, no cambia estado
             entry.type = 'whatsapp';

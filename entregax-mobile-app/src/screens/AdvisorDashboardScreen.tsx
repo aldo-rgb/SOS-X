@@ -832,9 +832,9 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                   <Text style={{ color: '#666', marginTop: 10, fontSize: 14 }}>Sin movimientos registrados</Text>
                 </View>
               ) : (() => {
-                const typeIcon = (t: string) => t === 'whatsapp' ? 'logo-whatsapp' : t === 'no_answer' ? 'call-outline' : t === 'callback' ? 'calendar-outline' : t === 'recovered' ? 'checkmark-circle' : 'create-outline';
-                const typeLabel = (t: string) => t === 'whatsapp' ? 'WhatsApp' : t === 'no_answer' ? 'No contestó' : t === 'callback' ? 'Callback' : t === 'recovered' ? 'Recuperado' : 'Nota';
-                const typeColor = (t: string) => t === 'whatsapp' ? '#25D366' : t === 'recovered' ? '#4ADE80' : t === 'no_answer' ? '#F59E0B' : t === 'callback' ? '#A78BFA' : '#60A5FA';
+                const typeIcon = (t: string) => t === 'whatsapp' ? 'logo-whatsapp' : t === 'no_answer' ? 'call-outline' : t === 'callback' ? 'calendar-outline' : t === 'recovered' ? 'checkmark-circle' : t === 'retention' ? 'alert-circle' : 'create-outline';
+                const typeLabel = (t: string) => t === 'whatsapp' ? 'WhatsApp' : t === 'no_answer' ? 'No contestó' : t === 'callback' ? 'Callback' : t === 'recovered' ? 'Recuperado' : t === 'retention' ? 'Retención' : 'Nota';
+                const typeColor = (t: string) => t === 'whatsapp' ? '#25D366' : t === 'recovered' ? '#4ADE80' : t === 'retention' ? '#FB923C' : t === 'no_answer' ? '#F59E0B' : t === 'callback' ? '#A78BFA' : '#60A5FA';
                 return (
                   <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
                     {chartbackHistory.map((row, idx) => (
@@ -957,8 +957,8 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                         if (acts.length === 0) return null;
                         const isExpanded = expandedHistory.has(c.id);
                         const visible = isExpanded ? acts : acts.slice(0, 2);
-                        const typeIcon = (t: string) => t === 'whatsapp' ? 'logo-whatsapp' : t === 'no_answer' ? 'call-outline' : t === 'callback' ? 'calendar-outline' : t === 'recovered' ? 'checkmark-circle' : 'create-outline';
-                        const typeLabel = (t: string) => t === 'whatsapp' ? 'WA' : t === 'no_answer' ? 'No contestó' : t === 'callback' ? 'Callback' : t === 'recovered' ? 'Recuperado' : 'Nota';
+                        const typeIcon = (t: string) => t === 'whatsapp' ? 'logo-whatsapp' : t === 'no_answer' ? 'call-outline' : t === 'callback' ? 'calendar-outline' : t === 'recovered' ? 'checkmark-circle' : t === 'retention' ? 'alert-circle' : 'create-outline';
+                        const typeLabel = (t: string) => t === 'whatsapp' ? 'WA' : t === 'no_answer' ? 'No contestó' : t === 'callback' ? 'Callback' : t === 'recovered' ? 'Recuperado' : t === 'retention' ? 'Retención' : 'Nota';
                         return (
                           <View style={{ marginTop: 6 }}>
                             <View style={s.activityHeader}>
@@ -967,7 +967,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                             </View>
                             {visible.map((a, ai) => (
                               <View key={ai} style={s.activityRow}>
-                                <Ionicons name={typeIcon(a.type) as any} size={12} color={a.type === 'whatsapp' ? '#25D366' : a.type === 'recovered' ? '#4ADE80' : a.type === 'no_answer' ? '#F59E0B' : '#60A5FA'} />
+                                <Ionicons name={typeIcon(a.type) as any} size={12} color={a.type === 'whatsapp' ? '#25D366' : a.type === 'recovered' ? '#4ADE80' : a.type === 'retention' ? '#FB923C' : a.type === 'no_answer' ? '#F59E0B' : '#60A5FA'} />
                                 <View style={{ flex: 1 }}>
                                   <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                                     <Text style={s.activityType}>{typeLabel(a.type)}</Text>
@@ -1036,8 +1036,8 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                     {clientDetail.tab === 'historial' ? (() => {
                       const acts = [...(clientDetail.client.chartback_activity || [])].reverse();
                       if (acts.length === 0) return <Text style={{ color: '#666', textAlign: 'center', marginTop: 20 }}>Sin movimientos registrados</Text>;
-                      const typeLabel = (t: string) => ({ whatsapp: 'WhatsApp', no_answer: 'No contestó', callback: 'Llamar después', recovered: 'Recuperado', call_note: 'Nota' }[t] || t);
-                      const typeColor = (t: string) => ({ whatsapp: '#25D366', no_answer: '#F59E0B', callback: '#A78BFA', recovered: '#4ADE80', call_note: '#60A5FA' }[t] || '#94A3B8');
+                      const typeLabel = (t: string) => ({ whatsapp: 'WhatsApp', no_answer: 'No contestó', callback: 'Llamar después', recovered: 'Recuperado', retention: 'Retención', call_note: 'Nota' }[t] || t);
+                      const typeColor = (t: string) => ({ whatsapp: '#25D366', no_answer: '#F59E0B', callback: '#A78BFA', recovered: '#4ADE80', retention: '#FB923C', call_note: '#60A5FA' }[t] || '#94A3B8');
                       return (
                         <>
                           {acts.map((a, i) => (
@@ -1231,7 +1231,6 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                       { label: 'Mañana', sub: 'Llamar mañana', days: 1 },
                       { label: 'En 3 días', sub: 'Llamar en 3 días', days: 3 },
                       { label: 'En 1 semana', sub: 'Llamar en 7 días', days: 7 },
-                      { label: 'En 2 semanas', sub: 'Llamar en 14 días', days: 14 },
                     ].map(opt => (
                       <TouchableOpacity key={opt.days} style={s.crmOption} onPress={async () => {
                         setCrmSaving(true); setCrmError('');
@@ -1266,6 +1265,30 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                       <View style={{ flex: 1 }}>
                         <Text style={[s.crmOptionTitle, { color: '#4ADE80' }]}>Cliente recuperado ✓</Text>
                         <Text style={s.crmOptionSub}>Sale del chartback permanentemente</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={s.crmOption} onPress={async () => {
+                      if (!crmNote.trim()) { setCrmError('Para Cliente molesto debes escribir notas con detalle de la molestia'); return; }
+                      setCrmSaving(true); setCrmError('');
+                      const r = await crmAction(crmClient.id, { action: 'retention', notes: crmNote });
+                      setCrmSaving(false);
+                      if (r.ok) {
+                        setShowCrmMenu(false);
+                        setCrmNote('');
+                        loadChartback();
+                        Alert.alert(
+                          'Consejo',
+                          'No olvides preguntar a tu clinete cual es son las condiciones que tenesmo que cumplir para que el vuelva a enviar con nostros?'
+                        );
+                      } else setCrmError(r.error || 'Error');
+                    }}>
+                      <View style={[s.crmOptionIcon, { backgroundColor: '#FB923C22' }]}> 
+                        <Ionicons name="warning-outline" size={20} color="#FB923C" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[s.crmOptionTitle, { color: '#FDBA74' }]}>Cliente molesto</Text>
+                        <Text style={s.crmOptionSub}>Marca Chartback como Retención (requiere notas)</Text>
                       </View>
                     </TouchableOpacity>
 

@@ -119,6 +119,7 @@ export default function LegacyClientsPage() {
   const [showOnlyClaimed, setShowOnlyClaimed] = useState(false);
   const [showOnlyChartback, setShowOnlyChartback] = useState(false);
   const [showOnlyRecovered, setShowOnlyRecovered] = useState(false);
+  const [showOnlyRetention, setShowOnlyRetention] = useState(false);
   const [hideRecovered, setHideRecovered] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
@@ -200,6 +201,7 @@ export default function LegacyClientsPage() {
         ...(asesorFilter && { asesor: asesorFilter }),
         ...(showOnlyChartback && { chartback: 'true' }),
         ...(showOnlyRecovered && { recovered: 'true' }),
+        ...(showOnlyRetention && { retention: 'true' }),
         ...(hideRecovered && { hideRecovered: 'true' }),
         ...(lastSendFrom && { lastSendFrom }),
         ...(lastSendTo && { lastSendTo })
@@ -219,7 +221,7 @@ export default function LegacyClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, hideRecovered, lastSendFrom, lastSendTo]);
+  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, lastSendFrom, lastSendTo]);
 
   useEffect(() => {
     fetchStats();
@@ -229,7 +231,7 @@ export default function LegacyClientsPage() {
   // Reset selection when page/filter changes
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, hideRecovered, lastSendFrom, lastSendTo]);
+  }, [page, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, lastSendFrom, lastSendTo]);
 
   const previewFromRows = (rows: string[][]) => {
     const firstRow = rows[0] || [];
@@ -634,7 +636,7 @@ export default function LegacyClientsPage() {
             control={
               <Switch
                 checked={showOnlyChartback}
-                onChange={(e) => { setShowOnlyChartback(e.target.checked); setPage(0); setShowOnlyClaimed(false); setShowOnlyRecovered(false); }}
+                onChange={(e) => { setShowOnlyChartback(e.target.checked); setPage(0); setShowOnlyClaimed(false); setShowOnlyRecovered(false); setShowOnlyRetention(false); }}
                 color="primary"
               />
             }
@@ -644,11 +646,21 @@ export default function LegacyClientsPage() {
             control={
               <Switch
                 checked={showOnlyRecovered}
-                onChange={(e) => { setShowOnlyRecovered(e.target.checked); setPage(0); setShowOnlyClaimed(false); setShowOnlyChartback(false); if (e.target.checked) setHideRecovered(false); }}
+                onChange={(e) => { setShowOnlyRecovered(e.target.checked); setPage(0); setShowOnlyClaimed(false); setShowOnlyChartback(false); setShowOnlyRetention(false); if (e.target.checked) setHideRecovered(false); }}
                 sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#2e7d32' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#2e7d32' } }}
               />
             }
             label="Solo Recuperados"
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={showOnlyRetention}
+                onChange={(e) => { setShowOnlyRetention(e.target.checked); setPage(0); setShowOnlyClaimed(false); setShowOnlyChartback(false); setShowOnlyRecovered(false); }}
+                sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#ed6c02' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#ed6c02' } }}
+              />
+            }
+            label="Solo Retención"
           />
           <FormControlLabel
             control={
@@ -811,7 +823,13 @@ export default function LegacyClientsPage() {
                     )}
                   </TableCell>
                   <TableCell align="center">
-                    {client.chartback_status === 'recovered' ? (
+                    {client.chartback_status === 'retention' ? (
+                      <Chip
+                        label="Retención"
+                        size="small"
+                        sx={{ bgcolor: '#ed6c02', color: '#fff', fontWeight: 700 }}
+                      />
+                    ) : client.chartback_status === 'recovered' ? (
                       <Chip
                         label="Recuperado"
                         size="small"
