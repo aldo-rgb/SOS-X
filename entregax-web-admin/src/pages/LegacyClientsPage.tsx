@@ -163,7 +163,8 @@ export default function LegacyClientsPage() {
     clients.forEach(c => {
       if (!selectedIds.has(c.id)) return;
       if (!c.box_id) return;
-      lines.push(String(c.box_id).trim());
+      const asesor = c.asesor_entregax?.trim() || '-';
+      lines.push(`${String(c.box_id).trim()} - ${asesor}`);
     });
     if (lines.length === 0) return;
     navigator.clipboard.writeText(lines.join('\n'));
