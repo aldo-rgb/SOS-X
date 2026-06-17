@@ -960,6 +960,7 @@ export default function DashboardClient() {
 
   // Opciones de paquetería dinámicas desde la API
   const [carrierServices, setCarrierServices] = useState<{ id: string; name: string; description: string; price: string; subtext?: string; icon: string; allowsCollect?: boolean; isDynamic?: boolean; isTotalPrice?: boolean; isCollect?: boolean }[]>([]);
+  const [carrierImageFailed, setCarrierImageFailed] = useState<Record<string, boolean>>({});
   // 🎨 Logo "X" de EntregaX (brand asset activo) para sobreescribir el
   // ícono de cualquier paquetería interna (carrier_key empezando con "entregax_").
   const [entregaxLogoUrl, setEntregaxLogoUrl] = useState<string>('');
@@ -1037,6 +1038,14 @@ export default function DashboardClient() {
     fetchCarrierOptions();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedServiceType]);
+
+  const getCarrierImageFallbackText = (carrierId: string, carrierName: string): string => {
+    const id = String(carrierId || '').toLowerCase();
+    const name = String(carrierName || '').toLowerCase();
+    if (id.includes('paquete_express') || name.includes('paquete express')) return 'Paquete express';
+    if (id.includes('entregax') || id === 'local' || name.includes('entregax')) return 'EntregaX';
+    return carrierName || 'Paquetería';
+  };
 
   // Cotizar dinámicamente Paquete Express cuando hay carrier con price='API'
   useEffect(() => {
@@ -1378,7 +1387,7 @@ export default function DashboardClient() {
   // Pagar en línea (tarjeta / PayPal) desde diálogo de Instrucciones
   const [onlinePayDialog, setOnlinePayDialog] = useState<{ open: boolean; order: any | null }>({ open: false, order: null });
   const [onlinePayLoading, setOnlinePayLoading] = useState<'card' | 'paypal' | 'wallet' | 'credit' | null>(null);
-  const [openpayAvailable, setOpenpayAvailable] = useState<boolean>(true);
+  const [openpayAvailable, setOpenpayAvailable] = useState<boolean>(false);
   const [onlinePayInvoice, setOnlinePayInvoice] = useState(false);
   // Aplicación parcial de crédito: cuando el crédito del servicio < monto total, el usuario
   // puede aplicar ese crédito y pagar el restante con tarjeta/paypal/saldo.
@@ -1390,6 +1399,36 @@ export default function DashboardClient() {
   const [adjustingGateway, setAdjustingGateway] = useState(false);
   const [editingCreditAmount, setEditingCreditAmount] = useState(false);
   const [creditInput, setCreditInput] = useState<string>('');
+
+  useEffect(() => {
+    if (!paymentModalOpen) return;
+
+    const svcMap: Record<string, string> = {
+      china_air: 'aereo',
+      china_sea: 'maritimo',
+      usa_pobox: 'po_box',
+      dhl: 'dhl_liberacion',
+    };
+    const svcType = svcMap[selectedServiceType] || 'aereo';
+
+    setOpenpayAvailable(false);
+    api.get(`/payments/openpay/available?service=${svcType}`)
+      .then((r: any) => {
+        const available = !!r.data?.available;
+        setOpenpayAvailable(available);
+        if (!available) {
+          setSelectedPaymentMethod((prev) => (prev === 'card'
+            ? (selectedPackageIds.length > 1 ? 'branch' : 'paypal')
+            : prev));
+        }
+      })
+      .catch(() => {
+        setOpenpayAvailable(false);
+        setSelectedPaymentMethod((prev) => (prev === 'card'
+          ? (selectedPackageIds.length > 1 ? 'branch' : 'paypal')
+          : prev));
+      });
+  }, [paymentModalOpen, selectedServiceType, selectedPackageIds.length]);
 
   const loadVoucherList = async (orderId: number) => {
     try {
@@ -1813,8 +1852,6 @@ export default function DashboardClient() {
         paymentData.last_four = newPaymentMethod.cardNumber.slice(-4);
         paymentData.card_brand = 'Visa'; // Determinar por el número
         paymentData.holder_name = newPaymentMethod.holderName;
-      } else if (newPaymentMethod.type === 'paypal') {
-        paymentData.paypal_email = newPaymentMethod.paypalEmail;
       } else if (newPaymentMethod.type === 'bank_transfer') {
         paymentData.bank_name = newPaymentMethod.bankName;
         paymentData.clabe = newPaymentMethod.clabe;
@@ -1967,8 +2004,19 @@ export default function DashboardClient() {
     setPaymentInstructionsDialog(null);
     setOnlinePayDialog({ open: true, order });
     // Verificar disponibilidad de OpenPay para este servicio
-    const svcType = order?.packages?.[0]?.service_type || order?.service_type || 'po_box';
-    setOpenpayAvailable(true); // optimista mientras consulta
+    const rawSvcType = String(order?.packages?.[0]?.service_type || order?.service_type || 'po_box');
+    const svcTypeMap: Record<string, string> = {
+      china_air: 'aereo',
+      china_sea: 'maritimo',
+      usa_pobox: 'po_box',
+      dhl: 'dhl_liberacion',
+      AIR_CHN_MX: 'aereo',
+      SEA_CHN_MX: 'maritimo',
+      POBOX_USA: 'po_box',
+      AA_DHL: 'dhl_liberacion',
+    };
+    const svcType = svcTypeMap[rawSvcType] || rawSvcType;
+    setOpenpayAvailable(false);
     api.get(`/payments/openpay/available?service=${svcType}`)
       .then((r: any) => setOpenpayAvailable(!!r.data?.available))
       .catch(() => setOpenpayAvailable(false));
@@ -4236,9 +4284,14 @@ export default function DashboardClient() {
           setSnackbar({ open: true, message: 'Ingresa la cantidad de contenedores', severity: 'warning' });
           return;
         }
-      } else if (cbmManual <= 0 && (largo <= 0 || ancho <= 0 || alto <= 0)) {
-        setSnackbar({ open: true, message: 'Ingresa el CBM total o las dimensiones del paquete', severity: 'warning' });
-        return;
+      } else {
+        const hasDims = largo > 0 && ancho > 0 && alto > 0;
+        const hasCbmManual = cbmManual > 0;
+        const hasPeso = peso > 0;
+        if (!hasCbmManual && !hasDims && !hasPeso) {
+          setSnackbar({ open: true, message: 'Ingresa CBM, dimensiones o peso (kg) para cotizar marítimo', severity: 'warning' });
+          return;
+        }
       }
     } else if (quoteService === 'aereo') {
       // Aéreo: acepta peso solo, ó dimensiones (peso volumétrico)
@@ -6773,6 +6826,20 @@ export default function DashboardClient() {
                               />
                             </Grid>
                           )}
+                          {quoteService === 'maritimo' && quoteMaritimoMode === 'volumen' && (
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Peso total (kg) — opcional"
+                                type="number"
+                                value={cbmPeso}
+                                onChange={(e) => setCbmPeso(e.target.value)}
+                                inputProps={{ step: 0.1, min: 0 }}
+                                helperText="Regla marítimo: cada 500 kg equivale a 1 CBM; se cobra el mayor entre CBM por volumen y CBM por peso."
+                              />
+                            </Grid>
+                          )}
                           {!(quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40') && (
                             <>
                               <Grid size={4}>
@@ -7138,7 +7205,7 @@ export default function DashboardClient() {
                           Tu cotización aparecerá aquí
                         </Typography>
                         <Typography variant="body2" sx={{ color: '#888' }}>
-                          Ingresa las dimensiones y pulsa <b>Calcular</b> para ver el costo estimado.
+                          Ingresa dimensiones, CBM o peso y pulsa <b>Calcular</b> para ver el costo estimado.
                         </Typography>
                       </Paper>
                     )}
@@ -9593,17 +9660,20 @@ export default function DashboardClient() {
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: isMobile ? 1 : 2 }}>
                               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: isMobile ? 70 : 100, flexShrink: 0 }}>
-                                {service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads') || service.icon.startsWith('uploads/')) ? (
+                                {service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads') || service.icon.startsWith('uploads/')) && !carrierImageFailed[service.id] ? (
                                   <Box 
                                     component="img" 
                                     src={service.icon} 
-                                    alt="" 
-                                    onError={(e) => {
-                                      const target = e.currentTarget as HTMLImageElement;
-                                      target.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+                                    alt={service.name || 'Paquetería'}
+                                    onError={() => {
+                                      setCarrierImageFailed((prev) => ({ ...prev, [service.id]: true }));
                                     }}
                                     sx={{ width: isMobile ? 60 : 100, height: isMobile ? 36 : 60, objectFit: 'contain' }}
                                   />
+                                ) : service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads') || service.icon.startsWith('uploads/')) ? (
+                                  <Typography sx={{ fontSize: isMobile ? '0.8rem' : '0.95rem', fontWeight: 700, textAlign: 'center', lineHeight: 1.2 }}>
+                                    {getCarrierImageFallbackText(service.id, service.name)}
+                                  </Typography>
                                 ) : (
                                   <Box sx={{ fontSize: isMobile ? '1.8rem' : '2.5rem' }}>{service.icon || '🚛'}</Box>
                                 )}
@@ -9717,17 +9787,20 @@ export default function DashboardClient() {
                                       '&:hover': { bgcolor: '#f5f5f5' },
                                     }}
                                   >
-                                    {cc.icon && (cc.icon.startsWith('http') || cc.icon.startsWith('/uploads') || cc.icon.startsWith('uploads/')) ? (
+                                    {cc.icon && (cc.icon.startsWith('http') || cc.icon.startsWith('/uploads') || cc.icon.startsWith('uploads/')) && !carrierImageFailed[cc.id] ? (
                                       <Box
                                         component="img"
                                         src={cc.icon}
-                                        alt=""
-                                        onError={(e) => {
-                                          const target = e.currentTarget as HTMLImageElement;
-                                          target.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+                                        alt={cc.name || 'Paquetería'}
+                                        onError={() => {
+                                          setCarrierImageFailed((prev) => ({ ...prev, [cc.id]: true }));
                                         }}
                                         sx={{ width: 70, height: 40, objectFit: 'contain' }}
                                       />
+                                    ) : cc.icon && (cc.icon.startsWith('http') || cc.icon.startsWith('/uploads') || cc.icon.startsWith('uploads/')) ? (
+                                      <Typography sx={{ width: 70, textAlign: 'center', fontSize: '0.82rem', fontWeight: 700, lineHeight: 1.2 }}>
+                                        {getCarrierImageFallbackText(cc.id, cc.name)}
+                                      </Typography>
                                     ) : (
                                       <Box sx={{ fontSize: '1.5rem' }}>{cc.icon}</Box>
                                     )}
@@ -12610,7 +12683,7 @@ export default function DashboardClient() {
         </Alert>
       </Snackbar>
 
-      {/* Dialog de Instrucciones de Pago en Sucursal */}
+      {/* Dialog de Instrucciones de Pago en efectivo */}
       <Dialog 
         open={!!paymentInstructionsDialog?.open} 
         onClose={() => setPaymentInstructionsDialog(null)}
@@ -12672,7 +12745,7 @@ export default function DashboardClient() {
               {/* Info sucursal */}
               {paymentInstructionsDialog.branchInfo?.nombre && (
                 <Box sx={{ mb: 2, p: 2, bgcolor: '#f8fafc', borderRadius: 2, border: '1px solid #e2e8f0' }}>
-                  <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>🏪 Pago en Sucursal:</Typography>
+                  <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>🏪 Pago en efectivo:</Typography>
                   <Typography variant="body2">{paymentInstructionsDialog.branchInfo.nombre}</Typography>
                   <Typography variant="body2">{paymentInstructionsDialog.branchInfo.direccion}</Typography>
                   <Typography variant="body2">📞 {paymentInstructionsDialog.branchInfo.telefono}</Typography>
@@ -13459,17 +13532,27 @@ export default function DashboardClient() {
                   }
                 }}
               >
-                {paymentGatewayMethods.filter((method) => {
-                  // Multi-paquete: solo Pago en Sucursal
-                  if (getSelectedPackages().length > 1 && method.id !== 'branch') {
-                    return false;
+                {(() => {
+                  const selectedCount = getSelectedPackages().length;
+                  const visibleMethods = paymentGatewayMethods.filter((method) => {
+                    // Multi-paquete: solo Pago en efectivo
+                    if (selectedCount > 1 && method.id !== 'branch') {
+                      return false;
+                    }
+                    // Tarjeta solo se ofrece si OpenPay está configurado para el servicio
+                    if (method.id === 'card' && !openpayAvailable) {
+                      return false;
+                    }
+                    return true;
+                  });
+
+                  // Asegurar que Pago en efectivo siempre se muestre para pago individual.
+                  if (selectedCount <= 1 && !visibleMethods.some((m) => m.id === 'branch')) {
+                    const cashMethod = paymentGatewayMethods.find((m) => m.id === 'branch');
+                    if (cashMethod) visibleMethods.push(cashMethod);
                   }
-                  if (method.id === 'branch') {
-                    const total = getSelectedPackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0);
-                    return total >= 2500;
-                  }
-                  return true;
-                }).map((method) => (
+
+                  return visibleMethods.map((method) => (
                   <FormControlLabel
                     key={method.id}
                     value={method.id}
@@ -13505,7 +13588,8 @@ export default function DashboardClient() {
                     }
                     sx={{ m: 0, mb: 1, alignItems: 'flex-start' }}
                   />
-                ))}
+                ));
+                })()}
               </RadioGroup>
             </FormControl>
           </Paper>
@@ -13900,7 +13984,6 @@ export default function DashboardClient() {
           <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
             {[
               { value: 'card' as const, label: `💳 ${t('cd.addPayment.card')}`, icon: <CreditCardIcon /> },
-              { value: 'paypal' as const, label: `🅿️ ${t('cd.addPayment.paypal')}`, icon: <PaymentIcon /> },
             ].map((opt) => (
               <Button
                 key={opt.value}
@@ -13992,22 +14075,6 @@ export default function DashboardClient() {
             </>
           )}
 
-          {/* Campos para PAYPAL */}
-          {newPaymentMethod.type === 'paypal' && (
-            <TextField
-              fullWidth
-              size="small"
-              label={t('cd.addPayment.paypalEmail')}
-              placeholder="correo@paypal.com"
-              type="email"
-              value={newPaymentMethod.paypalEmail}
-              onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, paypalEmail: e.target.value })}
-              InputProps={{
-                startAdornment: <InputAdornment position="start"><PaymentIcon fontSize="small" /></InputAdornment>,
-              }}
-            />
-          )}
-
           {/* Campos para TRANSFERENCIA */}
           {newPaymentMethod.type === 'bank_transfer' && (
             <>
@@ -14068,7 +14135,6 @@ export default function DashboardClient() {
             disabled={
               !newPaymentMethod.alias ||
               (newPaymentMethod.type === 'card' && (!newPaymentMethod.cardNumber || newPaymentMethod.cardNumber.length < 15 || !newPaymentMethod.holderName)) ||
-              (newPaymentMethod.type === 'paypal' && !newPaymentMethod.paypalEmail) ||
               (newPaymentMethod.type === 'bank_transfer' && (!newPaymentMethod.bankName || !newPaymentMethod.clabe || newPaymentMethod.clabe.length < 18))
             }
             startIcon={<AddIcon />}

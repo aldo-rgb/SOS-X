@@ -296,6 +296,30 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   };
 
   const handleCalculate = async () => {
+    const largoN = Number(largo) || 0;
+    const anchoN = Number(ancho) || 0;
+    const altoN = Number(alto) || 0;
+    const pesoN = Number(peso) || 0;
+    const cbmN = Number(cbm) || 0;
+    const cantidadN = Number(cantidad) || 1;
+
+    if (servicio === 'maritimo') {
+      if (subservicio === 'fcl_40') {
+        if (cantidadN <= 0) {
+          Alert.alert('Falta dato', 'Ingresa la cantidad de contenedores');
+          return;
+        }
+      } else {
+        const hasDims = largoN > 0 && anchoN > 0 && altoN > 0;
+        const hasCbm = cbmN > 0;
+        const hasPeso = pesoN > 0;
+        if (!hasDims && !hasCbm && !hasPeso) {
+          Alert.alert('Falta dato', 'Ingresa CBM, dimensiones o peso (kg) para cotizar marítimo');
+          return;
+        }
+      }
+    }
+
     setCalculating(true);
     setCalcResult(null);
     try {
@@ -339,6 +363,9 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
         categoria,
         details: {
           largo, ancho, alto, peso, cbm, cantidad,
+          cbm_cobrable: calcResult?.cbm_cobrable,
+          cbm_por_peso: calcResult?.cbm_por_peso,
+          peso_real_kg: calcResult?.peso_real_kg,
           peso_cobrable: calcResult?.peso_cobrable,
           tiempo_estimado: calcResult?.tiempo_estimado,
           descripcion,
@@ -538,6 +565,11 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
 
             {/* Dimensiones */}
             <Text style={s.sectionTitle}>3. Dimensiones y peso</Text>
+            {servicio === 'maritimo' && subservicio !== 'fcl_40' && (
+              <Text style={s.helperText}>
+                Regla marítimo: 500 kg = 1 CBM. Se cobra el mayor entre CBM por volumen y CBM por peso.
+              </Text>
+            )}
             <View style={s.dimRow}>
               <TextInput style={s.dimInput} placeholder="Largo cm" keyboardType="numeric" value={largo} onChangeText={setLargo} />
               <TextInput style={s.dimInput} placeholder="Ancho cm" keyboardType="numeric" value={ancho} onChangeText={setAncho} />
@@ -574,6 +606,12 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                 <Text style={s.calcResultMeta}>
                   USD ${Number(calcResult.precio_usd).toFixed(2)} · TC ${Number(calcResult.tipo_cambio).toFixed(2)}
                 </Text>
+                {calcResult.cbm_cobrable && (
+                  <Text style={s.calcResultMeta}>CBM cobrable: {calcResult.cbm_cobrable}</Text>
+                )}
+                {calcResult.cbm_por_peso && (
+                  <Text style={s.calcResultMeta}>CBM por peso (kg/500): {calcResult.cbm_por_peso}</Text>
+                )}
                 {calcResult.peso_cobrable && (
                   <Text style={s.calcResultMeta}>Peso cobrable: {calcResult.peso_cobrable} kg</Text>
                 )}
@@ -902,6 +940,7 @@ const s = StyleSheet.create({
     backgroundColor: CARD, borderWidth: 1, borderColor: '#e0e0e0',
     borderRadius: 8, paddingHorizontal: 10, paddingVertical: 10, fontSize: 14, marginBottom: 8,
   },
+  helperText: { color: SUB, fontSize: 12, marginBottom: 8, marginTop: -2 },
   calcBtn: {
     backgroundColor: BLACK, borderRadius: 10, paddingVertical: 12, marginTop: 6,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,

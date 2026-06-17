@@ -76,6 +76,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
   
   const [loading, setLoading] = useState(false);
   const [selectedPaymentType, setSelectedPaymentType] = useState<PaymentType>('card');
+  const [openpayAvailable, setOpenpayAvailable] = useState(false);
   const [approvalUrl, setApprovalUrl] = useState<string | null>(null);
   const [paypalOrderId, setPaypalOrderId] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -134,13 +135,53 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     }
   }, [packages.length]);
 
-  // 📦 Multi-paquete: forzar pago en sucursal (único método permitido)
+  // 📦 Multi-paquete: forzar pago en efectivo (único método permitido)
   useEffect(() => {
     if (packages.length > 1) {
       setSelectedPaymentType('cash');
       setRequireInvoice(false);
     }
   }, [packages.length]);
+
+  // Verificar disponibilidad real de OpenPay por servicio
+  useEffect(() => {
+    if (packages.length === 0) return;
+
+    const firstPkg: any = packages[0] || {};
+    const rawSvc = String(firstPkg.service_type || firstPkg.shipment_type || firstPkg.servicio || '').toLowerCase();
+    const svcMap: Record<string, string> = {
+      china_air: 'aereo',
+      china_sea: 'maritimo',
+      usa_pobox: 'po_box',
+      dhl: 'dhl_liberacion',
+      air_chn_mx: 'aereo',
+      sea_chn_mx: 'maritimo',
+      pobox_usa: 'po_box',
+      aa_dhl: 'dhl_liberacion',
+      po_box: 'po_box',
+      aereo: 'aereo',
+      maritimo: 'maritimo',
+      dhl_liberacion: 'dhl_liberacion',
+    };
+    const svc = svcMap[rawSvc] || 'aereo';
+
+    setOpenpayAvailable(false);
+    fetch(`${API_URL}/api/payments/openpay/available?service=${svc}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const available = !!data?.available;
+        setOpenpayAvailable(available);
+        if (!available) {
+          setSelectedPaymentType((prev) => (prev === 'card' ? (packages.length > 1 ? 'cash' : 'paypal') : prev));
+        }
+      })
+      .catch(() => {
+        setOpenpayAvailable(false);
+        setSelectedPaymentType((prev) => (prev === 'card' ? (packages.length > 1 ? 'cash' : 'paypal') : prev));
+      });
+  }, [packages, token]);
 
   // 🧾 Cargar datos fiscales y catálogos al montar
   useEffect(() => {
@@ -209,6 +250,11 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
 
   // ============ PAGO CON TARJETA (OpenPay) ============
   const startCardPayment = async () => {
+    if (!openpayAvailable) {
+      Alert.alert('OpenPay no disponible', 'Este servicio no tiene OpenPay configurado. Usa PayPal o Pago en efectivo.');
+      setSelectedPaymentType(packages.length > 1 ? 'cash' : 'paypal');
+      return;
+    }
     setLoading(true);
     try {
       const packageIds = packages.map(p => (p as any).payment_source_id ?? p.id);
@@ -917,24 +963,26 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 {packages.length <= 1 && (
                 <>
                 {/* Opción: Tarjeta */}
-                <TouchableOpacity
-                  style={[
-                    styles.paymentOption,
-                    selectedPaymentType === 'card' && styles.paymentOptionSelected,
-                  ]}
-                  onPress={() => setSelectedPaymentType('card')}
-                >
-                  <View style={styles.paymentOptionRadio}>
-                    <RadioButton value="card" color={OPENPAY_RED} />
-                  </View>
-                  <View style={[styles.paymentOptionIcon, { backgroundColor: OPENPAY_RED + '20' }]}>
-                    <Text style={styles.paymentEmoji}>💳</Text>
-                  </View>
-                  <View style={styles.paymentOptionInfo}>
-                    <Text style={styles.paymentOptionLabel}>Tarjeta de Crédito/Débito</Text>
-                    <Text style={styles.paymentOptionSublabel}>Visa, Mastercard, AMEX</Text>
-                  </View>
-                </TouchableOpacity>
+                {openpayAvailable && (
+                  <TouchableOpacity
+                    style={[
+                      styles.paymentOption,
+                      selectedPaymentType === 'card' && styles.paymentOptionSelected,
+                    ]}
+                    onPress={() => setSelectedPaymentType('card')}
+                  >
+                    <View style={styles.paymentOptionRadio}>
+                      <RadioButton value="card" color={OPENPAY_RED} />
+                    </View>
+                    <View style={[styles.paymentOptionIcon, { backgroundColor: OPENPAY_RED + '20' }]}>
+                      <Text style={styles.paymentEmoji}>💳</Text>
+                    </View>
+                    <View style={styles.paymentOptionInfo}>
+                      <Text style={styles.paymentOptionLabel}>Tarjeta de Crédito/Débito</Text>
+                      <Text style={styles.paymentOptionSublabel}>Visa, Mastercard, AMEX</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
 
                 {/* Opción: PayPal */}
                 <TouchableOpacity
@@ -973,7 +1021,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                     <Text style={styles.paymentEmoji}>💵</Text>
                   </View>
                   <View style={styles.paymentOptionInfo}>
-                    <Text style={styles.paymentOptionLabel}>Pago en Sucursal</Text>
+                    <Text style={styles.paymentOptionLabel}>Pago en efectivo</Text>
                     <Text style={styles.paymentOptionSublabel}>Depósito en efectivo</Text>
                   </View>
                 </TouchableOpacity>

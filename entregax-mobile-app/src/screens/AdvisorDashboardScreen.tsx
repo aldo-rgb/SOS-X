@@ -1279,7 +1279,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                         loadChartback();
                         Alert.alert(
                           'Consejo',
-                          'No olvides preguntar a tu clinete cual es son las condiciones que tenesmo que cumplir para que el vuelva a enviar con nostros?'
+                          '¿Preguntaste al cliente cuáles son las condiciones que debemos cumplir para que vuelva a trabajar con nosotros?'
                         );
                       } else setCrmError(r.error || 'Error');
                     }}>

@@ -516,24 +516,24 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
             conditions.push(`lc.asesor = $${params.length}`);
         }
 
-        // Filtro chartback
+        // Filtro chartback (excluye recuperados aunque haya inconsistencias de formato)
         if (chartback === 'true') {
-            conditions.push(`lc.chartback = TRUE`);
+            conditions.push(`lc.chartback = TRUE AND LOWER(TRIM(COALESCE(lc.chartback_status, ''))) <> 'recovered'`);
         }
 
         // Filtro recuperados
         if (recovered === 'true') {
-            conditions.push(`lc.chartback_status = 'recovered'`);
+            conditions.push(`LOWER(TRIM(COALESCE(lc.chartback_status, ''))) = 'recovered'`);
         }
 
         // Filtro retención
         if (retention === 'true') {
-            conditions.push(`lc.chartback_status = 'retention'`);
+            conditions.push(`LOWER(TRIM(COALESCE(lc.chartback_status, ''))) = 'retention'`);
         }
 
         // Ocultar recuperados
         if (hideRecovered === 'true') {
-            conditions.push(`(lc.chartback_status IS DISTINCT FROM 'recovered')`);
+            conditions.push(`LOWER(TRIM(COALESCE(lc.chartback_status, ''))) <> 'recovered'`);
         }
 
         // Filtro por fecha de último envío (aéreo o marítimo)
@@ -1269,8 +1269,12 @@ export const assignChartbackAdvisor = async (req: Request, res: Response): Promi
  */
 export const getAdminChartbackClients = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { search, advisor_id } = req.query;
-        const conditions: string[] = ['lc.chartback = true'];
+        const { search, advisor_id, recovered } = req.query;
+        // Si recovered=true mostramos solo recuperados; si no, solo activos
+        const baseCondition = recovered === 'true'
+            ? `LOWER(TRIM(COALESCE(lc.chartback_status, ''))) = 'recovered'`
+            : 'lc.chartback = true';
+        const conditions: string[] = [baseCondition];
         const params: any[] = [];
 
         if (search && String(search).trim()) {

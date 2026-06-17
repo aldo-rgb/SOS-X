@@ -54,6 +54,7 @@ export default function ChartbackManagementPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filterAdvisor, setFilterAdvisor] = useState<string>('all');
+  const [filterRecovered, setFilterRecovered] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [assigning, setAssigning] = useState(false);
   const [assignAdvisorId, setAssignAdvisorId] = useState<string>('');
@@ -70,6 +71,7 @@ export default function ChartbackManagementPage() {
       const params: Record<string, string> = {};
       if (search.trim()) params.search = search.trim();
       if (filterAdvisor !== 'all') params.advisor_id = filterAdvisor;
+      if (filterRecovered) params.recovered = 'true';
       const res = await api.get('/admin/legacy/chartback', { params });
       setClients(res.data.clients || []);
     } catch (e: any) {
@@ -77,7 +79,7 @@ export default function ChartbackManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, filterAdvisor]);
+  }, [search, filterAdvisor, filterRecovered]);
 
   const fetchAdvisors = async () => {
     try {
@@ -257,6 +259,14 @@ export default function ChartbackManagementPage() {
         <IconButton onClick={fetchClients} disabled={loading} size="small" sx={{ alignSelf: 'center' }}>
           <RefreshIcon />
         </IconButton>
+        <Chip
+          label="Solo Recuperación"
+          clickable
+          onClick={() => setFilterRecovered(v => !v)}
+          color={filterRecovered ? 'success' : 'default'}
+          variant={filterRecovered ? 'filled' : 'outlined'}
+          sx={{ alignSelf: 'center', fontWeight: 600 }}
+        />
       </Stack>
 
       {/* Barra de acción masiva */}

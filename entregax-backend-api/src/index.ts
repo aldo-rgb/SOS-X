@@ -11025,18 +11025,21 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
 
         const cbmDirect = cbmInput !== undefined && cbmInput !== null && cbmInput !== '' ? parseFloat(cbmInput) : NaN;
         const hasDims = largo && ancho && alto;
-        if (!hasDims && !(cbmDirect > 0)) {
-          return res.status(400).json({ error: 'Dimensiones (largo, ancho, alto en cm) o CBM son requeridos' });
+        const pesoKg = parseFloat(peso) || 0;
+        if (!hasDims && !(cbmDirect > 0) && !(pesoKg > 0)) {
+          return res.status(400).json({ error: 'Dimensiones (largo, ancho, alto en cm), CBM o peso (kg) son requeridos' });
         }
         
         // Calcular CBM:
         //  - Si hay dimensiones + cantidad: cbm_calc = (L*A*A/1e6) * cantidad
         //  - Si hay CBM directo: cbm_directo (ya es total)
-        //  - Si están ambos, se toma el MAYOR (protección al cobro real).
+        //  - Si hay peso: cbm_peso = pesoKg / 500 (500 kg = 1 CBM)
+        //  - Si están varios, se toma el MAYOR (protección al cobro real).
         const cbmCalc = (parseFloat(largo) > 0 && parseFloat(ancho) > 0 && parseFloat(alto) > 0)
           ? ((parseFloat(largo) * parseFloat(ancho) * parseFloat(alto)) / 1000000) * cantidad
           : 0;
-        let cbm = Math.max(cbmDirect > 0 ? cbmDirect : 0, cbmCalc);
+        const cbmByWeight = pesoKg > 0 ? (pesoKg / 500) : 0;
+        let cbm = Math.max(cbmDirect > 0 ? cbmDirect : 0, cbmCalc, cbmByWeight);
         const cbmOriginal = cbm;
         
         // Mínimo cobrable
@@ -11080,7 +11083,9 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
         resultado = {
           ...resultado,
           cbm_calculado: cbmOriginal.toFixed(4),
+          cbm_por_peso: cbmByWeight.toFixed(4),
           cbm_cobrable: cbm.toFixed(4),
+          peso_real_kg: pesoKg > 0 ? pesoKg.toFixed(2) : null,
           cantidad,
           categoria: cat,
           tipo_calculo: tipoCalculo,

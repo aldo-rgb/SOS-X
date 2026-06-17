@@ -91,6 +91,34 @@ const OpenpaySavedCards: React.FC<Props> = ({ service = 'aereo', onSelectionChan
   const [newCardToken, setNewCardToken] = useState<string>('');
   const [tokenError, setTokenError] = useState<string | null>(null);
 
+  const setupDeviceSession = () => {
+    if (!window.OpenPay) return '';
+    let dsid = '';
+    try {
+      dsid = String(window.OpenPay.deviceData?.setup?.() || '');
+    } catch {
+      dsid = '';
+    }
+
+    // Fallback para navegadores donde setup() sin argumentos no devuelve sesión.
+    if (!dsid) {
+      try {
+        const formId = 'openpay-device-form';
+        if (!document.getElementById(formId)) {
+          const form = document.createElement('form');
+          form.id = formId;
+          form.style.display = 'none';
+          document.body.appendChild(form);
+        }
+        dsid = String(window.OpenPay.deviceData?.setup?.(formId, 'openpayDeviceId') || '');
+      } catch {
+        dsid = '';
+      }
+    }
+
+    return dsid;
+  };
+
   // Cargar tarjetas + credenciales públicas
   useEffect(() => {
     let mounted = true;
@@ -144,8 +172,14 @@ const OpenpaySavedCards: React.FC<Props> = ({ service = 'aereo', onSelectionChan
       window.OpenPay.setId(merchantId);
       window.OpenPay.setApiKey(publicKey);
       window.OpenPay.setSandboxMode(!!sandbox);
-      const dsid = window.OpenPay.deviceData.setup();
-      setDeviceSessionId(dsid);
+      const dsid = setupDeviceSession();
+      if (dsid) {
+        setDeviceSessionId(dsid);
+        setError(null);
+      } else {
+        setDeviceSessionId('');
+        setError('No se pudo inicializar la sesión segura de OpenPay. Recarga la página e intenta de nuevo.');
+      }
     } catch (e: any) {
       console.error('OpenPay setup error:', e);
       setError('No se pudo inicializar OpenPay JS: ' + (e?.message || e));
@@ -176,6 +210,15 @@ const OpenpaySavedCards: React.FC<Props> = ({ service = 'aereo', onSelectionChan
       /^\d{3,4}$/.test(cvv2)
     );
   }, [holderName, cardNumber, expMonth, expYear, cvv2]);
+
+  const tokenizeDisabledReason = useMemo(() => {
+    if (tokenizing) return 'Validando tarjeta...';
+    if (!holderName.trim() || cardNumber.replace(/\s/g, '').length < 13 || !expMonth || !expYear || cvv2.length < 3) {
+      return 'Completa todos los datos de la tarjeta para validar.';
+    }
+    if (!deviceSessionId) return 'No hay sesión segura de OpenPay activa.';
+    return '';
+  }, [tokenizing, holderName, cardNumber, expMonth, expYear, cvv2, deviceSessionId]);
 
   const tokenizeNewCard = () => {
     if (!window.OpenPay) {
@@ -384,14 +427,21 @@ const OpenpaySavedCards: React.FC<Props> = ({ service = 'aereo', onSelectionChan
               {newCardToken ? (
                 <Alert severity="success">Tarjeta validada correctamente. Lista para pagar.</Alert>
               ) : (
-                <Button
-                  variant="outlined"
-                  onClick={tokenizeNewCard}
-                  disabled={!canTokenize || tokenizing || !deviceSessionId}
-                  startIcon={tokenizing ? <CircularProgress size={18} /> : null}
-                >
-                  {tokenizing ? 'Validando…' : 'Validar tarjeta'}
-                </Button>
+                <>
+                  <Button
+                    variant="outlined"
+                    onClick={tokenizeNewCard}
+                    disabled={!canTokenize || tokenizing || !deviceSessionId}
+                    startIcon={tokenizing ? <CircularProgress size={18} /> : null}
+                  >
+                    {tokenizing ? 'Validando…' : 'Validar tarjeta'}
+                  </Button>
+                  {!!tokenizeDisabledReason && (
+                    <Typography variant="caption" color="text.secondary">
+                      {tokenizeDisabledReason}
+                    </Typography>
+                  )}
+                </>
               )}
             </Stack>
           </Box>

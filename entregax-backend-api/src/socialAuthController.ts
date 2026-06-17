@@ -197,8 +197,11 @@ const upsertSocialUser = async (params: {
 // ============================================================
 
 const getGoogleAudiences = (): string[] => {
-    const csv = process.env.GOOGLE_OAUTH_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID || '';
-    return csv.split(',').map(s => s.trim()).filter(Boolean);
+    const csv = [
+        process.env.GOOGLE_OAUTH_CLIENT_IDS || '',
+        process.env.GOOGLE_CLIENT_ID || '',
+    ].filter(Boolean).join(',');
+    return Array.from(new Set(csv.split(',').map(s => s.trim()).filter(Boolean)));
 };
 
 const googleClient = new OAuth2Client();
@@ -311,8 +314,11 @@ const APPLE_JWKS_URL = 'https://appleid.apple.com/auth/keys';
 const appleJwks = createRemoteJWKSet(new URL(APPLE_JWKS_URL));
 
 const getAppleAudiences = (): string[] => {
-    const csv = process.env.APPLE_AUDIENCES || process.env.APPLE_CLIENT_ID || '';
-    return csv.split(',').map(s => s.trim()).filter(Boolean);
+    const csv = [
+        process.env.APPLE_AUDIENCES || '',
+        process.env.APPLE_CLIENT_ID || '',
+    ].filter(Boolean).join(',');
+    return Array.from(new Set(csv.split(',').map(s => s.trim()).filter(Boolean)));
 };
 
 export const appleAuth = async (req: Request, res: Response): Promise<void> => {
@@ -402,9 +408,49 @@ export const appleAuth = async (req: Request, res: Response): Promise<void> => {
 
         res.status(created ? 201 : 200).json(buildLoginResponse(user, token, message));
     } catch (err: any) {
-        console.error('[SOCIAL AUTH] Apple error:', err?.message || err);
+        // Diagnostico: decodificar payload para comparar 'aud' recibido vs configurado.
+        let receivedAud: string | string[] | undefined;
+        let issuer: string | undefined;
+        let expDelta: number | undefined;
+        let iatDelta: number | undefined;
+        try {
+            const raw = (req.body as any)?.idToken;
+            if (typeof raw === 'string' && raw.includes('.')) {
+                const payloadB64 = raw.split('.')[1] || '';
+                const json = Buffer.from(payloadB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+                const decoded = JSON.parse(json);
+                receivedAud = decoded?.aud;
+                issuer = decoded?.iss;
+                const nowSec = Math.floor(Date.now() / 1000);
+                if (typeof decoded?.exp === 'number') expDelta = decoded.exp - nowSec;
+                if (typeof decoded?.iat === 'number') iatDelta = nowSec - decoded.iat;
+            }
+        } catch {
+            // no-op de diagnostico
+        }
+
+        console.error(
+            '[SOCIAL AUTH] Apple error:',
+            err?.message || err,
+            '| aud recibido:',
+            receivedAud,
+            '| aud esperados:',
+            getAppleAudiences(),
+            '| iss:',
+            issuer,
+            '| expIn(s):',
+            expDelta,
+            '| tokenAge(s):',
+            iatDelta,
+        );
         res.status(401).json({
             error: 'No se pudo validar el token de Apple',
+            errorCode: 'APPLE_TOKEN_INVALID',
+            receivedAud,
+            expectedAudiences: getAppleAudiences(),
+            issuer,
+            expIn: expDelta,
+            tokenAge: iatDelta,
             details: process.env.NODE_ENV !== 'production' ? String(err?.message || err) : undefined,
         });
     }

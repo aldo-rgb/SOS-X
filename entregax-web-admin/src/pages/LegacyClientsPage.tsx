@@ -783,7 +783,7 @@ export default function LegacyClientsPage() {
                   key={client.id}
                   hover
                   selected={selectedIds.has(client.id)}
-                  sx={client.chartback ? { bgcolor: '#f0f4ff' } : undefined}
+                  sx={client.chartback && String(client.chartback_status || '').trim().toLowerCase() !== 'recovered' ? { bgcolor: '#f0f4ff' } : undefined}
                 >
                   <TableCell padding="checkbox">
                     <Checkbox
@@ -823,13 +823,13 @@ export default function LegacyClientsPage() {
                     )}
                   </TableCell>
                   <TableCell align="center">
-                    {client.chartback_status === 'retention' ? (
+                    {String(client.chartback_status || '').trim().toLowerCase() === 'retention' ? (
                       <Chip
                         label="Retención"
                         size="small"
                         sx={{ bgcolor: '#ed6c02', color: '#fff', fontWeight: 700 }}
                       />
-                    ) : client.chartback_status === 'recovered' ? (
+                    ) : String(client.chartback_status || '').trim().toLowerCase() === 'recovered' ? (
                       <Chip
                         label="Recuperado"
                         size="small"
