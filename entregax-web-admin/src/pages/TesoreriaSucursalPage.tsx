@@ -175,6 +175,7 @@ interface PagoPendiente {
   tipo_servicio: string;
   payment_method: string;
   cliente: string;
+  cliente_numero: string | null;
   cliente_email: string;
   telefono: string;
   empresa: string;
@@ -963,7 +964,14 @@ const TesoreriaSucursalPage: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <Box>
-                          <Typography variant="body2" fontWeight="medium">{pago.cliente}</Typography>
+                          <Typography variant="body2" fontWeight="medium">
+                            {pago.cliente}
+                            {pago.cliente_numero && (
+                              <Typography variant="caption" display="block" sx={{ fontWeight: 600, color: '#1565c0' }}>
+                                {pago.cliente_numero}
+                              </Typography>
+                            )}
+                          </Typography>
                           <Typography variant="caption" color="text.secondary">{pago.telefono}</Typography>
                         </Box>
                       </TableCell>

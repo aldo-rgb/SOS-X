@@ -1346,7 +1346,7 @@ const MyPaymentsScreen = () => {
                   {(order.status === 'pending_payment' || order.status === 'pending') && (
                     <View style={{ flexDirection: 'row', gap: 10, marginTop: 10, justifyContent: 'flex-end' }}>
                       <TouchableOpacity
-                        style={[styles.iconActionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12 }]}
+                        style={[styles.iconActionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, width: 'auto', minWidth: 130, height: 42 }]}
                         onPress={() => setSelectedOrder(order)}
                         accessibilityLabel="Pagar en Línea"
                       >

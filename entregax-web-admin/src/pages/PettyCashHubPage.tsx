@@ -538,7 +538,7 @@ export default function PettyCashHubPage() {
         created.getDate() === now.getDate();
 
       if (!isSameDay) {
-        setSnack({ severity: 'warning', msg: 'Operaciones solo puede editar movimientos creados el mismo día.' });
+        setSnack({ severity: 'error', msg: 'Operaciones solo puede editar movimientos creados el mismo día.' });
         return;
       }
     }
