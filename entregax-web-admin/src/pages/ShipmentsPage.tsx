@@ -418,7 +418,11 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   useEffect(() => { fetchPackages(); }, [fetchPackages]);
 
   const filteredPackages = packages.filter(pkg => {
-    if (photoFilter === 'no_photo' && pkg.imageUrl) return false;
+    if (photoFilter === 'no_photo') {
+      // "Sin Fotografía" incluye solo guías recibidas en CEDIS HIDALGO TX.
+      if (pkg.status !== 'received') return false;
+      if (pkg.imageUrl) return false;
+    }
     // 🔢 Filtro específico por # de consolidación (campo dedicado)
     if (consolidationFilter.trim()) {
       const wanted = consolidationFilter.replace(/[^0-9]/g, '');
@@ -440,6 +444,10 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   });
 
   // ============ WIZARD HANDLERS ============
+  const noPhotoAtCedisCount = packages.filter(
+    p => p.status === 'received' && !p.imageUrl
+  ).length;
+
   const handleOpenWizard = () => {
     setBoxes([]);
     setCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
@@ -1703,9 +1711,15 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           <Paper sx={{ p: 2, textAlign: 'center', cursor: 'pointer',
               border: photoFilter === 'no_photo' ? '2px solid #e91e63' : '2px solid transparent',
               '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 } }}
-            onClick={() => { setPhotoFilter(prev => prev === 'no_photo' ? 'all' : 'no_photo'); setStatusFilter('all'); }}>
+            onClick={() => {
+              setPhotoFilter(prev => {
+                const next = prev === 'no_photo' ? 'all' : 'no_photo';
+                setStatusFilter(next === 'no_photo' ? 'received' : 'all');
+                return next;
+              });
+            }}>
             <ImageNotSupportedIcon sx={{ fontSize: 48, color: '#e91e63' }} />
-            <Typography variant="h4" fontWeight="bold">{packages.filter(p => !p.imageUrl).length}</Typography>
+            <Typography variant="h4" fontWeight="bold">{noPhotoAtCedisCount}</Typography>
             <Typography variant="body2" color="text.secondary">Sin Fotografía</Typography>
           </Paper>
         </Grid>
