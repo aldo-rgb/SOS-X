@@ -684,7 +684,10 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
         req.user = decoded;
         next();
     } catch (error) {
-        res.status(403).json({ error: 'Token inválido o expirado' });
+        res.status(403).json({
+            error: 'Tu sesión expiró. Favor de cerrar y abrir tu sesión de nuevo.',
+            errorCode: 'TOKEN_EXPIRED',
+        });
     }
 };
 
