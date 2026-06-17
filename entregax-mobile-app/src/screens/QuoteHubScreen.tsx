@@ -185,6 +185,22 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
   const [formalSubmitting, setFormalSubmitting] = useState(false);
   const selectedService = useMemo(() => SERVICES.find(s => s.key === service) || null, [service]);
 
+  const goToSendForSelectedService = () => {
+    if (!selectedService) return;
+    const serviceMap: Record<ServiceKey, 'usa_pobox' | 'china_air' | 'china_sea' | 'mx_cedis'> = {
+      pobox: 'usa_pobox',
+      air_china: 'china_air',
+      maritime: 'china_sea',
+      dhl: 'mx_cedis',
+    };
+
+    navigation.navigate('ServicesGuide', {
+      user,
+      token,
+      preselectedServiceType: serviceMap[selectedService.key],
+    });
+  };
+
   // ───────── Solicitud de cotización formal ─────────
   const pickFormalPhotos = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -995,8 +1011,8 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
 
     // Lecturas tolerantes a la forma de cada endpoint:
     const r: any = result;
-    const totalMxn = r.totalMxn ?? r.precioVentaMxn ?? r.salePriceMxn ?? r.finalPriceMxn ?? r.mxn ?? r.precio_mxn ?? 0;
-    const baseMxn = r.precioVentaMxn ?? r.salePriceMxn ?? r.finalPriceMxn ?? r.mxn ?? r.precio_mxn ?? 0;
+    const totalMxn = r.totalMxn ?? r.precioVentaMxn ?? r.salePriceMxn ?? r.finalPriceMxn ?? r.finalPriceMXN ?? r.mxn ?? r.precio_mxn ?? 0;
+    const baseMxn = r.precioVentaMxn ?? r.salePriceMxn ?? r.finalPriceMxn ?? r.finalPriceMXN ?? r.mxn ?? r.precio_mxn ?? 0;
     const baseUsd = r.precioVentaUsd ?? r.salePriceUsd ?? r.finalPriceUsd ?? r.usd ?? r.precio_usd ?? null;
     const fx = r.tcFinal ?? r.fxRate ?? r.tipo_cambio ?? null;
     const gex = r.gex || {};
@@ -1022,7 +1038,19 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
 
         <View style={styles.estCardBody}>
           <Text style={styles.estCostLabel}>COSTO ESTIMADO</Text>
-          {baseUsd != null && Number(baseUsd) > 0 ? (
+          {selectedService.key === 'maritime' ? (
+            <>
+              <Text style={styles.estCostUsd}>
+                {formatMxn(totalMxn)}
+                <Text style={styles.estCostMxnInline}> MXN</Text>
+              </Text>
+              {baseUsd != null && Number(baseUsd) > 0 && (
+                <Text style={styles.estCostMxn}>
+                  {L('Equivalente:', 'Equivalent:', '折合:')} {formatUsd(baseUsd)}
+                </Text>
+              )}
+            </>
+          ) : baseUsd != null && Number(baseUsd) > 0 ? (
             <>
               <Text style={styles.estCostUsd}>
                 ${Number(baseUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1134,6 +1162,14 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
           * Esta cotización es informativa. El cobro final puede variar según
           revisiones aduanales, fluctuación del tipo de cambio y servicios adicionales.
         </Text>
+
+        <TouchableOpacity
+          style={[styles.primaryBtn, { backgroundColor: ORANGE }]}
+          onPress={goToSendForSelectedService}
+        >
+          <MaterialCommunityIcons name="send" size={20} color="#fff" />
+          <Text style={styles.primaryBtnText}>{L('Enviar con este servicio','Send with this service','使用此服务发货')}</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.primaryBtn, { backgroundColor: '#2e7d32' }]}
@@ -1607,6 +1643,7 @@ const styles = StyleSheet.create({
     lineHeight: 44,
   },
   estCostUsdSuffix: { fontSize: 16, color: ORANGE, fontWeight: '700' },
+  estCostMxnInline: { fontSize: 22, color: BLACK, fontWeight: '800' },
   estCostMxn: {
     fontSize: 14,
     color: '#666',

@@ -558,6 +558,8 @@ export const calculateMaritimeShippingCost = async (
     isVipApplied: boolean;
     isFlatFee: boolean;
     finalPriceUsd: string;
+    finalPriceMxn: string;
+    fxRate: number;
     breakdown: string;
 }> => {
     // 1. REGLA DE ORO: CÁLCULO DE CBM vs PESO VOLUMÉTRICO
@@ -657,6 +659,28 @@ export const calculateMaritimeShippingCost = async (
         }
     }
 
+    // Tipo de cambio de marítimo (misma prioridad que el autoprizado):
+    // exchange_rate_config(servicio=maritimo) -> exchange_rates.
+    let fxRate = 18.00;
+    try {
+        const fxCfgRes = await pool.query(
+            `SELECT tipo_cambio_final FROM exchange_rate_config
+             WHERE servicio = 'maritimo' AND activo = true
+             ORDER BY updated_at DESC LIMIT 1`
+        );
+        if (fxCfgRes.rows.length > 0) {
+            fxRate = parseFloat(fxCfgRes.rows[0].tipo_cambio_final) || 18.00;
+        } else {
+            const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+            fxRate = parseFloat(fxRes.rows[0]?.rate || '20.50');
+        }
+    } catch {
+        const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+        fxRate = parseFloat(fxRes.rows[0]?.rate || '20.50');
+    }
+
+    const finalPriceMxn = finalPriceUsd * fxRate;
+
     return {
         physicalCbm: physicalCbm.toFixed(4),
         volumetricCbm: volumetricCbm.toFixed(4),
@@ -668,6 +692,8 @@ export const calculateMaritimeShippingCost = async (
         isVipApplied: isVip,
         isFlatFee: tier.is_flat_fee,
         finalPriceUsd: finalPriceUsd.toFixed(2),
+        finalPriceMxn: finalPriceMxn.toFixed(2),
+        fxRate,
         breakdown
     };
 };

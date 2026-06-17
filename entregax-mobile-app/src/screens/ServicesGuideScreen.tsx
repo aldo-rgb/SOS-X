@@ -30,7 +30,11 @@ interface User {
 }
 
 type RootStackParamList = {
-  ServicesGuide: { user: User; token: string };
+  ServicesGuide: {
+    user: User;
+    token: string;
+    preselectedServiceType?: 'china_air' | 'china_sea' | 'mx_cedis' | 'usa_pobox';
+  };
   RequestAdvisor: { user: User; token: string };
 };
 
@@ -103,6 +107,18 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
   const [serviceInfo, setServiceInfo] = useState<ServiceApiInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const preselectedType = route.params?.preselectedServiceType;
+    if (!preselectedType) return;
+
+    const target = SERVICES_I18N.find(s => s.serviceType === preselectedType);
+    if (!target) return;
+
+    // Evita recargar si ya estamos en el detalle correcto.
+    if (selected?.serviceType === target.serviceType && step === 1) return;
+    handleSelect(target);
+  }, [route.params?.preselectedServiceType]);
 
   const handleSelect = async (service: ServiceCard) => {
     setSelected(service);
