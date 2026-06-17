@@ -3,7 +3,7 @@
 // 6 secciones: Dashboard, Clientes, Embarques, Comisiones, Herramientas, Tickets
 // ============================================
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -644,7 +644,6 @@ export default function DashboardAdvisor() {
     setProofModalOrder(order);
     setProofModalOpen(true);
     setProofUploadFile(null);
-    setProofDeclaredAmount('');
     setProofModalItems([]);
     setProofModalLoading(true);
     try {
