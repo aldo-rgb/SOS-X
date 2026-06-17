@@ -408,9 +408,6 @@ export default function DashboardAdvisor() {
   const [proofModalLoading, setProofModalLoading] = useState(false);
   const [proofModalItems, setProofModalItems] = useState<any[]>([]);
   const [proofUploadFile, setProofUploadFile] = useState<File | null>(null);
-  const [proofDeclaredAmount, setProofDeclaredAmount] = useState('');
-  const [proofUploading, setProofUploading] = useState(false);
-  const proofFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Assign instructions dialog
   const [instrDialogOpen, setInstrDialogOpen] = useState(false);
@@ -661,39 +658,6 @@ export default function DashboardAdvisor() {
     }
   };
 
-  const uploadProofForOrder = async () => {
-    if (!proofModalOrder) return;
-    if (!proofUploadFile) {
-      alert('Selecciona un archivo de comprobante');
-      return;
-    }
-    if (!proofDeclaredAmount || Number(proofDeclaredAmount) <= 0) {
-      alert('Ingresa un monto declarado válido');
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append('proof', proofUploadFile);
-    formData.append('declared_amount', proofDeclaredAmount);
-    formData.append('currency', 'MXN');
-
-    setProofUploading(true);
-    try {
-      await api.post(`/advisor/payment-orders/${proofModalOrder.id}/proof`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setProofUploadFile(null);
-      setProofDeclaredAmount('');
-      const res = await api.get(`/advisor/payment-orders/${proofModalOrder.id}/proofs`);
-      setProofModalItems(Array.isArray(res.data?.proofs) ? res.data.proofs : []);
-      fetchPaymentOrders();
-    } catch (error: any) {
-      console.error('Error uploading proof:', error);
-      alert(error?.response?.data?.error || 'No se pudo subir el comprobante');
-    } finally {
-      setProofUploading(false);
-    }
-  };
 
   const fetchCommissions = useCallback(async () => {
     try {
