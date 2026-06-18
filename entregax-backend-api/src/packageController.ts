@@ -2167,7 +2167,7 @@ const formatStatusLabelForMovement = (status: string | null | undefined): string
 const getPackageMovementsBaseByTracking = async (tracking: string) => {
     const result = await pool.query(
         `SELECT p.id, p.user_id, p.box_id, p.status, p.created_at, p.updated_at, p.tracking_internal, p.tracking_provider,
-                p.is_master, p.current_branch_id, p.warehouse_location,
+                p.is_master, p.current_branch_id, p.warehouse_location, p.service_type,
                 b.name AS current_branch_name, b.code AS current_branch_code
          FROM packages p
          LEFT JOIN branches b ON b.id = p.current_branch_id
@@ -2266,20 +2266,22 @@ const inferLegacyMilestones = (pkg: any, movementRows: any[]): any[] => {
     const d2 = new Date(baseDate.getTime() + 60 * 1000);
     const d3 = new Date(baseDate.getTime() + 2 * 60 * 1000);
 
-    // Resolver branch / warehouse para cada milestone heurísticamente.
-    // Si el milestone corresponde al status actual del paquete usamos su
-    // current_branch_id real; el resto se rellena con etiquetas conocidas.
     const currentBranchId = pkg.current_branch_id || null;
     const currentBranchName = pkg.current_branch_name || null;
     const currentBranchCode = pkg.current_branch_code || null;
     const currentWarehouse = pkg.warehouse_location || null;
 
-    // Etiqueta canónica por status (representa DÓNDE ocurrió ese hito).
-    // Si el hito coincide con el status actual y la sucursal real del paquete
-    // concuerda con la canónica del status, usamos la real (más precisa).
+    const svcType = String(pkg.service_type || '').toLowerCase();
+    const whl = String(currentWarehouse || '').toLowerCase();
+    const isChinaAir = ['air_chn_mx', 'china_air', 'tdi_aereo'].includes(svcType) || whl === 'china_air';
+    const isChinaSea = ['sea_chn_mx', 'china_sea', 'maritime'].includes(svcType) || whl === 'china_sea';
+    const isChina = isChinaAir || isChinaSea;
+
     const labelFor = (status: string) => {
         const canonical = (() => {
             if (status === 'received') {
+                if (isChinaAir) return { branch_id: null, branch_name: 'Bodega China (Aéreo)', branch_code: 'CHN-GZ', warehouse_location: 'china_air' };
+                if (isChinaSea) return { branch_id: null, branch_name: 'Bodega China (Marítimo)', branch_code: 'CHN-SEA', warehouse_location: 'china_sea' };
                 return { branch_id: null, branch_name: 'PO Box Hidalgo TX (USA)', branch_code: 'POBOX-USA', warehouse_location: 'hidalgo_tx' };
             }
             if (status === 'in_transit') {
@@ -2291,12 +2293,10 @@ const inferLegacyMilestones = (pkg: any, movementRows: any[]): any[] => {
             return { branch_id: null, branch_name: null, branch_code: null, warehouse_location: null };
         })();
 
-        // Solo sobreescribimos con la sucursal real si el milestone es el status
-        // actual Y el warehouse_location del paquete confirma la ubicación canónica.
         if (String(pkg.status) === status) {
             const wh = String(currentWarehouse || '').toLowerCase();
             const matchesCanonical =
-                (status === 'received' && (wh.includes('hidalgo') || wh.includes('pobox') || wh === 'hidalgo_tx')) ||
+                (status === 'received' && (wh.includes('hidalgo') || wh.includes('pobox') || wh === 'hidalgo_tx' || wh === 'china_air' || wh === 'china_sea')) ||
                 (status === 'received_mty' && (wh.includes('mty') || wh.includes('monterrey') || wh === 'cedis_mty')) ||
                 (status === 'in_transit' && wh.includes('transit'));
             if (matchesCanonical && currentBranchName) {
@@ -2319,7 +2319,9 @@ const inferLegacyMilestones = (pkg: any, movementRows: any[]): any[] => {
             package_id: pkg.id,
             tracking: pkg.tracking_internal || pkg.tracking_provider,
             status: 'received',
-            notes: 'Recibido en sucursal Hidalgo TX',
+            notes: isChina
+                ? (isChinaAir ? 'Recibido en bodega China (Aéreo)' : 'Recibido en bodega China (Marítimo)')
+                : 'Recibido en sucursal Hidalgo TX',
             created_at: d1.toISOString(),
             created_by: null,
             created_by_name: null,
@@ -2333,7 +2335,7 @@ const inferLegacyMilestones = (pkg: any, movementRows: any[]): any[] => {
             package_id: pkg.id,
             tracking: pkg.tracking_internal || pkg.tracking_provider,
             status: 'in_transit',
-            notes: 'En ruta a Monterrey, N.L.',
+            notes: isChina ? 'En ruta desde China a Monterrey, N.L.' : 'En ruta a Monterrey, N.L.',
             created_at: d2.toISOString(),
             created_by: null,
             created_by_name: null,
@@ -2461,10 +2463,13 @@ const buildPackageMovementsResponse = async (pkg: any) => {
         const wh = String(row.warehouse_location || pkg.warehouse_location || '').toLowerCase();
         const isHidalgo = wh.includes('hidalgo') || wh.includes('pobox') || wh === 'hidalgo_tx';
         const isMty = wh.includes('mty') || wh.includes('monterrey') || wh === 'cedis_mty';
+        const pkgSvc = String(pkg.service_type || '').toLowerCase();
+        const isChina = wh === 'china_air' || wh === 'china_sea' || wh.includes('china') || wh.includes('chn') ||
+            ['air_chn_mx', 'china_air', 'sea_chn_mx', 'china_sea', 'tdi_aereo', 'maritime'].includes(pkgSvc);
 
         if (row.status === 'received') {
-            // Recibido siempre es en Hidalgo TX salvo que la sucursal real claramente sea otra
-            if (!isMty) {
+            // No sobrescribir paquetes China con etiqueta de Hidalgo TX
+            if (!isMty && !isChina) {
                 return {
                     ...row,
                     branch_id: row.branch_name && /hidalgo/i.test(row.branch_name) ? row.branch_id : null,
