@@ -1662,7 +1662,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     });
 
     if (!result.ok) {
-      console.warn(`[PQTX-GEN] Error API: pkg=${packageId}, error="${result.error}", raw=${JSON.stringify(result.raw)}`);
+      console.warn(`[PQTX-GEN] Error API: pkg=${packageId} zip_used="${addr.zip_code}" natZip="${pkg.national_delivery_zip}" addrZip="${pkg.zip_code}", error="${result.error}"`);
       res.status(400).json({ success: false, error: result.error, raw: result.raw });
       return;
     }
