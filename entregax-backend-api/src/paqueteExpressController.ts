@@ -961,6 +961,7 @@ export async function pqtxListShipments(req: Request, res: Response) {
       `SELECT
          s.*,
          u.full_name AS created_by_name,
+         (SELECT p.tracking_internal FROM packages p WHERE p.pqtx_shipment_id = s.id ORDER BY p.id ASC LIMIT 1) AS tracking_internal,
          -- 💰 Precio de venta al cliente (misma regla que pqtxClientQuote):
          --   Si costo_total / pieces < 300  => 400 * pieces
          --   Si costo_total / pieces >= 300 => (ceil(costo/pieces) + 100) * pieces

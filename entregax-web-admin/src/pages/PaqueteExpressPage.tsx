@@ -920,6 +920,7 @@ function LabelTab({ token }: { token: string | null }) {
                   <TableHead>
                     <TableRow sx={{ bgcolor: '#FFF3E0' }}>
                       <TableCell sx={{ fontWeight: 'bold' }}>No. Guía</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Guía Interna</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Fecha</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Servicio</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Origen</TableCell>
@@ -950,6 +951,22 @@ function LabelTab({ token }: { token: string | null }) {
                             <Typography variant="caption" color="text.secondary" display="block">
                               {s.folio_porte.replace('folioLetterPorte:', 'CP: ')}
                             </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {s.tracking_internal ? (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              <Typography variant="body2" fontFamily="monospace" color="#5D4037">
+                                {s.tracking_internal}
+                              </Typography>
+                              <Tooltip title="Copiar">
+                                <IconButton size="small" onClick={() => navigator.clipboard.writeText(s.tracking_internal)}>
+                                  <CopyIcon sx={{ fontSize: 14 }} />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          ) : (
+                            <Typography variant="caption" color="text.disabled">—</Typography>
                           )}
                         </TableCell>
                         <TableCell>
