@@ -420,7 +420,11 @@ export default function DashboardAdvisor() {
   const [instrCarrierKey, setInstrCarrierKey] = useState<string>('');
   const [instrCarriersLoading, setInstrCarriersLoading] = useState(false);
   // Price estimate & COD documents
-  const [instrPriceEstimate, setInstrPriceEstimate] = useState<{ price: number; perBox: number; boxes: number; days: string } | null>(null);
+  const [instrPriceEstimate, setInstrPriceEstimate] = useState<{
+    price: number; perBox: number; boxes: number; days: string;
+    type?: 'domicilio' | 'ocurre'; usedZip?: string; nearestBranch?: boolean;
+    branch?: any; noCoverage?: boolean; available?: boolean;
+  } | null>(null);
   const [instrPriceLoading, setInstrPriceLoading] = useState(false);
   const [instrIsCollect, setInstrIsCollect] = useState(false);
   const [instrFacturaFile, setInstrFacturaFile] = useState<File | null>(null);
@@ -1154,7 +1158,17 @@ export default function DashboardAdvisor() {
         height: shipment.heightCm || 30,
       });
       if (res.data.success) {
-        setInstrPriceEstimate({ price: res.data.clientPrice, perBox: res.data.pricePerBox, boxes, days: res.data.estimatedDays || '2-4 días hábiles' });
+        if (res.data.available === false) {
+          setInstrPriceEstimate({ price: 0, perBox: 0, boxes, days: '', available: false, noCoverage: true });
+        } else {
+          setInstrPriceEstimate({
+            price: res.data.clientPrice, perBox: res.data.pricePerBox, boxes,
+            days: res.data.estimatedDays || '2-4 días hábiles',
+            type: res.data.type, available: true,
+            usedZip: res.data.usedZip, nearestBranch: res.data.nearestBranch,
+            branch: res.data.branch,
+          });
+        }
       }
     } catch { /* ignore quote errors */ }
     finally { setInstrPriceLoading(false); }
@@ -1196,6 +1210,9 @@ export default function DashboardAdvisor() {
       if (uids.length === 0) return;
       const serviceKey = instrShipment ? SHIPMENT_TYPE_TO_CARRIER_SERVICE[instrShipment.serviceType] : undefined;
 
+      const ocurreZip = instrCarrierKey === 'paquete_express' && instrPriceEstimate?.type === 'ocurre' && instrPriceEstimate?.usedZip
+        ? instrPriceEstimate.usedZip : null;
+
       const hasFiles = instrFacturaFile || instrGuiaFile;
       if (hasFiles || instrIsCollect) {
         await Promise.all(uids.map(uid => {
@@ -1207,6 +1224,7 @@ export default function DashboardAdvisor() {
           }
           formData.append('isCollect', String(instrIsCollect));
           formData.append('wantsFacturaPaqueteria', String(instrWantsFactura));
+          if (ocurreZip) formData.append('nationalDeliveryZip', ocurreZip);
           if (instrFacturaFile) formData.append('factura', instrFacturaFile);
           if (instrGuiaFile) formData.append('guiaExterna', instrGuiaFile);
           return api.put(`/advisor/shipments/${uid}/instructions`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
@@ -1214,6 +1232,7 @@ export default function DashboardAdvisor() {
       } else {
         const body: any = { addressId: instrSelectedId };
         if (instrCarrierKey && serviceKey) { body.carrierKey = instrCarrierKey; body.serviceKey = serviceKey; }
+        if (ocurreZip) body.nationalDeliveryZip = ocurreZip;
         await Promise.all(uids.map(uid => api.put(`/advisor/shipments/${uid}/instructions`, body)));
       }
 
@@ -5881,14 +5900,61 @@ export default function DashboardAdvisor() {
                 </Box>
               ) : (
                 <Collapse in={!!instrCarrierKey && (instrPriceLoading || !!instrPriceEstimate)}>
-                  <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#F3F8FF', border: '1px solid #BBDEFB', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
                     {instrPriceLoading ? (
-                      <>
+                      <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: '#F3F8FF', border: '1px solid #BBDEFB', display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <CircularProgress size={18} sx={{ color: '#1976D2' }} />
-                        <Typography variant="body2" color="text.secondary">Calculando costo estimado…</Typography>
+                        <Typography variant="body2" color="text.secondary">Verificando cobertura y calculando costo…</Typography>
+                      </Box>
+                    ) : instrPriceEstimate?.noCoverage ? (
+                      <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: '#FFF3E0', border: '1px solid #FFCC02', display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                        <Typography sx={{ fontSize: 20, mt: 0.1 }}>⚠️</Typography>
+                        <Box>
+                          <Typography variant="body2" fontWeight={700} sx={{ color: '#E65100' }}>
+                            Sin cobertura PQTX para este código postal
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            No hay servicio domicilio ni sucursal Ocurre cercana. Selecciona otra paquetería.
+                          </Typography>
+                        </Box>
+                      </Box>
+                    ) : instrPriceEstimate?.type === 'ocurre' ? (
+                      <>
+                        <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: '#E3F2FD', border: '1px solid #90CAF9', display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                          <Typography sx={{ fontSize: 20, mt: 0.1 }}>🏪</Typography>
+                          <Box>
+                            <Typography variant="body2" fontWeight={700} sx={{ color: '#1565C0' }}>
+                              Entrega en sucursal Ocurre — C.P. {instrPriceEstimate.usedZip}
+                            </Typography>
+                            {instrPriceEstimate.nearestBranch && (
+                              <Typography variant="caption" sx={{ color: '#E65100', fontWeight: 600, display: 'block' }}>
+                                ⚠️ Sin cobertura domicilio. Se usará la sucursal más cercana (CP {instrPriceEstimate.usedZip}).
+                              </Typography>
+                            )}
+                            {instrPriceEstimate.branch?.name && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Sucursal: {instrPriceEstimate.branch.name}
+                              </Typography>
+                            )}
+                          </Box>
+                        </Box>
+                        <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: '#F3F8FF', border: '1px solid #BBDEFB', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <Typography sx={{ fontSize: 22 }}>💰</Typography>
+                          <Box>
+                            <Typography variant="body2" fontWeight={700} color="#1565C0">
+                              Costo estimado: ${instrPriceEstimate.price.toFixed(2)} MXN
+                              {instrPriceEstimate.boxes > 1 && (
+                                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                                  (${instrPriceEstimate.perBox.toFixed(2)}/caja × {instrPriceEstimate.boxes})
+                                </Typography>
+                              )}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">Entrega aprox. {instrPriceEstimate.days}</Typography>
+                          </Box>
+                        </Box>
                       </>
                     ) : instrPriceEstimate ? (
-                      <>
+                      <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: '#F3F8FF', border: '1px solid #BBDEFB', display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <Typography sx={{ fontSize: 22 }}>💰</Typography>
                         <Box>
                           <Typography variant="body2" fontWeight={700} color="#1565C0">
@@ -5901,7 +5967,7 @@ export default function DashboardAdvisor() {
                           </Typography>
                           <Typography variant="caption" color="text.secondary">Entrega aprox. {instrPriceEstimate.days}</Typography>
                         </Box>
-                      </>
+                      </Box>
                     ) : null}
                   </Box>
                 </Collapse>

@@ -1762,7 +1762,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
     const { uid } = req.params;
-    const { addressId, carrierKey, serviceKey, isCollect, wantsFacturaPaqueteria } = req.body;
+    const { addressId, carrierKey, serviceKey, isCollect, wantsFacturaPaqueteria, nationalDeliveryZip } = req.body;
     const files = (req as any).files as Record<string, Express.Multer.File[]> | undefined;
     if (!uid || !addressId) return res.status(400).json({ error: 'uid y addressId requeridos' });
 
@@ -1797,6 +1797,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       );
       if (addrCheck.rows.length === 0) return res.status(403).json({ error: 'Dirección no válida para este cliente' });
 
+      const ocurreZip = (carrierKey === 'paquete_express' && nationalDeliveryZip) ? String(nationalDeliveryZip).trim() : null;
       await pool.query(
         `UPDATE packages SET
           assigned_address_id = $1,
@@ -1805,9 +1806,10 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           is_collect = $3,
           collect_carrier = $4,
           wants_factura_paqueteria = $5,
+          national_delivery_zip = COALESCE($8, national_delivery_zip),
           instructions_assigned_by_id = $7
          WHERE id = $6`,
-        [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId]
+        [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId, ocurreZip]
       );
 
       // Propagar instrucciones a cajas hijas del mismo master (multipieza)
@@ -1824,10 +1826,11 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
               is_collect = $3,
               collect_carrier = $4,
               wants_factura_paqueteria = $5,
+              national_delivery_zip = COALESCE($8, national_delivery_zip),
               instructions_assigned_by_id = $6
              WHERE tracking_internal ~ ('^' || $7 || '-\\d{1,4}$')
                AND assigned_address_id IS NULL`,
-            [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, advisorId, masterTracking]
+            [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, advisorId, masterTracking, ocurreZip]
           );
         }
       }
