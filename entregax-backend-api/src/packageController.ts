@@ -2150,16 +2150,26 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
 const formatStatusLabelForMovement = (status: string | null | undefined): string => {
     if (!status) return 'Sin estado';
     const labels: Record<string, string> = {
+        // PO Box USA
         received: 'Recibido Hidalgo TX',
         received_mty: 'Recibido MTY',
-        in_transit: 'En tránsito a MTY, N.L.',
-        customs: 'En aduana',
+        in_transit: 'En tránsito',
         ready_pickup: 'Listo para recoger',
         out_for_delivery: 'En ruta',
         returned_to_warehouse: 'Devuelto a bodega',
         delivered: 'Entregado',
         reempacado: 'Reempacado',
-        processing: 'Procesando'
+        // AIR China
+        received_origin: '📦 En Bodega China',
+        received_china: '📦 Recibido China',
+        at_customs: '🛃 En Aduana',
+        customs: '📋 Guía Impresa',
+        customs_mx: '🛃 Aduana México',
+        processing: '📋 Procesando',
+        in_transit_mx: '🚛 En Ruta a CEDIS',
+        in_transit_mty: '🚚 En Tránsito a MTY',
+        received_cedis: '✅ Recibido CEDIS MTY',
+        shipped: '📤 Enviado',
     };
     return labels[status] || status;
 };
@@ -2242,6 +2252,7 @@ const getPackageMovementsBaseById = async (id: number) => {
 };
 
 const statusProgressOrder: Record<string, number> = {
+    // PO Box USA
     received: 1,
     in_transit: 2,
     received_mty: 3,
@@ -2249,6 +2260,17 @@ const statusProgressOrder: Record<string, number> = {
     out_for_delivery: 4,
     delivered: 5,
     returned_to_warehouse: 5,
+    // AIR China
+    received_origin: 1,
+    received_china: 1,
+    at_customs: 2,
+    customs: 2,
+    customs_mx: 2,
+    processing: 2,
+    in_transit_mx: 3,
+    in_transit_mty: 3,
+    received_cedis: 3,
+    shipped: 4,
 };
 
 const inferLegacyMilestones = (pkg: any, movementRows: any[]): any[] => {
@@ -2277,84 +2299,57 @@ const inferLegacyMilestones = (pkg: any, movementRows: any[]): any[] => {
     const isChinaSea = ['sea_chn_mx', 'china_sea', 'maritime'].includes(svcType) || whl === 'china_sea';
     const isChina = isChinaAir || isChinaSea;
 
-    const labelFor = (status: string) => {
-        const canonical = (() => {
-            if (status === 'received') {
-                if (isChinaAir) return { branch_id: null, branch_name: 'Bodega China (Aéreo)', branch_code: 'CHN-GZ', warehouse_location: 'china_air' };
-                if (isChinaSea) return { branch_id: null, branch_name: 'Bodega China (Marítimo)', branch_code: 'CHN-SEA', warehouse_location: 'china_sea' };
-                return { branch_id: null, branch_name: 'PO Box Hidalgo TX (USA)', branch_code: 'POBOX-USA', warehouse_location: 'hidalgo_tx' };
-            }
-            if (status === 'in_transit') {
-                return { branch_id: null, branch_name: 'En tránsito', branch_code: null, warehouse_location: 'in_transit' };
-            }
-            if (status === 'received_mty') {
-                return { branch_id: null, branch_name: 'CEDIS Monterrey', branch_code: 'MTY', warehouse_location: 'cedis_mty' };
-            }
-            return { branch_id: null, branch_name: null, branch_code: null, warehouse_location: null };
-        })();
-
-        if (String(pkg.status) === status) {
-            const wh = String(currentWarehouse || '').toLowerCase();
-            const matchesCanonical =
-                (status === 'received' && (wh.includes('hidalgo') || wh.includes('pobox') || wh === 'hidalgo_tx' || wh === 'china_air' || wh === 'china_sea')) ||
-                (status === 'received_mty' && (wh.includes('mty') || wh.includes('monterrey') || wh === 'cedis_mty')) ||
-                (status === 'in_transit' && wh.includes('transit'));
-            if (matchesCanonical && currentBranchName) {
-                return {
-                    branch_id: currentBranchId,
-                    branch_name: currentBranchName,
-                    branch_code: currentBranchCode,
-                    warehouse_location: currentWarehouse,
-                };
-            }
-        }
-        return canonical;
-    };
+    const mkRow = (id: number, status: string, notes: string, date: string, branch: object) => ({
+        id,
+        package_id: pkg.id,
+        tracking: pkg.tracking_internal || pkg.tracking_provider,
+        status,
+        notes,
+        created_at: date,
+        created_by: null,
+        created_by_name: null,
+        ...branch,
+    });
 
     const inferred: any[] = [];
 
-    if (currentRank >= 1 && !existingStatuses.has('received')) {
-        inferred.push({
-            id: -1001,
-            package_id: pkg.id,
-            tracking: pkg.tracking_internal || pkg.tracking_provider,
-            status: 'received',
-            notes: isChina
-                ? (isChinaAir ? 'Recibido en bodega China (Aéreo)' : 'Recibido en bodega China (Marítimo)')
-                : 'Recibido en sucursal Hidalgo TX',
-            created_at: d1.toISOString(),
-            created_by: null,
-            created_by_name: null,
-            ...labelFor('received'),
+    if (isChina) {
+        // Chain AIR/Sea China: received_origin → in_transit → received_cedis → shipped/ready_pickup → delivered
+        const chinaChain: Array<{ rank: number; statuses: string[]; status: string; notes: string; branch: object }> = [
+            { rank: 1, statuses: ['received_origin', 'received_china'], status: 'received_origin',
+              notes: isChinaAir ? 'Recibido en bodega China (Aéreo)' : 'Recibido en bodega China (Marítimo)',
+              branch: { branch_id: currentBranchId || null, branch_name: currentBranchName || (isChinaAir ? 'Bodega China (Guangzhou)' : 'Bodega China'), branch_code: currentBranchCode || 'CHN-GZ', warehouse_location: isChinaAir ? 'china_air' : 'china_sea' } },
+            { rank: 2, statuses: ['in_transit', 'at_customs', 'customs', 'customs_mx', 'processing', 'in_transit_mx', 'in_transit_mty'], status: 'in_transit',
+              notes: 'En tránsito desde China a Monterrey, N.L.',
+              branch: { branch_id: null, branch_name: 'En tránsito desde China', branch_code: null, warehouse_location: 'in_transit' } },
+            { rank: 3, statuses: ['received_cedis', 'received_mty'], status: 'received_cedis',
+              notes: 'Recibido en CEDIS MTY',
+              branch: { branch_id: null, branch_name: 'CEDIS Monterrey', branch_code: 'MTY', warehouse_location: 'cedis_mty' } },
+            { rank: 4, statuses: ['shipped', 'ready_pickup', 'out_for_delivery'], status: 'shipped',
+              notes: 'Enviado desde CEDIS',
+              branch: { branch_id: null, branch_name: 'CEDIS Monterrey', branch_code: 'MTY', warehouse_location: 'cedis_mty' } },
+        ];
+        chinaChain.forEach((step, i) => {
+            if (currentRank >= step.rank && !step.statuses.some(s => existingStatuses.has(s))) {
+                const date = i === 0 ? d1 : i === 1 ? d2 : i === 2 ? d3 : new Date(d3.getTime() + 60 * 1000);
+                inferred.push(mkRow(-1001 - i, step.status, step.notes, date.toISOString(), step.branch));
+            }
         });
-    }
-
-    if (currentRank >= 2 && !existingStatuses.has('in_transit')) {
-        inferred.push({
-            id: -1002,
-            package_id: pkg.id,
-            tracking: pkg.tracking_internal || pkg.tracking_provider,
-            status: 'in_transit',
-            notes: isChina ? 'En ruta desde China a Monterrey, N.L.' : 'En ruta a Monterrey, N.L.',
-            created_at: d2.toISOString(),
-            created_by: null,
-            created_by_name: null,
-            ...labelFor('in_transit'),
-        });
-    }
-
-    if (currentRank >= 3 && !existingStatuses.has('received_mty')) {
-        inferred.push({
-            id: -1003,
-            package_id: pkg.id,
-            tracking: pkg.tracking_internal || pkg.tracking_provider,
-            status: 'received_mty',
-            notes: 'Recibido en CEDIS MTY',
-            created_at: pkg.status === 'received_mty' && pkg.updated_at ? pkg.updated_at : d3.toISOString(),
-            created_by: null,
-            created_by_name: null,
-            ...labelFor('received_mty'),
-        });
+    } else {
+        // Chain PO Box USA: received → in_transit → received_mty
+        if (currentRank >= 1 && !existingStatuses.has('received')) {
+            inferred.push(mkRow(-1001, 'received', 'Recibido en sucursal Hidalgo TX', d1.toISOString(),
+                { branch_id: null, branch_name: 'PO Box Hidalgo TX (USA)', branch_code: 'POBOX-USA', warehouse_location: 'hidalgo_tx' }));
+        }
+        if (currentRank >= 2 && !existingStatuses.has('in_transit')) {
+            inferred.push(mkRow(-1002, 'in_transit', 'En ruta a Monterrey, N.L.', d2.toISOString(),
+                { branch_id: null, branch_name: 'En tránsito', branch_code: null, warehouse_location: 'in_transit' }));
+        }
+        if (currentRank >= 3 && !existingStatuses.has('received_mty')) {
+            inferred.push(mkRow(-1003, 'received_mty', 'Recibido en CEDIS MTY',
+                pkg.status === 'received_mty' && pkg.updated_at ? pkg.updated_at : d3.toISOString(),
+                { branch_id: null, branch_name: 'CEDIS Monterrey', branch_code: 'MTY', warehouse_location: 'cedis_mty' }));
+        }
     }
 
     return inferred;
@@ -2483,7 +2478,7 @@ const buildPackageMovementsResponse = async (pkg: any) => {
             return {
                 ...row,
                 branch_id: null,
-                branch_name: 'En tránsito',
+                branch_name: isChina ? 'En tránsito desde China' : 'En tránsito',
                 branch_code: null,
                 warehouse_location: row.warehouse_location || 'in_transit',
             };
@@ -2496,6 +2491,27 @@ const buildPackageMovementsResponse = async (pkg: any) => {
                     branch_code: row.branch_code || 'MTY',
                     warehouse_location: row.warehouse_location || 'cedis_mty',
                 };
+            }
+        }
+        // China Air-specific statuses
+        if (isChina) {
+            if (row.status === 'received_origin' || row.status === 'received_china') {
+                return { ...row, branch_name: row.branch_name || 'Bodega China (Guangzhou)', branch_code: row.branch_code || 'CHN-GZ', warehouse_location: 'china_air' };
+            }
+            if (row.status === 'at_customs' || row.status === 'customs_mx') {
+                return { ...row, branch_name: row.branch_name || 'Aduana México', branch_code: 'ADN-MX', warehouse_location: 'customs_mx' };
+            }
+            if (row.status === 'customs' || row.status === 'processing') {
+                return { ...row, branch_name: row.branch_name || 'Bodega China (Guangzhou)', branch_code: 'CHN-GZ', warehouse_location: 'china_air' };
+            }
+            if (row.status === 'in_transit_mx' || row.status === 'in_transit_mty') {
+                return { ...row, branch_name: row.branch_name || 'En Ruta a Monterrey', branch_code: null, warehouse_location: 'in_transit' };
+            }
+            if (row.status === 'received_cedis') {
+                return { ...row, branch_name: row.branch_name || 'CEDIS Monterrey', branch_code: 'MTY', warehouse_location: 'cedis_mty' };
+            }
+            if (row.status === 'shipped') {
+                return { ...row, branch_name: row.branch_name || 'CEDIS Monterrey', branch_code: 'MTY', warehouse_location: 'cedis_mty' };
             }
         }
         return row;
