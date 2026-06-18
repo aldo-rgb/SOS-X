@@ -63,6 +63,8 @@ export default function ChartbackManagementPage() {
   });
   const [cargoTab, setCargoTab] = useState<'carga' | 'historial'>('carga');
   const [recoveringId, setRecoveringId] = useState<number | null>(null);
+  const [aleatoriaOpen, setAleatoriaOpen] = useState(false);
+  const [aleatoriaAdvisorIds, setAleatoriaAdvisorIds] = useState<Set<number>>(new Set());
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
@@ -120,8 +122,18 @@ export default function ChartbackManagementPage() {
     }
   };
 
-  const handleRandomAssign = async () => {
-    if (selected.size === 0 || recoveryAdvisors.length === 0) return;
+  const handleRandomAssign = async (advisorIdSet?: Set<number>) => {
+    if (selected.size === 0) return;
+
+    // Usar solo los asesores del modal (o todos los de recovery si no se especifica)
+    const pool = advisorIdSet
+      ? recoveryAdvisors.filter(a => advisorIdSet.has(a.id))
+      : recoveryAdvisors;
+
+    if (pool.length === 0) {
+      setError('Selecciona al menos un asesor para repartir');
+      return;
+    }
 
     // Solo repartir entre los clientes seleccionados que NO tienen asesor de recovery asignado
     const selectedClients = clients.filter(c => selected.has(c.id));
@@ -138,7 +150,7 @@ export default function ChartbackManagementPage() {
 
     // Reparto equitativo: barajar IDs y asignar por round-robin entre asesores
     const shuffled = [...unassignedIds].sort(() => Math.random() - 0.5);
-    const shuffledAdvisors = [...recoveryAdvisors].sort(() => Math.random() - 0.5);
+    const shuffledAdvisors = [...pool].sort(() => Math.random() - 0.5);
     const groups = new Map<number, number[]>();
     shuffled.forEach((id, i) => {
       const advisor = shuffledAdvisors[i % shuffledAdvisors.length];
@@ -298,14 +310,17 @@ export default function ChartbackManagementPage() {
             >
               Asignar
             </Button>
-            <Tooltip title={`Repartir aleatoriamente entre los ${recoveryAdvisors.length} asesores con Recovery activo`}>
+            <Tooltip title={`Elegir asesores para reparto aleatorio (${recoveryAdvisors.length} con Recovery activo)`}>
               <span>
                 <Button
                   variant="outlined"
                   size="small"
-                  startIcon={assigning ? <CircularProgress size={14} /> : <RandomIcon />}
-                  disabled={assigning || recoveryAdvisors.length === 0}
-                  onClick={handleRandomAssign}
+                  startIcon={<RandomIcon />}
+                  disabled={assigning || recoveryAdvisors.length === 0 || selected.size === 0}
+                  onClick={() => {
+                    setAleatoriaAdvisorIds(new Set(recoveryAdvisors.map(a => a.id)));
+                    setAleatoriaOpen(true);
+                  }}
                   sx={{ borderColor: '#7C3AED', color: '#7C3AED', '&:hover': { borderColor: '#6D28D9', bgcolor: '#F5F3FF' } }}
                 >
                   Aleatoria
@@ -697,6 +712,81 @@ export default function ChartbackManagementPage() {
             Marcar como Recuperado
           </Button>
           <Button onClick={() => setCargoModal(prev => ({ ...prev, open: false }))}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal selección de asesores para reparto aleatorio */}
+      <Dialog open={aleatoriaOpen} onClose={() => setAleatoriaOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <RandomIcon sx={{ color: '#7C3AED' }} />
+            <Typography fontWeight={700}>Reparto aleatorio</Typography>
+          </Box>
+          <IconButton size="small" onClick={() => setAleatoriaOpen(false)}><CloseIcon fontSize="small" /></IconButton>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Se repartirán <strong>{clients.filter(c => selected.has(c.id) && c.recovery_advisor_id == null).length}</strong> cliente(s) entre los asesores seleccionados. Desmarca los que no deban recibir clientes.
+          </Typography>
+          <Stack spacing={0.5}>
+            {recoveryAdvisors.map(a => (
+              <Box
+                key={a.id}
+                sx={{
+                  display: 'flex', alignItems: 'center', gap: 1,
+                  p: 1, borderRadius: 1,
+                  bgcolor: aleatoriaAdvisorIds.has(a.id) ? 'rgba(124,58,237,0.06)' : 'transparent',
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: 'rgba(124,58,237,0.1)' },
+                }}
+                onClick={() => setAleatoriaAdvisorIds(prev => {
+                  const next = new Set(prev);
+                  if (next.has(a.id)) next.delete(a.id);
+                  else next.add(a.id);
+                  return next;
+                })}
+              >
+                <Checkbox
+                  size="small"
+                  checked={aleatoriaAdvisorIds.has(a.id)}
+                  onChange={() => {}}
+                  sx={{ p: 0, color: '#7C3AED', '&.Mui-checked': { color: '#7C3AED' } }}
+                />
+                <Typography variant="body2" sx={{ fontWeight: aleatoriaAdvisorIds.has(a.id) ? 600 : 400 }}>
+                  {a.full_name}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+          <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+            <Button size="small" variant="text" sx={{ color: '#7C3AED', fontSize: 12 }}
+              onClick={() => setAleatoriaAdvisorIds(new Set(recoveryAdvisors.map(a => a.id)))}>
+              Seleccionar todos
+            </Button>
+            <Button size="small" variant="text" sx={{ color: 'text.secondary', fontSize: 12 }}
+              onClick={() => setAleatoriaAdvisorIds(new Set())}>
+              Limpiar
+            </Button>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+          <Button variant="outlined" onClick={() => setAleatoriaOpen(false)} size="small">
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={assigning ? <CircularProgress size={14} color="inherit" /> : <RandomIcon />}
+            disabled={aleatoriaAdvisorIds.size === 0 || assigning}
+            onClick={async () => {
+              setAleatoriaOpen(false);
+              await handleRandomAssign(aleatoriaAdvisorIds);
+            }}
+            sx={{ bgcolor: '#7C3AED', '&:hover': { bgcolor: '#6D28D9' } }}
+          >
+            Repartir entre {aleatoriaAdvisorIds.size} asesor(es)
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
