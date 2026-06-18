@@ -1117,20 +1117,81 @@ export async function pqtxClientQuote(req: Request, res: Response) {
     const quotations = respBody?.data?.quotations;
 
     if (!respBody?.success || !Array.isArray(quotations) || quotations.length === 0) {
-      // Si no hay cotización disponible, retornar precio fijo de fallback
-      console.log('[PQTX-CLIENT] Sin cotización disponible, usando fallback $400/caja');
-      return res.json({
-        success: true,
-        carrier: 'paquete_express',
-        name: 'Paquete Express',
-        pqtxQuote: null,
-        clientPrice: 400 * packageCount,
-        pricePerBox: 400,
-        packageCount,
-        currency: 'MXN',
-        rule: 'fallback',
-        estimatedDays: '2-4 días hábiles',
-      });
+      console.log(`[PQTX-CLIENT] Sin cobertura domicilio para ZIP=${destZipCode}, intentando Ocurre...`);
+
+      // Intentar Ocurre en CP exacto y luego en CPs cercanos
+      const ocurreShipments: Array<{ sequence: number; quantity: number; shpCode: string; weight: number; longShip: number; widthShip: number; highShip: number }> = [];
+      for (let i = 0; i < packageCount; i++) {
+        ocurreShipments.push({ sequence: i + 1, quantity: 1, shpCode: '2', weight, longShip: length, widthShip: width, highShip: height });
+      }
+      const ocurreUrl = `${PQTX_BASE_URL}/WsQuotePaquetexpress/api/apiQuoter/v2/getQuotation`;
+
+      const tryOcurre = async (zip: string) => {
+        const ocurreBody = {
+          header: {
+            security: { user: PQTX_QUOTE_USER, password: PQTX_QUOTE_PASSWORD, type: 1, token: PQTX_QUOTE_TOKEN },
+            device: { appName: 'EntregaX', type: 'Web', ip: '', idDevice: '' },
+            target: { module: 'QUOTER', version: '1.0', service: 'quoter', uri: 'quotes', event: 'R' },
+            output: 'JSON', language: null,
+          },
+          body: { request: { data: {
+            clientAddrOrig: { zipCode: PQTX_ORIGIN_ZIP, colonyName: 'CENTRO' },
+            clientAddrDest: { zipCode: zip, colonyName: 'CENTRO' },
+            services: { dlvyType: '2', ackType: 'N', totlDeclVlue: 1000, invType: 'A', radType: '1' },
+            otherServices: { otherServices: [] },
+            shipmentDetail: { shipments: ocurreShipments },
+            quoteServices: ['ALL'],
+          }, objectDTO: null }, response: null },
+        };
+        const r = await axios.post(ocurreUrl, ocurreBody, { headers: { 'Content-Type': 'application/json' }, timeout: 15000 });
+        const rb2 = r.data?.body?.response;
+        const q2 = rb2?.data?.quotations;
+        if (rb2?.success === true && Array.isArray(q2) && q2.length > 0) {
+          return { found: true, quotes: q2, destination: rb2.data?.clientAddrDest };
+        }
+        return { found: false };
+      };
+
+      // Exacto primero
+      try {
+        const exact = await tryOcurre(destZipCode);
+        if (exact.found) {
+          const cheapestO = exact.quotes!.reduce((mn: any, q: any) => {
+            return parseFloat(q.amount?.totalAmnt || q.totalAmnt || '0') < parseFloat(mn.amount?.totalAmnt || mn.totalAmnt || '0') ? q : mn;
+          }, exact.quotes![0]);
+          const oTotal = parseFloat(cheapestO.amount?.totalAmnt || cheapestO.totalAmnt || '0');
+          const pricePerBox = 400;
+          return res.json({ success: true, available: true, type: 'ocurre', nearestBranch: false, usedZip: destZipCode,
+            branch: exact.destination, pricePerBox, clientPrice: pricePerBox * packageCount, pqtxQuote: oTotal,
+            estimatedDays: cheapestO.dlvyEstDate || '2-4 días hábiles', packageCount });
+        }
+      } catch { /* continuar */ }
+
+      // Cercanos
+      const baseNum2 = parseInt(destZipCode, 10);
+      if (!isNaN(baseNum2)) {
+        for (const offset of [10, -10, 20, -20, 30, -30, 50, -50, 100, -100]) {
+          const candidateZip = String(baseNum2 + offset).padStart(5, '0');
+          try {
+            const r2 = await tryOcurre(candidateZip);
+            if (r2.found) {
+              const cheapestO = r2.quotes!.reduce((mn: any, q: any) => {
+                return parseFloat(q.amount?.totalAmnt || q.totalAmnt || '0') < parseFloat(mn.amount?.totalAmnt || mn.totalAmnt || '0') ? q : mn;
+              }, r2.quotes![0]);
+              const oTotal = parseFloat(cheapestO.amount?.totalAmnt || cheapestO.totalAmnt || '0');
+              const pricePerBox = 400;
+              return res.json({ success: true, available: true, type: 'ocurre', nearestBranch: true,
+                usedZip: candidateZip, originalZip: destZipCode, branch: r2.destination,
+                pricePerBox, clientPrice: pricePerBox * packageCount, pqtxQuote: oTotal,
+                estimatedDays: cheapestO.dlvyEstDate || '2-4 días hábiles', packageCount });
+            }
+          } catch { /* ignorar */ }
+        }
+      }
+
+      // Sin cobertura en ningún CP cercano
+      console.log(`[PQTX-CLIENT] Sin cobertura domicilio ni Ocurre para ZIP=${destZipCode}`);
+      return res.json({ success: true, available: false, noCoverage: true, carrier: 'paquete_express', destZipCode });
     }
 
     // Tomar la cotización más económica (terrestre normalmente)
@@ -1157,6 +1218,8 @@ export async function pqtxClientQuote(req: Request, res: Response) {
 
     res.json({
       success: true,
+      available: true,
+      type: 'domicilio',
       carrier: 'paquete_express',
       name: 'Paquete Express',
       pqtxQuote: pqtxTotal,
@@ -1171,10 +1234,11 @@ export async function pqtxClientQuote(req: Request, res: Response) {
 
   } catch (error: any) {
     console.error('[PQTX-CLIENT] Error en cotización:', error.message);
-    // En caso de error de API, retornar precio fijo de fallback
     const fallbackCount = req.body?.packageCount || 1;
     res.json({
       success: true,
+      available: true,
+      type: 'domicilio',
       carrier: 'paquete_express',
       name: 'Paquete Express',
       pqtxQuote: null,

@@ -642,6 +642,8 @@ export default function DashboardClient() {
   const [deliveryNotes, setDeliveryNotes] = useState<string>('');
   const [applyToFullShipment, setApplyToFullShipment] = useState<boolean>(true);
   const [pqtxQuoteLoading, setPqtxQuoteLoading] = useState<boolean>(false);
+  const [pqtxNoCoverage, setPqtxNoCoverage] = useState<boolean>(false);
+  const [pqtxOcurreInfo, setPqtxOcurreInfo] = useState<{ usedZip: string; nearestBranch: boolean; branch?: { zipCode?: string; cityName?: string; colonyName?: string } } | null>(null);
   const [boxBreakdownOpen, setBoxBreakdownOpen] = useState<Record<number, boolean>>({});
   // Por cobrar (collect) carrier states
   const [selectedCollectCarrier, setSelectedCollectCarrier] = useState<string>('');
@@ -1079,7 +1081,9 @@ export default function DashboardClient() {
     const packageCount = selected.reduce((sum, p) => sum + (p.total_boxes && p.total_boxes > 1 ? p.total_boxes : 1), 0);
 
     const fetchPqtxQuote = async () => {
-      // Reset price to loading state
+      // Reset state
+      setPqtxNoCoverage(false);
+      setPqtxOcurreInfo(null);
       setCarrierServices(prev => prev.map(s =>
         s.isDynamic ? { ...s, price: 'API' } : s
       ));
@@ -1099,7 +1103,23 @@ export default function DashboardClient() {
           }),
         });
         const data = await res.json();
-        if (data.success && (data.pricePerBox || data.clientPrice)) {
+        if (data.available === false || data.noCoverage === true) {
+          setPqtxNoCoverage(true);
+          setCarrierServices(prev => prev.map(s =>
+            s.isDynamic ? { ...s, price: '—' } : s
+          ));
+          setSelectedCarrierService(prev =>
+            prev === 'paquete_express' || prev === 'paquete_express_pc' ? '' : prev
+          );
+        } else if (data.success && data.type === 'ocurre') {
+          const perBox = data.pricePerBox || 400;
+          setPqtxOcurreInfo({ usedZip: data.usedZip, nearestBranch: data.nearestBranch, branch: data.branch });
+          setCarrierServices(prev => prev.map(s =>
+            s.isDynamic
+              ? { ...s, price: `$${perBox.toLocaleString('es-MX')}`, subtext: data.estimatedDays || s.subtext, isTotalPrice: false }
+              : s
+          ));
+        } else if (data.success && (data.pricePerBox || data.clientPrice)) {
           const perBox = data.pricePerBox || data.clientPrice;
           setCarrierServices(prev => prev.map(s =>
             s.isDynamic
@@ -1107,7 +1127,6 @@ export default function DashboardClient() {
               : s
           ));
         } else {
-          // Fallback: mostrar "Cotizar"
           setCarrierServices(prev => prev.map(s =>
             s.isDynamic && s.price === 'API' ? { ...s, price: 'Cotizar' } : s
           ));
@@ -9645,17 +9664,19 @@ export default function DashboardClient() {
                       <FormControlLabel
                         key={service.id}
                         value={service.id}
+                        disabled={!!(service.isDynamic && pqtxNoCoverage)}
                         control={<Radio color="primary" />}
                         label={
-                          <Paper 
+                          <Paper
                             elevation={selectedCarrierService === service.id ? 2 : 0}
-                            sx={{ 
-                              p: isMobile ? 1.5 : 2, 
-                              bgcolor: selectedCarrierService === service.id ? 'primary.50' : 'transparent',
-                              border: selectedCarrierService === service.id ? `2px solid ${ORANGE}` : '1px solid #eee',
+                            sx={{
+                              p: isMobile ? 1.5 : 2,
+                              bgcolor: service.isDynamic && pqtxNoCoverage ? '#fafafa' : selectedCarrierService === service.id ? 'primary.50' : 'transparent',
+                              border: service.isDynamic && pqtxNoCoverage ? '1px solid #e0e0e0' : selectedCarrierService === service.id ? `2px solid ${ORANGE}` : '1px solid #eee',
                               borderRadius: 2,
                               width: '100%',
                               minHeight: isMobile ? 70 : 90,
+                              opacity: service.isDynamic && pqtxNoCoverage ? 0.7 : 1,
                             }}
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: isMobile ? 1 : 2 }}>
@@ -9730,6 +9751,34 @@ export default function DashboardClient() {
                                 })()}
                               </Box>
                             </Box>
+                            {/* Ocurre branch info when no domicilio coverage */}
+                            {service.isDynamic && pqtxOcurreInfo && !pqtxNoCoverage && (
+                              <Box sx={{ mt: 1, p: 1, bgcolor: '#E3F2FD', borderRadius: 1, fontSize: 12 }}>
+                                <Typography variant="caption" color="#1565C0" fontWeight="bold" display="block">
+                                  📦 Entrega en Sucursal Ocurre {pqtxOcurreInfo.nearestBranch ? `(CP ${pqtxOcurreInfo.usedZip} — sucursal más cercana)` : `(CP ${pqtxOcurreInfo.usedZip})`}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                  Sin entrega a domicilio en tu CP. El destinatario recoge en sucursal.{' '}
+                                  <a href="https://www.paquetexpress.com.mx/sucursales" target="_blank" rel="noopener noreferrer" style={{ color: '#1565C0' }}>
+                                    Ver dirección de sucursal →
+                                  </a>
+                                </Typography>
+                              </Box>
+                            )}
+                            {/* No coverage at all */}
+                            {service.isDynamic && pqtxNoCoverage && !pqtxQuoteLoading && (
+                              <Box sx={{ mt: 1, p: 1, bgcolor: '#FFF3E0', borderRadius: 1, border: '1px solid #FFB74D' }}>
+                                <Typography variant="caption" color="#E65100" fontWeight="bold" display="block">
+                                  🚫 Zona Fuera de Cobertura
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                  Paquete Express no tiene cobertura a domicilio ni sucursal Ocurre cercana para tu CP.{' '}
+                                  <a href="https://www.paquetexpress.com.mx/sucursales" target="_blank" rel="noopener noreferrer" style={{ color: '#E65100' }}>
+                                    Buscar sucursal manualmente →
+                                  </a>
+                                </Typography>
+                              </Box>
+                            )}
                           </Paper>
                         }
                         sx={{ m: 0, mb: 1, alignItems: 'flex-start', width: '100%', '& .MuiFormControlLabel-label': { width: '100%' } }}
