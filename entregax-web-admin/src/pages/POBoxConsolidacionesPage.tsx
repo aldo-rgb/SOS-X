@@ -444,7 +444,7 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
   return (
     <Box>
       {/* Encabezado + botón volver */}
-      <Box display="flex" alignItems="center" gap={1} mb={2}>
+      <Box display="flex" alignItems="center" gap={1} mb={2} flexWrap="wrap">
         <Button
           startIcon={<ArrowBackIcon />}
           size="small"
@@ -453,9 +453,30 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
         >
           Cambiar proveedor
         </Button>
-        <Typography variant="h6" fontWeight="bold">
+        <Typography variant="h6" fontWeight="bold" sx={{ mr: 'auto' }}>
           Pagos pendientes — {proveedorSel?.name}
         </Typography>
+        <Button
+          variant="outlined"
+          color="secondary"
+          startIcon={<ListAltIcon />}
+          onClick={handleVerReferencias}
+        >
+          Ver Referencias
+        </Button>
+        <Tooltip title={selected.size === 0 ? 'Selecciona al menos una guía' : ''}>
+          <span>
+            <Button
+              variant="contained"
+              color="warning"
+              startIcon={creandoRef ? <CircularProgress size={16} color="inherit" /> : <AddCircleOutlineIcon />}
+              onClick={handleGenerarReferencia}
+              disabled={selected.size === 0 || creandoRef}
+            >
+              Generar Referencia ({selected.size})
+            </Button>
+          </span>
+        </Tooltip>
       </Box>
 
       {/* Filtros */}
@@ -615,33 +636,10 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
           })()}
 
           {/* Barra inferior */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1 }}>
             <Typography variant="body2" color={selected.size > 0 ? 'primary.main' : 'text.secondary'} fontWeight={selected.size > 0 ? 'bold' : 'normal'}>
               {selected.size === 0 ? 'Selecciona guías para generar reporte o referencia' : `${selected.size} guía(s) seleccionada(s)`}
             </Typography>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <Button
-                variant="outlined"
-                color="secondary"
-                startIcon={<ListAltIcon />}
-                onClick={handleVerReferencias}
-              >
-                Ver Referencias
-              </Button>
-              <Tooltip title={selected.size === 0 ? 'Selecciona al menos una guía' : ''}>
-                <span>
-                  <Button
-                    variant="contained"
-                    color="warning"
-                    startIcon={creandoRef ? <CircularProgress size={16} color="inherit" /> : <AddCircleOutlineIcon />}
-                    onClick={handleGenerarReferencia}
-                    disabled={selected.size === 0 || creandoRef}
-                  >
-                    Generar Referencia ({selected.size})
-                  </Button>
-                </span>
-              </Tooltip>
-            </Box>
           </Box>
         </Box>
       )}
