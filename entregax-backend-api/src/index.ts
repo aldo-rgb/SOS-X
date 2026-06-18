@@ -1176,7 +1176,9 @@ import {
   actualizarCarteraVencida,
   sincronizarCartera,
   // Abandono
-  getAbandonosListosProceso
+  getAbandonosListosProceso,
+  // Reasignación de cliente
+  reassignPackageClient
 } from './customerServiceController';
 import {
   getAllLegalDocuments,
@@ -11715,6 +11717,7 @@ app.delete('/api/cs/ajustes/:id', authenticateToken, deleteAjuste);
 app.get('/api/cs/cartera/dashboard', authenticateToken, getCarteraDashboard);
 app.get('/api/cs/cartera/cliente/:clienteId', authenticateToken, getCarteraCliente);
 app.get('/api/cs/cartera/buscar', authenticateToken, searchGuiasCS);
+app.patch('/api/cs/cartera/reasignar', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), reassignPackageClient);
 
 // Resumen Financiero de Guía
 app.get('/api/cs/guia/:servicio/:tracking/resumen', authenticateToken, getResumenFinancieroGuia);

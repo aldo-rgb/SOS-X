@@ -198,6 +198,37 @@ export default function CarteraVencidaPage() {
   const [lostLoading, setLostLoading] = useState(false);
   const [lostSearch, setLostSearch] = useState('');
 
+  // Edición inline de cliente en Buscar Guías
+  const [editingBoxIdx, setEditingBoxIdx] = useState<number | null>(null);
+  const [editingBoxValue, setEditingBoxValue] = useState('');
+  const [reassignLoading, setReassignLoading] = useState(false);
+
+  const handleReassign = async (guia: CarteraItem, idx: number) => {
+    const newBox = editingBoxValue.trim().toUpperCase();
+    if (!newBox || newBox === (guia.cliente_box || '').toUpperCase()) {
+      setEditingBoxIdx(null);
+      return;
+    }
+    setReassignLoading(true);
+    try {
+      const res = await api.patch('/cs/cartera/reasignar', {
+        id: guia.id,
+        source_type: guia.source_type,
+        new_box_id: newBox,
+      });
+      setSnackbar({ open: true, message: `✅ Reasignado a ${res.data.cliente?.nombre} (${res.data.cliente?.box_id})`, severity: 'success' });
+      setGuias((prev) => prev.map((g, i) => i === idx
+        ? { ...g, cliente_box: res.data.cliente?.box_id, cliente_nombre: res.data.cliente?.nombre }
+        : g
+      ));
+      setEditingBoxIdx(null);
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err?.response?.data?.error || 'Error al reasignar', severity: 'error' });
+    } finally {
+      setReassignLoading(false);
+    }
+  };
+
   // Estado para tab "Revertir Instrucciones"
   const [revertSearchTracking, setRevertSearchTracking] = useState('');
   const [revertSearchLoading, setRevertSearchLoading] = useState(false);
@@ -674,13 +705,41 @@ export default function CarteraVencidaPage() {
                     <TableCell>
                       <Chip size="small" label={SERVICE_LABELS[guia.servicio] || guia.servicio} />
                     </TableCell>
-                    <TableCell>
-                      {guia.cliente_box && (
-                        <Typography variant="caption" fontWeight={700} color="primary.main">
-                          📦 {guia.cliente_box}
-                        </Typography>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      {editingBoxIdx === idx ? (
+                        <TextField
+                          size="small"
+                          autoFocus
+                          value={editingBoxValue}
+                          onChange={(e) => setEditingBoxValue(e.target.value.toUpperCase())}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleReassign(guia, idx);
+                            if (e.key === 'Escape') setEditingBoxIdx(null);
+                          }}
+                          onBlur={() => setEditingBoxIdx(null)}
+                          disabled={reassignLoading}
+                          sx={{ width: 90 }}
+                          inputProps={{ style: { fontWeight: 700, fontSize: 12 } }}
+                          placeholder="Ej: S250"
+                        />
+                      ) : (
+                        <Tooltip title="Click para cambiar cliente">
+                          <Box
+                            sx={{ cursor: 'pointer', display: 'inline-block' }}
+                            onClick={() => {
+                              setEditingBoxIdx(idx);
+                              setEditingBoxValue(guia.cliente_box || '');
+                            }}
+                          >
+                            {guia.cliente_box && (
+                              <Typography variant="caption" fontWeight={700} color="primary.main" sx={{ display: 'block' }}>
+                                📦 {guia.cliente_box}
+                              </Typography>
+                            )}
+                            <Typography variant="body2">{guia.cliente_nombre || 'Sin nombre'}</Typography>
+                          </Box>
+                        </Tooltip>
                       )}
-                      <Typography variant="body2">{guia.cliente_nombre || 'Sin nombre'}</Typography>
                     </TableCell>
                     <TableCell align="center">
                       <Chip 

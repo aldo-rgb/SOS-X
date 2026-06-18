@@ -1541,3 +1541,37 @@ export const getAbandonosListosProceso = async (_req: Request, res: Response) =>
     res.status(500).json({ success: false, error: error.message, count: 0, items: [] });
   }
 };
+
+// ========== REASIGNAR CLIENTE A GUÍA ==========
+export const reassignPackageClient = async (req: Request, res: Response) => {
+  const { id, source_type, new_box_id } = req.body;
+  if (!id || !source_type || !new_box_id) {
+    return res.status(400).json({ error: 'id, source_type y new_box_id son requeridos' });
+  }
+
+  try {
+    const userRes = await pool.query(
+      `SELECT id, full_name, box_id FROM users WHERE UPPER(TRIM(box_id)) = UPPER(TRIM($1)) LIMIT 1`,
+      [new_box_id]
+    );
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ error: `No se encontró cliente con número ${new_box_id}` });
+    }
+    const newUser = userRes.rows[0];
+
+    if (source_type === 'package') {
+      await pool.query(`UPDATE packages SET user_id = $1, box_id = $2 WHERE id = $3`, [newUser.id, newUser.box_id, id]);
+    } else if (source_type === 'china_receipt') {
+      await pool.query(`UPDATE china_receipts SET user_id = $1, shipping_mark = $2 WHERE id = $3`, [newUser.id, newUser.box_id, id]);
+    } else if (source_type === 'maritime_order') {
+      await pool.query(`UPDATE maritime_orders SET user_id = $1, shipping_mark = $2 WHERE id = $3`, [newUser.id, newUser.box_id, id]);
+    } else {
+      return res.status(400).json({ error: `Tipo de fuente no soportado: ${source_type}` });
+    }
+
+    return res.json({ success: true, cliente: { id: newUser.id, nombre: newUser.full_name, box_id: newUser.box_id } });
+  } catch (error: any) {
+    console.error('Error reassignPackageClient:', error);
+    return res.status(500).json({ error: error.message });
+  }
+};
