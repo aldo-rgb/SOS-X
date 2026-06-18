@@ -1452,7 +1452,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                   return true;
                 })
                 .map((carrier) => {
-                const isPqtx = carrier.id === 'paquete_express' || carrier.id === 'paquete_express_pc';
+                const isPqtx = carrier.id === 'paquete_express';
                 const isDisabled = isPqtx && pqtxNoCoverage;
                 return (
                   <TouchableOpacity
