@@ -231,12 +231,101 @@ export async function pqtxQuote(req: Request, res: Response) {
     } else {
       res.status(400).json({
         success: false,
-        error: respBody?.messages || response.data?.header?.desTrans || 'Error en cotización',
+        error: normalizePqtxMessages(respBody?.messages) || response.data?.header?.desTrans || 'Error en cotización',
         raw: response.data,
       });
     }
   } catch (error: any) {
     console.error('Error en PQTX cotización:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+}
+
+// ============================================
+// HELPER: Normalizar mensajes de error PQTX a string
+// ============================================
+function normalizePqtxMessages(m: any): string | null {
+  if (!m) return null;
+  if (typeof m === 'string') return m;
+  if (Array.isArray(m)) return m.map((x: any) => (typeof x === 'string' ? x : x?.description || x?.message || JSON.stringify(x))).join(' | ');
+  return String(m);
+}
+
+// ============================================
+// POST /api/admin/paquete-express/ocurre-quote
+// Cotiza el envío como Ocurre (entrega en sucursal) cuando no hay cobertura a domicilio
+// ============================================
+export async function pqtxOcurreQuote(req: Request, res: Response) {
+  try {
+    const {
+      originZipCode,
+      originColony = 'CENTRO',
+      destZipCode,
+      destColony = 'CENTRO',
+      packages = [],
+      declaredValue = 1000,
+    } = req.body;
+
+    if (!originZipCode || !destZipCode || packages.length === 0) {
+      return res.status(400).json({ success: false, error: 'Se requiere CP origen, CP destino y al menos un paquete' });
+    }
+
+    const shipments = packages.map((pkg: any, idx: number) => ({
+      sequence: idx + 1,
+      quantity: pkg.quantity || 1,
+      shpCode: pkg.shpCode || '2',
+      weight: pkg.weight || 1,
+      longShip: pkg.length || 30,
+      widthShip: pkg.width || 30,
+      highShip: pkg.height || 30,
+    }));
+
+    const url = `${PQTX_BASE_URL}/WsQuotePaquetexpress/api/apiQuoter/v2/getQuotation`;
+    const body = {
+      header: {
+        security: { user: PQTX_QUOTE_USER, password: PQTX_QUOTE_PASSWORD, type: 1, token: PQTX_QUOTE_TOKEN },
+        device: { appName: 'EntregaX', type: 'Web', ip: '', idDevice: '' },
+        target: { module: 'QUOTER', version: '1.0', service: 'quoter', uri: 'quotes', event: 'R' },
+        output: 'JSON',
+        language: null,
+      },
+      body: {
+        request: {
+          data: {
+            clientAddrOrig: { zipCode: originZipCode, colonyName: originColony },
+            clientAddrDest: { zipCode: destZipCode, colonyName: destColony },
+            services: { dlvyType: '2', ackType: 'N', totlDeclVlue: declaredValue, invType: 'A', radType: '1' },
+            otherServices: { otherServices: [] },
+            shipmentDetail: { shipments },
+            quoteServices: ['ALL'],
+          },
+          objectDTO: null,
+        },
+        response: null,
+      },
+    };
+
+    const response = await axios.post(url, body, { headers: { 'Content-Type': 'application/json' }, timeout: 20000 });
+    const respBody = response.data?.body?.response;
+    const quotations = respBody?.data?.quotations;
+
+    if (respBody?.success === true && Array.isArray(quotations) && quotations.length > 0) {
+      res.json({
+        success: true,
+        available: true,
+        quotes: quotations,
+        origin: respBody.data?.clientAddrOrig,
+        destination: respBody.data?.clientAddrDest,
+      });
+    } else {
+      res.json({
+        success: true,
+        available: false,
+        error: normalizePqtxMessages(respBody?.messages) || 'Sin cobertura Ocurre para este código postal',
+      });
+    }
+  } catch (error: any) {
+    console.error('Error en PQTX ocurre-quote:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 }

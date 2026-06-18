@@ -617,7 +617,8 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
                 window.open(`${baseUrl}/admin/paquete-express/label/pdf/${tn}`, '_blank');
                 await handleSearch();
             } else {
-                setError(res.data?.error || 'No se pudo generar la guía');
+                const rawErr = res.data?.error;
+                setError(typeof rawErr === 'string' ? rawErr : rawErr ? JSON.stringify(rawErr) : 'No se pudo generar la guía');
             }
         } catch (e: any) {
             const data = e.response?.data;
@@ -627,7 +628,8 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
                 await loadDimsBoxes(shipment.master.id);
                 setDimsError(`Faltan medidas en ${data.missing?.length || '?'} caja(s)`);
             } else {
-                setError(data?.error || e.message || 'Error generando guía marítima');
+                const rawErr = data?.error;
+                setError(typeof rawErr === 'string' ? rawErr : rawErr ? JSON.stringify(rawErr) : (e.message || 'Error generando guía marítima'));
             }
         } finally {
             setGeneratingPqtx(false);
@@ -867,7 +869,8 @@ ${labelsHtml}
                 setError('Paquete no encontrado');
             }
         } catch (e: any) {
-            setError(e.response?.data?.error || e.message || 'Error al buscar paquete');
+            const rawErr = e.response?.data?.error;
+            setError(typeof rawErr === 'string' ? rawErr : rawErr ? JSON.stringify(rawErr) : (e.message || 'Error al buscar paquete'));
         } finally {
             setLoading(false);
         }

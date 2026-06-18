@@ -292,10 +292,68 @@ function ConfigTab({ token }: { token: string | null }) {
 // ============================================
 // TAB 1: COTIZADOR
 // ============================================
+// Normaliza cualquier valor de error a string para evitar crash de React
+function normalizeErrorMsg(e: unknown): string {
+  if (!e) return '';
+  if (typeof e === 'string') return e;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (Array.isArray(e)) return (e as any[]).map((x: any) => (typeof x === 'string' ? x : x?.description || x?.message || JSON.stringify(x))).join(' | ');
+  return String(e);
+}
+
+// Tabla de cotizaciones reutilizable (domicilio u Ocurre)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function QuoteTable({ quotes }: { quotes: any[] }) {
+  return (
+    <TableContainer>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell sx={{ fontWeight: 'bold' }}>Servicio</TableCell>
+            <TableCell sx={{ fontWeight: 'bold' }}>Nombre</TableCell>
+            <TableCell sx={{ fontWeight: 'bold' }}>Entrega Estimada</TableCell>
+            <TableCell sx={{ fontWeight: 'bold' }} align="right">Flete</TableCell>
+            <TableCell sx={{ fontWeight: 'bold' }} align="right">Subtotal</TableCell>
+            <TableCell sx={{ fontWeight: 'bold' }} align="right">IVA</TableCell>
+            <TableCell sx={{ fontWeight: 'bold' }} align="right">Total</TableCell>
+            <TableCell sx={{ fontWeight: 'bold' }}>Días</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {quotes.map((q: any, i: number) => {
+            const amt = q.amount || {};
+            return (
+              <TableRow key={i} hover>
+                <TableCell><Chip label={q.id || q.serviceType || 'N/A'} size="small" color="primary" /></TableCell>
+                <TableCell>{q.serviceName || '-'}</TableCell>
+                <TableCell sx={{ fontSize: 12 }}>{q.serviceInfoDescr || q.promiseDate || '-'}</TableCell>
+                <TableCell align="right">${Number(amt.shpAmnt || 0).toFixed(2)}</TableCell>
+                <TableCell align="right">${Number(amt.subTotlAmnt || 0).toFixed(2)}</TableCell>
+                <TableCell align="right">${Number(amt.taxAmnt || 0).toFixed(2)}</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 'bold', color: PQTX_COLOR }}>
+                  ${Number(amt.totalAmnt || 0).toFixed(2)}
+                </TableCell>
+                <TableCell>
+                  <Chip label={`${q.promiseDateDaysQty ?? '?'} día${q.promiseDateDaysQty !== 1 ? 's' : ''}`}
+                    size="small" color={q.promiseDateDaysQty === 0 ? 'success' : q.promiseDateDaysQty <= 1 ? 'info' : 'default'} variant="outlined" />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+}
+
 function QuoteTab({ token }: { token: string | null }) {
   const [loading, setLoading] = useState(false);
+  const [loadingOcurre, setLoadingOcurre] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [result, setResult] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [ocurreResult, setOcurreResult] = useState<any>(null);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     originZipCode: '81200', originColony: 'CENTRO',
@@ -304,8 +362,32 @@ function QuoteTab({ token }: { token: string | null }) {
     quantity: '1', declaredValue: '1000',
   });
 
+  const buildPackages = () => [{ weight: Number(form.weight), length: Number(form.length), width: Number(form.width), height: Number(form.height), quantity: Number(form.quantity) }];
+
+  const handleOcurreQuote = async () => {
+    setLoadingOcurre(true); setOcurreResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/paquete-express/ocurre-quote`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          originZipCode: form.originZipCode, originColony: form.originColony,
+          destZipCode: form.destZipCode, destColony: form.destColony,
+          declaredValue: Number(form.declaredValue),
+          packages: buildPackages(),
+        }),
+      });
+      const data = await res.json();
+      setOcurreResult(data);
+    } catch (err) {
+      setOcurreResult({ success: false, available: false, error: String(err) });
+    } finally {
+      setLoadingOcurre(false);
+    }
+  };
+
   const handleQuote = async () => {
-    setLoading(true); setError(''); setResult(null);
+    setLoading(true); setError(''); setResult(null); setOcurreResult(null);
     try {
       const res = await fetch(`${API_URL}/api/admin/paquete-express/quote`, {
         method: 'POST',
@@ -314,11 +396,20 @@ function QuoteTab({ token }: { token: string | null }) {
           originZipCode: form.originZipCode, originColony: form.originColony,
           destZipCode: form.destZipCode, destColony: form.destColony,
           declaredValue: Number(form.declaredValue),
-          packages: [{ weight: Number(form.weight), length: Number(form.length), width: Number(form.width), height: Number(form.height), quantity: Number(form.quantity) }],
+          packages: buildPackages(),
         }),
       });
       const data = await res.json();
-      if (data.success) setResult(data); else setError(data.error || 'Error en cotización');
+      if (data.success) {
+        setResult(data);
+      } else {
+        const errMsg = normalizeErrorMsg(data.error) || 'Error en cotización';
+        setError(errMsg);
+        // Sin cobertura a domicilio → buscar sucursal Ocurre automáticamente
+        if (errMsg.toLowerCase().includes('cobertura') || errMsg.toLowerCase().includes('postal')) {
+          handleOcurreQuote();
+        }
+      }
     } catch (err) { setError(String(err)); } finally { setLoading(false); }
   };
 
@@ -364,69 +455,71 @@ function QuoteTab({ token }: { token: string | null }) {
               onChange={e => setForm({ ...form, declaredValue: e.target.value })} />
           </Box>
 
-          <Box sx={{ mt: 2 }}>
+          <Box sx={{ mt: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
             <Button variant="contained" onClick={handleQuote}
               startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <CalculateIcon />}
-              disabled={loading} sx={{ bgcolor: PQTX_COLOR, '&:hover': { bgcolor: '#BF360C' } }}>
+              disabled={loading || loadingOcurre} sx={{ bgcolor: PQTX_COLOR, '&:hover': { bgcolor: '#BF360C' } }}>
               Cotizar
+            </Button>
+            <Button variant="outlined" onClick={handleOcurreQuote}
+              startIcon={loadingOcurre ? <CircularProgress size={16} /> : <ShippingIcon />}
+              disabled={loading || loadingOcurre}
+              sx={{ borderColor: PQTX_COLOR, color: PQTX_COLOR }}>
+              Cotizar Ocurre
             </Button>
           </Box>
         </CardContent>
       </Card>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <strong>Sin cobertura a domicilio:</strong> {error}
+          {loadingOcurre && <Box sx={{ mt: 1 }}>Buscando sucursales Ocurre disponibles...</Box>}
+        </Alert>
+      )}
 
+      {/* Resultados cotización a domicilio */}
       {result && (
-        <Card sx={{ border: '1px solid #e0e0e0' }}>
+        <Card sx={{ border: '1px solid #e0e0e0', mb: 2 }}>
           <CardContent>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>💰 Resultados de Cotización</Typography>
+            <Typography variant="h6" fontWeight="bold" gutterBottom>💰 Cotización a Domicilio</Typography>
             <Divider sx={{ my: 1 }} />
             {Array.isArray(result.quotes) && result.quotes.length > 0 ? (
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 'bold' }}>Servicio</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }}>Nombre</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }}>Entrega Estimada</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Flete</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Servicios</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Subtotal</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }} align="right">IVA</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Total</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }}>Días</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                    {result.quotes.map((q: any, i: number) => {
-                      const amt = q.amount || {};
-                      return (
-                        <TableRow key={i} hover>
-                          <TableCell><Chip label={q.id || q.serviceType || 'N/A'} size="small" color="primary" /></TableCell>
-                          <TableCell>{q.serviceName || '-'}</TableCell>
-                          <TableCell sx={{ fontSize: 12 }}>{q.serviceInfoDescr || q.promiseDate || '-'}</TableCell>
-                          <TableCell align="right">${Number(amt.shpAmnt || 0).toFixed(2)}</TableCell>
-                          <TableCell align="right">${Number(amt.srvcAmnt || 0).toFixed(2)}</TableCell>
-                          <TableCell align="right">${Number(amt.subTotlAmnt || 0).toFixed(2)}</TableCell>
-                          <TableCell align="right">${Number(amt.taxAmnt || 0).toFixed(2)}</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold', color: PQTX_COLOR }}>
-                            ${Number(amt.totalAmnt || 0).toFixed(2)}
-                          </TableCell>
-                          <TableCell>
-                            <Chip label={`${q.promiseDateDaysQty ?? '?'} día${q.promiseDateDaysQty !== 1 ? 's' : ''}`}
-                              size="small" color={q.promiseDateDaysQty === 0 ? 'success' : q.promiseDateDaysQty <= 1 ? 'info' : 'default'} variant="outlined" />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+              <QuoteTable quotes={result.quotes} />
             ) : (
               <Box component="pre" sx={{ mt: 1, p: 2, bgcolor: '#f5f5f5', borderRadius: 1, overflow: 'auto', maxHeight: 400, fontSize: 12, fontFamily: 'monospace' }}>
                 {JSON.stringify(result.raw || result, null, 2)}
               </Box>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Resultados cotización Ocurre (sucursal) */}
+      {loadingOcurre && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <CircularProgress size={18} />
+          <Typography variant="body2" color="text.secondary">Consultando sucursales Ocurre para CP {form.destZipCode}...</Typography>
+        </Box>
+      )}
+      {ocurreResult && (
+        <Card sx={{ border: `2px solid ${ocurreResult.available ? '#2E7D32' : '#e0e0e0'}`, mb: 2 }}>
+          <CardContent>
+            {ocurreResult.available ? (
+              <>
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  <strong>Servicio Ocurre disponible</strong> — el destinatario recoge el paquete en la sucursal Paquete Express más cercana al CP {form.destZipCode}.
+                  Para conocer la dirección exacta de la sucursal, consulta{' '}
+                  <a href="https://www.paquetexpress.com.mx/sucursales" target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>paquetexpress.com.mx/sucursales</a>.
+                </Alert>
+                <Typography variant="h6" fontWeight="bold" gutterBottom>🏪 Cotización Ocurre (entrega en sucursal)</Typography>
+                <Divider sx={{ my: 1 }} />
+                <QuoteTable quotes={ocurreResult.quotes} />
+              </>
+            ) : (
+              <Alert severity="warning">
+                Sin cobertura Ocurre para CP {form.destZipCode}: {normalizeErrorMsg(ocurreResult.error) || 'No hay servicio disponible para este código postal'}
+              </Alert>
             )}
           </CardContent>
         </Card>

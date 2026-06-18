@@ -1041,6 +1041,7 @@ import {
   pqtxListShipments,
   pqtxClientQuote,
   pqtxGenerateForPackage,
+  pqtxOcurreQuote,
 } from './paqueteExpressController';
 import {
   getMaritimeOrderBoxes,
@@ -5474,6 +5475,7 @@ app.get('/api/admin/last-mile/reprint/:id', authenticateToken, requireMinLevel(R
 app.get('/api/admin/paquete-express/config', authenticateToken, requireMinLevel(ROLES.ADMIN), pqtxGetConfig);
 app.post('/api/admin/paquete-express/login', authenticateToken, requireMinLevel(ROLES.ADMIN), pqtxLogin);
 app.post('/api/admin/paquete-express/quote', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxQuote);
+app.post('/api/admin/paquete-express/ocurre-quote', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxOcurreQuote);
 app.post('/api/admin/paquete-express/shipment', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxCreateShipment);
 app.post('/api/admin/paquete-express/pickup', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxSchedulePickup);
 app.post('/api/admin/paquete-express/cancel', authenticateToken, requireMinLevel(ROLES.ADMIN), pqtxCancel);
