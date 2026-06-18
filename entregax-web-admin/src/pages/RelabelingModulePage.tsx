@@ -1651,7 +1651,8 @@ ${labelsHtml}
                             const visibleLabels = masterMulti
                                 ? shipment.labels.filter(l => l.isMaster)
                                 : shipment.labels;
-                            return visibleLabels.map((label, idx) => (
+                            const isLabeled = !!(shipment.master.nationalLabelUrl || shipment.master.nationalTracking);
+                        return visibleLabels.map((label, idx) => (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }} key={idx}>
                                 <Paper
                                     variant="outlined"
@@ -1661,18 +1662,23 @@ ${labelsHtml}
                                         display: 'flex',
                                         flexDirection: 'column',
                                         transition: 'all 0.2s',
+                                        borderColor: isLabeled ? '#2E7D32' : undefined,
                                         '&:hover': { borderColor: '#F05A28', boxShadow: 2 },
                                     }}
                                 >
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
                                         <LocalShippingIcon sx={{ color: '#F05A28' }} />
-                                        <Typography variant="body2" fontWeight={700}>
+                                        <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>
                                             {label.isMaster
                                                 ? 'Master'
                                                 : label.totalBoxes > 1
                                                     ? `Reimprimir Etiqueta Origen — Caja ${label.boxNumber} de ${label.totalBoxes}`
                                                     : 'Reimprimir Etiqueta Origen'}
                                         </Typography>
+                                        {isLabeled
+                                            ? <Chip label="✅ Etiquetado" size="small" color="success" />
+                                            : <Chip label="📋 Sin etiquetar" size="small" color="warning" variant="outlined" />
+                                        }
                                     </Box>
                                     <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13, mb: 1 }}>
                                         {label.tracking}
@@ -1738,15 +1744,37 @@ ${labelsHtml}
                                             </Button>
                                         </Stack>
                                     ) : (
-                                        <Button
-                                            fullWidth
-                                            variant="contained"
-                                            startIcon={<PrintIcon />}
-                                            onClick={() => handlePrintLabel(label)}
-                                            sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
-                                        >
-                                            Imprimir
-                                        </Button>
+                                        <Stack spacing={1}>
+                                            <Button
+                                                fullWidth
+                                                variant="contained"
+                                                startIcon={<PrintIcon />}
+                                                onClick={() => handlePrintLabel(label)}
+                                                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
+                                            >
+                                                Imprimir
+                                            </Button>
+                                            {!isLabeled && (
+                                                <Button
+                                                    fullWidth
+                                                    variant="outlined"
+                                                    size="small"
+                                                    onClick={async () => {
+                                                        if (!shipment?.master?.id) return;
+                                                        try {
+                                                            await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
+                                                            setPqtxMsg('✅ Etiqueta marcada como impresa');
+                                                            await handleSearch();
+                                                        } catch (e: any) {
+                                                            setError(`Error: ${e?.response?.data?.error || e?.message}`);
+                                                        }
+                                                    }}
+                                                    sx={{ borderColor: '#2E7D32', color: '#2E7D32', fontSize: 11 }}
+                                                >
+                                                    ✅ Confirmar etiqueta impresa
+                                                </Button>
+                                            )}
+                                        </Stack>
                                     )}
                                 </Paper>
                             </Grid>
