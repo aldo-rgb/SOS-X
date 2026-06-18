@@ -653,7 +653,8 @@ export default function DashboardAdvisor() {
     setProofModalItems([]);
     setProofModalLoading(true);
     try {
-      const res = await api.get(`/advisor/payment-orders/${order.id}/proofs`);
+      const poboxId = order.pobox_payment_id || order.id;
+      const res = await api.get(`/advisor/payment-orders/${poboxId}/proofs`);
       const items = Array.isArray(res.data?.proofs) ? res.data.proofs : [];
       setProofModalItems(items);
       if (items.length > 0 && items[0].declared_amount != null) {
@@ -2983,7 +2984,8 @@ export default function DashboardAdvisor() {
             if (!existingProof || !proofModalOrder) return;
             setProofModalLoading(true);
             try {
-              await api.delete(`/advisor/payment-orders/${proofModalOrder.id}/proof/${existingProof.id}`);
+              const poboxId = proofModalOrder.pobox_payment_id || proofModalOrder.id;
+              await api.delete(`/advisor/payment-orders/${poboxId}/proof/${existingProof.id}`);
               setProofModalItems([]);
               setProofDeclaredAmount('');
               setProofUploadFile(null);
@@ -2996,7 +2998,7 @@ export default function DashboardAdvisor() {
           };
           const handleSave = async () => {
             if (!proofModalOrder || !proofDeclaredAmount) return;
-            const orderId = proofModalOrder.id;
+            const orderId = proofModalOrder.pobox_payment_id || proofModalOrder.id;
             setProofModalLoading(true);
             try {
               if (proofUploadFile) {
