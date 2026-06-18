@@ -206,17 +206,29 @@ export default function WarehouseHubPage({ users = [] }: Props) {
     }, [token]);
 
     const loadUserPermissions = async () => {
+        // Leer rol desde localStorage para evitar llamada de red innecesaria
+        const cachedUser = localStorage.getItem('user');
+        const cachedRole: string = cachedUser ? (JSON.parse(cachedUser).role || '') : '';
+
+        if (cachedRole === 'super_admin') {
+            setUserRole('super_admin');
+            setLocations(ALL_LOCATIONS);
+            setLoading(false);
+            return;
+        }
+
         setLoading(true);
         try {
-            // Cargar perfil del usuario
-            const profileRes = await fetch(`${API_URL}/api/auth/profile`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            
-            let role = '';
+            // Hacer ambas llamadas en paralelo
+            const [profileRes, permissionsRes] = await Promise.all([
+                fetch(`${API_URL}/api/auth/profile`, { headers: { Authorization: `Bearer ${token}` } }),
+                fetch(`${API_URL}/api/panels/me`, { headers: { Authorization: `Bearer ${token}` } }),
+            ]);
+
+            let role = cachedRole;
             if (profileRes.ok) {
                 const profileData = await profileRes.json();
-                role = profileData.user?.role || profileData.role || '';
+                role = profileData.user?.role || profileData.role || cachedRole;
                 setUserRole(role);
             }
 
@@ -226,14 +238,6 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                 setLoading(false);
                 return;
             }
-
-            // El resto de roles (incluido counter_staff) se filtra por permisos reales
-            // asignados desde el módulo de Permisos (tabla panels_admin / api/panels/me)
-
-            // Cargar permisos del usuario
-            const permissionsRes = await fetch(`${API_URL}/api/panels/me`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
 
             if (permissionsRes.ok) {
                 const permData = await permissionsRes.json();
