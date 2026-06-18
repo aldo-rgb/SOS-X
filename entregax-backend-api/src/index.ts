@@ -6267,7 +6267,7 @@ async function getAdvisorPaymentProofs(req: AuthRequest, res: Response) {
 
     // Verificar que existe la orden de pago
     const orderRes = await pool.query(
-      'SELECT id, created_by FROM pobox_payments WHERE id = $1',
+      'SELECT id FROM pobox_payments WHERE id = $1',
       [orderId_num]
     );
     if (!orderRes.rows.length) return res.status(404).json({ error: 'Payment order not found' });
