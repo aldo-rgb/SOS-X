@@ -1016,7 +1016,9 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
               },
               body: JSON.stringify({
                 deliveryAddressId: selectedAddressId,
-                deliveryInstructions: additionalNotes,
+                deliveryInstructions: pqtxOcurreInfo?.usedZip
+                  ? `Ocurre CP ${pqtxOcurreInfo.usedZip}${additionalNotes ? '\n' + additionalNotes : ''}`
+                  : additionalNotes,
                 carrier: selectedCarrier,
                 carrierCost: pkgCarrierCost,
                 carrierName: carrierRates.find(c => c.id === selectedCarrier)?.name || localEntregaxOptions[0]?.name || 'EntregaX Local',

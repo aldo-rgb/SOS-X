@@ -3576,7 +3576,10 @@ export default function DashboardClient() {
       formData.append('packageIds', JSON.stringify(selectedPackageIds));
       formData.append('addressId', String(selectedDeliveryAddress));
       formData.append('carrierService', actualCarrier);
-      formData.append('notes', deliveryNotes);
+      const notesWithOcurre = pqtxOcurreInfo?.usedZip
+        ? `Ocurre CP ${pqtxOcurreInfo.usedZip}${deliveryNotes ? '\n' + deliveryNotes : ''}`
+        : deliveryNotes;
+      formData.append('notes', notesWithOcurre);
       formData.append('applyToFullShipment', String(applyToFullShipment));
       formData.append('totalBoxes', String(totalBoxes));
       formData.append('isCollect', String(selectedCarrierService === 'por_cobrar'));
