@@ -1411,7 +1411,7 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                                   variant="outlined"
                                   startIcon={markingLabel ? <CircularProgress size={12} /> : <LabelIcon />}
                                   disabled={markingLabel}
-                                  onClick={() => handleMarkLabeled(m.id ?? m.pkgId ?? null)}
+                                  onClick={() => handleMarkLabeled(m.id ?? null)}
                                   sx={{ borderColor: '#FF6F00', color: '#FF6F00', fontSize: 11, py: 0.25, px: 1 }}
                                 >
                                   Marcar etiquetado
