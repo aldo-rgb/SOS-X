@@ -810,13 +810,17 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                     <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>Sin paquetes</Typography>
                   ) : (
                     (statsFilter === 'transit' ? userStats.transitPkgs : userStats.deliveredPkgs).map((pkg: any, i: number) => {
-                      const guide = pkg.guiaus || pkg.tracking || pkg.master_tracking || `#${pkg.id}`;
+                      const guide = pkg.guiaus || pkg.tracking_internal || pkg.tracking || pkg.master_tracking || `#${pkg.id}`;
                       const svcMap: Record<string, { label: string; color: string }> = {
                         usa_pobox:   { label: 'PO Box USA',   color: '#1565C0' },
+                        POBOX_USA:   { label: 'PO Box USA',   color: '#1565C0' },
                         china_air:   { label: 'China Aéreo',  color: '#E65100' },
+                        AIR_CHN_MX:  { label: 'China Aéreo',  color: '#E65100' },
                         china_sea:   { label: 'China Marítimo', color: '#00695C' },
+                        SEA_CHN_MX:  { label: 'China Marítimo', color: '#00695C' },
                         nacional:    { label: 'Nacional',     color: '#6A1B9A' },
                         tdi_express: { label: 'TDI Express',  color: '#AD1457' },
+                        AA_DHL:      { label: 'DHL',          color: '#AD1457' },
                         air:         { label: 'Aéreo',        color: '#E65100' },
                         sea:         { label: 'Marítimo',     color: '#00695C' },
                       };
