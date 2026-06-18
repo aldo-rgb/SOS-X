@@ -22,6 +22,7 @@ import {
 import { Text, Avatar, ActivityIndicator, Chip, Divider } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { API_URL } from '../services/api';
 import { useTranslation } from 'react-i18next';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
@@ -66,6 +67,12 @@ const getLanguageFlag = (lang: string) => {
 export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const { user, token } = route.params;
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  // Altura segura para el header en Android: usa safe-area inset si está disponible,
+  // si no cae a StatusBar.currentHeight (Android < 11) y un mínimo razonable.
+  const headerTopPad = Platform.OS === 'android'
+    ? Math.max(insets.top, StatusBar.currentHeight || 0, 24) + 12
+    : Math.max(insets.top, 20) + 12;
   const [loading, setLoading]           = useState(true);
   const [refreshing, setRefreshing]     = useState(false);
   const [data, setData]                 = useState<AdvisorDashboardData | null>(null);
@@ -338,7 +345,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
       <StatusBar barStyle="light-content" backgroundColor={BLACK} />
 
       {/* ── HEADER ── */}
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: headerTopPad }]}>
         <Image source={require('../../assets/logo.png')} style={s.logo} />
         <View style={{ flex: 1 }} />
         <TouchableOpacity onPress={() => setShowLangModal(true)} style={s.langBtn}>
@@ -1390,7 +1397,9 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 56,
+    // paddingTop ahora se aplica dinámicamente con safe-area insets para que
+    // no quede desfasado en Android con barra de estado de altura variable
+    // (notch, hole-punch, etc.).
     paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#222',
