@@ -1367,6 +1367,19 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                         label={m.clientPaid ? 'PAGADO' : (m.paymentStatus || 'PENDIENTE')}
                         color={m.clientPaid ? 'success' : 'warning'}
                       />
+                      {(() => {
+                        const carrierNorm = String(m.nationalCarrier || '').toLowerCase();
+                        const isLocal = !carrierNorm || carrierNorm.includes('local') || carrierNorm.includes('entregax') || carrierNorm.includes('pickup');
+                        const hasLabel = isLocal ? !!m.assignedAddress : !!(m.nationalLabelUrl || m.nationalTracking);
+                        return (
+                          <Chip
+                            size="small"
+                            label={hasLabel ? '🏷️ ETIQUETADO' : '📋 Sin etiqueta'}
+                            color={hasLabel ? 'success' : 'default'}
+                            variant="outlined"
+                          />
+                        );
+                      })()}
                       {m.clientPaidAt && (
                         <Typography variant="caption" color="text.secondary">
                           {fmtDate(m.clientPaidAt)}

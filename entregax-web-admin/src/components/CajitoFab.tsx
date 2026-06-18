@@ -5,7 +5,7 @@
 // Modos: Chat (IA) | Rastrear (lookup directo con datos del escáner)
 // ============================================
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Fab,
   Tooltip,
@@ -30,8 +30,18 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import PersonIcon from '@mui/icons-material/Person';
 import PlaceIcon from '@mui/icons-material/Place';
 import InventoryIcon from '@mui/icons-material/Inventory';
+import HistoryIcon from '@mui/icons-material/History';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import api from '../services/api';
+
+const fmtMoney = (v: number | null | undefined, cur = 'MXN') =>
+  v == null ? '—' : `$${Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`;
+
+const fmtDate = (d?: string | null) => {
+  if (!d) return '—';
+  try { return new Date(d).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return d; }
+};
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -85,11 +95,45 @@ const statusColor = (s?: string): 'default' | 'success' | 'warning' | 'info' | '
   return 'default';
 };
 
+interface MovementEvent {
+  id?: number;
+  createdAt?: string;
+  created_at?: string;
+  date?: string;
+  status?: string;
+  statusLabel?: string;
+  status_label?: string;
+  label?: string;
+  branch?: string;
+  branch_name?: string;
+  location?: string;
+  user?: string;
+  created_by_name?: string;
+  source?: string;
+  description?: string;
+  notes?: string;
+}
+
 // Tarjeta de resultado del escáner dentro del panel de Cajito
 function TrackResult({ data, tracking }: { data: PackageData; tracking: string }) {
   const m = data.shipment?.master || data.package || data;
   const client = data.shipment?.client || data.client || null;
   const children: PackageData[] = data.shipment?.children || [];
+
+  const [movements, setMovements] = useState<MovementEvent[]>([]);
+  const [loadingMov, setLoadingMov] = useState(false);
+
+  const loadMovements = useCallback(async () => {
+    setLoadingMov(true);
+    try {
+      const res = await api.get(`/packages/track/${encodeURIComponent(m.tracking || tracking)}/movements`);
+      const list = res.data?.movements || res.data?.events || res.data?.history || res.data?.timeline || [];
+      setMovements(Array.isArray(list) ? list : []);
+    } catch { setMovements([]); }
+    finally { setLoadingMov(false); }
+  }, [m.tracking, tracking]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { loadMovements(); }, [loadMovements]);
 
   const clientPaid = m.clientPaid ?? m.client_paid ?? false;
   const paymentStatus = m.paymentStatus ?? m.payment_status ?? '';
@@ -98,7 +142,21 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const destAddress = m.assignedAddress;
   const hasInstr = !!destAddress || m.needs_instructions === false;
 
+  const carrierNorm = String(m.nationalCarrier || '').toLowerCase();
+  const isLocalCarrier = !carrierNorm || carrierNorm.includes('local') || carrierNorm.includes('entregax') || carrierNorm.includes('pickup');
+  const hasLabel = isLocalCarrier ? !!destAddress : !!(m.nationalLabelUrl || m.nationalTracking);
+
   const totalBoxes = m.totalBoxes ?? m.total_boxes ?? 1;
+
+  // Costos
+  const lastMileCost = m.nationalLabelCost != null ? Number(m.nationalLabelCost) : null;
+  const providerCostMxn = m.poboxProviderCostMxn ?? m.poboxServiceCost ?? null;
+  const providerCostUsd = m.poboxProviderCostUsd ?? m.poboxCostUsd ?? null;
+  const ventaUsd = m.poboxVentaUsd != null ? Number(m.poboxVentaUsd) : null;
+  const totalCost = m.totalCost != null ? Number(m.totalCost) : null;
+  const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
+  const saldoPendiente = m.saldoPendiente ?? m.saldo_pendiente ?? null;
+  const hasCosts = lastMileCost != null || providerCostMxn != null || ventaUsd != null || totalCost != null;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -118,6 +176,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
           <Chip label={statusLabel(status)} size="small" color={statusColor(status)} />
           {totalBoxes > 1 && <Chip label={`${totalBoxes} cajas`} size="small" variant="outlined" />}
           <Chip label={paid ? '✅ Pagado' : '⏳ Pendiente'} size="small" color={paid ? 'success' : 'warning'} variant="outlined" />
+          <Chip label={hasLabel ? '🏷️ Etiquetado' : '📋 Sin etiqueta'} size="small" color={hasLabel ? 'success' : 'default'} variant="outlined" />
           <Chip label={hasInstr ? '📍 Con instrucciones' : '⚠️ Sin instrucciones'} size="small" color={hasInstr ? 'success' : 'warning'} variant="outlined" />
         </Box>
       </Paper>
@@ -210,6 +269,96 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
           )}
         </Paper>
       )}
+
+      {/* Costos */}
+      {hasCosts && (
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, borderColor: '#FFE0B2' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
+            <AttachMoneyIcon sx={{ fontSize: 15, color: '#E65100' }} />
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>COSTOS</Typography>
+          </Box>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.4 }}>
+            {lastMileCost != null && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Paquetería (última milla)</Typography>
+                <Typography variant="caption" fontWeight={600} color="error.main">{fmtMoney(lastMileCost)}</Typography>
+              </Box>
+            )}
+            {providerCostMxn != null && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Costo proveedor</Typography>
+                <Typography variant="caption" fontWeight={600}>{fmtMoney(Number(providerCostMxn))}{providerCostUsd ? ` (${fmtMoney(Number(providerCostUsd), 'USD')})` : ''}</Typography>
+              </Box>
+            )}
+            {ventaUsd != null && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Venta al cliente</Typography>
+                <Typography variant="caption" fontWeight={600} color="success.main">{fmtMoney(ventaUsd, 'USD')}</Typography>
+              </Box>
+            )}
+            {totalCost != null && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #FFE0B2', pt: 0.5, mt: 0.25 }}>
+                <Typography variant="caption" fontWeight={700}>Total a cobrar</Typography>
+                <Typography variant="caption" fontWeight={700} color="warning.dark">{fmtMoney(totalCost)}</Typography>
+              </Box>
+            )}
+            {montoPagado != null && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Monto pagado</Typography>
+                <Typography variant="caption" fontWeight={600} color="success.main">{fmtMoney(Number(montoPagado))}</Typography>
+              </Box>
+            )}
+            {saldoPendiente != null && Number(saldoPendiente) > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Saldo pendiente</Typography>
+                <Typography variant="caption" fontWeight={600} color="error.main">{fmtMoney(Number(saldoPendiente))}</Typography>
+              </Box>
+            )}
+          </Box>
+        </Paper>
+      )}
+
+      {/* Historial de movimientos */}
+      <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
+          <HistoryIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
+          <Typography variant="caption" color="text.secondary" fontWeight={600}>HISTORIAL</Typography>
+          {loadingMov && <CircularProgress size={12} sx={{ color: CAJITO_RING, ml: 0.5 }} />}
+        </Box>
+        {!loadingMov && movements.length === 0 && (
+          <Typography variant="caption" color="text.disabled">Sin movimientos registrados</Typography>
+        )}
+        {movements.map((ev, i) => (
+          <Box key={ev.id ?? i} sx={{ display: 'flex', gap: 0.75, py: 0.4, borderBottom: i < movements.length - 1 ? '1px solid #F5F5F5' : 'none' }}>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, display: 'block' }}>
+                {fmtDate(ev.createdAt || ev.created_at || ev.date)}
+              </Typography>
+              <Chip
+                size="small"
+                label={ev.statusLabel || ev.status_label || ev.label || ev.status || '—'}
+                color={statusColor(ev.status)}
+                sx={{ height: 18, fontSize: 10, mb: 0.25 }}
+              />
+              {(ev.branch || ev.branch_name || ev.location) && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, display: 'block' }}>
+                  📍 {ev.branch || ev.branch_name || ev.location}
+                </Typography>
+              )}
+              {(ev.user || ev.created_by_name) && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, display: 'block' }}>
+                  👤 {ev.user || ev.created_by_name || (ev.source === 'system' ? 'Sistema' : '')}
+                </Typography>
+              )}
+              {(ev.description || ev.notes) && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, display: 'block', fontStyle: 'italic' }}>
+                  {ev.description || ev.notes}
+                </Typography>
+              )}
+            </Box>
+          </Box>
+        ))}
+      </Paper>
     </Box>
   );
 }
