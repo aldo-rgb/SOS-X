@@ -408,6 +408,7 @@ export default function DashboardAdvisor() {
   const [proofModalLoading, setProofModalLoading] = useState(false);
   const [proofModalItems, setProofModalItems] = useState<any[]>([]);
   const [proofUploadFile, setProofUploadFile] = useState<File | null>(null);
+  const [proofDeclaredAmount, setProofDeclaredAmount] = useState<string>('');
 
   // Assign instructions dialog
   const [instrDialogOpen, setInstrDialogOpen] = useState(false);
@@ -2963,7 +2964,7 @@ export default function DashboardAdvisor() {
         </TableContainer>
 
         {/* ── Dialog: Comprobante de Pago ── */}
-        <Dialog open={proofModalOpen} onClose={() => setProofModalOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <Dialog open={proofModalOpen} onClose={() => { setProofModalOpen(false); setProofUploadFile(null); setProofDeclaredAmount(''); }} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
           <DialogTitle sx={{ fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             📎 Comprobante de Pago
             <IconButton size="small" onClick={() => setProofModalOpen(false)}><CloseIcon /></IconButton>
@@ -3002,6 +3003,18 @@ export default function DashboardAdvisor() {
             ) : (
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Sin comprobantes aún.</Typography>
             )}
+            {/* Monto declarado */}
+            <TextField
+              label="Monto declarado *"
+              type="number"
+              size="small"
+              fullWidth
+              sx={{ mb: 2 }}
+              value={proofDeclaredAmount}
+              onChange={e => setProofDeclaredAmount(e.target.value)}
+              InputProps={{ startAdornment: <Typography sx={{ mr: 0.5, color: 'text.secondary' }}>$</Typography> }}
+              placeholder="0.00"
+            />
             {/* Upload */}
             <Box sx={{ border: '1px dashed #ccc', borderRadius: 2, p: 2, textAlign: 'center', bgcolor: '#FAFAFA' }}>
               <input
@@ -3020,21 +3033,23 @@ export default function DashboardAdvisor() {
             </Box>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>
-            <Button onClick={() => setProofModalOpen(false)} color="inherit">Cerrar</Button>
+            <Button onClick={() => { setProofModalOpen(false); setProofUploadFile(null); setProofDeclaredAmount(''); }} color="inherit">Cerrar</Button>
             <Button
               variant="contained"
-              disabled={!proofUploadFile || proofModalLoading}
+              disabled={!proofUploadFile || !proofDeclaredAmount || proofModalLoading}
               sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D94E20' } }}
               onClick={async () => {
-                if (!proofUploadFile || !proofModalOrder) return;
+                if (!proofUploadFile || !proofModalOrder || !proofDeclaredAmount) return;
                 setProofModalLoading(true);
                 try {
                   const formData = new FormData();
                   formData.append('proof', proofUploadFile);
+                  formData.append('declared_amount', proofDeclaredAmount);
                   await api.post(`/advisor/payment-orders/${proofModalOrder.id}/proof`, formData, {
                     headers: { 'Content-Type': 'multipart/form-data' },
                   });
                   setProofUploadFile(null);
+                  setProofDeclaredAmount('');
                   const res = await api.get(`/advisor/payment-orders/${proofModalOrder.id}/proofs`);
                   setProofModalItems(Array.isArray(res.data?.proofs) ? res.data.proofs : []);
                 } catch (error: any) {
