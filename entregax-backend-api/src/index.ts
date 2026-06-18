@@ -6328,10 +6328,11 @@ async function uploadAdvisorPaymentProof(req: AuthRequest, res: Response) {
 
     // Verificar que existe la orden de pago
     const orderRes = await pool.query(
-      'SELECT id, user_id FROM pobox_payments WHERE id = $1',
+      'SELECT id, user_id, amount, voucher_total, status FROM pobox_payments WHERE id = $1',
       [orderId_num]
     );
     if (!orderRes.rows.length) return res.status(404).json({ error: 'Payment order not found' });
+    const order = orderRes.rows[0];
 
     // Importar uploadToS3
     const { uploadToS3 } = require('./s3Service');
@@ -6341,12 +6342,12 @@ async function uploadAdvisorPaymentProof(req: AuthRequest, res: Response) {
     const filename = `proof-${orderId_num}-${Date.now()}-${originalname}`;
     const fileExtension = (originalname.split('.').pop() || 'jpg').toLowerCase();
     const key = `payment-proofs/${filename}`;
-    
+
     const fileUrl = await uploadToS3(req.file.buffer, key, req.file.mimetype || 'application/octet-stream');
 
     // Guardar en BD
     const result = await pool.query(
-      `INSERT INTO payment_vouchers 
+      `INSERT INTO payment_vouchers
         (payment_order_id, user_id, service_type, file_url, file_key, file_type, declared_amount, currency, status, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
       RETURNING id, created_at`,
@@ -6361,6 +6362,19 @@ async function uploadAdvisorPaymentProof(req: AuthRequest, res: Response) {
         currency || 'MXN',
         'pending_review'
       ]
+    );
+
+    // Actualizar pobox_payments: acumular monto y actualizar status para que aparezca en Dashboard Cobranza
+    const newTotal = Number(order.voucher_total || 0) + Number(declared_amount);
+    const orderAmount = Number(order.amount);
+    const newStatus = newTotal >= orderAmount ? 'vouchers_submitted' : 'vouchers_partial';
+    await pool.query(
+      `UPDATE pobox_payments
+       SET voucher_total = $1,
+           voucher_count = COALESCE(voucher_count, 0) + 1,
+           status = CASE WHEN status IN ('pending', 'pending_payment', 'vouchers_partial') THEN $3 ELSE status END
+       WHERE id = $2`,
+      [newTotal, orderId_num, newStatus]
     );
 
     res.json({
