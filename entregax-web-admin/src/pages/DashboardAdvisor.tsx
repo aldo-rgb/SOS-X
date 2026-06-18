@@ -656,7 +656,7 @@ export default function DashboardAdvisor() {
       const res = await api.get(`/advisor/payment-orders/${order.id}/proofs`);
       const items = Array.isArray(res.data?.proofs) ? res.data.proofs : [];
       setProofModalItems(items);
-      if (items.length > 0 && items[0].declared_amount) {
+      if (items.length > 0 && items[0].declared_amount != null) {
         setProofDeclaredAmount(String(items[0].declared_amount));
       }
     } catch (error) {
@@ -2972,12 +2972,11 @@ export default function DashboardAdvisor() {
         {(() => {
           const existingProof = proofModalItems[0] ?? null;
           const closeProofModal = () => { setProofModalOpen(false); setProofUploadFile(null); setProofDeclaredAmount(''); };
-          const reloadProofs = async () => {
-            if (!proofModalOrder) return;
-            const res = await api.get(`/advisor/payment-orders/${proofModalOrder.id}/proofs`);
+          const reloadProofs = async (orderId: number) => {
+            const res = await api.get(`/advisor/payment-orders/${orderId}/proofs`);
             const items = Array.isArray(res.data?.proofs) ? res.data.proofs : [];
             setProofModalItems(items);
-            if (items.length > 0 && items[0].declared_amount) setProofDeclaredAmount(String(items[0].declared_amount));
+            if (items.length > 0 && items[0].declared_amount != null) setProofDeclaredAmount(String(items[0].declared_amount));
             else setProofDeclaredAmount('');
           };
           const handleDelete = async () => {
@@ -2988,43 +2987,50 @@ export default function DashboardAdvisor() {
               setProofModalItems([]);
               setProofDeclaredAmount('');
               setProofUploadFile(null);
+              fetchPaymentOrders();
             } catch (e: any) {
-              alert(e?.response?.data?.error || 'No se pudo eliminar el comprobante');
+              setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo eliminar el comprobante', severity: 'error' });
             } finally {
               setProofModalLoading(false);
             }
           };
           const handleSave = async () => {
             if (!proofModalOrder || !proofDeclaredAmount) return;
+            const orderId = proofModalOrder.id;
             setProofModalLoading(true);
             try {
               if (proofUploadFile) {
                 // Replace: delete old (if exists) then upload new
                 if (existingProof) {
-                  await api.delete(`/advisor/payment-orders/${proofModalOrder.id}/proof/${existingProof.id}`);
+                  await api.delete(`/advisor/payment-orders/${orderId}/proof/${existingProof.id}`);
                 }
                 const formData = new FormData();
                 formData.append('proof', proofUploadFile);
                 formData.append('declared_amount', proofDeclaredAmount);
-                await api.post(`/advisor/payment-orders/${proofModalOrder.id}/proof`, formData, {
+                await api.post(`/advisor/payment-orders/${orderId}/proof`, formData, {
                   headers: { 'Content-Type': 'multipart/form-data' },
                 });
                 setProofUploadFile(null);
+                fetchPaymentOrders();
+                closeProofModal();
+                setSnackbar({ open: true, message: '✅ Comprobante subido correctamente', severity: 'success' });
+                return;
               } else if (existingProof) {
                 // Only update amount
-                await api.patch(`/advisor/payment-orders/${proofModalOrder.id}/proof/${existingProof.id}`, {
+                await api.patch(`/advisor/payment-orders/${orderId}/proof/${existingProof.id}`, {
                   declared_amount: proofDeclaredAmount,
                 });
+                await reloadProofs(orderId);
+                fetchPaymentOrders();
+                setSnackbar({ open: true, message: '✅ Monto actualizado', severity: 'success' });
               }
-              await reloadProofs();
             } catch (error: any) {
-              alert(error?.response?.data?.error || 'No se pudo guardar el comprobante');
+              setSnackbar({ open: true, message: error?.response?.data?.error || 'No se pudo guardar el comprobante', severity: 'error' });
             } finally {
               setProofModalLoading(false);
             }
           };
-          const amountChanged = existingProof && String(existingProof.declared_amount) !== proofDeclaredAmount;
-          const canSave = proofDeclaredAmount && (proofUploadFile || amountChanged) && !proofModalLoading;
+          const canSave = !!(proofDeclaredAmount && (proofUploadFile || existingProof) && !proofModalLoading);
           return (
             <Dialog open={proofModalOpen} onClose={closeProofModal} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
               <DialogTitle sx={{ fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
