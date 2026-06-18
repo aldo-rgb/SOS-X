@@ -742,6 +742,37 @@ export const startSyncfyAutoSyncCron = () => {
 /**
  * Inicializar todos los CRON jobs
  */
+/**
+ * CRON JOB: Promoción automática Chartback I → Chartback Público
+ * Clientes que llevan más de 30 días en Chartback I sin recuperarse
+ * pasan al pool público para que cualquier asesor pueda contactarlos.
+ */
+export const startChartbackIPromotionCron = () => {
+  // Todos los días a las 07:00
+  cron.schedule('0 7 * * *', async () => {
+    try {
+      const result = await pool.query(`
+        UPDATE legacy_clients
+        SET
+            chartback_status = 'pending',
+            recovery_advisor_id = NULL,
+            chartback_i_since = NULL
+        WHERE
+            chartback = TRUE
+            AND chartback_status = 'chartback_i'
+            AND chartback_i_since IS NOT NULL
+            AND chartback_i_since < NOW() - INTERVAL '30 days'
+        RETURNING id, box_id
+      `);
+      if (result.rows.length > 0) {
+        console.log(`📢 [CRON] ${result.rows.length} cliente(s) promovidos de Chartback I a Chartback Público`);
+      }
+    } catch (err) {
+      console.error('[CRON] Error promoviendo Chartback I:', err);
+    }
+  });
+};
+
 export const initCronJobs = () => {
   startRecoveryCronJob();
   startProspectFollowUpCron();
@@ -759,6 +790,7 @@ export const initCronJobs = () => {
   startDatabaseBackupCron();
   startEntangledSyncCron();
   startSyncfyAutoSyncCron();
+  startChartbackIPromotionCron();
 };
 
 export default initCronJobs;

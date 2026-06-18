@@ -31,6 +31,7 @@ interface ChartbackClient {
   next_contact_at: string | null;
   recovery_advisor_id: number | null;
   recovery_advisor_name: string | null;
+  chartback_i_since: string | null;
 }
 
 interface Advisor {
@@ -40,6 +41,7 @@ interface Advisor {
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: 'default' | 'warning' | 'error' | 'success' | 'info' }> = {
+  chartback_i: { label: 'Chartback I', color: 'info' },
   pending: { label: 'Pendiente', color: 'warning' },
   no_answer: { label: 'Sin respuesta', color: 'error' },
   callback: { label: 'Llamar después', color: 'info' },
@@ -433,7 +435,22 @@ export default function ChartbackManagementPage() {
                     <Typography variant="caption" color="text.secondary">{client.phone || '—'}</Typography>
                   </TableCell>
                   <TableCell>
-                    <Chip label={st.label} color={st.color} size="small" />
+                    <Chip
+                      label={st.label}
+                      color={client.chartback_status === 'chartback_i' ? 'default' : st.color}
+                      size="small"
+                      sx={client.chartback_status === 'chartback_i' ? { bgcolor: '#7B1FA2', color: '#fff', fontWeight: 700 } : {}}
+                    />
+                    {client.chartback_status === 'chartback_i' && client.chartback_i_since && (() => {
+                      const since = new Date(client.chartback_i_since);
+                      const daysIn = Math.floor((Date.now() - since.getTime()) / 86400000);
+                      const daysLeft = Math.max(0, 30 - daysIn);
+                      return (
+                        <Typography variant="caption" display="block" sx={{ color: daysLeft <= 7 ? '#D32F2F' : '#757575', mt: 0.3 }}>
+                          {daysLeft > 0 ? `${daysLeft}d → Público` : 'Listo para promover'}
+                        </Typography>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2">{nextContact}</Typography>

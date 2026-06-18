@@ -914,6 +914,7 @@ import {
   deleteLegacyClient,
   getLegacyClientExternalData,
   setChartback,
+  setChartbackI,
   getAdvisorChartbackClients,
   getAdvisorChartbackClientCargo,
   getAdvisorChartbackHistory,
@@ -2480,6 +2481,7 @@ app.post('/api/legacy/sync-external', authenticateToken, requireRole(ROLES.SUPER
 app.get('/api/legacy/clients', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.WAREHOUSE_OPS), getLegacyClients);
 app.get('/api/legacy/stats', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER), getLegacyStats);
 app.post('/api/legacy/clients/chartback', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.DIRECTOR), setChartback);
+app.post('/api/legacy/clients/chartback-i', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.DIRECTOR), setChartbackI);
 app.delete('/api/legacy/clients/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteLegacyClient);
 app.get('/api/legacy/clients/:boxId/external', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.WAREHOUSE_OPS, ROLES.CUSTOMER_SERVICE), getLegacyClientExternalData);
 
@@ -13634,6 +13636,9 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 
   // Columna fuente en exchange_rate_config (idempotente)
   pool.query(`ALTER TABLE exchange_rate_config ADD COLUMN IF NOT EXISTS fuente TEXT`).catch(() => {});
+
+  // Columna para Chartback I: fecha de ingreso al primer nivel
+  pool.query(`ALTER TABLE legacy_clients ADD COLUMN IF NOT EXISTS chartback_i_since TIMESTAMPTZ`).catch(() => {});
 
   // Columnas de instrucciones de entrega en packages (idempotente)
   Promise.all([

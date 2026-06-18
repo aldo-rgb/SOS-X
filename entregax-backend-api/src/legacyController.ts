@@ -1301,12 +1301,12 @@ export const getAdminChartbackClients = async (req: Request, res: Response): Pro
         const result = await pool.query(
             `SELECT lc.id, lc.box_id, lc.full_name, lc.email, lc.phone,
                     lc.chartback_status, lc.next_contact_at, lc.asesor,
-                    lc.recovery_advisor_id,
+                    lc.recovery_advisor_id, lc.chartback_i_since,
                     adv.full_name as recovery_advisor_name
              FROM legacy_clients lc
              LEFT JOIN users adv ON adv.id = lc.recovery_advisor_id
              ${where}
-             ORDER BY lc.full_name ASC`,
+             ORDER BY lc.chartback_i_since DESC NULLS LAST, lc.full_name ASC`,
             params
         );
         return res.json({ clients: result.rows, total: result.rowCount });
@@ -1605,6 +1605,42 @@ export const setChartback = async (req: Request, res: Response): Promise<any> =>
     } catch (error: any) {
         console.error('Error actualizando chartback:', error);
         res.status(500).json({ error: 'Error al actualizar chartback' });
+    }
+};
+
+/**
+ * Marcar clientes como Chartback I (primera ronda con el mismo asesor)
+ * POST /api/legacy/clients/chartback-i
+ * El asesor original del cliente se mantiene y se busca su recovery_advisor_id por nombre.
+ * Después de 30 días un cron los promueve automáticamente a Chartback Público (status=pending).
+ */
+export const setChartbackI = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'ids requerido' });
+        }
+        const placeholders = ids.map((_: any, i: number) => `$${i + 1}`).join(',');
+        // Marcar como Chartback I y vincular recovery_advisor al mismo asesor por nombre
+        await pool.query(`
+            UPDATE legacy_clients lc
+            SET
+                chartback = TRUE,
+                chartback_status = 'chartback_i',
+                chartback_i_since = NOW(),
+                next_contact_at = NULL,
+                recovery_advisor_id = (
+                    SELECT u.id FROM users u
+                    WHERE LOWER(TRIM(u.full_name)) = LOWER(TRIM(lc.asesor))
+                      AND u.role IN ('advisor','asesor','asesor_lider','sub_advisor','branch_manager','counter_staff')
+                    LIMIT 1
+                )
+            WHERE lc.id IN (${placeholders})
+        `, ids);
+        return res.json({ success: true, updated: ids.length });
+    } catch (error: any) {
+        console.error('Error marcando Chartback I:', error);
+        res.status(500).json({ error: 'Error al marcar Chartback I' });
     }
 };
 

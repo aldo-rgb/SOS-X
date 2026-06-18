@@ -431,6 +431,28 @@ export default function LegacyClientsPage() {
     }
   };
 
+  const handleSetChartbackI = async () => {
+    if (selectedIds.size === 0) return;
+    setChartbackSaving(true);
+    try {
+      const resp = await fetch(`${API_URL}/api/legacy/clients/chartback-i`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds) })
+      });
+      if (resp.ok) {
+        setSnackMsg(`${selectedIds.size} cliente(s) marcados como Chartback I (primera ronda con el mismo asesor)`);
+        setSelectedIds(new Set());
+        fetchStats();
+        fetchClients();
+      }
+    } catch (e) {
+      setSnackMsg('Error al marcar Chartback I');
+    } finally {
+      setChartbackSaving(false);
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -728,12 +750,22 @@ export default function LegacyClientsPage() {
           <Button
             size="small"
             variant="contained"
+            sx={{ bgcolor: '#7B1FA2' }}
+            disabled={chartbackSaving}
+            startIcon={chartbackSaving ? <CircularProgress size={14} color="inherit" /> : <ReplayIcon />}
+            onClick={handleSetChartbackI}
+          >
+            Chartback I
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
             sx={{ bgcolor: '#1565c0' }}
             disabled={chartbackSaving}
             startIcon={chartbackSaving ? <CircularProgress size={14} color="inherit" /> : <ReplayIcon />}
             onClick={() => handleSetChartback(true)}
           >
-            Marcar Chartback
+            Chartback Público
           </Button>
           <Button
             size="small"
