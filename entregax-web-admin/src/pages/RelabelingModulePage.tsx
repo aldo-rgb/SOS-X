@@ -1081,15 +1081,19 @@ ${body}
     };
 
     const handlePrintLabel = async (label: LabelData) => {
-        openPrintWindow([label]);
+        // Marcar ANTES de abrir la ventana para que el DB quede actualizado
+        // incluso si el usuario cierra el tab inmediatamente.
         if (shipment?.master?.id) {
             try {
                 await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
                 setPqtxMsg('✅ Etiqueta marcada como impresa');
-                await handleSearch();
             } catch (e: any) {
                 setError(`No se pudo marcar etiqueta: ${e?.response?.data?.error || e?.message || 'Error'}`);
             }
+        }
+        openPrintWindow([label]);
+        if (shipment?.master?.id) {
+            try { await handleSearch(); } catch { /* no crítico */ }
         }
     };
 
@@ -1118,16 +1122,19 @@ ${body}
                 tracking: `${baseTracking}-${suffix}`,
             });
         }
-        openPrintWindow(labels);
-        setReprintOpen(false);
+        // Marcar ANTES de abrir la ventana
         if (shipment?.master?.id) {
             try {
                 await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
                 setPqtxMsg('✅ Etiqueta marcada como impresa');
-                await handleSearch();
             } catch (e: any) {
                 setError(`No se pudo marcar etiqueta: ${e?.response?.data?.error || e?.message || 'Error'}`);
             }
+        }
+        openPrintWindow(labels);
+        setReprintOpen(false);
+        if (shipment?.master?.id) {
+            try { await handleSearch(); } catch { /* no crítico */ }
         }
     };
 

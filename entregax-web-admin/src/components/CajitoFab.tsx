@@ -659,7 +659,19 @@ export default function CajitoFab() {
                     <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>US-..., TDX-..., TDI-..., guía de paquetería...</Typography>
                   </Box>
                 )}
-                {trackResult && <TrackResult data={trackResult} tracking={lastTracked} />}
+                {trackResult && (
+                  <>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 0.75 }}>
+                      <Box
+                        onClick={handleTrack}
+                        sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 1, border: `1px solid ${CAJITO_RING}`, color: CAJITO_RING, cursor: 'pointer', fontSize: 12 }}
+                      >
+                        🔄 Actualizar
+                      </Box>
+                    </Box>
+                    <TrackResult data={trackResult} tracking={lastTracked} />
+                  </>
+                )}
               </Box>
             </>
           )}
