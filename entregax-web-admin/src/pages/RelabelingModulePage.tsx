@@ -1085,8 +1085,11 @@ ${body}
         if (shipment?.master?.id) {
             try {
                 await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
+                setPqtxMsg('✅ Etiqueta marcada como impresa');
                 await handleSearch();
-            } catch { /* no crítico */ }
+            } catch (e: any) {
+                setError(`No se pudo marcar etiqueta: ${e?.response?.data?.error || e?.message || 'Error'}`);
+            }
         }
     };
 
@@ -1120,8 +1123,11 @@ ${body}
         if (shipment?.master?.id) {
             try {
                 await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
+                setPqtxMsg('✅ Etiqueta marcada como impresa');
                 await handleSearch();
-            } catch { /* no crítico */ }
+            } catch (e: any) {
+                setError(`No se pudo marcar etiqueta: ${e?.response?.data?.error || e?.message || 'Error'}`);
+            }
         }
     };
 

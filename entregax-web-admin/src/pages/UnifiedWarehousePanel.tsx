@@ -39,6 +39,8 @@ import {
   DialogTitle,
   DialogContent,
   IconButton,
+  Snackbar,
+  Alert as MuiAlert,
 } from '@mui/material';
 import {
   QrCodeScanner as ScannerIcon,
@@ -62,6 +64,7 @@ import {
   Draw as SignatureIcon,
   Close as CloseIcon,
   SupportAgent as AdvisorIcon,
+  Label as LabelIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -391,7 +394,11 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
   const [loadingMovements, setLoadingMovements] = useState(false);
   const [containers, setContainers] = useState<MaritimeContainer[]>([]);
   const [signaturePreview, setSignaturePreview] = useState<{ url: string; title: string } | null>(null);
+  const [snack, setSnack] = useState<{ msg: string; sev: 'success' | 'error' | 'info' } | null>(null);
+  const [markingLabel, setMarkingLabel] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const isSuperAdmin = (() => { try { const u = JSON.parse(localStorage.getItem('user') || '{}'); return String(u.role || '').toLowerCase() === 'super_admin'; } catch { return false; } })();
 
   // Roles autorizados a ver costos (paquetería + servicio)
   const canViewCosts = (() => {
@@ -484,6 +491,24 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
       return false;
     } catch {
       return false;
+    }
+  };
+
+  const handleMarkLabeled = async (pkgId: number | null | undefined) => {
+    if (!pkgId) { setSnack({ msg: 'Sin ID de paquete', sev: 'error' }); return; }
+    setMarkingLabel(true);
+    try {
+      await api.patch(`/admin/packages/${pkgId}/mark-label-printed`);
+      setSnack({ msg: '✅ Marcado como etiquetado', sev: 'success' });
+      // refetch
+      if (lastSearched) {
+        const res = await api.get(`/packages/track/${encodeURIComponent(lastSearched)}`);
+        if (res.data?.shipment) setData(res.data.shipment);
+      }
+    } catch (e: any) {
+      setSnack({ msg: e?.response?.data?.error || 'Error al marcar etiqueta', sev: 'error' });
+    } finally {
+      setMarkingLabel(false);
     }
   };
 
@@ -1372,12 +1397,28 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                         const isLocal = !carrierNorm || carrierNorm.includes('local') || carrierNorm.includes('entregax') || carrierNorm.includes('pickup');
                         const hasLabel = isLocal ? !!m.assignedAddress : !!(m.nationalLabelUrl || m.nationalTracking);
                         return (
-                          <Chip
-                            size="small"
-                            label={hasLabel ? '🏷️ ETIQUETADO' : '📋 Sin etiqueta'}
-                            color={hasLabel ? 'success' : 'default'}
-                            variant="outlined"
-                          />
+                          <>
+                            <Chip
+                              size="small"
+                              label={hasLabel ? '🏷️ ETIQUETADO' : '📋 Sin etiqueta'}
+                              color={hasLabel ? 'success' : 'default'}
+                              variant="outlined"
+                            />
+                            {isSuperAdmin && !hasLabel && (
+                              <Tooltip title="Marcar como etiquetado (impresión manual confirmada)">
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={markingLabel ? <CircularProgress size={12} /> : <LabelIcon />}
+                                  disabled={markingLabel}
+                                  onClick={() => handleMarkLabeled(m.id ?? m.pkgId ?? null)}
+                                  sx={{ borderColor: '#FF6F00', color: '#FF6F00', fontSize: 11, py: 0.25, px: 1 }}
+                                >
+                                  Marcar etiquetado
+                                </Button>
+                              </Tooltip>
+                            )}
+                          </>
                         );
                       })()}
                       {m.clientPaidAt && (
@@ -1937,6 +1978,12 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
           )}
         </DialogContent>
       </Dialog>
+
+      <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <MuiAlert onClose={() => setSnack(null)} severity={snack?.sev || 'info'} variant="filled" sx={{ width: '100%' }}>
+          {snack?.msg}
+        </MuiAlert>
+      </Snackbar>
     </Box>
   );
 };
