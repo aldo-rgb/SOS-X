@@ -649,11 +649,16 @@ export default function DashboardAdvisor() {
     setProofModalOrder(order);
     setProofModalOpen(true);
     setProofUploadFile(null);
+    setProofDeclaredAmount('');
     setProofModalItems([]);
     setProofModalLoading(true);
     try {
       const res = await api.get(`/advisor/payment-orders/${order.id}/proofs`);
-      setProofModalItems(Array.isArray(res.data?.proofs) ? res.data.proofs : []);
+      const items = Array.isArray(res.data?.proofs) ? res.data.proofs : [];
+      setProofModalItems(items);
+      if (items.length > 0 && items[0].declared_amount) {
+        setProofDeclaredAmount(String(items[0].declared_amount));
+      }
     } catch (error) {
       console.error('Error loading payment proofs:', error);
       setProofModalItems([]);
@@ -2964,105 +2969,165 @@ export default function DashboardAdvisor() {
         </TableContainer>
 
         {/* ── Dialog: Comprobante de Pago ── */}
-        <Dialog open={proofModalOpen} onClose={() => { setProofModalOpen(false); setProofUploadFile(null); setProofDeclaredAmount(''); }} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
-          <DialogTitle sx={{ fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            📎 Comprobante de Pago
-            <IconButton size="small" onClick={() => setProofModalOpen(false)}><CloseIcon /></IconButton>
-          </DialogTitle>
-          <DialogContent sx={{ pt: 1 }}>
-            {proofModalOrder && (
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Orden: <strong>{proofModalOrder.payment_reference || `#${proofModalOrder.id}`}</strong> · {proofModalOrder.client_name}
-              </Typography>
-            )}
-            {/* Comprobantes existentes */}
-            {proofModalLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={28} /></Box>
-            ) : proofModalItems.length > 0 ? (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="caption" color="text.secondary" fontWeight={600}>Comprobantes subidos:</Typography>
-                {proofModalItems.map((item: any, i: number) => (
-                  <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                    <AttachFileIcon fontSize="small" sx={{ color: '#0288d1' }} />
-                    <Typography
-                      variant="body2"
-                      component="a"
-                      href={item.url || item.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      sx={{ color: '#0288d1', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
-                    >
-                      {item.filename || item.file_name || `Comprobante ${i + 1}`}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {item.uploaded_at ? new Date(item.uploaded_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
-            ) : (
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Sin comprobantes aún.</Typography>
-            )}
-            {/* Monto declarado */}
-            <TextField
-              label="Monto declarado *"
-              type="number"
-              size="small"
-              fullWidth
-              sx={{ mb: 2 }}
-              value={proofDeclaredAmount}
-              onChange={e => setProofDeclaredAmount(e.target.value)}
-              InputProps={{ startAdornment: <Typography sx={{ mr: 0.5, color: 'text.secondary' }}>$</Typography> }}
-              placeholder="0.00"
-            />
-            {/* Upload */}
-            <Box sx={{ border: '1px dashed #ccc', borderRadius: 2, p: 2, textAlign: 'center', bgcolor: '#FAFAFA' }}>
-              <input
-                id="proof-upload-input"
-                type="file"
-                accept="image/*,application/pdf"
-                style={{ display: 'none' }}
-                onChange={e => setProofUploadFile(e.target.files?.[0] ?? null)}
-              />
-              <label htmlFor="proof-upload-input" style={{ cursor: 'pointer' }}>
-                <UploadFileIcon sx={{ color: '#0288d1', fontSize: 32, mb: 0.5 }} />
-                <Typography variant="body2" color="text.secondary">
-                  {proofUploadFile ? proofUploadFile.name : 'Haz clic para seleccionar imagen o PDF'}
-                </Typography>
-              </label>
-            </Box>
-          </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2 }}>
-            <Button onClick={() => { setProofModalOpen(false); setProofUploadFile(null); setProofDeclaredAmount(''); }} color="inherit">Cerrar</Button>
-            <Button
-              variant="contained"
-              disabled={!proofUploadFile || !proofDeclaredAmount || proofModalLoading}
-              sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D94E20' } }}
-              onClick={async () => {
-                if (!proofUploadFile || !proofModalOrder || !proofDeclaredAmount) return;
-                setProofModalLoading(true);
-                try {
-                  const formData = new FormData();
-                  formData.append('proof', proofUploadFile);
-                  formData.append('declared_amount', proofDeclaredAmount);
-                  await api.post(`/advisor/payment-orders/${proofModalOrder.id}/proof`, formData, {
-                    headers: { 'Content-Type': 'multipart/form-data' },
-                  });
-                  setProofUploadFile(null);
-                  setProofDeclaredAmount('');
-                  const res = await api.get(`/advisor/payment-orders/${proofModalOrder.id}/proofs`);
-                  setProofModalItems(Array.isArray(res.data?.proofs) ? res.data.proofs : []);
-                } catch (error: any) {
-                  alert(error?.response?.data?.error || 'No se pudo subir el comprobante');
-                } finally {
-                  setProofModalLoading(false);
+        {(() => {
+          const existingProof = proofModalItems[0] ?? null;
+          const closeProofModal = () => { setProofModalOpen(false); setProofUploadFile(null); setProofDeclaredAmount(''); };
+          const reloadProofs = async () => {
+            if (!proofModalOrder) return;
+            const res = await api.get(`/advisor/payment-orders/${proofModalOrder.id}/proofs`);
+            const items = Array.isArray(res.data?.proofs) ? res.data.proofs : [];
+            setProofModalItems(items);
+            if (items.length > 0 && items[0].declared_amount) setProofDeclaredAmount(String(items[0].declared_amount));
+            else setProofDeclaredAmount('');
+          };
+          const handleDelete = async () => {
+            if (!existingProof || !proofModalOrder) return;
+            setProofModalLoading(true);
+            try {
+              await api.delete(`/advisor/payment-orders/${proofModalOrder.id}/proof/${existingProof.id}`);
+              setProofModalItems([]);
+              setProofDeclaredAmount('');
+              setProofUploadFile(null);
+            } catch (e: any) {
+              alert(e?.response?.data?.error || 'No se pudo eliminar el comprobante');
+            } finally {
+              setProofModalLoading(false);
+            }
+          };
+          const handleSave = async () => {
+            if (!proofModalOrder || !proofDeclaredAmount) return;
+            setProofModalLoading(true);
+            try {
+              if (proofUploadFile) {
+                // Replace: delete old (if exists) then upload new
+                if (existingProof) {
+                  await api.delete(`/advisor/payment-orders/${proofModalOrder.id}/proof/${existingProof.id}`);
                 }
-              }}
-            >
-              Subir Comprobante
-            </Button>
-          </DialogActions>
-        </Dialog>
+                const formData = new FormData();
+                formData.append('proof', proofUploadFile);
+                formData.append('declared_amount', proofDeclaredAmount);
+                await api.post(`/advisor/payment-orders/${proofModalOrder.id}/proof`, formData, {
+                  headers: { 'Content-Type': 'multipart/form-data' },
+                });
+                setProofUploadFile(null);
+              } else if (existingProof) {
+                // Only update amount
+                await api.patch(`/advisor/payment-orders/${proofModalOrder.id}/proof/${existingProof.id}`, {
+                  declared_amount: proofDeclaredAmount,
+                });
+              }
+              await reloadProofs();
+            } catch (error: any) {
+              alert(error?.response?.data?.error || 'No se pudo guardar el comprobante');
+            } finally {
+              setProofModalLoading(false);
+            }
+          };
+          const amountChanged = existingProof && String(existingProof.declared_amount) !== proofDeclaredAmount;
+          const canSave = proofDeclaredAmount && (proofUploadFile || amountChanged) && !proofModalLoading;
+          return (
+            <Dialog open={proofModalOpen} onClose={closeProofModal} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+              <DialogTitle sx={{ fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                📎 Comprobante de Pago
+                <IconButton size="small" onClick={closeProofModal}><CloseIcon /></IconButton>
+              </DialogTitle>
+              <DialogContent sx={{ pt: 1 }}>
+                {proofModalOrder && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Orden: <strong>{proofModalOrder.payment_reference || `#${proofModalOrder.id}`}</strong> · {proofModalOrder.client_name}
+                  </Typography>
+                )}
+                {proofModalLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={28} /></Box>
+                ) : existingProof ? (
+                  /* ── Comprobante existente ── */
+                  <Box sx={{ border: '1px solid #e3f2fd', borderRadius: 2, p: 1.5, mb: 2, bgcolor: '#f0f8ff' }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ display: 'block', mb: 0.5 }}>Comprobante actual:</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AttachFileIcon fontSize="small" sx={{ color: '#0288d1', flexShrink: 0 }} />
+                      <Typography
+                        variant="body2"
+                        component="a"
+                        href={existingProof.url || existingProof.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        sx={{ color: '#0288d1', textDecoration: 'none', flexGrow: 1, '&:hover': { textDecoration: 'underline' } }}
+                      >
+                        {existingProof.filename || existingProof.file_name || 'Comprobante'}
+                      </Typography>
+                      <Button
+                        size="small"
+                        color="error"
+                        variant="outlined"
+                        onClick={handleDelete}
+                        disabled={proofModalLoading}
+                        sx={{ flexShrink: 0, fontSize: '0.7rem', py: 0.25 }}
+                      >
+                        Borrar
+                      </Button>
+                    </Box>
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Sin comprobante aún.</Typography>
+                )}
+                {/* Monto declarado */}
+                <TextField
+                  label="Monto declarado *"
+                  type="number"
+                  size="small"
+                  fullWidth
+                  sx={{ mb: 2 }}
+                  value={proofDeclaredAmount}
+                  onChange={e => setProofDeclaredAmount(e.target.value)}
+                  InputProps={{ startAdornment: <Typography sx={{ mr: 0.5, color: 'text.secondary' }}>$</Typography> }}
+                  placeholder="0.00"
+                />
+                {/* Upload area */}
+                <Box sx={{ border: `1px dashed ${proofUploadFile ? '#F05A28' : '#ccc'}`, borderRadius: 2, p: 2, textAlign: 'center', bgcolor: '#FAFAFA' }}>
+                  <input
+                    id="proof-upload-input"
+                    type="file"
+                    accept="image/*,application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={e => setProofUploadFile(e.target.files?.[0] ?? null)}
+                  />
+                  <label htmlFor="proof-upload-input" style={{ cursor: 'pointer' }}>
+                    <UploadFileIcon sx={{ color: proofUploadFile ? '#F05A28' : '#0288d1', fontSize: 32, mb: 0.5 }} />
+                    <Typography variant="body2" color="text.secondary">
+                      {proofUploadFile
+                        ? proofUploadFile.name
+                        : existingProof
+                          ? 'Haz clic para reemplazar el comprobante'
+                          : 'Haz clic para seleccionar imagen o PDF'}
+                    </Typography>
+                  </label>
+                </Box>
+              </DialogContent>
+              <DialogActions sx={{ px: 3, pb: 2 }}>
+                <Button onClick={closeProofModal} color="inherit">Cerrar</Button>
+                {!existingProof ? (
+                  <Button
+                    variant="contained"
+                    disabled={!proofUploadFile || !proofDeclaredAmount || proofModalLoading}
+                    sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D94E20' } }}
+                    onClick={handleSave}
+                  >
+                    Subir Comprobante
+                  </Button>
+                ) : (
+                  <Button
+                    variant="contained"
+                    disabled={!canSave}
+                    sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D94E20' } }}
+                    onClick={handleSave}
+                  >
+                    {proofUploadFile ? 'Reemplazar Comprobante' : 'Actualizar Monto'}
+                  </Button>
+                )}
+              </DialogActions>
+            </Dialog>
+          );
+        })()}
 
         {/* ── Dialog: Nueva Orden de Pago ── */}
         <Dialog open={newOrderOpen} onClose={() => setNewOrderOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>

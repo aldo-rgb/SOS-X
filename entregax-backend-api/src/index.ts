@@ -6244,6 +6244,8 @@ app.put('/api/advisor/payment-orders/:id/status', authenticateToken, updateAdvis
 app.delete('/api/advisor/payment-orders/:id', authenticateToken, deleteAdvisorPaymentOrder);
 app.get('/api/advisor/payment-orders/:orderId/proofs', authenticateToken, getAdvisorPaymentProofs);
 app.post('/api/advisor/payment-orders/:orderId/proof', authenticateToken, advisorProofUpload.single('proof'), uploadAdvisorPaymentProof);
+app.delete('/api/advisor/payment-orders/:orderId/proof/:voucherId', authenticateToken, deleteAdvisorPaymentProof);
+app.patch('/api/advisor/payment-orders/:orderId/proof/:voucherId', authenticateToken, updateAdvisorProofAmount);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
 app.get('/api/advisor/shipment/:uid', authenticateToken, getAdvisorShipmentDetail);
 app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);
@@ -6385,6 +6387,99 @@ async function uploadAdvisorPaymentProof(req: AuthRequest, res: Response) {
   } catch (error) {
     console.error('Error uploading advisor payment proof:', error);
     res.status(500).json({ error: 'Failed to upload proof' });
+  }
+}
+
+// DELETE /api/advisor/payment-orders/:orderId/proof/:voucherId
+async function deleteAdvisorPaymentProof(req: AuthRequest, res: Response) {
+  try {
+    const orderId_num = parseInt(String(req.params.orderId), 10);
+    const voucherId_num = parseInt(String(req.params.voucherId), 10);
+    if (isNaN(orderId_num) || isNaN(voucherId_num)) return res.status(400).json({ error: 'Invalid id' });
+
+    // Fetch the voucher to verify it belongs to this order
+    const voucherRes = await pool.query(
+      `SELECT id, declared_amount, file_key FROM payment_vouchers WHERE id = $1 AND payment_order_id = $2`,
+      [voucherId_num, orderId_num]
+    );
+    if (!voucherRes.rows.length) return res.status(404).json({ error: 'Voucher not found' });
+    const voucher = voucherRes.rows[0];
+
+    // Delete from DB
+    await pool.query(`DELETE FROM payment_vouchers WHERE id = $1`, [voucherId_num]);
+
+    // Decrement pobox_payments counters and revert status if no vouchers remain
+    const remaining = await pool.query(
+      `SELECT COUNT(*) as cnt FROM payment_vouchers WHERE payment_order_id = $1`,
+      [orderId_num]
+    );
+    const hasRemaining = parseInt(remaining.rows[0].cnt) > 0;
+    const newStatus = hasRemaining ? 'vouchers_partial' : 'pending_payment';
+    await pool.query(
+      `UPDATE pobox_payments
+       SET voucher_count = GREATEST(0, COALESCE(voucher_count, 0) - 1),
+           voucher_total = GREATEST(0, COALESCE(voucher_total, 0) - $1),
+           status = CASE WHEN status IN ('vouchers_submitted', 'vouchers_partial') THEN $3 ELSE status END
+       WHERE id = $2`,
+      [Number(voucher.declared_amount) || 0, orderId_num, newStatus]
+    );
+
+    // Delete from S3 if possible (best-effort)
+    if (voucher.file_key) {
+      try {
+        const { deleteFromS3 } = require('./s3Service');
+        if (deleteFromS3) await deleteFromS3(voucher.file_key);
+      } catch { /* ignore */ }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting advisor payment proof:', error);
+    res.status(500).json({ error: 'Failed to delete proof' });
+  }
+}
+
+// PATCH /api/advisor/payment-orders/:orderId/proof/:voucherId
+async function updateAdvisorProofAmount(req: AuthRequest, res: Response) {
+  try {
+    const orderId_num = parseInt(String(req.params.orderId), 10);
+    const voucherId_num = parseInt(String(req.params.voucherId), 10);
+    const { declared_amount } = req.body;
+    if (isNaN(orderId_num) || isNaN(voucherId_num)) return res.status(400).json({ error: 'Invalid id' });
+    if (!declared_amount) return res.status(400).json({ error: 'Missing declared_amount' });
+
+    const voucherRes = await pool.query(
+      `SELECT id, declared_amount FROM payment_vouchers WHERE id = $1 AND payment_order_id = $2`,
+      [voucherId_num, orderId_num]
+    );
+    if (!voucherRes.rows.length) return res.status(404).json({ error: 'Voucher not found' });
+    const oldAmount = Number(voucherRes.rows[0].declared_amount) || 0;
+    const newAmount = Number(declared_amount);
+
+    await pool.query(`UPDATE payment_vouchers SET declared_amount = $1 WHERE id = $2`, [newAmount, voucherId_num]);
+
+    // Re-calculate pobox_payments totals
+    const orderRes = await pool.query(
+      `SELECT amount, voucher_total FROM pobox_payments WHERE id = $1`,
+      [orderId_num]
+    );
+    if (orderRes.rows.length) {
+      const newTotal = Math.max(0, Number(orderRes.rows[0].voucher_total || 0) - oldAmount + newAmount);
+      const orderAmount = Number(orderRes.rows[0].amount);
+      const newStatus = newTotal >= orderAmount ? 'vouchers_submitted' : 'vouchers_partial';
+      await pool.query(
+        `UPDATE pobox_payments
+         SET voucher_total = $1,
+             status = CASE WHEN status IN ('vouchers_submitted', 'vouchers_partial') THEN $3 ELSE status END
+         WHERE id = $2`,
+        [newTotal, orderId_num, newStatus]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating advisor payment proof amount:', error);
+    res.status(500).json({ error: 'Failed to update proof' });
   }
 }
 
