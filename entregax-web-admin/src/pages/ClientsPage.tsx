@@ -809,22 +809,42 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                   {(statsFilter === 'transit' ? userStats.transitPkgs : userStats.deliveredPkgs).length === 0 ? (
                     <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>Sin paquetes</Typography>
                   ) : (
-                    (statsFilter === 'transit' ? userStats.transitPkgs : userStats.deliveredPkgs).map((pkg: any, i: number) => (
-                      <Box key={pkg.id ?? i} sx={{ px: 2, py: 1, borderBottom: '1px solid #F0F0F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>
-                          {pkg.guiaus || pkg.tracking || pkg.master_tracking || `#${pkg.id}`}
-                        </Typography>
-                        <Chip
-                          label={pkg.status}
-                          size="small"
-                          sx={{
-                            fontSize: 10, height: 20, fontWeight: 600,
-                            bgcolor: statsFilter === 'transit' ? 'rgba(240,90,40,0.1)' : 'rgba(16,185,129,0.1)',
-                            color: statsFilter === 'transit' ? '#C2410C' : '#065F46',
-                          }}
-                        />
-                      </Box>
-                    ))
+                    (statsFilter === 'transit' ? userStats.transitPkgs : userStats.deliveredPkgs).map((pkg: any, i: number) => {
+                      const guide = pkg.guiaus || pkg.tracking || pkg.master_tracking || `#${pkg.id}`;
+                      const svcMap: Record<string, { label: string; color: string }> = {
+                        usa_pobox:   { label: 'PO Box USA',   color: '#1565C0' },
+                        china_air:   { label: 'China Aéreo',  color: '#E65100' },
+                        china_sea:   { label: 'China Marítimo', color: '#00695C' },
+                        nacional:    { label: 'Nacional',     color: '#6A1B9A' },
+                        tdi_express: { label: 'TDI Express',  color: '#AD1457' },
+                        air:         { label: 'Aéreo',        color: '#E65100' },
+                        sea:         { label: 'Marítimo',     color: '#00695C' },
+                      };
+                      const svc = svcMap[pkg.service_type] || (pkg.service_type ? { label: pkg.service_type, color: '#757575' } : null);
+                      return (
+                        <Box key={pkg.id ?? i} sx={{ px: 2, py: 1, borderBottom: '1px solid #F0F0F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: '#111' }}>
+                              {guide}
+                            </Typography>
+                            {svc && (
+                              <Typography variant="caption" sx={{ color: svc.color, fontWeight: 600, fontSize: 10 }}>
+                                {svc.label}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Chip
+                            label={pkg.status}
+                            size="small"
+                            sx={{
+                              fontSize: 10, height: 20, fontWeight: 600, flexShrink: 0,
+                              bgcolor: statsFilter === 'transit' ? 'rgba(240,90,40,0.1)' : 'rgba(16,185,129,0.1)',
+                              color: statsFilter === 'transit' ? '#C2410C' : '#065F46',
+                            }}
+                          />
+                        </Box>
+                      );
+                    })
                   )}
                 </Box>
               )}
