@@ -1080,21 +1080,8 @@ ${body}
         printWindow.document.close();
     };
 
-    const handlePrintLabel = async (label: LabelData) => {
-        // Marcar ANTES de abrir la ventana para que el DB quede actualizado
-        // incluso si el usuario cierra el tab inmediatamente.
-        if (shipment?.master?.id) {
-            try {
-                await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
-                setPqtxMsg('✅ Etiqueta marcada como impresa');
-            } catch (e: any) {
-                setError(`No se pudo marcar etiqueta: ${e?.response?.data?.error || e?.message || 'Error'}`);
-            }
-        }
+    const handlePrintLabel = (label: LabelData) => {
         openPrintWindow([label]);
-        if (shipment?.master?.id) {
-            try { await handleSearch(); } catch { /* no crítico */ }
-        }
     };
 
     // Abre modal para reimprimir un rango de cajas (solo cuando totalBoxes > 1)
@@ -1122,20 +1109,8 @@ ${body}
                 tracking: `${baseTracking}-${suffix}`,
             });
         }
-        // Marcar ANTES de abrir la ventana
-        if (shipment?.master?.id) {
-            try {
-                await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
-                setPqtxMsg('✅ Etiqueta marcada como impresa');
-            } catch (e: any) {
-                setError(`No se pudo marcar etiqueta: ${e?.response?.data?.error || e?.message || 'Error'}`);
-            }
-        }
         openPrintWindow(labels);
         setReprintOpen(false);
-        if (shipment?.master?.id) {
-            try { await handleSearch(); } catch { /* no crítico */ }
-        }
     };
 
 
@@ -1188,6 +1163,12 @@ ${body}
             const blobUrl = URL.createObjectURL(blob);
             window.open(blobUrl, '_blank');
             setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+            // Marcar como etiquetado al imprimir guía asignada
+            if (shipment?.master?.id) {
+                api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`)
+                    .then(() => { setPqtxMsg('✅ Guía impresa — etiquetado marcado'); handleSearch(); })
+                    .catch(() => { /* silencioso */ });
+            }
         } catch (e: any) {
             setError(e?.message || 'Error al descargar la guía');
         }
@@ -1315,6 +1296,12 @@ ${labelsHtml}
 </script></body></html>`;
         printWindow.document.write(html);
         printWindow.document.close();
+        // Marcar como etiquetado al imprimir guía de paquetería
+        if (shipment?.master?.id) {
+            api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`)
+                .then(() => { setPqtxMsg('✅ Guía de paquetería impresa — etiquetado marcado'); handleSearch(); })
+                .catch(() => { /* silencioso */ });
+        }
     };
 
     const getUploadedExternalGuideUrl = (): string | null => {
@@ -1651,8 +1638,7 @@ ${labelsHtml}
                             const visibleLabels = masterMulti
                                 ? shipment.labels.filter(l => l.isMaster)
                                 : shipment.labels;
-                            const isLabeled = !!(shipment.master.nationalLabelUrl || shipment.master.nationalTracking);
-                        return visibleLabels.map((label, idx) => (
+                            return visibleLabels.map((label, idx) => (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }} key={idx}>
                                 <Paper
                                     variant="outlined"
@@ -1662,23 +1648,18 @@ ${labelsHtml}
                                         display: 'flex',
                                         flexDirection: 'column',
                                         transition: 'all 0.2s',
-                                        borderColor: isLabeled ? '#2E7D32' : undefined,
                                         '&:hover': { borderColor: '#F05A28', boxShadow: 2 },
                                     }}
                                 >
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                                         <LocalShippingIcon sx={{ color: '#F05A28' }} />
-                                        <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>
+                                        <Typography variant="body2" fontWeight={700}>
                                             {label.isMaster
                                                 ? 'Master'
                                                 : label.totalBoxes > 1
                                                     ? `Reimprimir Etiqueta Origen — Caja ${label.boxNumber} de ${label.totalBoxes}`
                                                     : 'Reimprimir Etiqueta Origen'}
                                         </Typography>
-                                        {isLabeled
-                                            ? <Chip label="✅ Etiquetado" size="small" color="success" />
-                                            : <Chip label="📋 Sin etiquetar" size="small" color="warning" variant="outlined" />
-                                        }
                                     </Box>
                                     <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13, mb: 1 }}>
                                         {label.tracking}
@@ -1744,37 +1725,15 @@ ${labelsHtml}
                                             </Button>
                                         </Stack>
                                     ) : (
-                                        <Stack spacing={1}>
-                                            <Button
-                                                fullWidth
-                                                variant="contained"
-                                                startIcon={<PrintIcon />}
-                                                onClick={() => handlePrintLabel(label)}
-                                                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
-                                            >
-                                                Imprimir
-                                            </Button>
-                                            {!isLabeled && (
-                                                <Button
-                                                    fullWidth
-                                                    variant="outlined"
-                                                    size="small"
-                                                    onClick={async () => {
-                                                        if (!shipment?.master?.id) return;
-                                                        try {
-                                                            await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
-                                                            setPqtxMsg('✅ Etiqueta marcada como impresa');
-                                                            await handleSearch();
-                                                        } catch (e: any) {
-                                                            setError(`Error: ${e?.response?.data?.error || e?.message}`);
-                                                        }
-                                                    }}
-                                                    sx={{ borderColor: '#2E7D32', color: '#2E7D32', fontSize: 11 }}
-                                                >
-                                                    ✅ Confirmar etiqueta impresa
-                                                </Button>
-                                            )}
-                                        </Stack>
+                                        <Button
+                                            fullWidth
+                                            variant="contained"
+                                            startIcon={<PrintIcon />}
+                                            onClick={() => handlePrintLabel(label)}
+                                            sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
+                                        >
+                                            Imprimir
+                                        </Button>
                                     )}
                                 </Paper>
                             </Grid>
@@ -1915,12 +1874,33 @@ ${labelsHtml}
                                         bgcolor: '#F3F8FF',
                                     }}
                                 >
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
                                         <LocalShippingIcon sx={{ color: '#1976d2' }} />
                                         <Typography variant="body2" fontWeight={700} sx={{ color: '#1976d2' }}>
                                             {carrierGuideTitle}
                                         </Typography>
+                                        <Chip
+                                            size="small"
+                                            label={shipment.master.nationalLabelUrl ? '🏷️ Etiquetado' : '📋 Sin etiqueta'}
+                                            color={shipment.master.nationalLabelUrl ? 'success' : 'default'}
+                                            variant="outlined"
+                                            sx={{ fontSize: 11 }}
+                                        />
                                     </Box>
+                                    {!shipment.master.nationalLabelUrl && (
+                                        <Button
+                                            size="small"
+                                            variant="outlined"
+                                            sx={{ mb: 1, borderColor: '#FF6F00', color: '#FF6F00', fontSize: 11 }}
+                                            onClick={() => {
+                                                api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`)
+                                                    .then(() => { setPqtxMsg('✅ Etiqueta confirmada como impresa'); handleSearch(); })
+                                                    .catch(() => { setPqtxMsg('❌ Error al confirmar etiqueta'); });
+                                            }}
+                                        >
+                                            ✅ Confirmar etiqueta impresa
+                                        </Button>
+                                    )}
                                     {getAssignedCarrierGuideUrl() ? (
                                         <>
                                             <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13, mb: 1 }}>
