@@ -497,24 +497,30 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
     let baseQuery = `
       SELECT * FROM (
         -- PACKAGES (con FNO de china_receipt si existe para AIR_CHN_MX)
-        SELECT 
-          p.id, 'package' as source_type, 
-          CASE 
-            WHEN p.service_type = 'AIR_CHN_MX' AND cr.fno IS NOT NULL 
-              THEN cr.fno || '-' || REVERSE(SPLIT_PART(REVERSE(p.tracking_internal), '-', 1))
-            ELSE p.tracking_internal 
+        SELECT
+          p.id, 'package' as source_type,
+          CASE
+            WHEN p.service_type = 'AIR_CHN_MX' AND COALESCE(cr.fno, cr2.fno) IS NOT NULL
+              THEN COALESCE(cr.fno, cr2.fno) || '-' || REVERSE(SPLIT_PART(REVERSE(p.tracking_internal), '-', 1))
+            ELSE p.tracking_internal
           END as guia_tracking,
-          COALESCE(p.service_type, 'POBOX_USA') as servicio, 
-          COALESCE(p.user_id, cr.user_id) as cliente_id,
-          cr.shipping_mark as shipping_mark,
-          COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, p.air_sale_price, cr.assigned_cost_mxn, 0) as saldo_deudor,
-          COALESCE(p.assigned_cost_mxn, p.air_sale_price, cr.assigned_cost_mxn, 0) as costo_base,
+          COALESCE(p.service_type, 'POBOX_USA') as servicio,
+          COALESCE(p.user_id, cr.user_id, cr2.user_id) as cliente_id,
+          COALESCE(cr.shipping_mark, cr2.shipping_mark, p.box_id) as shipping_mark,
+          COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, p.air_sale_price, cr.assigned_cost_mxn, cr2.assigned_cost_mxn, 0) as saldo_deudor,
+          COALESCE(p.assigned_cost_mxn, p.air_sale_price, cr.assigned_cost_mxn, cr2.assigned_cost_mxn, 0) as costo_base,
           GREATEST(EXTRACT(DAY FROM NOW() - COALESCE(p.received_at, p.created_at))::INTEGER, 0) as dias_en_almacen,
           COALESCE(p.payment_status, 'pending') as payment_status,
           p.received_at as fecha_recepcion,
           COALESCE(p.description, p.destination_contact, 'Paquete') as descripcion
         FROM packages p
         LEFT JOIN china_receipts cr ON p.china_receipt_id = cr.id
+        -- Fallback: buscar china_receipt por fno = prefijo del tracking_internal (sin sufijo -NNN)
+        LEFT JOIN china_receipts cr2 ON (
+          cr.id IS NULL
+          AND p.service_type = 'AIR_CHN_MX'
+          AND UPPER(cr2.fno) = UPPER(REGEXP_REPLACE(p.tracking_internal, '-\d+$', ''))
+        )
         WHERE (p.payment_status != 'paid' OR p.payment_status IS NULL)
         
         UNION ALL
