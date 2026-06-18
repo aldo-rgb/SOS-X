@@ -1105,105 +1105,6 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
         </Grid>
       </Grid>
 
-      {/* Gráficas */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        {/* Gráfica de Pastel - Métodos de Pago */}
-        <Grid size={{ xs: 12, md: 4 }}>
-          <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
-            <Typography variant="h6" fontWeight="bold" sx={{ mb: 2 }}>
-              📊 Distribución por Método
-            </Typography>
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 250 }}>
-              {pieData.some(d => d.value > 0) ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={90}
-                      paddingAngle={5}
-                      dataKey="value"
-                      label={({ name, percent }) => `${name || ''}: ${((percent || 0) * 100).toFixed(0)}%`}
-                    >
-                      {pieData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip 
-                      formatter={(value) => formatCurrency(Number(value || 0))}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <Typography color="text.secondary">Sin datos en el período</Typography>
-              )}
-            </Box>
-            <Divider sx={{ my: 2 }} />
-            <Box sx={{ display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 1 }}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Chip 
-                  icon={<LocalAtm />} 
-                  label={`Efectivo: ${data?.porcentajes.efectivo || 0}%`}
-                  sx={{ bgcolor: YELLOW, color: 'white' }}
-                />
-              </Box>
-              <Box sx={{ textAlign: 'center' }}>
-                <Chip 
-                  icon={<AccountBalance />} 
-                  label={`SPEI: ${data?.porcentajes.spei || 0}%`}
-                  sx={{ bgcolor: GREEN, color: 'white' }}
-                />
-              </Box>
-              <Box sx={{ textAlign: 'center' }}>
-                <Chip 
-                  icon={<AccountBalance />} 
-                  label={`PayPal: ${data?.porcentajes.paypal || 0}%`}
-                  sx={{ bgcolor: PAYPAL_BLUE, color: 'white' }}
-                />
-              </Box>
-            </Box>
-          </Paper>
-        </Grid>
-
-        {/* Gráfica de Barras - Ingresos por Servicio */}
-        <Grid size={{ xs: 12, md: 8 }}>
-          <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
-            <Typography variant="h6" fontWeight="bold" sx={{ mb: 2 }}>
-              📈 Ingresos por Servicio (Mes Actual)
-            </Typography>
-            <Box sx={{ height: 280 }}>
-              {barData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={barData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tickFormatter={(v: number) => `$${(v/1000).toFixed(0)}k`} />
-                    <RechartsTooltip 
-                      formatter={(value, name) => [
-                        formatCurrency(Number(value || 0)),
-                        name === 'monto' ? 'Ingresos' : 'Cantidad'
-                      ]}
-                    />
-                    <Legend />
-                    <Bar dataKey="monto" name="Ingresos" radius={[4, 4, 0, 0]}>
-                      {barData.map((entry, index) => (
-                        <Cell key={`bar-${index}`} fill={entry.fill} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-                  <Typography color="text.secondary">Sin ingresos en el período</Typography>
-                </Box>
-              )}
-            </Box>
-          </Paper>
-        </Grid>
-      </Grid>
-
       {/* Información de Comisiones */}
       <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
         <strong>💡 Comisiones Openpay del mes:</strong> {formatCurrency(data?.kpis.comisiones_mes || 0)} 
@@ -2212,6 +2113,105 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
         </Paper>
         );
       })()}
+
+      {/* Gráficas */}
+      <Grid container spacing={3} sx={{ mb: 4, mt: 1 }}>
+        {/* Gráfica de Pastel - Métodos de Pago */}
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+            <Typography variant="h6" fontWeight="bold" sx={{ mb: 2 }}>
+              📊 Distribución por Método
+            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 250 }}>
+              {pieData.some(d => d.value > 0) ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={90}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={({ name, percent }) => `${name || ''}: ${((percent || 0) * 100).toFixed(0)}%`}
+                    >
+                      {pieData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip
+                      formatter={(value) => formatCurrency(Number(value || 0))}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <Typography color="text.secondary">Sin datos en el período</Typography>
+              )}
+            </Box>
+            <Divider sx={{ my: 2 }} />
+            <Box sx={{ display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 1 }}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Chip
+                  icon={<LocalAtm />}
+                  label={`Efectivo: ${data?.porcentajes.efectivo || 0}%`}
+                  sx={{ bgcolor: YELLOW, color: 'white' }}
+                />
+              </Box>
+              <Box sx={{ textAlign: 'center' }}>
+                <Chip
+                  icon={<AccountBalance />}
+                  label={`SPEI: ${data?.porcentajes.spei || 0}%`}
+                  sx={{ bgcolor: GREEN, color: 'white' }}
+                />
+              </Box>
+              <Box sx={{ textAlign: 'center' }}>
+                <Chip
+                  icon={<AccountBalance />}
+                  label={`PayPal: ${data?.porcentajes.paypal || 0}%`}
+                  sx={{ bgcolor: PAYPAL_BLUE, color: 'white' }}
+                />
+              </Box>
+            </Box>
+          </Paper>
+        </Grid>
+
+        {/* Gráfica de Barras - Ingresos por Servicio */}
+        <Grid size={{ xs: 12, md: 8 }}>
+          <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+            <Typography variant="h6" fontWeight="bold" sx={{ mb: 2 }}>
+              📈 Ingresos por Servicio (Mes Actual)
+            </Typography>
+            <Box sx={{ height: 280 }}>
+              {barData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={barData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tickFormatter={(v: number) => `$${(v/1000).toFixed(0)}k`} />
+                    <RechartsTooltip
+                      formatter={(value, name) => [
+                        formatCurrency(Number(value || 0)),
+                        name === 'monto' ? 'Ingresos' : 'Cantidad'
+                      ]}
+                    />
+                    <Legend />
+                    <Bar dataKey="monto" name="Ingresos" radius={[4, 4, 0, 0]}>
+                      {barData.map((entry, index) => (
+                        <Cell key={`bar-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                  <Typography color="text.secondary">Sin ingresos en el período</Typography>
+                </Box>
+              )}
+            </Box>
+          </Paper>
+        </Grid>
+      </Grid>
 
       {/* Dialog de referencias detectadas */}
       <Dialog
