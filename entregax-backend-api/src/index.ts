@@ -5536,6 +5536,7 @@ app.patch('/api/admin/packages/:id/mark-paid-manual', authenticateToken, require
   try {
     const pkgId = parseInt(req.params.id as string);
     if (!pkgId) return res.status(400).json({ error: 'ID inválido' });
+    // Actualiza el master y todos sus hijos (o solo la guía si no tiene master)
     await pool.query(
       `UPDATE packages
        SET client_paid = TRUE,
@@ -5543,7 +5544,8 @@ app.patch('/api/admin/packages/:id/mark-paid-manual', authenticateToken, require
            saldo_pendiente = 0,
            monto_pagado = COALESCE(NULLIF(monto_pagado, 0), NULLIF(pobox_service_cost, 0), NULLIF(assigned_cost_mxn, 0), NULLIF(air_sale_price, 0), 1),
            updated_at = NOW()
-       WHERE id = $1`,
+       WHERE id    = COALESCE((SELECT master_id FROM packages WHERE id = $1 AND master_id IS NOT NULL), $1)
+          OR master_id = COALESCE((SELECT master_id FROM packages WHERE id = $1 AND master_id IS NOT NULL), $1)`,
       [pkgId]
     );
     res.json({ success: true });
