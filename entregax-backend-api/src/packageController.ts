@@ -4357,7 +4357,13 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
                 a.zip_code AS addr_zip,
                 a.city AS addr_city,
                 a.street AS addr_street,
-                a.neighborhood AS addr_neighborhood
+                a.neighborhood AS addr_neighborhood,
+                (SELECT ps.folio_porte FROM pqtx_shipments ps WHERE ps.tracking_number = p.national_tracking LIMIT 1) AS national_folio_porte,
+                (SELECT CASE
+                   WHEN ps.total IS NULL OR COALESCE(ps.pieces,1) <= 0 THEN NULL
+                   WHEN (ps.total / GREATEST(ps.pieces,1)) < 300 THEN 400 * GREATEST(ps.pieces,1)
+                   ELSE (CEIL(ps.total / GREATEST(ps.pieces,1)) + 100) * GREATEST(ps.pieces,1)
+                 END FROM pqtx_shipments ps WHERE ps.tracking_number = p.national_tracking LIMIT 1) AS calc_national_shipping_cost
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN addresses a ON p.assigned_address_id = a.id
@@ -4500,9 +4506,12 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
             pobox_tarifa_nivel: pkg.pobox_tarifa_nivel || null,
             pobox_venta_usd: pkg.pobox_venta_usd ? parseFloat(pkg.pobox_venta_usd) : null,
             pobox_service_cost: pkg.pobox_service_cost ? parseFloat(pkg.pobox_service_cost) : null,
-            national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : null,
+            national_shipping_cost: pkg.calc_national_shipping_cost != null
+                ? parseFloat(pkg.calc_national_shipping_cost)
+                : (pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : null),
             national_carrier: pkg.national_carrier || null,
             national_tracking: pkg.national_tracking || null,
+            national_folio_porte: pkg.national_folio_porte || null,
             air_source: pkg.air_source || null,
             delivery_instructions: pkg.notes || null,
             assigned_address_id: pkg.assigned_address_id || null,

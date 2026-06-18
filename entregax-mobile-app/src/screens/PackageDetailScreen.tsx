@@ -77,6 +77,7 @@ interface PackageDetails {
   carrier?: string;
   national_carrier?: string;
   national_tracking?: string;
+  national_folio_porte?: string;
   image_url?: string;
   has_gex?: boolean;
   gex_folio?: string;
@@ -657,12 +658,12 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
               </View>
             )}
 
-            {/* Tracking nacional — solo si fue asignado por el asesor */}
+            {/* Tracking nacional — muestra folio PQTX (MTY...) si existe, si no el número de rastreo */}
             {!!details.national_tracking && (
               <View style={styles.infoRow}>
                 <MaterialCommunityIcons name="barcode-scan" size={20} color="#666" />
                 <Text style={styles.infoLabel}>Guía Nacional:</Text>
-                <Text style={styles.infoValue}>{details.national_tracking}</Text>
+                <Text style={styles.infoValue}>{details.national_folio_porte || details.national_tracking}</Text>
               </View>
             )}
           </Card.Content>
