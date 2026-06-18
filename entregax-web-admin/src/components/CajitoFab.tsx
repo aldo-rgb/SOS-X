@@ -2,6 +2,7 @@
 // CAJITO FAB — Botón flotante + chat panel anclado (no modal)
 // Se muestra solo si el toggle global `cajito_enabled` está activo.
 // Usa el avatar configurado en brand_assets (slot 'cajito_avatar').
+// Modos: Chat (IA) | Rastrear (lookup directo con datos del escáner)
 // ============================================
 
 import { useEffect, useRef, useState } from 'react';
@@ -16,17 +17,24 @@ import {
   TextField,
   CircularProgress,
   Slide,
+  Chip,
+  Divider,
+  InputAdornment,
 } from '@mui/material';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';
 import BuildIcon from '@mui/icons-material/Build';
+import SearchIcon from '@mui/icons-material/Search';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import PersonIcon from '@mui/icons-material/Person';
+import PlaceIcon from '@mui/icons-material/Place';
+import InventoryIcon from '@mui/icons-material/Inventory';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import api from '../services/api';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-// 🔶 Paleta naranja → rojo
 const CAJITO_GRADIENT = 'linear-gradient(135deg, #FF6F00 0%, #D32F2F 100%)';
 const CAJITO_RING = '#FF6F00';
 const CAJITO_SHADOW = 'rgba(255,111,0,0.45)';
@@ -48,16 +56,171 @@ interface ChatMsg {
   toolName?: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type PackageData = Record<string, any>;
+
 const CONV_KEY = 'cajito.conversationId';
 
 const getCurrentUser = () => {
   try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
 };
 
+const statusLabel = (s?: string): string => {
+  const map: Record<string, string> = {
+    in_transit: 'En tránsito', received: 'Recibido MX', shipped: 'Enviado a destino',
+    delivered: 'Entregado', ready_pickup: 'Listo para recoger', customs: 'En aduana',
+    received_china: 'Recibido China', consolidated: 'Consolidado', at_port: 'En puerto',
+    returned_to_warehouse: 'Devuelto a almacén', lost: 'Perdido',
+  };
+  return map[s || ''] || s || '—';
+};
+
+const statusColor = (s?: string): 'default' | 'success' | 'warning' | 'info' | 'error' | 'primary' => {
+  const v = (s || '').toLowerCase();
+  if (v === 'delivered') return 'success';
+  if (v === 'shipped' || v === 'ready_pickup') return 'primary';
+  if (v === 'in_transit' || v === 'received') return 'info';
+  if (v === 'customs' || v === 'at_port' || v === 'consolidated') return 'warning';
+  if (v === 'lost') return 'error';
+  return 'default';
+};
+
+// Tarjeta de resultado del escáner dentro del panel de Cajito
+function TrackResult({ data, tracking }: { data: PackageData; tracking: string }) {
+  const m = data.shipment?.master || data.package || data;
+  const client = data.shipment?.client || data.client || null;
+  const children: PackageData[] = data.shipment?.children || [];
+
+  const clientPaid = m.clientPaid ?? m.client_paid ?? false;
+  const paymentStatus = m.paymentStatus ?? m.payment_status ?? '';
+  const paid = clientPaid || paymentStatus === 'paid';
+  const status = m.status ?? m.statusLabel ?? '';
+  const destAddress = m.assignedAddress;
+  const hasInstr = !!destAddress || m.needs_instructions === false;
+
+  const totalBoxes = m.totalBoxes ?? m.total_boxes ?? 1;
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      {/* Tracking + estado */}
+      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, borderColor: '#FFB74D' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          <InventoryIcon sx={{ color: CAJITO_RING, fontSize: 18 }} />
+          <Typography variant="caption" color="text.secondary" fontWeight={600}>GUÍA</Typography>
+        </Box>
+        <Typography variant="subtitle1" fontWeight={700} fontFamily="monospace" sx={{ wordBreak: 'break-all', fontSize: 13 }}>
+          {m.tracking || tracking}
+        </Typography>
+        {m.tracking && m.tracking.toUpperCase() !== tracking.toUpperCase() && (
+          <Typography variant="caption" color="text.secondary">Buscado: {tracking}</Typography>
+        )}
+        <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75, flexWrap: 'wrap' }}>
+          <Chip label={statusLabel(status)} size="small" color={statusColor(status)} />
+          {totalBoxes > 1 && <Chip label={`${totalBoxes} cajas`} size="small" variant="outlined" />}
+          <Chip label={paid ? '✅ Pagado' : '⏳ Pendiente'} size="small" color={paid ? 'success' : 'warning'} variant="outlined" />
+          <Chip label={hasInstr ? '📍 Con instrucciones' : '⚠️ Sin instrucciones'} size="small" color={hasInstr ? 'success' : 'warning'} variant="outlined" />
+        </Box>
+      </Paper>
+
+      {/* Cliente */}
+      {client && (
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+            <PersonIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>CLIENTE</Typography>
+          </Box>
+          <Typography variant="body2" fontWeight={600}>{client.name || '—'}</Typography>
+          {client.boxId && <Typography variant="caption" color="text.secondary">{client.boxId}</Typography>}
+          {client.email && <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{client.email}</Typography>}
+        </Paper>
+      )}
+
+      {/* Descripción + peso */}
+      {(m.description || m.weight) && (
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            {m.description && (
+              <Box flex={1}>
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>CONTENIDO</Typography>
+                <Typography variant="body2">{m.description}</Typography>
+              </Box>
+            )}
+            {m.weight && (
+              <Box>
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>PESO</Typography>
+                <Typography variant="body2">{Number(m.weight).toFixed(2)} kg</Typography>
+              </Box>
+            )}
+          </Box>
+        </Paper>
+      )}
+
+      {/* Dirección de entrega */}
+      {destAddress && (
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, borderColor: '#A5D6A7' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+            <PlaceIcon sx={{ fontSize: 15, color: '#2E7D32' }} />
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>DIRECCIÓN DE ENTREGA</Typography>
+          </Box>
+          <Typography variant="body2" fontWeight={600}>{destAddress.recipientName || client?.name || '—'}</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {[destAddress.street, destAddress.exterior, destAddress.interior ? `Int. ${destAddress.interior}` : null].filter(Boolean).join(' ')}
+          </Typography>
+          {destAddress.neighborhood && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Col. {destAddress.neighborhood}
+            </Typography>
+          )}
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            {[destAddress.city, destAddress.state].filter(Boolean).join(', ')} C.P. {destAddress.zip || '—'}
+          </Typography>
+          {destAddress.phone && <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>📞 {destAddress.phone}</Typography>}
+        </Paper>
+      )}
+
+      {/* Paquetería asignada */}
+      {(m.nationalCarrier || m.nationalTracking) && (
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+            <LocalShippingIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>PAQUETERÍA NACIONAL</Typography>
+          </Box>
+          {m.nationalCarrier && <Typography variant="body2" fontWeight={600}>{m.nationalCarrier}</Typography>}
+          {m.nationalTracking && (
+            <Typography variant="caption" fontFamily="monospace" color="primary.main">{m.nationalTracking}</Typography>
+          )}
+        </Paper>
+      )}
+
+      {/* Cajas hijas (resumen) */}
+      {children.length > 0 && (
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+          <Typography variant="caption" color="text.secondary" fontWeight={600}>CAJAS ({children.length})</Typography>
+          <Divider sx={{ my: 0.5 }} />
+          {children.slice(0, 5).map((c, i) => (
+            <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
+              <Typography variant="caption" fontFamily="monospace" sx={{ flex: 1, fontSize: 11 }}>
+                {c.tracking || c.trackingInternal || `Caja ${c.boxNumber || i + 1}`}
+              </Typography>
+              <Chip label={statusLabel(c.status)} size="small" color={statusColor(c.status)} sx={{ height: 18, fontSize: 10 }} />
+            </Box>
+          ))}
+          {children.length > 5 && (
+            <Typography variant="caption" color="text.secondary">+{children.length - 5} más</Typography>
+          )}
+        </Paper>
+      )}
+    </Box>
+  );
+}
+
 export default function CajitoFab() {
   const { cajitoEnabled, cajitoAvatarUrl, loading } = usePaymentStatus();
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'chat' | 'track'>('chat');
   const [imgError, setImgError] = useState(false);
+
+  // Chat state
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
@@ -67,11 +230,17 @@ export default function CajitoFab() {
     const n = raw ? parseInt(raw, 10) : NaN;
     return Number.isFinite(n) && n > 0 ? n : null;
   });
-  const listRef = useRef<HTMLDivElement | null>(null);
 
-  // 📍 Posición vertical persistente del FAB. El usuario puede arrastrarlo
-  // arriba/abajo; guardamos en localStorage para que se mantenga entre sesiones.
-  // bottom = distancia desde el borde inferior de la ventana en px.
+  // Track state
+  const [trackInput, setTrackInput] = useState('');
+  const [trackLoading, setTrackLoading] = useState(false);
+  const [trackResult, setTrackResult] = useState<PackageData | null>(null);
+  const [trackError, setTrackError] = useState('');
+  const [lastTracked, setLastTracked] = useState('');
+
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const trackInputRef = useRef<HTMLInputElement | null>(null);
+
   const FAB_POS_KEY = 'cajito.fab.bottom';
   const [fabBottom, setFabBottom] = useState<number>(() => {
     const raw = localStorage.getItem(FAB_POS_KEY);
@@ -84,26 +253,26 @@ export default function CajitoFab() {
   const isSuperAdmin = user?.role === 'super_admin';
 
   useEffect(() => {
-    if (open && messages.length === 0) {
+    if (open && mode === 'chat' && messages.length === 0) {
       const userName = user?.full_name?.split(' ')?.[0] || 'aquí';
-      setMessages([
-        {
-          id: Date.now(),
-          role: 'cajito',
-          text: isSuperAdmin
-            ? `¡Hola ${userName}! Soy Cajito. Tengo acceso de SOLO LECTURA al sistema: paquetes, clientes, rutas, choferes e inventarios. Pregúntame, por ejemplo: ¿dónde está el tracking TDX-...? o muestra los paquetes recibidos hoy.`
-            : `¡Hola ${userName}! Soy Cajito, asistente IA de solo lectura. Tu administrador decide qué puedo consultar desde Permisos > Cajito (IA). Pregúntame por un tracking o un cliente.`,
-          ts: Date.now(),
-        },
-      ]);
+      setMessages([{
+        id: Date.now(), role: 'cajito', ts: Date.now(),
+        text: isSuperAdmin
+          ? `¡Hola ${userName}! Soy Cajito. Tengo acceso de SOLO LECTURA al sistema: paquetes, clientes, rutas, choferes e inventarios. Pregúntame, por ejemplo: ¿dónde está el tracking TDX-...? o muestra los paquetes recibidos hoy.`
+          : `¡Hola ${userName}! Soy Cajito, asistente IA de solo lectura. Tu administrador decide qué puedo consultar desde Permisos > Cajito (IA). Pregúntame por un tracking o un cliente.`,
+      }]);
     }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight;
-    }
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages, thinking]);
+
+  useEffect(() => {
+    if (open && mode === 'track') {
+      setTimeout(() => trackInputRef.current?.focus(), 150);
+    }
+  }, [open, mode]);
 
   if (loading || !cajitoEnabled) return null;
   if (!isSuperAdmin) return null;
@@ -119,10 +288,7 @@ export default function CajitoFab() {
     setThinking(true);
     setThinkingLabel('Cajito está pensando…');
     try {
-      const res = await api.post('/cajito/chat', {
-        message: text,
-        conversationId: conversationId || undefined,
-      });
+      const res = await api.post('/cajito/chat', { message: text, conversationId: conversationId || undefined });
       const data = res.data || {};
       const newConvId: number | null = data.conversationId || null;
       if (newConvId && newConvId !== conversationId) {
@@ -131,30 +297,39 @@ export default function CajitoFab() {
       }
       const calls: { name: string }[] = Array.isArray(data.toolCalls) ? data.toolCalls : [];
       const extras: ChatMsg[] = calls.map((c, i) => ({
-        id: Date.now() + i + 1,
-        role: 'tool',
-        text: `Consultó: ${c.name}`,
-        toolName: c.name,
-        ts: Date.now(),
+        id: Date.now() + i + 1, role: 'tool', text: `Consultó: ${c.name}`, toolName: c.name, ts: Date.now(),
       }));
-      setMessages((prev) => [
-        ...prev,
-        ...extras,
-        {
-          id: Date.now() + 1000,
-          role: 'cajito',
-          text: data.reply || '(sin respuesta)',
-          ts: Date.now(),
-        },
-      ]);
+      setMessages((prev) => [...prev, ...extras, { id: Date.now() + 1000, role: 'cajito', text: data.reply || '(sin respuesta)', ts: Date.now() }]);
     } catch (err: any) {
       const msg = err?.response?.data?.error || err?.message || 'Error al consultar a Cajito';
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now() + 1, role: 'cajito', text: `⚠️ ${msg}`, ts: Date.now() },
-      ]);
+      setMessages((prev) => [...prev, { id: Date.now() + 1, role: 'cajito', text: `⚠️ ${msg}`, ts: Date.now() }]);
     } finally {
       setThinking(false);
+    }
+  };
+
+  const handleTrack = async () => {
+    const raw = trackInput.trim();
+    if (!raw || trackLoading) return;
+    setTrackLoading(true);
+    setTrackError('');
+    setTrackResult(null);
+    setLastTracked(raw);
+    try {
+      const res = await api.get(`/packages/track/${encodeURIComponent(raw)}`);
+      if (res.data?.success && (res.data.shipment || res.data.package)) {
+        setTrackResult(res.data);
+      } else {
+        setTrackError('No se encontró información para esta guía');
+      }
+    } catch (e: any) {
+      if (e.response?.status === 404) {
+        setTrackError('Guía no encontrada en el sistema');
+      } else {
+        setTrackError(e.response?.data?.error || e.message || 'Error al consultar');
+      }
+    } finally {
+      setTrackLoading(false);
     }
   };
 
@@ -164,27 +339,16 @@ export default function CajitoFab() {
     setMessages([]);
   };
 
-  // Drag handlers — arrastre vertical del FAB. Si el cursor se movió < 5px
-  // entre pointerdown y pointerup, lo consideramos un click y abrimos/cerramos
-  // el chat. Si se movió más, sólo guardamos la nueva posición.
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    draggingRef.current = {
-      startY: e.clientY,
-      startBottom: fabBottom,
-      moved: false,
-    };
+    draggingRef.current = { startY: e.clientY, startBottom: fabBottom, moved: false };
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
   };
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const drag = draggingRef.current;
     if (!drag) return;
-    const dy = drag.startY - e.clientY; // arrastrar hacia arriba ⇒ bottom mayor
+    const dy = drag.startY - e.clientY;
     if (Math.abs(dy) > 4) drag.moved = true;
-    const next = Math.max(
-      8,
-      Math.min(window.innerHeight - 110, drag.startBottom + dy)
-    );
-    setFabBottom(next);
+    setFabBottom(Math.max(8, Math.min(window.innerHeight - 110, drag.startBottom + dy)));
   };
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     const drag = draggingRef.current;
@@ -200,206 +364,157 @@ export default function CajitoFab() {
 
   return (
     <>
-      {/* === Botón flotante arrastrable (anillo naranja) ===
-          Usamos un Box wrapper con position:fixed y los pointer events.
-          El Fab interno es visual sólo (pointerEvents:none) para que el
-          drag funcione siempre, sin que MUI intercepte con ripple/tooltip. */}
+      {/* FAB arrastrable */}
       <Box
         title={open ? 'Cerrar Cajito' : 'Hablar con Cajito (arrastra para mover)'}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        sx={{
-          position: 'fixed',
-          bottom: fabBottom,
-          right: 24,
-          zIndex: 1300,
-          width: 90,
-          height: 90,
-          borderRadius: '50%',
-          cursor: 'grab',
-          touchAction: 'none',
-          userSelect: 'none',
-          '&:active': { cursor: 'grabbing' },
-        }}
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+        sx={{ position: 'fixed', bottom: fabBottom, right: 24, zIndex: 1300, width: 90, height: 90, borderRadius: '50%', cursor: 'grab', touchAction: 'none', userSelect: 'none', '&:active': { cursor: 'grabbing' } }}
       >
-        <Fab
-          component="div"
-          sx={{
-            width: 90,
-            height: 90,
-            background: avatar ? 'transparent' : CAJITO_GRADIENT,
-            color: 'white',
-            boxShadow: `0 8px 24px ${CAJITO_SHADOW}`,
-            border: avatar ? `3px solid ${CAJITO_RING}` : 'none',
-            overflow: 'hidden',
-            p: 0,
-            pointerEvents: 'none', // los pointer events los maneja el Box padre
-            '&:hover': {
-              boxShadow: `0 12px 32px ${CAJITO_SHADOW}`,
-            },
-          }}
-        >
+        <Fab component="div" sx={{ width: 90, height: 90, background: avatar ? 'transparent' : CAJITO_GRADIENT, color: 'white', boxShadow: `0 8px 24px ${CAJITO_SHADOW}`, border: avatar ? `3px solid ${CAJITO_RING}` : 'none', overflow: 'hidden', p: 0, pointerEvents: 'none', '&:hover': { boxShadow: `0 12px 32px ${CAJITO_SHADOW}` } }}>
           {avatar ? (
-            <Box
-              component="img"
-              src={avatar}
-              alt="Cajito"
-              onError={() => setImgError(true)}
-              sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            />
+            <Box component="img" src={avatar} alt="Cajito" onError={() => setImgError(true)} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           ) : (
             <SmartToyIcon sx={{ fontSize: 42 }} />
           )}
         </Fab>
       </Box>
 
-      {/* === Panel de chat (no modal: deja seguir trabajando) === */}
+      {/* Panel principal */}
       <Slide direction="up" in={open} mountOnEnter unmountOnExit>
-        <Paper
-          elevation={12}
-          sx={{
-            position: 'fixed',
-            bottom: 130,
-            right: 24,
-            width: { xs: 'calc(100vw - 48px)', sm: 380 },
-            maxWidth: 400,
-            height: 560,
-            maxHeight: 'calc(100vh - 160px)',
-            zIndex: 1299,
-            borderRadius: 3,
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-            border: `2px solid ${CAJITO_RING}`,
-          }}
-        >
-          {/* Header */}
-          <Box
-            sx={{
-              background: CAJITO_GRADIENT,
-              color: 'white',
-              p: 1.5,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.5,
-            }}
-          >
-            <Avatar
-              src={avatar || undefined}
-              sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 44, height: 44, border: '2px solid rgba(255,255,255,0.6)' }}
-            >
+        <Paper elevation={12} sx={{ position: 'fixed', bottom: 130, right: 24, width: { xs: 'calc(100vw - 48px)', sm: 380 }, maxWidth: 400, height: 580, maxHeight: 'calc(100vh - 160px)', zIndex: 1299, borderRadius: 3, overflow: 'hidden', display: 'flex', flexDirection: 'column', border: `2px solid ${CAJITO_RING}` }}>
+
+          {/* Header con selector de modo */}
+          <Box sx={{ background: CAJITO_GRADIENT, color: 'white', p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Avatar src={avatar || undefined} sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 44, height: 44, border: '2px solid rgba(255,255,255,0.6)' }}>
               {!avatar && <SmartToyIcon />}
             </Avatar>
             <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography variant="subtitle1" fontWeight={700} lineHeight={1.1}>
-                Cajito
-              </Typography>
-              <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                Asistente IA · Solo lectura{isSuperAdmin ? ' · Super Admin' : ''}
-              </Typography>
+              <Typography variant="subtitle1" fontWeight={700} lineHeight={1.1}>Cajito</Typography>
+              <Typography variant="caption" sx={{ opacity: 0.9 }}>Asistente IA · Solo lectura{isSuperAdmin ? ' · Super Admin' : ''}</Typography>
             </Box>
-            <Tooltip title="Nueva conversación">
-              <IconButton size="small" onClick={startNewConversation} sx={{ color: 'white', mr: 0.5 }}>
-                <SmartToyIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            {mode === 'chat' && (
+              <Tooltip title="Nueva conversación">
+                <IconButton size="small" onClick={startNewConversation} sx={{ color: 'white', mr: 0.5 }}>
+                  <SmartToyIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
             <IconButton size="small" onClick={() => setOpen(false)} sx={{ color: 'white' }}>
               <CloseIcon />
             </IconButton>
           </Box>
 
-          {/* Mensajes */}
-          <Box
-            ref={listRef}
-            sx={{
-              flex: 1,
-              overflowY: 'auto',
-              bgcolor: '#FFF8F2',
-              p: 1.5,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 1,
-            }}
-          >
-            {messages.map((m) => {
-              if (m.role === 'tool') {
-                return (
-                  <Box key={m.id} sx={{ alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary', bgcolor: '#FFF3E0', border: '1px dashed #FFB74D', borderRadius: 2, px: 1, py: 0.25 }}>
-                    <BuildIcon sx={{ fontSize: 14, color: CAJITO_RING }} />
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{m.text}</Typography>
-                  </Box>
-                );
-              }
-              return (
-                <Box
-                  key={m.id}
-                  sx={{
-                    alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-                    maxWidth: '85%',
-                    bgcolor: m.role === 'user' ? CAJITO_RING : 'white',
-                    color: m.role === 'user' ? 'white' : 'text.primary',
-                    border: m.role === 'user' ? 'none' : '1px solid #FFE0B2',
-                    borderRadius: 2,
-                    px: 1.25,
-                    py: 0.75,
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
-                  }}
-                >
-                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    {m.text}
-                  </Typography>
-                </Box>
-              );
-            })}
-            {thinking && (
-              <Box sx={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
-                <CircularProgress size={14} sx={{ color: CAJITO_RING }} />
-                <Typography variant="caption">{thinkingLabel}</Typography>
+          {/* Tabs de modo */}
+          <Box sx={{ display: 'flex', borderBottom: '1px solid #FFE0B2', bgcolor: 'white' }}>
+            <Box
+              onClick={() => setMode('chat')}
+              sx={{ flex: 1, py: 1, textAlign: 'center', cursor: 'pointer', borderBottom: mode === 'chat' ? `2px solid ${CAJITO_RING}` : '2px solid transparent', transition: 'border-color 0.15s' }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                <SmartToyIcon sx={{ fontSize: 16, color: mode === 'chat' ? CAJITO_RING : 'text.secondary' }} />
+                <Typography variant="caption" fontWeight={mode === 'chat' ? 700 : 400} color={mode === 'chat' ? CAJITO_RING : 'text.secondary'}>
+                  Chat IA
+                </Typography>
               </Box>
-            )}
+            </Box>
+            <Box
+              onClick={() => setMode('track')}
+              sx={{ flex: 1, py: 1, textAlign: 'center', cursor: 'pointer', borderBottom: mode === 'track' ? `2px solid ${CAJITO_RING}` : '2px solid transparent', transition: 'border-color 0.15s' }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                <SearchIcon sx={{ fontSize: 16, color: mode === 'track' ? CAJITO_RING : 'text.secondary' }} />
+                <Typography variant="caption" fontWeight={mode === 'track' ? 700 : 400} color={mode === 'track' ? CAJITO_RING : 'text.secondary'}>
+                  Rastrear guía
+                </Typography>
+              </Box>
+            </Box>
           </Box>
 
-          {/* Input */}
-          <Box
-            sx={{
-              borderTop: '1px solid #FFE0B2',
-              p: 1,
-              display: 'flex',
-              gap: 1,
-              alignItems: 'flex-end',
-              bgcolor: 'white',
-            }}
-          >
-            <TextField
-              fullWidth
-              size="small"
-              multiline
-              maxRows={4}
-              placeholder="Escribe a Cajito…"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-            />
-            <IconButton
-              onClick={handleSend}
-              disabled={!input.trim() || thinking}
-              sx={{
-                background: CAJITO_GRADIENT,
-                color: 'white',
-                '&:hover': { background: CAJITO_GRADIENT, filter: 'brightness(1.05)' },
-                '&.Mui-disabled': { background: '#FFD7B5', color: 'white' },
-              }}
-            >
-              <SendIcon fontSize="small" />
-            </IconButton>
-          </Box>
+          {/* ── Modo CHAT ── */}
+          {mode === 'chat' && (
+            <>
+              <Box ref={listRef} sx={{ flex: 1, overflowY: 'auto', bgcolor: '#FFF8F2', p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {messages.map((m) => {
+                  if (m.role === 'tool') {
+                    return (
+                      <Box key={m.id} sx={{ alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary', bgcolor: '#FFF3E0', border: '1px dashed #FFB74D', borderRadius: 2, px: 1, py: 0.25 }}>
+                        <BuildIcon sx={{ fontSize: 14, color: CAJITO_RING }} />
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{m.text}</Typography>
+                      </Box>
+                    );
+                  }
+                  return (
+                    <Box key={m.id} sx={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', bgcolor: m.role === 'user' ? CAJITO_RING : 'white', color: m.role === 'user' ? 'white' : 'text.primary', border: m.role === 'user' ? 'none' : '1px solid #FFE0B2', borderRadius: 2, px: 1.25, py: 0.75, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.text}</Typography>
+                    </Box>
+                  );
+                })}
+                {thinking && (
+                  <Box sx={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
+                    <CircularProgress size={14} sx={{ color: CAJITO_RING }} />
+                    <Typography variant="caption">{thinkingLabel}</Typography>
+                  </Box>
+                )}
+              </Box>
+              <Box sx={{ borderTop: '1px solid #FFE0B2', p: 1, display: 'flex', gap: 1, alignItems: 'flex-end', bgcolor: 'white' }}>
+                <TextField fullWidth size="small" multiline maxRows={4} placeholder="Escribe a Cajito…" value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                />
+                <IconButton onClick={handleSend} disabled={!input.trim() || thinking}
+                  sx={{ background: CAJITO_GRADIENT, color: 'white', '&:hover': { background: CAJITO_GRADIENT, filter: 'brightness(1.05)' }, '&.Mui-disabled': { background: '#FFD7B5', color: 'white' } }}>
+                  <SendIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            </>
+          )}
+
+          {/* ── Modo RASTREAR ── */}
+          {mode === 'track' && (
+            <>
+              <Box sx={{ p: 1.5, bgcolor: 'white', borderBottom: '1px solid #FFE0B2' }}>
+                <TextField
+                  fullWidth size="small"
+                  placeholder="Ej: US-1234567890, TDX-001..."
+                  value={trackInput}
+                  inputRef={trackInputRef}
+                  onChange={(e) => setTrackInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleTrack(); }}
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18, color: 'text.secondary' }} /></InputAdornment>,
+                    endAdornment: trackLoading ? <InputAdornment position="end"><CircularProgress size={16} sx={{ color: CAJITO_RING }} /></InputAdornment> : undefined,
+                  }}
+                />
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.75 }}>
+                  <Box
+                    onClick={handleTrack}
+                    sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.5, py: 0.5, borderRadius: 1, background: CAJITO_GRADIENT, color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 600, opacity: (!trackInput.trim() || trackLoading) ? 0.5 : 1, pointerEvents: (!trackInput.trim() || trackLoading) ? 'none' : 'auto' }}
+                  >
+                    <SearchIcon sx={{ fontSize: 16 }} /> Buscar
+                  </Box>
+                </Box>
+              </Box>
+
+              <Box sx={{ flex: 1, overflowY: 'auto', bgcolor: '#FFF8F2', p: 1.5 }}>
+                {trackError && (
+                  <Box sx={{ bgcolor: '#FFEBEE', border: '1px solid #EF9A9A', borderRadius: 2, p: 1.5, mb: 1 }}>
+                    <Typography variant="body2" color="error.main">⚠️ {trackError}</Typography>
+                    <Typography variant="caption" color="text.secondary">Guía buscada: {lastTracked}</Typography>
+                  </Box>
+                )}
+                {!trackResult && !trackError && !trackLoading && (
+                  <Box sx={{ textAlign: 'center', pt: 4, color: 'text.secondary' }}>
+                    <SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.3 }} />
+                    <Typography variant="body2">Ingresa un número de guía para ver su información completa</Typography>
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>US-..., TDX-..., TDI-..., guía de paquetería...</Typography>
+                  </Box>
+                )}
+                {trackResult && <TrackResult data={trackResult} tracking={lastTracked} />}
+              </Box>
+            </>
+          )}
+
         </Paper>
       </Slide>
     </>
