@@ -1458,6 +1458,21 @@ export const chartbackAction = async (req: Request, res: Response): Promise<any>
                 [String(notes).trim(), userId, JSON.stringify(entry), id]
             );
             return res.json({ success: true, action: 'retention' });
+        } else if (action === 'not_interested') {
+            // Cliente declinó el servicio: sale del chartback activo, pero queda
+            // marcado para histórico/seguimiento. No requiere notas obligatorias.
+            entry.type = 'not_interested';
+            if (notes) entry.note = String(notes).trim();
+            await pool.query(
+                `UPDATE legacy_clients
+                 SET chartback = false, chartback_status = 'not_interested', next_contact_at = NULL,
+                     chartback_notes = COALESCE($1, chartback_notes),
+                     recovery_advisor_id = $2,
+                     chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $3::jsonb
+                 WHERE id = $4`,
+                [notes ? String(notes).trim() : null, userId, JSON.stringify(entry), id]
+            );
+            return res.json({ success: true, action: 'not_interested' });
         } else if (action === 'whatsapp') {
             // Solo registra actividad, no cambia estado
             entry.type = 'whatsapp';

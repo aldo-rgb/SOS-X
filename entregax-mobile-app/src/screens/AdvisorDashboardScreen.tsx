@@ -15,6 +15,9 @@ import {
   StatusBar,
   Image,
   TextInput,
+  KeyboardAvoidingView,
+  Keyboard,
+  Platform,
 } from 'react-native';
 import { Text, Avatar, ActivityIndicator, Chip, Divider } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
@@ -832,13 +835,38 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                   <Text style={{ color: '#666', marginTop: 10, fontSize: 14 }}>Sin movimientos registrados</Text>
                 </View>
               ) : (() => {
-                const typeIcon = (t: string) => t === 'whatsapp' ? 'logo-whatsapp' : t === 'no_answer' ? 'call-outline' : t === 'callback' ? 'calendar-outline' : t === 'recovered' ? 'checkmark-circle' : t === 'retention' ? 'alert-circle' : 'create-outline';
-                const typeLabel = (t: string) => t === 'whatsapp' ? 'WhatsApp' : t === 'no_answer' ? 'No contestó' : t === 'callback' ? 'Callback' : t === 'recovered' ? 'Recuperado' : t === 'retention' ? 'Retención' : 'Nota';
-                const typeColor = (t: string) => t === 'whatsapp' ? '#25D366' : t === 'recovered' ? '#4ADE80' : t === 'retention' ? '#FB923C' : t === 'no_answer' ? '#F59E0B' : t === 'callback' ? '#A78BFA' : '#60A5FA';
+                const typeIcon = (t: string) => t === 'whatsapp' ? 'logo-whatsapp' : t === 'no_answer' ? 'call-outline' : t === 'callback' ? 'calendar-outline' : t === 'recovered' ? 'checkmark-circle' : t === 'retention' ? 'alert-circle' : t === 'not_interested' ? 'close-circle-outline' : 'create-outline';
+                const typeLabel = (t: string) => t === 'whatsapp' ? 'WhatsApp' : t === 'no_answer' ? 'No contestó' : t === 'callback' ? 'Callback' : t === 'recovered' ? 'Recuperado' : t === 'retention' ? 'Retención' : t === 'not_interested' ? 'No le interesa' : 'Nota';
+                const typeColor = (t: string) => t === 'whatsapp' ? '#25D366' : t === 'recovered' ? '#4ADE80' : t === 'retention' ? '#FB923C' : t === 'no_answer' ? '#F59E0B' : t === 'callback' ? '#A78BFA' : t === 'not_interested' ? '#94A3B8' : '#60A5FA';
                 return (
                   <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
-                    {chartbackHistory.map((row, idx) => (
-                      <View key={idx} style={{ paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: idx > 0 ? 1 : 0, borderTopColor: '#1E2A3A' }}>
+                    {chartbackHistory.map((row, idx) => {
+                      // Solo permitimos abrir el CRM si el cliente sigue activo en chartback
+                      // (para no permitir acciones sobre clientes ya recuperados/retenidos).
+                      const isFinal = row.chartback_status === 'recovered' || row.chartback_status === 'retention' || row.chartback_status === 'not_interested';
+                      return (
+                      <TouchableOpacity
+                        key={idx}
+                        activeOpacity={isFinal ? 1 : 0.6}
+                        onPress={() => {
+                          if (isFinal) return;
+                          // Construye un ChartbackClient mínimo desde el historial para abrir el CRM.
+                          const partial: ChartbackClient = {
+                            id: row.id,
+                            box_id: row.box_id,
+                            full_name: row.full_name,
+                            email: null,
+                            phone: null,
+                            asesor: null,
+                            chartback_status: row.chartback_status,
+                            next_contact_at: null,
+                            chartback_activity: null,
+                            chartback_notes: null,
+                          };
+                          setCrmClient(partial); setCrmNote(''); setCrmError(''); setShowCrmMenu(true);
+                        }}
+                        style={{ paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: idx > 0 ? 1 : 0, borderTopColor: '#1E2A3A' }}
+                      >
                         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
                           <View style={{ marginTop: 2 }}>
                             <Ionicons name={typeIcon(row.activity.type) as any} size={18} color={typeColor(row.activity.type)} />
@@ -867,10 +895,16 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                             <Text style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>
                               Asesor: {row.activity.advisor}
                             </Text>
+                            {!isFinal && (
+                              <Text style={{ color: '#60A5FA', fontSize: 11, marginTop: 4, fontWeight: '600' }}>
+                                Toca para registrar acción ›
+                              </Text>
+                            )}
                           </View>
                         </View>
-                      </View>
-                    ))}
+                      </TouchableOpacity>
+                      );
+                    })}
                     <View style={{ height: 20 }} />
                   </ScrollView>
                 );
@@ -957,8 +991,8 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                         if (acts.length === 0) return null;
                         const isExpanded = expandedHistory.has(c.id);
                         const visible = isExpanded ? acts : acts.slice(0, 2);
-                        const typeIcon = (t: string) => t === 'whatsapp' ? 'logo-whatsapp' : t === 'no_answer' ? 'call-outline' : t === 'callback' ? 'calendar-outline' : t === 'recovered' ? 'checkmark-circle' : t === 'retention' ? 'alert-circle' : 'create-outline';
-                        const typeLabel = (t: string) => t === 'whatsapp' ? 'WA' : t === 'no_answer' ? 'No contestó' : t === 'callback' ? 'Callback' : t === 'recovered' ? 'Recuperado' : t === 'retention' ? 'Retención' : 'Nota';
+                        const typeIcon = (t: string) => t === 'whatsapp' ? 'logo-whatsapp' : t === 'no_answer' ? 'call-outline' : t === 'callback' ? 'calendar-outline' : t === 'recovered' ? 'checkmark-circle' : t === 'retention' ? 'alert-circle' : t === 'not_interested' ? 'close-circle-outline' : 'create-outline';
+                        const typeLabel = (t: string) => t === 'whatsapp' ? 'WA' : t === 'no_answer' ? 'No contestó' : t === 'callback' ? 'Callback' : t === 'recovered' ? 'Recuperado' : t === 'retention' ? 'Retención' : t === 'not_interested' ? 'No interesa' : 'Nota';
                         return (
                           <View style={{ marginTop: 6 }}>
                             <View style={s.activityHeader}>
@@ -967,7 +1001,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                             </View>
                             {visible.map((a, ai) => (
                               <View key={ai} style={s.activityRow}>
-                                <Ionicons name={typeIcon(a.type) as any} size={12} color={a.type === 'whatsapp' ? '#25D366' : a.type === 'recovered' ? '#4ADE80' : a.type === 'retention' ? '#FB923C' : a.type === 'no_answer' ? '#F59E0B' : '#60A5FA'} />
+                                <Ionicons name={typeIcon(a.type) as any} size={12} color={a.type === 'whatsapp' ? '#25D366' : a.type === 'recovered' ? '#4ADE80' : a.type === 'retention' ? '#FB923C' : a.type === 'no_answer' ? '#F59E0B' : a.type === 'not_interested' ? '#94A3B8' : '#60A5FA'} />
                                 <View style={{ flex: 1 }}>
                                   <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                                     <Text style={s.activityType}>{typeLabel(a.type)}</Text>
@@ -1157,8 +1191,26 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             {/* ── Overlay CRM dentro del modal (evita modal anidado) ── */}
             {showCrmMenu && crmClient && (
               <View style={s.crmOverlay}>
-                <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={() => !crmSaving && setShowCrmMenu(false)} />
-                <View style={s.crmBox}>
+                <TouchableOpacity
+                  style={StyleSheet.absoluteFillObject}
+                  activeOpacity={1}
+                  onPress={() => {
+                    if (crmSaving) return;
+                    // Si el teclado está abierto, primero lo cerramos sin cerrar el modal.
+                    Keyboard.dismiss();
+                    setShowCrmMenu(false);
+                  }}
+                />
+                <KeyboardAvoidingView
+                  behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                  style={{ width: '100%', maxHeight: '90%' }}
+                >
+                  <ScrollView
+                    style={{ flexGrow: 0 }}
+                    contentContainerStyle={s.crmBox}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                  >
                   <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 2 }}>
                     {crmClient.full_name || 'Cliente'}
                   </Text>
@@ -1229,7 +1281,6 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
 
                     {[
                       { label: 'Mañana', sub: 'Llamar mañana', days: 1 },
-                      { label: 'En 3 días', sub: 'Llamar en 3 días', days: 3 },
                       { label: 'En 1 semana', sub: 'Llamar en 7 días', days: 7 },
                     ].map(opt => (
                       <TouchableOpacity key={opt.days} style={s.crmOption} onPress={async () => {
@@ -1292,11 +1343,28 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                       </View>
                     </TouchableOpacity>
 
+                    <TouchableOpacity style={s.crmOption} onPress={async () => {
+                      setCrmSaving(true); setCrmError('');
+                      const r = await crmAction(crmClient.id, { action: 'not_interested', notes: crmNote });
+                      setCrmSaving(false);
+                      if (r.ok) { setShowCrmMenu(false); setCrmNote(''); loadChartback(); }
+                      else setCrmError(r.error || 'Error');
+                    }}>
+                      <View style={[s.crmOptionIcon, { backgroundColor: '#64748B22' }]}>
+                        <Ionicons name="close-circle-outline" size={20} color="#94A3B8" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[s.crmOptionTitle, { color: '#CBD5E1' }]}>No le interesa el servicio</Text>
+                        <Text style={s.crmOptionSub}>Sale del chartback (no requiere notas)</Text>
+                      </View>
+                    </TouchableOpacity>
+
                     <TouchableOpacity onPress={() => { setShowCrmMenu(false); setCrmNote(''); setCrmError(''); }} style={{ alignItems: 'center', paddingTop: 14 }}>
                       <Text style={{ color: '#64748B', fontSize: 13 }}>Cancelar</Text>
                     </TouchableOpacity>
                   </>)}
-                </View>
+                  </ScrollView>
+                </KeyboardAvoidingView>
               </View>
             )}
           </View>
