@@ -2079,7 +2079,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   />
 
                   {/* Dropdown de resultados */}
-                  {conceptoSearchInput.trim().length >= 2 && !/^\d{6,10}$/.test(conceptoSearchInput.trim()) && (
+                  {conceptoSearchInput.trim().length >= 2 && !/^\d{8}$/.test(conceptoSearchInput.trim()) && (
                     <View style={{ marginTop: 6, borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, backgroundColor: '#fff', maxHeight: 240 }}>
                       {conceptoSearching && (
                         <View style={{ padding: 10, flexDirection: 'row', alignItems: 'center' }}>
@@ -2132,7 +2132,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
                   {/* Input legacy: aceptar clave numérica directa también
                       (para usuarios que copian/pegan una clave precisa) */}
-                  {conceptoSearchInput.trim() !== '' && /^\d{6,10}$/.test(conceptoSearchInput.trim()) && (
+                  {conceptoSearchInput.trim() !== '' && /^\d{8}$/.test(conceptoSearchInput.trim()) && (
                     <TouchableOpacity
                       onPress={() => {
                         addClaveFromSearch({ clave_prodserv: conceptoSearchInput.trim(), descripcion: '' });

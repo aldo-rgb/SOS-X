@@ -3233,6 +3233,31 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                       ))}
                     </Paper>
                   )}
+
+                  {/* Botón explícito cuando ya hay una clave SAT completa de 8 dígitos.
+                      Sin esto, el dropdown desaparece y el usuario no sabe cómo agregarla
+                      (solo funcionaba con Enter). */}
+                  {/^\d{8}$/.test(activeToken) && (
+                    <Paper
+                      onClick={() => { void tryAddConcepto({ clave_prodserv: activeToken, descripcion: '' }); }}
+                      sx={{
+                        position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, mt: 0.5,
+                        p: 1.25, cursor: addingConcepto ? 'wait' : 'pointer',
+                        bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}`, borderRadius: 1,
+                        display: 'flex', alignItems: 'center', gap: 1.5,
+                        '&:hover': { bgcolor: 'rgba(240,90,40,0.10)' },
+                        opacity: addingConcepto ? 0.6 : 1,
+                      }}
+                    >
+                      <AddIcon sx={{ color: ORANGE, fontSize: 18 }} />
+                      <Typography variant="caption" sx={{ color: '#d1d5db' }}>
+                        Agregar clave{' '}
+                        <Typography component="span" sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE }}>
+                          {activeToken}
+                        </Typography>
+                      </Typography>
+                    </Paper>
+                  )}
                 </Box>
 
                 {/* Spinner mientras se agrega una clave */}
