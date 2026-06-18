@@ -4474,7 +4474,7 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'packageId inválido' });
 
     const cur = await pool.query(
-      `SELECT id, tracking_internal, has_delivery_instructions, assigned_address_id,
+      `SELECT id, tracking_internal, assigned_address_id,
               delivery_address_id, destination_address, national_label_url,
               national_tracking, status
        FROM packages WHERE id = $1`,
