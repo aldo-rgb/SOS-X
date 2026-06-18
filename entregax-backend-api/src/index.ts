@@ -5556,6 +5556,28 @@ app.patch('/api/admin/packages/:id/mark-paid-manual', authenticateToken, require
   }
 });
 
+// Super admin: desmarcar pago (revertir mark-paid-manual)
+app.patch('/api/admin/packages/:id/unmark-paid-manual', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const pkgId = parseInt(req.params.id as string);
+    if (!pkgId) return res.status(400).json({ error: 'ID inválido' });
+    await pool.query(
+      `UPDATE packages
+       SET client_paid = FALSE,
+           payment_status = 'pending',
+           monto_pagado = 0,
+           saldo_pendiente = COALESCE(NULLIF(pobox_service_cost, 0), NULLIF(assigned_cost_mxn, 0), NULLIF(air_sale_price, 0), NULLIF(pobox_venta_usd, 0), 0),
+           updated_at = NOW()
+       WHERE id    = COALESCE((SELECT master_id FROM packages WHERE id = $1 AND master_id IS NOT NULL), $1)
+          OR master_id = COALESCE((SELECT master_id FROM packages WHERE id = $1 AND master_id IS NOT NULL), $1)`,
+      [pkgId]
+    );
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Super admin: marcar instrucción como confirmada (needs_instructions = FALSE + label url)
 app.patch('/api/admin/packages/:id/mark-instructions-manual', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
   try {

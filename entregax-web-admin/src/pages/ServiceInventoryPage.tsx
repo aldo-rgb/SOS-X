@@ -177,6 +177,17 @@ export default function ServiceInventoryPage() {
     }
   };
 
+  const handleUnmarkPaid = async (r: PackageRow) => {
+    if (!r.pkg_id) { setSnackbar({ open: true, message: 'Sin ID de paquete en esta fila', severity: 'error' }); return; }
+    try {
+      await api.patch(`/admin/packages/${r.pkg_id}/unmark-paid-manual`);
+      setRows(prev => prev.map(row => row.pkg_id === r.pkg_id ? { ...row, costing_paid: false } : row));
+      setSnackbar({ open: true, message: `↩️ Pago de ${r.guia} desmarcado`, severity: 'info' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al desmarcar pago', severity: 'error' });
+    }
+  };
+
   const handleMarkInstruccion = async (r: PackageRow) => {
     if (!r.pkg_id) { setSnackbar({ open: true, message: 'Sin ID de paquete en esta fila', severity: 'error' }); return; }
     try {
@@ -660,10 +671,10 @@ export default function ServiceInventoryPage() {
   const renderPagoInst = (paid: boolean | undefined, hasInst: boolean | undefined, small = false, row?: PackageRow) => (
     <TableCell align="center">
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-        <Tooltip title={paid ? 'Pago registrado' : isSuperAdmin && row && !paid ? 'Click para marcar como pagado' : 'Sin pago registrado'}>
+        <Tooltip title={isSuperAdmin && row ? (paid ? 'Pago registrado — click para desmarcar' : 'Click para marcar como pagado') : (paid ? 'Pago registrado' : 'Sin pago registrado')}>
           <Box
-            onClick={isSuperAdmin && row && !paid ? () => handleMarkPaid(row) : undefined}
-            sx={{ display: 'flex', alignItems: 'center', gap: 0.25, cursor: isSuperAdmin && row && !paid ? 'pointer' : 'default', borderRadius: 1, px: 0.25, '&:hover': isSuperAdmin && row && !paid ? { bgcolor: '#E8F5E9' } : {} }}
+            onClick={isSuperAdmin && row ? () => paid ? handleUnmarkPaid(row) : handleMarkPaid(row) : undefined}
+            sx={{ display: 'flex', alignItems: 'center', gap: 0.25, cursor: isSuperAdmin && row ? 'pointer' : 'default', borderRadius: 1, px: 0.25, '&:hover': isSuperAdmin && row ? { bgcolor: paid ? '#FFEBEE' : '#E8F5E9' } : {} }}
           >
             {paid ? <CheckCircleIcon sx={{ fontSize: small ? 14 : 16, color: '#2E7D32' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: small ? 14 : 16, color: isSuperAdmin && row ? '#F05A28' : '#BDBDBD' }} />}
             <Typography variant="caption" sx={{ color: paid ? '#2E7D32' : isSuperAdmin && row ? '#F05A28' : '#9E9E9E', fontSize: small ? '0.6rem' : '0.65rem', lineHeight: 1 }}>Pago</Typography>
