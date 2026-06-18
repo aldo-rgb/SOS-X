@@ -1160,7 +1160,8 @@ export async function pqtxClientQuote(req: Request, res: Response) {
             return parseFloat(q.amount?.totalAmnt || q.totalAmnt || '0') < parseFloat(mn.amount?.totalAmnt || mn.totalAmnt || '0') ? q : mn;
           }, exact.quotes![0]);
           const oTotal = parseFloat(cheapestO.amount?.totalAmnt || cheapestO.totalAmnt || '0');
-          const pricePerBox = 400;
+          const costPerBox = packageCount > 0 ? oTotal / packageCount : oTotal;
+          const pricePerBox = costPerBox < 300 ? 400 : Math.ceil(costPerBox) + 100;
           return res.json({ success: true, available: true, type: 'ocurre', nearestBranch: false, usedZip: destZipCode,
             branch: exact.destination, pricePerBox, clientPrice: pricePerBox * packageCount, pqtxQuote: oTotal,
             estimatedDays: cheapestO.dlvyEstDate || '2-4 días hábiles', packageCount });
@@ -1179,7 +1180,8 @@ export async function pqtxClientQuote(req: Request, res: Response) {
                 return parseFloat(q.amount?.totalAmnt || q.totalAmnt || '0') < parseFloat(mn.amount?.totalAmnt || mn.totalAmnt || '0') ? q : mn;
               }, r2.quotes![0]);
               const oTotal = parseFloat(cheapestO.amount?.totalAmnt || cheapestO.totalAmnt || '0');
-              const pricePerBox = 400;
+              const costPerBox2 = packageCount > 0 ? oTotal / packageCount : oTotal;
+              const pricePerBox = costPerBox2 < 300 ? 400 : Math.ceil(costPerBox2) + 100;
               return res.json({ success: true, available: true, type: 'ocurre', nearestBranch: true,
                 usedZip: candidateZip, originalZip: destZipCode, branch: r2.destination,
                 pricePerBox, clientPrice: pricePerBox * packageCount, pqtxQuote: oTotal,
