@@ -6277,6 +6277,7 @@ async function getAdvisorPaymentProofs(req: AuthRequest, res: Response) {
       `SELECT
         pv.id,
         pv.file_url,
+        pv.file_key,
         pv.file_type,
         pv.detected_amount,
         pv.declared_amount,
@@ -6294,7 +6295,20 @@ async function getAdvisorPaymentProofs(req: AuthRequest, res: Response) {
       [orderId_num, req.user!.userId]
     );
 
-    res.json({ proofs: proofs.rows });
+    // Generar URLs pre-firmadas (el bucket S3 es privado)
+    const { getSignedUrlForKey } = require('./s3Service');
+    const proofsWithUrls = await Promise.all(proofs.rows.map(async (p: any) => {
+      let url = p.file_url;
+      if (p.file_key) {
+        try { url = await getSignedUrlForKey(p.file_key, 3600); } catch { /* usar file_url como fallback */ }
+      }
+      // Extraer nombre original del file_key: payment-proofs/proof-{id}-{ts}-{originalname}
+      const rawName = (p.file_key || p.file_url || '').split('/').pop() || '';
+      const filename = rawName.replace(/^proof-\d+-\d+-/, '') || rawName || `Comprobante`;
+      return { ...p, url, filename };
+    }));
+
+    res.json({ proofs: proofsWithUrls });
   } catch (error) {
     console.error('Error fetching advisor payment proofs:', error);
     res.status(500).json({ error: 'Failed to fetch proofs' });
