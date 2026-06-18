@@ -152,6 +152,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   // Price estimate & COD documents
   const [instrPriceEstimate, setInstrPriceEstimate] = useState<{ price: number; perBox: number; boxes: number; days: string } | null>(null);
   const [instrPriceLoading, setInstrPriceLoading] = useState(false);
+  const [instrOcurreInfo, setInstrOcurreInfo] = useState<{ usedZip: string; nearestBranch: boolean } | null>(null);
   const [instrIsCollect, setInstrIsCollect] = useState(false);
   const [instrFacturaFile, setInstrFacturaFile] = useState<{ uri: string; name: string; mimeType?: string } | null>(null);
   const [instrGuiaFile, setInstrGuiaFile] = useState<{ uri: string; name: string; mimeType?: string } | null>(null);
@@ -301,6 +302,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const fetchPqtxEstimate = async (zipCode: string, shipment: Shipment, bulkCount?: number) => {
     setInstrPriceLoading(true);
     setInstrPriceEstimate(null);
+    setInstrOcurreInfo(null);
     try {
       const boxes = bulkCount && bulkCount > 1
         ? bulkCount
@@ -320,6 +322,9 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       const data = await res.json();
       if (data.success) {
         setInstrPriceEstimate({ price: data.clientPrice, perBox: data.pricePerBox, boxes, days: data.estimatedDays || '2-4 días hábiles' });
+        if (data.type === 'ocurre') {
+          setInstrOcurreInfo({ usedZip: data.usedZip, nearestBranch: !!data.nearestBranch });
+        }
       }
     } catch { /* ignore */ }
     finally { setInstrPriceLoading(false); }
@@ -390,6 +395,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     setInstrCarrierKey(newKey);
     setInstrIsCollect(newKey ? (carrier.allows_collect || false) : false);
     setInstrPriceEstimate(null);
+    setInstrOcurreInfo(null);
     if (newKey === 'paquete_express' && instrShipment) {
       const addr = instrAddresses.find(a => a.id === instrSelectedId);
       const bulkCount = instrBulkShipments.length > 1 ? instrBulkShipments.length : undefined;
@@ -409,6 +415,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     setInstrGuiaFile(null);
     setInstrWantsFactura(false);
     setInstrPriceEstimate(null);
+    setInstrOcurreInfo(null);
     setInstrLoading(true);
     setInstrCarriersLoading(true);
     const carrierServiceType = SHIPMENT_TYPE_TO_CARRIER[item.service_type] ?? null;
@@ -439,6 +446,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const handleSelectInstrAddress = (addr: ClientAddress) => {
     setInstrSelectedId(addr.id);
     setInstrPriceEstimate(null);
+    setInstrOcurreInfo(null);
     const serviceKey = instrShipment ? SHIPMENT_TYPE_TO_CARRIER[instrShipment.service_type] : null;
     const preselected = serviceKey && addr.carrier_config?.[serviceKey] ? addr.carrier_config[serviceKey] : '';
     setInstrCarrierKey(preselected);

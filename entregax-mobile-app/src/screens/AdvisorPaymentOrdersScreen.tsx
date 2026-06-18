@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   RefreshControl, Alert, ActivityIndicator, Linking, Modal, ScrollView, TextInput,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -25,6 +25,7 @@ interface PaymentOrder {
   id: number;
   folio: string | null;
   payment_reference: string | null;
+  pobox_payment_id?: number | null;
   client_id: number;
   client_name: string;
   client_box_id: string;
@@ -199,6 +200,7 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = []): strin
 
 export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
   const { token } = route.params;
+  const insets = useSafeAreaInsets();
   const [orders, setOrders]       = useState<PaymentOrder[]>([]);
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -212,6 +214,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
   const [uploadingProof, setUploadingProof] = useState(false);
   const [declaredAmount, setDeclaredAmount] = useState<string>('');
   const [proofFile, setProofFile] = useState<{ uri: string; name: string; type: string } | null>(null);
+  const [deletingProofId, setDeletingProofId] = useState<number | null>(null);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -327,7 +330,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
     setDeclaredAmount('');
     setProofFile(null);
     setShowProofModal(true);
-    await loadProofs(order.id);
+    await loadProofs(order.pobox_payment_id || order.id);
   };
 
   const handlePickProofFile = async () => {
@@ -372,8 +375,9 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
       formData.append('declared_amount', declaredAmount);
       formData.append('currency', 'MXN');
 
+      const poboxId = selectedOrderForProof.pobox_payment_id || selectedOrderForProof.id;
       const res = await fetch(
-        `${API_URL}/api/advisor/payment-orders/${selectedOrderForProof.id}/proof`,
+        `${API_URL}/api/advisor/payment-orders/${poboxId}/proof`,
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
@@ -385,7 +389,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
         Alert.alert('Éxito', 'Comprobante subido correctamente');
         setDeclaredAmount('');
         setProofFile(null);
-        await loadProofs(selectedOrderForProof.id);
+        await loadProofs(poboxId);
         await load();
       } else {
         const err = await res.json().catch(() => null);
@@ -397,6 +401,37 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
     } finally {
       setUploadingProof(false);
     }
+  };
+
+  const handleDeleteProof = (proofId: number) => {
+    Alert.alert(
+      'Eliminar comprobante',
+      '¿Seguro que deseas eliminar este comprobante? Esta acción no se puede deshacer.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar', style: 'destructive',
+          onPress: async () => {
+            if (!selectedOrderForProof) return;
+            const poboxId = selectedOrderForProof.pobox_payment_id || selectedOrderForProof.id;
+            setDeletingProofId(proofId);
+            try {
+              const res = await fetch(
+                `${API_URL}/api/advisor/payment-orders/${poboxId}/proof/${proofId}`,
+                { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+              );
+              if (!res.ok) throw new Error('Error al eliminar');
+              await loadProofs(poboxId);
+              await load();
+            } catch {
+              Alert.alert('Error', 'No se pudo eliminar el comprobante');
+            } finally {
+              setDeletingProofId(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const renderOrder = ({ item: o }: { item: PaymentOrder }) => {
@@ -510,16 +545,16 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
       )}
 
       {/* Proofs Modal */}
-      <Modal visible={showProofModal} transparent={true} animationType="slide" statusBarTranslucent>
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-          <View style={{ paddingTop: 14, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#eee', zIndex: 20, elevation: 4 }}>
+      <Modal visible={showProofModal} transparent={false} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#eee' }}>
             <Text style={{ fontSize: 16, fontWeight: '600', flex: 1, paddingRight: 12 }}>Comprobantes de Pago</Text>
             <TouchableOpacity onPress={() => setShowProofModal(false)} hitSlop={20} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
               <Ionicons name="close" size={28} color={BLACK} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={{ flex: 1, padding: 12 }} contentContainerStyle={{ paddingBottom: 24 }}>
+          <ScrollView style={{ flex: 1, padding: 12 }} contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
             {/* Existing proofs */}
             {proofsLoading ? (
               <ActivityIndicator size="large" color={ORANGE} />
@@ -529,7 +564,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                 {proofs.map((proof, idx) => (
                   <View key={idx} style={{ backgroundColor: '#f5f5f5', padding: 12, borderRadius: 8, marginBottom: 8 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <View>
+                      <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 13, fontWeight: '500', color: BLACK }}>
                           {proof.uploader_type === 'advisor' ? '👤 Asesor' : '🧑 Cliente'}
                         </Text>
@@ -537,13 +572,25 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                           {new Date(proof.created_at).toLocaleDateString('es-MX')}
                         </Text>
                       </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={{ fontSize: 13, fontWeight: '500', color: ORANGE }}>
-                          ${Number(proof.declared_amount || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
-                        </Text>
-                        <Text style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
-                          Estado: {proof.status}
-                        </Text>
+                      <View style={{ alignItems: 'flex-end', flexDirection: 'row', gap: 10 }}>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={{ fontSize: 13, fontWeight: '500', color: ORANGE }}>
+                            ${Number(proof.declared_amount || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                          </Text>
+                          <Text style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                            Estado: {proof.status}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => handleDeleteProof(proof.id)}
+                          disabled={deletingProofId === proof.id}
+                          style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fee2e2', borderRadius: 6 }}
+                        >
+                          {deletingProofId === proof.id
+                            ? <ActivityIndicator size="small" color="#e53e3e" />
+                            : <Ionicons name="trash-outline" size={16} color="#e53e3e" />
+                          }
+                        </TouchableOpacity>
                       </View>
                     </View>
                     <TouchableOpacity onPress={() => Linking.openURL(proof.file_url)} style={{ marginTop: 8 }}>
@@ -624,7 +671,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
               </Text>
             </View>
           </ScrollView>
-        </SafeAreaView>
+        </View>
       </Modal>
     </SafeAreaView>
   );
