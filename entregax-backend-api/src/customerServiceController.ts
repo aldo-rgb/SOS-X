@@ -304,12 +304,22 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
     const allGuias = await pool.query(`
       SELECT * FROM (
         -- PACKAGES
-        SELECT 
-          p.id, 'package' as source_type, p.tracking_internal as guia_tracking,
+        SELECT
+          p.id, 'package' as source_type,
+          CASE
+            WHEN p.service_type = 'AIR_CHN_MX' AND COALESCE(cr.fno, cr2.fno) IS NOT NULL
+              THEN COALESCE(cr.fno, cr2.fno) || '-' || REVERSE(SPLIT_PART(REVERSE(p.tracking_internal), '-', 1))
+            ELSE p.tracking_internal
+          END as guia_tracking,
           COALESCE(p.service_type, 'POBOX_USA') as servicio, p.user_id as cliente_id,
           COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0)::DECIMAL as saldo,
           GREATEST(EXTRACT(DAY FROM NOW() - COALESCE(p.received_at, p.created_at))::INTEGER, 0) as dias
         FROM packages p
+        LEFT JOIN china_receipts cr ON p.china_receipt_id = cr.id
+        LEFT JOIN china_receipts cr2 ON (
+          cr.id IS NULL AND p.service_type = 'AIR_CHN_MX'
+          AND UPPER(cr2.fno) = UPPER(REGEXP_REPLACE(p.tracking_internal, '-\d+$', ''))
+        )
         WHERE p.payment_status != 'paid' OR p.payment_status IS NULL
         
         UNION ALL
@@ -395,12 +405,23 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
     const criticas = await pool.query(`
       SELECT g.*, u.full_name as cliente_nombre, u.phone as cliente_telefono, u.email as cliente_email
       FROM (
-        SELECT p.id, 'package' as source_type, p.tracking_internal as guia_tracking,
+        SELECT p.id, 'package' as source_type,
+          CASE
+            WHEN p.service_type = 'AIR_CHN_MX' AND COALESCE(cr.fno, cr2.fno) IS NOT NULL
+              THEN COALESCE(cr.fno, cr2.fno) || '-' || REVERSE(SPLIT_PART(REVERSE(p.tracking_internal), '-', 1))
+            ELSE p.tracking_internal
+          END as guia_tracking,
           COALESCE(p.service_type, 'POBOX_USA') as servicio, p.user_id as cliente_id,
           COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) as saldo,
           GREATEST(EXTRACT(DAY FROM NOW() - COALESCE(p.received_at, p.created_at))::INTEGER, 0) as dias,
           COALESCE(p.description, 'Paquete') as descripcion
-        FROM packages p WHERE (p.payment_status != 'paid' OR p.payment_status IS NULL)
+        FROM packages p
+        LEFT JOIN china_receipts cr ON p.china_receipt_id = cr.id
+        LEFT JOIN china_receipts cr2 ON (
+          cr.id IS NULL AND p.service_type = 'AIR_CHN_MX'
+          AND UPPER(cr2.fno) = UPPER(REGEXP_REPLACE(p.tracking_internal, '-\d+$', ''))
+        )
+        WHERE (p.payment_status != 'paid' OR p.payment_status IS NULL)
           AND EXTRACT(DAY FROM NOW() - COALESCE(p.received_at, p.created_at)) >= 60
         
         UNION ALL
