@@ -102,6 +102,13 @@ interface PackageDetails {
   // Instrucciones de entrega
   delivery_instructions?: string;
   assigned_address_id?: number;
+  national_delivery_zip?: string;
+  assigned_address?: {
+    zip?: string;
+    city?: string;
+    street?: string;
+    neighborhood?: string;
+  } | null;
   // Fechas
   created_at?: string;
   updated_at?: string;
@@ -631,6 +638,24 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                 </View>
               );
             })()}
+
+            {/* Dirección / Sucursal de entrega */}
+            {!!details.national_delivery_zip && (
+              <View style={styles.infoRow}>
+                <MaterialCommunityIcons name="store-marker" size={20} color="#666" />
+                <Text style={styles.infoLabel}>Sucursal Ocurre:</Text>
+                <Text style={styles.infoValue}>CP {details.national_delivery_zip}</Text>
+              </View>
+            )}
+            {!details.national_delivery_zip && details.assigned_address?.city && (
+              <View style={styles.infoRow}>
+                <MaterialCommunityIcons name="map-marker" size={20} color="#666" />
+                <Text style={styles.infoLabel}>Entrega en:</Text>
+                <Text style={styles.infoValue}>
+                  {[details.assigned_address.city, details.assigned_address.zip ? `CP ${details.assigned_address.zip}` : null].filter(Boolean).join(' ')}
+                </Text>
+              </View>
+            )}
 
             {/* Tracking nacional — solo si fue asignado por el asesor */}
             {!!details.national_tracking && (

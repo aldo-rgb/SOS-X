@@ -4343,13 +4343,19 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
                 p.air_source,
                 p.notes,
                 p.assigned_address_id,
+                p.national_delivery_zip,
                 p.is_master,
                 p.total_boxes,
                 p.origin_carrier,
                 u.box_id,
-                u.full_name as client_name
+                u.full_name as client_name,
+                a.zip_code AS addr_zip,
+                a.city AS addr_city,
+                a.street AS addr_street,
+                a.neighborhood AS addr_neighborhood
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
+            LEFT JOIN addresses a ON p.assigned_address_id = a.id
             WHERE p.id = $1
         `, [id]);
 
@@ -4495,6 +4501,13 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
             air_source: pkg.air_source || null,
             delivery_instructions: pkg.notes || null,
             assigned_address_id: pkg.assigned_address_id || null,
+            national_delivery_zip: pkg.national_delivery_zip || null,
+            assigned_address: pkg.assigned_address_id ? {
+                zip: pkg.addr_zip || null,
+                city: pkg.addr_city || null,
+                street: pkg.addr_street || null,
+                neighborhood: pkg.addr_neighborhood || null,
+            } : null,
             client: {
                 id: pkg.user_id,
                 box_id: pkg.box_id,
@@ -5252,11 +5265,13 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
       isCollect,
       wantsFacturaPaqueteria,
       saveConstancia: saveConstanciaFlag,
+      ocurreZip,
     } = req.body;
 
     // Parse packageIds (might be string from FormData)
     const pkgIds: number[] = typeof packageIds === 'string' ? JSON.parse(packageIds) : packageIds;
     const addrId = parseInt(addressId, 10);
+    const nationalDeliveryZip: string | null = ocurreZip ? String(ocurreZip).trim() : null;
     const isCollectBool = isCollect === 'true' || isCollect === true;
     const wantsFacturaBool = wantsFacturaPaqueteria === 'true' || wantsFacturaPaqueteria === true;
     const saveConstanciaBool = saveConstanciaFlag === 'true' || saveConstanciaFlag === true;
@@ -5344,7 +5359,7 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
         const newSaldo = Math.max(0, +(newTotal - pagado).toFixed(2));
 
         const result = await client.query(`
-          UPDATE packages 
+          UPDATE packages
           SET assigned_address_id = $1,
               carrier = $2,
               national_carrier = $2,
@@ -5356,10 +5371,11 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
               is_collect = $4,
               collect_carrier = $5,
               wants_factura_paqueteria = $6,
+              national_delivery_zip = $12,
               updated_at = CURRENT_TIMESTAMP
           WHERE id = $7 AND user_id = $8
           RETURNING id
-        `, [addrId, carrierService, notes || null, isCollectBool, isCollectBool ? carrierService : null, wantsFacturaBool, pkgId, ownerId, pkgShippingCost, newTotal, newSaldo]);
+        `, [addrId, carrierService, notes || null, isCollectBool, isCollectBool ? carrierService : null, wantsFacturaBool, pkgId, ownerId, pkgShippingCost, newTotal, newSaldo, nationalDeliveryZip]);
 
         if (result.rowCount && result.rowCount > 0) {
           // Si es master multipieza, propagar TODO el estado de instrucciones a las hijas
@@ -5375,6 +5391,7 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
                 is_collect = $6,
                 collect_carrier = $7,
                 wants_factura_paqueteria = $8,
+                national_delivery_zip = $9,
                 updated_at = CURRENT_TIMESTAMP
             WHERE master_id = $1
           `, [
@@ -5386,6 +5403,7 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
             isCollectBool,
             isCollectBool ? carrierService : null,
             wantsFacturaBool,
+            nationalDeliveryZip,
           ]);
         }
         

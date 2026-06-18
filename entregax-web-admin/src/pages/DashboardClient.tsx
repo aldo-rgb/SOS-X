@@ -3582,6 +3582,9 @@ export default function DashboardClient() {
       formData.append('isCollect', String(selectedCarrierService === 'por_cobrar'));
       formData.append('wantsFacturaPaqueteria', String(wantsFacturaPaqueteria));
       formData.append('saveConstancia', String(saveConstancia));
+      if (pqtxOcurreInfo?.usedZip) {
+        formData.append('ocurreZip', pqtxOcurreInfo.usedZip);
+      }
 
       // Send carrier quoted price
       const selectedService = carrierServices.find(s => s.id === actualCarrier);
