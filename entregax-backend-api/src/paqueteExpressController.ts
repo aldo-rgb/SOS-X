@@ -1593,7 +1593,9 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     const userId = (req as any).user?.userId || (req as any).user?.id || null;
 
     // Si el cliente eligió Ocurre, usar el CP de la sucursal para la guía PQTX
+    console.log(`[PQTX-GEN-DEBUG] pkg.national_delivery_zip="${pkg.national_delivery_zip}" pkg.zip_code="${pkg.zip_code}" pkg.destination_zip="${pkg.destination_zip}"`);
     const effectiveZip = pkg.national_delivery_zip || pkg.zip_code;
+    console.log(`[PQTX-GEN-DEBUG] effectiveZip="${effectiveZip}"`);
     if (pkg.national_delivery_zip) {
       console.log(`[PQTX-GEN] Ocurre: usando CP sucursal ${pkg.national_delivery_zip} en lugar de CP cliente ${pkg.zip_code}`);
     }
