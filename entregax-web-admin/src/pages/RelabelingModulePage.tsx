@@ -1080,8 +1080,14 @@ ${body}
         printWindow.document.close();
     };
 
-    const handlePrintLabel = (label: LabelData) => {
+    const handlePrintLabel = async (label: LabelData) => {
         openPrintWindow([label]);
+        if (shipment?.master?.id) {
+            try {
+                await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
+                await handleSearch();
+            } catch { /* no crítico */ }
+        }
     };
 
     // Abre modal para reimprimir un rango de cajas (solo cuando totalBoxes > 1)
@@ -1092,7 +1098,7 @@ ${body}
         setReprintOpen(true);
     };
 
-    const handleConfirmReprintRange = () => {
+    const handleConfirmReprintRange = async () => {
         if (!reprintLabel) return;
         const total = reprintLabel.totalBoxes;
         const from = Math.max(1, Math.min(total, Math.floor(reprintFrom || 1)));
@@ -1111,6 +1117,12 @@ ${body}
         }
         openPrintWindow(labels);
         setReprintOpen(false);
+        if (shipment?.master?.id) {
+            try {
+                await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
+                await handleSearch();
+            } catch { /* no crítico */ }
+        }
     };
 
 
