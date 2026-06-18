@@ -1598,13 +1598,12 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       console.log(`[PQTX-GEN] Ocurre: usando CP sucursal ${pkg.national_delivery_zip} en lugar de CP cliente ${pkg.zip_code}`);
     }
 
-    const isOcurre = !!pkg.national_delivery_zip;
     const addr: PqtxAddrCtx = {
       recipient_name: pkg.recipient_name,
-      street: isOcurre ? 'OCURRE' : pkg.street,
-      exterior_number: isOcurre ? '' : pkg.exterior_number,
-      interior_number: isOcurre ? '' : pkg.interior_number,
-      neighborhood: isOcurre ? 'OCURRE' : pkg.neighborhood,
+      street: pkg.street,
+      exterior_number: pkg.exterior_number,
+      interior_number: pkg.interior_number,
+      neighborhood: pkg.neighborhood,
       city: pkg.city,
       state: pkg.state,
       zip_code: effectiveZip,
