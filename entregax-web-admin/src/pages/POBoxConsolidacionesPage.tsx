@@ -131,6 +131,7 @@ const POBoxConsolidacionesPage: React.FC = () => {
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('todos');
+  const [filtroPago, setFiltroPago] = useState('todos');
 
   // Selección
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -200,15 +201,21 @@ const POBoxConsolidacionesPage: React.FC = () => {
   // ── Toggle helpers ──────────────────────────────────────────────────
   const getAllPackages = () => consolidaciones.flatMap(c => (c.packages || []).map(p => ({ ...p, consolidacion_id: c.id })));
   const filterByEstado = (p: { received_mty_at?: string | null; missing_on_arrival?: boolean; is_lost?: boolean; costing_paid?: boolean }) => {
+    // 1) Filtro por estado de la guía
     switch (filtroEstado) {
-      case 'en_transito': return !p.received_mty_at && !p.missing_on_arrival && !p.is_lost;
-      case 'recibida': return !!p.received_mty_at && !p.missing_on_arrival && !p.is_lost;
-      case 'pendiente_pago': return !p.costing_paid && !p.missing_on_arrival && !p.is_lost;
-      case 'ya_pagada': return !!p.costing_paid;
-      case 'no_llego': return !!p.missing_on_arrival;
-      case 'perdida': return !!p.is_lost;
-      default: return true;
+      case 'en_transito': if (p.received_mty_at || p.missing_on_arrival || p.is_lost) return false; break;
+      case 'recibida': if (!p.received_mty_at || p.missing_on_arrival || p.is_lost) return false; break;
+      case 'no_llego': if (!p.missing_on_arrival) return false; break;
+      case 'perdida': if (!p.is_lost) return false; break;
+      default: break; // 'todos'
     }
+    // 2) Filtro por pago a proveedor
+    switch (filtroPago) {
+      case 'pendiente': if (p.costing_paid || p.missing_on_arrival || p.is_lost) return false; break;
+      case 'pagada': if (!p.costing_paid) return false; break;
+      default: break; // 'todos'
+    }
+    return true;
   };
   const toggleSelect = (id: number) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const toggleAll = () => { const all = getAllPackages().filter(filterByEstado); setSelected(all.every(p => selected.has(p.id)) ? new Set() : new Set(all.map(p => p.id))); };
@@ -471,14 +478,20 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
             <MenuItem value="todos">Todos</MenuItem>
             <MenuItem value="en_transito">En tránsito</MenuItem>
             <MenuItem value="recibida">Recibida en MTY</MenuItem>
-            <MenuItem value="pendiente_pago">Pendiente de pago</MenuItem>
-            <MenuItem value="ya_pagada">Ya pagada</MenuItem>
             <MenuItem value="no_llego">No llegó a MTY</MenuItem>
             <MenuItem value="perdida">Perdida</MenuItem>
           </Select>
         </FormControl>
-        <Button size="small" variant="outlined" disabled={!filtroDesde && !filtroHasta && filtroEstado === 'todos'}
-          onClick={() => { setFiltroDesde(''); setFiltroHasta(''); setFiltroEstado('todos'); fetchConsolidaciones(undefined, undefined, proveedorSel?.id); }}>
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel>Pago a proveedor</InputLabel>
+          <Select value={filtroPago} label="Pago a proveedor" onChange={(e) => setFiltroPago(e.target.value)}>
+            <MenuItem value="todos">Todos</MenuItem>
+            <MenuItem value="pendiente">Pendientes de pago</MenuItem>
+            <MenuItem value="pagada">Ya pagadas a proveedor</MenuItem>
+          </Select>
+        </FormControl>
+        <Button size="small" variant="outlined" disabled={!filtroDesde && !filtroHasta && filtroEstado === 'todos' && filtroPago === 'todos'}
+          onClick={() => { setFiltroDesde(''); setFiltroHasta(''); setFiltroEstado('todos'); setFiltroPago('todos'); fetchConsolidaciones(undefined, undefined, proveedorSel?.id); }}>
           Limpiar filtros
         </Button>
         <Typography variant="body2" color="text.secondary">
