@@ -538,28 +538,29 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
 
         // Filtro por fecha de último envío (aéreo o marítimo)
         if ((lastSendFrom && String(lastSendFrom).trim() !== '') || (lastSendTo && String(lastSendTo).trim() !== '')) {
-            // Derivar la fecha más reciente disponible entre los cuatro campos posibles
-            const latestDateExpr = `COALESCE(
-                GREATEST(
-                    lc.last_send->>'Fecha de ingreso',
-                    lc.last_send->>'Fecha de salida'
-                ),
-                GREATEST(
-                    lc.last_send_maritimo->>'Fecha de ingreso',
-                    lc.last_send_maritimo->>'Fecha de salida'
-                )
+            // Las fechas del legacy se almacenan en formato DD/MM/YYYY (texto).
+            // Convertir a DATE con TO_DATE para comparación correcta contra parámetros ISO YYYY-MM-DD.
+            const toDate = (field: string) =>
+                `CASE WHEN ${field} ~ '^\\d+/\\d+/\\d{4}$' THEN TO_DATE(${field}, 'DD/MM/YYYY') ELSE NULL END`;
+
+            const latestDateExpr = `GREATEST(
+                ${toDate(`lc.last_send->>'Fecha de ingreso'`)},
+                ${toDate(`lc.last_send->>'Fecha de salida'`)},
+                ${toDate(`lc.last_send_maritimo->>'Fecha de ingreso'`)},
+                ${toDate(`lc.last_send_maritimo->>'Fecha de salida'`)}
             )`;
+
             // Sólo mostrar clientes que tienen al menos un envío registrado
             conditions.push(`(lc.last_send IS NOT NULL OR lc.last_send_maritimo IS NOT NULL)`);
             conditions.push(`${latestDateExpr} IS NOT NULL`);
 
             if (lastSendFrom && String(lastSendFrom).trim() !== '') {
                 params.push(String(lastSendFrom).trim());
-                conditions.push(`${latestDateExpr} >= $${params.length}`);
+                conditions.push(`${latestDateExpr} >= $${params.length}::date`);
             }
             if (lastSendTo && String(lastSendTo).trim() !== '') {
-                params.push(String(lastSendTo).trim() + ' 23:59:59');
-                conditions.push(`${latestDateExpr} <= $${params.length}`);
+                params.push(String(lastSendTo).trim());
+                conditions.push(`${latestDateExpr} <= $${params.length}::date`);
             }
         }
 
