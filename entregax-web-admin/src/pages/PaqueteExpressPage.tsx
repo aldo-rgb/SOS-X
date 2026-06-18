@@ -499,7 +499,7 @@ function QuoteTab({ token }: { token: string | null }) {
       {loadingOcurre && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
           <CircularProgress size={18} />
-          <Typography variant="body2" color="text.secondary">Consultando sucursales Ocurre para CP {form.destZipCode}...</Typography>
+          <Typography variant="body2" color="text.secondary">Buscando sucursal más cercana al CP {form.destZipCode}...</Typography>
         </Box>
       )}
       {ocurreResult && (
@@ -507,18 +507,46 @@ function QuoteTab({ token }: { token: string | null }) {
           <CardContent>
             {ocurreResult.available ? (
               <>
-                <Alert severity="success" sx={{ mb: 2 }}>
-                  <strong>Servicio Ocurre disponible</strong> — el destinatario recoge el paquete en la sucursal Paquete Express más cercana al CP {form.destZipCode}.
-                  Para conocer la dirección exacta de la sucursal, consulta{' '}
-                  <a href="https://www.paquetexpress.com.mx/sucursales" target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>paquetexpress.com.mx/sucursales</a>.
-                </Alert>
+                {ocurreResult.nearestBranch ? (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <strong>Sin entrega a domicilio en CP {ocurreResult.originalZip}.</strong> Se encontró sucursal Ocurre más cercana
+                    {ocurreResult.destination?.cityName ? ` en ${ocurreResult.destination.cityName}` : ''}{' '}
+                    (CP {ocurreResult.usedZip}).
+                    {' '}El destinatario recoge el paquete ahí.{' '}
+                    <a href="https://www.paquetexpress.com.mx/sucursales" target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>
+                      Ver sucursales →
+                    </a>
+                  </Alert>
+                ) : (
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    <strong>Servicio Ocurre disponible</strong> — el destinatario recoge en la sucursal más cercana al CP {form.destZipCode}
+                    {ocurreResult.destination?.cityName ? ` (${ocurreResult.destination.cityName})` : ''}.{' '}
+                    <a href="https://www.paquetexpress.com.mx/sucursales" target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>
+                      Ver sucursales →
+                    </a>
+                  </Alert>
+                )}
+                {ocurreResult.destination && (
+                  <Box sx={{ mb: 2, p: 1.5, bgcolor: '#F3F4F6', borderRadius: 1 }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ display: 'block', mb: 0.5 }}>
+                      🏪 SUCURSAL DE ENTREGA
+                    </Typography>
+                    {ocurreResult.destination.cityName && <Typography variant="body2"><strong>Ciudad:</strong> {ocurreResult.destination.cityName}</Typography>}
+                    {ocurreResult.destination.stateName && <Typography variant="body2"><strong>Estado:</strong> {ocurreResult.destination.stateName}</Typography>}
+                    {ocurreResult.destination.colonyName && <Typography variant="body2"><strong>Colonia:</strong> {ocurreResult.destination.colonyName}</Typography>}
+                    {ocurreResult.usedZip && <Typography variant="body2"><strong>CP Sucursal:</strong> {ocurreResult.usedZip}</Typography>}
+                  </Box>
+                )}
                 <Typography variant="h6" fontWeight="bold" gutterBottom>🏪 Cotización Ocurre (entrega en sucursal)</Typography>
                 <Divider sx={{ my: 1 }} />
                 <QuoteTable quotes={ocurreResult.quotes} />
               </>
             ) : (
               <Alert severity="warning">
-                Sin cobertura Ocurre para CP {form.destZipCode}: {normalizeErrorMsg(ocurreResult.error) || 'No hay servicio disponible para este código postal'}
+                <strong>Sin cobertura Ocurre</strong> para CP {form.destZipCode} ni sucursales cercanas.{' '}
+                <a href="https://www.paquetexpress.com.mx/sucursales" target="_blank" rel="noreferrer">
+                  Busca sucursales manualmente →
+                </a>
               </Alert>
             )}
           </CardContent>

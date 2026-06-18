@@ -254,6 +254,7 @@ function normalizePqtxMessages(m: any): string | null {
 // ============================================
 // POST /api/admin/paquete-express/ocurre-quote
 // Cotiza el envío como Ocurre (entrega en sucursal) cuando no hay cobertura a domicilio
+// Si el CP exacto falla, prueba CPs cercanos (±10, ±20, ±30, ±50) para encontrar la sucursal más próxima.
 // ============================================
 export async function pqtxOcurreQuote(req: Request, res: Response) {
   try {
@@ -281,49 +282,76 @@ export async function pqtxOcurreQuote(req: Request, res: Response) {
     }));
 
     const url = `${PQTX_BASE_URL}/WsQuotePaquetexpress/api/apiQuoter/v2/getQuotation`;
-    const body = {
-      header: {
-        security: { user: PQTX_QUOTE_USER, password: PQTX_QUOTE_PASSWORD, type: 1, token: PQTX_QUOTE_TOKEN },
-        device: { appName: 'EntregaX', type: 'Web', ip: '', idDevice: '' },
-        target: { module: 'QUOTER', version: '1.0', service: 'quoter', uri: 'quotes', event: 'R' },
-        output: 'JSON',
-        language: null,
-      },
-      body: {
-        request: {
-          data: {
-            clientAddrOrig: { zipCode: originZipCode, colonyName: originColony },
-            clientAddrDest: { zipCode: destZipCode, colonyName: destColony },
-            services: { dlvyType: '2', ackType: 'N', totlDeclVlue: declaredValue, invType: 'A', radType: '1' },
-            otherServices: { otherServices: [] },
-            shipmentDetail: { shipments },
-            quoteServices: ['ALL'],
-          },
-          objectDTO: null,
+
+    const tryOcurreWithZip = async (zip: string, colony: string) => {
+      const body = {
+        header: {
+          security: { user: PQTX_QUOTE_USER, password: PQTX_QUOTE_PASSWORD, type: 1, token: PQTX_QUOTE_TOKEN },
+          device: { appName: 'EntregaX', type: 'Web', ip: '', idDevice: '' },
+          target: { module: 'QUOTER', version: '1.0', service: 'quoter', uri: 'quotes', event: 'R' },
+          output: 'JSON',
+          language: null,
         },
-        response: null,
-      },
+        body: {
+          request: {
+            data: {
+              clientAddrOrig: { zipCode: originZipCode, colonyName: originColony },
+              clientAddrDest: { zipCode: zip, colonyName: colony },
+              services: { dlvyType: '2', ackType: 'N', totlDeclVlue: declaredValue, invType: 'A', radType: '1' },
+              otherServices: { otherServices: [] },
+              shipmentDetail: { shipments },
+              quoteServices: ['ALL'],
+            },
+            objectDTO: null,
+          },
+          response: null,
+        },
+      };
+      const resp = await axios.post(url, body, { headers: { 'Content-Type': 'application/json' }, timeout: 15000 });
+      const rb = resp.data?.body?.response;
+      const quotations = rb?.data?.quotations;
+      if (rb?.success === true && Array.isArray(quotations) && quotations.length > 0) {
+        return { found: true, quotes: quotations, origin: rb.data?.clientAddrOrig, destination: rb.data?.clientAddrDest };
+      }
+      return { found: false };
     };
 
-    const response = await axios.post(url, body, { headers: { 'Content-Type': 'application/json' }, timeout: 20000 });
-    const respBody = response.data?.body?.response;
-    const quotations = respBody?.data?.quotations;
-
-    if (respBody?.success === true && Array.isArray(quotations) && quotations.length > 0) {
-      res.json({
-        success: true,
-        available: true,
-        quotes: quotations,
-        origin: respBody.data?.clientAddrOrig,
-        destination: respBody.data?.clientAddrDest,
-      });
-    } else {
-      res.json({
-        success: true,
-        available: false,
-        error: normalizePqtxMessages(respBody?.messages) || 'Sin cobertura Ocurre para este código postal',
-      });
+    // 1. Intentar con CP exacto primero
+    const exact = await tryOcurreWithZip(destZipCode, destColony);
+    if (exact.found) {
+      return res.json({ success: true, available: true, quotes: exact.quotes, origin: exact.origin, destination: exact.destination, usedZip: destZipCode });
     }
+
+    // 2. Probar CPs cercanos (±10, ±20, ±30, ±50, ±100) con colonia vacía
+    const baseNum = parseInt(destZipCode, 10);
+    if (!isNaN(baseNum)) {
+      const offsets = [10, -10, 20, -20, 30, -30, 50, -50, 100, -100];
+      for (const offset of offsets) {
+        const candidateZip = String(baseNum + offset).padStart(5, '0');
+        try {
+          const result = await tryOcurreWithZip(candidateZip, 'CENTRO');
+          if (result.found) {
+            return res.json({
+              success: true,
+              available: true,
+              quotes: result.quotes,
+              origin: result.origin,
+              destination: result.destination,
+              usedZip: candidateZip,
+              nearestBranch: true,
+              originalZip: destZipCode,
+            });
+          }
+        } catch { /* ignorar errores individuales */ }
+      }
+    }
+
+    // 3. Sin cobertura en ningún CP cercano
+    res.json({
+      success: true,
+      available: false,
+      error: 'Sin cobertura Ocurre para este código postal ni en sucursales cercanas',
+    });
   } catch (error: any) {
     console.error('Error en PQTX ocurre-quote:', error.message);
     res.status(500).json({ success: false, error: error.message });
