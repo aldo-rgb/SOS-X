@@ -1105,12 +1105,6 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
         </Grid>
       </Grid>
 
-      {/* Información de Comisiones */}
-      <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
-        <strong>💡 Comisiones Openpay del mes:</strong> {formatCurrency(data?.kpis.comisiones_mes || 0)} 
-        &nbsp;• El monto neto es el ingreso real después de descontar comisiones bancarias.
-      </Alert>
-
       {/* Sección de Pagos Pendientes en Sucursal */}
       <Paper sx={{ borderRadius: 3, overflow: 'hidden', mb: 3 }}>
         <Box sx={{ bgcolor: ORANGE, px: 3, py: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
