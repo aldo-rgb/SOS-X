@@ -19,6 +19,8 @@ import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
+import SyncIcon from '@mui/icons-material/Sync';
 
 // Importar las páginas individuales
 import UnifiedLeadsPage from './UnifiedLeadsPage';
@@ -28,6 +30,8 @@ import CarteraVencidaPage from './CarteraVencidaPage';
 import DelayedPackagesPage from './DelayedPackagesPage';
 import AssignClientPage from './AssignClientPage';
 import ReferidosAdminPage from './ReferidosAdminPage';
+import LegacyClientsPage from './LegacyClientsPage';
+import ChartbackManagementPage from './ChartbackManagementPage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -57,7 +61,7 @@ interface CustomerServiceHubPageProps {
   onViewApplied?: () => void;
 }
 
-type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos';
+type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback';
 
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh, pendingView, onViewApplied }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
@@ -271,6 +275,22 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       color: '#9C27B0',
       bgColor: 'rgba(156, 39, 176, 0.1)',
     },
+    {
+      key: 'legacy_clients',
+      title: 'Migración de Clientes',
+      description: 'Importar y gestionar clientes de la base de datos anterior',
+      icon: <UploadFileIcon sx={{ fontSize: 40 }} />,
+      color: '#795548',
+      bgColor: 'rgba(121, 85, 72, 0.1)',
+    },
+    {
+      key: 'chartback',
+      title: 'Chartback — Reactivación',
+      description: 'Asignar asesores a clientes chartback para que los contacten',
+      icon: <SyncIcon sx={{ fontSize: 40 }} />,
+      color: '#00897B',
+      bgColor: 'rgba(0, 137, 123, 0.1)',
+    },
   ];
 
   // Renderizar página activa
@@ -393,6 +413,34 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           <Typography variant="h5" fontWeight={700}>Gestión de Referidos</Typography>
         </Box>
         <ReferidosAdminPage />
+      </Box>
+    );
+  }
+
+  if (activeView === 'legacy_clients') {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>Migración de Clientes</Typography>
+        </Box>
+        <LegacyClientsPage />
+      </Box>
+    );
+  }
+
+  if (activeView === 'chartback') {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>Chartback — Reactivación</Typography>
+        </Box>
+        <ChartbackManagementPage />
       </Box>
     );
   }
