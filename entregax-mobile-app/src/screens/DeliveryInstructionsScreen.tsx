@@ -15,6 +15,7 @@ import {
   Modal,
   Dimensions,
   FlatList,
+  Linking,
 } from 'react-native';
 import {
   Appbar,
@@ -325,6 +326,8 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   const [selectedCarrier, setSelectedCarrier] = useState<string>(localEntregaxOptions[0]?.id || 'entregax_local');
   const [loadingCarrierRates, setLoadingCarrierRates] = useState(false);
   const [carrierRates, setCarrierRates] = useState<CarrierOption[]>(CARRIER_OPTIONS);
+  const [pqtxNoCoverage, setPqtxNoCoverage] = useState(false);
+  const [pqtxOcurreInfo, setPqtxOcurreInfo] = useState<{ usedZip: string; nearestBranch: boolean } | null>(null);
 
   // 🔁 Si el carrier seleccionado deja de estar disponible (p.ej. al cambiar el ZIP), elegir el primero válido
   useEffect(() => {
@@ -400,6 +403,8 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   // NOTA: Activar esta función cuando se configure SKYDROPX_ENABLED=true en el backend
   const fetchShippingRates = useCallback(async () => {
     setLoadingCarrierRates(true);
+    setPqtxNoCoverage(false);
+    setPqtxOcurreInfo(null);
     try {
       const selectedAddress = addresses.find(a => a.id === selectedAddressId);
       if (!selectedAddress) {
@@ -473,9 +478,37 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
         console.warn('[SHIPPING] API failed, using local options');
         setCarrierRates(CARRIER_OPTIONS);
       }
+      // Check PQTX coverage for non-metro ZIPs (where Paquete Express applies)
+      const zip = selectedAddress.zip_code;
+      if (zip && !isMtyMetroZip(zip) && !isCdmxMetroZip(zip)) {
+        try {
+          const totalWeight = allPackages.reduce((sum: number, p: any) => sum + (p.weight || 1), 0);
+          const packageCount = allPackages.length || 1;
+          const pqtxRes = await fetch(`${API_URL}/api/shipping/pqtx-quote`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              destZipCode: zip,
+              packageCount,
+              weight: totalWeight > 0 ? Math.ceil(totalWeight / packageCount) : 1,
+              length: 30, width: 30, height: 30,
+            }),
+          });
+          if (pqtxRes.ok) {
+            const pqtxData = await pqtxRes.json();
+            if (pqtxData.available === false || pqtxData.noCoverage === true) {
+              setPqtxNoCoverage(true);
+              setSelectedCarrier(prev =>
+                prev === 'paquete_express' || prev === 'paquete_express_pc' ? 'por_cobrar' : prev
+              );
+            } else if (pqtxData.type === 'ocurre') {
+              setPqtxOcurreInfo({ usedZip: pqtxData.usedZip, nearestBranch: pqtxData.nearestBranch });
+            }
+          }
+        } catch { /* silencioso — no bloquear la UI */ }
+      }
     } catch (error) {
       console.error('[SHIPPING] Error fetching rates:', error);
-      // Usar opciones locales por defecto
       setCarrierRates(CARRIER_OPTIONS);
     } finally {
       setLoadingCarrierRates(false);
@@ -984,10 +1017,10 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
               body: JSON.stringify({
                 deliveryAddressId: selectedAddressId,
                 deliveryInstructions: additionalNotes,
-                // Información de paquetería seleccionada (costo proporcional por cajas del paquete)
                 carrier: selectedCarrier,
                 carrierCost: pkgCarrierCost,
                 carrierName: carrierRates.find(c => c.id === selectedCarrier)?.name || localEntregaxOptions[0]?.name || 'EntregaX Local',
+                ...(pqtxOcurreInfo?.usedZip ? { ocurreZip: pqtxOcurreInfo.usedZip } : {}),
               }),
               signal: controller.signal,
             });
@@ -1420,55 +1453,90 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                 })
                 .map((carrier) => {
                 return (
-                <TouchableOpacity
-                  key={carrier.id}
-                  style={[
-                    styles.carrierItem,
-                    selectedCarrier === carrier.id && styles.carrierItemSelected
-                  ]}
-                  onPress={() => setSelectedCarrier(carrier.id)}
-                  activeOpacity={0.7}
-                >
-                  <RadioButton value={carrier.id} color={ORANGE} />
-                  <View style={styles.carrierContent}>
-                    <View style={styles.carrierHeader}>
-                      <Text style={styles.carrierName}>{carrier.name}</Text>
-                      {carrier.isExternal && (
-                        <View style={styles.externalBadge}>
-                          <Text style={styles.externalBadgeText}>Externo</Text>
+                {(() => {
+                  const isPqtx = carrier.id === 'paquete_express' || carrier.id === 'paquete_express_pc';
+                  const isDisabled = isPqtx && pqtxNoCoverage;
+                  return (
+                  <TouchableOpacity
+                    key={carrier.id}
+                    style={[
+                      styles.carrierItem,
+                      selectedCarrier === carrier.id && styles.carrierItemSelected,
+                      isDisabled && { opacity: 0.5, backgroundColor: '#f5f5f5' },
+                    ]}
+                    onPress={() => { if (!isDisabled) setSelectedCarrier(carrier.id); }}
+                    activeOpacity={isDisabled ? 1 : 0.7}
+                  >
+                    <RadioButton value={carrier.id} color={isDisabled ? '#ccc' : ORANGE} disabled={isDisabled} />
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.carrierContent}>
+                        <View style={styles.carrierHeader}>
+                          <Text style={[styles.carrierName, isDisabled && { color: '#aaa' }]}>{carrier.name}</Text>
+                          {carrier.isExternal && (
+                            <View style={styles.externalBadge}>
+                              <Text style={styles.externalBadgeText}>Externo</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={styles.carrierDays}>
+                          ⏱️ {carrier.estimatedDays}
+                        </Text>
+                      </View>
+                      {/* Ocurre notice */}
+                      {isPqtx && pqtxOcurreInfo && !pqtxNoCoverage && (
+                        <View style={{ backgroundColor: '#E3F2FD', borderRadius: 6, padding: 8, marginTop: 6, marginRight: 8 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: '#1565C0' }}>
+                            📦 Entrega en Sucursal Ocurre (CP {pqtxOcurreInfo.usedZip}{pqtxOcurreInfo.nearestBranch ? ' — sucursal más cercana' : ''})
+                          </Text>
+                          <Text style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
+                            Sin entrega a domicilio en tu CP. El destinatario recoge en sucursal.{' '}
+                          </Text>
+                          <TouchableOpacity onPress={() => Linking.openURL('https://www.paquetexpress.com.mx/sucursales')}>
+                            <Text style={{ fontSize: 11, color: '#1565C0', textDecorationLine: 'underline' }}>Ver dirección de sucursal →</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {/* No coverage notice */}
+                      {isPqtx && pqtxNoCoverage && (
+                        <View style={{ backgroundColor: '#FFF3E0', borderRadius: 6, padding: 8, marginTop: 6, marginRight: 8, borderWidth: 1, borderColor: '#FFB74D' }}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: '#E65100' }}>🚫 Zona Fuera de Cobertura</Text>
+                          <Text style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
+                            Paquete Express no cubre tu CP ni tiene sucursal Ocurre cercana.{' '}
+                          </Text>
+                          <TouchableOpacity onPress={() => Linking.openURL('https://www.paquetexpress.com.mx/sucursales')}>
+                            <Text style={{ fontSize: 11, color: '#E65100', textDecorationLine: 'underline' }}>Buscar sucursal manualmente →</Text>
+                          </TouchableOpacity>
                         </View>
                       )}
                     </View>
-                    <Text style={styles.carrierDays}>
-                      ⏱️ {carrier.estimatedDays}
-                    </Text>
-                  </View>
-                  <View style={styles.carrierPriceContainer}>
-                    {carrier.id === 'paquete_express_pc' ? (
-                      <Text style={[styles.carrierPriceFree, { color: '#E65100' }]}>POR COBRAR</Text>
-                    ) : carrier.price === 0 ? (
-                      <Text style={styles.carrierPriceFree}>GRATIS</Text>
-                    ) : shipmentType === 'china_air' && carrier.id === 'paquete_express' ? (
-                      <>
-                        <Text style={[styles.carrierPrice, { textDecorationLine: 'line-through', color: '#999' }]}>
-                          ${(carrier.price * getTotalBoxes()).toFixed(2)} {carrier.currency || 'MXN'}
-                        </Text>
-                        <Text style={[styles.carrierPriceFree, { color: '#10B981', fontSize: 13 }]}>
-                          ✓ INCLUIDO
-                        </Text>
-                      </>
-                    ) : (
-                      <>
-                        <Text style={styles.carrierPrice}>
-                          ${(carrier.price * getTotalBoxes()).toFixed(2)} {carrier.currency || 'MXN'}
-                        </Text>
-                        <Text style={styles.carrierPriceDetail}>
-                          ${carrier.price} x {getTotalBoxes()} {getTotalBoxes() === 1 ? 'caja' : 'cajas'}
-                        </Text>
-                      </>
-                    )}
-                  </View>
-                </TouchableOpacity>
+                    <View style={styles.carrierPriceContainer}>
+                      {carrier.id === 'paquete_express_pc' ? (
+                        <Text style={[styles.carrierPriceFree, { color: '#E65100' }]}>POR COBRAR</Text>
+                      ) : carrier.price === 0 ? (
+                        <Text style={styles.carrierPriceFree}>GRATIS</Text>
+                      ) : shipmentType === 'china_air' && carrier.id === 'paquete_express' ? (
+                        <>
+                          <Text style={[styles.carrierPrice, { textDecorationLine: 'line-through', color: '#999' }]}>
+                            ${(carrier.price * getTotalBoxes()).toFixed(2)} {carrier.currency || 'MXN'}
+                          </Text>
+                          <Text style={[styles.carrierPriceFree, { color: '#10B981', fontSize: 13 }]}>
+                            ✓ INCLUIDO
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={styles.carrierPrice}>
+                            ${(carrier.price * getTotalBoxes()).toFixed(2)} {carrier.currency || 'MXN'}
+                          </Text>
+                          <Text style={styles.carrierPriceDetail}>
+                            ${carrier.price} x {getTotalBoxes()} {getTotalBoxes() === 1 ? 'caja' : 'cajas'}
+                          </Text>
+                        </>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                  );
+                })()}
                 );
               })}
             </RadioButton.Group>

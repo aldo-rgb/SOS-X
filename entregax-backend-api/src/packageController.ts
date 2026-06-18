@@ -3900,7 +3900,8 @@ export const dispatchConsolidation = async (req: Request, res: Response): Promis
 export const assignDeliveryInstructions = async (req: Request, res: Response) => {
     try {
         const { packageId, packageType } = req.params; // packageType: 'usa' | 'maritime' | 'china_air' | 'dhl'
-        const { deliveryAddressId, deliveryInstructions, carrier, carrierCost, carrierName } = req.body;
+        const { deliveryAddressId, deliveryInstructions, carrier, carrierCost, carrierName, ocurreZip } = req.body;
+        const nationalDeliveryZipMobile: string | null = ocurreZip ? String(ocurreZip).trim() : null;
         const userId = (req as any).user.userId;
         const userRole = (req as any).user.role;
 
@@ -4039,18 +4040,19 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                         console.log(`   TOTAL: $${newTotalMxn.toFixed(2)} MXN, Pagado: $${montoPagado.toFixed(2)}, Saldo: $${nuevoSaldo.toFixed(2)}`);
                         
                         result = await pool.query(`
-                            UPDATE packages 
-                            SET assigned_address_id = $1, 
+                            UPDATE packages
+                            SET assigned_address_id = $1,
                                 notes = COALESCE($2, notes),
                                 needs_instructions = false,
                                 national_carrier = $4,
                                 national_shipping_cost = $5,
                                 assigned_cost_mxn = $6,
                                 saldo_pendiente = $7,
+                                national_delivery_zip = $8,
                                 updated_at = CURRENT_TIMESTAMP
                             WHERE id = $3${ownerCondition}
                             RETURNING id, tracking_internal
-                        `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || 'EntregaX Local', shippingCostMxn, newTotalMxn, nuevoSaldo]);
+                        `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || 'EntregaX Local', shippingCostMxn, newTotalMxn, nuevoSaldo, nationalDeliveryZipMobile]);
                     }
                 }
                 // 🧒 Propagar dirección + carrier a TODAS las hijas del master
