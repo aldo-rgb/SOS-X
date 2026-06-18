@@ -4429,10 +4429,17 @@ app.get('/api/cs/instructions/lookup', authenticateToken, requireMinLevel(ROLES.
          u.full_name AS client_name,
          u.email AS client_email,
          a.alias AS address_alias,
-         a.address_line AS address_line,
+         TRIM(BOTH ' ' FROM CONCAT_WS(' ',
+           a.street,
+           a.exterior_number,
+           CASE WHEN a.interior_number IS NOT NULL AND a.interior_number <> ''
+                THEN 'Int. ' || a.interior_number END,
+           CASE WHEN a.neighborhood IS NOT NULL AND a.neighborhood <> ''
+                THEN 'Col. ' || a.neighborhood END
+         )) AS address_line,
          a.city AS address_city,
          a.state AS address_state,
-         a.zip AS address_zip
+         a.zip_code AS address_zip
        FROM packages p
        LEFT JOIN users u ON u.id = p.user_id
        LEFT JOIN addresses a ON a.id = p.assigned_address_id
