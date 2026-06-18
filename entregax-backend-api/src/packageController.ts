@@ -1158,6 +1158,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                    a.state as addr_state, a.zip_code as addr_zip,
                    a.phone as addr_phone, a.reference as addr_reference,
                    a.carrier_config as addr_carrier_config,
+                   p.national_delivery_zip,
                    br.id as branch_id_val, br.code as branch_code, br.name as branch_name,
                    (COALESCE(p.missing_on_arrival, FALSE) OR EXISTS(
                        SELECT 1 FROM packages mp
@@ -1619,7 +1620,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                             m.warehouse_location, m.current_branch_id,
                             m.pobox_service_cost, m.pobox_cost_usd, m.pobox_venta_usd, m.gex_total_cost,
                             m.national_shipping_cost, m.national_carrier, m.national_tracking, m.national_label_url,
-                            m.assigned_address_id,
+                            m.assigned_address_id, m.national_delivery_zip,
                             a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
                             a.exterior_number as addr_ext, a.interior_number as addr_int,
                             a.neighborhood as addr_neighborhood, a.city as addr_city,
@@ -1651,6 +1652,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     pkg.national_carrier = pkg.national_carrier ?? m.national_carrier;
                     pkg.national_tracking = pkg.national_tracking ?? m.national_tracking;
                     pkg.national_label_url = pkg.national_label_url ?? m.national_label_url;
+                    pkg.national_delivery_zip = pkg.national_delivery_zip ?? m.national_delivery_zip ?? null;
                     // 🏠 Instrucciones de entrega: si la hija no tiene assigned_address_id propio,
                     //   heredar del master (caso real: master con instrucciones, hijas con NULL).
                     if (!pkg.assigned_address_id && m.assigned_address_id) {
@@ -1936,6 +1938,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         }
                         return null;
                     })(),
+                    nationalDeliveryZip: pkg.national_delivery_zip || null,
                     assignedAddress: pkg.assigned_address_id ? {
                         id: pkg.assigned_address_id,
                         alias: pkg.addr_alias,

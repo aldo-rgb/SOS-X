@@ -1518,7 +1518,8 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     const pkgRes = await pool.query(
       `SELECT p.*, u.full_name AS user_name, u.email AS user_email,
               a.recipient_name, a.street, a.exterior_number, a.interior_number,
-              a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference
+              a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference,
+              p.national_delivery_zip
          FROM packages p
          LEFT JOIN users u ON p.user_id = u.id
          LEFT JOIN addresses a ON a.id = COALESCE(
@@ -1589,6 +1590,12 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     const token = await getJwtToken();
     const userId = (req as any).user?.userId || (req as any).user?.id || null;
 
+    // Si el cliente eligió Ocurre, usar el CP de la sucursal para la guía PQTX
+    const effectiveZip = pkg.national_delivery_zip || pkg.zip_code;
+    if (pkg.national_delivery_zip) {
+      console.log(`[PQTX-GEN] Ocurre: usando CP sucursal ${pkg.national_delivery_zip} en lugar de CP cliente ${pkg.zip_code}`);
+    }
+
     const addr: PqtxAddrCtx = {
       recipient_name: pkg.recipient_name,
       street: pkg.street,
@@ -1597,7 +1604,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       neighborhood: pkg.neighborhood,
       city: pkg.city,
       state: pkg.state,
-      zip_code: pkg.zip_code,
+      zip_code: effectiveZip,
       phone: pkg.phone,
     };
 

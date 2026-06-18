@@ -81,6 +81,7 @@ interface ShipmentData {
         clientPaidAt?: string | null;
         totalCost?: number | null;
         poboxCostUsd?: number | null;
+        nationalDeliveryZip?: string | null;
         assignedAddress?: {
             id: number;
             alias?: string;
@@ -1595,10 +1596,16 @@ ${labelsHtml}
                                 {shipment.master.assignedAddress.street} {shipment.master.assignedAddress.exterior || ''}
                                 {shipment.master.assignedAddress.interior ? ` Int. ${shipment.master.assignedAddress.interior}` : ''}
                             </Typography>
-                            <Typography variant="body2">
-                                {shipment.master.assignedAddress.neighborhood ? `Col. ${shipment.master.assignedAddress.neighborhood}, ` : ''}
-                                C.P. {shipment.master.assignedAddress.zip || '—'}
-                            </Typography>
+                            {shipment.master.nationalDeliveryZip ? (
+                                <Typography variant="body2" fontWeight={700} sx={{ color: '#1565c0' }}>
+                                    🏪 Ocurre — C.P. {shipment.master.nationalDeliveryZip}
+                                </Typography>
+                            ) : (
+                                <Typography variant="body2">
+                                    {shipment.master.assignedAddress.neighborhood ? `Col. ${shipment.master.assignedAddress.neighborhood}, ` : ''}
+                                    C.P. {shipment.master.assignedAddress.zip || '—'}
+                                </Typography>
+                            )}
                             <Typography variant="body2" fontWeight={600}>
                                 {shipment.master.assignedAddress.city}
                                 {shipment.master.assignedAddress.state ? `, ${shipment.master.assignedAddress.state}` : ''}
