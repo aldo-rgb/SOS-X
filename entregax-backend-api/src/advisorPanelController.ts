@@ -134,7 +134,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         SELECT
           COUNT(*) FILTER (WHERE p.status::text IN ('in_transit','received_china','received','customs','ready_pickup','received_mty')) AS in_transit,
           COUNT(*) FILTER (WHERE p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')
-                             AND p.status::text NOT IN ('delivered','lost','returned_to_warehouse')) AS missing_instr
+                             AND p.status::text NOT IN ('delivered','shipped','lost','returned_to_warehouse')) AS missing_instr
         FROM packages p
         JOIN users u ON (p.user_id = u.id OR (p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM(u.box_id))))
         WHERE u.role = 'client'
@@ -146,7 +146,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         -- maritime_orders
         SELECT
           COUNT(*) FILTER (WHERE mo.status IN ('in_transit','received_china','received','customs','consolidated','at_port')) AS in_transit,
-          COUNT(*) FILTER (WHERE mo.delivery_address_id IS NULL AND mo.status NOT IN ('delivered')) AS missing_instr
+          COUNT(*) FILTER (WHERE mo.delivery_address_id IS NULL AND mo.status NOT IN ('delivered','shipped')) AS missing_instr
         FROM maritime_orders mo
         JOIN users u ON mo.user_id = u.id
         WHERE u.role = 'client'
@@ -157,7 +157,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         -- dhl_shipments
         SELECT
           COUNT(*) FILTER (WHERE ds.status IN ('in_transit','received_mty','ready_pickup')) AS in_transit,
-          COUNT(*) FILTER (WHERE ds.delivery_address_id IS NULL AND ds.status NOT IN ('delivered')) AS missing_instr
+          COUNT(*) FILTER (WHERE ds.delivery_address_id IS NULL AND ds.status NOT IN ('delivered','shipped')) AS missing_instr
         FROM dhl_shipments ds
         JOIN users u ON ds.user_id = u.id
         WHERE u.role = 'client'
@@ -347,9 +347,9 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
         ) as pending_payment_total,
         -- Sin instrucciones (excluye entregados)
         (
-          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.master_id IS NULL AND p.status::text != 'delivered' AND p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')) +
-          (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status != 'delivered' AND mo.delivery_address_id IS NULL) +
-          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status != 'delivered' AND ds.delivery_address_id IS NULL)
+          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.master_id IS NULL AND p.status::text NOT IN ('delivered','shipped') AND p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')) +
+          (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status NOT IN ('delivered','shipped') AND mo.delivery_address_id IS NULL) +
+          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status NOT IN ('delivered','shipped') AND ds.delivery_address_id IS NULL)
         ) as missing_instructions_count
       FROM users u
       WHERE ${whereClause}
@@ -527,7 +527,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
       if (filter === 'in_transit') return ` AND ${statusCol} IN (${inTransitStatuses.join(',')})`;
       if (filter === 'ready_pickup') return ` AND ${statusCol} = 'ready_pickup'`;
       if (filter === 'delivered') return ` AND ${statusCol} = 'delivered'`;
-      if (filter === 'missing_instructions') return ` AND (${missingInstrSQL}) AND ${statusCol} != 'delivered'`;
+      if (filter === 'missing_instructions') return ` AND (${missingInstrSQL}) AND ${statusCol} NOT IN ('delivered', 'shipped')`;
       return '';
     };
 
@@ -765,7 +765,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     if (payment === 'paid')    outerConditions.push('client_paid = true');
     if (payment === 'pending') outerConditions.push('client_paid = false AND monto > 0');
     if (instructions === 'yes') outerConditions.push('has_instructions = true');
-    if (instructions === 'no')  outerConditions.push("has_instructions = false AND status != 'delivered'");
+    if (instructions === 'no')  outerConditions.push("has_instructions = false AND status NOT IN ('delivered', 'shipped')");
     if (unidentified === 'true') outerConditions.push("(client_box_id IS NULL OR client_box_id = '') AND status != 'delivered'");
     const outerWhere = outerConditions.length > 0 ? `WHERE ${outerConditions.join(' AND ')}` : '';
 
@@ -788,7 +788,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         COUNT(*) as total,
         COUNT(CASE WHEN status IN ('in_transit','received_china','received','customs','received_mty','consolidated','at_port','shipped') AND client_paid = false THEN 1 END) as in_transit,
         COUNT(CASE WHEN COALESCE(monto, 0) > 0 AND client_paid = false THEN 1 END) as awaiting_payment,
-        COUNT(CASE WHEN has_instructions = false AND status != 'delivered' THEN 1 END) as missing_instructions,
+        COUNT(CASE WHEN has_instructions = false AND status NOT IN ('delivered', 'shipped') THEN 1 END) as missing_instructions,
         COUNT(CASE WHEN status = 'ready_pickup' THEN 1 END) as ready_pickup,
         COUNT(CASE WHEN status = 'delivered' THEN 1 END) as delivered
       FROM (
