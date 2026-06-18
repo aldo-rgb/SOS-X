@@ -6274,16 +6274,16 @@ async function getAdvisorPaymentProofs(req: AuthRequest, res: Response) {
 
     // Traer todos los comprobantes asociados
     const proofs = await pool.query(
-      `SELECT 
-        pv.id, 
-        pv.file_url, 
-        pv.file_type, 
-        pv.detected_amount, 
-        pv.declared_amount, 
+      `SELECT
+        pv.id,
+        pv.file_url,
+        pv.file_type,
+        pv.detected_amount,
+        pv.declared_amount,
         pv.status,
         pv.created_at,
         u.full_name as uploaded_by,
-        CASE 
+        CASE
           WHEN pv.user_id = $2 THEN 'advisor'
           ELSE 'client'
         END as uploader_type
@@ -6291,7 +6291,7 @@ async function getAdvisorPaymentProofs(req: AuthRequest, res: Response) {
       LEFT JOIN users u ON pv.user_id = u.id
       WHERE pv.payment_order_id = $1
       ORDER BY pv.created_at DESC`,
-      [orderId_num]
+      [orderId_num, req.user!.userId]
     );
 
     res.json({ proofs: proofs.rows });
@@ -6312,15 +6312,12 @@ async function uploadAdvisorPaymentProof(req: AuthRequest, res: Response) {
     if (!req.file) return res.status(400).json({ error: 'No file provided' });
     if (!declared_amount) return res.status(400).json({ error: 'Missing declared_amount' });
 
-    // Verificar que existe la orden de pago y pertenece al asesor
+    // Verificar que existe la orden de pago
     const orderRes = await pool.query(
-      'SELECT id, created_by FROM pobox_payments WHERE id = $1',
+      'SELECT id, user_id FROM pobox_payments WHERE id = $1',
       [orderId_num]
     );
     if (!orderRes.rows.length) return res.status(404).json({ error: 'Payment order not found' });
-    const order = orderRes.rows[0];
-
-    if (order.created_by !== req.user!.userId) return res.status(403).json({ error: 'Not authorized' });
 
     // Importar uploadToS3
     const { uploadToS3 } = require('./s3Service');
