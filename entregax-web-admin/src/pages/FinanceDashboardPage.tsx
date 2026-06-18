@@ -1338,7 +1338,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                     </TableCell>
                     <TableCell align="center">
                       <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                        {payment.source === 'pobox' && (
+                        {(payment.voucher_count > 0 || payment.source === 'pobox') && (
                           <Tooltip title="Ver comprobantes de pago" arrow>
                             <Button
                               variant="outlined"
@@ -1347,7 +1347,8 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                               onClick={async () => {
                                 setVoucherGallery({ open: true, payment, vouchers: [], loading: true });
                                 try {
-                                  const res = await api.get(`/admin/vouchers/order/${payment.id}`);
+                                  const orderId = payment.pobox_payment_id || payment.id;
+                                  const res = await api.get(`/admin/vouchers/order/${orderId}`);
                                   setVoucherGallery(prev => ({ ...prev, vouchers: res.data.vouchers || [], loading: false }));
                                 } catch (e) {
                                   setVoucherGallery(prev => ({ ...prev, loading: false }));

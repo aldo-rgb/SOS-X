@@ -8859,7 +8859,7 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
     }
 
     const webhookResult = await pool.query(`
-      SELECT 
+      SELECT
         owl.id,
         owl.transaction_id as referencia,
         owl.user_id,
@@ -8879,12 +8879,19 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         b.name as sucursal_nombre,
         COALESCE(pp.credit_applied, 0) as credit_applied,
         COALESCE(pp.wallet_applied, 0) as wallet_applied,
+        pp.id as pobox_payment_id,
+        COALESCE(vc.cnt, 0) as voucher_count,
         'webhook' as source
       FROM openpay_webhook_logs owl
       LEFT JOIN users u ON owl.user_id = u.id
       LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
       LEFT JOIN branches b ON owl.branch_id = b.id
       LEFT JOIN pobox_payments pp ON pp.payment_reference = owl.transaction_id
+      LEFT JOIN (
+        SELECT payment_order_id, COUNT(*) as cnt
+        FROM payment_vouchers
+        GROUP BY payment_order_id
+      ) vc ON vc.payment_order_id = pp.id
       ${whereClause1}
       ORDER BY owl.fecha_pago DESC
     `, params1);
@@ -8939,6 +8946,8 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
       branch_id: r.branch_id,
       sucursal_nombre: r.sucursal_nombre,
       guias: r.concepto,
+      pobox_payment_id: r.pobox_payment_id || null,
+      voucher_count: parseInt(r.voucher_count) || 0,
       source: 'webhook'
     }));
 
