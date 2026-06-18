@@ -538,29 +538,34 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
 
         // Filtro por fecha de último envío (aéreo o marítimo)
         if ((lastSendFrom && String(lastSendFrom).trim() !== '') || (lastSendTo && String(lastSendTo).trim() !== '')) {
-            // Las fechas del legacy se almacenan en formato DD/MM/YYYY (texto).
-            // Convertir a DATE con TO_DATE para comparación correcta contra parámetros ISO YYYY-MM-DD.
-            const toDate = (field: string) =>
-                `CASE WHEN ${field} ~ '^\\d+/\\d+/\\d{4}$' THEN TO_DATE(${field}, 'DD/MM/YYYY') ELSE NULL END`;
+            // Las fechas legacy están en texto 'D/M/YYYY' o 'DD/MM/YYYY'.
+            // Las convertimos a 'YYYY-MM-DD' con SPLIT_PART + LPAD para poder compararlas
+            // directamente como texto con los parámetros ISO del frontend (YYYY-MM-DD).
+            const toIso = (field: string) => `
+                CASE WHEN ${field} ~ '^[0-9]+/[0-9]+/[0-9]{4}$' THEN
+                    LPAD(SPLIT_PART(${field}, '/', 3), 4, '0') || '-' ||
+                    LPAD(SPLIT_PART(${field}, '/', 2), 2, '0') || '-' ||
+                    LPAD(SPLIT_PART(${field}, '/', 1), 2, '0')
+                ELSE NULL END`;
 
             const latestDateExpr = `GREATEST(
-                ${toDate(`lc.last_send->>'Fecha de ingreso'`)},
-                ${toDate(`lc.last_send->>'Fecha de salida'`)},
-                ${toDate(`lc.last_send_maritimo->>'Fecha de ingreso'`)},
-                ${toDate(`lc.last_send_maritimo->>'Fecha de salida'`)}
+                ${toIso(`lc.last_send->>'Fecha de ingreso'`)},
+                ${toIso(`lc.last_send->>'Fecha de salida'`)},
+                ${toIso(`lc.last_send_maritimo->>'Fecha de ingreso'`)},
+                ${toIso(`lc.last_send_maritimo->>'Fecha de salida'`)}
             )`;
 
-            // Sólo mostrar clientes que tienen al menos un envío registrado
+            // Solo clientes con al menos un envío registrado
             conditions.push(`(lc.last_send IS NOT NULL OR lc.last_send_maritimo IS NOT NULL)`);
             conditions.push(`${latestDateExpr} IS NOT NULL`);
 
             if (lastSendFrom && String(lastSendFrom).trim() !== '') {
-                params.push(String(lastSendFrom).trim());
-                conditions.push(`${latestDateExpr} >= $${params.length}::date`);
+                params.push(String(lastSendFrom).trim()); // YYYY-MM-DD
+                conditions.push(`${latestDateExpr} >= $${params.length}`);
             }
             if (lastSendTo && String(lastSendTo).trim() !== '') {
-                params.push(String(lastSendTo).trim());
-                conditions.push(`${latestDateExpr} <= $${params.length}::date`);
+                params.push(String(lastSendTo).trim()); // YYYY-MM-DD
+                conditions.push(`${latestDateExpr} <= $${params.length}`);
             }
         }
 
