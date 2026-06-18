@@ -11,13 +11,10 @@ import {
   Box, Typography, Button, Paper, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Chip, IconButton, Alert,
   Snackbar, CircularProgress, Tooltip, Checkbox, TextField, Dialog,
-  DialogTitle, DialogContent, DialogActions,
+  DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel,
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import {
-  LocalShipping as ShippingIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
   PictureAsPdf as PictureAsPdfIcon,
   CheckCircle as CheckCircleIcon,
   Person as PersonIcon,
@@ -133,12 +130,10 @@ const POBoxConsolidacionesPage: React.FC = () => {
   // Filtros
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('todos');
 
   // Selección
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const [soloFaltantes, setSoloFaltantes] = useState<Set<number>>(new Set());
-  const [soloNoLlegados, setSoloNoLlegados] = useState<Set<number>>(new Set());
 
   // Referencias de pago
   const [refModalOpen, setRefModalOpen] = useState(false);
@@ -198,26 +193,36 @@ const POBoxConsolidacionesPage: React.FC = () => {
   const handleSelectProveedor = (prov: { id: number; name: string }) => {
     setProveedorSel(prov);
     setSelected(new Set());
-    setExpanded(new Set());
     setStep('consolidations');
     fetchConsolidaciones(undefined, undefined, prov.id);
   };
 
   // ── Toggle helpers ──────────────────────────────────────────────────
-  const toggleExpand = (id: number) => setExpanded(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const getAllPackages = () => consolidaciones.flatMap(c => (c.packages || []).map(p => ({ ...p, consolidacion_id: c.id })));
+  const filterByEstado = (p: { received_mty_at?: string | null; missing_on_arrival?: boolean; is_lost?: boolean; costing_paid?: boolean }) => {
+    switch (filtroEstado) {
+      case 'en_transito': return !p.received_mty_at && !p.missing_on_arrival && !p.is_lost;
+      case 'recibida': return !!p.received_mty_at && !p.missing_on_arrival && !p.is_lost;
+      case 'pendiente_pago': return !p.costing_paid && !p.missing_on_arrival && !p.is_lost;
+      case 'ya_pagada': return !!p.costing_paid;
+      case 'no_llego': return !!p.missing_on_arrival;
+      case 'perdida': return !!p.is_lost;
+      default: return true;
+    }
+  };
   const toggleSelect = (id: number) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
-  const toggleAll = () => setSelected(
-    selected.size === consolidaciones.length ? new Set() : new Set(consolidaciones.map(c => c.id))
-  );
+  const toggleAll = () => { const all = getAllPackages().filter(filterByEstado); setSelected(all.every(p => selected.has(p.id)) ? new Set() : new Set(all.map(p => p.id))); };
 
   // ── Reporte rows ────────────────────────────────────────────────────
   const getReporteRows = () => {
     const rows: ReporteRow[] = [];
     let totalUsd = 0; let totalMxn = 0;
-    const sel = consolidaciones.filter(c => selected.has(c.id));
-    sel.forEach((c) => {
+    const involvedConsolIds = new Set<number>();
+    consolidaciones.forEach((c) => {
       (c.packages || []).forEach((p) => {
+        if (!selected.has(p.id)) return;
         if (p.is_master && Number(p.total_boxes || 1) > 1) return;
+        involvedConsolIds.add(c.id);
         const usd = Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0);
         const tc = Number(p.registered_exchange_rate ?? 0);
         const mxn = Number(p.pobox_provider_cost_mxn ?? (tc > 0 ? usd * tc : 0));
@@ -246,7 +251,7 @@ const POBoxConsolidacionesPage: React.FC = () => {
         });
       });
     });
-    return { rows, totalUsd, totalMxn, selectedCount: sel.length };
+    return { rows, totalUsd, totalMxn, selectedCount: involvedConsolIds.size };
   };
 
   // ── Generar PDF desde filas ─────────────────────────────────────────
@@ -331,15 +336,15 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
 
   // ── Generar Referencia ──────────────────────────────────────────────
   const handleGenerarReferencia = async () => {
-    if (selected.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' }); return; }
+    if (selected.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una guía', severity: 'info' }); return; }
     const { rows, totalUsd, totalMxn } = getReporteRows();
-    if (rows.length === 0) { setSnackbar({ open: true, message: 'Las consolidaciones seleccionadas no tienen guías', severity: 'info' }); return; }
+    if (rows.length === 0) { setSnackbar({ open: true, message: 'Las guías seleccionadas no tienen datos', severity: 'info' }); return; }
     setCreandoRef(true);
     try {
       await api.post('/pobox/payment-references', {
         supplier_id: proveedorSel!.id,
         supplier_name: proveedorSel!.name,
-        consolidation_ids: consolidaciones.filter(c => selected.has(c.id)).map(c => c.id),
+        consolidation_ids: [...new Set(rows.map(r => r.consolidacion_id))],
         total_usd: totalUsd,
         total_mxn: totalMxn,
         packages_count: rows.length,
@@ -446,7 +451,7 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
         </Typography>
       </Box>
 
-      {/* Filtros de fecha */}
+      {/* Filtros */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
         <TextField
           type="date" size="small" label="Desde" InputLabelProps={{ shrink: true }}
@@ -460,9 +465,21 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
           onChange={(e) => { const v = e.target.value; setFiltroHasta(v); fetchConsolidaciones(filtroDesde || undefined, v || undefined, proveedorSel?.id); }}
           sx={{ minWidth: 160 }}
         />
-        <Button size="small" variant="outlined" disabled={!filtroDesde && !filtroHasta}
-          onClick={() => { setFiltroDesde(''); setFiltroHasta(''); fetchConsolidaciones(undefined, undefined, proveedorSel?.id); }}>
-          Mostrar todas
+        <FormControl size="small" sx={{ minWidth: 190 }}>
+          <InputLabel>Estado</InputLabel>
+          <Select value={filtroEstado} label="Estado" onChange={(e) => setFiltroEstado(e.target.value)}>
+            <MenuItem value="todos">Todos</MenuItem>
+            <MenuItem value="en_transito">En tránsito</MenuItem>
+            <MenuItem value="recibida">Recibida en MTY</MenuItem>
+            <MenuItem value="pendiente_pago">Pendiente de pago</MenuItem>
+            <MenuItem value="ya_pagada">Ya pagada</MenuItem>
+            <MenuItem value="no_llego">No llegó a MTY</MenuItem>
+            <MenuItem value="perdida">Perdida</MenuItem>
+          </Select>
+        </FormControl>
+        <Button size="small" variant="outlined" disabled={!filtroDesde && !filtroHasta && filtroEstado === 'todos'}
+          onClick={() => { setFiltroDesde(''); setFiltroHasta(''); setFiltroEstado('todos'); fetchConsolidaciones(undefined, undefined, proveedorSel?.id); }}>
+          Limpiar filtros
         </Button>
         <Typography variant="body2" color="text.secondary">
           {filtroDesde || filtroHasta
@@ -478,19 +495,20 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
       ) : (
         <Box>
           {/* Resumen */}
-          <Paper sx={{ p: 2, mb: 3, bgcolor: 'warning.light' }}>
-            <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-              {selected.size > 0 ? 'Resumen Seleccionadas' : 'Resumen Total'}
-            </Typography>
-            {(() => {
-              const mostrar = selected.size > 0 ? consolidaciones.filter(c => selected.has(c.id)) : consolidaciones;
-              const totalUsd = mostrar.reduce((s, c) => s + Number(c.total_cost_usd || 0), 0);
-              const totalMxn = mostrar.reduce((s, c) => s + Number(c.total_cost_mxn || 0), 0);
-              return (
+          {(() => {
+            const allPkgs = getAllPackages().filter(filterByEstado);
+            const toShow = selected.size > 0 ? allPkgs.filter(p => selected.has(p.id)) : allPkgs;
+            const totalUsd = toShow.reduce((s, p) => s + Number(p.pobox_cost_usd || 0), 0);
+            const totalMxn = toShow.reduce((s, p) => s + Number(p.pobox_service_cost || 0), 0);
+            return (
+              <Paper sx={{ p: 2, mb: 3, bgcolor: 'warning.light' }}>
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  {selected.size > 0 ? 'Resumen Seleccionadas' : 'Resumen Total'}
+                </Typography>
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 3 }}>
-                    <Typography variant="body2" color="text.secondary">Consolidaciones</Typography>
-                    <Typography variant="h5" fontWeight="bold">{mostrar.length}</Typography>
+                    <Typography variant="body2" color="text.secondary">Guías</Typography>
+                    <Typography variant="h5" fontWeight="bold">{toShow.length}</Typography>
                   </Grid>
                   <Grid size={{ xs: 3 }}>
                     <Typography variant="body2" color="text.secondary">Total USD</Typography>
@@ -505,179 +523,84 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                     <Typography variant="h6" fontWeight="bold" color="warning.dark">{formatCurrency(totalMxn)}</Typography>
                   </Grid>
                 </Grid>
-              );
-            })()}
-          </Paper>
+              </Paper>
+            );
+          })()}
 
-          {/* Tabla */}
-          <TableContainer component={Paper}>
-            <Table size="small">
-              <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.100' }}>
-                  <TableCell padding="checkbox">
-                    <Checkbox
-                      indeterminate={selected.size > 0 && selected.size < consolidaciones.length}
-                      checked={consolidaciones.length > 0 && selected.size === consolidaciones.length}
-                      onChange={toggleAll}
-                    />
-                  </TableCell>
-                  <TableCell width={40} />
-                  <TableCell><strong>Consolidación</strong></TableCell>
-                  <TableCell><strong>Proveedor</strong></TableCell>
-                  <TableCell align="center"><strong>Paquetes</strong></TableCell>
-                  <TableCell><strong>Estado</strong></TableCell>
-                  <TableCell align="right"><strong>Total USD</strong></TableCell>
-                  <TableCell align="right"><strong>Total MXN</strong></TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {consolidaciones.map((c) => {
-                  const pkgs = c.packages || [];
-                  const missing = Number(c.missing_count || 0);
-                  const lost = Number(c.lost_count || 0);
-                  const total = Number(c.package_count || pkgs.length);
-                  const receivedInArr = pkgs.filter((p: any) => p.received_mty_at && !p.missing_on_arrival && !p.is_lost).length;
-                  const excluded = Math.max(0, total - pkgs.length);
-                  const received = receivedInArr + excluded;
-                  const inTransit = Math.max(0, total - received - missing - lost);
-                  let statusLabel = ''; let statusColor: 'info' | 'warning' | 'success' | 'default' | 'error' = 'default';
-                  if (total === 0) { statusLabel = c.status || '—'; }
-                  else if (missing > 0 || lost > 0) {
-                    const parts: string[] = [];
-                    if (missing > 0) parts.push(`${missing} faltante${missing === 1 ? '' : 's'}`);
-                    if (lost > 0) parts.push(`${lost} perdida${lost === 1 ? '' : 's'}`);
-                    if (inTransit > 0) parts.push(`${inTransit} en tránsito`);
-                    statusLabel = `Parcial (${parts.join(', ')})`; statusColor = 'warning';
-                  } else if (received === total) { statusLabel = 'Recibida'; statusColor = 'success'; }
-                  else if (received === 0) { statusLabel = 'En Tránsito'; statusColor = 'info'; }
-                  else { statusLabel = `Parcial (${received}/${total} recibidas)`; statusColor = 'warning'; }
-
-                  return (
-                    <React.Fragment key={c.id}>
-                      <TableRow hover selected={selected.has(c.id)} sx={{ cursor: 'pointer', '& > td': { borderBottom: expanded.has(c.id) ? 'none' : undefined } }} onClick={() => toggleExpand(c.id)}>
-                        <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
-                          <Checkbox checked={selected.has(c.id)} onChange={() => toggleSelect(c.id)} />
-                        </TableCell>
-                        <TableCell>
-                          <IconButton size="small">{expanded.has(c.id) ? <ExpandLessIcon /> : <ExpandMoreIcon />}</IconButton>
-                        </TableCell>
-                        <TableCell>
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <ShippingIcon color="primary" fontSize="small" />
-                            <Typography fontWeight="bold">#{c.id}</Typography>
-                          </Box>
-                          <Typography variant="caption" color="text.secondary">
-                            {new Date(c.created_at).toLocaleDateString('es-MX')}
-                          </Typography>
-                        </TableCell>
-                        <TableCell><Typography fontWeight="bold">{c.supplier_name}</Typography></TableCell>
-                        <TableCell align="center"><Chip label={c.package_count} size="small" color="primary" variant="outlined" /></TableCell>
-                        <TableCell><Chip label={statusLabel} size="small" color={statusColor} /></TableCell>
-                        <TableCell align="right">
-                          <Typography fontWeight="bold" color="success.main">${Number(c.total_cost_usd || 0).toFixed(2)}</Typography>
-                          {Number(c.paid_cost_usd || 0) > 0 && <Typography variant="caption" color="success.dark" sx={{ display: 'block' }}>✓ ${Number(c.paid_cost_usd).toFixed(2)} pagado</Typography>}
-                          {c.has_missing && Number(c.pending_cost_usd || 0) > 0 && <Typography variant="caption" color="error.main" sx={{ display: 'block' }}>⚠ ${Number(c.pending_cost_usd).toFixed(2)} faltante</Typography>}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography fontWeight="bold" color="primary.main">{formatCurrency(Number(c.total_cost_mxn || 0))}</Typography>
-                          {Number(c.paid_cost_mxn || 0) > 0 && <Typography variant="caption" color="success.dark" sx={{ display: 'block' }}>✓ {formatCurrency(Number(c.paid_cost_mxn))} pagado</Typography>}
-                          {c.has_missing && Number(c.pending_cost_mxn || 0) > 0 && <Typography variant="caption" color="error.main" sx={{ display: 'block' }}>⚠ {formatCurrency(Number(c.pending_cost_mxn))} faltante</Typography>}
-                          {Number(c.total_cost_mxn || 0) <= 0 && (
-                            <Typography variant="caption" color="text.secondary">
-                              {Number(c.paid_cost_mxn || 0) > 0 ? 'Ya pagada' : 'Esperando llegada'}
-                            </Typography>
-                          )}
-                        </TableCell>
-                      </TableRow>
-
-                      {/* Detalle expandido */}
-                      {expanded.has(c.id) && (
-                        <TableRow>
-                          <TableCell colSpan={8} sx={{ p: 0, bgcolor: 'grey.50' }}>
-                            <Box sx={{ p: 2 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
-                                <Typography variant="subtitle2">Paquetes en esta consolidación:</Typography>
-                                {(() => {
-                                  const pendCount = pkgs.filter((p: any) => !p.costing_paid && !p.is_lost && !p.missing_on_arrival).length;
-                                  const noLlegCount = pkgs.filter((p: any) => p.missing_on_arrival || p.is_lost).length;
-                                  const activePend = soloFaltantes.has(c.id);
-                                  const activeNoLleg = soloNoLlegados.has(c.id);
-                                  return (
-                                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                                      {pendCount > 0 && pendCount < pkgs.length && (
-                                        <Button size="small" variant={activePend ? 'contained' : 'outlined'} color="warning"
-                                          onClick={() => setSoloFaltantes(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : (n.add(c.id), setSoloNoLlegados(p => { const x = new Set(p); x.delete(c.id); return x; })); return n; })}
-                                        >{activePend ? `Mostrar todos (${pkgs.length})` : `Solo pendientes de pago (${pendCount})`}</Button>
-                                      )}
-                                      {noLlegCount > 0 && (
-                                        <Button size="small" variant={activeNoLleg ? 'contained' : 'outlined'} color="error"
-                                          onClick={() => setSoloNoLlegados(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : (n.add(c.id), setSoloFaltantes(p => { const x = new Set(p); x.delete(c.id); return x; })); return n; })}
-                                        >{activeNoLleg ? `Mostrar todos (${pkgs.length})` : `Ver no llegados / perdidos (${noLlegCount})`}</Button>
-                                      )}
-                                    </Box>
-                                  );
-                                })()}
-                              </Box>
-                              <Table size="small">
-                                <TableHead>
-                                  <TableRow>
-                                    <TableCell>Tracking</TableCell><TableCell>Cliente</TableCell><TableCell>Descripción</TableCell>
-                                    <TableCell align="right">Peso (lb)</TableCell><TableCell align="right">USD</TableCell><TableCell align="right">MXN</TableCell>
-                                    <TableCell align="center">Ingresada</TableCell><TableCell align="center">Recibida MTY</TableCell>
-                                    <TableCell align="center">Estatus</TableCell><TableCell align="center">Pago Proveedor</TableCell>
-                                  </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                  {pkgs
-                                    .filter((p: any) => {
-                                      if (soloNoLlegados.has(c.id)) return p.missing_on_arrival || p.is_lost;
-                                      if (soloFaltantes.has(c.id)) return !p.costing_paid && !p.is_lost && !p.missing_on_arrival;
-                                      return true;
-                                    })
-                                    .map((p: any) => {
-                                      const isMissing = !!p.missing_on_arrival; const isLost = !!p.is_lost;
-                                      const problema = isMissing || isLost;
-                                      return (
-                                        <TableRow key={p.id} sx={problema ? { bgcolor: isLost ? '#FFEBEE' : '#FFF3E0' } : undefined}>
-                                          <TableCell><Typography variant="body2" fontFamily="monospace" sx={{ textDecoration: isLost ? 'line-through' : 'none' }}>{p.tracking}</Typography></TableCell>
-                                          <TableCell><Typography variant="body2">{p.client_name}</Typography><Typography variant="caption" color="text.secondary">{p.client_box_id}</Typography></TableCell>
-                                          <TableCell><Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>{p.description || '-'}</Typography></TableCell>
-                                          <TableCell align="right">{Number(p.weight || 0).toFixed(2)}</TableCell>
-                                          <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>${Number(p.pobox_cost_usd || 0).toFixed(2)}</TableCell>
-                                          <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>{formatCurrency(Number(p.pobox_service_cost || 0))}</TableCell>
-                                          <TableCell align="center"><Typography variant="caption" color="text.secondary">{p.created_at ? new Date(p.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—'}</Typography></TableCell>
-                                          <TableCell align="center"><Typography variant="caption" color={(!problema && p.received_mty_at) ? 'text.primary' : 'text.disabled'}>{(!problema && p.received_mty_at) ? new Date(p.received_mty_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—'}</Typography></TableCell>
-                                          <TableCell align="center">
-                                            {isLost ? <Chip label="Perdido" size="small" color="error" variant="filled" />
-                                              : isMissing ? <Chip label="No llegó a MTY" size="small" color="warning" variant="filled" />
-                                              : p.received_mty_at ? <Chip label="Recibida" size="small" color="success" variant="outlined" />
-                                              : <Chip label="En tránsito" size="small" color="info" variant="outlined" />}
-                                          </TableCell>
-                                          <TableCell align="center">
-                                            {problema ? <Typography variant="caption" color="text.disabled">No se paga</Typography>
-                                              : p.costing_paid ? <CheckCircleIcon color="success" fontSize="small" />
-                                              : <Typography variant="caption" color="warning.main">Pendiente</Typography>}
-                                          </TableCell>
-                                        </TableRow>
-                                      );
-                                    })}
-                                </TableBody>
-                              </Table>
-                            </Box>
+          {/* Tabla flat de guías */}
+          {(() => {
+            const allPkgs = getAllPackages().filter(filterByEstado);
+            return (
+              <TableContainer component={Paper}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.100' }}>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          indeterminate={allPkgs.some(p => selected.has(p.id)) && !allPkgs.every(p => selected.has(p.id))}
+                          checked={allPkgs.length > 0 && allPkgs.every(p => selected.has(p.id))}
+                          onChange={toggleAll}
+                        />
+                      </TableCell>
+                      <TableCell><strong>Consol.</strong></TableCell>
+                      <TableCell><strong>Tracking</strong></TableCell>
+                      <TableCell><strong>Cliente</strong></TableCell>
+                      <TableCell><strong>Descripción</strong></TableCell>
+                      <TableCell align="right"><strong>Peso (lb)</strong></TableCell>
+                      <TableCell align="right"><strong>USD</strong></TableCell>
+                      <TableCell align="right"><strong>MXN</strong></TableCell>
+                      <TableCell align="center"><strong>Estatus</strong></TableCell>
+                      <TableCell align="center"><strong>Pago Prov.</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {allPkgs.map((p) => {
+                      const isMissing = !!p.missing_on_arrival;
+                      const isLost = !!p.is_lost;
+                      const problema = isMissing || isLost;
+                      return (
+                        <TableRow key={p.id} hover selected={selected.has(p.id)} sx={problema ? { bgcolor: isLost ? '#FFEBEE' : '#FFF3E0' } : undefined}>
+                          <TableCell padding="checkbox">
+                            <Checkbox checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)} />
+                          </TableCell>
+                          <TableCell>
+                            <Chip label={`#${p.consolidacion_id}`} size="small" color="primary" variant="outlined" />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" fontFamily="monospace" sx={{ textDecoration: isLost ? 'line-through' : 'none' }}>{p.tracking}</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">{p.client_name}</Typography>
+                            <Typography variant="caption" color="text.secondary">{p.client_box_id}</Typography>
+                          </TableCell>
+                          <TableCell><Typography variant="body2" noWrap sx={{ maxWidth: 180 }}>{p.description || '—'}</Typography></TableCell>
+                          <TableCell align="right">{Number(p.weight || 0).toFixed(2)}</TableCell>
+                          <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>${Number(p.pobox_cost_usd || 0).toFixed(2)}</TableCell>
+                          <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>{formatCurrency(Number(p.pobox_service_cost || 0))}</TableCell>
+                          <TableCell align="center">
+                            {isLost ? <Chip label="Perdido" size="small" color="error" variant="filled" />
+                              : isMissing ? <Chip label="No llegó" size="small" color="warning" variant="filled" />
+                              : p.received_mty_at ? <Chip label="Recibida" size="small" color="success" variant="outlined" />
+                              : <Chip label="En tránsito" size="small" color="info" variant="outlined" />}
+                          </TableCell>
+                          <TableCell align="center">
+                            {problema ? <Typography variant="caption" color="text.disabled">No se paga</Typography>
+                              : p.costing_paid ? <CheckCircleIcon color="success" fontSize="small" />
+                              : <Typography variant="caption" color="warning.main">Pendiente</Typography>}
                           </TableCell>
                         </TableRow>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            );
+          })()}
 
           {/* Barra inferior */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1 }}>
             <Typography variant="body2" color={selected.size > 0 ? 'primary.main' : 'text.secondary'} fontWeight={selected.size > 0 ? 'bold' : 'normal'}>
-              {selected.size === 0 ? 'Selecciona consolidaciones para generar reporte o referencia' : `${selected.size} consolidación(es) seleccionada(s)`}
+              {selected.size === 0 ? 'Selecciona guías para generar reporte o referencia' : `${selected.size} guía(s) seleccionada(s)`}
             </Typography>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <Button
@@ -688,7 +611,7 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
               >
                 Ver Referencias
               </Button>
-              <Tooltip title={selected.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
+              <Tooltip title={selected.size === 0 ? 'Selecciona al menos una guía' : ''}>
                 <span>
                   <Button
                     variant="contained"
