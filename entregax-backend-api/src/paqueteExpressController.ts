@@ -1405,7 +1405,9 @@ export async function generateOnePqtxGuide(params: {
     },
   };
 
+  const _destBodyAddr = body.body?.request?.data?.[0]?.radGuiaAddrDTOList?.find((a: any) => a.addrType === 'DESTINATION');
   console.log(`🚚 [PQTX-GEN] Generando guía para ${params.trackingInternal} (${totalPieces} bulto${totalPieces === 1 ? '' : 's'}, ${totalWeight.toFixed(2)} kg) → ${params.addr.zip_code}`);
+  console.log(`[PQTX-SEND] pkgId=${params.pkgId} zipCode_en_body="${_destBodyAddr?.zipCode}" params.addr.zip_code="${params.addr.zip_code}"`);
   const response = await axios.post(url, body, {
     headers: { 'Content-Type': 'application/json' },
     timeout: 30000,
