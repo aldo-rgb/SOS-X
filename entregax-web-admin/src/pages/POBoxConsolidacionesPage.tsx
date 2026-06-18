@@ -578,7 +578,7 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                       </TableCell>
                       <TableCell><strong>Consol.</strong></TableCell>
                       <TableCell><strong>Tracking</strong></TableCell>
-                      <TableCell><strong>Ingreso</strong></TableCell>
+                      <TableCell><strong>Recibida MTY</strong></TableCell>
                       <TableCell><strong>Cliente</strong></TableCell>
                       <TableCell><strong>Descripción</strong></TableCell>
                       <TableCell align="right"><strong>Peso (lb)</strong></TableCell>
@@ -605,7 +605,7 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                             <Typography variant="body2" fontFamily="monospace" sx={{ textDecoration: isLost ? 'line-through' : 'none' }}>{p.tracking}</Typography>
                           </TableCell>
                           <TableCell>
-                            <Typography variant="body2">{fmtDate(p.created_at)}</Typography>
+                            <Typography variant="body2">{fmtDate(p.received_mty_at)}</Typography>
                           </TableCell>
                           <TableCell>
                             <Typography variant="body2">{p.client_name}</Typography>
