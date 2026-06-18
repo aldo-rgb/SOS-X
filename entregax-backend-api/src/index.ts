@@ -4414,7 +4414,9 @@ app.get('/api/cs/instructions/lookup', authenticateToken, requireMinLevel(ROLES.
          p.box_id,
          p.service_type,
          p.status,
-         p.has_delivery_instructions,
+         CASE WHEN p.assigned_address_id IS NOT NULL
+                OR p.delivery_address_id IS NOT NULL
+              THEN TRUE ELSE FALSE END AS has_delivery_instructions,
          p.delivery_address_id,
          p.assigned_address_id,
          p.destination_country,
@@ -4502,7 +4504,6 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
       `UPDATE packages SET
          assigned_address_id = NULL,
          delivery_address_id = NULL,
-         has_delivery_instructions = FALSE,
          destination_address = 'Pendiente de asignar',
          destination_city = NULL,
          destination_zip = NULL,
