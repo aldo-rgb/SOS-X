@@ -1584,7 +1584,7 @@ export const setChartback = async (req: Request, res: Response): Promise<any> =>
         // Al marcar chartback=true: limpiar asesor y reiniciar estado CRM
         // Al quitar chartback: marcar como recovered
         const extraFields = chartback
-            ? `, asesor = NULL, chartback_status = 'pending', next_contact_at = NULL`
+            ? `, asesor = NULL, chartback_status = 'pending', next_contact_at = NULL, recovery_advisor_id = NULL, chartback_i_since = NULL`
             : `, chartback_status = 'recovered'`;
         await pool.query(
             `UPDATE legacy_clients SET chartback = $1${extraFields} WHERE id IN (${placeholders})`,
