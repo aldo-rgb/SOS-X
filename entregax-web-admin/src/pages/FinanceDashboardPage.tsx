@@ -430,12 +430,20 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const extractReferences = (rows: EstadoCuentaRow[]): { ref: string; entries: EstadoCuentaRow[] }[] => {
     const refMap: Record<string, EstadoCuentaRow[]> = {};
     for (const row of rows) {
-      const text = (`${row.concepto} ${row.referencia}`).toUpperCase();
-      const matches = [...text.matchAll(/(?<![A-Z])(RO|US)[-\s]?([A-F0-9]{6,8})(?![A-F0-9])/g)];
-      for (const m of matches) {
-        const ref = `${m[1]}-${m[2]}`;
-        if (!refMap[ref]) refMap[ref] = [];
-        refMap[ref].push(row);
+      // Buscar en concepto y referencia por separado pero contar la fila solo una vez por referencia
+      const concepto = (row.concepto || '').toUpperCase();
+      const referencia = (row.referencia || '').toUpperCase();
+      const foundRefs = new Set<string>();
+      for (const text of [concepto, referencia]) {
+        const matches = [...text.matchAll(/(?<![A-Z])(RO|US)[-\s]?([A-F0-9]{6,8})(?![A-F0-9])/g)];
+        for (const m of matches) {
+          const ref = `${m[1]}-${m[2]}`;
+          if (!foundRefs.has(ref)) {
+            foundRefs.add(ref);
+            if (!refMap[ref]) refMap[ref] = [];
+            refMap[ref].push(row);
+          }
+        }
       }
     }
     return Object.entries(refMap).map(([ref, entries]) => ({ ref, entries }));
