@@ -360,6 +360,24 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
     }
   };
 
+  const handlePickProofPhoto = async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Error', 'Se necesita permiso para usar la cámara'); return; }
+      const result = await ImagePicker.launchCameraAsync({ quality: 0.8, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      setProofFile({
+        uri: asset.uri,
+        name: asset.fileName || 'comprobante.jpg',
+        type: asset.mimeType || 'image/jpeg',
+      });
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'No se pudo abrir la cámara');
+    }
+  };
+
   const handleUploadProof = async () => {
     if (!selectedOrderForProof || !declaredAmount) {
       Alert.alert('Error', 'Por favor ingresa el monto del comprobante');
@@ -390,7 +408,6 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
       );
 
       if (res.ok) {
-        Alert.alert('Éxito', 'Comprobante subido correctamente');
         setDeclaredAmount('');
         setProofFile(null);
         await loadProofs(poboxId);
@@ -628,27 +645,34 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                 </View>
               </View>
 
-              <View style={{ marginBottom: 12 }}>
-                <Text style={{ fontSize: 12, fontWeight: '500', color: '#666', marginBottom: 6 }}>Archivo del comprobante</Text>
+              {/* File picker buttons */}
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
                 <TouchableOpacity
                   onPress={handlePickProofFile}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: '#ddd',
-                    borderRadius: 6,
-                    paddingVertical: 12,
-                    paddingHorizontal: 12,
-                    backgroundColor: '#fff',
-                  }}
+                  style={{ flex: 1, borderWidth: 1, borderColor: proofFile ? ORANGE : '#ddd', borderRadius: 6, paddingVertical: 10, paddingHorizontal: 8, backgroundColor: '#fff', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
                 >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Ionicons name="cloud-upload-outline" size={16} color={ORANGE} />
-                    <Text style={{ fontSize: 13, color: proofFile ? BLACK : '#777', fontWeight: '500', flex: 1 }} numberOfLines={1}>
-                      {proofFile ? proofFile.name : 'Seleccionar imagen o PDF'}
-                    </Text>
-                  </View>
+                  <Ionicons name="document-attach-outline" size={18} color={ORANGE} />
+                  <Text style={{ fontSize: 12, color: BLACK, fontWeight: '500' }}>Archivo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handlePickProofPhoto}
+                  style={{ flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 6, paddingVertical: 10, paddingHorizontal: 8, backgroundColor: '#fff', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
+                >
+                  <Ionicons name="camera-outline" size={18} color={ORANGE} />
+                  <Text style={{ fontSize: 12, color: BLACK, fontWeight: '500' }}>Foto</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Selected file name */}
+              {proofFile && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, backgroundColor: '#FFF3EC', borderRadius: 6, padding: 8 }}>
+                  <Ionicons name="checkmark-circle" size={14} color={ORANGE} />
+                  <Text style={{ fontSize: 12, color: BLACK, flex: 1 }} numberOfLines={1}>{proofFile.name}</Text>
+                  <TouchableOpacity onPress={() => setProofFile(null)}>
+                    <Ionicons name="close-circle" size={16} color="#999" />
+                  </TouchableOpacity>
+                </View>
+              )}
 
               <TouchableOpacity
                 onPress={handleUploadProof}
@@ -671,7 +695,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
               </TouchableOpacity>
 
               <Text style={{ fontSize: 11, color: '#888', marginTop: 8 }}>
-                Primero selecciona el archivo y luego pulsa subir.
+                Puedes subir varios comprobantes. Ingresa el monto de cada uno antes de subir.
               </Text>
             </View>
           </ScrollView>
