@@ -257,6 +257,7 @@ export default function LegacyClientsPage() {
         ...(showOnlyRetention && { retention: 'true' }),
         ...(hideRecovered && { hideRecovered: 'true' }),
         ...(showOnlyWithShipment && { withShipment: 'true' }),
+        ...(showOnlyWithQuotes && Object.keys(pendingQuotesMap).length > 0 && { quoteSuites: Object.keys(pendingQuotesMap).join(',') }),
         ...(lastSendFrom && { lastSendFrom }),
         ...(lastSendTo && { lastSendTo })
       });
@@ -275,7 +276,7 @@ export default function LegacyClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, showOnlyWithShipment, lastSendFrom, lastSendTo]);
+  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, showOnlyWithShipment, showOnlyWithQuotes, pendingQuotesMap, lastSendFrom, lastSendTo]);
 
   useEffect(() => {
     fetchStats();
@@ -286,7 +287,7 @@ export default function LegacyClientsPage() {
   // Reset selection when page/filter changes
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, showOnlyWithShipment, lastSendFrom, lastSendTo]);
+  }, [page, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, showOnlyWithShipment, showOnlyWithQuotes, lastSendFrom, lastSendTo]);
 
   const previewFromRows = (rows: string[][]) => {
     const firstRow = rows[0] || [];
@@ -902,10 +903,7 @@ export default function LegacyClientsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              (showOnlyWithQuotes
-                ? clients.filter(c => (pendingQuotesMap[c.box_id?.toUpperCase()] || []).length > 0)
-                : clients
-              ).map((client) => (
+              clients.map((client) => (
                 <TableRow
                   key={client.id}
                   hover

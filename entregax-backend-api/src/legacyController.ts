@@ -484,7 +484,7 @@ export const listCustomersForExternalSync = async (req: Request, res: Response):
  */
 export const getLegacyClients = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { page = 1, limit = 50, search, claimed, asesor, chartback, recovered, retention, hideRecovered, lastSendFrom, lastSendTo, withShipment } = req.query;
+        const { page = 1, limit = 50, search, claimed, asesor, chartback, recovered, retention, hideRecovered, lastSendFrom, lastSendTo, withShipment, quoteSuites } = req.query;
         const offset = (Number(page) - 1) * Number(limit);
         const limitNum = Number(limit);
 
@@ -539,6 +539,15 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
         // Solo con carga recibida (tiene al menos un envío registrado)
         if (withShipment === 'true') {
             conditions.push(`(lc.last_send IS NOT NULL OR lc.last_send_maritimo IS NOT NULL)`);
+        }
+
+        // Solo clientes con cotizaciones pendientes (lista de SUITEs enviada desde el frontend)
+        if (quoteSuites && String(quoteSuites).trim() !== '') {
+            const suites = String(quoteSuites).split(',').map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+            if (suites.length > 0) {
+                params.push(suites);
+                conditions.push(`UPPER(lc.box_id) = ANY($${params.length})`);
+            }
         }
 
         // Filtro por fecha de último envío (aéreo o marítimo)
