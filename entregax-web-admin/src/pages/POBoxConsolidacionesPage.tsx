@@ -131,7 +131,7 @@ const POBoxConsolidacionesPage: React.FC = () => {
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('todos');
-  const [filtroPago, setFiltroPago] = useState('pendiente');
+  const [filtroPago, setFiltroPago] = useState('todos');
   const [filtroConsolId, setFiltroConsolId] = useState<string>('todos');
 
   // Selección
@@ -510,14 +510,6 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
             <MenuItem value="perdida">Perdida</MenuItem>
           </Select>
         </FormControl>
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Pago a proveedor</InputLabel>
-          <Select value={filtroPago} label="Pago a proveedor" onChange={(e) => setFiltroPago(e.target.value)}>
-            <MenuItem value="todos">Todos</MenuItem>
-            <MenuItem value="pendiente">Pendientes de pago</MenuItem>
-            <MenuItem value="pagada">Ya pagadas a proveedor</MenuItem>
-          </Select>
-        </FormControl>
         <FormControl size="small" sx={{ minWidth: 160 }}>
           <InputLabel>Consolidación</InputLabel>
           <Select value={filtroConsolId} label="Consolidación" onChange={(e) => setFiltroConsolId(e.target.value)}>
@@ -527,7 +519,7 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
             ))}
           </Select>
         </FormControl>
-        <Button size="small" variant="outlined" disabled={!filtroDesde && !filtroHasta && filtroEstado === 'todos' && filtroPago === 'todos' && filtroConsolId === 'todos'}
+        <Button size="small" variant="outlined" disabled={!filtroDesde && !filtroHasta && filtroEstado === 'todos' && filtroConsolId === 'todos'}
           onClick={() => { setFiltroDesde(''); setFiltroHasta(''); setFiltroEstado('todos'); setFiltroPago('todos'); setFiltroConsolId('todos'); fetchConsolidaciones(undefined, undefined, proveedorSel?.id); }}>
           Limpiar filtros
         </Button>

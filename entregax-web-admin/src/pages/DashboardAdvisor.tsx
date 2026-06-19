@@ -651,7 +651,13 @@ export default function DashboardAdvisor() {
       setSuccessOrderData({ ...res.data, client_name: first?.clientName, total_mxn: total });
       fetchPaymentOrders();
     } catch (e: any) {
-      alert(e?.response?.data?.error || 'Error al crear la orden');
+      const errData = e?.response?.data;
+      if (e?.response?.status === 409 && errData?.existing_refs?.length) {
+        const refs = errData.existing_refs.join(', ');
+        alert(`⚠️ ${errData.error}\n\nÓrden(es) existente(s): ${refs}\n\nBusca esa orden en la lista de Órdenes de Pago.`);
+      } else {
+        alert(errData?.error || 'Error al crear la orden');
+      }
     } finally { setNewOrderSaving(false); }
   };
 
