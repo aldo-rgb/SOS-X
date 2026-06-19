@@ -210,6 +210,7 @@ interface AdvisorShipment {
   deliveryAddressCity: string | null;
   deliveryAddressRecipient: string | null;
   inPaymentOrderRef: string | null;
+  labelPrinted: boolean;
 }
 
 interface ShipmentStats {
@@ -2658,14 +2659,17 @@ export default function DashboardAdvisor() {
                   <TableCell align="center">
                     <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
                     {advisorInstructionsEnabled && (
-                      <Tooltip title="Asignar instrucciones de entrega">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleOpenInstrDialog(s)}
-                          sx={{ color: s.hasInstructions ? '#2E7D32' : '#E65100' }}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
+                      <Tooltip title={s.labelPrinted ? 'Etiqueta ya impresa — no se pueden modificar instrucciones' : 'Asignar instrucciones de entrega'}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={s.labelPrinted}
+                            onClick={() => handleOpenInstrDialog(s)}
+                            sx={{ color: s.labelPrinted ? '#bdbdbd' : s.hasInstructions ? '#2E7D32' : '#E65100' }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </span>
                       </Tooltip>
                     )}
                     <Tooltip title="Ver detalles">

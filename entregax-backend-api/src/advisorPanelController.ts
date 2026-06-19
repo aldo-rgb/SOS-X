@@ -583,7 +583,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           (SELECT pp.payment_reference FROM pobox_payments pp
            WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
              AND pp.package_ids @> jsonb_build_array(p.id) LIMIT 1)
-        ) AS in_payment_order_ref
+        ) AS in_payment_order_ref,
+        COALESCE(p.national_label_url, '') as national_label_url
       FROM packages p
       JOIN users u ON (
         p.user_id = u.id
@@ -629,7 +630,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           (SELECT pp.payment_reference FROM pobox_payments pp
            WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
              AND pp.package_ids @> jsonb_build_array(mo.id) LIMIT 1)
-        ) AS in_payment_order_ref
+        ) AS in_payment_order_ref,
+        COALESCE(mo.national_label_url, '') as national_label_url
       FROM maritime_orders mo
       JOIN users u ON mo.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -684,7 +686,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           (SELECT pp.payment_reference FROM pobox_payments pp
            WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
              AND pp.package_ids @> jsonb_build_array(MIN(ds.id)) LIMIT 1)
-        ) AS in_payment_order_ref
+        ) AS in_payment_order_ref,
+        COALESCE(MAX(ds.national_label_url), '') as national_label_url
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -834,6 +837,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         deliveryAddressRecipient: s.delivery_address_recipient || null,
         childTrackings: Array.isArray(s.child_trackings) ? s.child_trackings : [],
         inPaymentOrderRef: s.in_payment_order_ref || null,
+        labelPrinted: !!(s.national_label_url && s.national_label_url !== ''),
       })),
       stats: {
         total: parseInt(statsRes.rows[0]?.total) || 0,
