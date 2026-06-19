@@ -5655,16 +5655,17 @@ export default function DashboardAdvisor() {
                                   </Typography>
                                 </TableCell>
                                 <TableCell>
-                                  {child.weight ? (
-                                    <Box>
-                                      <Typography variant="body2" fontSize="0.8rem" fontWeight={600}>⚖️ {child.weight} kg</Typography>
-                                      {child.lengthCm && child.widthCm && child.heightCm && (
-                                        <Typography variant="caption" color="text.secondary">📐 {child.lengthCm}×{child.widthCm}×{child.heightCm} cm</Typography>
-                                      )}
-                                    </Box>
-                                  ) : (
-                                    <Typography variant="body2" color="text.disabled" fontSize="0.8rem">—</Typography>
-                                  )}
+                                  <Box>
+                                    {child.weight
+                                      ? <Typography variant="body2" fontSize="0.8rem" fontWeight={600}>⚖️ {child.weight} kg</Typography>
+                                      : <Typography variant="body2" color="text.disabled" fontSize="0.8rem">—</Typography>}
+                                    {child.lengthCm && child.widthCm && child.heightCm && (
+                                      <Typography variant="caption" color="text.secondary" display="block">📐 {child.lengthCm}×{child.widthCm}×{child.heightCm} cm</Typography>
+                                    )}
+                                    {child.tarifaNivel != null && (
+                                      <Chip label={`N${child.tarifaNivel}`} size="small" color="info" variant="outlined" sx={{ fontSize: '0.65rem', height: 18, mt: 0.5 }} />
+                                    )}
+                                  </Box>
                                 </TableCell>
                                 <TableCell>{getStatusLabel(child.status)}</TableCell>
                                 <TableCell>
