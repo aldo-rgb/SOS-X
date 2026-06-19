@@ -1852,7 +1852,8 @@ export default function DashboardAdvisor() {
                   {/* Foto */}
                   {pkgDetail.image_url ? (
                     <Box component="img" src={pkgDetail.image_url} alt="Foto de recepción"
-                      sx={{ width: '100%', maxHeight: 300, objectFit: 'cover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }} />
+                      onClick={() => window.open(pkgDetail.image_url!, '_blank')}
+                      sx={{ width: '100%', maxHeight: 300, objectFit: 'cover', borderRadius: 2, border: '1px solid', borderColor: 'divider', cursor: 'pointer' }} />
                   ) : (
                     <Box sx={{ bgcolor: 'grey.100', borderRadius: 2, p: 3, textAlign: 'center', color: 'text.secondary' }}>
                       <Typography variant="body2">Sin foto de recepción</Typography>
