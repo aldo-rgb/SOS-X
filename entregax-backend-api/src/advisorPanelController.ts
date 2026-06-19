@@ -330,7 +330,7 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
     if (onlyInTransit === 'true') {
       whereClause += ` AND (
         EXISTS (SELECT 1 FROM packages p WHERE p.user_id = u.id AND p.master_id IS NULL AND p.status::text IN ('in_transit','received_china','received','customs','ready_pickup','received_mty','received_cdmx','received_cdx'))
-        OR EXISTS (SELECT 1 FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status IN ('in_transit','received_china','received','customs','consolidated','at_port'))
+        OR EXISTS (SELECT 1 FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status NOT IN ('delivered','returned_to_warehouse','lost'))
         OR EXISTS (SELECT 1 FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status IN ('in_transit','received_mty','ready_pickup','inspected'))
       )`;
     }
@@ -353,10 +353,10 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
           (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id) +
           (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id)
         ) as total_packages,
-        -- En tránsito (las 3 tablas, mismo criterio que el contador del dashboard)
+        -- En tránsito (las 3 tablas)
         (
           (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.master_id IS NULL AND p.status::text IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup', 'received_mty', 'received_cdmx', 'received_cdx')) +
-          (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status IN ('in_transit', 'received_china', 'received', 'customs', 'consolidated', 'at_port')) +
+          (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status NOT IN ('delivered', 'returned_to_warehouse', 'lost')) +
           (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status IN ('in_transit', 'received_mty', 'ready_pickup', 'inspected'))
         ) as in_transit_count,
         -- Pendientes de pago (count)
