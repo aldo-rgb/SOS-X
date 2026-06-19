@@ -88,7 +88,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   // Modal selector de cliente (En Tránsito)
   const [showTransitModal, setShowTransitModal]     = useState(false);
   const [transitClientsLoading, setTransitClientsLoading] = useState(false);
-  const [transitClients, setTransitClients]         = useState<{ id: number; name: string; boxId: string }[]>([]);
+  const [transitClients, setTransitClients]         = useState<{ id: number; name: string; boxId: string; count: number }[]>([]);
   const [transitClientSearch, setTransitClientSearch] = useState('');
 
   // 📊 KPIs (tarifas y TC) para asesores
@@ -246,20 +246,23 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
-      const seen = new Set<number>();
-      const clients: { id: number; name: string; boxId: string }[] = [];
+      const countMap = new Map<number, { name: string; boxId: string; count: number }>();
       for (const s of json.shipments || []) {
         const cId = s.clientId ?? s.client_id;
-        if (cId && !seen.has(cId)) {
-          seen.add(cId);
-          clients.push({
-            id: cId,
+        if (!cId) continue;
+        if (countMap.has(cId)) {
+          countMap.get(cId)!.count += 1;
+        } else {
+          countMap.set(cId, {
             name: s.clientName ?? s.client_name ?? '—',
             boxId: s.clientBoxId ?? s.client_box_id ?? '',
+            count: 1,
           });
         }
       }
-      clients.sort((a, b) => a.name.localeCompare(b.name));
+      const clients = Array.from(countMap.entries())
+        .map(([id, v]) => ({ id, ...v }))
+        .sort((a, b) => a.name.localeCompare(b.name));
       setTransitClients(clients);
     } catch {
       setTransitClients([]);
@@ -547,7 +550,12 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                           <Text style={{ fontSize: 14, fontWeight: '700', color: BLACK }}>{c.name}</Text>
                           {c.boxId ? <Text style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{c.boxId}</Text> : null}
                         </View>
-                        <Ionicons name="chevron-forward" size={16} color="#CCC" />
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ backgroundColor: '#E3F2FD', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#1565C0' }}>{c.count} {c.count === 1 ? 'caja' : 'cajas'}</Text>
+                          </View>
+                          <Ionicons name="chevron-forward" size={16} color="#CCC" />
+                        </View>
                       </TouchableOpacity>
                     ))
                   }
