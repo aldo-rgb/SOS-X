@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Paper,
@@ -139,6 +139,7 @@ export default function LegacyClientsPage() {
 
   // Cotizaciones pendientes de pago (cargadas al montar)
   const [pendingQuotesMap, setPendingQuotesMap] = useState<Record<string, PendingQuote[]>>({});
+  const pendingQuotesMapRef = useRef<Record<string, PendingQuote[]>>({});
   const [quotesDialog, setQuotesDialog] = useState<{ open: boolean; boxId: string; quotes: PendingQuote[] }>({ open: false, boxId: '', quotes: [] });
   const [showOnlyWithQuotes, setShowOnlyWithQuotes] = useState(false);
   const [page, setPage] = useState(0);
@@ -240,6 +241,7 @@ export default function LegacyClientsPage() {
         });
       });
       setPendingQuotesMap(map);
+      pendingQuotesMapRef.current = map;
     } catch { /* ignore */ }
   }, []);
 
@@ -257,7 +259,7 @@ export default function LegacyClientsPage() {
         ...(showOnlyRetention && { retention: 'true' }),
         ...(hideRecovered && { hideRecovered: 'true' }),
         ...(showOnlyWithShipment && { withShipment: 'true' }),
-        ...(showOnlyWithQuotes && Object.keys(pendingQuotesMap).length > 0 && { quoteSuites: Object.keys(pendingQuotesMap).join(',') }),
+        ...(showOnlyWithQuotes && Object.keys(pendingQuotesMapRef.current).length > 0 && { quoteSuites: Object.keys(pendingQuotesMapRef.current).join(',') }),
         ...(lastSendFrom && { lastSendFrom }),
         ...(lastSendTo && { lastSendTo })
       });
@@ -276,7 +278,7 @@ export default function LegacyClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, showOnlyWithShipment, showOnlyWithQuotes, pendingQuotesMap, lastSendFrom, lastSendTo]);
+  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, showOnlyWithShipment, showOnlyWithQuotes, lastSendFrom, lastSendTo]);
 
   useEffect(() => {
     fetchStats();
