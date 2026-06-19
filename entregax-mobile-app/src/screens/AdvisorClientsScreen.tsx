@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, FlatList, StyleSheet, RefreshControl, TouchableOpacity,
-  TextInput, Linking, Modal, ScrollView, Alert,
+  TextInput, Linking, Modal, ScrollView, Alert, Clipboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, Avatar, Chip, ActivityIndicator } from 'react-native-paper';
@@ -78,6 +78,56 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   const [editingServices, setEditingServices] = useState<string[]>([]);
   const [addrSaving, setAddrSaving] = useState(false);
   const [deleteAddrConfirm, setDeleteAddrConfirm] = useState<number | null>(null);
+
+  // Shipping instructions modal
+  const [shipInstrModal, setShipInstrModal] = useState(false);
+  const [shipInstrClient, setShipInstrClient] = useState<Client | null>(null);
+  const [shipInstrServiceType, setShipInstrServiceType] = useState('china_air');
+  const [shipInstrAddresses, setShipInstrAddresses] = useState<Record<string, any>>({});
+  const [shipInstrLoading, setShipInstrLoading] = useState(false);
+
+  const SHIP_INSTR_SERVICES = [
+    { type: 'china_air', label: '✈️ Aéreo China' },
+    { type: 'china_sea', label: '🚢 Marítimo' },
+    { type: 'usa_pobox', label: '📦 PO Box USA' },
+    { type: 'mx_cedis',  label: '📍 DHL MTY' },
+  ];
+
+  const openShipInstr = async (client: Client) => {
+    setShipInstrClient(client);
+    setShipInstrServiceType('china_air');
+    setShipInstrModal(true);
+    if (Object.keys(shipInstrAddresses).length === 0) {
+      setShipInstrLoading(true);
+      try {
+        const results: Record<string, any> = {};
+        await Promise.all(SHIP_INSTR_SERVICES.map(async (s) => {
+          try {
+            const res = await fetch(`${API_URL}/api/services/${s.type}/info`, { headers: { Authorization: `Bearer ${token}` } });
+            const data = await res.json();
+            if (data?.addresses?.length > 0) results[s.type] = data.addresses[0];
+          } catch { /* ignore */ }
+        }));
+        setShipInstrAddresses(results);
+      } finally {
+        setShipInstrLoading(false);
+      }
+    }
+  };
+
+  const formatShipInstrText = (serviceType: string, address: any, client: Client): string => {
+    const suite = client.box_id || 'S-XXX';
+    const name = client.full_name.toUpperCase();
+    if (!address) return '';
+    if (serviceType === 'usa_pobox') {
+      const line = (address.address_line1 || '').replace(/\(S-Numero de Cliente\)/gi, suite);
+      return `${name}\n${line}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nUSA`;
+    } else if (serviceType === 'china_air' || serviceType === 'china_sea') {
+      return `${address.address_line1 || ''}\n${address.address_line2 || ''}\nShipping Mark: ${suite}\n${address.contact_name || ''}\n${address.contact_phone || ''}`;
+    } else {
+      return `${address.address_line1 || ''}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nMéxico\nA nombre de: ${name} (${suite})`;
+    }
+  };
 
   // New address form
   const [showNewAddrForm, setShowNewAddrForm] = useState(false);
@@ -341,8 +391,8 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
           }}>
             <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={() => Linking.openURL(`mailto:${item.email}`)}>
-            <Ionicons name="mail-outline" size={20} color="#2196F3" />
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#e3f2fd' }]} onPress={() => openShipInstr(item)}>
+            <Ionicons name="send-outline" size={20} color="#1976d2" />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#f3e5f5' }]} onPress={() => openAddressModal(item)}>
             <Ionicons name="location-outline" size={20} color={PURPLE} />
@@ -421,6 +471,146 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
           }
         />
       )}
+
+      {/* ─── Modal: Instrucciones de Envío ─── */}
+      <Modal visible={shipInstrModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShipInstrModal(false)}>
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalHeader, { backgroundColor: '#1976d2' }]}>
+            <Text style={styles.modalTitle}>📬 Instrucciones de Envío</Text>
+            <TouchableOpacity onPress={() => setShipInstrModal(false)}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+            {shipInstrClient && (
+              <Text style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>
+                Cliente: <Text style={{ fontWeight: '700', color: '#333' }}>{shipInstrClient.full_name}</Text>  ·  Casillero: <Text style={{ fontWeight: '700', color: '#1976d2' }}>{shipInstrClient.box_id}</Text>
+              </Text>
+            )}
+
+            {/* Selector de servicio */}
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#999', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Tipo de servicio</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {SHIP_INSTR_SERVICES.map((s) => (
+                  <TouchableOpacity
+                    key={s.type}
+                    onPress={() => setShipInstrServiceType(s.type)}
+                    style={{
+                      paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                      backgroundColor: shipInstrServiceType === s.type ? '#1976d2' : '#f0f0f0',
+                    }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: shipInstrServiceType === s.type ? '#fff' : '#555' }}>
+                      {s.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            {shipInstrLoading ? (
+              <ActivityIndicator color="#1976d2" style={{ marginTop: 20 }} />
+            ) : shipInstrClient && (() => {
+              const address = shipInstrAddresses[shipInstrServiceType];
+              const suite = shipInstrClient.box_id || 'S-XXX';
+              const name = shipInstrClient.full_name.toUpperCase();
+
+              const renderAddressText = () => {
+                if (!address) return <Text style={{ color: '#999', fontSize: 13 }}>No hay dirección configurada para este servicio.</Text>;
+                if (shipInstrServiceType === 'usa_pobox') {
+                  const line = (address.address_line1 || '').replace(/\(S-Numero de Cliente\)/gi, suite);
+                  return (
+                    <Text style={{ fontFamily: 'monospace', fontSize: 13, lineHeight: 22, color: '#222' }}>
+                      <Text style={{ fontWeight: '700' }}>{name}{'\n'}</Text>
+                      {line}{'\n'}
+                      {address.city}, {address.state} {address.zip_code}{'\n'}
+                      <Text style={{ color: '#1976d2', fontWeight: '700' }}>USA</Text>
+                    </Text>
+                  );
+                } else if (shipInstrServiceType === 'china_air' || shipInstrServiceType === 'china_sea') {
+                  return (
+                    <Text style={{ fontFamily: 'monospace', fontSize: 13, lineHeight: 22, color: '#222' }}>
+                      {address.address_line1}{'\n'}
+                      {address.address_line2 ? address.address_line2 + '\n' : ''}
+                      <Text style={{ fontWeight: '700', color: ORANGE }}>📦 Shipping Mark: {suite}{'\n'}</Text>
+                      👤 {address.contact_name || ''}{'\n'}
+                      📞 {address.contact_phone || ''}
+                    </Text>
+                  );
+                } else {
+                  return (
+                    <Text style={{ fontFamily: 'monospace', fontSize: 13, lineHeight: 22, color: '#222' }}>
+                      {address.address_line1}{'\n'}
+                      {address.city}, {address.state} {address.zip_code}{'\n'}
+                      México{'\n'}
+                      <Text style={{ fontWeight: '700', color: ORANGE }}>📦 A nombre de: {name} ({suite})</Text>
+                    </Text>
+                  );
+                }
+              };
+
+              const instrMap: Record<string, string> = {
+                china_air: `Incluye siempre el Shipping Mark: ${suite} en cada caja. Tamaño máx: 1.2 m unilateral. Peso máx: 60 kg por caja.\n\nTiempo estimado: 10-15 días hábiles.`,
+                china_sea: `Incluye siempre el Shipping Mark: ${suite} en cada caja. Tamaño máx: 1.2 m unilateral. Peso máx: 60 kg por caja.\n\nTiempo estimado: 30-45 días.`,
+                usa_pobox: `Usa esta dirección como destino en tus compras en línea. Incluye siempre tu casillero ${suite} en el campo Suite/Apt.\n\nTiempo estimado: 5-7 días hábiles.`,
+                mx_cedis: `Envía directamente al CEDIS MTY. Incluye en el destinatario: ${name} (${suite}).\n\nTiempo estimado: 2-3 días hábiles.`,
+              };
+
+              return (
+                <>
+                  {/* Dirección */}
+                  <View style={{ backgroundColor: '#e3f2fd', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#90caf9' }}>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#1976d2', textTransform: 'uppercase', marginBottom: 8 }}>Dirección de envío</Text>
+                    {renderAddressText()}
+                  </View>
+
+                  {/* Instrucciones */}
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#999', textTransform: 'uppercase', marginBottom: 6 }}>Instrucciones</Text>
+                  <Text style={{ fontSize: 13, color: '#444', lineHeight: 20, marginBottom: 20 }}>{instrMap[shipInstrServiceType]}</Text>
+                </>
+              );
+            })()}
+          </ScrollView>
+
+          {/* Actions */}
+          <View style={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 10, borderTopWidth: 1, borderColor: '#eee' }}>
+            {shipInstrClient && shipInstrAddresses[shipInstrServiceType] && (
+              <TouchableOpacity
+                style={{ backgroundColor: '#1976d2', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                onPress={() => {
+                  const addr = shipInstrAddresses[shipInstrServiceType];
+                  const text = shipInstrClient ? formatShipInstrText(shipInstrServiceType, addr, shipInstrClient) : '';
+                  Clipboard.setString(text);
+                  Alert.alert('Copiado', 'Dirección copiada al portapapeles');
+                }}
+              >
+                <Ionicons name="copy-outline" size={18} color="#fff" />
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Copiar dirección</Text>
+              </TouchableOpacity>
+            )}
+            {shipInstrClient && (
+              <TouchableOpacity
+                style={{ backgroundColor: '#25D366', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                onPress={() => {
+                  if (!shipInstrClient) return;
+                  const addr = shipInstrAddresses[shipInstrServiceType];
+                  const svcLabel = SHIP_INSTR_SERVICES.find(s => s.type === shipInstrServiceType)?.label || '';
+                  const addrText = addr ? formatShipInstrText(shipInstrServiceType, addr, shipInstrClient) : '(dirección no disponible)';
+                  const msg = encodeURIComponent(`Hola ${shipInstrClient.full_name.split(' ')[0]}, aquí están tus instrucciones de envío para *${svcLabel}*:\n\n📍 *Dirección:*\n${addrText}\n\nRecuerda incluir siempre tu casillero *${shipInstrClient.box_id}* en cada paquete.`);
+                  const clean = shipInstrClient.phone?.replace(/\D/g, '');
+                  if (clean) Linking.openURL(`https://wa.me/${clean}?text=${msg}`);
+                  else Linking.openURL(`https://wa.me/?text=${msg}`);
+                }}
+              >
+                <Ionicons name="logo-whatsapp" size={18} color="#fff" />
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Enviar por WhatsApp</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* ─── Modal: Gestión de Direcciones ─── */}
       <Modal visible={addrModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { if (showNewAddrForm) { setShowNewAddrForm(false); } else { setAddrModal(false); } }}>
