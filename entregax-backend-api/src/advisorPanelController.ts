@@ -547,6 +547,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         (COALESCE(p.is_master, false) OR (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id) > 0) as is_master,
         (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id)::int as children_count,
         COALESCE(p.has_gex, false) as has_gex,
+        COALESCE(p.gex_total_cost, 0) as gex_cost,
         COALESCE(p.weight, 0) as weight,
         COALESCE(p.pkg_length, 0) as length_cm,
         COALESCE(p.pkg_width, 0) as width_cm,
@@ -608,6 +609,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         false as is_master,
         0 as children_count,
         COALESCE(mo.has_gex, false) as has_gex,
+        COALESCE(mo.gex_total_cost, 0) as gex_cost,
         COALESCE(mo.weight, 0) as weight,
         0 as length_cm,
         0 as width_cm,
@@ -664,6 +666,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         CASE WHEN COUNT(*) > 1 THEN true ELSE false END as is_master,
         COUNT(*)::int as children_count,
         BOOL_OR(COALESCE(ds.has_gex, false)) as has_gex,
+        COALESCE(SUM(CASE WHEN ds.has_gex THEN (SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1) ELSE 0 END), 0) as gex_cost,
         SUM(COALESCE(ds.weight_kg, 0)) as weight,
         MAX(COALESCE(ds.length_cm, 0)) as length_cm,
         MAX(COALESCE(ds.width_cm, 0)) as width_cm,
@@ -820,6 +823,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         isMaster: s.is_master,
         childrenCount: parseInt(s.children_count) || 0,
         hasGex: s.has_gex,
+        gexCost: parseFloat(s.gex_cost) || 0,
         createdAt: s.created_at,
         clientId: s.client_id,
         clientName: s.client_name,
@@ -1040,6 +1044,7 @@ export const getRepackChildren = async (req: Request, res: Response): Promise<an
         COALESCE(p.assigned_cost_mxn, p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) as monto,
         CASE WHEN COALESCE(p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0 THEN true ELSE false END as client_paid,
         p.weight, p.length_cm, p.width_cm, p.height_cm, p.pobox_tarifa_nivel, p.description,
+        COALESCE(p.gex_total_cost, 0) as gex_cost,
         p.created_at
       FROM packages p
       WHERE p.master_id = $1
@@ -1061,6 +1066,7 @@ export const getRepackChildren = async (req: Request, res: Response): Promise<an
         heightCm: c.height_cm ? parseFloat(c.height_cm) : null,
         tarifaNivel: c.pobox_tarifa_nivel != null ? Number(c.pobox_tarifa_nivel) : null,
         description: c.description,
+        gexCost: parseFloat(c.gex_cost) || 0,
         createdAt: c.createdAt,
       })),
     });

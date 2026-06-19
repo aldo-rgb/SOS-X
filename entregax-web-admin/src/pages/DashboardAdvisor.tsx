@@ -194,6 +194,7 @@ interface AdvisorShipment {
   isMaster: boolean;
   childrenCount: number;
   hasGex: boolean;
+  gexCost: number;
   createdAt: string;
   clientId: number;
   clientName: string;
@@ -2820,6 +2821,7 @@ export default function DashboardAdvisor() {
                               tarifaNivel: c.tarifaNivel,
                               description: c.description || s.description,
                               amount: c.amount || 0,
+                              gexCost: c.gexCost || 0,
                             }));
                           } catch { expanded.push(s); }
                         } else {
@@ -2938,12 +2940,33 @@ export default function DashboardAdvisor() {
                     y += rowH;
                   });
 
+                  // ── DESGLOSE (paquetería + GEX) ──────────────────────────
+                  const totalGex = rows.reduce((acc: number, s: any) => acc + (s.gexCost || 0), 0);
+                  const totalPkg = subtotal - totalGex;
+                  const totalAmt = op.total_mxn ? Number(op.total_mxn) : subtotal;
+
+                  if (totalGex > 0) {
+                    // Desglose box
+                    const desgH = 26;
+                    doc.setFillColor(250, 250, 250); doc.roundedRect(PAD, y, W-PAD*2, desgH, 2,2,'F');
+                    doc.setDrawColor(220,220,220); doc.roundedRect(PAD, y, W-PAD*2, desgH, 2,2,'S');
+                    doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(...C.gray);
+                    doc.text('DESGLOSE DE COBRO', PAD+4, y+6);
+                    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(...C.dark);
+                    doc.text('Costo de paquetería:', PAD+4, y+13);
+                    doc.text(`$${totalPkg.toLocaleString('es-MX',{minimumFractionDigits:2})} MXN`, cols.amt, y+13, { align:'right' });
+                    doc.setTextColor(46,125,50);
+                    doc.text('GEX – Garantía Extendida:', PAD+4, y+20);
+                    doc.text(`$${totalGex.toLocaleString('es-MX',{minimumFractionDigits:2})} MXN`, cols.amt, y+20, { align:'right' });
+                    doc.setTextColor(...C.dark);
+                    y += desgH + 4;
+                  }
+
                   // Total row
                   doc.setFillColor(...C.dark); doc.rect(PAD, y, W-PAD*2, 9, 'F');
                   doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...C.white);
                   doc.text('TOTAL A PAGAR', cols.trk, y+6);
                   doc.setTextColor(...C.orange);
-                  const totalAmt = op.total_mxn ? Number(op.total_mxn) : subtotal;
                   doc.text(`$${totalAmt.toLocaleString('es-MX',{minimumFractionDigits:2})} MXN`, cols.amt, y+6, { align:'right' });
                   y += 16;
 
