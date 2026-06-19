@@ -111,6 +111,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Download as DownloadIcon,
+  Markunread as SendInstrIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import { usePaymentStatus, mapServiceKey } from '../hooks/usePaymentStatus';
@@ -443,6 +444,13 @@ export default function DashboardAdvisor() {
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [walletData, setWalletData] = useState<ClientWallet | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
+
+  // Shipping instructions modal (send warehouse address + instructions to client)
+  const [shipInstrOpen, setShipInstrOpen] = useState(false);
+  const [shipInstrClient, setShipInstrClient] = useState<{ id: number; name: string; boxId: string } | null>(null);
+  const [shipInstrServiceType, setShipInstrServiceType] = useState<string>('');
+  const [shipInstrAddresses, setShipInstrAddresses] = useState<Record<string, any>>({});
+  const [shipInstrLoading, setShipInstrLoading] = useState(false);
 
   // Addresses modal
   const [addressesModalOpen, setAddressesModalOpen] = useState(false);
@@ -1008,6 +1016,48 @@ export default function DashboardAdvisor() {
       setWalletModalOpen(false);
     } finally {
       setWalletLoading(false);
+    }
+  };
+
+  const SHIP_INSTR_SERVICES = [
+    { type: 'china_air',  label: '✈️ Aéreo China',   icon: '✈️' },
+    { type: 'china_sea',  label: '🚢 Marítimo China', icon: '🚢' },
+    { type: 'usa_pobox',  label: '📦 PO Box USA',     icon: '📦' },
+    { type: 'mx_cedis',   label: '📍 DHL Monterrey',  icon: '📍' },
+  ];
+
+  const handleOpenShipInstr = async (c: AdvisorClient) => {
+    setShipInstrClient({ id: c.id, name: c.fullName, boxId: c.boxId || '' });
+    setShipInstrServiceType('china_air');
+    setShipInstrOpen(true);
+    if (Object.keys(shipInstrAddresses).length === 0) {
+      setShipInstrLoading(true);
+      try {
+        const results: Record<string, any> = {};
+        await Promise.all(SHIP_INSTR_SERVICES.map(async (s) => {
+          try {
+            const res = await api.get(`/services/${s.type}/info`);
+            if (res.data?.addresses?.length > 0) results[s.type] = res.data.addresses[0];
+          } catch { /* ignore */ }
+        }));
+        setShipInstrAddresses(results);
+      } finally {
+        setShipInstrLoading(false);
+      }
+    }
+  };
+
+  const formatShipInstrText = (serviceType: string, address: any, clientName: string, boxId: string): string => {
+    if (!address) return '';
+    const suite = boxId || 'S-XXX';
+    const name = clientName.toUpperCase();
+    if (serviceType === 'usa_pobox') {
+      const line = (address.address_line1 || '').replace(/\(S-Numero de Cliente\)/gi, suite);
+      return `${name}\n${line}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nUSA`;
+    } else if (serviceType === 'china_air' || serviceType === 'china_sea') {
+      return `${address.address_line1 || ''}\n${address.address_line2 || ''}\nShipping Mark: ${suite}\n${address.contact_name || ''}\n${address.contact_phone || ''}`;
+    } else {
+      return `${address.address_line1 || ''}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nMéxico\nA nombre de: ${name} (${suite})`;
     }
   };
 
@@ -2063,7 +2113,7 @@ export default function DashboardAdvisor() {
                 <Box sx={{ mb: 1 }}>{renderClientNote(c)}</Box>
 
                 {/* Row 6: actions */}
-                <Box sx={{ display: 'flex', gap: 1 }}>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   <Button
                     variant="outlined" size="small" fullWidth
                     onClick={() => handleViewAddresses(c.id, c.fullName)}
@@ -2079,6 +2129,14 @@ export default function DashboardAdvisor() {
                     sx={{ textTransform: 'none', fontSize: '0.75rem', bgcolor: '#F05A28', '&:hover': { bgcolor: '#d94d1f' } }}
                   >
                     Cartera
+                  </Button>
+                  <Button
+                    variant="outlined" size="small" fullWidth
+                    onClick={() => handleOpenShipInstr(c)}
+                    startIcon={<SendInstrIcon />}
+                    sx={{ textTransform: 'none', fontSize: '0.75rem', borderColor: '#1976d2', color: '#1976d2', '&:hover': { bgcolor: '#e3f2fd' } }}
+                  >
+                    Instrucciones
                   </Button>
                 </Box>
               </Paper>
@@ -2101,6 +2159,7 @@ export default function DashboardAdvisor() {
                   <TableCell>{t('advisor.notes')}</TableCell>
                   <TableCell align="center">Direcciones</TableCell>
                   <TableCell align="center">Cartera</TableCell>
+                  <TableCell align="center">Instrucciones</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -2192,6 +2251,16 @@ export default function DashboardAdvisor() {
                           startIcon={<WalletIcon />}
                           sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#d94d1f' }, textTransform: 'none', fontSize: '0.75rem', py: 0.5 }}>
                           Ver
+                        </Button>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Enviar instrucciones de envío">
+                        <Button variant="outlined" size="small"
+                          onClick={() => handleOpenShipInstr(c)}
+                          startIcon={<SendInstrIcon />}
+                          sx={{ borderColor: '#1976d2', color: '#1976d2', '&:hover': { bgcolor: '#e3f2fd' }, textTransform: 'none', fontSize: '0.75rem', py: 0.5 }}>
+                          Enviar
                         </Button>
                       </Tooltip>
                     </TableCell>
@@ -5664,9 +5733,181 @@ export default function DashboardAdvisor() {
         })()}
       </Dialog>
 
+      {/* Modal: Instrucciones de Envío */}
+      <Dialog open={shipInstrOpen} onClose={() => setShipInstrOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#1976d2', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <SendInstrIcon />
+            <span>Instrucciones de Envío</span>
+          </Box>
+          <IconButton size="small" onClick={() => setShipInstrOpen(false)} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2, pb: 1 }}>
+          {shipInstrClient && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Cliente: <strong>{shipInstrClient.name}</strong> · Casillero: <strong>{shipInstrClient.boxId}</strong>
+            </Typography>
+          )}
+
+          {/* Selector de servicio */}
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+            Tipo de servicio
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, mt: 0.5, mb: 2.5, flexWrap: 'wrap' }}>
+            {SHIP_INSTR_SERVICES.map((s) => (
+              <Button
+                key={s.type}
+                variant={shipInstrServiceType === s.type ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => setShipInstrServiceType(s.type)}
+                sx={{
+                  textTransform: 'none',
+                  ...(shipInstrServiceType === s.type
+                    ? { bgcolor: '#1976d2', '&:hover': { bgcolor: '#1565c0' } }
+                    : { borderColor: '#90caf9', color: '#1976d2' }),
+                }}
+              >
+                {s.label}
+              </Button>
+            ))}
+          </Box>
+
+          {/* Contenido del servicio seleccionado */}
+          {shipInstrLoading ? (
+            <Box sx={{ textAlign: 'center', py: 3 }}><CircularProgress size={28} /></Box>
+          ) : shipInstrServiceType && (() => {
+            const address = shipInstrAddresses[shipInstrServiceType];
+            const suite = shipInstrClient?.boxId || 'S-XXX';
+            const clientName = shipInstrClient?.name?.toUpperCase() || '';
+
+            const renderAddress = () => {
+              if (!address) return <Typography variant="body2" color="text.secondary">No hay dirección configurada para este servicio.</Typography>;
+              if (shipInstrServiceType === 'usa_pobox') {
+                const line = (address.address_line1 || '').replace(/\(S-Numero de Cliente\)/gi, suite);
+                return (
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', lineHeight: 1.8 }}>
+                    <strong>{clientName}</strong><br />
+                    {line}<br />
+                    {address.city}, {address.state} {address.zip_code}<br />
+                    <span style={{ color: '#1976d2' }}>USA</span>
+                  </Typography>
+                );
+              } else if (shipInstrServiceType === 'china_air' || shipInstrServiceType === 'china_sea') {
+                return (
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', lineHeight: 1.8 }}>
+                    {address.address_line1}<br />
+                    {address.address_line2 && <>{address.address_line2}<br /></>}
+                    <strong style={{ color: '#F05A28' }}>📦 Shipping Mark: {suite}</strong><br />
+                    👤 {address.contact_name || ''}<br />
+                    📞 {address.contact_phone || ''}
+                  </Typography>
+                );
+              } else {
+                return (
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', lineHeight: 1.8 }}>
+                    {address.address_line1}<br />
+                    {address.city}, {address.state} {address.zip_code}<br />
+                    México<br />
+                    <strong style={{ color: '#F05A28' }}>📦 A nombre de: {clientName} ({suite})</strong>
+                  </Typography>
+                );
+              }
+            };
+
+            const instrMap: Record<string, { packaging: string; howTo: string }> = {
+              china_air: {
+                packaging: 'Embalaje: Tamaño unilateral no más de 1.2 metros. Peso: no más de 60 kg por caja.\n\nES IMPORTANTE PONER ETIQUETA EN CADA CAJA/PAQUETE CON LA LEYENDA (S-Número de cliente) IMPRESA O MARCADA.',
+                howTo: `Envía tus paquetes a la dirección de arriba. Incluye siempre el Shipping Mark: ${suite} en cada caja. No se aceptan paquetes sin etiqueta. Tiempo estimado: 10-15 días hábiles.`,
+              },
+              china_sea: {
+                packaging: 'Embalaje: Tamaño unilateral no más de 1.2 metros. Peso: no más de 60 kg por caja.\n\nES IMPORTANTE PONER ETIQUETA EN CADA CAJA/PAQUETE CON LA LEYENDA (S-Número de cliente) IMPRESA O MARCADA.',
+                howTo: `Envía tus paquetes a la dirección de arriba. Incluye siempre el Shipping Mark: ${suite} en cada caja. No se aceptan paquetes sin etiqueta. Tiempo estimado: 30-45 días.`,
+              },
+              usa_pobox: {
+                packaging: 'Indica la dirección del PO Box USA como destino en tus compras online. El nombre debe coincidir exactamente con el registrado.',
+                howTo: `Usa la dirección de arriba como dirección de entrega en tus tiendas en línea. Incluye siempre tu número de casillero ${suite} en el campo "Suite/Apt". Tiempo estimado: 5-7 días hábiles.`,
+              },
+              mx_cedis: {
+                packaging: 'Paquetes enviados directamente al CEDIS en Monterrey. Incluye nombre del destinatario y número de casillero.',
+                howTo: `Envía a la dirección del CEDIS MTY. Incluye en el destinatario: ${clientName} (${suite}). Tiempo estimado: 2-3 días hábiles.`,
+              },
+            };
+
+            const instr = instrMap[shipInstrServiceType];
+
+            return (
+              <Box>
+                {/* Dirección */}
+                <Box sx={{ bgcolor: '#e3f2fd', borderRadius: 2, p: 2, mb: 2, border: '1px solid #90caf9' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>DIRECCIÓN DE ENVÍO</Typography>
+                  <Box sx={{ mt: 0.5 }}>{renderAddress()}</Box>
+                </Box>
+
+                {/* Instrucciones de empaque */}
+                {instr && (
+                  <>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                      Instrucciones de empaque
+                    </Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5, mb: 2, whiteSpace: 'pre-line', color: 'text.secondary', fontSize: '0.8rem' }}>
+                      {instr.packaging}
+                    </Typography>
+
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                      Cómo enviar
+                    </Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5, whiteSpace: 'pre-line', color: 'text.secondary', fontSize: '0.8rem' }}>
+                      {instr.howTo}
+                    </Typography>
+                  </>
+                )}
+              </Box>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+          <Button onClick={() => setShipInstrOpen(false)} variant="outlined" size="small">Cerrar</Button>
+          {shipInstrServiceType && shipInstrAddresses[shipInstrServiceType] && (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<CopyIcon />}
+              onClick={() => {
+                const addr = shipInstrAddresses[shipInstrServiceType];
+                const text = formatShipInstrText(shipInstrServiceType, addr, shipInstrClient?.name || '', shipInstrClient?.boxId || '');
+                navigator.clipboard.writeText(text);
+                setSnackbar({ open: true, message: 'Dirección copiada al portapapeles', severity: 'success' });
+              }}
+              sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#1565c0' } }}
+            >
+              Copiar dirección
+            </Button>
+          )}
+          {shipInstrClient?.boxId && (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<WhatsAppIcon />}
+              onClick={() => {
+                const addr = shipInstrAddresses[shipInstrServiceType];
+                const svcLabel = SHIP_INSTR_SERVICES.find(s => s.type === shipInstrServiceType)?.label || '';
+                const addrText = addr ? formatShipInstrText(shipInstrServiceType, addr, shipInstrClient?.name || '', shipInstrClient?.boxId || '') : '(dirección no disponible)';
+                const msg = encodeURIComponent(`Hola ${shipInstrClient.name}, aquí están tus instrucciones de envío para *${svcLabel}*:\n\n📍 *Dirección de envío:*\n${addrText}\n\nRecuerda incluir siempre tu número de casillero *${shipInstrClient.boxId}* en cada paquete.`);
+                window.open(`https://wa.me/?text=${msg}`, '_blank');
+              }}
+              sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' } }}
+            >
+              Enviar WhatsApp
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
       {/* Modal Cartera del Cliente */}
-      <Dialog 
-        open={walletModalOpen} 
+      <Dialog
+        open={walletModalOpen}
         onClose={() => { setWalletModalOpen(false); setWalletData(null); }}
         maxWidth="sm"
         fullWidth
