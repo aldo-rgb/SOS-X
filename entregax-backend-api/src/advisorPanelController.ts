@@ -192,7 +192,6 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
           AND (u.advisor_id = $1 OR u.referred_by_id = $1)
           AND u.id != $1
           AND COALESCE(mo.saldo_pendiente, 0) > 0
-          AND COALESCE(mo.client_paid, false) != TRUE
           AND mo.status NOT IN ('delivered','returned_to_warehouse')
         UNION ALL
         SELECT COUNT(*) as cnt
