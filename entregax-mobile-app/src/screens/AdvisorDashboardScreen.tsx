@@ -237,41 +237,25 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
 
   const onRefresh = () => { setRefreshing(true); loadDashboard(); loadChartback(); };
 
-  const TRANSIT_STATUSES = new Set([
-    'in_transit','received_china','received','customs',
-    'ready_pickup','received_mty','received_cdmx','received_cdx',
-    'consolidated','at_port','inspected','pending_inspection',
-  ]);
-
   const openTransitClientPicker = async () => {
     setTransitClientSearch('');
     setShowTransitModal(true);
     setTransitClientsLoading(true);
     try {
-      // Sin filter=in_transit para evitar el filtro client_paid=false del backend.
-      // Filtramos por status de tránsito aquí en el cliente.
-      const res = await fetch(`${API_URL}/api/advisor/shipments?limit=500`, {
+      // Usamos el endpoint de clientes que ya incluye inTransitCount por cliente
+      const res = await fetch(`${API_URL}/api/advisor/clients?limit=200`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
-      const countMap = new Map<number, { name: string; boxId: string; count: number }>();
-      for (const s of json.shipments || []) {
-        if (!TRANSIT_STATUSES.has((s.status || '').toLowerCase())) continue;
-        const cId = s.clientId ?? s.client_id;
-        if (!cId) continue;
-        if (countMap.has(cId)) {
-          countMap.get(cId)!.count += 1;
-        } else {
-          countMap.set(cId, {
-            name: s.clientName ?? s.client_name ?? '—',
-            boxId: s.clientBoxId ?? s.client_box_id ?? '',
-            count: 1,
-          });
-        }
-      }
-      const clients = Array.from(countMap.entries())
-        .map(([id, v]) => ({ id, ...v }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+      const clients = (json.clients || [])
+        .filter((c: any) => (c.inTransitCount ?? c.in_transit_count ?? 0) > 0)
+        .map((c: any) => ({
+          id: c.id,
+          name: c.fullName ?? c.full_name ?? '—',
+          boxId: c.boxId ?? c.box_id ?? '',
+          count: c.inTransitCount ?? c.in_transit_count ?? 0,
+        }))
+        .sort((a: any, b: any) => a.name.localeCompare(b.name));
       setTransitClients(clients);
     } catch {
       setTransitClients([]);
