@@ -140,6 +140,7 @@ export default function LegacyClientsPage() {
   // Cotizaciones pendientes de pago (cargadas al montar)
   const [pendingQuotesMap, setPendingQuotesMap] = useState<Record<string, PendingQuote[]>>({});
   const [quotesDialog, setQuotesDialog] = useState<{ open: boolean; boxId: string; quotes: PendingQuote[] }>({ open: false, boxId: '', quotes: [] });
+  const [showOnlyWithQuotes, setShowOnlyWithQuotes] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [totalClients, setTotalClients] = useState(0);
@@ -758,6 +759,16 @@ export default function LegacyClientsPage() {
             }
             label="Solo con carga recibida"
           />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={showOnlyWithQuotes}
+                onChange={(e) => { setShowOnlyWithQuotes(e.target.checked); setPage(0); }}
+                sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#e65100' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#e65100' } }}
+              />
+            }
+            label="Solo con cotiz. pdte. pago"
+          />
           <TextField
             label="Último envío desde"
             type="date"
@@ -891,7 +902,10 @@ export default function LegacyClientsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              clients.map((client) => (
+              (showOnlyWithQuotes
+                ? clients.filter(c => (pendingQuotesMap[c.box_id?.toUpperCase()] || []).length > 0)
+                : clients
+              ).map((client) => (
                 <TableRow
                   key={client.id}
                   hover
