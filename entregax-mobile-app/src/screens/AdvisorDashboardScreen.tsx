@@ -237,17 +237,26 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
 
   const onRefresh = () => { setRefreshing(true); loadDashboard(); loadChartback(); };
 
+  const TRANSIT_STATUSES = new Set([
+    'in_transit','received_china','received','customs',
+    'ready_pickup','received_mty','received_cdmx','received_cdx',
+    'consolidated','at_port','inspected','pending_inspection',
+  ]);
+
   const openTransitClientPicker = async () => {
     setTransitClientSearch('');
     setShowTransitModal(true);
     setTransitClientsLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/advisor/shipments?filter=in_transit&limit=500`, {
+      // Sin filter=in_transit para evitar el filtro client_paid=false del backend.
+      // Filtramos por status de tránsito aquí en el cliente.
+      const res = await fetch(`${API_URL}/api/advisor/shipments?limit=500`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
       const countMap = new Map<number, { name: string; boxId: string; count: number }>();
       for (const s of json.shipments || []) {
+        if (!TRANSIT_STATUSES.has((s.status || '').toLowerCase())) continue;
         const cId = s.clientId ?? s.client_id;
         if (!cId) continue;
         if (countMap.has(cId)) {
