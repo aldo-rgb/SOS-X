@@ -30,7 +30,8 @@ import {
   FormControl,
   InputLabel,
   Checkbox,
-  Snackbar
+  Snackbar,
+  IconButton
 } from '@mui/material';
 import {
   Search as SearchIcon,
