@@ -1442,6 +1442,12 @@ const MyPaymentsScreen = () => {
                         <Text style={{ fontSize: 13, color: '#1A1A1A', opacity: 0.6 }}>{t('myPayments.bank')}</Text>
                         <Text style={{ fontSize: 13, fontWeight: '700', color: '#1A1A1A' }}>{(selectedOrder as any).bank_info.banco}</Text>
                       </View>
+                      {(selectedOrder as any).bank_info.clabe ? (
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <Text style={{ fontSize: 13, color: '#1A1A1A', opacity: 0.6 }}>CLABE</Text>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#1A1A1A' }}>{(selectedOrder as any).bank_info.clabe}</Text>
+                        </View>
+                      ) : null}
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
                         <Text style={{ fontSize: 13, color: '#1A1A1A', opacity: 0.6 }}>{t('myPayments.account')}</Text>
                         <Text style={{ fontSize: 13, fontWeight: '700', color: '#1A1A1A' }}>{(selectedOrder as any).bank_info.cuenta}</Text>
