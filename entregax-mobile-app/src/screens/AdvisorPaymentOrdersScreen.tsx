@@ -223,7 +223,11 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setOrders(Array.isArray(data) ? data : []);
+      const STATUS_ORDER: Record<string, number> = { pendiente: 0, en_proceso: 1, pagado: 2, cancelado: 3 };
+      const sorted = (Array.isArray(data) ? data : []).sort((a: PaymentOrder, b: PaymentOrder) =>
+        (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9)
+      );
+      setOrders(sorted);
     } catch {
       Alert.alert('Error', 'No se pudieron cargar las órdenes de pago');
     } finally {
@@ -531,7 +535,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
       ) : (
         <FlatList
           data={orders}
-          keyExtractor={o => String(o.id)}
+          keyExtractor={o => `${o.created_by}-${o.id}`}
           renderItem={renderOrder}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} colors={[ORANGE]} />}
           contentContainerStyle={{ padding: 12, paddingBottom: 24 }}
