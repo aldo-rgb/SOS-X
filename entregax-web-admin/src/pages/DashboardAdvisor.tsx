@@ -2805,7 +2805,7 @@ export default function DashboardAdvisor() {
                       // Expand master packages into their children
                       const expanded: any[] = [];
                       for (const s of matched) {
-                        if (s.isMaster && s.childrenCount > 0) {
+                        if (s.childrenCount > 0) {
                           try {
                             const cr = await api.get(`/advisor/shipments/${s.id}/children`);
                             const children = cr.data.children || [];

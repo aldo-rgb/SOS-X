@@ -544,7 +544,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         p.created_at,
         u.id as client_id, u.full_name as client_name, u.box_id as client_box_id, u.phone as client_phone,
         CASE WHEN p.assigned_address_id IS NOT NULL OR (p.destination_address IS NOT NULL AND p.destination_address != 'Pendiente de asignar') OR p.needs_instructions = FALSE THEN true ELSE false END as has_instructions,
-        COALESCE(p.is_master, false) as is_master,
+        (COALESCE(p.is_master, false) OR (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id) > 0) as is_master,
         (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id)::int as children_count,
         COALESCE(p.has_gex, false) as has_gex,
         COALESCE(p.weight, 0) as weight,
@@ -1026,7 +1026,7 @@ export const getRepackChildren = async (req: Request, res: Response): Promise<an
     const verifyRes = await pool.query(`
       SELECT p.id FROM packages p
       JOIN users u ON p.user_id = u.id
-      WHERE p.id = $1 AND p.is_master = true AND (u.advisor_id = $2 OR u.referred_by_id = $2) AND u.role = 'client'
+      WHERE p.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2) AND u.role = 'client'
     `, [masterId, advisorId]);
 
     if (verifyRes.rows.length === 0) {
