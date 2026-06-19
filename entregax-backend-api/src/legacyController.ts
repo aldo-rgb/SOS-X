@@ -1767,3 +1767,32 @@ export const proxyIneImage = async (req: Request, res: Response): Promise<any> =
         clearTimeout(t);
     }
 };
+
+/**
+ * Proxy cotizaciones pendientes de pago desde sistemaentregax.com
+ * GET /api/legacy/quotes/pendings          → todas
+ * GET /api/legacy/quotes/pendings/:boxId   → por cliente
+ */
+export const getLegacyQuotesPendings = async (req: Request, res: Response): Promise<any> => {
+    const boxId = req.params.boxId ? String(req.params.boxId).trim().toLowerCase() : null;
+    const url = boxId
+        ? `https://sistemaentregax.com/api/quotes/pendings/${encodeURIComponent(boxId)}`
+        : 'https://sistemaentregax.com/api/quotes/pendings';
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 20000);
+    try {
+        const r = await (globalThis as any).fetch(url, {
+            headers: { 'Accept': 'application/json', 'User-Agent': 'EntregaX-Admin/1.0' },
+            signal: ctrl.signal as any,
+        });
+        if (!r.ok) return res.status(r.status).json({ error: `Sistema externo respondió ${r.status}` });
+        const payload = await r.json();
+        if (payload?.status === 'error') return res.status(404).json({ error: payload?.message || 'No encontrado' });
+        return res.json(payload);
+    } catch (error: any) {
+        console.error('Error consultando cotizaciones externas:', error?.message);
+        return res.status(502).json({ error: 'No se pudo consultar el sistema externo' });
+    } finally {
+        clearTimeout(t);
+    }
+};

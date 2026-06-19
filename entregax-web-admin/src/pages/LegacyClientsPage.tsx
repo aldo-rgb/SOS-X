@@ -52,6 +52,18 @@ import * as XLSX from 'xlsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+interface PendingQuote {
+  ctz: string;
+  SUITE: string;
+  asesor: string;
+  costo: string;
+  costoenvio: string;
+  total: string;
+  cuenta: string;
+  fecha_creacion: string;
+  tipo: string;
+}
+
 interface LastSend {
   Estado?: string;
   estado?: string;
@@ -123,6 +135,10 @@ export default function LegacyClientsPage() {
   const [showOnlyRetention, setShowOnlyRetention] = useState(false);
   const [hideRecovered, setHideRecovered] = useState(false);
   const [showOnlyWithShipment, setShowOnlyWithShipment] = useState(false);
+
+  // Cotizaciones pendientes de pago (cargadas al montar)
+  const [pendingQuotesMap, setPendingQuotesMap] = useState<Record<string, PendingQuote[]>>({});
+  const [quotesDialog, setQuotesDialog] = useState<{ open: boolean; boxId: string; quotes: PendingQuote[] }>({ open: false, boxId: '', quotes: [] });
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [totalClients, setTotalClients] = useState(0);
@@ -206,6 +222,25 @@ export default function LegacyClientsPage() {
     }
   }, []);
 
+  // Carga todas las cotizaciones pendientes y construye mapa SUITE → quotes[]
+  const fetchPendingQuotes = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/legacy/quotes/pendings`, { headers });
+      if (!res.ok) return;
+      const json = await res.json();
+      const data: Record<string, PendingQuote[]> = json?.data || {};
+      const map: Record<string, PendingQuote[]> = {};
+      Object.values(data).forEach((arr) => {
+        (arr as PendingQuote[]).forEach((q) => {
+          const key = (q.SUITE || '').toUpperCase();
+          if (!map[key]) map[key] = [];
+          map[key].push(q);
+        });
+      });
+      setPendingQuotesMap(map);
+    } catch { /* ignore */ }
+  }, []);
+
   const fetchClients = useCallback(async () => {
     setLoading(true);
     try {
@@ -243,7 +278,8 @@ export default function LegacyClientsPage() {
   useEffect(() => {
     fetchStats();
     fetchClients();
-  }, [fetchStats, fetchClients]);
+    fetchPendingQuotes();
+  }, [fetchStats, fetchClients, fetchPendingQuotes]);
 
   // Reset selection when page/filter changes
   useEffect(() => {
@@ -834,6 +870,7 @@ export default function LegacyClientsPage() {
               <TableCell><strong>Asesor (EntregaX)</strong></TableCell>
               <TableCell><strong>Último Envío</strong></TableCell>
               <TableCell><strong>Reclamado Por</strong></TableCell>
+              <TableCell align="center"><strong>Cotiz. Pdte. Pago</strong></TableCell>
               <TableCell align="center"><strong>Acciones</strong></TableCell>
             </TableRow>
           </TableHead>
@@ -971,6 +1008,23 @@ export default function LegacyClientsPage() {
                         </Typography>
                       </Box>
                     ) : '-'}
+                  </TableCell>
+                  <TableCell align="center">
+                    {(() => {
+                      const quotes = pendingQuotesMap[client.box_id?.toUpperCase()] || [];
+                      if (quotes.length === 0) return <Typography variant="caption" color="text.disabled">—</Typography>;
+                      const totalMxn = quotes.reduce((s, q) => s + parseFloat(q.total || '0'), 0);
+                      return (
+                        <Chip
+                          label={`${quotes.length} · $${totalMxn.toLocaleString('es-MX', { maximumFractionDigits: 0 })}`}
+                          size="small"
+                          color="warning"
+                          variant="filled"
+                          onClick={() => setQuotesDialog({ open: true, boxId: client.box_id, quotes })}
+                          sx={{ cursor: 'pointer', fontWeight: 700, fontSize: 11 }}
+                        />
+                      );
+                    })()}
                   </TableCell>
                   <TableCell align="center">
                     <Button
@@ -1201,6 +1255,67 @@ export default function LegacyClientsPage() {
         message={snackMsg}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
+
+      {/* Modal: Cotizaciones pendientes de pago */}
+      <Dialog open={quotesDialog.open} onClose={() => setQuotesDialog(q => ({ ...q, open: false }))} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#1a1a1a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box>
+            <Typography variant="subtitle1" fontWeight={700}>Cotizaciones Pendientes de Pago</Typography>
+            <Typography variant="caption" color="grey.400">Casillero {quotesDialog.boxId} · {quotesDialog.quotes.length} cotización(es)</Typography>
+          </Box>
+          <IconButton onClick={() => setQuotesDialog(q => ({ ...q, open: false }))} sx={{ color: '#fff' }}>✕</IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'grey.100' }}>
+                <TableCell><strong>Folio</strong></TableCell>
+                <TableCell><strong>Tipo</strong></TableCell>
+                <TableCell><strong>Asesor</strong></TableCell>
+                <TableCell align="right"><strong>Costo</strong></TableCell>
+                <TableCell align="right"><strong>Costo Envío</strong></TableCell>
+                <TableCell align="right"><strong>Total</strong></TableCell>
+                <TableCell><strong>Cuenta</strong></TableCell>
+                <TableCell><strong>Fecha</strong></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {quotesDialog.quotes.map((q) => (
+                <TableRow key={q.ctz} hover>
+                  <TableCell sx={{ fontFamily: 'monospace', fontSize: 11 }}>{q.ctz}</TableCell>
+                  <TableCell>
+                    <Chip label={q.tipo} size="small"
+                      sx={{ bgcolor: q.tipo === 'DHL' ? '#e3f2fd' : '#fff8e1', color: q.tipo === 'DHL' ? '#1565c0' : '#a06000', fontWeight: 700, fontSize: 10 }} />
+                  </TableCell>
+                  <TableCell><Typography variant="caption">{q.asesor}</Typography></TableCell>
+                  <TableCell align="right">
+                    <Typography variant="caption">${parseFloat(q.costo || '0').toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography variant="caption">${parseFloat(q.costoenvio || '0').toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography variant="body2" fontWeight={700} color="error.main">
+                      ${parseFloat(q.total || '0').toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </Typography>
+                  </TableCell>
+                  <TableCell><Typography variant="caption">{q.cuenta}</Typography></TableCell>
+                  <TableCell><Typography variant="caption">{q.fecha_creacion}</Typography></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <Box sx={{ p: 2, bgcolor: '#fff3e0', display: 'flex', justifyContent: 'flex-end', gap: 3 }}>
+            <Typography variant="body2" color="text.secondary">{quotesDialog.quotes.length} cotización(es)</Typography>
+            <Typography variant="body1" fontWeight={900} color="error.main">
+              Total: ${quotesDialog.quotes.reduce((s, q) => s + parseFloat(q.total || '0'), 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setQuotesDialog(q => ({ ...q, open: false }))}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Modal: INE / Datos externos del cliente */}
       <Dialog
