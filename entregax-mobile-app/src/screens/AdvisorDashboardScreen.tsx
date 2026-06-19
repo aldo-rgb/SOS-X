@@ -243,7 +243,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
     setTransitClientsLoading(true);
     try {
       // Usamos el endpoint de clientes que ya incluye inTransitCount por cliente
-      const res = await fetch(`${API_URL}/api/advisor/clients?limit=200`, {
+      const res = await fetch(`${API_URL}/api/advisor/clients?onlyInTransit=true&limit=500`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();

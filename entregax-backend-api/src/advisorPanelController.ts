@@ -169,40 +169,25 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       ) t
     `, [advisorId]);
 
-    // Guías con saldo pendiente de clientes del asesor (packages + maritime + DHL)
-    // Solo cuenta las que NO están pagadas (client_paid != true y payment_status != 'paid')
+    // Órdenes de pago activas del asesor (advisor_payment_orders + pobox_payments de clientes)
+    // Mismo conteo que muestra la pantalla AdvisorPaymentOrders
     const pendingOrdersRes = await pool.query(`
       SELECT SUM(cnt) AS pending_orders FROM (
         SELECT COUNT(*) as cnt
-        FROM packages p
-        JOIN users u ON p.user_id = u.id
-        WHERE u.role = 'client'
-          AND (u.advisor_id = $1 OR u.referred_by_id = $1)
-          AND u.id != $1
-          AND p.master_id IS NULL
-          AND COALESCE(p.saldo_pendiente, 0) > 0
-          AND p.client_paid != TRUE
-          AND COALESCE(p.payment_status, '') != 'paid'
-          AND p.status::text NOT IN ('delivered','lost','returned_to_warehouse')
+        FROM advisor_payment_orders apo
+        WHERE apo.advisor_id = $1
+          AND apo.status NOT IN ('pagado','cancelado')
         UNION ALL
         SELECT COUNT(*) as cnt
-        FROM maritime_orders mo
-        JOIN users u ON mo.user_id = u.id
-        WHERE u.role = 'client'
-          AND (u.advisor_id = $1 OR u.referred_by_id = $1)
-          AND u.id != $1
-          AND COALESCE(mo.saldo_pendiente, 0) > 0
-          AND mo.status NOT IN ('delivered','returned_to_warehouse')
-        UNION ALL
-        SELECT COUNT(*) as cnt
-        FROM dhl_shipments ds
-        JOIN users u ON ds.user_id = u.id
-        WHERE u.role = 'client'
-          AND (u.advisor_id = $1 OR u.referred_by_id = $1)
-          AND u.id != $1
-          AND COALESCE(ds.saldo_pendiente, 0) > 0
-          AND ds.paid_at IS NULL
-          AND ds.status NOT IN ('delivered','returned_to_warehouse')
+        FROM pobox_payments pp
+        JOIN users u ON u.id = pp.user_id
+        WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
+          AND pp.status NOT IN ('expired','cancelled','completed','paid')
+          AND pp.id NOT IN (
+            SELECT pobox_payment_id
+            FROM advisor_payment_orders
+            WHERE pobox_payment_id IS NOT NULL AND advisor_id = $1
+          )
       ) t
     `, [advisorId]);
 
@@ -307,7 +292,7 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
-    const { search, status, page = '1', limit = '50', subAdvisorId } = req.query as any;
+    const { search, status, page = '1', limit = '50', subAdvisorId, onlyInTransit } = req.query as any;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     // Si se pide el equipo de un sub-asesor, verificar que pertenezca al líder
@@ -340,6 +325,14 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
       whereClause += ` AND u.is_verified = false AND LOWER(u.verification_status) NOT IN ('verified', 'approved')`;
     } else if (status === 'unverified') {
       whereClause += ` AND u.is_verified = false AND LOWER(u.verification_status) NOT IN ('verified', 'approved')`;
+    }
+
+    if (onlyInTransit === 'true') {
+      whereClause += ` AND (
+        EXISTS (SELECT 1 FROM packages p WHERE p.user_id = u.id AND p.master_id IS NULL AND p.status::text IN ('in_transit','received_china','received','customs','ready_pickup','received_mty','received_cdmx','received_cdx'))
+        OR EXISTS (SELECT 1 FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status IN ('in_transit','received_china','received','customs','consolidated','at_port'))
+        OR EXISTS (SELECT 1 FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status IN ('in_transit','received_mty','ready_pickup','inspected'))
+      )`;
     }
 
     const clientsRes = await pool.query(`
