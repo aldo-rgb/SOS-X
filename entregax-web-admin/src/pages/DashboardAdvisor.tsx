@@ -2984,24 +2984,24 @@ export default function DashboardAdvisor() {
                   doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...C.dark);
                   doc.text('Detalle de guías incluidas', PAD, y); y += 5;
 
-                  // Table header
-                  const cols = { num:PAD, trk:PAD+8, svc:PAD+62, dims:PAD+88, kg:PAD+117, nivel:PAD+128, carrier:PAD+139, amt:W-PAD };
+                  // Columns: # | TRACKING/GUÍA | MEDIDAS | KG | NIVEL | PAQUETERÍA | COSTO PQT | GEX | TOTAL
+                  const cols = { num:PAD, trk:PAD+6, dims:PAD+58, kg:PAD+84, nivel:PAD+96, carrier:PAD+108, pqt:PAD+130, gex:PAD+153, amt:W-PAD };
                   doc.setFillColor(...C.dark); doc.rect(PAD, y, W-PAD*2, 7, 'F');
-                  doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(...C.white);
+                  doc.setFont('helvetica','bold'); doc.setFontSize(6); doc.setTextColor(...C.white);
                   doc.text('#', cols.num+1, y+4.5);
                   doc.text('TRACKING / GUÍA', cols.trk, y+4.5);
-                  doc.text('SERVICIO', cols.svc, y+4.5);
-                  doc.text('MEDIDAS', cols.dims, y+4.5);
+                  doc.text('MEDIDAS (cm)', cols.dims, y+4.5);
                   doc.text('KG', cols.kg, y+4.5);
                   doc.text('NIVEL', cols.nivel, y+4.5);
                   doc.text('PAQUETERÍA', cols.carrier, y+4.5);
-                  doc.text('MONTO', cols.amt, y+4.5, { align:'right' });
+                  doc.text('COSTO PQT', cols.pqt, y+4.5);
+                  doc.text('GEX', cols.gex, y+4.5);
+                  doc.text('TOTAL', cols.amt, y+4.5, { align:'right' });
                   y += 7;
 
-                  const SVC_LABEL: Record<string,string> = { SEA_CHN_MX:'Marítimo', AIR_CHN_MX:'Aéreo China', POBOX_USA:'PO Box USA', AA_DHL:'DHL MTY', TDI_EXPRESS:'TDI Express' };
-
-                  const rows = shipDetails.length > 0 ? shipDetails : guideList.map((g,i) => ({ uid: uids[i]||'', tracking: g, description:'', serviceType:'', weight:0, lengthCm:0, widthCm:0, heightCm:0, deliveryCarrierName:'', amount:0 }));
+                  const rows = shipDetails.length > 0 ? shipDetails : guideList.map((g,i) => ({ uid: uids[i]||'', tracking: g, description:'', serviceType:'', weight:0, lengthCm:0, widthCm:0, heightCm:0, deliveryCarrierName:'', amount:0, gexCost:0 }));
                   let subtotal = 0;
+                  let totalGex = 0;
 
                   rows.forEach((s: any, idx: number) => {
                     const rowH = s.internationalTracking ? 11 : 8;
@@ -3011,38 +3011,47 @@ export default function DashboardAdvisor() {
                     doc.rect(PAD, y, W-PAD*2, rowH, 'F');
                     doc.setDrawColor(230,230,230); doc.line(PAD, y+rowH, W-PAD, y+rowH);
 
-                    doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(...C.dark);
+                    const gex = s.gexCost || 0;
+                    const amt = s.amount || 0;
+                    const pqtCost = amt - gex;
+                    subtotal += amt;
+                    totalGex += gex;
+
+                    doc.setFont('helvetica','normal'); doc.setFontSize(6); doc.setTextColor(...C.dark);
                     doc.text(`${idx+1}`, cols.num+1, y+5);
-                    doc.setFont('helvetica','bold'); doc.setFontSize(6.5);
-                    // Show tracking + international tracking below if exists
-                    doc.text(String(s.tracking||guideList[idx]||'—').substring(0,30), cols.trk, y+4);
+                    doc.setFont('helvetica','bold'); doc.setFontSize(6);
+                    doc.text(String(s.tracking||guideList[idx]||'—').substring(0,28), cols.trk, y+4);
                     if (s.internationalTracking) {
                       doc.setFont('helvetica','normal'); doc.setFontSize(5.5); doc.setTextColor(100,100,100);
-                      doc.text(String(s.internationalTracking).substring(0,30), cols.trk, y+7.5);
-                      doc.setFontSize(6.5); doc.setTextColor(...C.dark);
+                      doc.text(String(s.internationalTracking).substring(0,28), cols.trk, y+7.5);
+                      doc.setFontSize(6); doc.setTextColor(...C.dark);
                     }
                     doc.setFont('helvetica','normal');
-                    doc.text(SVC_LABEL[s.serviceType]||s.serviceType||'—', cols.svc, y+5);
                     const dims = (s.lengthCm>0||s.widthCm>0||s.heightCm>0) ? `${s.lengthCm}×${s.widthCm}×${s.heightCm}` : '—';
                     doc.text(dims, cols.dims, y+5);
-                    doc.text(s.weight>0?`${s.weight}`:' —', cols.kg, y+5);
+                    doc.text(s.weight>0?`${Number(s.weight).toFixed(1)}`:'—', cols.kg, y+5);
                     doc.text(s.tarifaNivel!=null?`N${s.tarifaNivel}`:'—', cols.nivel, y+5);
                     doc.text(String(s.deliveryCarrierName||'—').substring(0,12), cols.carrier, y+5);
-                    const amt = s.amount || 0;
-                    subtotal += amt;
+                    // COSTO PQT
+                    doc.setFont('helvetica', pqtCost>0?'bold':'normal');
+                    doc.setTextColor(...C.dark);
+                    doc.text(pqtCost>0?`$${pqtCost.toLocaleString('es-MX',{minimumFractionDigits:2})}`:'—', cols.pqt, y+5);
+                    // GEX
+                    doc.setFont('helvetica', gex>0?'bold':'normal');
+                    doc.setTextColor(gex>0?46:150, gex>0?125:150, gex>0?50:150);
+                    doc.text(gex>0?`$${gex.toLocaleString('es-MX',{minimumFractionDigits:2})}`:'—', cols.gex, y+5);
+                    // TOTAL
                     doc.setFont('helvetica', amt>0?'bold':'normal');
                     doc.setTextColor(...(amt>0 ? C.orange : C.gray));
                     doc.text(amt>0?`$${amt.toLocaleString('es-MX',{minimumFractionDigits:2})}`:'—', cols.amt, y+5, { align:'right' });
                     y += rowH;
                   });
 
-                  // ── DESGLOSE (paquetería + GEX) ──────────────────────────
-                  const totalGex = rows.reduce((acc: number, s: any) => acc + (s.gexCost || 0), 0);
+                  // ── DESGLOSE TOTAL (paquetería + GEX) ──────────────────────────
                   const totalPkg = subtotal - totalGex;
                   const totalAmt = op.total_mxn ? Number(op.total_mxn) : subtotal;
 
                   if (totalGex > 0) {
-                    // Desglose box
                     const desgH = 26;
                     doc.setFillColor(250, 250, 250); doc.roundedRect(PAD, y, W-PAD*2, desgH, 2,2,'F');
                     doc.setDrawColor(220,220,220); doc.roundedRect(PAD, y, W-PAD*2, desgH, 2,2,'S');
