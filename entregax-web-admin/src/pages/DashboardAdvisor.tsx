@@ -5450,9 +5450,15 @@ export default function DashboardAdvisor() {
                 <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
                   <Grid container spacing={1.5}>
                     <Grid size={{ xs: 12 }}>
-                      <Typography variant="caption" color="text.secondary">Tracking</Typography>
-                      <Typography variant="body2" fontWeight={600}>{s.tracking || '—'}</Typography>
+                      <Typography variant="caption" color="text.secondary">Tracking interno</Typography>
+                      <Typography variant="body2" fontWeight={600} fontFamily="monospace">{s.tracking || '—'}</Typography>
                     </Grid>
+                    {s.internationalTracking && (
+                      <Grid size={{ xs: 12 }}>
+                        <Typography variant="caption" color="text.secondary">Guía de origen / proveedor</Typography>
+                        <Typography variant="body2" fontWeight={600} fontFamily="monospace" color="primary.main">{s.internationalTracking}</Typography>
+                      </Grid>
+                    )}
                     {s.childNo && (
                       <Grid size={{ xs: 12 }}>
                         <Typography variant="caption" color="text.secondary">Referencia</Typography>
@@ -5630,6 +5636,8 @@ export default function DashboardAdvisor() {
                           <TableHead>
                             <TableRow sx={{ bgcolor: alpha('#F05A28', 0.06) }}>
                               <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Tracking</TableCell>
+                              <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Guía Origen</TableCell>
+                              <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Peso / Medidas</TableCell>
                               <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Estado</TableCell>
                               <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Monto</TableCell>
                             </TableRow>
@@ -5638,8 +5646,25 @@ export default function DashboardAdvisor() {
                             {repackChildren.map((child: any) => (
                               <TableRow key={child.id} hover>
                                 <TableCell>
-                                  <Typography variant="body2" fontWeight={600} fontSize="0.8rem">{child.tracking}</Typography>
+                                  <Typography variant="body2" fontWeight={600} fontSize="0.8rem" fontFamily="monospace">{child.tracking}</Typography>
                                   {child.description && <Typography variant="caption" color="text.secondary" display="block">{child.description}</Typography>}
+                                </TableCell>
+                                <TableCell>
+                                  <Typography variant="body2" fontSize="0.8rem" fontFamily="monospace" color={child.internationalTracking ? 'primary.main' : 'text.disabled'}>
+                                    {child.internationalTracking || '—'}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell>
+                                  {child.weight ? (
+                                    <Box>
+                                      <Typography variant="body2" fontSize="0.8rem" fontWeight={600}>⚖️ {child.weight} kg</Typography>
+                                      {child.lengthCm && child.widthCm && child.heightCm && (
+                                        <Typography variant="caption" color="text.secondary">📐 {child.lengthCm}×{child.widthCm}×{child.heightCm} cm</Typography>
+                                      )}
+                                    </Box>
+                                  ) : (
+                                    <Typography variant="body2" color="text.disabled" fontSize="0.8rem">—</Typography>
+                                  )}
                                 </TableCell>
                                 <TableCell>{getStatusLabel(child.status)}</TableCell>
                                 <TableCell>

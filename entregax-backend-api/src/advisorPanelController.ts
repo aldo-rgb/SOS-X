@@ -1030,12 +1030,12 @@ export const getRepackChildren = async (req: Request, res: Response): Promise<an
     }
 
     const childrenRes = await pool.query(`
-      SELECT 
+      SELECT
         p.id, p.tracking_internal as tracking, p.international_tracking,
         p.status::text as status, p.service_type,
         COALESCE(p.assigned_cost_mxn, p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) as monto,
         CASE WHEN COALESCE(p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0 THEN true ELSE false END as client_paid,
-        p.weight, p.description,
+        p.weight, p.length_cm, p.width_cm, p.height_cm, p.description,
         p.created_at
       FROM packages p
       WHERE p.master_id = $1
@@ -1052,6 +1052,9 @@ export const getRepackChildren = async (req: Request, res: Response): Promise<an
         amount: parseFloat(c.monto) || 0,
         clientPaid: c.client_paid,
         weight: c.weight ? parseFloat(c.weight) : null,
+        lengthCm: c.length_cm ? parseFloat(c.length_cm) : null,
+        widthCm: c.width_cm ? parseFloat(c.width_cm) : null,
+        heightCm: c.height_cm ? parseFloat(c.height_cm) : null,
         description: c.description,
         createdAt: c.createdAt,
       })),
