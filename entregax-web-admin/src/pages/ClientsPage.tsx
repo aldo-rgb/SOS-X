@@ -557,6 +557,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                 <TableCell>{t('auth.email')}</TableCell>
                 <TableCell>Teléfono</TableCell>
                 <TableCell>{t('clients.role')}</TableCell>
+                <TableCell>Asesor</TableCell>
                 <TableCell align="center">{t('common.actions')}</TableCell>
               </TableRow>
             </TableHead>
@@ -633,6 +634,11 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                       color={getRoleColor(user.role)}
                       sx={{ fontWeight: 600 }}
                     />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color={user.advisor_name ? 'text.primary' : 'text.disabled'}>
+                      {user.advisor_name || '—'}
+                    </Typography>
                   </TableCell>
                   <TableCell align="center">
                     <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
