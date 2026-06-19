@@ -424,20 +424,18 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     return rows;
   };
 
-  // Regex para detectar referencias de pago: XX-8HEXCHARS
-  const REF_PATTERN = /\b([A-Z]{2}-[A-F0-9]{8})\b/gi;
+  // Prefijos válidos de referencias de pago (PP excluido — es para pagos en efectivo, no bancarios)
+  // Detecta: RO-2957B7E6 | RO 2957B7E6 | 7069052981RO054735C0 (sin separador embebido)
 
   const extractReferences = (rows: EstadoCuentaRow[]): { ref: string; entries: EstadoCuentaRow[] }[] => {
     const refMap: Record<string, EstadoCuentaRow[]> = {};
     for (const row of rows) {
-      const text = `${row.concepto} ${row.referencia}`;
-      const found = text.match(REF_PATTERN);
-      if (found) {
-        for (const m of found) {
-          const ref = m.toUpperCase();
-          if (!refMap[ref]) refMap[ref] = [];
-          refMap[ref].push(row);
-        }
+      const text = (`${row.concepto} ${row.referencia}`).toUpperCase();
+      const matches = [...text.matchAll(/(?<![A-Z])(RO|US)[-\s]?([A-F0-9]{6,8})(?![A-F0-9])/g)];
+      for (const m of matches) {
+        const ref = `${m[1]}-${m[2]}`;
+        if (!refMap[ref]) refMap[ref] = [];
+        refMap[ref].push(row);
       }
     }
     return Object.entries(refMap).map(([ref, entries]) => ({ ref, entries }));
