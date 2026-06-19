@@ -720,18 +720,17 @@ export default function DashboardAdvisor() {
     setTransitModalOpen(true);
     setTransitClientsLoading(true);
     try {
-      const r = await api.get('/advisor/shipments', { params: { filter: 'in_transit', limit: 500 } });
-      const countMap = new Map<number, { name: string; boxId: string; count: number }>();
-      for (const s of r.data.shipments || []) {
-        const cId = s.clientId;
-        if (!cId) continue;
-        if (countMap.has(cId)) { countMap.get(cId)!.count += 1; }
-        else { countMap.set(cId, { name: s.clientName || '—', boxId: s.clientBoxId || '', count: 1 }); }
-      }
+      const r = await api.get('/advisor/clients', { params: { onlyInTransit: 'true', limit: 500 } });
       setTransitClients(
-        Array.from(countMap.entries())
-          .map(([id, v]) => ({ id, ...v }))
-          .sort((a, b) => a.name.localeCompare(b.name))
+        (r.data.clients || [])
+          .filter((c: any) => (c.inTransitCount ?? 0) > 0)
+          .map((c: any) => ({
+            id: c.id,
+            name: c.fullName || '—',
+            boxId: c.boxId || '',
+            count: c.inTransitCount ?? 0,
+          }))
+          .sort((a: any, b: any) => a.name.localeCompare(b.name))
       );
     } catch { setTransitClients([]); }
     setTransitClientsLoading(false);
