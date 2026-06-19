@@ -54,6 +54,7 @@ import {
   FormGroup,
   List,
   ListItem,
+  ListItemText,
   Switch,
   Autocomplete,
   Badge,
@@ -351,6 +352,12 @@ export default function DashboardAdvisor() {
 
   // Tarifas y TC en vivo
   const [liveRates, setLiveRates] = useState<{ precio_tdi_aereo_usd: number | null; precio_tdi_express_usd: number | null; tc_envio_dinero: number | null } | null>(null);
+
+  // Modal Embarques en Tránsito
+  const [transitModalOpen, setTransitModalOpen] = useState(false);
+  const [transitClients, setTransitClients] = useState<{ id: number; name: string; boxId: string; count: number }[]>([]);
+  const [transitClientsLoading, setTransitClientsLoading] = useState(false);
+  const [transitSearch, setTransitSearch] = useState('');
 
   // Guías sin identificar (dashboard widget)
   const [unidentifiedPkgs, setUnidentifiedPkgs] = useState<any[]>([]);
@@ -707,6 +714,28 @@ export default function DashboardAdvisor() {
       if (r.data?.success) setLiveRates(r.data.rates);
     }).catch(() => {});
   }, [fetchDashboard]);
+
+  const openTransitModal = async () => {
+    setTransitSearch('');
+    setTransitModalOpen(true);
+    setTransitClientsLoading(true);
+    try {
+      const r = await api.get('/advisor/shipments', { params: { filter: 'in_transit', limit: 500 } });
+      const countMap = new Map<number, { name: string; boxId: string; count: number }>();
+      for (const s of r.data.shipments || []) {
+        const cId = s.clientId;
+        if (!cId) continue;
+        if (countMap.has(cId)) { countMap.get(cId)!.count += 1; }
+        else { countMap.set(cId, { name: s.clientName || '—', boxId: s.clientBoxId || '', count: 1 }); }
+      }
+      setTransitClients(
+        Array.from(countMap.entries())
+          .map(([id, v]) => ({ id, ...v }))
+          .sort((a, b) => a.name.localeCompare(b.name))
+      );
+    } catch { setTransitClients([]); }
+    setTransitClientsLoading(false);
+  };
 
   const fetchUnidentified = async () => {
     setUnidentifiedLoading(true);
@@ -1370,11 +1399,14 @@ export default function DashboardAdvisor() {
 
   // ─── KPI Card ───
 
-  const KpiCard = ({ title, value, subtitle, icon, color, trend }: {
+  const KpiCard = ({ title, value, subtitle, icon, color, trend, onClick }: {
     title: string; value: string | number; subtitle?: string;
-    icon: React.ReactNode; color: string; trend?: number;
+    icon: React.ReactNode; color: string; trend?: number; onClick?: () => void;
   }) => (
-    <Card sx={{ height: '100%', position: 'relative', overflow: 'visible' }}>
+    <Card
+      sx={{ height: '100%', position: 'relative', overflow: 'visible', cursor: onClick ? 'pointer' : 'default', '&:hover': onClick ? { boxShadow: 4 } : {} }}
+      onClick={onClick}
+    >
       <CardContent sx={{ p: isMobile ? 1.5 : 2.5 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Box sx={{ flex: 1 }}>
@@ -1546,6 +1578,7 @@ export default function DashboardAdvisor() {
                 subtitle={`${d.shipments.awaitingPayment} ${isMobile ? 'x pagar' : t('advisor.awaitingPaymentLower')}`}
                 icon={<ShippingIcon />}
                 color={theme.palette.warning.main}
+                onClick={openTransitModal}
               />
             </Grid>
             <Grid size={ { xs: 6, sm: 6, md: 3 } }>
@@ -1738,6 +1771,64 @@ export default function DashboardAdvisor() {
               </Box>
             )}
           </Paper>
+
+          {/* ── Modal: Embarques en Tránsito ── */}
+          <Dialog open={transitModalOpen} onClose={() => setTransitModalOpen(false)} maxWidth="sm" fullWidth>
+            <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <ShippingIcon sx={{ color: theme.palette.warning.main }} />
+                <Typography fontWeight={700}>Embarques en Tránsito</Typography>
+                <Chip label={transitClients.reduce((a, c) => a + c.count, 0)} size="small" sx={{ bgcolor: theme.palette.warning.main, color: '#fff', fontWeight: 700 }} />
+              </Box>
+              <IconButton onClick={() => setTransitModalOpen(false)} size="small"><CloseIcon /></IconButton>
+            </DialogTitle>
+            <DialogContent dividers sx={{ p: 0 }}>
+              <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                <TextField
+                  fullWidth size="small" placeholder="Buscar cliente..."
+                  value={transitSearch}
+                  onChange={e => setTransitSearch(e.target.value)}
+                  InputProps={{ startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary', fontSize: 18 }} /> }}
+                />
+              </Box>
+              {transitClientsLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+              ) : transitClients.filter(c => !transitSearch || c.name.toLowerCase().includes(transitSearch.toLowerCase()) || c.boxId.toLowerCase().includes(transitSearch.toLowerCase())).length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}>
+                  <ShippingIcon sx={{ fontSize: 48, opacity: 0.3 }} />
+                  <Typography>Sin embarques en tránsito</Typography>
+                </Box>
+              ) : (
+                <List disablePadding>
+                  {transitClients
+                    .filter(c => !transitSearch || c.name.toLowerCase().includes(transitSearch.toLowerCase()) || c.boxId.toLowerCase().includes(transitSearch.toLowerCase()))
+                    .map((c, i) => (
+                      <ListItem
+                        key={c.id}
+                        divider={i < transitClients.length - 1}
+                        secondaryAction={
+                          <Chip label={`${c.count} ${c.count === 1 ? 'caja' : 'cajas'}`} size="small" sx={{ bgcolor: '#E3F2FD', color: '#1565C0', fontWeight: 700 }} />
+                        }
+                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                        onClick={() => {
+                          setTransitModalOpen(false);
+                          setShipmentFilter('in_transit');
+                          setShipmentClientId(String(c.id));
+                          setShipmentPage(0);
+                          const instrIdx = tabConfig.findIndex(t => t.id === 'instructions');
+                          if (instrIdx >= 0) setActiveTab(instrIdx);
+                        }}
+                      >
+                        <ListItemText
+                          primary={<Typography fontWeight={600}>{c.name}</Typography>}
+                          secondary={c.boxId || '—'}
+                        />
+                      </ListItem>
+                    ))}
+                </List>
+              )}
+            </DialogContent>
+          </Dialog>
 
           {/* ── Modal: Lista de guías sin identificar ── */}
           <Dialog open={unidentifiedModalOpen} onClose={() => setUnidentifiedModalOpen(false)} maxWidth="md" fullWidth>

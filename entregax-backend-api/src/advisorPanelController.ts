@@ -789,7 +789,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
 
     // Outer filters on computed columns (client_paid, has_instructions, client_box_id)
     const outerConditions: string[] = [];
-    if (filter === 'in_transit') outerConditions.push('client_paid = false');
+    // in_transit: no filtrar por client_paid — un paquete puede estar en tránsito y ya pagado
     if (payment === 'paid')    outerConditions.push('client_paid = true');
     if (payment === 'pending') outerConditions.push('client_paid = false AND monto > 0');
     if (instructions === 'yes') outerConditions.push('has_instructions = true');
