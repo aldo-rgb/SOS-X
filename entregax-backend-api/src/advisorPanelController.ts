@@ -14,6 +14,8 @@ const ensureAdvisorColumns = async () => {
   try {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_signature_url TEXT`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS contract_pdf_url TEXT`);
+    await pool.query(`ALTER TABLE dhl_shipments ADD COLUMN IF NOT EXISTS national_label_url TEXT`);
+    await pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS national_label_url TEXT`);
     _advisorColumnsEnsured = true;
   } catch (e) {
     console.warn('No se pudieron asegurar columnas de advisor:', (e as any)?.message);
