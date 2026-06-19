@@ -1174,9 +1174,13 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">{payment.cliente}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {payment.telefono || ''}
+                      <Typography variant="body2">
+                        {payment.cliente}
+                        {payment.telefono && (
+                          <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                            {payment.telefono}
+                          </Typography>
+                        )}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
