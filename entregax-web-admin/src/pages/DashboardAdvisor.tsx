@@ -2155,11 +2155,11 @@ export default function DashboardAdvisor() {
                   <TableCell align="center">Pdte. Pago</TableCell>
                   <TableCell align="right">Saldo Pdte.</TableCell>
                   <TableCell>{t('advisor.lastShipment')}</TableCell>
-                  <TableCell align="center">{t('advisor.verification')}</TableCell>
-                  <TableCell>{t('advisor.notes')}</TableCell>
                   <TableCell align="center">Direcciones</TableCell>
                   <TableCell align="center">Cartera</TableCell>
                   <TableCell align="center">Instrucciones</TableCell>
+                  <TableCell align="center">{t('advisor.verification')}</TableCell>
+                  <TableCell>{t('advisor.notes')}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -2229,12 +2229,6 @@ export default function DashboardAdvisor() {
                       )}
                     </TableCell>
                     <TableCell align="center">
-                      {getVerificationChip(c.identityVerified, c.verificationStatus)}
-                    </TableCell>
-                    <TableCell sx={{ minWidth: 180, maxWidth: 250 }}>
-                      {renderClientNote(c)}
-                    </TableCell>
-                    <TableCell align="center">
                       <Tooltip title="Ver y administrar direcciones">
                         <Button variant="outlined" size="small"
                           onClick={() => handleViewAddresses(c.id, c.fullName)}
@@ -2263,6 +2257,12 @@ export default function DashboardAdvisor() {
                           Enviar
                         </Button>
                       </Tooltip>
+                    </TableCell>
+                    <TableCell align="center">
+                      {getVerificationChip(c.identityVerified, c.verificationStatus)}
+                    </TableCell>
+                    <TableCell sx={{ minWidth: 180, maxWidth: 250 }}>
+                      {renderClientNote(c)}
                     </TableCell>
                   </TableRow>
                 ))}
