@@ -2797,7 +2797,32 @@ export default function DashboardAdvisor() {
                     try {
                       const res = await api.get('/advisor/shipments', { params: { clientId: op.client_id, limit: 200 } });
                       const uidSet = new Set(uids);
-                      shipDetails = (res.data.shipments || []).filter((s: any) => uidSet.has(s.uid));
+                      const matched = (res.data.shipments || []).filter((s: any) => uidSet.has(s.uid));
+                      // Expand master packages into their children
+                      const expanded: any[] = [];
+                      for (const s of matched) {
+                        if (s.isMaster && s.childrenCount > 0) {
+                          try {
+                            const cr = await api.get(`/advisor/shipments/${s.id}/children`);
+                            const children = cr.data.children || [];
+                            children.forEach((c: any) => expanded.push({
+                              ...s,
+                              tracking: c.tracking,
+                              internationalTracking: c.internationalTracking,
+                              weight: c.weight || 0,
+                              lengthCm: c.lengthCm || 0,
+                              widthCm: c.widthCm || 0,
+                              heightCm: c.heightCm || 0,
+                              tarifaNivel: c.tarifaNivel,
+                              description: c.description || s.description,
+                              amount: c.amount || 0,
+                            }));
+                          } catch { expanded.push(s); }
+                        } else {
+                          expanded.push(s);
+                        }
+                      }
+                      shipDetails = expanded;
                     } catch { /* fallback to trackings only */ }
                   }
 
@@ -2858,15 +2883,15 @@ export default function DashboardAdvisor() {
                   doc.text('Detalle de guías incluidas', PAD, y); y += 5;
 
                   // Table header
-                  const cols = { num:PAD, trk:PAD+8, desc:PAD+50, svc:PAD+95, dims:PAD+115, kg:PAD+140, carrier:PAD+153, amt:W-PAD };
+                  const cols = { num:PAD, trk:PAD+8, svc:PAD+62, dims:PAD+88, kg:PAD+117, nivel:PAD+128, carrier:PAD+139, amt:W-PAD };
                   doc.setFillColor(...C.dark); doc.rect(PAD, y, W-PAD*2, 7, 'F');
                   doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(...C.white);
                   doc.text('#', cols.num+1, y+4.5);
                   doc.text('TRACKING / GUÍA', cols.trk, y+4.5);
-                  doc.text('DESCRIPCIÓN', cols.desc, y+4.5);
                   doc.text('SERVICIO', cols.svc, y+4.5);
                   doc.text('MEDIDAS', cols.dims, y+4.5);
                   doc.text('KG', cols.kg, y+4.5);
+                  doc.text('NIVEL', cols.nivel, y+4.5);
                   doc.text('PAQUETERÍA', cols.carrier, y+4.5);
                   doc.text('MONTO', cols.amt, y+4.5, { align:'right' });
                   y += 7;
@@ -2877,29 +2902,36 @@ export default function DashboardAdvisor() {
                   let subtotal = 0;
 
                   rows.forEach((s: any, idx: number) => {
+                    const rowH = s.internationalTracking ? 11 : 8;
                     if (y > 265) { doc.addPage(); y = 20; }
                     const even = idx % 2 === 0;
                     doc.setFillColor(even?249:255, even?249:255, even?249:255);
-                    doc.rect(PAD, y, W-PAD*2, 8, 'F');
-                    doc.setDrawColor(230,230,230); doc.line(PAD, y+8, W-PAD, y+8);
+                    doc.rect(PAD, y, W-PAD*2, rowH, 'F');
+                    doc.setDrawColor(230,230,230); doc.line(PAD, y+rowH, W-PAD, y+rowH);
 
                     doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(...C.dark);
                     doc.text(`${idx+1}`, cols.num+1, y+5);
                     doc.setFont('helvetica','bold'); doc.setFontSize(6.5);
-                    doc.text(String(s.tracking||guideList[idx]||'—').substring(0,22), cols.trk, y+5);
+                    // Show tracking + international tracking below if exists
+                    doc.text(String(s.tracking||guideList[idx]||'—').substring(0,30), cols.trk, y+4);
+                    if (s.internationalTracking) {
+                      doc.setFont('helvetica','normal'); doc.setFontSize(5.5); doc.setTextColor(100,100,100);
+                      doc.text(String(s.internationalTracking).substring(0,30), cols.trk, y+7.5);
+                      doc.setFontSize(6.5); doc.setTextColor(...C.dark);
+                    }
                     doc.setFont('helvetica','normal');
-                    doc.text(String(s.description||'—').substring(0,18), cols.desc, y+5);
                     doc.text(SVC_LABEL[s.serviceType]||s.serviceType||'—', cols.svc, y+5);
                     const dims = (s.lengthCm>0||s.widthCm>0||s.heightCm>0) ? `${s.lengthCm}×${s.widthCm}×${s.heightCm}` : '—';
                     doc.text(dims, cols.dims, y+5);
                     doc.text(s.weight>0?`${s.weight}`:' —', cols.kg, y+5);
+                    doc.text(s.tarifaNivel!=null?`N${s.tarifaNivel}`:'—', cols.nivel, y+5);
                     doc.text(String(s.deliveryCarrierName||'—').substring(0,12), cols.carrier, y+5);
                     const amt = s.amount || 0;
                     subtotal += amt;
                     doc.setFont('helvetica', amt>0?'bold':'normal');
                     doc.setTextColor(...(amt>0 ? C.orange : C.gray));
                     doc.text(amt>0?`$${amt.toLocaleString('es-MX',{minimumFractionDigits:2})}`:'—', cols.amt, y+5, { align:'right' });
-                    y += 8;
+                    y += rowH;
                   });
 
                   // Total row
