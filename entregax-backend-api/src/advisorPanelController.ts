@@ -165,12 +165,34 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       ) t
     `, [advisorId]);
 
-    // Órdenes de pago pendientes del asesor
+    // Guías con saldo pendiente de clientes del asesor (packages + maritime + DHL)
     const pendingOrdersRes = await pool.query(`
-      SELECT COUNT(*) AS pending_orders
-      FROM advisor_payment_orders
-      WHERE advisor_id = $1
-        AND status = 'pendiente'
+      SELECT SUM(cnt) AS pending_orders FROM (
+        SELECT COUNT(*) as cnt
+        FROM packages p
+        JOIN users u ON p.user_id = u.id
+        WHERE u.role = 'client'
+          AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+          AND p.master_id IS NULL
+          AND COALESCE(p.saldo_pendiente, 0) > 0
+          AND p.status::text NOT IN ('delivered','lost','returned_to_warehouse')
+        UNION ALL
+        SELECT COUNT(*) as cnt
+        FROM maritime_orders mo
+        JOIN users u ON mo.user_id = u.id
+        WHERE u.role = 'client'
+          AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+          AND COALESCE(mo.saldo_pendiente, 0) > 0
+          AND mo.status NOT IN ('delivered','returned_to_warehouse')
+        UNION ALL
+        SELECT COUNT(*) as cnt
+        FROM dhl_shipments ds
+        JOIN users u ON ds.user_id = u.id
+        WHERE u.role = 'client'
+          AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+          AND COALESCE(ds.saldo_pendiente, 0) > 0
+          AND ds.status NOT IN ('delivered','returned_to_warehouse')
+      ) t
     `, [advisorId]);
 
     // Guías sin cliente: user_id IS NULL y sin casillero asignado (box_id vacío)
