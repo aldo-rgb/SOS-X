@@ -1563,7 +1563,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={BLACK} />
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       
       {/* Appbar */}
       <View style={{ backgroundColor: BLACK, paddingTop: insets.top }}>

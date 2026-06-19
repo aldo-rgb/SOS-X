@@ -1157,6 +1157,20 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                       </View>
                     )}
 
+                    {/* ── Aviso Ocurre ── */}
+                    {instrCarrierKey === 'paquete_express' && instrOcurreInfo && !instrPriceLoading && (
+                      <View style={{ marginTop: 8, padding: 12, borderRadius: 10, backgroundColor: '#E3F2FD', borderWidth: 1, borderColor: '#90CAF9' }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#1565C0', marginBottom: 4 }}>
+                          📦 Entrega Ocurre — CP {instrOcurreInfo.usedZip}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#555' }}>
+                          {instrOcurreInfo.nearestBranch
+                            ? `El CP del cliente no tiene cobertura. Se usará la sucursal Paquete Express más cercana al CP ${instrOcurreInfo.usedZip}.`
+                            : `El cliente deberá recoger su paquete en la sucursal Paquete Express del CP ${instrOcurreInfo.usedZip}.`}
+                        </Text>
+                      </View>
+                    )}
+
                     {/* ── Documentos para paquetería por cobrar ── */}
                     {instrIsCollect && (
                       <View style={{ marginTop: 14, padding: 14, borderRadius: 10, backgroundColor: '#FFFDE7', borderWidth: 1, borderColor: '#FFB74D' }}>

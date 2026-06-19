@@ -131,7 +131,8 @@ const POBoxConsolidacionesPage: React.FC = () => {
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('todos');
-  const [filtroPago, setFiltroPago] = useState('todos');
+  const [filtroPago, setFiltroPago] = useState('pendiente');
+  const [filtroConsolId, setFiltroConsolId] = useState<string>('todos');
 
   // Selección
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -200,8 +201,14 @@ const POBoxConsolidacionesPage: React.FC = () => {
 
   // ── Toggle helpers ──────────────────────────────────────────────────
   const getAllPackages = () => consolidaciones.flatMap(c => (c.packages || []).map(p => ({ ...p, consolidacion_id: c.id })));
-  const filterByEstado = (p: { received_mty_at?: string | null; missing_on_arrival?: boolean; is_lost?: boolean; costing_paid?: boolean }) => {
-    // 1) Filtro por estado de la guía
+  const filterByEstado = (p: { consolidacion_id?: number; received_mty_at?: string | null; missing_on_arrival?: boolean; is_lost?: boolean; costing_paid?: boolean }) => {
+    // 0) Filtro por consolidación
+    if (filtroConsolId !== 'todos' && p.consolidacion_id !== undefined && String(p.consolidacion_id) !== filtroConsolId) return false;
+    // 1) Filtro por fecha de recibida MTY
+    const mtyDate = p.received_mty_at ? p.received_mty_at.substring(0, 10) : null;
+    if (filtroDesde) { if (!mtyDate || mtyDate < filtroDesde) return false; }
+    if (filtroHasta) { if (!mtyDate || mtyDate > filtroHasta) return false; }
+    // 2) Filtro por estado de la guía
     switch (filtroEstado) {
       case 'en_transito': if (p.received_mty_at || p.missing_on_arrival || p.is_lost) return false; break;
       case 'recibida': if (!p.received_mty_at || p.missing_on_arrival || p.is_lost) return false; break;
@@ -209,7 +216,7 @@ const POBoxConsolidacionesPage: React.FC = () => {
       case 'perdida': if (!p.is_lost) return false; break;
       default: break; // 'todos'
     }
-    // 2) Filtro por pago a proveedor
+    // 3) Filtro por pago a proveedor
     switch (filtroPago) {
       case 'pendiente': if (p.costing_paid || p.missing_on_arrival || p.is_lost) return false; break;
       case 'pagada': if (!p.costing_paid) return false; break;
@@ -482,16 +489,16 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
       {/* Filtros */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
         <TextField
-          type="date" size="small" label="Desde" InputLabelProps={{ shrink: true }}
+          type="date" size="small" label="Recibida MTY desde" InputLabelProps={{ shrink: true }}
           value={filtroDesde}
-          onChange={(e) => { const v = e.target.value; setFiltroDesde(v); fetchConsolidaciones(v || undefined, filtroHasta || undefined, proveedorSel?.id); }}
-          sx={{ minWidth: 160 }}
+          onChange={(e) => setFiltroDesde(e.target.value)}
+          sx={{ minWidth: 180 }}
         />
         <TextField
-          type="date" size="small" label="Hasta" InputLabelProps={{ shrink: true }}
+          type="date" size="small" label="Recibida MTY hasta" InputLabelProps={{ shrink: true }}
           value={filtroHasta} inputProps={{ min: filtroDesde || undefined }}
-          onChange={(e) => { const v = e.target.value; setFiltroHasta(v); fetchConsolidaciones(filtroDesde || undefined, v || undefined, proveedorSel?.id); }}
-          sx={{ minWidth: 160 }}
+          onChange={(e) => setFiltroHasta(e.target.value)}
+          sx={{ minWidth: 180 }}
         />
         <FormControl size="small" sx={{ minWidth: 190 }}>
           <InputLabel>Estado</InputLabel>
@@ -511,13 +518,22 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
             <MenuItem value="pagada">Ya pagadas a proveedor</MenuItem>
           </Select>
         </FormControl>
-        <Button size="small" variant="outlined" disabled={!filtroDesde && !filtroHasta && filtroEstado === 'todos' && filtroPago === 'todos'}
-          onClick={() => { setFiltroDesde(''); setFiltroHasta(''); setFiltroEstado('todos'); setFiltroPago('todos'); fetchConsolidaciones(undefined, undefined, proveedorSel?.id); }}>
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel>Consolidación</InputLabel>
+          <Select value={filtroConsolId} label="Consolidación" onChange={(e) => setFiltroConsolId(e.target.value)}>
+            <MenuItem value="todos">Todas</MenuItem>
+            {consolidaciones.map(c => (
+              <MenuItem key={c.id} value={String(c.id)}>#{c.id}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <Button size="small" variant="outlined" disabled={!filtroDesde && !filtroHasta && filtroEstado === 'todos' && filtroPago === 'todos' && filtroConsolId === 'todos'}
+          onClick={() => { setFiltroDesde(''); setFiltroHasta(''); setFiltroEstado('todos'); setFiltroPago('todos'); setFiltroConsolId('todos'); fetchConsolidaciones(undefined, undefined, proveedorSel?.id); }}>
           Limpiar filtros
         </Button>
         <Typography variant="body2" color="text.secondary">
           {filtroDesde || filtroHasta
-            ? `Recibidas ${filtroDesde ? `desde ${new Date(filtroDesde + 'T00:00:00').toLocaleDateString('es-MX')}` : ''}${filtroDesde && filtroHasta ? ' ' : ''}${filtroHasta ? `hasta ${new Date(filtroHasta + 'T00:00:00').toLocaleDateString('es-MX')}` : ''}`
+            ? `Recibidas en MTY ${filtroDesde ? `desde ${new Date(filtroDesde + 'T00:00:00').toLocaleDateString('es-MX')}` : ''}${filtroDesde && filtroHasta ? ' ' : ''}${filtroHasta ? `hasta ${new Date(filtroHasta + 'T00:00:00').toLocaleDateString('es-MX')}` : ''}`
             : 'Sin filtro de fecha'}
         </Typography>
       </Box>
@@ -532,8 +548,11 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
           {(() => {
             const allPkgs = getAllPackages().filter(filterByEstado);
             const toShow = selected.size > 0 ? allPkgs.filter(p => selected.has(p.id)) : allPkgs;
-            const totalUsd = toShow.reduce((s, p) => s + Number(p.pobox_cost_usd || 0), 0);
-            const totalMxn = toShow.reduce((s, p) => s + Number(p.pobox_service_cost || 0), 0);
+            const totalUsd = toShow.reduce((s, p) => s + Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0), 0);
+            const totalMxn = toShow.reduce((s, p) => {
+              const mxn = Number(p.pobox_provider_cost_mxn ?? 0) || (Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0) * Number(p.registered_exchange_rate ?? 0));
+              return s + mxn;
+            }, 0);
             return (
               <Paper sx={{ p: 2, mb: 3, bgcolor: 'warning.light' }}>
                 <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
@@ -580,7 +599,6 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                       <TableCell><strong>Tracking</strong></TableCell>
                       <TableCell><strong>Recibida MTY</strong></TableCell>
                       <TableCell><strong>Cliente</strong></TableCell>
-                      <TableCell><strong>Descripción</strong></TableCell>
                       <TableCell align="right"><strong>Peso (lb)</strong></TableCell>
                       <TableCell align="right"><strong>USD</strong></TableCell>
                       <TableCell align="right"><strong>MXN</strong></TableCell>
@@ -611,10 +629,9 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                             <Typography variant="body2">{p.client_name}</Typography>
                             <Typography variant="caption" color="text.secondary">{p.client_box_id}</Typography>
                           </TableCell>
-                          <TableCell><Typography variant="body2" noWrap sx={{ maxWidth: 180 }}>{p.description || '—'}</Typography></TableCell>
                           <TableCell align="right">{Number(p.weight || 0).toFixed(2)}</TableCell>
-                          <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>${Number(p.pobox_cost_usd || 0).toFixed(2)}</TableCell>
-                          <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>{formatCurrency(Number(p.pobox_service_cost || 0))}</TableCell>
+                          <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>${Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0).toFixed(2)}</TableCell>
+                          <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>{formatCurrency(Number(p.pobox_provider_cost_mxn ?? 0) || (Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0) * Number(p.registered_exchange_rate ?? 0)))}</TableCell>
                           <TableCell align="center">
                             {isLost ? <Chip label="Perdido" size="small" color="error" variant="filled" />
                               : isMissing ? <Chip label="No llegó" size="small" color="warning" variant="filled" />
