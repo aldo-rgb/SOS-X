@@ -821,6 +821,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 WHERE ${packageBranchSql} = $1
                   AND ${NOT_MASTER_WITH_CHILDREN_SQL}
                   AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
+                  AND COALESCE(to_jsonb(p)->>'status', '') NOT IN ('delivered', 'shipped', 'sent')
                   ${paymentWhereClause}
                 ORDER BY p.updated_at ASC NULLS LAST, p.created_at ASC
             `, [driverBranchId])
@@ -853,6 +854,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
                   AND ${NOT_MASTER_WITH_CHILDREN_SQL}
                   AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
+                  AND COALESCE(to_jsonb(p)->>'status', '') NOT IN ('delivered', 'shipped', 'sent')
                 ORDER BY p.created_at ASC
             `, [driverId]);
 
