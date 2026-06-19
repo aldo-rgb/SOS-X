@@ -313,7 +313,7 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
       if (!(await ensureAdvisorOnboarded(req, res))) return;
     }
 
-    let whereClause = `u.role = 'client' AND (u.advisor_id = $1 OR u.referred_by_id = $1)`;
+    let whereClause = `u.role = 'client' AND (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.id != $1`;
     const params: any[] = [targetId];
     let paramIdx = 2;
 
@@ -349,11 +349,11 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
           (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id) +
           (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id)
         ) as total_packages,
-        -- En tránsito (las 3 tablas)
+        -- En tránsito (las 3 tablas, mismo criterio que el contador del dashboard)
         (
-          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.status::text IN ('in_transit', 'received_china', 'received', 'customs')) +
+          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.master_id IS NULL AND p.status::text IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup', 'received_mty', 'received_cdmx', 'received_cdx')) +
           (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status IN ('in_transit', 'received_china', 'received', 'customs', 'consolidated', 'at_port')) +
-          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status IN ('in_transit', 'received_mty', 'inspected', 'dispatched'))
+          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status IN ('in_transit', 'received_mty', 'ready_pickup', 'inspected'))
         ) as in_transit_count,
         -- Pendientes de pago (count)
         (
