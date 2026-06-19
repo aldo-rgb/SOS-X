@@ -484,7 +484,7 @@ export const listCustomersForExternalSync = async (req: Request, res: Response):
  */
 export const getLegacyClients = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { page = 1, limit = 50, search, claimed, asesor, chartback, recovered, retention, hideRecovered, lastSendFrom, lastSendTo } = req.query;
+        const { page = 1, limit = 50, search, claimed, asesor, chartback, recovered, retention, hideRecovered, lastSendFrom, lastSendTo, withShipment } = req.query;
         const offset = (Number(page) - 1) * Number(limit);
         const limitNum = Number(limit);
 
@@ -534,6 +534,11 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
         // Ocultar recuperados
         if (hideRecovered === 'true') {
             conditions.push(`LOWER(TRIM(COALESCE(lc.chartback_status, ''))) <> 'recovered'`);
+        }
+
+        // Solo con carga recibida (tiene al menos un envío registrado)
+        if (withShipment === 'true') {
+            conditions.push(`(lc.last_send IS NOT NULL OR lc.last_send_maritimo IS NOT NULL)`);
         }
 
         // Filtro por fecha de último envío (aéreo o marítimo)
@@ -1691,6 +1696,10 @@ export const deleteLegacyClient = async (req: Request, res: Response): Promise<a
  * GET /api/legacy/clients/:boxId/external
  * Proxy al endpoint público: sistemaentregax.com/api/customers/getCustomer/:boxId
  */
+const DEFAULT_INE_URL = 'https://sistemaentregax.com/public/imgsistema/default-imagen.jpg';
+const isDefaultIne = (url: string | null | undefined) =>
+    !url || url.includes('default-imagen');
+
 export const getLegacyClientExternalData = async (req: Request, res: Response): Promise<any> => {
     const rawBoxId = req.params.boxId;
     const pick = Array.isArray(rawBoxId) ? (rawBoxId[0] ?? '') : (rawBoxId ?? '');
@@ -1702,17 +1711,58 @@ export const getLegacyClientExternalData = async (req: Request, res: Response): 
     try {
         const url = `https://sistemaentregax.com/api/customers/getCustomer/${encodeURIComponent(boxId.toLowerCase())}`;
         const r = await (globalThis as any).fetch(url, {
-            headers: { 'Accept': 'application/json' },
+            headers: { 'Accept': 'application/json', 'User-Agent': 'EntregaX-Admin/1.0' },
             signal: ctrl.signal as any,
         });
         if (!r.ok) {
             return res.status(r.status).json({ error: `Sistema externo respondió ${r.status}` });
         }
         const payload = await r.json();
-        return res.json(payload);
+        // El sistema externo devuelve { status: 'error', message: '...' } con HTTP 200
+        if (payload?.status === 'error') {
+            return res.status(404).json({ error: payload?.message || 'Cliente no encontrado en sistema externo' });
+        }
+        const data = payload?.data || payload;
+        // Filtrar imágenes default (sin INE real)
+        if (isDefaultIne(data.ladoa)) data.ladoa = null;
+        if (isDefaultIne(data.ladob)) data.ladob = null;
+        return res.json({ status: 'success', data });
     } catch (error: any) {
         console.error('Error consultando cliente externo:', error?.message);
         return res.status(502).json({ error: 'No se pudo consultar el sistema externo' });
+    } finally {
+        clearTimeout(t);
+    }
+};
+
+/**
+ * Proxy para imágenes INE de sistemaentregax.com (evita bloqueo CORS/hotlink)
+ * GET /api/legacy/ine-proxy?url=<encoded_url>
+ */
+export const proxyIneImage = async (req: Request, res: Response): Promise<any> => {
+    const rawUrl = String(req.query.url || '').trim();
+    if (!rawUrl || !rawUrl.startsWith('https://')) {
+        return res.status(400).json({ error: 'URL inválida' });
+    }
+    // Solo permitir imágenes del sistema externo
+    if (!rawUrl.includes('sistemaentregax.com')) {
+        return res.status(403).json({ error: 'URL no permitida' });
+    }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 15000);
+    try {
+        const r = await (globalThis as any).fetch(rawUrl, {
+            headers: { 'User-Agent': 'EntregaX-Admin/1.0', 'Referer': 'https://sistemaentregax.com' },
+            signal: ctrl.signal as any,
+        });
+        if (!r.ok) return res.status(r.status).send('');
+        const contentType = r.headers.get('content-type') || 'image/jpeg';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        const buf = await r.arrayBuffer();
+        return res.send(Buffer.from(buf));
+    } catch (error: any) {
+        return res.status(502).send('');
     } finally {
         clearTimeout(t);
     }

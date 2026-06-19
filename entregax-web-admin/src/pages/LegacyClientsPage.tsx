@@ -122,6 +122,7 @@ export default function LegacyClientsPage() {
   const [showOnlyRecovered, setShowOnlyRecovered] = useState(false);
   const [showOnlyRetention, setShowOnlyRetention] = useState(false);
   const [hideRecovered, setHideRecovered] = useState(false);
+  const [showOnlyWithShipment, setShowOnlyWithShipment] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [totalClients, setTotalClients] = useState(0);
@@ -218,6 +219,7 @@ export default function LegacyClientsPage() {
         ...(showOnlyRecovered && { recovered: 'true' }),
         ...(showOnlyRetention && { retention: 'true' }),
         ...(hideRecovered && { hideRecovered: 'true' }),
+        ...(showOnlyWithShipment && { withShipment: 'true' }),
         ...(lastSendFrom && { lastSendFrom }),
         ...(lastSendTo && { lastSendTo })
       });
@@ -236,7 +238,7 @@ export default function LegacyClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, lastSendFrom, lastSendTo]);
+  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, showOnlyWithShipment, lastSendFrom, lastSendTo]);
 
   useEffect(() => {
     fetchStats();
@@ -246,7 +248,7 @@ export default function LegacyClientsPage() {
   // Reset selection when page/filter changes
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, lastSendFrom, lastSendTo]);
+  }, [page, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, showOnlyRetention, hideRecovered, showOnlyWithShipment, lastSendFrom, lastSendTo]);
 
   const previewFromRows = (rows: string[][]) => {
     const firstRow = rows[0] || [];
@@ -708,6 +710,16 @@ export default function LegacyClientsPage() {
               />
             }
             label="Ocultar Recuperados"
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={showOnlyWithShipment}
+                onChange={(e) => { setShowOnlyWithShipment(e.target.checked); setPage(0); }}
+                sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#00695c' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#00695c' } }}
+              />
+            }
+            label="Solo con carga recibida"
           />
           <TextField
             label="Último envío desde"
@@ -1251,60 +1263,46 @@ export default function LegacyClientsPage() {
                 ) : null}
               </Grid>
               <Grid container spacing={2}>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <Paper variant="outlined" sx={{ p: 1.5, textAlign: 'center' }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 700 }}>
-                      INE — Lado Frontal
-                    </Typography>
-                    {ineDialog.data.ladoa ? (
-                      <Box
-                        component="a"
-                        href={ineDialog.data.ladoa}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        sx={{ display: 'block' }}
-                      >
-                        <Box
-                          component="img"
-                          src={ineDialog.data.ladoa}
-                          alt="INE lado frontal"
-                          sx={{ maxWidth: '100%', maxHeight: 320, objectFit: 'contain', cursor: 'zoom-in', border: '1px solid #eee', borderRadius: 1 }}
-                        />
-                      </Box>
-                    ) : (
-                      <Typography variant="caption" color="text.disabled">No disponible</Typography>
-                    )}
-                  </Paper>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <Paper variant="outlined" sx={{ p: 1.5, textAlign: 'center' }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 700 }}>
-                      INE — Lado Reverso
-                    </Typography>
-                    {ineDialog.data.ladob ? (
-                      <Box
-                        component="a"
-                        href={ineDialog.data.ladob}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        sx={{ display: 'block' }}
-                      >
-                        <Box
-                          component="img"
-                          src={ineDialog.data.ladob}
-                          alt="INE lado reverso"
-                          sx={{ maxWidth: '100%', maxHeight: 320, objectFit: 'contain', cursor: 'zoom-in', border: '1px solid #eee', borderRadius: 1 }}
-                        />
-                      </Box>
-                    ) : (
-                      <Typography variant="caption" color="text.disabled">No disponible</Typography>
-                    )}
-                  </Paper>
-                </Grid>
+                {(['ladoa', 'ladob'] as const).map((side) => {
+                  const rawUrl: string | null = ineDialog.data[side];
+                  const proxyUrl = rawUrl
+                    ? `${API_URL}/api/legacy/ine-proxy?url=${encodeURIComponent(rawUrl)}`
+                    : null;
+                  const label = side === 'ladoa' ? 'INE — Lado Frontal' : 'INE — Lado Reverso';
+                  return (
+                    <Grid key={side} size={{ xs: 12, md: 6 }}>
+                      <Paper variant="outlined" sx={{ p: 1.5, textAlign: 'center' }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 700 }}>
+                          {label}
+                        </Typography>
+                        {proxyUrl ? (
+                          <Box
+                            component="a"
+                            href={rawUrl!}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{ display: 'block' }}
+                          >
+                            <Box
+                              component="img"
+                              src={proxyUrl}
+                              alt={label}
+                              sx={{ maxWidth: '100%', maxHeight: 320, objectFit: 'contain', cursor: 'zoom-in', border: '1px solid #eee', borderRadius: 1 }}
+                              onError={(e: any) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling && (e.currentTarget.nextSibling as HTMLElement).removeAttribute('style'); }}
+                            />
+                            <Typography variant="caption" color="text.disabled" style={{ display: 'none' }}>No se pudo cargar la imagen</Typography>
+                          </Box>
+                        ) : (
+                          <Typography variant="caption" color="text.disabled">No disponible</Typography>
+                        )}
+                      </Paper>
+                    </Grid>
+                  );
+                })}
               </Grid>
               {!ineDialog.data.ladoa && !ineDialog.data.ladob && (
                 <Alert severity="info" sx={{ mt: 2 }}>
-                  Este cliente no tiene INE registrada en el sistema externo.
+                  Este cliente no subió identificación al registrarse o fue registrado antes de que el sistema lo requiriera.
                 </Alert>
               )}
             </Box>
