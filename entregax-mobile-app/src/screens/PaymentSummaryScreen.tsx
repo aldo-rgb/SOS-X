@@ -379,23 +379,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
       }
     } catch (error) {
       console.error('Error creating cash payment:', error);
-      // Aún así mostrar las instrucciones con referencia generada localmente
-      const reference = generatePaymentReference();
-      setPaymentReference(reference);
-      // Usar valores por defecto
-      setBankInfo({
-        banco: 'BBVA México',
-        clabe: '012580001234567890',
-        cuenta: '1234567890',
-        beneficiario: 'EntregaX SA de CV'
-      });
-      setBranchInfo({
-        nombre: 'CEDIS Monterrey',
-        direccion: 'Av. Industrial #123, Monterrey, NL',
-        telefono: '81 1234 5678',
-        horario: 'Lunes a Viernes: 9:00 - 18:00, Sábados: 9:00 - 14:00'
-      });
-      setShowCashInstructions(true);
+      Alert.alert('Error', 'No se pudo generar la orden de pago. Por favor intenta de nuevo o contacta a tu asesor.');
     } finally {
       setLoading(false);
     }
@@ -638,9 +622,9 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 <View style={styles.instructionsSection}>
                   <Text style={styles.instructionsTitle}>💵 Depósito en efectivo:</Text>
                   <View style={styles.bankInfo}>
-                    <Text style={styles.bankInfoRow}>Banco: <Text style={styles.bankInfoValue}>{bankInfo?.banco || 'BBVA'}</Text></Text>
-                    <Text style={styles.bankInfoRow}>Cuenta: <Text style={styles.bankInfoValue}>{bankInfo?.cuenta || '1234567890'}</Text></Text>
-                    <Text style={styles.bankInfoRow}>Beneficiario: <Text style={styles.bankInfoValue}>{bankInfo?.beneficiario || 'EntregaX SA de CV'}</Text></Text>
+                    <Text style={styles.bankInfoRow}>Banco: <Text style={styles.bankInfoValue}>{bankInfo?.banco || '—'}</Text></Text>
+                    <Text style={styles.bankInfoRow}>Cuenta: <Text style={styles.bankInfoValue}>{bankInfo?.cuenta || '—'}</Text></Text>
+                    <Text style={styles.bankInfoRow}>Beneficiario: <Text style={styles.bankInfoValue}>{bankInfo?.beneficiario || '—'}</Text></Text>
                     <Text style={styles.bankInfoRow}>Referencia: <Text style={styles.bankInfoValue}>{paymentReference}</Text></Text>
                   </View>
                 </View>

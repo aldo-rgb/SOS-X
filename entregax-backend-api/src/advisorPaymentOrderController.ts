@@ -195,6 +195,50 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     const allPackageIds = [...pkgIds, ...marIds, ...dhlIds];
     if (allPackageIds.length === 0) return res.status(400).json({ error: 'No se encontraron IDs válidos en las guías seleccionadas' });
 
+    // ── 1b. Check for duplicate active orders containing any of these UIDs ─
+    const dupCheckRes = await pool.query(`
+      SELECT COALESCE(apo.payment_reference, apo.folio) as ref
+      FROM advisor_payment_orders apo
+      WHERE apo.status NOT IN ('cancelado', 'pagado')
+        AND apo.client_id = $1
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(apo.package_uids) uid
+          WHERE uid = ANY($2)
+        )
+      LIMIT 5
+    `, [client_id, package_uids as string[]]);
+
+    if (dupCheckRes.rows.length > 0) {
+      const existingRefs = [...new Set(dupCheckRes.rows.map((r: any) => r.ref))].join(', ');
+      return res.status(409).json({
+        error: 'Algunas guías ya tienen una orden de pago activa',
+        message: `Las guías seleccionadas ya están incluidas en órdenes activas (${existingRefs}). Cancela o paga esa orden primero.`,
+        existing_refs: dupCheckRes.rows.map((r: any) => r.ref),
+      });
+    }
+
+    // Also check pobox_payments (client-originated orders)
+    if (allPackageIds.length > 0) {
+      const dupPoboxRes = await pool.query(`
+        SELECT pp.payment_reference, pkg_id::int as pid
+        FROM pobox_payments pp,
+             jsonb_array_elements(pp.package_ids) AS pkg_id
+        WHERE pp.user_id = $1
+          AND pp.status NOT IN ('cancelled', 'expired', 'paid', 'completed')
+          AND pkg_id::int = ANY($2)
+        LIMIT 5
+      `, [client_id, allPackageIds]);
+
+      if (dupPoboxRes.rows.length > 0) {
+        const existingRefs = [...new Set(dupPoboxRes.rows.map((r: any) => r.payment_reference))].join(', ');
+        return res.status(409).json({
+          error: 'Algunas guías ya tienen una orden de pago activa',
+          message: `Las guías seleccionadas ya están incluidas en órdenes activas (${existingRefs}). Cancela o paga esa orden primero.`,
+          existing_refs: dupPoboxRes.rows.map((r: any) => r.payment_reference),
+        });
+      }
+    }
+
     // ── 2. Determine dominant service type from actual packages ────────────
     const counts = { maritime: 0, dhl: 0, air: 0, pobox: 0 };
     counts.dhl = dhlIds.length;
@@ -238,10 +282,7 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     } catch { /* use defaults */ }
 
     if (!companyInfo?.bank_clabe) {
-      companyInfo = {
-        empresa_id: null, company_name: 'EntregaX', legal_name: 'ENTREGAX S.A. DE C.V.',
-        bank_name: 'BBVA México', bank_clabe: '012580001234567890', bank_account: '1234567890',
-      };
+      return res.status(500).json({ error: `No hay cuenta bancaria configurada para el servicio ${serviceTypeForConfig}. Configura la empresa emisora en Comisiones → Servicios antes de crear órdenes de pago.` });
     }
 
     // ── 4. Generate payment reference ────────────────────────────────────

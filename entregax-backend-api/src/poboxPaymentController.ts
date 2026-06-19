@@ -141,7 +141,7 @@ const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: numb
         LEFT JOIN maritime_orders mo ON mo.id = pkg_id::int
         LEFT JOIN dhl_shipments dh ON dh.id = pkg_id::int
         WHERE pp.user_id = $1
-          AND pp.status IN ('pending', 'pending_payment')
+          AND pp.status NOT IN ('cancelled', 'expired', 'paid', 'completed')
           AND pkg_id::int = ANY($2)
     `, [userId, packageIds]);
 
@@ -903,20 +903,14 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             }
 
             if (!companyInfo || !companyInfo.bank_clabe) {
-                companyInfo = {
-                    company_name: 'EntregaX',
-                    legal_name: 'ENTREGAX S.A. DE C.V.',
-                    bank_name: 'BBVA México',
-                    bank_clabe: '012580001234567890',
-                    bank_account: '1234567890'
-                };
+                return res.status(500).json({ error: `No hay cuenta bancaria configurada para el servicio ${serviceTypeForConfig}. Configura la empresa emisora en Comisiones → Servicios.` });
             }
 
             const bankInfo = {
-                banco: companyInfo.bank_name || 'BBVA México',
-                clabe: companyInfo.bank_clabe || '012580001234567890',
-                cuenta: companyInfo.bank_account || companyInfo.bank_clabe?.slice(-10) || '1234567890',
-                beneficiario: companyInfo.legal_name || 'ENTREGAX S.A. DE C.V.',
+                banco: companyInfo.bank_name,
+                clabe: companyInfo.bank_clabe,
+                cuenta: companyInfo.bank_account || companyInfo.bank_clabe?.slice(-10) || '',
+                beneficiario: companyInfo.legal_name,
                 concepto: existingPay.payment_reference
             };
 
@@ -1001,16 +995,8 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         }
         const paymentRef = generatePaymentReference(refPrefix);
 
-        // Valores por defecto si no hay configuración
         if (!companyInfo || !companyInfo.bank_clabe) {
-            companyInfo = {
-                empresa_id: null,
-                company_name: 'EntregaX',
-                legal_name: 'ENTREGAX S.A. DE C.V.',
-                bank_name: 'BBVA México',
-                bank_clabe: '012580001234567890',
-                bank_account: '1234567890'
-            };
+            return res.status(500).json({ error: `No hay cuenta bancaria configurada para el servicio ${serviceTypeForConfig}. Configura la empresa emisora en Comisiones → Servicios.` });
         }
 
         // Crear registro de pago (sin vencimiento para pagos en efectivo/sucursal)
@@ -1065,10 +1051,10 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
 
         // Información bancaria para transferencia SPEI
         const bankInfo = {
-            banco: companyInfo.bank_name || 'BBVA México',
-            clabe: companyInfo.bank_clabe || '012580001234567890',
-            cuenta: companyInfo.bank_account || companyInfo.bank_clabe?.slice(-10) || '1234567890',
-            beneficiario: companyInfo.legal_name || 'ENTREGAX S.A. DE C.V.',
+            banco: companyInfo.bank_name,
+            clabe: companyInfo.bank_clabe,
+            cuenta: companyInfo.bank_account || companyInfo.bank_clabe?.slice(-10) || '',
+            beneficiario: companyInfo.legal_name,
             concepto: paymentRef
         };
 
@@ -1617,34 +1603,31 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             LIMIT 50
         `, [userId]);
 
-        // Get company bank info for cash payments
+        // Get company bank info per service type
         let bankInfo: any = null;
         let branchInfo: any = null;
         try {
-            const companyResult = await pool.query(`SELECT bank_name, bank_clabe, bank_account, legal_name FROM companies LIMIT 1`);
-            const companyInfo = companyResult.rows[0] || {};
-            bankInfo = {
-                banco: companyInfo.bank_name || 'BBVA México',
-                clabe: companyInfo.bank_clabe || '012580001234567890',
-                cuenta: companyInfo.bank_account || companyInfo.bank_clabe?.slice(-10) || '1234567890',
-                beneficiario: companyInfo.legal_name || 'ENTREGAX S.A. DE C.V.'
-            };
+            const companyResult = await pool.query(`
+                SELECT fe.bank_name, fe.bank_clabe, fe.bank_account, fe.business_name AS legal_name
+                FROM service_company_config scc
+                JOIN fiscal_emitters fe ON fe.id = scc.emitter_id
+                WHERE scc.service_type = 'POBOX_USA' AND scc.is_active = TRUE
+                LIMIT 1
+            `);
+            const companyInfo = companyResult.rows[0];
+            if (companyInfo?.bank_clabe) {
+                bankInfo = {
+                    banco: companyInfo.bank_name,
+                    clabe: companyInfo.bank_clabe,
+                    cuenta: companyInfo.bank_account || companyInfo.bank_clabe?.slice(-10) || '',
+                    beneficiario: companyInfo.legal_name,
+                };
+            }
             const branchResult = await pool.query(`SELECT name, address, phone, business_hours FROM branches WHERE is_active = TRUE ORDER BY id LIMIT 1`);
             const br = branchResult.rows[0];
             branchInfo = br ? { nombre: br.name, direccion: br.address, telefono: br.phone, horario: br.business_hours } : null;
         } catch (e) {
-            bankInfo = {
-                banco: 'BBVA México',
-                clabe: '012580001234567890',
-                cuenta: '1234567890',
-                beneficiario: 'ENTREGAX S.A. DE C.V.'
-            };
-            branchInfo = {
-                nombre: 'CEDIS Monterrey',
-                direccion: 'Av. Industrial #123, Col. Centro, Monterrey, N.L.',
-                telefono: '81 1234 5678',
-                horario: 'Lunes a Viernes 9:00 - 18:00, Sábados 9:00 - 14:00'
-            };
+            // bankInfo remains null — frontend handles gracefully
         }
 
         // Enrich with package details

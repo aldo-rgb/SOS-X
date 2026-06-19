@@ -4705,7 +4705,7 @@ export default function DashboardClient() {
                                   amount: Number(order.amount),
                                   currency: order.currency || 'MXN',
                                   expiresAt: '',
-                                  bankInfo: order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX', concepto: order.payment_reference },
+                                  bankInfo: order.bank_info || { banco: '', clabe: '', cuenta: '', beneficiario: '', concepto: order.payment_reference },
                                   branchInfo: order.branch_info || { nombre: 'CEDIS Monterrey', direccion: 'Av. Industrial #123', telefono: '81 1234 5678', horario: 'L-V 9-18' },
                                 });
                               }}
@@ -14518,7 +14518,7 @@ export default function DashboardClient() {
                                           amount: Number(order.amount),
                                           currency: order.currency || 'MXN',
                                           expiresAt: '',
-                                          bankInfo: order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX', concepto: order.payment_reference },
+                                          bankInfo: order.bank_info || { banco: '', clabe: '', cuenta: '', beneficiario: '', concepto: order.payment_reference },
                                           branchInfo: order.branch_info || { nombre: 'CEDIS Monterrey', direccion: 'Av. Industrial #123', telefono: '81 1234 5678', horario: 'L-V 9-18' },
                                         });
                                       }}
@@ -14531,7 +14531,7 @@ export default function DashboardClient() {
                                     sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
                                     onClick={() => {
                                     const userData = JSON.parse(localStorage.getItem('user') || '{}');
-                                    const bankInfo = order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX' };
+                                    const bankInfo = order.bank_info || { banco: '', clabe: '', cuenta: '', beneficiario: '' };
                                     const pkgs = Array.isArray(order.packages) ? order.packages : [];
                                     const today = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
                                     const fmtCur = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2 });
