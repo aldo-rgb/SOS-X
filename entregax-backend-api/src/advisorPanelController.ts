@@ -134,11 +134,13 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         SELECT
           COUNT(*) FILTER (WHERE p.status::text IN ('in_transit','received_china','received','customs','ready_pickup','received_mty')) AS in_transit,
           COUNT(*) FILTER (WHERE p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')
+                             AND COALESCE(p.needs_instructions, TRUE) = TRUE
                              AND p.status::text NOT IN ('delivered','shipped','lost','returned_to_warehouse')) AS missing_instr
         FROM packages p
         JOIN users u ON (p.user_id = u.id OR (p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM(u.box_id))))
         WHERE u.role = 'client'
           AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+          AND u.id != $1
           AND p.master_id IS NULL
 
         UNION ALL
@@ -151,6 +153,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         JOIN users u ON mo.user_id = u.id
         WHERE u.role = 'client'
           AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+          AND u.id != $1
 
         UNION ALL
 
@@ -162,10 +165,12 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         JOIN users u ON ds.user_id = u.id
         WHERE u.role = 'client'
           AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+          AND u.id != $1
       ) t
     `, [advisorId]);
 
     // Guías con saldo pendiente de clientes del asesor (packages + maritime + DHL)
+    // Solo cuenta las que NO están pagadas (client_paid != true y payment_status != 'paid')
     const pendingOrdersRes = await pool.query(`
       SELECT SUM(cnt) AS pending_orders FROM (
         SELECT COUNT(*) as cnt
@@ -173,8 +178,11 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         JOIN users u ON p.user_id = u.id
         WHERE u.role = 'client'
           AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+          AND u.id != $1
           AND p.master_id IS NULL
           AND COALESCE(p.saldo_pendiente, 0) > 0
+          AND p.client_paid != TRUE
+          AND COALESCE(p.payment_status, '') != 'paid'
           AND p.status::text NOT IN ('delivered','lost','returned_to_warehouse')
         UNION ALL
         SELECT COUNT(*) as cnt
@@ -182,7 +190,9 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         JOIN users u ON mo.user_id = u.id
         WHERE u.role = 'client'
           AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+          AND u.id != $1
           AND COALESCE(mo.saldo_pendiente, 0) > 0
+          AND COALESCE(mo.client_paid, false) != TRUE
           AND mo.status NOT IN ('delivered','returned_to_warehouse')
         UNION ALL
         SELECT COUNT(*) as cnt
@@ -190,7 +200,9 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         JOIN users u ON ds.user_id = u.id
         WHERE u.role = 'client'
           AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+          AND u.id != $1
           AND COALESCE(ds.saldo_pendiente, 0) > 0
+          AND ds.paid_at IS NULL
           AND ds.status NOT IN ('delivered','returned_to_warehouse')
       ) t
     `, [advisorId]);
