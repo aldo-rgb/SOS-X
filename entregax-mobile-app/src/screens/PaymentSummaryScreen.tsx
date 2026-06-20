@@ -937,15 +937,15 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                       <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#EEE' }}>
                         {poboxMxn > 0 && (
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-                            <Text style={{ fontSize: 11, color: '#555' }}>
-                              Costo de caja{carrier ? ` · ${carrier}` : ''}
-                            </Text>
+                            <Text style={{ fontSize: 11, color: '#555' }}>Costo de importación</Text>
                             <Text style={{ fontSize: 11, color: '#333', fontWeight: '600' }}>${poboxMxn.toFixed(2)}</Text>
                           </View>
                         )}
                         {ship > 0 && (
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-                            <Text style={{ fontSize: 11, color: '#555' }}>Paquetería nacional</Text>
+                            <Text style={{ fontSize: 11, color: '#555' }}>
+                              Paquetería{carrier ? ` · ${carrier}` : ''}
+                            </Text>
                             <Text style={{ fontSize: 11, color: '#333', fontWeight: '600' }}>${ship.toFixed(2)}</Text>
                           </View>
                         )}
