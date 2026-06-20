@@ -3620,9 +3620,54 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
         }
 
         const allPackages = [...airPackages, ...maritimePackages, ...chinaAirPackages, ...dhlPackages, ...fclPackages, ...tdiExpressPackages];
-        
+
         // Ordenar por fecha de creación
         allPackages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        // Enriquecer con cargos extra (guias_ajustes_financieros) — se matchea por
+        // tracking para evitar colisiones de id entre tablas. cargo_extra suma, descuento resta.
+        try {
+            const trackingOf = (o: any): string[] => {
+                const arr: string[] = [];
+                if (o?.tracking_internal) arr.push(String(o.tracking_internal));
+                if (o?.tracking) arr.push(String(o.tracking));
+                return arr;
+            };
+            const allTrackings = new Set<string>();
+            for (const p of allPackages) {
+                for (const t of trackingOf(p)) allTrackings.add(t);
+                const kids = (p as any).included_guides || (p as any).child_packages || [];
+                if (Array.isArray(kids)) for (const c of kids) for (const t of trackingOf(c)) allTrackings.add(t);
+            }
+            if (allTrackings.size > 0) {
+                const chRes = await pool.query(
+                    `SELECT guia_tracking, tipo, monto, concepto FROM guias_ajustes_financieros
+                     WHERE activo = true AND guia_tracking = ANY($1::text[])`,
+                    [Array.from(allTrackings)]
+                );
+                const byTracking: Record<string, { total: number; descs: string[] }> = {};
+                for (const r of chRes.rows) {
+                    const key = String(r.guia_tracking);
+                    if (!byTracking[key]) byTracking[key] = { total: 0, descs: [] };
+                    byTracking[key].total += (r.tipo === 'descuento' ? -1 : 1) * (Number(r.monto) || 0);
+                    if (r.concepto) byTracking[key].descs.push(r.concepto);
+                }
+                for (const p of allPackages as any[]) {
+                    let total = 0; const descs: string[] = [];
+                    const keys = trackingOf(p);
+                    const kids = p.included_guides || p.child_packages || [];
+                    if (Array.isArray(kids)) for (const c of kids) keys.push(...trackingOf(c));
+                    for (const k of keys) {
+                        const e = byTracking[k];
+                        if (e) { total += e.total; descs.push(...e.descs); }
+                    }
+                    p.extra_charges_total = total;
+                    p.extra_charges_desc = [...new Set(descs)].join(', ');
+                }
+            }
+        } catch (e) {
+            console.error('[getMyPackages] extra charges enrichment error:', e);
+        }
 
         res.json(allPackages);
     } catch (error) {

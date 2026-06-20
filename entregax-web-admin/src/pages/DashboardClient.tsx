@@ -904,7 +904,8 @@ export default function DashboardClient() {
 
     const gex = (Number(pkg.gex_total_cost) || 0) > 0 ? (Number(pkg.gex_total_cost) || 0) : gexFromChildren;
     const paq = (Number(pkg.national_shipping_cost) || 0) > 0 ? (Number(pkg.national_shipping_cost) || 0) : paqFromChildren;
-    return envioMXN + gex + paq;
+    const extra = Number(pkg.extra_charges_total) || 0;
+    return envioMXN + gex + paq + extra;
   };
 
   const isPaidPackage = (pkg: PackageTracking): boolean => {
@@ -13553,6 +13554,14 @@ export default function DashboardClient() {
                       <Typography variant="caption">🛡️ Garantía Extendida (GEX)</Typography>
                       <Typography variant="caption" fontWeight="bold" color="success.main">
                         {formatCurrency(Number(pkg.gex_total_cost))}
+                      </Typography>
+                    </Box>
+                  )}
+                  {Number(pkg.extra_charges_total) !== 0 && (
+                    <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#fff3e0', borderRadius: 1, px: 1, py: 0.5 }}>
+                      <Typography variant="caption">➕ Cargos extra{(pkg.extra_charges || []).map((c: any) => c.concepto).filter(Boolean).length > 0 ? ` (${(pkg.extra_charges || []).map((c: any) => c.concepto).filter(Boolean).join(', ')})` : ''}</Typography>
+                      <Typography variant="caption" fontWeight="bold" sx={{ color: '#C2410C' }}>
+                        {formatCurrency(Number(pkg.extra_charges_total))}
                       </Typography>
                     </Box>
                   )}
