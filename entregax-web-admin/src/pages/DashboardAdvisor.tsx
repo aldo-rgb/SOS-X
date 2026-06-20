@@ -2623,6 +2623,7 @@ export default function DashboardAdvisor() {
                 <TableCell align="center">{t('advisor.status')}</TableCell>
                 <TableCell>{t('advisor.service')}</TableCell>
                 <TableCell align="right">{t('advisor.amount')}</TableCell>
+                <TableCell align="right">Cargos Extra</TableCell>
                 <TableCell align="center">
                   <Tooltip title="Pago / Instrucciones / GEX">
                     <span>P · I · G</span>
@@ -2636,7 +2637,7 @@ export default function DashboardAdvisor() {
             <TableBody>
               {shipments.length === 0 && !shipmentsLoading && (
                 <TableRow>
-                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('advisor.noShipments')}</Typography>
                   </TableCell>
                 </TableRow>
@@ -2714,6 +2715,15 @@ export default function DashboardAdvisor() {
                     <Typography variant="body2" fontWeight={600}>
                       {s.amount > 0 ? formatMXN(s.amount) : '—'}
                     </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    {(s.extraChargesTotal || 0) !== 0 ? (
+                      <Typography variant="body2" fontWeight={600} sx={{ color: '#C2410C' }}>
+                        {formatMXN(s.extraChargesTotal)}
+                      </Typography>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">—</Typography>
+                    )}
                   </TableCell>
                   {/* Columna combinada: Pago · Instrucciones · GEX */}
                   <TableCell align="center">
