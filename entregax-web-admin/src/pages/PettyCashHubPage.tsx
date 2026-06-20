@@ -1633,17 +1633,25 @@ export default function PettyCashHubPage() {
                     const ordered = [...filteredMovs].sort(
                       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                     );
+                    // Saldo acumulado en orden cronológico (viejo→nuevo). Solo los
+                    // movimientos PROPIOS de esta wallet afectan el saldo (mismo
+                    // criterio que los totales del encabezado, por wallet_id); los
+                    // gastos de choferes son de otra wallet y solo informativos.
                     let running = 0;
-                    return ordered.map(m => {
+                    const saldoById: Record<string | number, number | null> = {};
+                    for (const mv of ordered) {
+                      const mMeta = MOVEMENT_TYPE_META[mv.movement_type] || { sign: 1 as const };
+                      const mAmount = Number(mv.amount_mxn) || 0;
+                      const mAffects = Number((mv as any).wallet_id) === Number((detailWallet as any)?.id)
+                        && (mv.status === 'approved' || mv.status === 'settled');
+                      if (mAffects) running += mMeta.sign * mAmount;
+                      saldoById[mv.id] = mAffects ? running : null;
+                    }
+                    // Mostrar los movimientos más recientes arriba
+                    return [...ordered].reverse().map(m => {
                       const meta = MOVEMENT_TYPE_META[m.movement_type] || { label: m.movement_type, sign: 1 as const };
                       const amount = Number(m.amount_mxn) || 0;
-                      // Solo los movimientos PROPIOS de esta wallet afectan su saldo
-                      // (mismo criterio que los totales del encabezado, por wallet_id).
-                      // Los gastos de choferes pertenecen a OTRA wallet y se muestran
-                      // solo como informativos, así que no entran al saldo acumulado.
-                      const affectsBalance = Number((m as any).wallet_id) === Number((detailWallet as any)?.id)
-                        && (m.status === 'approved' || m.status === 'settled');
-                      if (affectsBalance) running += meta.sign * amount;
+                      const rowSaldo = saldoById[m.id];
                       // El anticipo refleja la firma del chofer: sin firmar queda Pendiente
                       let effStatus = m.status;
                       if (m.movement_type === 'advance' && m.advance_status) {
@@ -1684,7 +1692,7 @@ export default function PettyCashHubPage() {
                             ) : '—'}
                           </TableCell>
                           <TableCell align="right">
-                            {affectsBalance ? <Typography fontWeight="bold">{fmtMoney(running, detailWallet?.currency)}</Typography> : '—'}
+                            {rowSaldo != null ? <Typography fontWeight="bold">{fmtMoney(rowSaldo, detailWallet?.currency)}</Typography> : '—'}
                           </TableCell>
                           <TableCell align="center">
                             <Chip size="small" label={st.label} color={st.color} />
