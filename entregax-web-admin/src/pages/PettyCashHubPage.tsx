@@ -1633,19 +1633,28 @@ export default function PettyCashHubPage() {
                     const ordered = [...filteredMovs].sort(
                       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                     );
-                    // Saldo acumulado en orden cronológico (viejo→nuevo). Solo los
-                    // movimientos PROPIOS de esta wallet afectan el saldo (mismo
-                    // criterio que los totales del encabezado, por wallet_id); los
-                    // gastos de choferes son de otra wallet y solo informativos.
-                    let running = 0;
+                    // Saldo por fila ANCLADO al balance real de la wallet (balance_mxn),
+                    // no acumulado desde 0: el endpoint solo trae los últimos 300
+                    // movimientos, así que partir de 0 ignoraría el historial previo y
+                    // no cuadraría con el saldo disponible. Anclamos el movimiento más
+                    // reciente al balance real y derivamos los anteriores restando su
+                    // efecto hacia atrás. Solo los movimientos PROPIOS de esta wallet
+                    // (por wallet_id, igual que los totales del encabezado) afectan el
+                    // saldo; los gastos de choferes son de otra wallet (informativos).
                     const saldoById: Record<string | number, number | null> = {};
-                    for (const mv of ordered) {
+                    let bal = Number((detailWallet as any)?.balance_mxn) || 0;
+                    for (let i = ordered.length - 1; i >= 0; i--) {
+                      const mv = ordered[i];
                       const mMeta = MOVEMENT_TYPE_META[mv.movement_type] || { sign: 1 as const };
                       const mAmount = Number(mv.amount_mxn) || 0;
                       const mAffects = Number((mv as any).wallet_id) === Number((detailWallet as any)?.id)
                         && (mv.status === 'approved' || mv.status === 'settled');
-                      if (mAffects) running += mMeta.sign * mAmount;
-                      saldoById[mv.id] = mAffects ? running : null;
+                      if (mAffects) {
+                        saldoById[mv.id] = bal;
+                        bal -= mMeta.sign * mAmount;
+                      } else {
+                        saldoById[mv.id] = null;
+                      }
                     }
                     // Mostrar los movimientos más recientes arriba
                     return [...ordered].reverse().map(m => {
