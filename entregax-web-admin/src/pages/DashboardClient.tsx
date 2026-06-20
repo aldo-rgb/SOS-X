@@ -11499,6 +11499,8 @@ export default function DashboardClient() {
                             : paqFromChildren;
                           const importTaxMXN = isDhl ? (Number(selectedPackage.import_tax_mxn) || 0) : 0;
                           const extraChargesMXN = Number(selectedPackage.extra_charges_total) || 0;
+                          const extraChargesDesc = (selectedPackage.extra_charges || [])
+                            .map((c: any) => c.concepto).filter(Boolean).join(', ');
                           const hasDesglose = gexMXN > 0 || paqMXN > 0 || importTaxMXN > 0 || extraChargesMXN !== 0;
                           const envioMXN = montoMXN;
                           const totalMXN = hasDesglose ? envioMXN + gexMXN + paqMXN + importTaxMXN + extraChargesMXN : montoMXN;
@@ -11544,7 +11546,7 @@ export default function DashboardClient() {
                                   )}
                                   {extraChargesMXN !== 0 && (
                                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                      <Typography variant="caption" color="text.secondary">➕ Cargos extra:</Typography>
+                                      <Typography variant="caption" color="text.secondary">➕ Cargos extra{extraChargesDesc ? ` (${extraChargesDesc})` : ''}:</Typography>
                                       <Typography variant="caption" fontWeight="bold">
                                         ${extraChargesMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                                       </Typography>

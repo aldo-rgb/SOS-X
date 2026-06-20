@@ -53,6 +53,7 @@ interface Shipment {
   gex_cost: number;
   national_shipping_cost: number;
   extra_charges_total?: number;
+  extra_charges_desc?: string;
   is_unidentified?: boolean;
   carrier_tracking?: string | null;
   carrier_name?: string | null;
@@ -206,6 +207,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         gex_cost: parseFloat(s.gexCost ?? s.gex_cost ?? 0),
         national_shipping_cost: parseFloat(s.nationalShippingCost ?? s.national_shipping_cost ?? 0),
         extra_charges_total: parseFloat(s.extraChargesTotal ?? s.extra_charges_total ?? 0),
+        extra_charges_desc: s.extraChargesDesc ?? s.extra_charges_desc ?? '',
         saldo_pendiente: (parseFloat(s.saldo_pendiente ?? s.monto ?? s.amount ?? 0)) + (parseFloat(s.gexCost ?? s.gex_cost ?? 0)) + (parseFloat(s.nationalShippingCost ?? s.national_shipping_cost ?? 0)) + (parseFloat(s.extraChargesTotal ?? s.extra_charges_total ?? 0)),
         client_paid: s.client_paid ?? s.clientPaid ?? false,
         has_instructions: s.has_instructions ?? s.hasInstructions ?? false,
@@ -655,7 +657,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                 )}
                 {(item.extra_charges_total || 0) !== 0 && (
                   <Text style={{ fontSize: 10, color: '#C2410C' }}>
-                    ➕ Cargos extra ${Number(item.extra_charges_total).toFixed(2)}
+                    ➕ Cargos extra{item.extra_charges_desc ? ` (${item.extra_charges_desc})` : ''} ${Number(item.extra_charges_total).toFixed(2)}
                   </Text>
                 )}
               </View>

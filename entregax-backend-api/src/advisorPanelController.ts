@@ -848,6 +848,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     // Cargos extra (guias_ajustes_financieros): por guia_id (master/guía) y por
     // guia_tracking de las hijas (repack/consolidación). cargo_extra suma, descuento resta.
     const extraChargesByShipment: Record<string, number> = {};
+    const extraChargesDescByShipment: Record<string, string> = {};
     try {
       const shipIds = shipmentsRes.rows.map((s: any) => Number(s.id)).filter((n: number) => Number.isFinite(n));
       const childTrks: string[] = [];
@@ -856,23 +857,36 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
       }
       if (shipIds.length > 0 || childTrks.length > 0) {
         const chRes = await pool.query(
-          `SELECT guia_id, guia_tracking, tipo, monto FROM guias_ajustes_financieros
+          `SELECT guia_id, guia_tracking, tipo, monto, concepto FROM guias_ajustes_financieros
            WHERE activo = true AND (guia_id = ANY($1::int[]) OR guia_tracking = ANY($2::text[]))`,
           [shipIds, childTrks]
         );
         const byId: Record<number, number> = {};
         const byTracking: Record<string, number> = {};
+        const descById: Record<number, string[]> = {};
+        const descByTracking: Record<string, string[]> = {};
         for (const r of chRes.rows) {
           const m = (r.tipo === 'descuento' ? -1 : 1) * (Number(r.monto) || 0);
-          if (r.guia_id != null) byId[r.guia_id] = (byId[r.guia_id] || 0) + m;
-          if (r.guia_tracking) byTracking[r.guia_tracking] = (byTracking[r.guia_tracking] || 0) + m;
+          if (r.guia_id != null) {
+            byId[r.guia_id] = (byId[r.guia_id] || 0) + m;
+            if (r.concepto) (descById[r.guia_id] = descById[r.guia_id] || []).push(r.concepto);
+          }
+          if (r.guia_tracking) {
+            byTracking[r.guia_tracking] = (byTracking[r.guia_tracking] || 0) + m;
+            if (r.concepto) (descByTracking[r.guia_tracking] = descByTracking[r.guia_tracking] || []).push(r.concepto);
+          }
         }
         for (const s of shipmentsRes.rows) {
           let total = byId[Number(s.id)] || 0;
+          const descs = [...(descById[Number(s.id)] || [])];
           if (Array.isArray(s.child_trackings)) {
-            for (const t of s.child_trackings) if (t && byTracking[t] != null) total += byTracking[t];
+            for (const t of s.child_trackings) {
+              if (t && byTracking[t] != null) total += byTracking[t];
+              if (t && descByTracking[t]) descs.push(...descByTracking[t]);
+            }
           }
           extraChargesByShipment[String(s.id)] = total;
+          extraChargesDescByShipment[String(s.id)] = [...new Set(descs)].join(', ');
         }
       }
     } catch (e) {
@@ -916,6 +930,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         labelPrinted: !!(s.national_label_url && s.national_label_url !== ''),
         nationalShippingCost: parseFloat(s.national_shipping_cost) || 0,
         extraChargesTotal: extraChargesByShipment[String(s.id)] || 0,
+        extraChargesDesc: extraChargesDescByShipment[String(s.id)] || '',
       })),
       stats: {
         total: parseInt(statsRes.rows[0]?.total) || 0,
