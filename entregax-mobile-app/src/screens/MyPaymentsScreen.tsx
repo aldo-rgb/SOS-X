@@ -14,6 +14,7 @@ import {
   TextInput,
   Dimensions,
   Switch,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -1186,7 +1187,7 @@ const MyPaymentsScreen = () => {
         setLoadingOrders(true);
         try {
           const ordersRes = await getPaymentOrdersApi(token);
-          if (ordersRes.orders) setPaymentOrders(ordersRes.orders);
+          if (ordersRes.success) setPaymentOrders(ordersRes.payments || []);
         } catch (e) {}
         setLoadingOrders(false);
       } else {

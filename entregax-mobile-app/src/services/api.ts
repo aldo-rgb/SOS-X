@@ -406,7 +406,14 @@ export interface PaymentOrder {
     national_shipping_cost: number;
     national_carrier: string;
     status: string;
+    service_type?: string;
   }[];
+  cost_breakdown?: {
+    pobox?: number;
+    paqueteria?: number;
+    gex?: number;
+    extra?: number;
+  };
 }
 
 export const getPaymentOrdersApi = async (token: string): Promise<{
