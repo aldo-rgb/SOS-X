@@ -1374,20 +1374,22 @@ const MyPaymentsScreen = () => {
                 {/* Detalle de paquetes expandible */}
                 {expandedOrderId === order.id && Array.isArray(order.packages) && order.packages.length > 0 && (
                   <View style={styles.orderPackages}>
-                    {order.packages.map((pkg: any) => (
-                      <View key={pkg.id} style={styles.orderPkgRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.orderPkgTracking}>{pkg.tracking_internal}</Text>
-                          <Text style={styles.orderPkgDetail}>
-                            {pkg.descripcion ? `${pkg.descripcion} · ` : ''}{pkg.weight ? `${Number(pkg.weight).toFixed(1)} lb` : ''}
-                            {pkg.national_carrier ? ` · 🚚 ${pkg.national_carrier}` : ''}
-                          </Text>
+                    {order.packages.map((pkg: any) => {
+                      const dims = (Number(pkg.length_cm) > 0 || Number(pkg.width_cm) > 0 || Number(pkg.height_cm) > 0)
+                        ? `${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm` : '';
+                      return (
+                        <View key={pkg.id} style={styles.orderPkgRow}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.orderPkgTracking}>{pkg.tracking_internal}</Text>
+                            <Text style={styles.orderPkgDetail}>
+                              {pkg.descripcion ? `${pkg.descripcion} · ` : ''}{pkg.weight ? `${Number(pkg.weight).toFixed(1)} lb` : ''}
+                              {dims ? ` · 📐 ${dims}` : ''}
+                              {pkg.national_carrier ? ` · 🚚 ${pkg.national_carrier}` : ''}
+                            </Text>
+                          </View>
                         </View>
-                        <Text style={styles.orderPkgAmount}>
-                          {formatCurrency(Number(pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0))}
-                        </Text>
-                      </View>
-                    ))}
+                      );
+                    })}
                   </View>
                 )}
               </View>
