@@ -574,6 +574,7 @@ const MyPaymentsScreen = () => {
         currency: order.currency || 'MXN',
         bank_info: (order as any).bank_info,
         packages: order.packages,
+        cost_breakdown: (order as any).cost_breakdown,
         userName: user?.name || user?.nombre || `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || '-',
         userCasillero: user?.pobox_code || user?.casillero || '-',
       });

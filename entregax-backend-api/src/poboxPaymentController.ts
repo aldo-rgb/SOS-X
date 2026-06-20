@@ -1735,7 +1735,45 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                     console.error('[getPoboxPaymentHistory] tracking fallback error:', e2);
                 }
             }
-            const enriched: any = { ...row, packages };
+            // Desglose de costos para la cotización/PDF. GEX, Paquetería y Cargos
+            // Extra se computan sobre master + guías hijas (cada componente vive en
+            // un nivel distinto). PO Box queda como remanente para que el desglose
+            // siempre reconcilie exactamente con el TOTAL (order.amount).
+            const cost_breakdown = { pobox: 0, paqueteria: 0, gex: 0, extra: 0 };
+            try {
+                if (Array.isArray(pkgIds) && pkgIds.length > 0) {
+                    const brk = await pool.query(`
+                        SELECT tracking_internal,
+                               COALESCE(national_shipping_cost, 0) AS ship,
+                               COALESCE(gex_total_cost, 0) AS gex
+                        FROM packages
+                        WHERE id = ANY($1) OR master_id = ANY($1)
+                    `, [pkgIds]);
+                    const trks: string[] = [];
+                    for (const r of brk.rows) {
+                        cost_breakdown.paqueteria += Number(r.ship) || 0;
+                        cost_breakdown.gex += Number(r.gex) || 0;
+                        if (r.tracking_internal) trks.push(String(r.tracking_internal));
+                    }
+                    if (trks.length > 0) {
+                        const ch = await pool.query(
+                            `SELECT tipo, monto FROM guias_ajustes_financieros
+                             WHERE activo = true AND guia_tracking = ANY($1::text[])`,
+                            [trks]
+                        );
+                        for (const c of ch.rows) {
+                            cost_breakdown.extra += (c.tipo === 'descuento' ? -1 : 1) * (Number(c.monto) || 0);
+                        }
+                    }
+                    // PO Box = remanente del total (reconcilia el desglose con order.amount)
+                    cost_breakdown.pobox = (Number(row.amount) || 0)
+                        - cost_breakdown.paqueteria - cost_breakdown.gex - cost_breakdown.extra;
+                }
+            } catch (e) {
+                console.error('[getPoboxPaymentHistory] cost_breakdown error:', e);
+            }
+
+            const enriched: any = { ...row, packages, cost_breakdown };
             if (row.payment_method === 'cash') {
                 enriched.bank_info = bankInfo;
                 enriched.branch_info = branchInfo;

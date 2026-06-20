@@ -48,6 +48,12 @@ interface PaymentPDFData {
     height_cm?: number;
     description?: string;
   }>;
+  cost_breakdown?: {
+    pobox?: number;
+    paqueteria?: number;
+    gex?: number;
+    extra?: number;
+  };
   userName?: string;
   userCasillero?: string;
   createdAt?: string;
@@ -106,6 +112,18 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
         </tr>`;
     }).join('');
   }
+
+  // Filas de desglose (Paquetería / GEX / Cargos Extra). PO Box queda implícito
+  // en las filas por guía; estas tres + el PO Box reconcilian con el TOTAL.
+  const bd = data.cost_breakdown || {};
+  const breakdownRow = (label: string, val: number, color?: string): string =>
+    Number(val) !== 0
+      ? `<tr><td style="border-bottom:1px solid #f0f0f0;"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color || '#333'};">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color || '#333'};">${formatCurrency(Number(val))}</td></tr>`
+      : '';
+  const breakdownRows =
+    breakdownRow('🚚 Paquetería (Envío Nacional)', Number(bd.paqueteria) || 0) +
+    breakdownRow('🛡️ GEX — Garantía Extendida', Number(bd.gex) || 0, '#2E7D32') +
+    breakdownRow('➕ Cargos Extra', Number(bd.extra) || 0, '#C2410C');
 
   const html = `
 <!DOCTYPE html>
@@ -236,6 +254,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
       </thead>
       <tbody>
         ${packageRows}
+        ${breakdownRows}
         <tr class="total-row">
           <td colspan="5" style="text-align:right; padding-right: 10px;">TOTAL A PAGAR:</td>
           <td style="text-align:right; color: #E65100; font-size: 14px;">${totalFormatted} ${data.currency || 'MXN'}</td>
