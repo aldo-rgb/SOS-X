@@ -246,6 +246,8 @@ interface IncludedGuide {
   assigned_cost_mxn?: number;
   national_shipping_cost?: number;
   gex_total_cost?: number;
+  extra_charges_total?: number;
+  extra_charges?: Array<{ tipo: string; monto: number; concepto?: string; moneda?: string }>;
   pobox_venta_usd?: number;
   pobox_venta_mxn?: number;
   pobox_service_cost?: number;
@@ -11494,9 +11496,10 @@ export default function DashboardClient() {
                             ? (Number(selectedPackage.national_shipping_cost) || 0)
                             : paqFromChildren;
                           const importTaxMXN = isDhl ? (Number(selectedPackage.import_tax_mxn) || 0) : 0;
-                          const hasDesglose = gexMXN > 0 || paqMXN > 0 || importTaxMXN > 0;
+                          const extraChargesMXN = Number(selectedPackage.extra_charges_total) || 0;
+                          const hasDesglose = gexMXN > 0 || paqMXN > 0 || importTaxMXN > 0 || extraChargesMXN !== 0;
                           const envioMXN = montoMXN;
-                          const totalMXN = hasDesglose ? envioMXN + gexMXN + paqMXN + importTaxMXN : montoMXN;
+                          const totalMXN = hasDesglose ? envioMXN + gexMXN + paqMXN + importTaxMXN + extraChargesMXN : montoMXN;
                           return (
                             <>
                               {hasDesglose && (
@@ -11534,6 +11537,14 @@ export default function DashboardClient() {
                                       <Typography variant="caption" color="text.secondary">🧾 Cargo de impuestos DHL:</Typography>
                                       <Typography variant="caption" fontWeight="bold">
                                         ${importTaxMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                  {extraChargesMXN !== 0 && (
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <Typography variant="caption" color="text.secondary">➕ Cargos extra:</Typography>
+                                      <Typography variant="caption" fontWeight="bold">
+                                        ${extraChargesMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                                       </Typography>
                                     </Box>
                                   )}

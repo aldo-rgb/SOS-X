@@ -3788,6 +3788,43 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
 
+    // 3b. Enriquecer paquetes (tabla packages) con cargos extra registrados en
+    //     guias_ajustes_financieros (cargo_extra suma, descuento resta). Se
+    //     incluyen los cargos del master + sus guías hijas.
+    try {
+      const idsForCharges = packagesWithChildren.flatMap((p: any) =>
+        [p.id, ...((p.included_guides || []).map((c: any) => c.id))]
+      ).filter((x: any) => x != null);
+      if (idsForCharges.length > 0) {
+        const chargesRes = await pool.query(
+          `SELECT guia_id, tipo, monto, concepto, moneda
+           FROM guias_ajustes_financieros
+           WHERE activo = true AND guia_id = ANY($1::int[])`,
+          [idsForCharges]
+        );
+        const chargesByGuia: Record<number, any[]> = {};
+        for (const r of chargesRes.rows) {
+          (chargesByGuia[r.guia_id] = chargesByGuia[r.guia_id] || []).push(r);
+        }
+        for (const p of packagesWithChildren) {
+          const ids = [p.id, ...((p.included_guides || []).map((c: any) => c.id))];
+          let total = 0;
+          const list: any[] = [];
+          for (const id of ids) {
+            for (const c of (chargesByGuia[id] || [])) {
+              const m = Number(c.monto) || 0;
+              total += c.tipo === 'descuento' ? -m : m;
+              list.push({ tipo: c.tipo, monto: m, concepto: c.concepto, moneda: c.moneda || 'MXN' });
+            }
+          }
+          p.extra_charges_total = total;
+          p.extra_charges = list;
+        }
+      }
+    } catch (e) {
+      console.error('[dashboard/client] extra charges enrichment error:', e);
+    }
+
     // 4. Obtener facturas recientes (si la tabla existe)
     let invoicesRows: any[] = [];
     try {
