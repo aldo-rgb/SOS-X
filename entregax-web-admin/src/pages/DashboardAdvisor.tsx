@@ -2901,29 +2901,16 @@ export default function DashboardAdvisor() {
                       const res = await api.get('/advisor/shipments', { params: { clientId: op.client_id, limit: 200 } });
                       const uidSet = new Set(uids);
                       const matched = (res.data.shipments || []).filter((s: any) => uidSet.has(s.uid));
-                      // Expand master packages into their children
+                      // Attach children to master shipments for sub-row breakdown in PDF
                       const expanded: any[] = [];
                       for (const s of matched) {
                         if (s.childrenCount > 0) {
                           try {
                             const cr = await api.get(`/advisor/shipments/${s.id}/children`);
-                            const children = cr.data.children || [];
-                            children.forEach((c: any) => expanded.push({
-                              ...s,
-                              tracking: c.tracking,
-                              internationalTracking: c.internationalTracking,
-                              weight: c.weight || 0,
-                              lengthCm: c.lengthCm || 0,
-                              widthCm: c.widthCm || 0,
-                              heightCm: c.heightCm || 0,
-                              tarifaNivel: c.tarifaNivel,
-                              description: c.description || s.description,
-                              amount: c.amount || 0,
-                              gexCost: c.gexCost || 0,
-                            }));
-                          } catch { expanded.push(s); }
+                            expanded.push({ ...s, _children: cr.data.children || [] });
+                          } catch { expanded.push({ ...s, _children: [] }); }
                         } else {
-                          expanded.push(s);
+                          expanded.push({ ...s, _children: [] });
                         }
                       }
                       shipDetails = expanded;
@@ -3047,6 +3034,25 @@ export default function DashboardAdvisor() {
                     doc.setTextColor(...(amt>0 ? C.orange : C.gray));
                     doc.text(amt>0?`$${amt.toLocaleString('es-MX',{minimumFractionDigits:2})}`:'—', cols.amt, y+5, { align:'right' });
                     y += rowH;
+                    // Child sub-rows (breakdown per caja)
+                    if ((s as any)._children?.length > 0) {
+                      (s as any)._children.forEach((c: any) => {
+                        if (y > 265) { doc.addPage(); y = 20; }
+                        doc.setFillColor(245,245,252);
+                        doc.rect(PAD, y, W-PAD*2, 7, 'F');
+                        doc.setDrawColor(220,220,230); doc.line(PAD, y+7, W-PAD, y+7);
+                        doc.setFont('helvetica','normal'); doc.setFontSize(5.5); doc.setTextColor(120,100,180);
+                        doc.text('↳', cols.num+1, y+4.5);
+                        doc.setFont('helvetica','bold'); doc.setFontSize(5.5); doc.setTextColor(60,60,80);
+                        doc.text(String(c.tracking||'—').substring(0,32), cols.trk+3, y+4.5);
+                        doc.setFont('helvetica','normal'); doc.setTextColor(80,80,100);
+                        const cdims = (c.lengthCm>0||c.widthCm>0||c.heightCm>0)?`${c.lengthCm}×${c.widthCm}×${c.heightCm}`:'—';
+                        doc.text(cdims, cols.dims, y+4.5);
+                        doc.text(c.weight>0?`${Number(c.weight).toFixed(1)}`:'—', cols.kg, y+4.5);
+                        if (c.tarifaNivel!=null) doc.text(`N${c.tarifaNivel}`, cols.nivel, y+4.5);
+                        y += 7;
+                      });
+                    }
                   });
 
                   // ── DESGLOSE TOTAL (paquetería + GEX) ──────────────────────────
@@ -3521,6 +3527,7 @@ export default function DashboardAdvisor() {
                         <TableCell>Tracking</TableCell>
                         <TableCell>Cliente</TableCell>
                         <TableCell>Servicio</TableCell>
+                        <TableCell align="right">Costo Caja</TableCell>
                         <TableCell align="right">Paquetería</TableCell>
                         <TableCell align="right">GEX</TableCell>
                         <TableCell align="right">Total</TableCell>
@@ -3528,7 +3535,7 @@ export default function DashboardAdvisor() {
                     </TableHead>
                     <TableBody>
                       {filteredShipments.length === 0 && (
-                        <TableRow><TableCell colSpan={7} align="center" sx={{ py: 3 }}>
+                        <TableRow><TableCell colSpan={8} align="center" sx={{ py: 3 }}>
                           <Typography color="text.secondary" variant="caption">No hay guías en tránsito para este cliente</Typography>
                         </TableCell></TableRow>
                       )}
@@ -3604,6 +3611,12 @@ export default function DashboardAdvisor() {
                             </TableCell>
                             <TableCell><Typography variant="body2">{s.clientName}</Typography><Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography></TableCell>
                             <TableCell><Chip label={serviceLabel(s.serviceType || '')} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} /></TableCell>
+                            <TableCell align="right">
+                              {(s.amount || 0) > 0
+                                ? <Typography variant="body2" sx={{ fontSize: '0.78rem' }} color="text.secondary">${(s.amount || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                                : <Typography color="text.disabled" variant="body2">—</Typography>
+                              }
+                            </TableCell>
                             <TableCell align="right">
                               {(s.nationalShippingCost || 0) > 0
                                 ? <Typography variant="body2" sx={{ fontSize: '0.78rem' }} color="text.secondary">${(s.nationalShippingCost || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>

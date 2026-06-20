@@ -610,8 +610,11 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
             child_no: c.child_no,
             n_level: c.pobox_tarifa_nivel ? `N${c.pobox_tarifa_nivel}` : null,
             venta_usd: parseFloat(c.pobox_venta_usd) || 0,
-            venta_mxn: parseFloat(c.pobox_service_cost) || 0,
+            venta_mxn: parseFloat(c.pobox_service_cost) || parseFloat(c.assigned_cost_mxn) || 0,
             weight: parseFloat(c.weight) || 0,
+            lengthCm: parseFloat(c.pkg_length) || parseFloat(c.length_cm) || 0,
+            widthCm: parseFloat(c.pkg_width) || parseFloat(c.width_cm) || 0,
+            heightCm: parseFloat(c.pkg_height) || parseFloat(c.height_cm) || 0,
             description: c.description,
           })),
         });
