@@ -2901,7 +2901,6 @@ export default function DashboardAdvisor() {
                       const res = await api.get('/advisor/shipments', { params: { clientId: op.client_id, limit: 200 } });
                       const uidSet = new Set(uids);
                       const matched = (res.data.shipments || []).filter((s: any) => uidSet.has(s.uid));
-                      // Attach children to master shipments for sub-row breakdown in PDF
                       const expanded: any[] = [];
                       for (const s of matched) {
                         if (s.childrenCount > 0) {
@@ -2917,181 +2916,144 @@ export default function DashboardAdvisor() {
                     } catch { /* fallback to trackings only */ }
                   }
 
-                  const { jsPDF } = await import('jspdf');
-                  const doc = new jsPDF({ format: 'a4', unit: 'mm' });
-                  const W = 210; const PAD = 14;
-                  const C = { orange: [240,90,40] as [number,number,number], dark:[17,17,17] as [number,number,number], white:[255,255,255] as [number,number,number], gray:[100,100,100] as [number,number,number], lightgray:[245,245,245] as [number,number,number], blue:[239,246,255] as [number,number,number], blueborder:[191,219,254] as [number,number,number] };
-
-                  // ── HEADER ──────────────────────────────────────────────
-                  doc.setFillColor(...C.dark); doc.rect(0,0,W,30,'F');
-                  doc.setFillColor(...C.orange); doc.rect(0,30,W,3,'F');
-                  doc.setTextColor(...C.white); doc.setFont('helvetica','bold'); doc.setFontSize(18);
-                  doc.text('EntregaX', PAD, 14);
-                  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(180,180,180);
-                  doc.text('Paquetería Internacional', PAD, 20);
-                  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(...C.white);
-                  doc.text('ORDEN DE PAGO', W - PAD, 14, { align: 'right' });
-                  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(200,200,200);
-                  doc.text(new Date().toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'}), W-PAD, 20, { align:'right' });
-
-                  let y = 42;
-
-                  // ── RESUMEN ORDEN ────────────────────────────────────────
-                  doc.setFillColor(...C.lightgray); doc.roundedRect(PAD, y, W-PAD*2, 34, 2,2,'F');
-                  doc.setDrawColor(220,220,220); doc.roundedRect(PAD, y, W-PAD*2, 34, 2,2,'S');
-                  const field = (lbl: string, val: string, lx: number, vx: number, vy: number, bold=false, orange=false) => {
-                    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(...C.gray);
-                    doc.text(lbl, lx, vy);
-                    doc.setFont('helvetica', bold?'bold':'normal'); doc.setFontSize(8.5);
-                    doc.setTextColor(...(orange ? C.orange : C.dark));
-                    doc.text(val, vx, vy+5);
-                  };
-                  field('Referencia de pago', ref, PAD+4, PAD+4, y+7, true, true);
-                  field('Cliente', op.client_name||'—', PAD+4, PAD+4, y+20);
-                  field('Estado', st.label, 100, 100, y+7);
-                  field('Monto total', op.total_mxn?`$${Number(op.total_mxn).toLocaleString('es-MX',{minimumFractionDigits:2})} MXN`:'—', 100, 100, y+20, true);
-                  field('Fecha', new Date(op.created_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'}), 155, 155, y+7);
-                  field('Cliente Box ID', op.client_box_id||'—', 155, 155, y+20);
-                  y += 42;
-
-                  // ── DATOS BANCARIOS ─────────────────────────────────────
+                  const fmt = (n: number) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+                  const today = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
                   const bi = op.bank_info || {};
-                  const hasBankData = bi.clabe || bi.banco || op.bank_clabe;
-                  if (hasBankData) {
-                    doc.setFillColor(...C.blue); doc.roundedRect(PAD, y, W-PAD*2, 36, 2,2,'F');
-                    doc.setDrawColor(...C.blueborder); doc.roundedRect(PAD, y, W-PAD*2, 36, 2,2,'S');
-                    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(29,78,216);
-                    doc.text('DATOS PARA TRANSFERENCIA BANCARIA', PAD+4, y+7);
-                    field('Banco', bi.banco||op.bank_name||'—', PAD+4, PAD+4, y+13);
-                    field('Beneficiario', bi.beneficiario||op.beneficiario||'—', 90, 90, y+13);
-                    field('CLABE interbancaria', bi.clabe||op.bank_clabe||'—', PAD+4, PAD+4, y+26, true);
-                    field('Concepto / Referencia', bi.concepto||ref, 90, 90, y+26, true, true);
-                    y += 44;
-                  }
+                  const banco = bi.banco || op.bank_name || '';
+                  const clabe = bi.clabe || op.bank_clabe || '';
+                  const beneficiario = bi.beneficiario || op.beneficiario || '';
+                  const totalAmt = op.total_mxn ? Number(op.total_mxn) : 0;
 
-                  // ── TABLA DE GUÍAS ──────────────────────────────────────
-                  doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...C.dark);
-                  doc.text('Detalle de guías incluidas', PAD, y); y += 5;
-
-                  // Columns: # | TRACKING/GUÍA | MEDIDAS | KG | NIVEL | PAQUETERÍA | COSTO PQT | GEX | TOTAL
-                  const cols = { num:PAD, trk:PAD+6, dims:PAD+58, kg:PAD+84, nivel:PAD+96, carrier:PAD+108, pqt:PAD+130, gex:PAD+153, amt:W-PAD };
-                  doc.setFillColor(...C.dark); doc.rect(PAD, y, W-PAD*2, 7, 'F');
-                  doc.setFont('helvetica','bold'); doc.setFontSize(6); doc.setTextColor(...C.white);
-                  doc.text('#', cols.num+1, y+4.5);
-                  doc.text('TRACKING / GUÍA', cols.trk, y+4.5);
-                  doc.text('MEDIDAS (cm)', cols.dims, y+4.5);
-                  doc.text('KG', cols.kg, y+4.5);
-                  doc.text('NIVEL', cols.nivel, y+4.5);
-                  doc.text('PAQUETERÍA', cols.carrier, y+4.5);
-                  doc.text('COSTO PQT', cols.pqt, y+4.5);
-                  doc.text('GEX', cols.gex, y+4.5);
-                  doc.text('TOTAL', cols.amt, y+4.5, { align:'right' });
-                  y += 7;
-
-                  const rows = shipDetails.length > 0 ? shipDetails : guideList.map((g,i) => ({ uid: uids[i]||'', tracking: g, description:'', serviceType:'', weight:0, lengthCm:0, widthCm:0, heightCm:0, deliveryCarrierName:'', amount:0, gexCost:0 }));
+                  const rows = shipDetails.length > 0 ? shipDetails : guideList.map((g) => ({ tracking: g, weight: 0, lengthCm: 0, widthCm: 0, heightCm: 0, deliveryCarrierName: '', amount: 0, gexCost: 0, tarifaNivel: null, _children: [] }));
                   let subtotal = 0;
                   let totalGex = 0;
-
+                  let pkgRows = '';
                   rows.forEach((s: any, idx: number) => {
-                    const rowH = s.internationalTracking ? 11 : 8;
-                    if (y > 265) { doc.addPage(); y = 20; }
-                    const even = idx % 2 === 0;
-                    doc.setFillColor(even?249:255, even?249:255, even?249:255);
-                    doc.rect(PAD, y, W-PAD*2, rowH, 'F');
-                    doc.setDrawColor(230,230,230); doc.line(PAD, y+rowH, W-PAD, y+rowH);
-
                     const gex = s.gexCost || 0;
                     const amt = s.amount || 0;
-                    const pqtCost = amt - gex;
                     subtotal += amt;
                     totalGex += gex;
-
-                    doc.setFont('helvetica','normal'); doc.setFontSize(6); doc.setTextColor(...C.dark);
-                    doc.text(`${idx+1}`, cols.num+1, y+5);
-                    doc.setFont('helvetica','bold'); doc.setFontSize(6);
-                    doc.text(String(s.tracking||guideList[idx]||'—').substring(0,28), cols.trk, y+4);
-                    if (s.internationalTracking) {
-                      doc.setFont('helvetica','normal'); doc.setFontSize(5.5); doc.setTextColor(100,100,100);
-                      doc.text(String(s.internationalTracking).substring(0,28), cols.trk, y+7.5);
-                      doc.setFontSize(6); doc.setTextColor(...C.dark);
-                    }
-                    doc.setFont('helvetica','normal');
-                    const dims = (s.lengthCm>0||s.widthCm>0||s.heightCm>0) ? `${s.lengthCm}×${s.widthCm}×${s.heightCm}` : '—';
-                    doc.text(dims, cols.dims, y+5);
-                    doc.text(s.weight>0?`${Number(s.weight).toFixed(1)}`:'—', cols.kg, y+5);
-                    doc.text(s.tarifaNivel!=null?`N${s.tarifaNivel}`:'—', cols.nivel, y+5);
-                    doc.text(String(s.deliveryCarrierName||'—').substring(0,12), cols.carrier, y+5);
-                    // COSTO PQT
-                    doc.setFont('helvetica', pqtCost>0?'bold':'normal');
-                    doc.setTextColor(...C.dark);
-                    doc.text(pqtCost>0?`$${pqtCost.toLocaleString('es-MX',{minimumFractionDigits:2})}`:'—', cols.pqt, y+5);
-                    // GEX
-                    doc.setFont('helvetica', gex>0?'bold':'normal');
-                    doc.setTextColor(gex>0?46:150, gex>0?125:150, gex>0?50:150);
-                    doc.text(gex>0?`$${gex.toLocaleString('es-MX',{minimumFractionDigits:2})}`:'—', cols.gex, y+5);
-                    // TOTAL
-                    doc.setFont('helvetica', amt>0?'bold':'normal');
-                    doc.setTextColor(...(amt>0 ? C.orange : C.gray));
-                    doc.text(amt>0?`$${amt.toLocaleString('es-MX',{minimumFractionDigits:2})}`:'—', cols.amt, y+5, { align:'right' });
-                    y += rowH;
-                    // Child sub-rows (breakdown per caja)
-                    if ((s as any)._children?.length > 0) {
-                      (s as any)._children.forEach((c: any) => {
-                        if (y > 265) { doc.addPage(); y = 20; }
-                        doc.setFillColor(245,245,252);
-                        doc.rect(PAD, y, W-PAD*2, 7, 'F');
-                        doc.setDrawColor(220,220,230); doc.line(PAD, y+7, W-PAD, y+7);
-                        doc.setFont('helvetica','normal'); doc.setFontSize(5.5); doc.setTextColor(120,100,180);
-                        doc.text('↳', cols.num+1, y+4.5);
-                        doc.setFont('helvetica','bold'); doc.setFontSize(5.5); doc.setTextColor(60,60,80);
-                        doc.text(String(c.tracking||'—').substring(0,32), cols.trk+3, y+4.5);
-                        doc.setFont('helvetica','normal'); doc.setTextColor(80,80,100);
-                        const cdims = (c.lengthCm>0||c.widthCm>0||c.heightCm>0)?`${c.lengthCm}×${c.widthCm}×${c.heightCm}`:'—';
-                        doc.text(cdims, cols.dims, y+4.5);
-                        doc.text(c.weight>0?`${Number(c.weight).toFixed(1)}`:'—', cols.kg, y+4.5);
-                        if (c.tarifaNivel!=null) doc.text(`N${c.tarifaNivel}`, cols.nivel, y+4.5);
-                        y += 7;
+                    const dims = (s.lengthCm > 0 || s.widthCm > 0 || s.heightCm > 0) ? `${s.lengthCm}×${s.widthCm}×${s.heightCm} cm` : '—';
+                    const intTrk = s.internationalTracking ? `<br><span style="font-size:9px;color:#888">${s.internationalTracking}</span>` : '';
+                    const carrier = s.deliveryCarrierName || '—';
+                    pkgRows += `<tr>
+                      <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px">${idx + 1}</td>
+                      <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:600">${s.tracking || guideList[idx] || '—'}${intTrk}</td>
+                      <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${s.weight > 0 ? `${Number(s.weight).toFixed(1)} lb` : '—'}</td>
+                      <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${dims}</td>
+                      <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${carrier}</td>
+                      <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:right;font-weight:600">${fmt(amt)}</td>
+                    </tr>`;
+                    if (s._children?.length > 0) {
+                      s._children.forEach((c: any, ci: number) => {
+                        const cdims = (c.lengthCm > 0 || c.widthCm > 0 || c.heightCm > 0) ? `${c.lengthCm}×${c.widthCm}×${c.heightCm} cm` : '—';
+                        const nivel = c.tarifaNivel != null ? `<span style="background:#FEE2E2;color:#B91C1C;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700">N${c.tarifaNivel}</span>` : '';
+                        pkgRows += `<tr style="background:#FFF8F0">
+                          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#aaa">&nbsp;↳ ${ci + 1}</td>
+                          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;font-family:monospace">${c.tracking || '—'} ${nivel}</td>
+                          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${c.weight > 0 ? `${Number(c.weight).toFixed(1)} lb` : '—'}</td>
+                          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${cdims}</td>
+                          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">—</td>
+                          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right">—</td>
+                        </tr>`;
                       });
                     }
                   });
 
-                  // ── DESGLOSE TOTAL (paquetería + GEX) ──────────────────────────
-                  const totalPkg = subtotal - totalGex;
-                  const totalAmt = op.total_mxn ? Number(op.total_mxn) : subtotal;
+                  const desglose = totalGex > 0 ? `
+                    <div style="background:#FAFAFA;border:1px solid #E0E0E0;border-radius:6px;padding:12px;margin-top:10px">
+                      <div style="font-size:10px;font-weight:700;color:#666;text-transform:uppercase;margin-bottom:6px">Desglose de Cobro</div>
+                      <div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0">
+                        <span>Costo de paquetería:</span><span style="font-weight:600">${fmt(subtotal - totalGex)} MXN</span>
+                      </div>
+                      <div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;color:#2E7D32">
+                        <span>GEX – Garantía Extendida:</span><span style="font-weight:600">${fmt(totalGex)} MXN</span>
+                      </div>
+                    </div>` : '';
 
-                  if (totalGex > 0) {
-                    const desgH = 26;
-                    doc.setFillColor(250, 250, 250); doc.roundedRect(PAD, y, W-PAD*2, desgH, 2,2,'F');
-                    doc.setDrawColor(220,220,220); doc.roundedRect(PAD, y, W-PAD*2, desgH, 2,2,'S');
-                    doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(...C.gray);
-                    doc.text('DESGLOSE DE COBRO', PAD+4, y+6);
-                    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(...C.dark);
-                    doc.text('Costo de paquetería:', PAD+4, y+13);
-                    doc.text(`$${totalPkg.toLocaleString('es-MX',{minimumFractionDigits:2})} MXN`, cols.amt, y+13, { align:'right' });
-                    doc.setTextColor(46,125,50);
-                    doc.text('GEX – Garantía Extendida:', PAD+4, y+20);
-                    doc.text(`$${totalGex.toLocaleString('es-MX',{minimumFractionDigits:2})} MXN`, cols.amt, y+20, { align:'right' });
-                    doc.setTextColor(...C.dark);
-                    y += desgH + 4;
+                  const CSS = `@page{margin:30px 40px;size:A4}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#333;font-size:12px;line-height:1.5}.header{display:flex;justify-content:space-between;align-items:center;padding-bottom:15px;border-bottom:3px solid #FF6B00;margin-bottom:20px}.logo-text{font-size:26px;font-weight:900;color:#FF6B00;letter-spacing:1px;line-height:1}.logo-sub{font-size:11px;color:#888;margin-top:3px}.company-info{text-align:right;font-size:10px;color:#666}.company-info strong{color:#333;font-size:11px}.title-bar{background:linear-gradient(135deg,#FF6B00,#E55A00);color:white;padding:12px 20px;border-radius:6px;margin-bottom:20px}.title-bar h1{font-size:16px;font-weight:700}.title-bar .ref{font-size:11px;opacity:.9;margin-top:2px}.section{margin-bottom:16px}.section-title{font-size:12px;font-weight:700;color:#FF6B00;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #FFE0C0}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}.info-row{display:flex;gap:8px}.info-label{color:#888;font-size:11px;min-width:120px}.info-value{font-weight:600;font-size:11px}table{width:100%;border-collapse:collapse;margin-top:6px}th{background:#F8F8F8;padding:8px 10px;text-align:left;font-size:10px;font-weight:700;color:#555;text-transform:uppercase;border-bottom:2px solid #FF6B00}th:last-child{text-align:right}.total-row td{padding:10px;font-weight:700;font-size:13px;border-top:2px solid #FF6B00;background:#FFF8F0}.payment-box{background:#F9FBF5;border:1px solid #C8E6C9;border-radius:8px;padding:16px;margin-top:8px}.bank-row{margin-bottom:4px;font-size:11px}.bank-label{color:#666;display:inline-block;min-width:100px}.bank-value{font-weight:700;color:#333}.warning-box{background:#FFF3E0;border-left:4px solid #FF9800;padding:10px 14px;margin-top:12px;border-radius:0 6px 6px 0;font-size:10px;color:#E65100}.instructions-box{background:#F3F8FF;border:1px solid #BBDEFB;border-radius:8px;padding:14px;margin-top:12px}.instructions-box h3{font-size:11px;color:#1565C0;margin-bottom:8px}.instructions-box ol{padding-left:18px;font-size:10px;color:#444}.instructions-box ol li{margin-bottom:4px}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}.terms{margin-top:16px;padding:12px;background:#FAFAFA;border-radius:6px;font-size:8.5px;color:#999;line-height:1.6}.terms strong{color:#666}`;
+
+                  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>
+                    <div class="header">
+                      <div><div class="logo-text">EntregaX</div><div class="logo-sub">Paquetería Internacional</div></div>
+                      <div class="company-info"><strong>ENTREGAX</strong><br>📍 Monterrey, Nuevo León, México<br>📧 contacto@entregax.com<br>🌐 www.entregax.com</div>
+                    </div>
+                    <div class="title-bar">
+                      <h1>COTIZACIÓN DE SERVICIOS LOGÍSTICOS</h1>
+                      <div class="ref">Folio de Referencia: <strong>${ref}</strong> &nbsp;|&nbsp; Fecha de Emisión: ${today}</div>
+                    </div>
+                    <div class="section">
+                      <div class="section-title">1. Datos del Cliente</div>
+                      <div class="info-grid">
+                        <div class="info-row"><span class="info-label">Nombre / Razón Social:</span><span class="info-value">${op.client_name || '—'}</span></div>
+                        <div class="info-row"><span class="info-label">Casillero:</span><span class="info-value">${op.client_box_id || '—'}</span></div>
+                      </div>
+                    </div>
+                    <div class="section">
+                      <div class="section-title">2. Detalle del Embarque</div>
+                      <div class="info-grid">
+                        <div class="info-row"><span class="info-label">Servicio:</span><span class="info-value">PO Box USA - Carga Aérea</span></div>
+                        <div class="info-row"><span class="info-label">Origen:</span><span class="info-value">Estados Unidos</span></div>
+                        <div class="info-row"><span class="info-label">Destino:</span><span class="info-value">Monterrey, N.L., México</span></div>
+                        <div class="info-row"><span class="info-label">Paquetes:</span><span class="info-value">${rows.length} paquete(s)</span></div>
+                      </div>
+                    </div>
+                    <div class="section">
+                      <div class="section-title">3. Desglose de Costos (MXN)</div>
+                      <table>
+                        <thead><tr>
+                          <th style="width:30px">#</th>
+                          <th>Guía / Tracking</th>
+                          <th style="text-align:center">Peso</th>
+                          <th style="text-align:center">Medidas</th>
+                          <th style="text-align:center">Paquetería</th>
+                          <th style="text-align:right">Monto (MXN)</th>
+                        </tr></thead>
+                        <tbody>
+                          ${pkgRows}
+                          <tr class="total-row">
+                            <td colspan="5" style="text-align:right;padding-right:10px">TOTAL A PAGAR:</td>
+                            <td style="text-align:right;color:#E65100;font-size:14px">${fmt(totalAmt || subtotal)} MXN</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      ${desglose}
+                    </div>
+                    ${banco || clabe ? `
+                    <div class="section">
+                      <div class="section-title">💳 Instrucciones de Pago</div>
+                      <p style="font-size:11px;color:#555;margin-bottom:8px">Para garantizar el despacho de su mercancía, le solicitamos realizar el pago correspondiente:</p>
+                      <div class="payment-box">
+                        <div class="bank-row"><span class="bank-label">Banco:</span> <span class="bank-value">${banco}</span></div>
+                        <div class="bank-row"><span class="bank-label">Beneficiario:</span> <span class="bank-value">${beneficiario}</span></div>
+                        <div class="bank-row"><span class="bank-label">CLABE:</span> <span class="bank-value">${clabe}</span></div>
+                        <div class="bank-row"><span class="bank-label">Concepto / Referencia:</span> <span class="bank-value" style="color:#E65100;font-size:13px">${ref}</span></div>
+                      </div>
+                      <div class="warning-box">⚠️ Favor de realizar depósitos de no más de $90,000 pesos por depósito.</div>
+                      <div style="background:#D32F2F;color:#fff;padding:14px 18px;margin-top:12px;border-radius:6px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.3px">🚨 IMPORTANTE: Debe incluir el número de referencia <span style="background:#fff;color:#D32F2F;padding:2px 8px;border-radius:4px;font-size:14px">${ref}</span> en el concepto de pago. Sin esta referencia, su pago NO podrá ser acreditado.</div>
+                    </div>` : ''}
+                    <div class="section">
+                      <div class="instructions-box">
+                        <h3>📧 Confirmación de Pago</h3>
+                        <ol>
+                          <li>Una vez realizado el pago, ingrese a su portal en <strong>www.entregax.app</strong></li>
+                          <li>Diríjase a la sección <strong>"Mis Cuentas por Pagar"</strong></li>
+                          <li>Seleccione la opción <strong>"Órdenes de Pago"</strong></li>
+                          <li>Envíe el comprobante de pago en formato PDF o JPG</li>
+                          <li>Para depósitos en efectivo, puede tardar de <strong>24 a 48 horas</strong> en verse reflejado</li>
+                        </ol>
+                      </div>
+                    </div>
+                    <div class="terms"><strong>Términos y Condiciones:</strong><br>Los tiempos de tránsito son estimados y están sujetos a revisiones aduanales, clima y disponibilidad de espacio en aerolíneas/navieras. Los costos aduanales pueden variar según el dictamen final de la autoridad. Esta cotización no incluye almacenajes prolongados en destino ni maniobras especiales. Los precios están expresados en Moneda Nacional (MXN) y son válidos al momento de la emisión de este documento.</div>
+                    <div class="footer">ENTREGAX &nbsp;|&nbsp; 📍 Monterrey, N.L., México &nbsp;|&nbsp; 📧 contacto@entregax.com &nbsp;|&nbsp; 🌐 www.entregax.com<br>Documento generado el ${today}. Este documento es una cotización informativa y no representa un comprobante fiscal.</div>
+                  </body></html>`;
+
+                  const printWindow = window.open('', '_blank');
+                  if (printWindow) {
+                    printWindow.document.write(html);
+                    printWindow.document.close();
+                    setTimeout(() => { printWindow.print(); }, 400);
                   }
-
-                  // Total row
-                  doc.setFillColor(...C.dark); doc.rect(PAD, y, W-PAD*2, 9, 'F');
-                  doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...C.white);
-                  doc.text('TOTAL A PAGAR', cols.trk, y+6);
-                  doc.setTextColor(...C.orange);
-                  doc.text(`$${totalAmt.toLocaleString('es-MX',{minimumFractionDigits:2})} MXN`, cols.amt, y+6, { align:'right' });
-                  y += 16;
-
-                  // ── FOOTER ──────────────────────────────────────────────
-                  doc.setFillColor(...C.lightgray); doc.rect(0, 282, W, 15, 'F');
-                  doc.setFillColor(...C.orange); doc.rect(0, 282, W, 1.5, 'F');
-                  doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(...C.gray);
-                  doc.text('EntregaX Paquetería · www.entregax.app · Este documento tiene validez como orden de cobro oficial.', PAD, 288);
-                  doc.text(`Generado el ${new Date().toLocaleString('es-MX')}`, PAD, 292);
-                  doc.text(`Ref: ${ref}`, W-PAD, 292, { align:'right' });
-
-                  doc.save(`OrdenPago-${ref}.pdf`);
                 };
 
                 return (

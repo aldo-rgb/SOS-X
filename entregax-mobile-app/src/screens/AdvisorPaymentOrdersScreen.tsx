@@ -83,118 +83,129 @@ interface OrderDetailItem {
     venta_usd: number;
     venta_mxn: number;
     weight: number;
+    lengthCm?: number;
+    widthCm?: number;
+    heightCm?: number;
     description?: string | null;
   }>;
 }
 
 const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = []): string => {
-  const fmtMxn = (n: number) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const fmtUsd = (n: number) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const mxn    = fmtMxn(Number(order.total_mxn));
-  const ref    = order.payment_reference || order.folio || '—';
-  const date   = new Date(order.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
+  const fmt = (n: number) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const ref   = order.payment_reference || order.folio || '—';
+  const today = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
+  const pkgCount = items.length > 0 ? items.length : (order.trackings || []).length;
 
-  // Si no llegan items con desglose, fallback a la lista plana de trackings
-  const useDetail = items && items.length > 0;
-  const detailBlocks = useDetail ? items.map((it, idx) => {
-    const tcTxt = it.exchange_rate ? `TC: $${Number(it.exchange_rate).toFixed(2)}` : '';
-    const headerRight = it.venta_usd
-      ? `$${fmtUsd(it.venta_usd)} USD &middot; $${fmtMxn(it.venta_mxn || 0)} MXN`
-      : `$${fmtMxn(it.venta_mxn || 0)} MXN`;
-    const childrenHtml = (it.children || []).length > 0
-      ? `<table class="detail-table">
-          <thead><tr>
-            <th style="width:36px">#</th>
-            <th>Guía hija</th>
-            <th style="width:50px">Nivel</th>
-            <th style="width:90px;text-align:right">USD</th>
-            <th style="width:110px;text-align:right">MXN</th>
-          </tr></thead>
-          <tbody>${(it.children || []).map((c, ci) => `
-            <tr>
-              <td>${ci + 1}</td>
-              <td style="font-family:monospace;font-size:11px">${c.tracking || '—'}</td>
-              <td><span class="badge">${c.n_level || '—'}</span></td>
-              <td style="text-align:right">$${fmtUsd(c.venta_usd)}</td>
-              <td style="text-align:right;font-weight:700">$${fmtMxn(c.venta_mxn)}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>`
-      : '';
-    return `
-      <div class="item-card">
-        <div class="item-head">
-          <div>
-            <div class="item-tracking">${it.tracking || '—'}</div>
-            <div class="item-meta">${it.tipo}${it.total_boxes ? ` &middot; ${it.total_boxes} cajas` : ''}${tcTxt ? ' &middot; ' + tcTxt : ''}</div>
-          </div>
-          <div class="item-amount">${headerRight}</div>
-        </div>
-        ${childrenHtml}
-      </div>`;
-  }).join('') : `<table class="detail-table">
-    <thead><tr><th style="width:36px">#</th><th>Número de guía</th></tr></thead>
-    <tbody>${(order.trackings || []).map((t, i) => `<tr><td>${i + 1}</td><td style="font-family:monospace">${t}</td></tr>`).join('')}</tbody>
-  </table>`;
+  let pkgRows = '';
+  if (items.length > 0) {
+    items.forEach((it, idx) => {
+      const monto = Number(it.venta_mxn || 0);
+      const peso  = it.weight ? `${Number(it.weight).toFixed(1)} lb` : '—';
+      const tipo  = it.total_boxes ? `${it.tipo} (${it.total_boxes} cajas)` : (it.tipo || '—');
+      pkgRows += `<tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px">${idx + 1}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:600">${it.tracking || '—'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${peso}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">—</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${tipo}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:right;font-weight:600">${fmt(monto)}</td>
+      </tr>`;
+      (it.children || []).forEach((c, ci) => {
+        const cdims = (c.lengthCm || 0) > 0 || (c.widthCm || 0) > 0 || (c.heightCm || 0) > 0
+          ? `${c.lengthCm}×${c.widthCm}×${c.heightCm} cm` : '—';
+        const cpeso = c.weight ? `${Number(c.weight).toFixed(1)} lb` : '—';
+        const nivel = c.n_level ? `<span style="background:#FEE2E2;color:#B91C1C;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700">${c.n_level}</span>` : '';
+        pkgRows += `<tr style="background:#FFF8F0">
+          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#aaa">&nbsp;↳ ${ci + 1}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;font-family:monospace">${c.tracking || '—'} ${nivel}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${cpeso}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${cdims}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">—</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right">${fmt(c.venta_mxn)}</td>
+        </tr>`;
+      });
+    });
+  } else {
+    (order.trackings || []).forEach((t, i) => {
+      pkgRows += `<tr><td style="padding:6px 8px;font-size:11px">${i + 1}</td><td colspan="5" style="padding:6px 8px;font-size:11px;font-family:monospace">${t}</td></tr>`;
+    });
+  }
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>
-    *{box-sizing:border-box}
-    body{font-family:Helvetica,Arial,sans-serif;margin:0;padding:0;color:#0F172A;background:#FFFFFF}
-    .hdr{background:#111827;padding:24px 32px;display:flex;justify-content:space-between;align-items:center}
-    .hdr-brand{color:#F05A28;font-size:24px;font-weight:900;letter-spacing:1px}
-    .hdr-sub{color:#E5E7EB;font-size:11px;margin-top:2px;font-weight:600}
-    .body{padding:24px 32px}
-    .section{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;margin-bottom:14px}
-    .label{font-size:10px;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;font-weight:700}
-    .value{font-size:13px;font-weight:700;color:#0F172A}
-    .accent{color:#F05A28}
-    .ref{font-family:monospace;font-size:20px;color:#F05A28;font-weight:900;background:#FFF7ED;padding:4px 10px;border-radius:6px;display:inline-block}
-    .bank-box{background:#EFF6FF;border:2px solid #1D4ED8;border-radius:8px;padding:16px;margin-bottom:14px}
-    .bank-title{color:#1D4ED8;font-weight:800;font-size:14px;margin-bottom:10px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-    .section-title{font-size:13px;font-weight:800;color:#0F172A;margin:18px 0 8px;padding-bottom:6px;border-bottom:2px solid #F05A28}
-    .item-card{border:1px solid #E2E8F0;border-radius:8px;margin-bottom:10px;overflow:hidden}
-    .item-head{background:#F1F5F9;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #E2E8F0}
-    .item-tracking{font-family:monospace;font-size:13px;font-weight:800;color:#0F172A}
-    .item-meta{font-size:11px;color:#334155;margin-top:2px;font-weight:600}
-    .item-amount{font-size:13px;font-weight:800;color:#0F172A;text-align:right}
-    .detail-table{width:100%;border-collapse:collapse}
-    .detail-table th{background:#FFF7ED;color:#9A3412;font-size:10px;padding:6px 8px;text-align:left;border-bottom:1px solid #FED7AA;font-weight:800;text-transform:uppercase;letter-spacing:.4px}
-    .detail-table td{padding:7px 8px;font-size:11px;color:#0F172A;border-bottom:1px solid #F1F5F9}
-    .badge{display:inline-block;background:#FEE2E2;color:#B91C1C;font-weight:800;font-size:10px;padding:2px 6px;border-radius:4px}
-    .total-box{background:#F05A28;color:#fff;padding:14px 18px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:16px;font-weight:900}
-    .footer{border-top:3px solid #F05A28;padding:12px 32px;font-size:10px;color:#475569;text-align:center;font-weight:600}
-  </style></head><body>
-  <div class="hdr">
-    <div><div class="hdr-brand">EntregaX</div><div class="hdr-sub">Orden de Pago</div></div>
-    <div style="text-align:right"><div class="ref">${ref}</div><div class="hdr-sub" style="margin-top:6px">${date}</div></div>
+  const totalMxn = fmt(Number(order.total_mxn) || 0);
+  const CSS = `@page{margin:30px 40px;size:A4}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#333;font-size:12px;line-height:1.5}.header{display:flex;justify-content:space-between;align-items:center;padding-bottom:15px;border-bottom:3px solid #FF6B00;margin-bottom:20px}.logo-text{font-size:26px;font-weight:900;color:#FF6B00;letter-spacing:1px;line-height:1}.logo-sub{font-size:11px;color:#888;margin-top:3px}.company-info{text-align:right;font-size:10px;color:#666}.company-info strong{color:#333;font-size:11px}.title-bar{background:linear-gradient(135deg,#FF6B00,#E55A00);color:white;padding:12px 20px;border-radius:6px;margin-bottom:20px}.title-bar h1{font-size:16px;font-weight:700}.title-bar .ref{font-size:11px;opacity:.9;margin-top:2px}.section{margin-bottom:16px}.section-title{font-size:12px;font-weight:700;color:#FF6B00;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #FFE0C0}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}.info-row{display:flex;gap:8px}.info-label{color:#888;font-size:11px;min-width:120px}.info-value{font-weight:600;font-size:11px}table{width:100%;border-collapse:collapse;margin-top:6px}th{background:#F8F8F8;padding:8px 10px;text-align:left;font-size:10px;font-weight:700;color:#555;text-transform:uppercase;border-bottom:2px solid #FF6B00}th:last-child{text-align:right}.total-row td{padding:10px;font-weight:700;font-size:13px;border-top:2px solid #FF6B00;background:#FFF8F0}.payment-box{background:#F9FBF5;border:1px solid #C8E6C9;border-radius:8px;padding:16px;margin-top:8px}.bank-row{margin-bottom:4px;font-size:11px}.bank-label{color:#666;display:inline-block;min-width:100px}.bank-value{font-weight:700;color:#333}.warning-box{background:#FFF3E0;border-left:4px solid #FF9800;padding:10px 14px;margin-top:12px;border-radius:0 6px 6px 0;font-size:10px;color:#E65100}.important-box{background:#D32F2F;color:#fff;padding:14px 18px;margin-top:12px;border-radius:6px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.3px}.instructions-box{background:#F3F8FF;border:1px solid #BBDEFB;border-radius:8px;padding:14px;margin-top:12px}.instructions-box h3{font-size:11px;color:#1565C0;margin-bottom:8px}.instructions-box ol{padding-left:18px;font-size:10px;color:#444}.instructions-box ol li{margin-bottom:4px}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}.terms{margin-top:16px;padding:12px;background:#FAFAFA;border-radius:6px;font-size:8.5px;color:#999;line-height:1.6}.terms strong{color:#666}`;
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>
+  <div class="header">
+    <div><div class="logo-text">EntregaX</div><div class="logo-sub">Paqueteria Internacional</div></div>
+    <div class="company-info"><strong>ENTREGAX</strong><br>Monterrey, Nuevo Leon, Mexico<br>contacto@entregax.com<br>www.entregax.com</div>
   </div>
-  <div class="body">
-    <div class="section">
-      <div class="grid">
-        <div><div class="label">Cliente</div><div class="value">${order.client_name}</div></div>
-        <div><div class="label">Box ID</div><div class="value">${order.client_box_id || '—'}</div></div>
-        <div><div class="label">Monto total</div><div class="value accent">$${mxn} MXN</div></div>
-        <div><div class="label">Estado</div><div class="value">${STATUS_LABEL[order.status]?.label || order.status}</div></div>
-      </div>
-    </div>
-    ${order.bank_name ? `<div class="bank-box">
-      <div class="bank-title">🏦 Datos bancarios para transferencia</div>
-      <div class="grid">
-        <div><div class="label">Banco</div><div class="value">${order.bank_name}</div></div>
-        <div><div class="label">CLABE</div><div class="value" style="font-family:monospace">${order.bank_clabe || '—'}</div></div>
-        <div><div class="label">Beneficiario</div><div class="value">${order.beneficiario || '—'}</div></div>
-        <div><div class="label">Concepto / Referencia</div><div class="value accent">${ref}</div></div>
-      </div>
-    </div>` : ''}
-    <div class="section-title">📦 Desglose de guías</div>
-    ${detailBlocks}
-    <div class="total-box">
-      <span>TOTAL A PAGAR</span>
-      <span>$${mxn} MXN</span>
+  <div class="title-bar">
+    <h1>COTIZACION DE SERVICIOS LOGISTICOS</h1>
+    <div class="ref">Folio de Referencia: <strong>${ref}</strong> &nbsp;|&nbsp; Fecha de Emision: ${today}</div>
+  </div>
+  <div class="section">
+    <div class="section-title">1. Datos del Cliente</div>
+    <div class="info-grid">
+      <div class="info-row"><span class="info-label">Nombre / Razon Social:</span><span class="info-value">${order.client_name || '—'}</span></div>
+      <div class="info-row"><span class="info-label">Casillero:</span><span class="info-value">${order.client_box_id || '—'}</span></div>
     </div>
   </div>
-  <div class="footer">EntregaX Paquetería · Este documento es válido como comprobante de cobro.</div>
+  <div class="section">
+    <div class="section-title">2. Detalle del Embarque</div>
+    <div class="info-grid">
+      <div class="info-row"><span class="info-label">Servicio:</span><span class="info-value">PO Box USA - Carga Aerea</span></div>
+      <div class="info-row"><span class="info-label">Origen:</span><span class="info-value">Estados Unidos</span></div>
+      <div class="info-row"><span class="info-label">Destino:</span><span class="info-value">Monterrey, N.L., Mexico</span></div>
+      <div class="info-row"><span class="info-label">Paquetes:</span><span class="info-value">${pkgCount} paquete(s)</span></div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">3. Desglose de Costos (MXN)</div>
+    <table>
+      <thead><tr>
+        <th style="width:30px">#</th>
+        <th>Guia / Tracking</th>
+        <th style="text-align:center">Peso</th>
+        <th style="text-align:center">Medidas</th>
+        <th style="text-align:center">Paqueteria</th>
+        <th style="text-align:right">Monto (MXN)</th>
+      </tr></thead>
+      <tbody>
+        ${pkgRows}
+        <tr class="total-row">
+          <td colspan="5" style="text-align:right;padding-right:10px">TOTAL A PAGAR:</td>
+          <td style="text-align:right;color:#E65100;font-size:14px">${totalMxn} MXN</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  ${order.bank_name || order.bank_clabe ? `
+  <div class="section">
+    <div class="section-title">Instrucciones de Pago</div>
+    <p style="font-size:11px;color:#555;margin-bottom:8px">Para garantizar el despacho de su mercancia, le solicitamos realizar el pago correspondiente:</p>
+    <div class="payment-box">
+      <div class="bank-row"><span class="bank-label">Banco:</span> <span class="bank-value">${order.bank_name || '—'}</span></div>
+      <div class="bank-row"><span class="bank-label">Beneficiario:</span> <span class="bank-value">${order.beneficiario || '—'}</span></div>
+      <div class="bank-row"><span class="bank-label">CLABE:</span> <span class="bank-value">${order.bank_clabe || '—'}</span></div>
+      <div class="bank-row"><span class="bank-label">Concepto / Referencia:</span> <span class="bank-value" style="color:#E65100;font-size:13px">${ref}</span></div>
+    </div>
+    <div class="warning-box">Favor de realizar depositos de no mas de $90,000 pesos por deposito.</div>
+    <div class="important-box">IMPORTANTE: Debe incluir el numero de referencia <span style="background:#fff;color:#D32F2F;padding:2px 8px;border-radius:4px;font-size:14px">${ref}</span> en el concepto de pago. Sin esta referencia, su pago NO podra ser acreditado.</div>
+  </div>` : ''}
+  <div class="section">
+    <div class="instructions-box">
+      <h3>Confirmacion de Pago</h3>
+      <ol>
+        <li>Una vez realizado el pago, ingrese a su portal en <strong>www.entregax.app</strong></li>
+        <li>Dirijase a la seccion <strong>"Mis Cuentas por Pagar"</strong></li>
+        <li>Seleccione la opcion <strong>"Ordenes de Pago"</strong></li>
+        <li>Envie el comprobante de pago en formato PDF o JPG</li>
+        <li>Para depositos en efectivo, puede tardar de <strong>24 a 48 horas</strong> en verse reflejado</li>
+      </ol>
+    </div>
+  </div>
+  <div class="terms"><strong>Terminos y Condiciones:</strong><br>Los tiempos de transito son estimados y estan sujetos a revisiones aduanales, clima y disponibilidad de espacio en aerolineas/navieras. Los costos aduanales pueden variar segun el dictamen final de la autoridad. Esta cotizacion no incluye almacenajes prolongados en destino ni maniobras especiales. Los precios estan expresados en Moneda Nacional (MXN) y son validos al momento de la emision de este documento.</div>
+  <div class="footer">ENTREGAX &nbsp;|&nbsp; Monterrey, N.L., Mexico &nbsp;|&nbsp; contacto@entregax.com &nbsp;|&nbsp; www.entregax.com<br>Documento generado el ${today}. Este documento es una cotizacion informativa y no representa un comprobante fiscal.</div>
   </body></html>`;
 };
 

@@ -848,7 +848,11 @@ export default function DashboardClient() {
     const isAir = pkg.shipment_type === 'china_air' || pkg.servicio === 'AIR_CHN_MX';
     const isPobox = pkg.servicio === 'POBOX_USA';
 
-    let envioMXN = monto;
+    // PO Box: pobox_service_cost es la fuente de verdad (no assigned_cost_mxn que puede ser stale)
+    let envioMXN = isPobox && Number((pkg as any).pobox_service_cost) > 0
+      ? Number((pkg as any).pobox_service_cost)
+      : monto;
+
     // Maritime with 0 monto: estimate from CBM
     if (isMar && envioMXN === 0 && pkg.cbm && Number(pkg.cbm) > 0) {
       const cbm = Number(pkg.cbm);
@@ -1198,7 +1202,7 @@ export default function DashboardClient() {
   const paymentGatewayMethods = useMemo(() => [
     { id: 'card', name: t('cd.payment.card'), description: t('cd.payment.cardDesc'), icon: '💳', color: '#00D4AA', provider: 'OpenPay' },
     { id: 'paypal', name: 'PayPal', description: t('cd.payment.paypalDesc'), icon: '🅿️', color: '#0070ba', provider: 'PayPal' },
-    { id: 'branch', name: t('cd.payment.branch'), description: t('cd.payment.branchDesc'), icon: '🏪', color: '#f39c12', provider: 'Referencia' },
+    { id: 'branch', name: t('cd.payment.branch'), description: t('cd.payment.branchDesc'), icon: '💵', color: '#f39c12', provider: 'Referencia' },
   ], [t]);
   
   // Modal Historial de Paquetes

@@ -50,6 +50,8 @@ interface Shipment {
   height_cm: number;
   children_count: number;
   is_master: boolean;
+  gex_cost: number;
+  national_shipping_cost: number;
   is_unidentified?: boolean;
   carrier_tracking?: string | null;
   carrier_name?: string | null;
@@ -200,7 +202,9 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         client_name: s.client_name ?? s.clientName ?? '',
         client_box_id: s.client_box_id ?? s.clientBoxId ?? '',
         client_id: s.client_id ?? s.clientId ?? 0,
-        saldo_pendiente: parseFloat(s.saldo_pendiente ?? s.monto ?? s.amount ?? 0),
+        gex_cost: parseFloat(s.gexCost ?? s.gex_cost ?? 0),
+        national_shipping_cost: parseFloat(s.nationalShippingCost ?? s.national_shipping_cost ?? 0),
+        saldo_pendiente: (parseFloat(s.saldo_pendiente ?? s.monto ?? s.amount ?? 0)) + (parseFloat(s.gexCost ?? s.gex_cost ?? 0)) + (parseFloat(s.nationalShippingCost ?? s.national_shipping_cost ?? 0)),
         client_paid: s.client_paid ?? s.clientPaid ?? false,
         has_instructions: s.has_instructions ?? s.hasInstructions ?? false,
         weight: parseFloat(s.weight ?? 0),
@@ -633,6 +637,20 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                     <Text style={{ fontSize: 10, color: '#555', fontFamily: 'monospace' }}>{t}</Text>
                   </View>
                 ))}
+              </View>
+            )}
+            {(item.gex_cost > 0 || item.national_shipping_cost > 0) && (
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
+                {item.national_shipping_cost > 0 && (
+                  <Text style={{ fontSize: 10, color: '#1565C0' }}>
+                    🚚 Paq. ${item.national_shipping_cost.toFixed(2)}
+                  </Text>
+                )}
+                {item.gex_cost > 0 && (
+                  <Text style={{ fontSize: 10, color: '#2E7D32' }}>
+                    🛡 GEX ${item.gex_cost.toFixed(2)}
+                  </Text>
+                )}
               </View>
             )}
             <View style={styles.cardFooter}>

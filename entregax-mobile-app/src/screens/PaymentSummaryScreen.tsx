@@ -117,11 +117,10 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
 
   const totalMXN = packages.reduce((sum, p) => {
     const pp = p as any;
-    const breakdown = getPackageCostBreakdown(pp);
-    const saldo = breakdown.totalMxn > 0
-      ? breakdown.pendingMxn
-      : parseFloat(String(pp.saldo_pendiente || p.assigned_cost_mxn || 0));
-    return sum + saldo;
+    const gex = parseFloat(pp.gex_total_cost) || 0;
+    const ship = parseFloat(pp.national_shipping_cost) || 0;
+    const poboxMxn = parseFloat(pp.pobox_service_cost) || 0;
+    return sum + poboxMxn + gex + ship;
   }, 0);
   const totalWeight = packages.reduce((sum, p) => sum + parseFloat(String(p.weight || 0)), 0);
 
@@ -889,7 +888,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 }
                 const totalCost = poboxMxn > 0
                   ? Math.max(0, poboxMxn + gex + ship - pagado)
-                  : parseFloat(String(pp.saldo_pendiente || pkg.assigned_cost_mxn || 0));
+                  : Math.max(0, gex + ship - pagado);
                 const hasChildren = pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0;
                 const isExpanded = expandedPkgs.has(pkg.id);
                 const carrier = pp.national_carrier || pp.carrier || null;
@@ -935,12 +934,6 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                     {/* Desglose GEX + Paquetería */}
                     {(gex > 0 || ship > 0 || carrier) && (
                       <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#EEE' }}>
-                        {poboxMxn > 0 && (
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-                            <Text style={{ fontSize: 11, color: '#555' }}>Costo de importación</Text>
-                            <Text style={{ fontSize: 11, color: '#333', fontWeight: '600' }}>${poboxMxn.toFixed(2)}</Text>
-                          </View>
-                        )}
                         {ship > 0 && (
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
                             <Text style={{ fontSize: 11, color: '#555' }}>

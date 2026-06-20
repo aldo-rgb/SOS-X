@@ -568,7 +568,12 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         'PKG-' || p.id::text as uid,
         p.id, p.tracking_internal as tracking, COALESCE(p.tracking_provider, p.international_tracking) as international_tracking, p.child_no,
         p.status::text as status, p.service_type,
-        COALESCE(NULLIF(p.assigned_cost_mxn, 0), NULLIF(p.saldo_pendiente, 0), NULLIF(p.pobox_service_cost, 0), NULLIF(p.air_sale_price, 0), NULLIF(p.pobox_venta_usd, 0), 0) as monto,
+        CASE
+          WHEN p.service_type = 'POBOX_USA' THEN
+            COALESCE(NULLIF(p.pobox_service_cost, 0), NULLIF(p.assigned_cost_mxn, 0), NULLIF(p.saldo_pendiente, 0), 0)
+          ELSE
+            COALESCE(NULLIF(p.assigned_cost_mxn, 0), NULLIF(p.saldo_pendiente, 0), NULLIF(p.pobox_service_cost, 0), NULLIF(p.air_sale_price, 0), NULLIF(p.pobox_venta_usd, 0), 0)
+        END as monto,
         CASE WHEN p.client_paid = TRUE OR p.payment_status = 'paid' OR (COALESCE(NULLIF(p.saldo_pendiente, 0), NULLIF(p.pobox_service_cost, 0), NULLIF(p.air_sale_price, 0), NULLIF(p.pobox_venta_usd, 0), 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0) THEN true ELSE false END as client_paid,
         p.updated_at as paid_at,
         p.created_at,

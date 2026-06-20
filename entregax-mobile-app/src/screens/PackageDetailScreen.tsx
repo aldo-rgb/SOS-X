@@ -204,15 +204,15 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
     const tc = Number(details.registered_exchange_rate) || 18.09;
     const nivel = details.pobox_tarifa_nivel || 1;
 
-    // ✅ Costo PO Box: si tenemos pobox_venta_usd (USD canónico), derivar MXN de ahí.
-    // pobox_service_cost puede estar desactualizado (calculado con otro TC o sin reempaque).
+    // ✅ Fuente de verdad: pobox_service_cost (MXN ya calculado por el backend al recibir).
+    // pobox_venta_usd es el total USD para todas las cajas (NO por caja), así que NO se
+    // multiplica por totalBoxes.
     const serviceCostBackend = Number((details as any).pobox_service_cost) || 0;
     const ventaUsdBackend = Number((details as any).pobox_venta_usd) || 0;
 
-    let costoPoboxUsd = ventaUsdBackend * totalBoxes;
-    // Si tenemos USD del backend, el MXN se deriva de él (fuente de verdad = USD + TC actual).
-    // Si solo viene MXN del backend, usarlo como fallback.
-    let costoPoboxMxn = costoPoboxUsd > 0 ? costoPoboxUsd * tc : serviceCostBackend;
+    // Usar MXN guardado como fuente de verdad (igual que la web con getPackageCostBreakdown).
+    let costoPoboxMxn = serviceCostBackend > 0 ? serviceCostBackend : (ventaUsdBackend * tc);
+    let costoPoboxUsd = costoPoboxMxn > 0 && tc > 0 ? costoPoboxMxn / tc : ventaUsdBackend;
 
     // Si el master no trae costo pero sí hay hijas con costo, sumar hijas.
     const childrenCostMxn = childPackages.reduce(
