@@ -1580,7 +1580,6 @@ export default function PettyCashHubPage() {
             const hasDateFilter = !!(detailDateFrom || detailDateTo);
             const totalAbono = !hasDateFilter && detailTotals ? detailTotals.abono : winAbono;
             const totalCargo = !hasDateFilter && detailTotals ? detailTotals.cargo : winCargo;
-            const movCount = !hasDateFilter && detailTotals ? detailTotals.count : filteredForTotals.length;
             return (
               <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 2 }}>
                 <Box>
@@ -1588,10 +1587,6 @@ export default function PettyCashHubPage() {
                   <Typography variant="h5" fontWeight="bold" color="success.main">
                     {fmtMoney(detailWallet.balance_mxn, detailWallet.currency)}
                   </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Movimientos</Typography>
-                  <Typography variant="h5" fontWeight="bold">{movCount}</Typography>
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Total abono</Typography>
