@@ -1642,6 +1642,7 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                     const pkgResult = await pool.query(`
                         SELECT id, tracking_internal, international_tracking, weight,
                                assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
+                               pobox_service_cost, pobox_tarifa_nivel,
                                national_carrier, status,
                                COALESCE(pkg_length, length_cm, 0) as length_cm,
                                COALESCE(pkg_width, width_cm, 0) as width_cm,
@@ -1651,13 +1652,13 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                         FROM packages
                         WHERE id = ANY($1)
                     `, [pkgIds]);
-                    // Expand masters into their children
                     for (const pkg of pkgResult.rows) {
                         if (pkg.is_master) {
                             try {
                                 const childRes = await pool.query(`
                                     SELECT id, tracking_internal, international_tracking, weight,
                                            assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
+                                           pobox_service_cost, pobox_tarifa_nivel,
                                            national_carrier, status,
                                            COALESCE(pkg_length, length_cm, 0) as length_cm,
                                            COALESCE(pkg_width, width_cm, 0) as width_cm,
@@ -1676,7 +1677,62 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                         }
                     }
                 } catch (e) {
-                    // ignore
+                    console.error('[getPoboxPaymentHistory] packages enrichment error:', e);
+                }
+            }
+            // Fallback: if packages is still empty, try to find by trackings stored in advisor_payment_orders
+            if (packages.length === 0 && row.payment_reference) {
+                try {
+                    const apoRes = await pool.query(
+                        `SELECT trackings FROM advisor_payment_orders WHERE payment_reference = $1 LIMIT 1`,
+                        [row.payment_reference]
+                    );
+                    if (apoRes.rows[0]?.trackings) {
+                        const trks = typeof apoRes.rows[0].trackings === 'string'
+                            ? JSON.parse(apoRes.rows[0].trackings)
+                            : apoRes.rows[0].trackings;
+                        if (Array.isArray(trks) && trks.length > 0) {
+                            // Find children first (they have master_id set), then masters
+                            const trkRes = await pool.query(`
+                                SELECT id, tracking_internal, international_tracking, weight,
+                                       assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
+                                       pobox_service_cost, pobox_tarifa_nivel,
+                                       national_carrier, status,
+                                       COALESCE(pkg_length, length_cm, 0) as length_cm,
+                                       COALESCE(pkg_width, width_cm, 0) as width_cm,
+                                       COALESCE(pkg_height, height_cm, 0) as height_cm,
+                                       COALESCE(is_master, false) as is_master,
+                                       description
+                                FROM packages
+                                WHERE tracking_internal = ANY($1)
+                                ORDER BY is_master ASC, id ASC
+                            `, [trks]);
+                            // If only the master came back, expand to children
+                            const nonMasters = trkRes.rows.filter((r: any) => !r.is_master);
+                            const masters = trkRes.rows.filter((r: any) => r.is_master);
+                            if (nonMasters.length > 0) {
+                                packages.push(...nonMasters);
+                            } else if (masters.length > 0) {
+                                for (const m of masters) {
+                                    const cRes = await pool.query(`
+                                        SELECT id, tracking_internal, international_tracking, weight,
+                                               assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
+                                               pobox_service_cost, pobox_tarifa_nivel,
+                                               national_carrier, status,
+                                               COALESCE(pkg_length, length_cm, 0) as length_cm,
+                                               COALESCE(pkg_width, width_cm, 0) as width_cm,
+                                               COALESCE(pkg_height, height_cm, 0) as height_cm,
+                                               description
+                                        FROM packages WHERE master_id = $1 ORDER BY id ASC
+                                    `, [m.id]);
+                                    if (cRes.rows.length > 0) packages.push(...cRes.rows);
+                                    else packages.push(m);
+                                }
+                            }
+                        }
+                    }
+                } catch (e2) {
+                    console.error('[getPoboxPaymentHistory] tracking fallback error:', e2);
                 }
             }
             const enriched: any = { ...row, packages };
