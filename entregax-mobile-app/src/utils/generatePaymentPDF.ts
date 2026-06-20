@@ -95,7 +95,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
   if (data.packages && data.packages.length > 0) {
     packageRows = data.packages.map((pkg, i) => {
       const tracking = pkg.tracking_internal || '-';
-      const intTrk = pkg.international_tracking ? `<br><span style="font-size:9px;color:#888;">${pkg.international_tracking}</span>` : '';
+      const intTrk = pkg.international_tracking ? `<br><span style="font-size:9px;color:#000;">${pkg.international_tracking}</span>` : '';
       const weight = pkg.weight ? `${Number(pkg.weight).toFixed(1)} lb` : '—';
       const dims = (pkg.length_cm && pkg.length_cm > 0) || (pkg.width_cm && pkg.width_cm > 0) || (pkg.height_cm && pkg.height_cm > 0)
         ? `${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm`
@@ -119,7 +119,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
   const bd = data.cost_breakdown || {};
   const breakdownRow = (label: string, val: number, color?: string): string =>
     Number(val) !== 0
-      ? `<tr><td style="border-bottom:1px solid #f0f0f0;"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color || '#333'};">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color || '#333'};">${formatCurrency(Number(val))}</td></tr>`
+      ? `<tr><td style="border-bottom:1px solid #f0f0f0;"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color || '#000'};">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color || '#000'};">${formatCurrency(Number(val))}</td></tr>`
       : '';
   const breakdownRows =
     breakdownRow('🚚 Paquetería (Envío Nacional)', Number(bd.paqueteria) || 0) +
@@ -135,12 +135,12 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
   <style>
     @page { margin: 30px 40px; size: A4; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; font-size: 12px; line-height: 1.5; }
+    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #000; font-size: 12px; line-height: 1.5; }
     
     .header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 15px; border-bottom: 3px solid #FF6B00; margin-bottom: 20px; }
     .logo { height: 55px; }
-    .company-info { text-align: right; font-size: 10px; color: #666; }
-    .company-info strong { color: #333; font-size: 11px; }
+    .company-info { text-align: right; font-size: 10px; color: #000; }
+    .company-info strong { color: #000; font-size: 11px; }
     
     .title-bar { background: linear-gradient(135deg, #FF6B00, #E55A00); color: white; padding: 12px 20px; border-radius: 6px; margin-bottom: 20px; }
     .title-bar h1 { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; }
@@ -151,11 +151,11 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
     
     .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; }
     .info-row { display: flex; gap: 8px; }
-    .info-label { color: #888; font-size: 11px; min-width: 120px; }
-    .info-value { font-weight: 600; font-size: 11px; }
+    .info-label { color: #000; font-size: 11px; min-width: 120px; }
+    .info-value { font-weight: 600; font-size: 11px; color: #000; }
     
     table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-    th { background: #F8F8F8; padding: 8px 10px; text-align: left; font-size: 10px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 2px solid #FF6B00; }
+    th { background: #F8F8F8; padding: 8px 10px; text-align: left; font-size: 10px; font-weight: 700; color: #000; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 2px solid #FF6B00; }
     th:last-child { text-align: right; }
     
     .total-row { background: #FFF8F0; }
@@ -163,21 +163,21 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
     
     .payment-box { background: #F9FBF5; border: 1px solid #C8E6C9; border-radius: 8px; padding: 16px; margin-top: 8px; }
     .payment-box .bank-row { margin-bottom: 4px; font-size: 11px; }
-    .payment-box .bank-label { color: #666; display: inline-block; min-width: 100px; }
-    .payment-box .bank-value { font-weight: 700; color: #333; }
+    .payment-box .bank-label { color: #000; display: inline-block; min-width: 100px; }
+    .payment-box .bank-value { font-weight: 700; color: #000; }
     
     .warning-box { background: #FFF3E0; border-left: 4px solid #FF9800; padding: 10px 14px; margin-top: 12px; border-radius: 0 6px 6px 0; font-size: 10px; color: #E65100; }
     
     .instructions-box { background: #F3F8FF; border: 1px solid #BBDEFB; border-radius: 8px; padding: 14px; margin-top: 12px; }
     .instructions-box h3 { font-size: 11px; color: #1565C0; margin-bottom: 8px; }
-    .instructions-box ol { padding-left: 18px; font-size: 10px; color: #444; }
+    .instructions-box ol { padding-left: 18px; font-size: 10px; color: #000; }
     .instructions-box ol li { margin-bottom: 4px; }
     
-    .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9px; color: #999; text-align: center; }
+    .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9px; color: #000; text-align: center; }
     .footer a { color: #FF6B00; text-decoration: none; }
     
-    .terms { margin-top: 16px; padding: 12px; background: #FAFAFA; border-radius: 6px; font-size: 8.5px; color: #999; line-height: 1.6; }
-    .terms strong { color: #666; }
+    .terms { margin-top: 16px; padding: 12px; background: #FAFAFA; border-radius: 6px; font-size: 8.5px; color: #000; line-height: 1.6; }
+    .terms strong { color: #000; }
   </style>
 </head>
 <body>
@@ -267,7 +267,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
   <!-- PAYMENT INSTRUCTIONS -->
   <div class="section">
     <div class="section-title">💳 Instrucciones de Pago</div>
-    <p style="font-size: 11px; color: #555; margin-bottom: 8px;">
+    <p style="font-size: 11px; color: #000; margin-bottom: 8px;">
       Para garantizar el despacho de su mercancía, le solicitamos realizar el pago correspondiente:
     </p>
     <div class="payment-box">
