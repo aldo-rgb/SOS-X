@@ -615,7 +615,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
            WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
              AND pp.package_ids @> jsonb_build_array(p.id) LIMIT 1)
         ) AS in_payment_order_ref,
-        COALESCE(p.national_label_url, '') as national_label_url
+        COALESCE(p.national_label_url, '') as national_label_url,
+        COALESCE(p.national_shipping_cost, 0) as national_shipping_cost
       FROM packages p
       JOIN users u ON (
         p.user_id = u.id
@@ -663,7 +664,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
            WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
              AND pp.package_ids @> jsonb_build_array(mo.id) LIMIT 1)
         ) AS in_payment_order_ref,
-        COALESCE(mo.national_label_url, '') as national_label_url
+        COALESCE(mo.national_label_url, '') as national_label_url,
+        0::numeric as national_shipping_cost
       FROM maritime_orders mo
       JOIN users u ON mo.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -720,7 +722,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
            WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
              AND pp.package_ids @> jsonb_build_array(MIN(ds.id)) LIMIT 1)
         ) AS in_payment_order_ref,
-        COALESCE(MAX(ds.national_label_url), '') as national_label_url
+        COALESCE(MAX(ds.national_label_url), '') as national_label_url,
+        0::numeric as national_shipping_cost
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -872,6 +875,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         childTrackings: Array.isArray(s.child_trackings) ? s.child_trackings : [],
         inPaymentOrderRef: s.in_payment_order_ref || null,
         labelPrinted: !!(s.national_label_url && s.national_label_url !== ''),
+        nationalShippingCost: parseFloat(s.national_shipping_cost) || 0,
       })),
       stats: {
         total: parseInt(statsRes.rows[0]?.total) || 0,

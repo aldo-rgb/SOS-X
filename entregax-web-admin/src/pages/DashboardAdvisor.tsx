@@ -639,7 +639,8 @@ export default function DashboardAdvisor() {
     try {
       const selected = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid));
       const first = selected[0];
-      const autoTotal = selected.reduce((sum, s) => sum + (s.amount || 0), 0);
+      const autoTotal = selected.reduce((sum, s) =>
+        sum + (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)), 0);
       const total = autoTotal > 0 ? autoTotal : (parseFloat(newOrderManualTotal) || 0);
       const res = await api.post('/advisor/payment-orders', {
         client_id: first?.clientId,
@@ -3519,12 +3520,14 @@ export default function DashboardAdvisor() {
                         <TableCell>Tracking</TableCell>
                         <TableCell>Cliente</TableCell>
                         <TableCell>Servicio</TableCell>
-                        <TableCell align="right">Monto</TableCell>
+                        <TableCell align="right">Paquetería</TableCell>
+                        <TableCell align="right">GEX</TableCell>
+                        <TableCell align="right">Total</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {filteredShipments.length === 0 && (
-                        <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3 }}>
+                        <TableRow><TableCell colSpan={7} align="center" sx={{ py: 3 }}>
                           <Typography color="text.secondary" variant="caption">No hay guías en tránsito para este cliente</Typography>
                         </TableCell></TableRow>
                       )}
@@ -3601,8 +3604,23 @@ export default function DashboardAdvisor() {
                             <TableCell><Typography variant="body2">{s.clientName}</Typography><Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography></TableCell>
                             <TableCell><Chip label={serviceLabel(s.serviceType || '')} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} /></TableCell>
                             <TableCell align="right">
+                              {(s.nationalShippingCost || 0) > 0
+                                ? <Typography variant="body2" sx={{ fontSize: '0.78rem' }} color="text.secondary">${(s.nationalShippingCost || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                                : <Typography color="text.disabled" variant="body2">—</Typography>
+                              }
+                            </TableCell>
+                            <TableCell align="right">
+                              {(s.gexCost || 0) > 0
+                                ? <Typography variant="body2" sx={{ fontSize: '0.78rem' }} color="text.secondary">${(s.gexCost || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                                : <Typography color="text.disabled" variant="body2">—</Typography>
+                              }
+                            </TableCell>
+                            <TableCell align="right">
                               {hasAmount
-                                ? <Typography variant="body2" fontWeight={700} color="warning.main">${s.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                                ? (() => {
+                                    const rowTotal = (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0));
+                                    return <Typography variant="body2" fontWeight={700} color="warning.main">${rowTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>;
+                                  })()
                                 : isPdteClasif
                                   ? <Chip label="Pdte. Clasif." size="small" sx={{ fontSize: '0.6rem', bgcolor: '#EDE7F6', color: '#6A1B9A', fontWeight: 700 }} />
                                   : <Typography color="text.disabled">—</Typography>
@@ -3618,7 +3636,8 @@ export default function DashboardAdvisor() {
             })()}
 
             {newOrderSelectedUids.size > 0 && (() => {
-              const autoTotal = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid)).reduce((sum, s) => sum + (s.amount || 0), 0);
+              const autoTotal = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid)).reduce((sum, s) =>
+                sum + (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)), 0);
               const manualVal = parseFloat(newOrderManualTotal) || 0;
               const displayTotal = autoTotal > 0 ? autoTotal : manualVal;
               return (
