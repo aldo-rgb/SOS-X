@@ -665,7 +665,44 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
       }
     }
 
-    return res.json({ order, items });
+    // Desglose de costos para la cotización/PDF (mismo criterio que el historial
+    // del cliente): Paquetería y GEX desde las guías PO Box top-level; Cargos Extra
+    // por tracking (master + hijas); PO Box como remanente para reconciliar el TOTAL.
+    const cost_breakdown = { pobox: 0, paqueteria: 0, gex: 0, extra: 0 };
+    try {
+      if (pkgIds.length > 0) {
+        const topRes = await pool.query(`
+          SELECT COALESCE(national_shipping_cost, 0) AS ship,
+                 COALESCE(gex_total_cost, 0) AS gex
+          FROM packages WHERE id = ANY($1::int[])
+        `, [pkgIds]);
+        for (const r of topRes.rows) {
+          cost_breakdown.paqueteria += Number(r.ship) || 0;
+          cost_breakdown.gex += Number(r.gex) || 0;
+        }
+        const trkRes = await pool.query(`
+          SELECT tracking_internal FROM packages
+          WHERE id = ANY($1::int[]) OR master_id = ANY($1::int[])
+        `, [pkgIds]);
+        const trks = trkRes.rows.map((r: any) => r.tracking_internal).filter(Boolean).map(String);
+        if (trks.length > 0) {
+          const ch = await pool.query(
+            `SELECT tipo, monto FROM guias_ajustes_financieros
+             WHERE activo = true AND guia_tracking = ANY($1::text[])`,
+            [trks]
+          );
+          for (const c of ch.rows) {
+            cost_breakdown.extra += (c.tipo === 'descuento' ? -1 : 1) * (Number(c.monto) || 0);
+          }
+        }
+      }
+      cost_breakdown.pobox = (Number(order.total_mxn) || 0)
+        - cost_breakdown.paqueteria - cost_breakdown.gex - cost_breakdown.extra;
+    } catch (e) {
+      console.error('[payment-orders] detail cost_breakdown:', e);
+    }
+
+    return res.json({ order, items, cost_breakdown });
   } catch (e: any) {
     console.error('[payment-orders] detail:', e);
     return res.status(500).json({ error: 'Error al obtener detalle de orden' });

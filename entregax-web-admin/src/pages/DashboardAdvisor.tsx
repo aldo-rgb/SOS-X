@@ -2950,14 +2950,18 @@ export default function DashboardAdvisor() {
                   const rows = shipDetails.length > 0 ? shipDetails : guideList.map((g) => ({ tracking: g, weight: 0, lengthCm: 0, widthCm: 0, heightCm: 0, deliveryCarrierName: '', amount: 0, gexCost: 0, tarifaNivel: null, _children: [] }));
                   let subtotal = 0;
                   let totalGex = 0;
+                  let totalShip = 0;
+                  let totalExtra = 0;
                   let pkgRows = '';
                   rows.forEach((s: any, idx: number) => {
                     const gex = s.gexCost || 0;
                     const amt = s.amount || 0;
                     subtotal += amt;
                     totalGex += gex;
+                    totalShip += Number(s.nationalShippingCost) || 0;
+                    totalExtra += Number(s.extraChargesTotal) || 0;
                     const dims = (s.lengthCm > 0 || s.widthCm > 0 || s.heightCm > 0) ? `${s.lengthCm}×${s.widthCm}×${s.heightCm} cm` : '—';
-                    const intTrk = s.internationalTracking ? `<br><span style="font-size:9px;color:#888">${s.internationalTracking}</span>` : '';
+                    const intTrk = s.internationalTracking ? `<br><span style="font-size:9px;color:#000">${s.internationalTracking}</span>` : '';
                     const carrier = s.deliveryCarrierName || '—';
                     pkgRows += `<tr>
                       <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px">${idx + 1}</td>
@@ -2972,7 +2976,7 @@ export default function DashboardAdvisor() {
                         const cdims = (c.lengthCm > 0 || c.widthCm > 0 || c.heightCm > 0) ? `${c.lengthCm}×${c.widthCm}×${c.heightCm} cm` : '—';
                         const nivel = c.tarifaNivel != null ? `<span style="background:#FEE2E2;color:#B91C1C;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700">N${c.tarifaNivel}</span>` : '';
                         pkgRows += `<tr style="background:#FFF8F0">
-                          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#aaa">&nbsp;↳ ${ci + 1}</td>
+                          <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#000">&nbsp;↳ ${ci + 1}</td>
                           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;font-family:monospace">${c.tracking || '—'} ${nivel}</td>
                           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${c.weight > 0 ? `${Number(c.weight).toFixed(1)} lb` : '—'}</td>
                           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${cdims}</td>
@@ -2983,18 +2987,15 @@ export default function DashboardAdvisor() {
                     }
                   });
 
-                  const desglose = totalGex > 0 ? `
-                    <div style="background:#FAFAFA;border:1px solid #E0E0E0;border-radius:6px;padding:12px;margin-top:10px">
-                      <div style="font-size:10px;font-weight:700;color:#666;text-transform:uppercase;margin-bottom:6px">Desglose de Cobro</div>
-                      <div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0">
-                        <span>Costo de paquetería:</span><span style="font-weight:600">${fmt(subtotal - totalGex)} MXN</span>
-                      </div>
-                      <div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;color:#2E7D32">
-                        <span>GEX – Garantía Extendida:</span><span style="font-weight:600">${fmt(totalGex)} MXN</span>
-                      </div>
-                    </div>` : '';
+                  // Filas de desglose dentro de la tabla (mismo formato que el PDF
+                  // del cliente). PO Box queda en las filas por guía; estas tres + el
+                  // PO Box reconcilian con el TOTAL.
+                  const brkRow = (label: string, val: number, color?: string) => Number(val) !== 0 ? `<tr><td style="border-bottom:1px solid #f0f0f0"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color || '#000'}">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color || '#000'}">${fmt(val)}</td></tr>` : '';
+                  const breakdownRows = brkRow('🚚 Paquetería (Envío Nacional)', totalShip)
+                    + brkRow('🛡️ GEX — Garantía Extendida', totalGex, '#2E7D32')
+                    + brkRow('➕ Cargos Extra', totalExtra, '#C2410C');
 
-                  const CSS = `@page{margin:30px 40px;size:A4}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#333;font-size:12px;line-height:1.5}.header{display:flex;justify-content:space-between;align-items:center;padding-bottom:15px;border-bottom:3px solid #FF6B00;margin-bottom:20px}.logo-text{font-size:26px;font-weight:900;color:#FF6B00;letter-spacing:1px;line-height:1}.logo-sub{font-size:11px;color:#888;margin-top:3px}.company-info{text-align:right;font-size:10px;color:#666}.company-info strong{color:#333;font-size:11px}.title-bar{background:linear-gradient(135deg,#FF6B00,#E55A00);color:white;padding:12px 20px;border-radius:6px;margin-bottom:20px}.title-bar h1{font-size:16px;font-weight:700}.title-bar .ref{font-size:11px;opacity:.9;margin-top:2px}.section{margin-bottom:16px}.section-title{font-size:12px;font-weight:700;color:#FF6B00;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #FFE0C0}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}.info-row{display:flex;gap:8px}.info-label{color:#888;font-size:11px;min-width:120px}.info-value{font-weight:600;font-size:11px}table{width:100%;border-collapse:collapse;margin-top:6px}th{background:#F8F8F8;padding:8px 10px;text-align:left;font-size:10px;font-weight:700;color:#555;text-transform:uppercase;border-bottom:2px solid #FF6B00}th:last-child{text-align:right}.total-row td{padding:10px;font-weight:700;font-size:13px;border-top:2px solid #FF6B00;background:#FFF8F0}.payment-box{background:#F9FBF5;border:1px solid #C8E6C9;border-radius:8px;padding:16px;margin-top:8px}.bank-row{margin-bottom:4px;font-size:11px}.bank-label{color:#666;display:inline-block;min-width:100px}.bank-value{font-weight:700;color:#333}.warning-box{background:#FFF3E0;border-left:4px solid #FF9800;padding:10px 14px;margin-top:12px;border-radius:0 6px 6px 0;font-size:10px;color:#E65100}.instructions-box{background:#F3F8FF;border:1px solid #BBDEFB;border-radius:8px;padding:14px;margin-top:12px}.instructions-box h3{font-size:11px;color:#1565C0;margin-bottom:8px}.instructions-box ol{padding-left:18px;font-size:10px;color:#444}.instructions-box ol li{margin-bottom:4px}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}.terms{margin-top:16px;padding:12px;background:#FAFAFA;border-radius:6px;font-size:8.5px;color:#999;line-height:1.6}.terms strong{color:#666}`;
+                  const CSS = `@page{margin:30px 40px;size:A4}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#000;font-size:12px;line-height:1.5}.header{display:flex;justify-content:space-between;align-items:center;padding-bottom:15px;border-bottom:3px solid #FF6B00;margin-bottom:20px}.logo-text{font-size:26px;font-weight:900;color:#FF6B00;letter-spacing:1px;line-height:1}.logo-sub{font-size:11px;color:#000;margin-top:3px}.company-info{text-align:right;font-size:10px;color:#000}.company-info strong{color:#000;font-size:11px}.title-bar{background:linear-gradient(135deg,#FF6B00,#E55A00);color:white;padding:12px 20px;border-radius:6px;margin-bottom:20px}.title-bar h1{font-size:16px;font-weight:700}.title-bar .ref{font-size:11px;opacity:.9;margin-top:2px}.section{margin-bottom:16px}.section-title{font-size:12px;font-weight:700;color:#FF6B00;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #FFE0C0}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}.info-row{display:flex;gap:8px}.info-label{color:#000;font-size:11px;min-width:120px}.info-value{font-weight:600;font-size:11px;color:#000}table{width:100%;border-collapse:collapse;margin-top:6px}th{background:#F8F8F8;padding:8px 10px;text-align:left;font-size:10px;font-weight:700;color:#000;text-transform:uppercase;border-bottom:2px solid #FF6B00}th:last-child{text-align:right}.total-row td{padding:10px;font-weight:700;font-size:13px;border-top:2px solid #FF6B00;background:#FFF8F0}.payment-box{background:#F9FBF5;border:1px solid #C8E6C9;border-radius:8px;padding:16px;margin-top:8px}.bank-row{margin-bottom:4px;font-size:11px}.bank-label{color:#000;display:inline-block;min-width:100px}.bank-value{font-weight:700;color:#000}.warning-box{background:#FFF3E0;border-left:4px solid #FF9800;padding:10px 14px;margin-top:12px;border-radius:0 6px 6px 0;font-size:10px;color:#E65100}.instructions-box{background:#F3F8FF;border:1px solid #BBDEFB;border-radius:8px;padding:14px;margin-top:12px}.instructions-box h3{font-size:11px;color:#1565C0;margin-bottom:8px}.instructions-box ol{padding-left:18px;font-size:10px;color:#000}.instructions-box ol li{margin-bottom:4px}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#000;text-align:center}.terms{margin-top:16px;padding:12px;background:#FAFAFA;border-radius:6px;font-size:8.5px;color:#000;line-height:1.6}.terms strong{color:#000}`;
 
                   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>
                     <div class="header">
@@ -3034,18 +3035,18 @@ export default function DashboardAdvisor() {
                         </tr></thead>
                         <tbody>
                           ${pkgRows}
+                          ${breakdownRows}
                           <tr class="total-row">
                             <td colspan="5" style="text-align:right;padding-right:10px">TOTAL A PAGAR:</td>
-                            <td style="text-align:right;color:#E65100;font-size:14px">${fmt(totalAmt || subtotal)} MXN</td>
+                            <td style="text-align:right;color:#E65100;font-size:14px">${fmt(totalAmt || (subtotal + totalShip + totalGex + totalExtra))} MXN</td>
                           </tr>
                         </tbody>
                       </table>
-                      ${desglose}
                     </div>
                     ${banco || clabe ? `
                     <div class="section">
                       <div class="section-title">💳 Instrucciones de Pago</div>
-                      <p style="font-size:11px;color:#555;margin-bottom:8px">Para garantizar el despacho de su mercancía, le solicitamos realizar el pago correspondiente:</p>
+                      <p style="font-size:11px;color:#000;margin-bottom:8px">Para garantizar el despacho de su mercancía, le solicitamos realizar el pago correspondiente:</p>
                       <div class="payment-box">
                         <div class="bank-row"><span class="bank-label">Banco:</span> <span class="bank-value">${banco}</span></div>
                         <div class="bank-row"><span class="bank-label">Beneficiario:</span> <span class="bank-value">${beneficiario}</span></div>
