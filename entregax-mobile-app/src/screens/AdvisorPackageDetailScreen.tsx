@@ -69,6 +69,21 @@ interface ShipmentDetail {
   assigned_cost_mxn: number;
   saldo_pendiente: number;
   monto_pagado: number;
+  pobox_service_cost?: number;
+  national_shipping_cost?: number;
+  gex_total_cost?: number;
+  has_gex?: boolean;
+  extra_charges_total?: number;
+  extra_charges_desc?: string;
+  children?: Array<{
+    id: number;
+    tracking: string | null;
+    nivel: string | null;
+    weight: number;
+    length_cm: number;
+    width_cm: number;
+    height_cm: number;
+  }>;
   created_at: string | null;
   client_name: string | null;
   client_box_id: string | null;
@@ -193,14 +208,48 @@ export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
             <InfoRow label="Recibido" value={formatDate(pkg.created_at)} />
           </Section>
 
-          {/* Costos */}
-          {(pkg.assigned_cost_mxn > 0 || pkg.saldo_pendiente > 0 || pkg.monto_pagado > 0) && (
-            <Section title="Costos" icon="cash-outline">
-              {pkg.assigned_cost_mxn > 0 && <InfoRow label="Costo Total" value={`$${pkg.assigned_cost_mxn.toFixed(2)}`} highlight />}
-              {pkg.monto_pagado > 0 && <InfoRow label="Pagado" value={`$${pkg.monto_pagado.toFixed(2)}`} />}
-              {pkg.saldo_pendiente > 0 && <InfoRow label="Saldo Pendiente" value={`$${pkg.saldo_pendiente.toFixed(2)}`} highlight />}
+          {/* Guías hijas */}
+          {Array.isArray(pkg.children) && pkg.children.length > 0 && (
+            <Section title={`Guías Incluidas (${pkg.children.length})`} icon="albums-outline">
+              {pkg.children.map((c) => {
+                const dims = (c.length_cm > 0 || c.width_cm > 0 || c.height_cm > 0)
+                  ? `${c.length_cm}×${c.width_cm}×${c.height_cm} cm` : '—';
+                const meta = [c.nivel, c.weight > 0 ? `${c.weight.toFixed(1)} kg` : null, dims !== '—' ? dims : null]
+                  .filter(Boolean).join('  ·  ');
+                return (
+                  <View key={c.id} style={styles.childRow}>
+                    <Text style={styles.childTracking} numberOfLines={1}>{c.tracking || '—'}</Text>
+                    <Text style={styles.childMeta}>{meta || '—'}</Text>
+                  </View>
+                );
+              })}
             </Section>
           )}
+
+          {/* Costos */}
+          {(() => {
+            const pobox = Number(pkg.pobox_service_cost) || 0;
+            const national = Number(pkg.national_shipping_cost) || 0;
+            const gex = pkg.has_gex ? (Number(pkg.gex_total_cost) || 0) : 0;
+            const extra = Number(pkg.extra_charges_total) || 0;
+            const extraDesc = pkg.extra_charges_desc || '';
+            const hasBreakdown = pobox > 0 || national > 0 || gex > 0 || extra !== 0;
+            const total = hasBreakdown ? pobox + national + gex + extra : (pkg.assigned_cost_mxn || 0);
+            const pagado = Number(pkg.monto_pagado) || 0;
+            const saldo = Math.max(0, total - pagado);
+            if (!(total > 0 || pagado > 0)) return null;
+            return (
+              <Section title="Costos" icon="cash-outline">
+                {pobox > 0 && <InfoRow label="📦 Servicio (PO Box)" value={`$${pobox.toFixed(2)} MXN`} />}
+                {national > 0 && <InfoRow label="🚚 Paquetería nacional" value={`$${national.toFixed(2)} MXN`} />}
+                {gex > 0 && <InfoRow label="🛡 Garantía Extendida (GEX)" value={`$${gex.toFixed(2)} MXN`} />}
+                {extra !== 0 && <InfoRow label={`➕ Cargos extra${extraDesc ? ` (${extraDesc})` : ''}`} value={`$${extra.toFixed(2)} MXN`} />}
+                <InfoRow label="Total" value={`$${total.toFixed(2)} MXN`} highlight />
+                {pagado > 0 && <InfoRow label="Pagado" value={`$${pagado.toFixed(2)} MXN`} />}
+                {pagado > 0 && saldo > 0 && <InfoRow label="Saldo Pendiente" value={`$${saldo.toFixed(2)} MXN`} highlight />}
+              </Section>
+            );
+          })()}
 
         </ScrollView>
       ) : null}
@@ -296,6 +345,9 @@ const styles = StyleSheet.create({
   infoValue: { fontSize: 13, color: BLACK, fontWeight: '600', flex: 2, textAlign: 'right' },
   monoValue: { fontFamily: 'Courier', fontSize: 12 },
   highlightValue: { color: ORANGE },
+  childRow: { paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#F5F5F5' },
+  childTracking: { fontSize: 13, color: BLACK, fontWeight: '700', fontFamily: 'Courier' },
+  childMeta: { fontSize: 12, color: '#777', marginTop: 2 },
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', alignItems: 'center' },
   fullPhoto: { width: '95%', height: '80%' },
   closePhotoBtn: { position: 'absolute', top: 50, right: 16 },

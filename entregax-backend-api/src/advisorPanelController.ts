@@ -2097,6 +2097,10 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
                 COALESCE(p.assigned_cost_mxn, 0) AS assigned_cost_mxn,
                 COALESCE(p.saldo_pendiente, 0) AS saldo_pendiente,
                 COALESCE(p.monto_pagado, 0) AS monto_pagado,
+                COALESCE(p.pobox_service_cost, 0) AS pobox_service_cost,
+                COALESCE(p.national_shipping_cost, 0) AS national_shipping_cost,
+                COALESCE(p.gex_total_cost, 0) AS gex_total_cost,
+                COALESCE(p.has_gex, false) AS has_gex,
                 p.created_at,
                 u.full_name AS client_name,
                 u.box_id AS client_box_id
@@ -2154,10 +2158,63 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
         assigned_cost_mxn: parseFloat(p.assigned_cost_mxn) || 0,
         saldo_pendiente: parseFloat(p.saldo_pendiente) || 0,
         monto_pagado: parseFloat(p.monto_pagado) || 0,
+        pobox_service_cost: parseFloat(p.pobox_service_cost) || 0,
+        national_shipping_cost: parseFloat(p.national_shipping_cost) || 0,
+        gex_total_cost: parseFloat(p.gex_total_cost) || 0,
+        has_gex: !!p.has_gex,
         created_at: p.created_at,
         client_name: p.client_name || null,
         client_box_id: p.client_box_id || null,
       };
+
+      // Guías hijas (repack/consolidación): nivel, medidas y peso (sin costo)
+      let childIds: number[] = [];
+      if (p.is_master) {
+        try {
+          const cr = await pool.query(
+            `SELECT id, tracking_internal, pobox_tarifa_nivel,
+                    COALESCE(weight, 0) AS weight,
+                    COALESCE(pkg_length, long_cm, 0) AS length_cm,
+                    COALESCE(pkg_width, width_cm, 0) AS width_cm,
+                    COALESCE(pkg_height, height_cm, 0) AS height_cm
+             FROM packages WHERE master_id = $1 ORDER BY box_number ASC, id ASC`,
+            [id]
+          );
+          childIds = cr.rows.map((c: any) => c.id);
+          row.children = cr.rows.map((c: any) => ({
+            id: c.id,
+            tracking: c.tracking_internal,
+            nivel: c.pobox_tarifa_nivel ? `N${c.pobox_tarifa_nivel}` : null,
+            weight: parseFloat(c.weight) || 0,
+            length_cm: parseFloat(c.length_cm) || 0,
+            width_cm: parseFloat(c.width_cm) || 0,
+            height_cm: parseFloat(c.height_cm) || 0,
+          }));
+        } catch { row.children = []; }
+      } else {
+        row.children = [];
+      }
+
+      // Cargos extra (guias_ajustes_financieros) del master + hijas
+      try {
+        const allIds = [id, ...childIds];
+        const ch = await pool.query(
+          `SELECT tipo, monto, concepto FROM guias_ajustes_financieros
+           WHERE activo = true AND guia_id = ANY($1::int[])`,
+          [allIds]
+        );
+        let extraTotal = 0;
+        const descs: string[] = [];
+        for (const r2 of ch.rows) {
+          extraTotal += (r2.tipo === 'descuento' ? -1 : 1) * (Number(r2.monto) || 0);
+          if (r2.concepto) descs.push(r2.concepto);
+        }
+        row.extra_charges_total = extraTotal;
+        row.extra_charges_desc = [...new Set(descs)].join(', ');
+      } catch {
+        row.extra_charges_total = 0;
+        row.extra_charges_desc = '';
+      }
 
     } else if (prefix === 'MAR') {
       const r = await pool.query(
