@@ -1735,26 +1735,32 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                     console.error('[getPoboxPaymentHistory] tracking fallback error:', e2);
                 }
             }
-            // Desglose de costos para la cotización/PDF. GEX, Paquetería y Cargos
-            // Extra se computan sobre master + guías hijas (cada componente vive en
-            // un nivel distinto). PO Box queda como remanente para que el desglose
-            // siempre reconcilie exactamente con el TOTAL (order.amount).
+            // Desglose de costos para la cotización/PDF. Paquetería y GEX se toman
+            // SOLO de las guías del pago (top-level), no de las hijas: esos campos se
+            // guardan a nivel master y se duplican en las hijas, así que sumarlas
+            // multiplicaría el monto. Cargos extra sí se buscan por tracking en master
+            // + hijas (pueden estar en cualquiera). PO Box queda como remanente para
+            // que el desglose reconcilie exactamente con el TOTAL (order.amount).
             const cost_breakdown = { pobox: 0, paqueteria: 0, gex: 0, extra: 0 };
             try {
                 if (Array.isArray(pkgIds) && pkgIds.length > 0) {
-                    const brk = await pool.query(`
-                        SELECT tracking_internal,
-                               COALESCE(national_shipping_cost, 0) AS ship,
+                    // Paquetería y GEX: solo las guías del pago (master/individuales)
+                    const topRes = await pool.query(`
+                        SELECT COALESCE(national_shipping_cost, 0) AS ship,
                                COALESCE(gex_total_cost, 0) AS gex
                         FROM packages
-                        WHERE id = ANY($1) OR master_id = ANY($1)
+                        WHERE id = ANY($1)
                     `, [pkgIds]);
-                    const trks: string[] = [];
-                    for (const r of brk.rows) {
+                    for (const r of topRes.rows) {
                         cost_breakdown.paqueteria += Number(r.ship) || 0;
                         cost_breakdown.gex += Number(r.gex) || 0;
-                        if (r.tracking_internal) trks.push(String(r.tracking_internal));
                     }
+                    // Cargos extra: trackings de master + hijas
+                    const trkRes = await pool.query(`
+                        SELECT tracking_internal FROM packages
+                        WHERE id = ANY($1) OR master_id = ANY($1)
+                    `, [pkgIds]);
+                    const trks = trkRes.rows.map((r: any) => r.tracking_internal).filter(Boolean).map(String);
                     if (trks.length > 0) {
                         const ch = await pool.query(
                             `SELECT tipo, monto FROM guias_ajustes_financieros

@@ -42,6 +42,7 @@ interface PaymentPDFData {
     weight?: number;
     assigned_cost_mxn?: number;
     saldo_pendiente?: number;
+    pobox_service_cost?: number;
     national_carrier?: string;
     length_cm?: number;
     width_cm?: number;
@@ -100,7 +101,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
         ? `${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm`
         : '—';
       const carrier = pkg.national_carrier || '—';
-      const cost = formatCurrency(Number(pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0));
+      const cost = formatCurrency(Number(pkg.pobox_service_cost || pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0));
       return `
         <tr>
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px;">${i + 1}</td>
