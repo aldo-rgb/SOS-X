@@ -225,6 +225,8 @@ interface PackageTracking {
   national_label_url?: string;
   carrier?: string;
   gex_total_cost?: number;
+  extra_charges_total?: number;
+  extra_charges?: Array<{ tipo: string; monto: number; concepto?: string; moneda?: string }>;
   assigned_cost_mxn?: number;
   delivery_recipient_name?: string;
   instructions_assigned_by_name?: string | null;

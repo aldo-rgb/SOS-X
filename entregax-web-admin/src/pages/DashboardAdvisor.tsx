@@ -214,6 +214,7 @@ interface AdvisorShipment {
   inPaymentOrderRef: string | null;
   labelPrinted: boolean;
   nationalShippingCost: number;
+  extraChargesTotal: number;
 }
 
 interface ShipmentStats {
@@ -653,7 +654,7 @@ export default function DashboardAdvisor() {
       const selected = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid));
       const first = selected[0];
       const autoTotal = selected.reduce((sum, s) =>
-        sum + (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)), 0);
+        sum + (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.extraChargesTotal || 0), 0);
       const total = autoTotal > 0 ? autoTotal : (parseFloat(newOrderManualTotal) || 0);
       const res = await api.post('/advisor/payment-orders', {
         client_id: first?.clientId,
@@ -3553,12 +3554,13 @@ export default function DashboardAdvisor() {
                         <TableCell align="right">Costo Caja</TableCell>
                         <TableCell align="right">Paquetería</TableCell>
                         <TableCell align="right">GEX</TableCell>
+                        <TableCell align="right">Cargos Extra</TableCell>
                         <TableCell align="right">Total</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {filteredShipments.length === 0 && (
-                        <TableRow><TableCell colSpan={8} align="center" sx={{ py: 3 }}>
+                        <TableRow><TableCell colSpan={9} align="center" sx={{ py: 3 }}>
                           <Typography color="text.secondary" variant="caption">No hay guías en tránsito para este cliente</Typography>
                         </TableCell></TableRow>
                       )}
@@ -3653,9 +3655,15 @@ export default function DashboardAdvisor() {
                               }
                             </TableCell>
                             <TableCell align="right">
+                              {(s.extraChargesTotal || 0) !== 0
+                                ? <Typography variant="body2" sx={{ fontSize: '0.78rem' }} color="text.secondary">${(s.extraChargesTotal || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                                : <Typography color="text.disabled" variant="body2">—</Typography>
+                              }
+                            </TableCell>
+                            <TableCell align="right">
                               {hasAmount
                                 ? (() => {
-                                    const rowTotal = (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0));
+                                    const rowTotal = (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.extraChargesTotal || 0);
                                     return <Typography variant="body2" fontWeight={700} color="warning.main">${rowTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>;
                                   })()
                                 : isPdteClasif
@@ -3674,7 +3682,7 @@ export default function DashboardAdvisor() {
 
             {newOrderSelectedUids.size > 0 && (() => {
               const autoTotal = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid)).reduce((sum, s) =>
-                sum + (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)), 0);
+                sum + (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.extraChargesTotal || 0), 0);
               const manualVal = parseFloat(newOrderManualTotal) || 0;
               const displayTotal = autoTotal > 0 ? autoTotal : manualVal;
               return (

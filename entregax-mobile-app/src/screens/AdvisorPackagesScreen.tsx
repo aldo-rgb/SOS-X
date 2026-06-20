@@ -52,6 +52,7 @@ interface Shipment {
   is_master: boolean;
   gex_cost: number;
   national_shipping_cost: number;
+  extra_charges_total?: number;
   is_unidentified?: boolean;
   carrier_tracking?: string | null;
   carrier_name?: string | null;
@@ -204,7 +205,8 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         client_id: s.client_id ?? s.clientId ?? 0,
         gex_cost: parseFloat(s.gexCost ?? s.gex_cost ?? 0),
         national_shipping_cost: parseFloat(s.nationalShippingCost ?? s.national_shipping_cost ?? 0),
-        saldo_pendiente: (parseFloat(s.saldo_pendiente ?? s.monto ?? s.amount ?? 0)) + (parseFloat(s.gexCost ?? s.gex_cost ?? 0)) + (parseFloat(s.nationalShippingCost ?? s.national_shipping_cost ?? 0)),
+        extra_charges_total: parseFloat(s.extraChargesTotal ?? s.extra_charges_total ?? 0),
+        saldo_pendiente: (parseFloat(s.saldo_pendiente ?? s.monto ?? s.amount ?? 0)) + (parseFloat(s.gexCost ?? s.gex_cost ?? 0)) + (parseFloat(s.nationalShippingCost ?? s.national_shipping_cost ?? 0)) + (parseFloat(s.extraChargesTotal ?? s.extra_charges_total ?? 0)),
         client_paid: s.client_paid ?? s.clientPaid ?? false,
         has_instructions: s.has_instructions ?? s.hasInstructions ?? false,
         weight: parseFloat(s.weight ?? 0),
@@ -639,7 +641,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                 ))}
               </View>
             )}
-            {(item.gex_cost > 0 || item.national_shipping_cost > 0) && (
+            {(item.gex_cost > 0 || item.national_shipping_cost > 0 || (item.extra_charges_total || 0) !== 0) && (
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
                 {item.national_shipping_cost > 0 && (
                   <Text style={{ fontSize: 10, color: '#1565C0' }}>
@@ -649,6 +651,11 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                 {item.gex_cost > 0 && (
                   <Text style={{ fontSize: 10, color: '#2E7D32' }}>
                     🛡 GEX ${item.gex_cost.toFixed(2)}
+                  </Text>
+                )}
+                {(item.extra_charges_total || 0) !== 0 && (
+                  <Text style={{ fontSize: 10, color: '#C2410C' }}>
+                    ➕ Cargos extra ${Number(item.extra_charges_total).toFixed(2)}
                   </Text>
                 )}
               </View>
