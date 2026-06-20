@@ -387,11 +387,18 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
     }
   };
 
-  const handlePickProofPhoto = async () => {
+  const takeProofFromSource = async (source: 'camera' | 'library') => {
     try {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) { Alert.alert('Error', 'Se necesita permiso para usar la cámara'); return; }
-      const result = await ImagePicker.launchCameraAsync({ quality: 0.8, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+      if (source === 'camera') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) { Alert.alert('Error', 'Se necesita permiso para usar la cámara'); return; }
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) { Alert.alert('Error', 'Se necesita permiso para acceder a la galería'); return; }
+      }
+      const result = source === 'camera'
+        ? await ImagePicker.launchCameraAsync({ quality: 0.8, mediaTypes: ImagePicker.MediaTypeOptions.Images })
+        : await ImagePicker.launchImageLibraryAsync({ quality: 0.8, mediaTypes: ImagePicker.MediaTypeOptions.Images });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
       setProofFile({
@@ -400,9 +407,22 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
         type: asset.mimeType || 'image/jpeg',
       });
     } catch (error) {
-      console.error('Error taking photo:', error);
-      Alert.alert('Error', 'No se pudo abrir la cámara');
+      console.error('Error selecting photo:', error);
+      Alert.alert('Error', source === 'camera' ? 'No se pudo abrir la cámara' : 'No se pudo abrir la galería');
     }
+  };
+
+  const handlePickProofPhoto = () => {
+    Alert.alert(
+      'Subir comprobante',
+      '¿De dónde quieres obtener la foto?',
+      [
+        { text: '📷 Cámara', onPress: () => takeProofFromSource('camera') },
+        { text: '🖼️ Galería', onPress: () => takeProofFromSource('library') },
+        { text: 'Cancelar', style: 'cancel' },
+      ],
+      { cancelable: true }
+    );
   };
 
   const handleUploadProof = async () => {
