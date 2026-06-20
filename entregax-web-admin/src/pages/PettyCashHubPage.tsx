@@ -1637,8 +1637,11 @@ export default function PettyCashHubPage() {
                     return ordered.map(m => {
                       const meta = MOVEMENT_TYPE_META[m.movement_type] || { label: m.movement_type, sign: 1 as const };
                       const amount = Number(m.amount_mxn) || 0;
-                      // El gasto del chofer no afecta el saldo de la sucursal (sale de su wallet)
-                      const affectsBalance = m.movement_type !== 'expense'
+                      // Solo los movimientos PROPIOS de esta wallet afectan su saldo
+                      // (mismo criterio que los totales del encabezado, por wallet_id).
+                      // Los gastos de choferes pertenecen a OTRA wallet y se muestran
+                      // solo como informativos, así que no entran al saldo acumulado.
+                      const affectsBalance = Number((m as any).wallet_id) === Number((detailWallet as any)?.id)
                         && (m.status === 'approved' || m.status === 'settled');
                       if (affectsBalance) running += meta.sign * amount;
                       // El anticipo refleja la firma del chofer: sin firmar queda Pendiente
