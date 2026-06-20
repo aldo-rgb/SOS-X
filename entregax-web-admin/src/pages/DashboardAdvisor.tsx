@@ -213,6 +213,7 @@ interface AdvisorShipment {
   deliveryAddressRecipient: string | null;
   inPaymentOrderRef: string | null;
   labelPrinted: boolean;
+  nationalShippingCost: number;
 }
 
 interface ShipmentStats {
