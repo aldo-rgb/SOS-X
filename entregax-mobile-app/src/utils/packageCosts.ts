@@ -26,7 +26,9 @@ export interface CostBreakdown {
   nationalShippingMxn: number;
   /** Garantía Extendida en MXN */
   gexMxn: number;
-  /** Total a pagar (suma de los 3) */
+  /** Cargos extra en MXN (cargo_extra suma, descuento resta) */
+  extraChargesMxn: number;
+  /** Total a pagar (suma de los 4) */
   totalMxn: number;
   /** Monto ya pagado (de monto_pagado) */
   paidMxn: number;
@@ -101,7 +103,14 @@ export function getPackageCostBreakdown(pkg: any, opts: { children?: any[] } = {
     gexMxn = sumChildren(children, (c) => num(c.gex_total_cost));
   }
 
-  const totalMxn = poboxServiceMxn + nationalShippingMxn + gexMxn;
+  // 4) Cargos extra (MXN). El master ya trae el total agregado (incluye hijas);
+  //    fallback a Σ hijas si no viene en el master.
+  let extraChargesMxn = num(pkg?.extra_charges_total);
+  if (extraChargesMxn === 0) {
+    extraChargesMxn = sumChildren(children, (c) => num(c.extra_charges_total));
+  }
+
+  const totalMxn = poboxServiceMxn + nationalShippingMxn + gexMxn + extraChargesMxn;
   const paidMxn = num(pkg?.monto_pagado);
   const pendingMxn = Math.max(0, totalMxn - paidMxn);
 
@@ -113,6 +122,7 @@ export function getPackageCostBreakdown(pkg: any, opts: { children?: any[] } = {
     poboxServiceMxn,
     nationalShippingMxn,
     gexMxn,
+    extraChargesMxn,
     totalMxn,
     paidMxn,
     pendingMxn,
