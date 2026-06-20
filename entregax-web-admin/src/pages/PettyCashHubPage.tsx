@@ -245,6 +245,8 @@ export default function PettyCashHubPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailWallet, setDetailWallet] = useState<Wallet | null>(null);
   const [detailMovs, setDetailMovs] = useState<Movement[]>([]);
+  // Totales de todo el historial (del backend), no solo los movimientos cargados
+  const [detailTotals, setDetailTotals] = useState<{ abono: number; cargo: number; count: number } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [deletingMovId, setDeletingMovId] = useState<number | null>(null);
   const [cajaMxnBalance, setCajaMxnBalance] = useState<number | null>(null);
@@ -480,6 +482,7 @@ export default function PettyCashHubPage() {
   const openWalletDetail = async (wallet: Wallet) => {
     setDetailWallet(wallet);
     setDetailMovs([]);
+    setDetailTotals(null);
     setDetailDateFrom('');
     setDetailDateTo('');
     setDetailOpen(true);
@@ -490,6 +493,7 @@ export default function PettyCashHubPage() {
       if (r.ok) {
         if (d.wallet) setDetailWallet(prev => ({ ...(prev as Wallet), ...d.wallet }));
         setDetailMovs(d.movements || []);
+        setDetailTotals(d.totals || null);
       } else {
         setSnack({ severity: 'error', msg: d.error || 'Error al cargar movimientos' });
       }
@@ -1550,8 +1554,6 @@ export default function PettyCashHubPage() {
             )}
           </Box>
           {detailWallet && (() => {
-            let totalCargo = 0;
-            let totalAbono = 0;
             // Solo movimientos propios de esta wallet afectan su balance.
             // (Para una sucursal, el endpoint también devuelve los gastos de sus
             //  choferes como informativos — esos NO afectan balance_mxn de la
@@ -1562,14 +1564,23 @@ export default function PettyCashHubPage() {
               if (detailDateTo && d > new Date(detailDateTo + 'T23:59:59')) return false;
               return true;
             });
+            // Totales de la ventana cargada (para cuando hay filtro de fecha activo).
+            let winCargo = 0;
+            let winAbono = 0;
             for (const m of filteredForTotals) {
-              if (m.status !== 'approved') continue;
+              if (m.status !== 'approved' && m.status !== 'settled') continue;
               if (Number((m as any).wallet_id) !== Number((detailWallet as any).id)) continue;
               const meta = MOVEMENT_TYPE_META[m.movement_type] || { sign: 1 as const };
               const amt = Number(m.amount_mxn) || 0;
-              if (meta.sign < 0) totalCargo += amt;
-              else totalAbono += amt;
+              if (meta.sign < 0) winCargo += amt;
+              else winAbono += amt;
             }
+            // Sin filtro de fecha usamos los totales de TODO el historial (backend);
+            // con filtro, los de la ventana visible.
+            const hasDateFilter = !!(detailDateFrom || detailDateTo);
+            const totalAbono = !hasDateFilter && detailTotals ? detailTotals.abono : winAbono;
+            const totalCargo = !hasDateFilter && detailTotals ? detailTotals.cargo : winCargo;
+            const movCount = !hasDateFilter && detailTotals ? detailTotals.count : filteredForTotals.length;
             return (
               <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 2 }}>
                 <Box>
@@ -1580,7 +1591,7 @@ export default function PettyCashHubPage() {
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Movimientos</Typography>
-                  <Typography variant="h5" fontWeight="bold">{filteredForTotals.length}</Typography>
+                  <Typography variant="h5" fontWeight="bold">{movCount}</Typography>
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Total abono</Typography>

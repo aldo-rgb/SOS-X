@@ -316,7 +316,26 @@ export const getWalletDetail = async (req: Request, res: Response): Promise<any>
     `, isBranch ? [id, wallet.branch_id] : [id]);
 
     const movements = await Promise.all(movs.rows.map(signMovementUrls));
-    return res.json({ wallet, movements });
+
+    // Totales de TODO el historial (no solo los 300 cargados) para el encabezado.
+    // Solo movimientos PROPIOS de esta wallet (wallet_id), aprobados/liquidados.
+    // abono = fund/return/adjustment, cargo = advance/expense; su neto
+    // (abono − cargo) reconcilia con balance_mxn.
+    const totalsRes = await pool.query(`
+      SELECT
+        COALESCE(SUM(CASE WHEN movement_type IN ('fund','return','adjustment') THEN amount_mxn ELSE 0 END), 0) AS total_abono,
+        COALESCE(SUM(CASE WHEN movement_type IN ('advance','expense') THEN amount_mxn ELSE 0 END), 0) AS total_cargo,
+        COUNT(*)::int AS total_count
+      FROM petty_cash_movements
+      WHERE wallet_id = $1 AND status IN ('approved','settled')
+    `, [id]);
+    const totals = {
+      abono: Number(totalsRes.rows[0]?.total_abono) || 0,
+      cargo: Number(totalsRes.rows[0]?.total_cargo) || 0,
+      count: Number(totalsRes.rows[0]?.total_count) || 0,
+    };
+
+    return res.json({ wallet, movements, totals });
   } catch (err: any) {
     console.error('getWalletDetail error', err);
     return res.status(500).json({ error: 'Error', details: err.message });
