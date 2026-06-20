@@ -525,6 +525,9 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
     const aid = advisorId(req);
     if (!aid) return res.status(401).json({ error: 'No autenticado' });
     const { id } = req.params;
+    // Desambigua colisiones de id entre advisor_payment_orders y pobox_payments
+    const source = req.query.source === 'client' || req.query.source === 'advisor'
+      ? String(req.query.source) : null;
 
     // Obtener la orden (apo o pobox_payments) — reusamos la lógica del list filtrando por id
     const orderRes = await pool.query(`
@@ -548,8 +551,10 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         FROM pobox_payments pp
         JOIN users u ON u.id = pp.user_id
         WHERE pp.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2)
-      ) o LIMIT 1
-    `, [id, aid]);
+      ) o
+      WHERE ($3::text IS NULL OR o.created_by = $3)
+      LIMIT 1
+    `, [id, aid, source]);
 
     if (orderRes.rowCount === 0) {
       return res.status(404).json({ error: 'Orden no encontrada' });
@@ -575,7 +580,8 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
       const pkgRes = await pool.query(`
         SELECT
           p.id, p.tracking_internal, p.is_master, p.master_id, p.child_no,
-          p.weight, p.pkg_length, p.pkg_width, p.pkg_height, p.description,
+          p.weight, p.pkg_length, p.pkg_width, p.pkg_height,
+          p.long_cm, p.width_cm, p.height_cm, p.description,
           p.pobox_tarifa_nivel, p.pobox_venta_usd, p.pobox_service_cost,
           p.assigned_cost_mxn, p.saldo_pendiente, p.monto_pagado,
           p.air_sale_price, p.registered_exchange_rate,
@@ -598,6 +604,9 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           service_type: m.service_type,
           description: m.description,
           weight: parseFloat(m.weight) || 0,
+          lengthCm: parseFloat(m.pkg_length) || parseFloat(m.long_cm) || 0,
+          widthCm: parseFloat(m.pkg_width) || parseFloat(m.width_cm) || 0,
+          heightCm: parseFloat(m.pkg_height) || parseFloat(m.height_cm) || 0,
           is_master: m.is_master,
           total_boxes: m.total_boxes || (children.length || 1),
           tipo: 'POBOX',
@@ -612,7 +621,7 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
             venta_usd: parseFloat(c.pobox_venta_usd) || 0,
             venta_mxn: parseFloat(c.pobox_service_cost) || parseFloat(c.assigned_cost_mxn) || 0,
             weight: parseFloat(c.weight) || 0,
-            lengthCm: parseFloat(c.pkg_length) || parseFloat(c.length_cm) || 0,
+            lengthCm: parseFloat(c.pkg_length) || parseFloat(c.long_cm) || 0,
             widthCm: parseFloat(c.pkg_width) || parseFloat(c.width_cm) || 0,
             heightCm: parseFloat(c.pkg_height) || parseFloat(c.height_cm) || 0,
             description: c.description,

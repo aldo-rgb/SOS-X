@@ -402,6 +402,18 @@ export default function DashboardAdvisor() {
   const [paymentOrders, setPaymentOrders] = useState<any[]>([]);
   const [paymentOrdersLoading, setPaymentOrdersLoading] = useState(false);
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set());
+  // Detalle por orden (master + hijas con peso/medidas) — cargado al expandir
+  const [orderDetails, setOrderDetails] = useState<Record<string, { loading: boolean; items: any[] }>>({});
+
+  const loadOrderDetail = useCallback(async (op: any, rowKey: string) => {
+    setOrderDetails(prev => ({ ...prev, [rowKey]: { loading: true, items: prev[rowKey]?.items || [] } }));
+    try {
+      const res = await api.get(`/advisor/payment-orders/${op.id}/detail`, { params: { source: op.created_by } });
+      setOrderDetails(prev => ({ ...prev, [rowKey]: { loading: false, items: res.data.items || [] } }));
+    } catch {
+      setOrderDetails(prev => ({ ...prev, [rowKey]: { loading: false, items: [] } }));
+    }
+  }, []);
   const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [newOrderShipments, setNewOrderShipments] = useState<AdvisorShipment[]>([]);
   const [newOrderShipmentsLoading, setNewOrderShipmentsLoading] = useState(false);
@@ -3074,11 +3086,15 @@ export default function DashboardAdvisor() {
                             {guideList.length} guía{guideList.length !== 1 ? 's' : ''}
                           </Typography>
                           {guideList.length > 0 && (
-                            <IconButton size="small" onClick={() => setExpandedOrderIds(prev => {
-                              const next = new Set(prev);
-                              next.has(rowKey) ? next.delete(rowKey) : next.add(rowKey);
-                              return next;
-                            })}>
+                            <IconButton size="small" onClick={() => {
+                              const willExpand = !expandedOrderIds.has(rowKey);
+                              if (willExpand && !orderDetails[rowKey]) loadOrderDetail(op, rowKey);
+                              setExpandedOrderIds(prev => {
+                                const next = new Set(prev);
+                                next.has(rowKey) ? next.delete(rowKey) : next.add(rowKey);
+                                return next;
+                              });
+                            }}>
                               {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                             </IconButton>
                           )}
@@ -3150,22 +3166,67 @@ export default function DashboardAdvisor() {
                         </Box>
                       </TableCell>
                     </TableRow>
-                    {isExpanded && (
-                      <TableRow key={`${rowKey}-exp`}>
-                        <TableCell colSpan={8} sx={{ pt: 0, pb: 1, bgcolor: '#FAFAFA' }}>
-                          <Box sx={{ px: 2, pb: 1 }}>
-                            <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ mb: 0.5, display: 'block' }}>
-                              Guías en esta orden:
-                            </Typography>
-                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                              {guideList.map((g, i) => (
-                                <Chip key={i} label={g} size="small" sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }} />
-                              ))}
+                    {isExpanded && (() => {
+                      const detail = orderDetails[rowKey];
+                      const items = detail?.items || [];
+                      const fmtDims = (l: number, w: number, h: number) =>
+                        (Number(l) > 0 || Number(w) > 0 || Number(h) > 0) ? `${l}×${w}×${h} cm` : '—';
+                      // Aplanar: cada item; si tiene hijas, mostrar las hijas con peso/medidas
+                      const rows: { tracking: string; weight: number; dims: string; nivel?: string | null; child?: boolean }[] = [];
+                      for (const it of items) {
+                        const kids = Array.isArray(it.children) ? it.children : [];
+                        if (kids.length > 0) {
+                          rows.push({ tracking: it.tracking, weight: Number(it.weight) || 0, dims: fmtDims(it.lengthCm, it.widthCm, it.heightCm) });
+                          for (const c of kids) {
+                            rows.push({ tracking: c.tracking, weight: Number(c.weight) || 0, dims: fmtDims(c.lengthCm, c.widthCm, c.heightCm), nivel: c.n_level, child: true });
+                          }
+                        } else {
+                          rows.push({ tracking: it.tracking, weight: Number(it.weight) || 0, dims: fmtDims(it.lengthCm, it.widthCm, it.heightCm) });
+                        }
+                      }
+                      return (
+                        <TableRow key={`${rowKey}-exp`}>
+                          <TableCell colSpan={8} sx={{ pt: 0, pb: 1, bgcolor: '#FAFAFA' }}>
+                            <Box sx={{ px: 2, pb: 1 }}>
+                              <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ mb: 0.5, display: 'block' }}>
+                                Guías en esta orden:
+                              </Typography>
+                              {detail?.loading ? (
+                                <Typography variant="caption" color="text.secondary">Cargando detalle…</Typography>
+                              ) : rows.length > 0 ? (
+                                <Table size="small" sx={{ '& td, & th': { py: 0.25, fontSize: '0.7rem', borderBottom: '1px solid #EEE' } }}>
+                                  <TableHead>
+                                    <TableRow>
+                                      <TableCell>Guía / Tracking</TableCell>
+                                      <TableCell align="center">Peso</TableCell>
+                                      <TableCell align="center">Medidas</TableCell>
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    {rows.map((r, i) => (
+                                      <TableRow key={i} sx={r.child ? { bgcolor: '#FFF8F0' } : undefined}>
+                                        <TableCell sx={{ fontFamily: 'monospace', pl: r.child ? 3 : 1 }}>
+                                          {r.child ? '↳ ' : ''}{r.tracking}
+                                          {r.nivel ? <Chip label={r.nivel} size="small" sx={{ ml: 0.5, height: 16, fontSize: '0.6rem', bgcolor: '#FEE2E2', color: '#B91C1C' }} /> : null}
+                                        </TableCell>
+                                        <TableCell align="center">{r.weight > 0 ? `${r.weight.toFixed(1)} lb` : '—'}</TableCell>
+                                        <TableCell align="center">{r.dims}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              ) : (
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                  {guideList.map((g, i) => (
+                                    <Chip key={i} label={g} size="small" sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }} />
+                                  ))}
+                                </Box>
+                              )}
                             </Box>
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })()}
                   </>
                 );
               })}

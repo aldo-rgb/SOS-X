@@ -218,6 +218,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [pdfLoadingId, setPdfLoadingId] = useState<number | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [orderDetails, setOrderDetails] = useState<Record<number, { loading: boolean; items: OrderDetailItem[] }>>({});
   const [showProofModal, setShowProofModal] = useState(false);
   const [selectedOrderForProof, setSelectedOrderForProof] = useState<PaymentOrder | null>(null);
   const [proofs, setProofs] = useState<any[]>([]);
@@ -249,10 +250,25 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
 
   useEffect(() => { load(); }, [load]);
 
-  const toggleExpand = (id: number) => {
+  const loadOrderDetail = useCallback(async (order: PaymentOrder) => {
+    setOrderDetails(prev => ({ ...prev, [order.id]: { loading: true, items: prev[order.id]?.items || [] } }));
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/payment-orders/${order.id}/detail?source=${order.created_by}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setOrderDetails(prev => ({ ...prev, [order.id]: { loading: false, items: Array.isArray(data.items) ? data.items : [] } }));
+    } catch {
+      setOrderDetails(prev => ({ ...prev, [order.id]: { loading: false, items: [] } }));
+    }
+  }, [token]);
+
+  const toggleExpand = (order: PaymentOrder) => {
+    const willExpand = !expandedIds.has(order.id);
+    if (willExpand && !orderDetails[order.id]) loadOrderDetail(order);
     setExpandedIds(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      next.has(order.id) ? next.delete(order.id) : next.add(order.id);
       return next;
     });
   };
@@ -501,20 +517,50 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
 
         {/* Guides row */}
         {guides.length > 0 && (
-          <TouchableOpacity style={styles.guidesRow} onPress={() => toggleExpand(o.id)}>
+          <TouchableOpacity style={styles.guidesRow} onPress={() => toggleExpand(o)}>
             <Text style={styles.guidesCount}>{guides.length} guía{guides.length !== 1 ? 's' : ''}</Text>
             <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color="#888" />
           </TouchableOpacity>
         )}
-        {expanded && (
-          <View style={styles.guidesExpanded}>
-            {guides.map((t, i) => (
-              <View key={i} style={styles.guideChip}>
-                <Text style={styles.guideChipText}>{t}</Text>
-              </View>
-            ))}
-          </View>
-        )}
+        {expanded && (() => {
+          const detail = orderDetails[o.id];
+          const items = detail?.items || [];
+          const dimsOf = (l?: number, w?: number, h?: number) =>
+            (Number(l) > 0 || Number(w) > 0 || Number(h) > 0) ? `${l}×${w}×${h} cm` : '';
+          // Aplanar: item; si tiene hijas, mostrar las hijas con peso/medidas
+          const rows: { tracking: string; weight: number; dims: string; nivel?: string | null; child?: boolean }[] = [];
+          for (const it of items) {
+            const kids = it.children || [];
+            rows.push({ tracking: it.tracking || '—', weight: Number(it.weight) || 0, dims: dimsOf((it as any).lengthCm, (it as any).widthCm, (it as any).heightCm) });
+            for (const c of kids) {
+              rows.push({ tracking: c.tracking || '—', weight: Number(c.weight) || 0, dims: dimsOf(c.lengthCm, c.widthCm, c.heightCm), nivel: c.n_level, child: true });
+            }
+          }
+          return (
+            <View style={[styles.guidesExpanded, (detail?.loading || rows.length > 0) && styles.guidesDetailWrap]}>
+              {detail?.loading ? (
+                <Text style={styles.guideDetailMeta}>Cargando detalle…</Text>
+              ) : rows.length > 0 ? (
+                rows.map((r, i) => (
+                  <View key={i} style={[styles.guideDetailRow, r.child && { paddingLeft: 14 }]}>
+                    <Text style={[styles.guideDetailTracking, r.child && { fontWeight: '400', color: '#555' }]} numberOfLines={1}>
+                      {r.child ? '↳ ' : ''}{r.tracking}{r.nivel ? `  ${r.nivel}` : ''}
+                    </Text>
+                    <Text style={styles.guideDetailMeta}>
+                      {r.weight > 0 ? `${r.weight.toFixed(1)} lb` : '—'}{r.dims ? `  ·  ${r.dims}` : ''}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                guides.map((t, i) => (
+                  <View key={i} style={styles.guideChip}>
+                    <Text style={styles.guideChipText}>{t}</Text>
+                  </View>
+                ))
+              )}
+            </View>
+          );
+        })()}
 
         {/* Date + actions */}
         <View style={styles.cardFooter}>
@@ -743,6 +789,10 @@ const styles = StyleSheet.create({
   guidesExpanded: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 },
   guideChip:  { backgroundColor: '#F5F5F5', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3, borderWidth: 1, borderColor: '#E5E5E5' },
   guideChipText: { fontSize: 10, color: '#555', fontFamily: 'monospace' },
+  guidesDetailWrap: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch', width: '100%' },
+  guideDetailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  guideDetailTracking: { fontSize: 11, color: '#222', fontWeight: '600', fontFamily: 'monospace', flexShrink: 1, marginRight: 8 },
+  guideDetailMeta: { fontSize: 11, color: '#888' },
   cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
   date:       { fontSize: 11, color: '#999' },
   actionBtn:  { width: 34, height: 34, borderRadius: 8, backgroundColor: '#F5F5F5', alignItems: 'center', justifyContent: 'center' },
