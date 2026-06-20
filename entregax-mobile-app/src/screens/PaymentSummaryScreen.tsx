@@ -97,6 +97,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
   });
   const [regimenesFiscales, setRegimenesFiscales] = useState<Array<{ clave: string; descripcion: string }>>([]);
   const [usosCFDI, setUsosCFDI] = useState<Array<{ clave: string; descripcion: string }>>([]);
+  const [expandedPkgs, setExpandedPkgs] = useState<Set<number>>(new Set());
   const [showRegimenPicker, setShowRegimenPicker] = useState(false);
   const [showUsoCFDIPicker, setShowUsoCFDIPicker] = useState(false);
   
@@ -866,47 +867,129 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
               <Divider style={styles.divider} />
 
               {/* Lista de paquetes */}
-              {packages.map((pkg) => (
-                <Surface key={pkg.id} style={styles.packageItem}>
-                  <View style={styles.packageRow}>
-                    <View style={styles.packageInfo}>
-                      <Text style={styles.trackingNumber}>{pkg.tracking_internal || pkg.tracking_provider}</Text>
-                      <Text style={styles.packageDesc}>
-                        {pkg.description || 'Sin descripción'} • {pkg.weight || 0} lb
-                      </Text>
-                    </View>
-                    <View style={styles.packageCost}>
-                      <Text style={styles.costValue}>
-                        ${(() => {
-                          const pp = pkg as any;
-                          const poboxUsd = parseFloat(pp.pobox_venta_usd) || 0;
-                          const poboxServ = parseFloat(pp.pobox_service_cost) || 0;
-                          const tc = parseFloat(pp.registered_exchange_rate) || 0;
-                          const gex = parseFloat(pp.gex_total_cost) || 0;
-                          const ship = parseFloat(pp.national_shipping_cost) || 0;
-                          const pagado = parseFloat(pp.monto_pagado) || 0;
-                          let poboxMxn = poboxServ > 0 ? poboxServ : (poboxUsd > 0 && tc > 0 ? poboxUsd * tc : 0);
-                          if (pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0) {
-                            const sumHijas = pp.child_packages.reduce((s: number, c: any) => {
-                              const cServ = parseFloat(c.pobox_service_cost) || 0;
-                              if (cServ > 0) return s + cServ;
-                              const cUsd = parseFloat(c.pobox_venta_usd) || 0;
-                              const cTc = parseFloat(c.registered_exchange_rate) || tc;
-                              if (cUsd > 0 && cTc > 0) return s + cUsd * cTc;
-                              return s + (parseFloat(c.assigned_cost_mxn) || 0);
-                            }, 0);
-                            if (sumHijas > 0) poboxMxn = sumHijas;
-                          }
-                          return poboxMxn > 0
-                            ? Math.max(0, poboxMxn + gex + ship - pagado).toFixed(2)
-                            : parseFloat(String(pp.saldo_pendiente || pkg.assigned_cost_mxn || 0)).toFixed(2);
-                        })()}
-                      </Text>
-                      <Text style={styles.costLabel}>MXN</Text>
-                    </View>
-                  </View>
-                </Surface>
-              ))}
+              {packages.map((pkg) => {
+                const pp = pkg as any;
+                const poboxUsd = parseFloat(pp.pobox_venta_usd) || 0;
+                const poboxServ = parseFloat(pp.pobox_service_cost) || 0;
+                const tc = parseFloat(pp.registered_exchange_rate) || 0;
+                const gex = parseFloat(pp.gex_total_cost) || 0;
+                const ship = parseFloat(pp.national_shipping_cost) || 0;
+                const pagado = parseFloat(pp.monto_pagado) || 0;
+                let poboxMxn = poboxServ > 0 ? poboxServ : (poboxUsd > 0 && tc > 0 ? poboxUsd * tc : 0);
+                if (pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0) {
+                  const sumHijas = pp.child_packages.reduce((s: number, c: any) => {
+                    const cServ = parseFloat(c.pobox_service_cost) || 0;
+                    if (cServ > 0) return s + cServ;
+                    const cUsd = parseFloat(c.pobox_venta_usd) || 0;
+                    const cTc = parseFloat(c.registered_exchange_rate) || tc;
+                    if (cUsd > 0 && cTc > 0) return s + cUsd * cTc;
+                    return s + (parseFloat(c.assigned_cost_mxn) || 0);
+                  }, 0);
+                  if (sumHijas > 0) poboxMxn = sumHijas;
+                }
+                const totalCost = poboxMxn > 0
+                  ? Math.max(0, poboxMxn + gex + ship - pagado)
+                  : parseFloat(String(pp.saldo_pendiente || pkg.assigned_cost_mxn || 0));
+                const hasChildren = pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0;
+                const isExpanded = expandedPkgs.has(pkg.id);
+                const carrier = pp.national_carrier || pp.carrier || null;
+
+                return (
+                  <Surface key={pkg.id} style={styles.packageItem}>
+                    {/* Fila principal */}
+                    <TouchableOpacity
+                      activeOpacity={hasChildren ? 0.7 : 1}
+                      onPress={() => {
+                        if (!hasChildren) return;
+                        setExpandedPkgs(prev => {
+                          const next = new Set(prev);
+                          next.has(pkg.id) ? next.delete(pkg.id) : next.add(pkg.id);
+                          return next;
+                        });
+                      }}
+                    >
+                      <View style={styles.packageRow}>
+                        <View style={styles.packageInfo}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={styles.trackingNumber}>{pkg.tracking_internal || pkg.tracking_provider}</Text>
+                            {hasChildren && (
+                              <Text style={{ fontSize: 11, color: '#1565C0', fontWeight: '700' }}>
+                                {pp.child_packages.length} cajas
+                              </Text>
+                            )}
+                          </View>
+                          <Text style={styles.packageDesc}>
+                            {pkg.description || 'Sin descripción'} • {pkg.weight || 0} lb
+                          </Text>
+                        </View>
+                        <View style={styles.packageCost}>
+                          <Text style={styles.costValue}>${totalCost.toFixed(2)}</Text>
+                          <Text style={styles.costLabel}>MXN</Text>
+                          {hasChildren && (
+                            <Text style={{ fontSize: 16, color: '#888', marginTop: 2 }}>{isExpanded ? '▲' : '▼'}</Text>
+                          )}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Desglose GEX + Paquetería */}
+                    {(gex > 0 || ship > 0 || carrier) && (
+                      <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#EEE' }}>
+                        {poboxMxn > 0 && (
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+                            <Text style={{ fontSize: 11, color: '#555' }}>
+                              Costo de caja{carrier ? ` · ${carrier}` : ''}
+                            </Text>
+                            <Text style={{ fontSize: 11, color: '#333', fontWeight: '600' }}>${poboxMxn.toFixed(2)}</Text>
+                          </View>
+                        )}
+                        {ship > 0 && (
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+                            <Text style={{ fontSize: 11, color: '#555' }}>Paquetería nacional</Text>
+                            <Text style={{ fontSize: 11, color: '#333', fontWeight: '600' }}>${ship.toFixed(2)}</Text>
+                          </View>
+                        )}
+                        {gex > 0 && (
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                            <Text style={{ fontSize: 11, color: '#2E7D32' }}>GEX – Garantía Extendida</Text>
+                            <Text style={{ fontSize: 11, color: '#2E7D32', fontWeight: '600' }}>${gex.toFixed(2)}</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+
+                    {/* Guías hijas (expandible) */}
+                    {hasChildren && isExpanded && (
+                      <View style={{ marginTop: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#DDE' }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#888', marginBottom: 4, textTransform: 'uppercase' }}>
+                          Desglose de cajas
+                        </Text>
+                        {pp.child_packages.map((child: any, ci: number) => (
+                          <View key={child.id || ci} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 4, borderBottomWidth: ci < pp.child_packages.length - 1 ? 1 : 0, borderBottomColor: '#EEF' }}>
+                            <Text style={{ fontSize: 10, color: '#888', width: 16, marginTop: 1 }}>{ci + 1}.</Text>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: '#222', fontFamily: 'monospace' }}>
+                                {child.tracking_internal || '—'}
+                              </Text>
+                              {child.description ? (
+                                <Text style={{ fontSize: 10, color: '#666', marginTop: 1 }}>{child.description}</Text>
+                              ) : null}
+                            </View>
+                            <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
+                              {child.weight != null && (
+                                <Text style={{ fontSize: 11, color: '#444' }}>{Number(child.weight).toFixed(1)} lb</Text>
+                              )}
+                              {child.dimensions ? (
+                                <Text style={{ fontSize: 10, color: '#888' }}>{child.dimensions}</Text>
+                              ) : null}
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </Surface>
+                );
+              })}
 
               <Divider style={styles.divider} />
 
