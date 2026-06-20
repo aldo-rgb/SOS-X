@@ -43,6 +43,10 @@ interface PaymentPDFData {
     assigned_cost_mxn?: number;
     saldo_pendiente?: number;
     national_carrier?: string;
+    length_cm?: number;
+    width_cm?: number;
+    height_cm?: number;
+    description?: string;
   }>;
   userName?: string;
   userCasillero?: string;
@@ -83,17 +87,22 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
   let packageRows = '';
   if (data.packages && data.packages.length > 0) {
     packageRows = data.packages.map((pkg, i) => {
-      const tracking = pkg.tracking_internal || pkg.international_tracking || '-';
-      const weight = pkg.weight ? `${Number(pkg.weight).toFixed(1)} lb` : '-';
-      const carrier = pkg.national_carrier || '-';
+      const tracking = pkg.tracking_internal || '-';
+      const intTrk = pkg.international_tracking ? `<br><span style="font-size:9px;color:#888;">${pkg.international_tracking}</span>` : '';
+      const weight = pkg.weight ? `${Number(pkg.weight).toFixed(1)} lb` : '—';
+      const dims = (pkg.length_cm && pkg.length_cm > 0) || (pkg.width_cm && pkg.width_cm > 0) || (pkg.height_cm && pkg.height_cm > 0)
+        ? `${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm`
+        : '—';
+      const carrier = pkg.national_carrier || '—';
       const cost = formatCurrency(Number(pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0));
       return `
         <tr>
-          <td style="padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 11px;">${i + 1}</td>
-          <td style="padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 11px; font-weight: 600;">${tracking}</td>
-          <td style="padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${weight}</td>
-          <td style="padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${carrier}</td>
-          <td style="padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 11px; text-align: right; font-weight: 600;">${cost}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px;">${i + 1}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; font-weight: 600;">${tracking}${intTrk}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${weight}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${dims}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center;">${carrier}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 11px; text-align: right; font-weight: 600;">${cost}</td>
         </tr>`;
     }).join('');
   }
@@ -220,6 +229,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
           <th style="width:30px;">#</th>
           <th>Guía / Tracking</th>
           <th style="text-align:center;">Peso</th>
+          <th style="text-align:center;">Medidas</th>
           <th style="text-align:center;">Paquetería</th>
           <th style="text-align:right;">Monto (MXN)</th>
         </tr>
@@ -227,7 +237,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
       <tbody>
         ${packageRows}
         <tr class="total-row">
-          <td colspan="4" style="text-align:right; padding-right: 10px;">TOTAL A PAGAR:</td>
+          <td colspan="5" style="text-align:right; padding-right: 10px;">TOTAL A PAGAR:</td>
           <td style="text-align:right; color: #E65100; font-size: 14px;">${totalFormatted} ${data.currency || 'MXN'}</td>
         </tr>
       </tbody>

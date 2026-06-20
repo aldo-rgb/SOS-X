@@ -1642,11 +1642,39 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                     const pkgResult = await pool.query(`
                         SELECT id, tracking_internal, international_tracking, weight,
                                assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
-                               national_carrier, status
+                               national_carrier, status,
+                               COALESCE(pkg_length, length_cm, 0) as length_cm,
+                               COALESCE(pkg_width, width_cm, 0) as width_cm,
+                               COALESCE(pkg_height, height_cm, 0) as height_cm,
+                               COALESCE(is_master, false) as is_master,
+                               description
                         FROM packages
                         WHERE id = ANY($1)
                     `, [pkgIds]);
-                    packages = pkgResult.rows;
+                    // Expand masters into their children
+                    for (const pkg of pkgResult.rows) {
+                        if (pkg.is_master) {
+                            try {
+                                const childRes = await pool.query(`
+                                    SELECT id, tracking_internal, international_tracking, weight,
+                                           assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
+                                           national_carrier, status,
+                                           COALESCE(pkg_length, length_cm, 0) as length_cm,
+                                           COALESCE(pkg_width, width_cm, 0) as width_cm,
+                                           COALESCE(pkg_height, height_cm, 0) as height_cm,
+                                           description
+                                    FROM packages WHERE master_id = $1 ORDER BY id ASC
+                                `, [pkg.id]);
+                                if (childRes.rows.length > 0) {
+                                    packages.push(...childRes.rows);
+                                } else {
+                                    packages.push(pkg);
+                                }
+                            } catch { packages.push(pkg); }
+                        } else {
+                            packages.push(pkg);
+                        }
+                    }
                 } catch (e) {
                     // ignore
                 }
