@@ -120,7 +120,8 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     const gex = parseFloat(pp.gex_total_cost) || 0;
     const ship = parseFloat(pp.national_shipping_cost) || 0;
     const poboxMxn = parseFloat(pp.pobox_service_cost) || 0;
-    return sum + poboxMxn + gex + ship;
+    const extra = parseFloat(pp.extra_charges_total) || 0;
+    return sum + poboxMxn + gex + ship + extra;
   }, 0);
   const totalWeight = packages.reduce((sum, p) => sum + parseFloat(String(p.weight || 0)), 0);
 
@@ -873,6 +874,8 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 const tc = parseFloat(pp.registered_exchange_rate) || 0;
                 const gex = parseFloat(pp.gex_total_cost) || 0;
                 const ship = parseFloat(pp.national_shipping_cost) || 0;
+                const extra = parseFloat(pp.extra_charges_total) || 0;
+                const extraDesc = pp.extra_charges_desc || '';
                 const pagado = parseFloat(pp.monto_pagado) || 0;
                 let poboxMxn = poboxServ > 0 ? poboxServ : (poboxUsd > 0 && tc > 0 ? poboxUsd * tc : 0);
                 if (pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0) {
@@ -887,8 +890,8 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                   if (sumHijas > 0) poboxMxn = sumHijas;
                 }
                 const totalCost = poboxMxn > 0
-                  ? Math.max(0, poboxMxn + gex + ship - pagado)
-                  : Math.max(0, gex + ship - pagado);
+                  ? Math.max(0, poboxMxn + gex + ship + extra - pagado)
+                  : Math.max(0, gex + ship + extra - pagado);
                 const hasChildren = pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0;
                 const isExpanded = expandedPkgs.has(pkg.id);
                 const carrier = pp.national_carrier || pp.carrier || null;
@@ -931,8 +934,8 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                       </View>
                     </TouchableOpacity>
 
-                    {/* Desglose GEX + Paquetería */}
-                    {(gex > 0 || ship > 0 || carrier) && (
+                    {/* Desglose GEX + Paquetería + Cargos extra */}
+                    {(gex > 0 || ship > 0 || carrier || extra !== 0) && (
                       <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#EEE' }}>
                         {ship > 0 && (
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
@@ -946,6 +949,14 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                             <Text style={{ fontSize: 11, color: '#2E7D32' }}>GEX – Garantía Extendida</Text>
                             <Text style={{ fontSize: 11, color: '#2E7D32', fontWeight: '600' }}>${gex.toFixed(2)}</Text>
+                          </View>
+                        )}
+                        {extra !== 0 && (
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                            <Text style={{ fontSize: 11, color: '#C2410C' }}>
+                              ➕ Cargos extra{extraDesc ? ` · ${extraDesc}` : ''}
+                            </Text>
+                            <Text style={{ fontSize: 11, color: '#C2410C', fontWeight: '600' }}>${extra.toFixed(2)}</Text>
                           </View>
                         )}
                       </View>

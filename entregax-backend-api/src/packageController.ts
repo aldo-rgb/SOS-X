@@ -4574,6 +4574,38 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
             }
         };
 
+        // Enriquecer con cargos extra (guias_ajustes_financieros) — match por
+        // tracking (master + guías hijas vía master_id). cargo_extra suma, descuento resta.
+        try {
+            const trackings: string[] = [];
+            if (packageDetail.tracking_internal) trackings.push(String(packageDetail.tracking_internal));
+            if (packageDetail.is_master) {
+                const kids = await pool.query(
+                    `SELECT tracking_internal FROM packages WHERE master_id = $1`,
+                    [packageDetail.id]
+                );
+                for (const k of kids.rows) if (k.tracking_internal) trackings.push(String(k.tracking_internal));
+            }
+            let extraTotal = 0; const extraDescs: string[] = [];
+            if (trackings.length > 0) {
+                const chRes = await pool.query(
+                    `SELECT tipo, monto, concepto FROM guias_ajustes_financieros
+                     WHERE activo = true AND guia_tracking = ANY($1::text[])`,
+                    [trackings]
+                );
+                for (const r of chRes.rows) {
+                    extraTotal += (r.tipo === 'descuento' ? -1 : 1) * (Number(r.monto) || 0);
+                    if (r.concepto) extraDescs.push(r.concepto);
+                }
+            }
+            (packageDetail as any).extra_charges_total = extraTotal;
+            (packageDetail as any).extra_charges_desc = [...new Set(extraDescs)].join(', ');
+        } catch (e) {
+            console.error('[getPackageById] extra charges enrichment error:', e);
+            (packageDetail as any).extra_charges_total = 0;
+            (packageDetail as any).extra_charges_desc = '';
+        }
+
         res.json({
             success: true,
             package: packageDetail

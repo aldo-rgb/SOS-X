@@ -97,6 +97,9 @@ interface PackageDetails {
   pobox_tarifa_nivel?: number;
   registered_exchange_rate?: number;
   national_shipping_cost?: number;
+  // Cargos extra (guias_ajustes_financieros): cargo_extra suma, descuento resta
+  extra_charges_total?: number;
+  extra_charges_desc?: string;
   // Servicio / ruta
   service_type?: string;
   air_source?: string;
@@ -260,12 +263,13 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
     const gexInsurance = gexInsuranceFromDb > 0 ? gexInsuranceFromDb : gexInsuranceFallback;
     const gexFixed = gexFixedFromDb > 0 ? gexFixedFromDb : gexFixedFallback;
     const nationalShipping = Number(details.national_shipping_cost) || 0;
-    const costoTotal = costoPoboxMxn + nationalShipping + gexTotal;
+    const extraCharges = Number(details.extra_charges_total) || 0;
+    const costoTotal = costoPoboxMxn + nationalShipping + gexTotal + extraCharges;
     const saldo = costoTotal - (Number(details.monto_pagado) || 0);
 
-    console.log('💰 calcularCostoPOBox:', { totalBoxes, tc, nivel, precioUnitarioUsd, costoPoboxMxn, gexInsurance, gexFixed, gexTotal, nationalShipping, costoTotal, saldo });
+    console.log('💰 calcularCostoPOBox:', { totalBoxes, tc, nivel, precioUnitarioUsd, costoPoboxMxn, gexInsurance, gexFixed, gexTotal, nationalShipping, extraCharges, costoTotal, saldo });
 
-    return { costoMxn: costoPoboxMxn, costoTotal, saldo, totalBoxes, precioUnitarioUsd, tc, nivel, gexInsurance, gexFixed, gexTotal };
+    return { costoMxn: costoPoboxMxn, costoTotal, saldo, totalBoxes, precioUnitarioUsd, tc, nivel, gexInsurance, gexFixed, gexTotal, extraCharges };
   };
 
   useEffect(() => {
@@ -976,11 +980,22 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
               </>
             )}
 
+            {/* Cargos extra (cargo_extra suma, descuento resta) */}
+            {Number(details.extra_charges_total) !== 0 && (
+              <View style={styles.costRow}>
+                <Text style={styles.costLabel}>
+                  {`➕ Cargos extra${details.extra_charges_desc ? ` (${details.extra_charges_desc})` : ''}`}
+                </Text>
+                <Text style={styles.costValue}>{`$${Number(details.extra_charges_total).toFixed(2)} MXN`}</Text>
+              </View>
+            )}
+
             {/* Saldo Pendiente / Total a Pagar */}
             {(() => {
               const tdi = isTdiExpress();
+              const extra = Number(details.extra_charges_total) || 0;
               const totalCost = tdi
-                ? (details.assigned_cost_mxn ?? 0) + (details.national_shipping_cost ?? 0)
+                ? (details.assigned_cost_mxn ?? 0) + (details.national_shipping_cost ?? 0) + extra
                 : costSummary.costoTotal;
               const saldo = tdi
                 ? (details.saldo_pendiente ?? totalCost - (details.monto_pagado ?? 0))
