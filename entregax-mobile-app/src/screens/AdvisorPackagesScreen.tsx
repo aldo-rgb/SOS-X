@@ -306,7 +306,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     try {
       const boxes = bulkCount && bulkCount > 1
         ? bulkCount
-        : (shipment.is_master && shipment.children_count > 0) ? shipment.children_count + 1 : 1;
+        : (shipment.is_master && shipment.children_count > 0) ? shipment.children_count : 1;
       const res = await fetch(`${API_URL}/api/shipping/pqtx-quote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -543,7 +543,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
 
     const isMasterWithChildren = item.children_count > 0;
     // For DHL master: children_count = total JJD count; for pkg master: children_count + 1
-    const boxCount = isDHL ? item.children_count : item.children_count + 1;
+    const boxCount = item.children_count;
     const childTrackings = item.child_trackings ?? [];
 
     return (
@@ -1029,7 +1029,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                       ) : instrShipment.is_master && instrShipment.children_count > 0 ? (
                         <View style={styles.detailChip}>
                           <Text style={styles.detailChipLabel}>Cajas</Text>
-                          <Text style={styles.detailChipValue}>{instrShipment.children_count + 1}</Text>
+                          <Text style={styles.detailChipValue}>{instrShipment.children_count}</Text>
                         </View>
                       ) : null}
                       {instrShipment.weight > 0 && (
