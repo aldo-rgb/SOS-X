@@ -14578,7 +14578,6 @@ export default function DashboardClient() {
                                     <TableCell align="center">Nivel</TableCell>
                                     <TableCell align="center">Peso</TableCell>
                                     <TableCell align="center">Medidas</TableCell>
-                                    <TableCell align="right">Costo</TableCell>
                                   </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -14586,7 +14585,6 @@ export default function DashboardClient() {
                                     const dims = (Number(pkg.length_cm) > 0 || Number(pkg.width_cm) > 0 || Number(pkg.height_cm) > 0)
                                       ? `${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm` : '—';
                                     const nivel = pkg.pobox_tarifa_nivel ? `N${pkg.pobox_tarifa_nivel}` : null;
-                                    const costo = Number(pkg.pobox_service_cost) || Number(pkg.saldo_pendiente) || Number(pkg.assigned_cost_mxn) || 0;
                                     return (
                                       <TableRow key={pkg.id ?? pi} sx={{ '&:last-child td': { borderBottom: 0 } }}>
                                         <TableCell sx={{ py: 0.5, color: '#999', fontSize: '0.75rem' }}>{pi + 1}</TableCell>
@@ -14598,23 +14596,18 @@ export default function DashboardClient() {
                                         </TableCell>
                                         <TableCell align="center" sx={{ py: 0.5, fontSize: '0.75rem' }}>{pkg.weight ? `${Number(pkg.weight).toFixed(1)} lb` : '—'}</TableCell>
                                         <TableCell align="center" sx={{ py: 0.5, fontSize: '0.75rem', color: '#555' }}>{dims}</TableCell>
-                                        <TableCell align="right" sx={{ py: 0.5 }}>
-                                          <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE, fontSize: '0.75rem' }}>
-                                            {costo > 0 ? formatCurrency(costo) : '—'}
-                                          </Typography>
-                                        </TableCell>
                                       </TableRow>
                                     );
                                   }) : Array.isArray(order.trackings) && order.trackings.length > 0 ? order.trackings.map((t: string, ti: number) => (
                                     <TableRow key={ti} sx={{ '&:last-child td': { borderBottom: 0 } }}>
                                       <TableCell sx={{ py: 0.5, color: '#999', fontSize: '0.75rem' }}>{ti + 1}</TableCell>
-                                      <TableCell colSpan={5} sx={{ py: 0.5 }}>
+                                      <TableCell colSpan={4} sx={{ py: 0.5 }}>
                                         <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{t}</Typography>
                                       </TableCell>
                                     </TableRow>
                                   )) : (
                                     <TableRow>
-                                      <TableCell colSpan={6} sx={{ py: 1, color: '#999', fontSize: '0.75rem', textAlign: 'center' }}>Sin detalle de guías</TableCell>
+                                      <TableCell colSpan={5} sx={{ py: 1, color: '#999', fontSize: '0.75rem', textAlign: 'center' }}>Sin detalle de guías</TableCell>
                                     </TableRow>
                                   )}
                                 </TableBody>
