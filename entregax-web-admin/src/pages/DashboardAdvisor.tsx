@@ -3537,7 +3537,7 @@ export default function DashboardAdvisor() {
 
               return (
                 <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: 340, overflow: 'auto' }}>
-                  <Table size="small" stickyHeader>
+                  <Table size="small" stickyHeader sx={{ '& td, & th': { px: 0.75, py: 0.5, fontSize: '0.72rem', whiteSpace: 'nowrap' } }}>
                     <TableHead>
                       <TableRow>
                         <TableCell padding="checkbox">
@@ -3560,11 +3560,11 @@ export default function DashboardAdvisor() {
                         </TableCell>
                         <TableCell>Tracking</TableCell>
                         <TableCell>Cliente</TableCell>
-                        <TableCell>Servicio</TableCell>
-                        <TableCell align="right">Costo Caja</TableCell>
-                        <TableCell align="right">Paquetería</TableCell>
+                        <TableCell>Serv.</TableCell>
+                        <TableCell align="right">Caja</TableCell>
+                        <TableCell align="right">Paq.</TableCell>
                         <TableCell align="right">GEX</TableCell>
-                        <TableCell align="right">Cargos Extra</TableCell>
+                        <TableCell align="right">Extra</TableCell>
                         <TableCell align="right">Total</TableCell>
                       </TableRow>
                     </TableHead>
@@ -3644,8 +3644,11 @@ export default function DashboardAdvisor() {
                                 </Typography>
                               )}
                             </TableCell>
-                            <TableCell><Typography variant="body2">{s.clientName}</Typography><Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography></TableCell>
-                            <TableCell><Chip label={serviceLabel(s.serviceType || '')} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} /></TableCell>
+                            <TableCell sx={{ maxWidth: 130 }}>
+                              <Typography variant="caption" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }} title={s.clientName}>{s.clientName}</Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.62rem' }}>{s.clientBoxId}</Typography>
+                            </TableCell>
+                            <TableCell><Chip label={serviceLabel(s.serviceType || '')} size="small" variant="outlined" sx={{ fontSize: '0.6rem', height: 20 }} /></TableCell>
                             <TableCell align="right">
                               {(s.amount || 0) > 0
                                 ? <Typography variant="body2" sx={{ fontSize: '0.78rem' }} color="text.secondary">${(s.amount || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
