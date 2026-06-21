@@ -2890,8 +2890,8 @@ export default function DashboardAdvisor() {
                 <TableCell>{t('advisor.service')}</TableCell>
                 <TableCell align="right">{t('advisor.amount')}</TableCell>
                 <TableCell align="center">
-                  <Tooltip title="Pago / Instrucciones / GEX / Cargos extra">
-                    <span>P · I · G</span>
+                  <Tooltip title="Pago / Instrucciones / GEX / Cargos Extra">
+                    <span>P · I · G · E</span>
                   </Tooltip>
                 </TableCell>
                 <TableCell align="center">Paquetería</TableCell>
