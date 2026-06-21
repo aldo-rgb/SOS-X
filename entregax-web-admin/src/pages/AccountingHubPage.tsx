@@ -2445,20 +2445,21 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
                     >
                       Emitir CFDI
                     </Button>
-                    {isSuperAdmin && r.factura_error && (
-                      <Tooltip title="Archivar — ocultar este pago con error (no se facturará)">
+                    {isSuperAdmin && (
+                      <Tooltip title="Descartar — quitar de Pendientes sin facturar (solo super admin)">
                         <IconButton
                           size="small"
                           onClick={async () => {
+                            if (!window.confirm(`¿Descartar la factura pendiente de ${r.payment_reference}?\n\nSe quitará de Pendientes por Timbrar SIN emitir CFDI. Úsalo solo si no se va a facturar.`)) return;
                             try {
                               await api.post(`/accounting/${emitter.id}/pending-stamp/${r.id}/archive`);
                               setRows(prev => prev.filter(row => row.id !== r.id));
-                              setSnackbar({ open: true, message: 'Pago archivado', severity: 'success' });
+                              setSnackbar({ open: true, message: 'Factura pendiente descartada', severity: 'success' });
                             } catch (e: any) {
-                              setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al archivar — aplica la migración add_factura_archivada.sql', severity: 'error' });
+                              setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al descartar', severity: 'error' });
                             }
                           }}
-                          sx={{ color: '#9E9E9E', '&:hover': { color: BLACK } }}
+                          sx={{ color: '#9E9E9E', '&:hover': { color: '#C62828' } }}
                         >
                           <ArchiveIcon fontSize="small" />
                         </IconButton>
