@@ -81,6 +81,15 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
 
   // Datos fiscales del cliente
   const EMPTY_FISCAL = { razon_social: '', rfc: '', codigo_postal: '', regimen_fiscal: '', uso_cfdi: 'G03' };
+  const [satRegimenes, setSatRegimenes] = useState<Array<{ clave: string; descripcion: string }>>([]);
+  const [satUsos, setSatUsos] = useState<Array<{ clave: string; descripcion: string }>>([]);
+  const [fiscalPicker, setFiscalPicker] = useState<null | 'regimen' | 'uso'>(null);
+  useEffect(() => {
+    fetch(`${API_URL}/api/fiscal/catalogos/regimenes`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json()).then((d) => setSatRegimenes(d.regimenes || [])).catch(() => {});
+    fetch(`${API_URL}/api/fiscal/catalogos/usos-cfdi`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json()).then((d) => setSatUsos(d.usos || [])).catch(() => {});
+  }, [token]);
   const [fiscalModal, setFiscalModal] = useState(false);
   const [fiscalClient, setFiscalClient] = useState<Client | null>(null);
   const [fiscalProfiles, setFiscalProfiles] = useState<any[]>([]);
@@ -1031,8 +1040,6 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
                   { k: 'razon_social', label: 'Razón social' },
                   { k: 'rfc', label: 'RFC', upper: true },
                   { k: 'codigo_postal', label: 'Código postal' },
-                  { k: 'regimen_fiscal', label: 'Régimen fiscal (clave SAT, ej. 601)' },
-                  { k: 'uso_cfdi', label: 'Uso CFDI (ej. G03)', upper: true },
                 ].map((fld) => (
                   <TextInput
                     key={fld.k}
@@ -1042,6 +1049,18 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
                     style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10, fontSize: 14 }}
                   />
                 ))}
+                <TouchableOpacity onPress={() => setFiscalPicker('regimen')} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12, marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 14, color: fiscalForm.regimen_fiscal ? '#111' : '#999', flex: 1 }} numberOfLines={1}>
+                    {fiscalForm.regimen_fiscal ? `${fiscalForm.regimen_fiscal} — ${satRegimenes.find(r => r.clave === fiscalForm.regimen_fiscal)?.descripcion || ''}` : 'Régimen fiscal'}
+                  </Text>
+                  <Ionicons name="chevron-down" size={18} color="#888" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setFiscalPicker('uso')} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12, marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 14, color: '#111', flex: 1 }} numberOfLines={1}>
+                    {`${fiscalForm.uso_cfdi} — ${satUsos.find(u => u.clave === fiscalForm.uso_cfdi)?.descripcion || 'Uso CFDI'}`}
+                  </Text>
+                  <Ionicons name="chevron-down" size={18} color="#888" />
+                </TouchableOpacity>
                 <TouchableOpacity
                   onPress={saveFiscalProfile}
                   disabled={fiscalSaving || !fiscalForm.razon_social || !fiscalForm.rfc || !fiscalForm.codigo_postal || !fiscalForm.regimen_fiscal}
@@ -1079,6 +1098,27 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
               </>
             )}
           </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Picker régimen / uso CFDI */}
+      <Modal visible={fiscalPicker !== null} transparent animationType="slide" onRequestClose={() => setFiscalPicker(null)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '70%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+              <Text style={{ fontSize: 16, fontWeight: '700' }}>{fiscalPicker === 'regimen' ? 'Régimen fiscal' : 'Uso CFDI'}</Text>
+              <TouchableOpacity onPress={() => setFiscalPicker(null)} hitSlop={20}><Ionicons name="close" size={26} color="#111" /></TouchableOpacity>
+            </View>
+            <ScrollView>
+              {(fiscalPicker === 'regimen' ? satRegimenes : satUsos).map((o) => (
+                <TouchableOpacity key={o.clave}
+                  onPress={() => { setFiscalForm((p) => ({ ...p, [fiscalPicker === 'regimen' ? 'regimen_fiscal' : 'uso_cfdi']: o.clave })); setFiscalPicker(null); }}
+                  style={{ paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#f2f2f2' }}>
+                  <Text style={{ fontSize: 14 }}><Text style={{ fontWeight: '700' }}>{o.clave}</Text> — {o.descripcion}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
         </View>
       </Modal>
     </View>

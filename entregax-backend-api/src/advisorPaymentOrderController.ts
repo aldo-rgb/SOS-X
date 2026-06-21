@@ -877,6 +877,14 @@ export const requestAdvisorOrderInvoice = async (req: Request, res: Response): P
       );
     }
 
+    // Validar formato del RFC del receptor antes de timbrar (evita el error
+    // genérico del PAC; al cliente solo le decimos "RFC inválido").
+    const rfcRes = await pool.query(`SELECT fiscal_rfc FROM users WHERE id = $1`, [order.client_id]);
+    const effRfc = String(rfcRes.rows[0]?.fiscal_rfc || '').toUpperCase().trim();
+    if (!/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/.test(effRfc)) {
+      return res.status(400).json({ error: 'RFC inválido' });
+    }
+
     // IDs de paquetes (para la descripción de la factura)
     let pkgIds: number[] = [];
     try {
@@ -906,10 +914,20 @@ export const requestAdvisorOrderInvoice = async (req: Request, res: Response): P
     });
 
     if (!result.success) {
-      return res.status(400).json({
-        error: result.error || 'No se pudo generar la factura',
-        needFiscalData: result.error === 'Datos fiscales incompletos',
-      });
+      // Errores de datos fiscales (RFC/régimen/CP) → mensaje limpio "RFC inválido".
+      const errStr = String(result.error || '').toLowerCase();
+      const isFiscalErr = /rfc|regime|regimen|receiver|postal|zip|c[oó]digo|tax id|datos fiscales/.test(errStr);
+      if (isFiscalErr) {
+        return res.status(400).json({ error: 'RFC inválido' });
+      }
+      // Cualquier otro fallo (PAC/red/credenciales): NO bloquear. Dejar el pago
+      // como pendiente por timbrar para emitirlo manualmente desde Contabilidad.
+      if (order.pobox_payment_id) {
+        try {
+          await pool.query(`UPDATE pobox_payments SET requiere_factura = TRUE WHERE id = $1`, [order.pobox_payment_id]);
+        } catch (e) { console.warn('[invoice] no se pudo marcar pendiente por timbrar:', e); }
+      }
+      return res.json({ success: true, pending: true, message: 'Factura solicitada. Quedó pendiente por timbrar.' });
     }
 
     // Marcar el pago como facturado (si existe pobox_payment vinculado)

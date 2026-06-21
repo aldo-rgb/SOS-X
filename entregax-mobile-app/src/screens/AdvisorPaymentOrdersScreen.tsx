@@ -240,6 +240,16 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
   const [deletingProofId, setDeletingProofId] = useState<number | null>(null);
   // ── Solicitar factura ──
   const EMPTY_FISCAL = { razon_social: '', rfc: '', codigo_postal: '', regimen_fiscal: '', uso_cfdi: 'G03' };
+  // Catálogos SAT (régimen / uso CFDI) para los selectores
+  const [satRegimenes, setSatRegimenes] = useState<Array<{ clave: string; descripcion: string }>>([]);
+  const [satUsos, setSatUsos] = useState<Array<{ clave: string; descripcion: string }>>([]);
+  const [pickerOpen, setPickerOpen] = useState<null | 'regimen' | 'uso'>(null);
+  useEffect(() => {
+    fetch(`${API_URL}/api/fiscal/catalogos/regimenes`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json()).then((d) => setSatRegimenes(d.regimenes || [])).catch(() => {});
+    fetch(`${API_URL}/api/fiscal/catalogos/usos-cfdi`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json()).then((d) => setSatUsos(d.usos || [])).catch(() => {});
+  }, [token]);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [invoiceOrder, setInvoiceOrder] = useState<PaymentOrder | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -345,7 +355,12 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Error');
-      setInvoiceResult({ uuid: data.uuid, pdfUrl: data.pdfUrl });
+      if (data?.pending) {
+        setShowInvoiceModal(false);
+        Alert.alert('Factura solicitada', 'Quedó pendiente por timbrar.');
+      } else {
+        setInvoiceResult({ uuid: data.uuid, pdfUrl: data.pdfUrl });
+      }
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'No se pudo generar la factura');
     } finally {
@@ -964,8 +979,6 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                       { k: 'razon_social', label: 'Razón social' },
                       { k: 'rfc', label: 'RFC', upper: true },
                       { k: 'codigo_postal', label: 'Código postal' },
-                      { k: 'regimen_fiscal', label: 'Régimen fiscal (clave SAT, ej. 601)' },
-                      { k: 'uso_cfdi', label: 'Uso CFDI (ej. G03)', upper: true },
                     ].map((fld) => (
                       <TextInput
                         key={fld.k}
@@ -975,6 +988,18 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                         style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10, fontSize: 14 }}
                       />
                     ))}
+                    <TouchableOpacity onPress={() => setPickerOpen('regimen')} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12, marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 14, color: invoiceFiscal.regimen_fiscal ? '#111' : '#999', flex: 1 }} numberOfLines={1}>
+                        {invoiceFiscal.regimen_fiscal ? `${invoiceFiscal.regimen_fiscal} — ${satRegimenes.find(r => r.clave === invoiceFiscal.regimen_fiscal)?.descripcion || ''}` : 'Régimen fiscal'}
+                      </Text>
+                      <Ionicons name="chevron-down" size={18} color="#888" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setPickerOpen('uso')} style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12, marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 14, color: '#111', flex: 1 }} numberOfLines={1}>
+                        {`${invoiceFiscal.uso_cfdi} — ${satUsos.find(u => u.clave === invoiceFiscal.uso_cfdi)?.descripcion || 'Uso CFDI'}`}
+                      </Text>
+                      <Ionicons name="chevron-down" size={18} color="#888" />
+                    </TouchableOpacity>
                     <TouchableOpacity
                       onPress={saveFiscalProfile}
                       disabled={invoiceSavingProfile || !invoiceFiscal.razon_social || !invoiceFiscal.rfc || !invoiceFiscal.codigo_postal || !invoiceFiscal.regimen_fiscal}
@@ -1026,6 +1051,27 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
               </>
             )}
           </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Picker régimen / uso CFDI */}
+      <Modal visible={pickerOpen !== null} transparent animationType="slide" onRequestClose={() => setPickerOpen(null)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '70%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+              <Text style={{ fontSize: 16, fontWeight: '700' }}>{pickerOpen === 'regimen' ? 'Régimen fiscal' : 'Uso CFDI'}</Text>
+              <TouchableOpacity onPress={() => setPickerOpen(null)} hitSlop={20}><Ionicons name="close" size={26} color="#111" /></TouchableOpacity>
+            </View>
+            <ScrollView>
+              {(pickerOpen === 'regimen' ? satRegimenes : satUsos).map((o) => (
+                <TouchableOpacity key={o.clave}
+                  onPress={() => { setInvoiceFiscal((p) => ({ ...p, [pickerOpen === 'regimen' ? 'regimen_fiscal' : 'uso_cfdi']: o.clave })); setPickerOpen(null); }}
+                  style={{ paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#f2f2f2' }}>
+                  <Text style={{ fontSize: 14 }}><Text style={{ fontWeight: '700' }}>{o.clave}</Text> — {o.descripcion}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
         </View>
       </Modal>
     </SafeAreaView>

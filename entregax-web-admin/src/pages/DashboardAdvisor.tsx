@@ -430,6 +430,13 @@ export default function DashboardAdvisor() {
   const [newOrderSaving, setNewOrderSaving] = useState(false);
   const [successOrderData, setSuccessOrderData] = useState<any>(null);
   const [cancelConfirmOrderId, setCancelConfirmOrderId] = useState<number | null>(null);
+  // Catálogos SAT para los selectores de régimen y uso CFDI
+  const [satRegimenes, setSatRegimenes] = useState<Array<{ clave: string; descripcion: string }>>([]);
+  const [satUsos, setSatUsos] = useState<Array<{ clave: string; descripcion: string }>>([]);
+  useEffect(() => {
+    api.get('/fiscal/catalogos/regimenes').then(r => setSatRegimenes(r.data?.regimenes || [])).catch(() => {});
+    api.get('/fiscal/catalogos/usos-cfdi').then(r => setSatUsos(r.data?.usos || [])).catch(() => {});
+  }, []);
   // Diálogo "Solicitar factura"
   const emptyFiscal = { razon_social: '', rfc: '', codigo_postal: '', regimen_fiscal: '', uso_cfdi: 'G03' };
   const [invoiceOrder, setInvoiceOrder] = useState<any | null>(null);
@@ -522,8 +529,13 @@ export default function DashboardAdvisor() {
         source: invoiceOrder.created_by,
         fiscalData: invoiceFiscal,
       });
-      setInvoiceResult({ uuid: res.data.uuid, pdfUrl: res.data.pdfUrl });
-      setSnackbar({ open: true, message: '✅ Factura generada correctamente', severity: 'success' });
+      if (res.data?.pending) {
+        setSnackbar({ open: true, message: 'Factura solicitada. Quedó pendiente por timbrar.', severity: 'info' });
+        setInvoiceOrder(null);
+      } else {
+        setInvoiceResult({ uuid: res.data.uuid, pdfUrl: res.data.pdfUrl });
+        setSnackbar({ open: true, message: '✅ Factura generada correctamente', severity: 'success' });
+      }
     } catch (e: any) {
       setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo generar la factura', severity: 'error' });
     } finally {
@@ -3998,10 +4010,14 @@ export default function DashboardAdvisor() {
                     onChange={(e) => setFiscalForm(p => ({ ...p, rfc: e.target.value.toUpperCase() }))} />
                   <TextField size="small" label="Código postal" value={fiscalForm.codigo_postal}
                     onChange={(e) => setFiscalForm(p => ({ ...p, codigo_postal: e.target.value }))} />
-                  <TextField size="small" label="Régimen fiscal (clave SAT)" value={fiscalForm.regimen_fiscal} placeholder="601"
-                    onChange={(e) => setFiscalForm(p => ({ ...p, regimen_fiscal: e.target.value }))} />
-                  <TextField size="small" label="Uso CFDI" value={fiscalForm.uso_cfdi} placeholder="G03"
-                    onChange={(e) => setFiscalForm(p => ({ ...p, uso_cfdi: e.target.value.toUpperCase() }))} />
+                  <TextField select size="small" label="Régimen fiscal" value={fiscalForm.regimen_fiscal}
+                    onChange={(e) => setFiscalForm(p => ({ ...p, regimen_fiscal: e.target.value }))}>
+                    {satRegimenes.map(r => <MenuItem key={r.clave} value={r.clave}>{r.clave} — {r.descripcion}</MenuItem>)}
+                  </TextField>
+                  <TextField select size="small" label="Uso CFDI" value={fiscalForm.uso_cfdi}
+                    onChange={(e) => setFiscalForm(p => ({ ...p, uso_cfdi: e.target.value }))}>
+                    {satUsos.map(u => <MenuItem key={u.clave} value={u.clave}>{u.clave} — {u.descripcion}</MenuItem>)}
+                  </TextField>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
                   <Button size="small" variant="contained"
@@ -4111,10 +4127,14 @@ export default function DashboardAdvisor() {
                             onChange={(e) => setInvoiceFiscal(p => ({ ...p, rfc: e.target.value.toUpperCase() }))} />
                           <TextField size="small" label="Código postal" value={invoiceFiscal.codigo_postal}
                             onChange={(e) => setInvoiceFiscal(p => ({ ...p, codigo_postal: e.target.value }))} />
-                          <TextField size="small" label="Régimen fiscal (clave SAT)" value={invoiceFiscal.regimen_fiscal} placeholder="601"
-                            onChange={(e) => setInvoiceFiscal(p => ({ ...p, regimen_fiscal: e.target.value }))} />
-                          <TextField size="small" label="Uso CFDI" value={invoiceFiscal.uso_cfdi} placeholder="G03"
-                            onChange={(e) => setInvoiceFiscal(p => ({ ...p, uso_cfdi: e.target.value.toUpperCase() }))} />
+                          <TextField select size="small" label="Régimen fiscal" value={invoiceFiscal.regimen_fiscal}
+                            onChange={(e) => setInvoiceFiscal(p => ({ ...p, regimen_fiscal: e.target.value }))}>
+                            {satRegimenes.map(r => <MenuItem key={r.clave} value={r.clave}>{r.clave} — {r.descripcion}</MenuItem>)}
+                          </TextField>
+                          <TextField select size="small" label="Uso CFDI" value={invoiceFiscal.uso_cfdi}
+                            onChange={(e) => setInvoiceFiscal(p => ({ ...p, uso_cfdi: e.target.value }))}>
+                            {satUsos.map(u => <MenuItem key={u.clave} value={u.clave}>{u.clave} — {u.descripcion}</MenuItem>)}
+                          </TextField>
                         </Box>
                         <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
                           <Button size="small" variant="contained"
