@@ -79,6 +79,75 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   const [addrSaving, setAddrSaving] = useState(false);
   const [deleteAddrConfirm, setDeleteAddrConfirm] = useState<number | null>(null);
 
+  // Datos fiscales del cliente
+  const EMPTY_FISCAL = { razon_social: '', rfc: '', codigo_postal: '', regimen_fiscal: '', uso_cfdi: 'G03' };
+  const [fiscalModal, setFiscalModal] = useState(false);
+  const [fiscalClient, setFiscalClient] = useState<Client | null>(null);
+  const [fiscalProfiles, setFiscalProfiles] = useState<any[]>([]);
+  const [fiscalLoading, setFiscalLoading] = useState(false);
+  const [fiscalAdding, setFiscalAdding] = useState(false);
+  const [fiscalSaving, setFiscalSaving] = useState(false);
+  const [fiscalForm, setFiscalForm] = useState(EMPTY_FISCAL);
+
+  const loadFiscalProfiles = async (clientId: number) => {
+    setFiscalLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/clients/${clientId}/fiscal-profiles`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const profiles = Array.isArray(data?.profiles) ? data.profiles : [];
+      setFiscalProfiles(profiles);
+      setFiscalAdding(profiles.length === 0);
+    } catch {
+      Alert.alert('Error', 'No se pudieron cargar los datos fiscales');
+    } finally {
+      setFiscalLoading(false);
+    }
+  };
+
+  const openFiscalModal = (client: Client) => {
+    setFiscalClient(client);
+    setFiscalProfiles([]);
+    setFiscalAdding(false);
+    setFiscalForm(EMPTY_FISCAL);
+    setFiscalModal(true);
+    loadFiscalProfiles(client.id);
+  };
+
+  const saveFiscalProfile = async () => {
+    if (!fiscalClient) return;
+    setFiscalSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/clients/${fiscalClient.id}/fiscal-profiles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(fiscalForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Error');
+      setFiscalForm(EMPTY_FISCAL);
+      setFiscalAdding(false);
+      await loadFiscalProfiles(fiscalClient.id);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'No se pudieron guardar los datos fiscales');
+    } finally {
+      setFiscalSaving(false);
+    }
+  };
+
+  const deleteFiscalProfile = async (profileId: number) => {
+    if (!fiscalClient) return;
+    try {
+      await fetch(`${API_URL}/api/advisor/clients/${fiscalClient.id}/fiscal-profiles/${profileId}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      });
+      await loadFiscalProfiles(fiscalClient.id);
+    } catch {
+      Alert.alert('Error', 'No se pudo eliminar');
+    }
+  };
+
   // Shipping instructions modal
   const [shipInstrModal, setShipInstrModal] = useState(false);
   const [shipInstrClient, setShipInstrClient] = useState<Client | null>(null);
@@ -396,6 +465,9 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#f3e5f5' }]} onPress={() => openAddressModal(item)}>
             <Ionicons name="location-outline" size={20} color={PURPLE} />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#f3e5f5' }]} onPress={() => openFiscalModal(item)}>
+            <Ionicons name="receipt-outline" size={20} color="#7B1FA2" />
           </TouchableOpacity>
         </View>
       </View>
@@ -935,6 +1007,78 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
             </View>
           </ScrollView>
           )}
+        </View>
+      </Modal>
+
+      {/* Datos fiscales del cliente */}
+      <Modal visible={fiscalModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { if (!fiscalSaving) setFiscalModal(false); }}>
+        <View style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={{ paddingTop: 16, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+            <Text style={{ fontSize: 16, fontWeight: '700', flex: 1, paddingRight: 12 }} numberOfLines={1}>🧾 Datos fiscales — {fiscalClient?.full_name}</Text>
+            <TouchableOpacity onPress={() => { if (!fiscalSaving) setFiscalModal(false); }} hitSlop={20}>
+              <Ionicons name="close" size={28} color="#111" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ flex: 1, padding: 16 }} contentContainerStyle={{ paddingBottom: 40 }}>
+            {fiscalLoading ? (
+              <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 40 }} />
+            ) : fiscalAdding ? (
+              <>
+                <Text style={{ fontWeight: '600', color: '#666', marginBottom: 8 }}>
+                  {fiscalProfiles.length > 0 ? 'Nuevos datos fiscales' : 'Datos fiscales del cliente'}
+                </Text>
+                {[
+                  { k: 'razon_social', label: 'Razón social' },
+                  { k: 'rfc', label: 'RFC', upper: true },
+                  { k: 'codigo_postal', label: 'Código postal' },
+                  { k: 'regimen_fiscal', label: 'Régimen fiscal (clave SAT, ej. 601)' },
+                  { k: 'uso_cfdi', label: 'Uso CFDI (ej. G03)', upper: true },
+                ].map((fld) => (
+                  <TextInput
+                    key={fld.k}
+                    placeholder={fld.label}
+                    value={(fiscalForm as any)[fld.k]}
+                    onChangeText={(tx) => setFiscalForm((p) => ({ ...p, [fld.k]: fld.upper ? tx.toUpperCase() : tx }))}
+                    style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10, fontSize: 14 }}
+                  />
+                ))}
+                <TouchableOpacity
+                  onPress={saveFiscalProfile}
+                  disabled={fiscalSaving || !fiscalForm.razon_social || !fiscalForm.rfc || !fiscalForm.codigo_postal || !fiscalForm.regimen_fiscal}
+                  style={{ backgroundColor: PURPLE, borderRadius: 8, paddingVertical: 14, alignItems: 'center', opacity: (fiscalSaving || !fiscalForm.razon_social || !fiscalForm.rfc || !fiscalForm.codigo_postal || !fiscalForm.regimen_fiscal) ? 0.5 : 1 }}>
+                  {fiscalSaving ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Guardar datos fiscales</Text>}
+                </TouchableOpacity>
+                {fiscalProfiles.length > 0 && (
+                  <TouchableOpacity onPress={() => setFiscalAdding(false)} style={{ paddingVertical: 12, alignItems: 'center' }}>
+                    <Text style={{ color: '#666' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            ) : (
+              <>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <Text style={{ fontWeight: '600', color: '#666' }}>Datos fiscales registrados</Text>
+                  <TouchableOpacity onPress={() => { setFiscalForm(EMPTY_FISCAL); setFiscalAdding(true); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Ionicons name="add-circle-outline" size={20} color={PURPLE} />
+                    <Text style={{ color: PURPLE, fontWeight: '600' }}>Agregar</Text>
+                  </TouchableOpacity>
+                </View>
+                {fiscalProfiles.length === 0 ? (
+                  <Text style={{ color: '#888', marginTop: 12 }}>Este cliente no tiene datos fiscales registrados.</Text>
+                ) : fiscalProfiles.map((p) => (
+                  <View key={p.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: '#E0E0E0' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: '700' }} numberOfLines={1}>{p.razon_social}</Text>
+                      <Text style={{ color: '#666', fontSize: 12 }}>{p.rfc} · CP {p.codigo_postal} · Rég. {p.regimen_fiscal} · {p.uso_cfdi}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => deleteFiscalProfile(p.id)} hitSlop={12}>
+                      <Ionicons name="trash-outline" size={18} color="#999" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </>
+            )}
+          </ScrollView>
         </View>
       </Modal>
     </View>

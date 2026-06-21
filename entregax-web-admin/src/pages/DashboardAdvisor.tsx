@@ -530,6 +530,63 @@ export default function DashboardAdvisor() {
       setInvoiceSubmitting(false);
     }
   };
+
+  // ── Gestor de datos fiscales del cliente (desde Mis Clientes) ──
+  const [fiscalClient, setFiscalClient] = useState<{ id: number; name: string } | null>(null);
+  const [fiscalProfiles, setFiscalProfiles] = useState<any[]>([]);
+  const [fiscalLoading, setFiscalLoading] = useState(false);
+  const [fiscalAdding, setFiscalAdding] = useState(false);
+  const [fiscalSaving, setFiscalSaving] = useState(false);
+  const [fiscalForm, setFiscalForm] = useState(emptyFiscal);
+
+  const loadFiscalProfiles = async (clientId: number) => {
+    setFiscalLoading(true);
+    try {
+      const res = await api.get(`/advisor/clients/${clientId}/fiscal-profiles`);
+      const profiles = Array.isArray(res.data?.profiles) ? res.data.profiles : [];
+      setFiscalProfiles(profiles);
+      setFiscalAdding(profiles.length === 0);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudieron cargar los datos fiscales', severity: 'error' });
+    } finally {
+      setFiscalLoading(false);
+    }
+  };
+
+  const openFiscalManager = (client: { id: number; name: string }) => {
+    setFiscalClient(client);
+    setFiscalProfiles([]);
+    setFiscalAdding(false);
+    setFiscalForm(emptyFiscal);
+    loadFiscalProfiles(client.id);
+  };
+
+  const saveClientFiscalProfile = async () => {
+    if (!fiscalClient) return;
+    setFiscalSaving(true);
+    try {
+      await api.post(`/advisor/clients/${fiscalClient.id}/fiscal-profiles`, fiscalForm);
+      setFiscalForm(emptyFiscal);
+      setFiscalAdding(false);
+      await loadFiscalProfiles(fiscalClient.id);
+      setSnackbar({ open: true, message: '✅ Datos fiscales guardados', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudieron guardar los datos fiscales', severity: 'error' });
+    } finally {
+      setFiscalSaving(false);
+    }
+  };
+
+  const deleteClientFiscalProfile = async (profileId: number) => {
+    if (!fiscalClient) return;
+    try {
+      await api.delete(`/advisor/clients/${fiscalClient.id}/fiscal-profiles/${profileId}`);
+      await loadFiscalProfiles(fiscalClient.id);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo eliminar', severity: 'error' });
+    }
+  };
+
   const [proofModalOpen, setProofModalOpen] = useState(false);
   const [proofModalOrder, setProofModalOrder] = useState<any | null>(null);
   const [proofModalLoading, setProofModalLoading] = useState(false);
@@ -2372,6 +2429,7 @@ export default function DashboardAdvisor() {
                   <TableCell align="right">Saldo Pdte.</TableCell>
                   <TableCell>{t('advisor.lastShipment')}</TableCell>
                   <TableCell align="center">Direcciones</TableCell>
+                  <TableCell align="center">Datos Fiscales</TableCell>
                   <TableCell align="center">Cartera</TableCell>
                   <TableCell align="center">Instrucciones</TableCell>
                   <TableCell align="center">{t('advisor.verification')}</TableCell>
@@ -2381,7 +2439,7 @@ export default function DashboardAdvisor() {
               <TableBody>
                 {clients.length === 0 && !clientsLoading && (
                   <TableRow>
-                    <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">{t('advisor.noClients')}</Typography>
                     </TableCell>
                   </TableRow>
@@ -2451,6 +2509,16 @@ export default function DashboardAdvisor() {
                           startIcon={<LocationIcon />}
                           sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.5, borderColor: '#7B1FA2', color: '#7B1FA2', '&:hover': { bgcolor: '#f3e5f5', borderColor: '#6a1b9a' } }}>
                           Dirs
+                        </Button>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Ver y agregar datos fiscales (CFDI)">
+                        <Button variant="outlined" size="small"
+                          onClick={() => openFiscalManager({ id: c.id, name: c.fullName || c.full_name || c.name })}
+                          startIcon={<InvoiceIcon />}
+                          sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.5, borderColor: '#7B1FA2', color: '#7B1FA2', '&:hover': { bgcolor: '#f3e5f5', borderColor: '#6a1b9a' } }}>
+                          Fiscal
                         </Button>
                       </Tooltip>
                     </TableCell>
@@ -3901,6 +3969,85 @@ export default function DashboardAdvisor() {
             >
               Entendido
             </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* ── Dialog: Datos fiscales del cliente ── */}
+        <Dialog
+          open={fiscalClient !== null}
+          onClose={() => { if (!fiscalSaving) setFiscalClient(null); }}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{ sx: { borderRadius: 3 } }}
+        >
+          <DialogTitle sx={{ fontWeight: 700, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InvoiceIcon sx={{ color: '#7B1FA2' }} /> Datos fiscales — {fiscalClient?.name}
+          </DialogTitle>
+          <DialogContent dividers>
+            {fiscalLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+            ) : fiscalAdding ? (
+              <>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>
+                  {fiscalProfiles.length > 0 ? 'Nuevos datos fiscales' : 'Datos fiscales del cliente'}
+                </Typography>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                  <TextField size="small" label="Razón social" value={fiscalForm.razon_social} sx={{ gridColumn: '1 / -1' }}
+                    onChange={(e) => setFiscalForm(p => ({ ...p, razon_social: e.target.value }))} />
+                  <TextField size="small" label="RFC" value={fiscalForm.rfc}
+                    onChange={(e) => setFiscalForm(p => ({ ...p, rfc: e.target.value.toUpperCase() }))} />
+                  <TextField size="small" label="Código postal" value={fiscalForm.codigo_postal}
+                    onChange={(e) => setFiscalForm(p => ({ ...p, codigo_postal: e.target.value }))} />
+                  <TextField size="small" label="Régimen fiscal (clave SAT)" value={fiscalForm.regimen_fiscal} placeholder="601"
+                    onChange={(e) => setFiscalForm(p => ({ ...p, regimen_fiscal: e.target.value }))} />
+                  <TextField size="small" label="Uso CFDI" value={fiscalForm.uso_cfdi} placeholder="G03"
+                    onChange={(e) => setFiscalForm(p => ({ ...p, uso_cfdi: e.target.value.toUpperCase() }))} />
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
+                  <Button size="small" variant="contained"
+                    onClick={saveClientFiscalProfile}
+                    disabled={fiscalSaving || !fiscalForm.razon_social || !fiscalForm.rfc || !fiscalForm.codigo_postal || !fiscalForm.regimen_fiscal}
+                    startIcon={fiscalSaving ? <CircularProgress size={16} color="inherit" /> : <AddIcon />}
+                    sx={{ bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6A1B9A' } }}>
+                    {fiscalSaving ? 'Guardando…' : 'Guardar'}
+                  </Button>
+                  {fiscalProfiles.length > 0 && (
+                    <Button size="small" onClick={() => setFiscalAdding(false)} disabled={fiscalSaving}>Cancelar</Button>
+                  )}
+                </Box>
+              </>
+            ) : (
+              <>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    Datos fiscales registrados
+                  </Typography>
+                  <Button size="small" startIcon={<AddIcon />} sx={{ color: '#7B1FA2' }}
+                    onClick={() => { setFiscalForm(emptyFiscal); setFiscalAdding(true); }}>
+                    Agregar
+                  </Button>
+                </Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {fiscalProfiles.map((p) => (
+                    <Box key={p.id}
+                      sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderRadius: 2, border: '1px solid #E0E0E0' }}>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={700} noWrap>{p.razon_social}</Typography>
+                        <Typography variant="caption" color="text.secondary">{p.rfc} · CP {p.codigo_postal} · Rég. {p.regimen_fiscal} · {p.uso_cfdi}</Typography>
+                      </Box>
+                      <Tooltip title="Eliminar">
+                        <IconButton size="small" onClick={() => deleteClientFiscalProfile(p.id)}>
+                          <CloseIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  ))}
+                </Box>
+              </>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ px: 3, py: 2 }}>
+            <Button onClick={() => setFiscalClient(null)} disabled={fiscalSaving}>Cerrar</Button>
           </DialogActions>
         </Dialog>
 
