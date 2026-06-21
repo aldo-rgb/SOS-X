@@ -1128,8 +1128,41 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         const tracking = req.params.tracking as string;
         if (!tracking) { res.status(400).json({ error: 'Tracking requerido' }); return; }
 
-        const trackingUpper = tracking.toUpperCase().trim();
-        const trackingCompact = trackingUpper.replace(/[^A-Z0-9]/g, '');
+        let trackingUpper = tracking.toUpperCase().trim();
+        let trackingCompact = trackingUpper.replace(/[^A-Z0-9]/g, '');
+
+        // 🔎 Si el input es una REFERENCIA DE PAGO (RO-/PP-/CTZ:...), resolverla a la
+        // guía (master) para que el rastreo muestre los detalles completos de las guías.
+        try {
+            const refKey = trackingUpper.replace(/^CTZ:\s*/i, '').trim();
+            const refRes = await pool.query(
+                `SELECT package_ids AS ids FROM pobox_payments WHERE UPPER(payment_reference) = $1
+                 UNION ALL
+                 SELECT package_uids AS ids FROM advisor_payment_orders WHERE UPPER(payment_reference) = $1
+                 LIMIT 1`,
+                [refKey]
+            );
+            if (refRes.rows[0]?.ids) {
+                const rawIds = typeof refRes.rows[0].ids === 'string' ? JSON.parse(refRes.rows[0].ids) : refRes.rows[0].ids;
+                const ids = (Array.isArray(rawIds) ? rawIds : [])
+                    .map((x: any) => parseInt(String(x).replace(/^[A-Za-z]+-/, ''), 10))
+                    .filter((n: number) => Number.isFinite(n));
+                if (ids.length > 0) {
+                    const tr = await pool.query(
+                        `SELECT tracking_internal FROM packages
+                         WHERE id = ANY($1::int[])
+                         ORDER BY (master_id IS NULL) DESC, COALESCE(is_master, FALSE) DESC, id ASC
+                         LIMIT 1`,
+                        [ids]
+                    );
+                    const resolved = tr.rows[0]?.tracking_internal;
+                    if (resolved) {
+                        trackingUpper = String(resolved).toUpperCase().trim();
+                        trackingCompact = trackingUpper.replace(/[^A-Z0-9]/g, '');
+                    }
+                }
+            }
+        } catch { /* si falla, seguimos con el tracking tal cual */ }
 
         const cityCodeFor = (city?: string | null, state?: string | null): string | null => {
             const c = (city || '').toLowerCase();
