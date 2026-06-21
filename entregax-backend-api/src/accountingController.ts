@@ -130,13 +130,13 @@ export const getEmitterSummary = async (req: AuthRequest, res: Response): Promis
             WHERE pp.requiere_factura = TRUE
               AND COALESCE(pp.facturada, FALSE) = FALSE
               AND COALESCE(pp.factura_archivada, FALSE) = FALSE
-              AND pp.status = 'completed'
+              AND pp.status IN ('completed','paid')
         `).catch(() => pool.query(`
             SELECT COUNT(*)::int AS pendientes
             FROM pobox_payments pp
             WHERE pp.requiere_factura = TRUE
               AND COALESCE(pp.facturada, FALSE) = FALSE
-              AND pp.status = 'completed'
+              AND pp.status IN ('completed','paid')
         `).catch(() => ({ rows: [{ pendientes: 0 }] })));
 
         return res.json({
@@ -338,7 +338,7 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
             WHERE pp.requiere_factura = TRUE
               AND COALESCE(pp.facturada, FALSE) = FALSE
               AND COALESCE(pp.factura_archivada, FALSE) = FALSE
-              AND pp.status = 'completed'
+              AND pp.status IN ('completed','paid')
             ORDER BY pp.paid_at DESC
             LIMIT 200
         `).catch(err => {
@@ -354,7 +354,7 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
                 LEFT JOIN users u ON u.id = pp.user_id
                 WHERE pp.requiere_factura = TRUE
                   AND COALESCE(pp.facturada, FALSE) = FALSE
-                  AND pp.status = 'completed'
+                  AND pp.status IN ('completed','paid')
                 ORDER BY pp.paid_at DESC
                 LIMIT 200
             `);
@@ -503,7 +503,7 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
                    u.fiscal_codigo_postal AS cfdi_zip
             FROM pobox_payments pp
             LEFT JOIN users u ON u.id = pp.user_id
-            WHERE pp.id = $1 AND pp.status = 'completed'
+            WHERE pp.id = $1 AND pp.status IN ('completed','paid')
         `, [payment_id]);
 
         if (payRes.rows.length === 0) {
