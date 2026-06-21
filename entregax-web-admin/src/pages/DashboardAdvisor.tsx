@@ -345,7 +345,6 @@ export default function DashboardAdvisor() {
   const { t } = useTranslation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const isTablet = useMediaQuery(theme.breakpoints.down('md'));
   const { advisorInstructionsEnabled, advisorPaymentOrderEnabled, entregaxPaymentsByService } = usePaymentStatus();
 
   // ─── State ───
@@ -530,7 +529,7 @@ export default function DashboardAdvisor() {
         fiscalData: invoiceFiscal,
       });
       if (res.data?.pending) {
-        setSnackbar({ open: true, message: 'Factura solicitada. Quedó pendiente por timbrar.', severity: 'info' });
+        setSnackbar({ open: true, message: 'Factura solicitada. en proceso de timbrado.', severity: 'info' });
         setInvoiceOrder(null);
       } else {
         setInvoiceResult({ uuid: res.data.uuid, pdfUrl: res.data.pdfUrl });
@@ -5955,9 +5954,9 @@ export default function DashboardAdvisor() {
           <Tabs
             value={activeTab}
             onChange={(_, v) => setActiveTab(v)}
-            variant={isTablet ? 'scrollable' : 'standard'}
-            scrollButtons={isTablet ? 'auto' : false}
-            centered={!isTablet}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
             sx={{
               '& .MuiTab-root': {
                 textTransform: 'none',
