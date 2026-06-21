@@ -2433,7 +2433,6 @@ export default function DashboardAdvisor() {
               <TableHead>
                 <TableRow>
                   <TableCell>{t('advisor.clientName')}</TableCell>
-                  <TableCell>No. de Cliente</TableCell>
                   <TableCell align="center">Sin Instr.</TableCell>
                   <TableCell align="center">{t('advisor.inTransitShort')}</TableCell>
                   <TableCell align="center">Pdte. Pago</TableCell>
@@ -2443,14 +2442,12 @@ export default function DashboardAdvisor() {
                   <TableCell align="center">Datos Fiscales</TableCell>
                   <TableCell align="center">Cartera</TableCell>
                   <TableCell align="center">Instrucciones</TableCell>
-                  <TableCell align="center">{t('advisor.verification')}</TableCell>
-                  <TableCell>{t('advisor.notes')}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {clients.length === 0 && !clientsLoading && (
                   <TableRow>
-                    <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">{t('advisor.noClients')}</Typography>
                     </TableCell>
                   </TableRow>
@@ -2459,29 +2456,32 @@ export default function DashboardAdvisor() {
                   <TableRow key={c.id} hover>
                     <TableCell>
                       <Box>
-                        <Typography variant="body2" fontWeight={600}>{c.fullName}</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                          <Typography variant="body2" fontWeight={600}>{c.fullName}</Typography>
+                          <Chip label={c.boxId || '—'} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 } }} />
+                        </Box>
                         <Typography variant="caption" color="text.secondary">{c.email}</Typography>
-                        {c.phone && (
-                          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
-                            <Tooltip title={t('advisor.callClient')}>
-                              <IconButton size="small" href={`tel:${c.phone}`}
-                                sx={{ bgcolor: '#e3f2fd', color: '#1565c0', '&:hover': { bgcolor: '#1565c0', color: '#fff' }, width: 28, height: 28 }}>
-                                <PhoneIcon sx={{ fontSize: 16 }} />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="WhatsApp">
-                              <IconButton size="small"
-                                onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}
-                                sx={{ bgcolor: '#e8f5e9', color: '#25D366', '&:hover': { bgcolor: '#25D366', color: '#fff' }, width: 28, height: 28 }}>
-                                <WhatsAppIcon sx={{ fontSize: 16 }} />
-                              </IconButton>
-                            </Tooltip>
-                          </Box>
-                        )}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                          {c.phone && (
+                            <>
+                              <Tooltip title={t('advisor.callClient')}>
+                                <IconButton size="small" href={`tel:${c.phone}`}
+                                  sx={{ bgcolor: '#e3f2fd', color: '#1565c0', '&:hover': { bgcolor: '#1565c0', color: '#fff' }, width: 28, height: 28 }}>
+                                  <PhoneIcon sx={{ fontSize: 16 }} />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="WhatsApp">
+                                <IconButton size="small"
+                                  onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}
+                                  sx={{ bgcolor: '#e8f5e9', color: '#25D366', '&:hover': { bgcolor: '#25D366', color: '#fff' }, width: 28, height: 28 }}>
+                                  <WhatsAppIcon sx={{ fontSize: 16 }} />
+                                </IconButton>
+                              </Tooltip>
+                            </>
+                          )}
+                          {getVerificationChip(c.identityVerified, c.verificationStatus)}
+                        </Box>
                       </Box>
-                    </TableCell>
-                    <TableCell>
-                      <Chip label={c.boxId || '—'} size="small" variant="outlined" />
                     </TableCell>
                     <TableCell align="center">
                       {c.missingInstructionsCount > 0
@@ -2552,12 +2552,6 @@ export default function DashboardAdvisor() {
                           Enviar
                         </Button>
                       </Tooltip>
-                    </TableCell>
-                    <TableCell align="center">
-                      {getVerificationChip(c.identityVerified, c.verificationStatus)}
-                    </TableCell>
-                    <TableCell sx={{ minWidth: 180, maxWidth: 250 }}>
-                      {renderClientNote(c)}
                     </TableCell>
                   </TableRow>
                 ))}
