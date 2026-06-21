@@ -109,6 +109,8 @@ import {
   createPackage,
   getPackages,
   getPackageByTracking,
+  uploadNationalGuide,
+  streamNationalGuide,
   updatePackageStatus,
   getPackagesByClient,
   getPackageStats,
@@ -4169,6 +4171,13 @@ app.get('/api/packages/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_
 
 // Buscar paquete por tracking (cualquier usuario autenticado)
 app.get('/api/packages/track/:tracking', authenticateToken, getPackageByTracking);
+
+// Subir guía(s) de paquetería nacional → fusiona a 1 PDF y lo deja disponible
+// para imprimir (master + todas las hijas). Acepta 1+ archivos PDF/JPG/PNG.
+const nationalGuideUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 15 } });
+app.post('/api/packages/:id/national-guide', authenticateToken, nationalGuideUpload.array('files', 15), uploadNationalGuide);
+// Sin auth: se abre/imprime en nueva pestaña desde el módulo de etiquetado.
+app.get('/api/packages/:masterId/national-guide.pdf', streamNationalGuide);
 
 // Historial de movimientos por tracking (cualquier usuario autenticado con permiso)
 app.get('/api/packages/track/:tracking/movements', authenticateToken, getPackageMovementsByTracking);

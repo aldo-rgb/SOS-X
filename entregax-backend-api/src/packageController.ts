@@ -4655,6 +4655,98 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
     }
 };
 
+// ============================================
+// SUBIR GUÍA(S) DE PAQUETERÍA NACIONAL
+// Recibe 1+ archivos (PDF/JPG/PNG), los fusiona en UN solo PDF, lo sube a S3 y
+// guarda national_label_url en el paquete + su master + todas las hijas, para
+// que quede disponible en "Imprimir etiqueta de paquetería" (Operaciones).
+// ============================================
+export const uploadNationalGuide = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const pkgId = parseInt(String(req.params.id), 10);
+        if (!pkgId) return res.status(400).json({ error: 'ID de paquete inválido' });
+
+        const files = (req as any).files as Array<{ buffer: Buffer; mimetype: string; originalname: string }> | undefined;
+        if (!files || files.length === 0) return res.status(400).json({ error: 'Sube al menos un archivo (PDF, JPG o PNG)' });
+
+        const { PDFDocument } = await import('pdf-lib');
+        const merged = await PDFDocument.create();
+
+        for (const f of files) {
+            const mime = (f.mimetype || '').toLowerCase();
+            try {
+                if (mime === 'application/pdf') {
+                    const src = await PDFDocument.load(f.buffer, { ignoreEncryption: true });
+                    const pages = await merged.copyPages(src, src.getPageIndices());
+                    pages.forEach((p) => merged.addPage(p));
+                } else if (mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/jpg') {
+                    const img = mime.includes('png') ? await merged.embedPng(f.buffer) : await merged.embedJpg(f.buffer);
+                    const page = merged.addPage([612, 792]); // tamaño Carta
+                    const { width, height } = page.getSize();
+                    const margin = 18;
+                    const scale = Math.min((width - margin * 2) / img.width, (height - margin * 2) / img.height, 1);
+                    const w = img.width * scale, h = img.height * scale;
+                    page.drawImage(img, { x: (width - w) / 2, y: (height - h) / 2, width: w, height: h });
+                } else {
+                    console.warn('[national-guide] tipo no soportado, se omite:', mime, f.originalname);
+                }
+            } catch (e) {
+                console.warn('[national-guide] no se pudo procesar archivo:', f.originalname, (e as Error).message);
+            }
+        }
+
+        if (merged.getPageCount() === 0) {
+            return res.status(400).json({ error: 'No se pudo procesar ningún archivo. Usa PDF, JPG o PNG.' });
+        }
+
+        const pdfBytes = await merged.save();
+        const buffer = Buffer.from(pdfBytes);
+
+        // Resolver el master para propagar a todas las hijas
+        const pkgRes = await pool.query('SELECT id, master_id FROM packages WHERE id = $1', [pkgId]);
+        if (!pkgRes.rows[0]) return res.status(404).json({ error: 'Paquete no encontrado' });
+        const masterId = pkgRes.rows[0].master_id || pkgRes.rows[0].id;
+
+        const { uploadToS3 } = await import('./s3Service');
+        // Key determinista por master → re-subir sobreescribe (siempre la última).
+        const key = `national-guides/${masterId}.pdf`;
+        await uploadToS3(buffer, key, 'application/pdf');
+
+        // Guardamos una ruta RELATIVA al backend que streamea el PDF (evita CORS
+        // al hacer fetch desde el módulo de etiquetado, igual que paquete-express).
+        const labelPath = `/api/packages/${masterId}/national-guide.pdf`;
+
+        // Guardar en el master + todas las hijas (disponible desde cualquiera)
+        await pool.query(
+            `UPDATE packages SET national_label_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 OR master_id = $2`,
+            [labelPath, masterId]
+        );
+
+        return res.json({ success: true, url: labelPath, pages: merged.getPageCount() });
+    } catch (error: any) {
+        console.error('[national-guide] error:', error.message);
+        return res.status(500).json({ error: 'Error al subir la guía nacional', details: error.message });
+    }
+};
+
+// Streamea el PDF de la guía nacional subida (sin auth: se abre/imprime en
+// nueva pestaña, igual que /api/admin/paquete-express/label/pdf/:tn).
+export const streamNationalGuide = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const masterId = parseInt(String(req.params.masterId), 10);
+        if (!masterId) return res.status(400).json({ error: 'ID inválido' });
+        const { getS3ObjectBuffer } = await import('./s3Service');
+        const buffer = await getS3ObjectBuffer(`national-guides/${masterId}.pdf`);
+        if (!buffer || buffer.length === 0) return res.status(404).json({ error: 'Guía no encontrada' });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename=guia-nacional-${masterId}.pdf`);
+        return res.send(buffer);
+    } catch (error: any) {
+        console.error('[national-guide stream] error:', error.message);
+        return res.status(404).json({ error: 'Guía no encontrada' });
+    }
+};
+
 // Aliases
 export const createPackage = createShipment;
 export const getPackageByTracking = getShipmentByTracking;

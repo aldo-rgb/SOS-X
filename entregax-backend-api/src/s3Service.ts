@@ -169,6 +169,21 @@ export const getSignedDownloadUrl = async (key: string, expiresIn = 3600): Promi
 };
 
 /**
+ * Descargar un objeto de S3 como Buffer (para streamear desde el backend
+ * y evitar problemas de CORS al hacer fetch directo a S3 desde el navegador).
+ */
+export const getS3ObjectBuffer = async (key: string): Promise<Buffer> => {
+  const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key });
+  const resp: any = await s3Client.send(command);
+  const stream = resp.Body;
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+};
+
+/**
  * Verificar si S3 está configurado
  */
 export const isS3Configured = (): boolean => {
