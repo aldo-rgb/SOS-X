@@ -2466,7 +2466,7 @@ export default function DashboardAdvisor() {
                             <>
                               <Tooltip title={t('advisor.callClient')}>
                                 <IconButton size="small" href={`tel:${c.phone}`}
-                                  sx={{ bgcolor: '#e3f2fd', color: '#1565c0', '&:hover': { bgcolor: '#1565c0', color: '#fff' }, width: 28, height: 28 }}>
+                                  sx={{ bgcolor: '#FFF1EC', color: '#F05A28', '&:hover': { bgcolor: '#F05A28', color: '#fff' }, width: 28, height: 28 }}>
                                   <PhoneIcon sx={{ fontSize: 16 }} />
                                 </IconButton>
                               </Tooltip>
@@ -2518,7 +2518,7 @@ export default function DashboardAdvisor() {
                         <Button variant="outlined" size="small"
                           onClick={() => handleViewAddresses(c.id, c.fullName)}
                           startIcon={<LocationIcon />}
-                          sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.5, borderColor: '#7B1FA2', color: '#7B1FA2', '&:hover': { bgcolor: '#f3e5f5', borderColor: '#6a1b9a' } }}>
+                          sx={{ textTransform: 'none', fontSize: '0.72rem', fontWeight: 700, py: 0.5, px: 1.5, borderRadius: 2, borderWidth: 1.5, minWidth: 92, color: '#1A1A1A', borderColor: '#1A1A1A', bgcolor: '#fff', '&:hover': { borderWidth: 1.5, bgcolor: '#1A1A1A', color: '#fff', borderColor: '#1A1A1A' } }}>
                           Dirs
                         </Button>
                       </Tooltip>
@@ -2528,17 +2528,17 @@ export default function DashboardAdvisor() {
                         <Button variant="outlined" size="small"
                           onClick={() => openFiscalManager({ id: c.id, name: c.fullName })}
                           startIcon={<InvoiceIcon />}
-                          sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.5, borderColor: '#7B1FA2', color: '#7B1FA2', '&:hover': { bgcolor: '#f3e5f5', borderColor: '#6a1b9a' } }}>
+                          sx={{ textTransform: 'none', fontSize: '0.72rem', fontWeight: 700, py: 0.5, px: 1.5, borderRadius: 2, borderWidth: 1.5, minWidth: 92, color: '#F05A28', borderColor: '#F05A28', bgcolor: '#fff', '&:hover': { borderWidth: 1.5, bgcolor: '#F05A28', color: '#fff', borderColor: '#F05A28' } }}>
                           Fiscal
                         </Button>
                       </Tooltip>
                     </TableCell>
                     <TableCell align="center">
                       <Tooltip title="Ver Cartera">
-                        <Button variant="contained" size="small"
+                        <Button variant="contained" size="small" disableElevation
                           onClick={() => handleViewWallet(c.id)}
                           startIcon={<WalletIcon />}
-                          sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#d94d1f' }, textTransform: 'none', fontSize: '0.75rem', py: 0.5 }}>
+                          sx={{ textTransform: 'none', fontSize: '0.72rem', fontWeight: 700, py: 0.5, px: 1.5, borderRadius: 2, minWidth: 92, color: '#fff', background: 'linear-gradient(135deg, #F05A28 0%, #C62828 100%)', boxShadow: '0 2px 6px rgba(240,90,40,0.35)', '&:hover': { background: 'linear-gradient(135deg, #D94D1F 0%, #A01E1E 100%)', boxShadow: '0 3px 8px rgba(198,40,40,0.4)' } }}>
                           Ver
                         </Button>
                       </Tooltip>
@@ -2548,7 +2548,7 @@ export default function DashboardAdvisor() {
                         <Button variant="outlined" size="small"
                           onClick={() => handleOpenShipInstr(c)}
                           startIcon={<SendInstrIcon />}
-                          sx={{ borderColor: '#1976d2', color: '#1976d2', '&:hover': { bgcolor: '#e3f2fd' }, textTransform: 'none', fontSize: '0.75rem', py: 0.5 }}>
+                          sx={{ textTransform: 'none', fontSize: '0.72rem', fontWeight: 700, py: 0.5, px: 1.5, borderRadius: 2, borderWidth: 1.5, minWidth: 92, color: '#C62828', borderColor: '#C62828', bgcolor: '#fff', '&:hover': { borderWidth: 1.5, bgcolor: '#C62828', color: '#fff', borderColor: '#C62828' } }}>
                           Enviar
                         </Button>
                       </Tooltip>
