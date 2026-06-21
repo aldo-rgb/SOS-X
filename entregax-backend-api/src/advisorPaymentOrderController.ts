@@ -91,10 +91,11 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         pp.bank_clabe,
         pp.bank_name,
         pp.beneficiario,
+        pp.paid_at,
         apo.created_at
       FROM advisor_payment_orders apo
       LEFT JOIN LATERAL (
-        SELECT p2.status, p2.payment_reference,
+        SELECT p2.status, p2.payment_reference, p2.paid_at,
                fe.bank_clabe, fe.bank_name, fe.business_name AS beneficiario
         FROM pobox_payments p2
         LEFT JOIN service_company_config scc ON scc.service_type = COALESCE(apo.service_type_cfg,'POBOX_USA') AND scc.is_active = TRUE
@@ -141,6 +142,7 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         NULL AS bank_clabe,
         NULL AS bank_name,
         NULL AS beneficiario,
+        pp.paid_at,
         pp.created_at
       FROM pobox_payments pp
       JOIN users u ON u.id = pp.user_id
@@ -730,14 +732,17 @@ const loadOrderForAdvisor = async (id: any, aid: number, source: string | null) 
     SELECT * FROM (
       SELECT apo.id, 'advisor' AS created_by, apo.client_id, apo.total_mxn,
              apo.payment_reference, apo.pobox_payment_id, apo.package_uids,
-             COALESCE(apo.service_type_cfg, 'POBOX_USA') AS service_type_cfg
+             COALESCE(apo.service_type_cfg, 'POBOX_USA') AS service_type_cfg,
+             ppx.paid_at, ppx.status AS pay_status
       FROM advisor_payment_orders apo
+      LEFT JOIN pobox_payments ppx ON ppx.id = apo.pobox_payment_id
       WHERE apo.id = $1 AND apo.advisor_id = $2
       UNION ALL
       SELECT pp.id, 'client' AS created_by, pp.user_id AS client_id, pp.amount AS total_mxn,
              pp.payment_reference, pp.id AS pobox_payment_id,
              COALESCE(pp.package_ids, '[]'::jsonb) AS package_uids,
-             'POBOX_USA' AS service_type_cfg
+             'POBOX_USA' AS service_type_cfg,
+             pp.paid_at, pp.status AS pay_status
       FROM pobox_payments pp
       JOIN users u ON u.id = pp.user_id
       WHERE pp.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2)
@@ -834,6 +839,16 @@ export const requestAdvisorOrderInvoice = async (req: Request, res: Response): P
 
     const amount = Number(order.total_mxn) || 0;
     if (amount <= 0) return res.status(400).json({ error: 'La orden no tiene monto a facturar' });
+
+    // Solo se puede facturar dentro de los 2 días posteriores a marcarse como pagada
+    const isPaid = ['completed', 'paid'].includes(String(order.pay_status || ''));
+    const paidAtMs = order.paid_at ? new Date(order.paid_at).getTime() : 0;
+    const within2Days = paidAtMs > 0 && (Date.now() - paidAtMs) <= 2 * 24 * 60 * 60 * 1000;
+    if (!isPaid || !within2Days) {
+      return res.status(400).json({
+        error: 'La factura solo puede solicitarse dentro de los 2 días posteriores al pago de la orden',
+      });
+    }
 
     // Evitar doble facturación
     const dup = await pool.query(

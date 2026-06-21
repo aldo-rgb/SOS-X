@@ -3018,6 +3018,10 @@ export default function DashboardAdvisor() {
                 const isClientCreated = op.created_by === 'client';
                 const isPending = op.status === 'pendiente' || op.status === 'pending' || op.status === 'pending_payment';
                 const ref = op.payment_reference || `#${op.id}`;
+                // Solicitar factura: solo si está pagada y dentro de 2 días de marcada como pagada
+                const isPaidStatus = op.status === 'pagado' || op.status === 'completed' || op.status === 'paid';
+                const canInvoice = isPaidStatus && !!op.paid_at &&
+                  (Date.now() - new Date(op.paid_at).getTime()) <= 2 * 24 * 60 * 60 * 1000;
 
                 const downloadPDF = async () => {
                   // Detalle de la orden (master + guías hijas + desglose). Usa el
@@ -3242,11 +3246,13 @@ export default function DashboardAdvisor() {
                               <DownloadIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                          <Tooltip title="Solicitar factura">
-                            <IconButton size="small" sx={{ color: '#7B1FA2' }} onClick={() => openInvoiceDialog(op)}>
-                              <InvoiceIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          {canInvoice && (
+                            <Tooltip title="Solicitar factura">
+                              <IconButton size="small" sx={{ color: '#7B1FA2' }} onClick={() => openInvoiceDialog(op)}>
+                                <InvoiceIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                           <Tooltip title="Subir comprobante de pago">
                             <IconButton size="small" sx={{ color: '#0288d1' }} onClick={() => openProofModal(op)}>
                               <AttachFileIcon fontSize="small" />
