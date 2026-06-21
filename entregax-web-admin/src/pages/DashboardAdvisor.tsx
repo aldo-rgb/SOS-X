@@ -116,6 +116,7 @@ import {
   Markunread as SendInstrIcon,
   ReceiptLong as InvoiceIcon,
   Add as AddIcon,
+  AddCircle as ExtraChargeIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import { usePaymentStatus, mapServiceKey } from '../hooks/usePaymentStatus';
@@ -218,6 +219,7 @@ interface AdvisorShipment {
   labelPrinted: boolean;
   nationalShippingCost: number;
   extraChargesTotal: number;
+  extraChargesDesc?: string;
 }
 
 interface ShipmentStats {
@@ -2852,7 +2854,12 @@ export default function DashboardAdvisor() {
         )}
 
         <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
-          <Table size="small">
+          <Table size="small" sx={{
+            '& .MuiTableCell-root': { px: 0.75, py: 0.5 },
+            '& .MuiTableCell-head': { fontSize: '0.72rem', fontWeight: 700, lineHeight: 1.15, whiteSpace: 'nowrap' },
+            '& .MuiChip-root': { height: 22, fontSize: '0.68rem' },
+            '& .MuiChip-label': { px: 0.75 },
+          }}>
             <TableHead>
               <TableRow>
                 <TableCell padding="checkbox" sx={{ width: 40 }}>
@@ -2882,9 +2889,8 @@ export default function DashboardAdvisor() {
                 <TableCell align="center">{t('advisor.status')}</TableCell>
                 <TableCell>{t('advisor.service')}</TableCell>
                 <TableCell align="right">{t('advisor.amount')}</TableCell>
-                <TableCell align="right">Cargos Extra</TableCell>
                 <TableCell align="center">
-                  <Tooltip title="Pago / Instrucciones / GEX">
+                  <Tooltip title="Pago / Instrucciones / GEX / Cargos extra">
                     <span>P · I · G</span>
                   </Tooltip>
                 </TableCell>
@@ -2896,7 +2902,7 @@ export default function DashboardAdvisor() {
             <TableBody>
               {shipments.length === 0 && !shipmentsLoading && (
                 <TableRow>
-                  <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('advisor.noShipments')}</Typography>
                   </TableCell>
                 </TableRow>
@@ -2975,18 +2981,9 @@ export default function DashboardAdvisor() {
                       {s.amount > 0 ? formatMXN(s.amount) : '—'}
                     </Typography>
                   </TableCell>
-                  <TableCell align="right">
-                    {(s.extraChargesTotal || 0) !== 0 ? (
-                      <Typography variant="body2" fontWeight={600} sx={{ color: '#C2410C' }}>
-                        {formatMXN(s.extraChargesTotal)}
-                      </Typography>
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">—</Typography>
-                    )}
-                  </TableCell>
-                  {/* Columna combinada: Pago · Instrucciones · GEX */}
+                  {/* Columna combinada: Pago · Instrucciones · GEX · Cargos extra */}
                   <TableCell align="center">
-                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25 }}>
                       {/* Pago */}
                       <Tooltip title={s.clientPaid ? 'Pagado' : s.amount > 0 ? 'Pago pendiente' : 'Sin cargo'}>
                         <Box sx={{ cursor: 'default', display: 'flex' }}>
@@ -3018,18 +3015,21 @@ export default function DashboardAdvisor() {
                           )}
                         </Box>
                       </Tooltip>
+                      {/* Cargos extra */}
+                      {(s.extraChargesTotal || 0) !== 0 && (
+                        <Tooltip title={`Cargos extra: ${formatMXN(s.extraChargesTotal)}${s.extraChargesDesc ? ` — ${s.extraChargesDesc}` : ''}`}>
+                          <Box sx={{ cursor: 'default', display: 'flex' }}>
+                            <ExtraChargeIcon sx={{ fontSize: 20, color: '#C2410C' }} />
+                          </Box>
+                        </Tooltip>
+                      )}
                     </Box>
                   </TableCell>
                   <TableCell align="center">
                     {s.deliveryCarrierName ? (
-                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                        {s.deliveryCarrierIcon && (s.deliveryCarrierIcon.startsWith('/') || s.deliveryCarrierIcon.startsWith('http')) ? (
-                          <img src={s.deliveryCarrierIcon} alt={s.deliveryCarrierName} style={{ width: 20, height: 20, objectFit: 'contain' }} />
-                        ) : s.deliveryCarrierIcon ? (
-                          <Typography sx={{ fontSize: 16 }}>{s.deliveryCarrierIcon}</Typography>
-                        ) : null}
-                        <Typography variant="caption" fontWeight={600} sx={{ fontSize: '0.7rem' }}>{s.deliveryCarrierName}</Typography>
-                      </Box>
+                      <Typography variant="caption" fontWeight={600} sx={{ fontSize: '0.7rem' }}>
+                        {/^entregax\s+local/i.test(s.deliveryCarrierName) ? 'EntregaX' : s.deliveryCarrierName}
+                      </Typography>
                     ) : (
                       <Typography variant="caption" color="text.secondary">—</Typography>
                     )}
@@ -3130,7 +3130,7 @@ export default function DashboardAdvisor() {
               onClick={() => { setNewOrderOpen(true); setNewOrderClientId(''); setNewOrderServiceFilter('all'); setNewOrderSearch(''); setNewOrderSelectedUids(new Set()); setNewOrderShipments([]); }}
               sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C94A1E' }, fontWeight: 700, borderRadius: 2 }}
             >
-              Nueva Orden de Pago
+              Nueva Orden CTZ
             </Button>
           )}
         </Box>
@@ -3681,7 +3681,7 @@ export default function DashboardAdvisor() {
         {/* ── Dialog: Nueva Orden de Pago ── */}
         <Dialog open={newOrderOpen} onClose={() => setNewOrderOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
           <DialogTitle sx={{ bgcolor: '#F05A28', color: '#fff', fontWeight: 800 }}>
-            💳 Nueva Orden de Pago
+            💳 Nueva Orden CTZ
           </DialogTitle>
           <DialogContent sx={{ pt: 2 }}>
             {/* Filtros: cliente + servicio */}
