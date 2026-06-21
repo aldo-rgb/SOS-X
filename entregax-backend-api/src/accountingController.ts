@@ -557,7 +557,10 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
                     description: `Servicio de logística - Ref: ${pay.payment_reference || pay.id}`,
                     product_key: '78101803', // Servicios de logística y transporte
                     unit_key: 'E48',
-                    price: parseFloat(pay.amount),
+                    // El monto guardado es el TOTAL pagado (IVA incluido). Se factura
+                    // el neto (monto / 1.16) para que neto + 16% IVA = monto pagado
+                    // exacto (consistente con createInvoice en fiscalController).
+                    price: Math.round((parseFloat(pay.amount) / 1.16) * 100) / 100,
                     taxes: [{ type: 'IVA', rate: 0.16 }],
                 },
             }],
