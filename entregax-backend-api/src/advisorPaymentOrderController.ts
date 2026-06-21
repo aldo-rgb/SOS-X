@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import * as crypto from 'crypto';
 import { pool } from './db';
-import { createInvoice } from './fiscalController';
+import { createInvoice, isAutoFacturaEnabled } from './fiscalController';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 const genRef = (prefix = 'EX'): string => {
@@ -875,6 +875,17 @@ export const requestAdvisorOrderInvoice = async (req: Request, res: Response): P
           order.client_id,
         ]
       );
+    }
+
+    // Toggle "Facturas EntregaX": si la facturación automática está apagada para
+    // este servicio, la solicitud se difiere a "Pendientes por Timbrar" (sin
+    // validar RFC ni timbrar). Un usuario lo emitirá manualmente desde Contabilidad.
+    const autoFactura = await isAutoFacturaEnabled(SHORT_SERVICE[order.service_type_cfg] || 'po_box');
+    if (!autoFactura) {
+      if (order.pobox_payment_id) {
+        try { await pool.query(`UPDATE pobox_payments SET requiere_factura = TRUE WHERE id = $1`, [order.pobox_payment_id]); } catch {}
+      }
+      return res.json({ success: true, pending: true, message: 'Factura solicitada. Quedó pendiente por timbrar.' });
     }
 
     // Validar formato del RFC del receptor antes de timbrar (evita el error

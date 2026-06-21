@@ -12740,7 +12740,7 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'advisor_payment_order_enabled', 'require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode', 'entregax_payment_query_enabled')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'advisor_payment_order_enabled', 'require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode', 'entregax_payment_query_enabled', 'facturas_enabled')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -12771,6 +12771,20 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
     const gexEnabled = byKey['gex_enabled'] !== undefined
       ? byKey['gex_enabled']?.enabled !== false
       : true;
+
+    // facturas_enabled: controla la facturación AUTOMÁTICA (timbrado inmediato)
+    // master + por servicio. OFF → las solicitudes van a "Pendientes por Timbrar".
+    // Default TRUE (auto). Aplica a TODOS los usuarios, incluso testers (S1).
+    const facturasEnabled = byKey['facturas_enabled'] !== undefined
+      ? byKey['facturas_enabled']?.enabled !== false
+      : true;
+    const rawFacturasByService = byKey['facturas_enabled']?.by_service;
+    const facturasByService = {
+      pobox:    rawFacturasByService?.pobox    !== false,
+      maritimo: rawFacturasByService?.maritimo !== false,
+      aereo:    rawFacturasByService?.aereo    !== false,
+      dhl:      rawFacturasByService?.dhl      !== false,
+    };
 
     // advisor_instructions_enabled: controla botón lapiz y edición de instrucciones/direcciones en panel asesor
     const advisorInstructionsEnabled = byKey['advisor_instructions_enabled'] !== undefined
@@ -12852,6 +12866,9 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
         entregax_payments_enabled: true,
         entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true },
         gex_enabled: true,
+        // Facturas EntregaX SÍ aplica a testers (valores reales, no modo libre)
+        facturas_enabled: facturasEnabled,
+        facturas_by_service: facturasByService,
         advisor_instructions_enabled: true,
         advisor_payment_order_enabled: true,
         require_payment_to_load: requirePaymentToLoad,
@@ -12875,6 +12892,8 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
       entregax_payments_enabled: entregaxPaymentsEnabled,
       entregax_payments_by_service: entregaxPaymentsByService,
       gex_enabled: gexEnabled,
+      facturas_enabled: facturasEnabled,
+      facturas_by_service: facturasByService,
       advisor_instructions_enabled: advisorInstructionsEnabled,
       advisor_payment_order_enabled: advisorPaymentOrderEnabled,
       require_payment_to_load: requirePaymentToLoad,
@@ -12889,7 +12908,7 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
       maintenance_mode: maintenanceMode,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, advisor_instructions_enabled: true, advisor_payment_order_enabled: true, require_payment_to_load: true, require_label_to_load: true, require_instructions_to_load_pobox: false, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, entregax_full_black_url: null, maintenance_mode: false });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, facturas_enabled: true, facturas_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, advisor_instructions_enabled: true, advisor_payment_order_enabled: true, require_payment_to_load: true, require_label_to_load: true, require_instructions_to_load_pobox: false, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, entregax_full_black_url: null, maintenance_mode: false });
   }
 });
 
@@ -12971,6 +12990,43 @@ app.post('/api/admin/system/entregax-payments-toggle', authenticateToken, requir
   } catch (err: any) {
     console.error('[ENTREGAX-PAYMENTS-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar estado de pagos EntregaX' });
+  }
+});
+
+// POST /api/admin/system/facturas-toggle — controla facturación automática (master + por servicio)
+// Body: { enabled?: boolean, by_service?: { pobox?, maritimo?, aereo?, dhl? } }
+// OFF → las solicitudes de factura van a "Pendientes por Timbrar".
+app.post('/api/admin/system/facturas-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId || null;
+    const cur = await pool.query(
+      `SELECT config_value FROM system_configurations WHERE config_key = 'facturas_enabled' LIMIT 1`
+    );
+    const current = cur.rows[0]?.config_value || {};
+    const currentByService = current.by_service || { pobox: true, maritimo: true, aereo: true, dhl: true };
+
+    const nextEnabled = req.body?.enabled !== undefined ? !!req.body.enabled : (current.enabled !== false);
+    const incomingByService = req.body?.by_service || {};
+    const nextByService = {
+      pobox:    incomingByService.pobox    !== undefined ? !!incomingByService.pobox    : currentByService.pobox    !== false,
+      maritimo: incomingByService.maritimo !== undefined ? !!incomingByService.maritimo : currentByService.maritimo !== false,
+      aereo:    incomingByService.aereo    !== undefined ? !!incomingByService.aereo    : currentByService.aereo    !== false,
+      dhl:      incomingByService.dhl      !== undefined ? !!incomingByService.dhl      : currentByService.dhl      !== false,
+    };
+    const nextValue = { enabled: nextEnabled, by_service: nextByService };
+
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('facturas_enabled', $1::jsonb, 'Facturación automática EntregaX (timbrado inmediato) — master + por servicio. OFF = pendiente por timbrar', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify(nextValue), userId]
+    );
+    console.log(`🧾 [FACTURAS] master=${nextEnabled} by_service=${JSON.stringify(nextByService)} por user #${userId}`);
+    res.json({ success: true, facturas_enabled: nextEnabled, facturas_by_service: nextByService });
+  } catch (err: any) {
+    console.error('[FACTURAS-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar facturación EntregaX' });
   }
 });
 

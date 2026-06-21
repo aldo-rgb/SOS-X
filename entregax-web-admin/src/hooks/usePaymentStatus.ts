@@ -15,6 +15,8 @@ interface PaymentStatusCache {
   entregax_payments_enabled: boolean;
   entregax_payments_by_service: { pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean };
   gex_enabled: boolean;
+  facturas_enabled: boolean;
+  facturas_by_service: { pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean };
   advisor_instructions_enabled: boolean;
   advisor_payment_order_enabled: boolean;
   require_payment_to_load: boolean;
@@ -39,6 +41,8 @@ const FALLBACK: PaymentStatusCache = {
   entregax_payments_enabled: true,
   entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true },
   gex_enabled: true,
+  facturas_enabled: true,
+  facturas_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true },
   advisor_instructions_enabled: true,
   advisor_payment_order_enabled: true,
   require_payment_to_load: true,
@@ -113,6 +117,13 @@ export function usePaymentStatus() {
               dhl:      bs.dhl      !== false,
             },
             gex_enabled: data.gex_enabled !== false,
+            facturas_enabled: data.facturas_enabled !== false,
+            facturas_by_service: {
+              pobox:    (data.facturas_by_service || {}).pobox    !== false,
+              maritimo: (data.facturas_by_service || {}).maritimo !== false,
+              aereo:    (data.facturas_by_service || {}).aereo    !== false,
+              dhl:      (data.facturas_by_service || {}).dhl      !== false,
+            },
             advisor_instructions_enabled: data.advisor_instructions_enabled !== false,
             advisor_payment_order_enabled: data.advisor_payment_order_enabled !== false,
             require_payment_to_load: data.require_payment_to_load !== false,
@@ -150,6 +161,14 @@ export function usePaymentStatus() {
       return status.entregax_payments_by_service[key] !== false;
     },
     gexEnabled: status.gex_enabled,
+    facturasEnabled: status.facturas_enabled,
+    facturasByService: status.facturas_by_service,
+    isFacturaAutoEnabledFor: (servicio?: string | null): boolean => {
+      if (!status.facturas_enabled) return false;
+      const key = mapServiceKey(servicio);
+      if (!key) return true;
+      return status.facturas_by_service[key] !== false;
+    },
     advisorInstructionsEnabled: status.advisor_instructions_enabled,
     advisorPaymentOrderEnabled: status.advisor_payment_order_enabled,
     requirePaymentToLoad: status.require_payment_to_load,
@@ -184,6 +203,13 @@ export async function toggleXPay(enabled: boolean): Promise<void> {
 export async function toggleEntregaxPayments(payload: boolean | { enabled?: boolean; by_service?: Partial<{ pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean }> }): Promise<void> {
   const body = typeof payload === 'boolean' ? { enabled: payload } : payload;
   await api.post('/admin/system/entregax-payments-toggle', body);
+  invalidatePaymentStatusCache();
+}
+
+/** Actualiza la facturación automática EntregaX (master + por servicio, solo Super Admin) */
+export async function toggleFacturas(payload: boolean | { enabled?: boolean; by_service?: Partial<{ pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean }> }): Promise<void> {
+  const body = typeof payload === 'boolean' ? { enabled: payload } : payload;
+  await api.post('/admin/system/facturas-toggle', body);
   invalidatePaymentStatusCache();
 }
 

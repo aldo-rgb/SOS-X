@@ -229,6 +229,39 @@ const SERVICE_TYPE_MAP_FISCAL: Record<string, string> = {
   dhl: 'AA_DHL'
 };
 
+// Mapeo de ServiceType (corto) a la clave del toggle "Facturas EntregaX"
+const FACTURA_TOGGLE_KEY: Record<string, 'pobox' | 'maritimo' | 'aereo' | 'dhl'> = {
+  po_box: 'pobox', pobox: 'pobox',
+  maritimo: 'maritimo',
+  aereo: 'aereo',
+  dhl: 'dhl',
+};
+
+/**
+ * ¿Está habilitada la facturación AUTOMÁTICA (timbrado inmediato) para el
+ * servicio? Lee el toggle "Facturas EntregaX" (system_configurations).
+ * - Si está OFF (master o por servicio): las solicitudes se difieren a
+ *   "Pendientes por Timbrar" en vez de timbrarse al instante.
+ * - Default TRUE (auto) si no se ha configurado. Aplica a TODOS los usuarios
+ *   (incluidos testers como S1).
+ * - Falla en abierto (TRUE) si la consulta falla, para no romper la facturación.
+ */
+export const isAutoFacturaEnabled = async (serviceShort?: string): Promise<boolean> => {
+  try {
+    const r = await pool.query(
+      `SELECT config_value FROM system_configurations WHERE config_key = 'facturas_enabled' AND is_active = TRUE LIMIT 1`
+    );
+    const cfg = r.rows[0]?.config_value;
+    if (!cfg) return true;                 // sin configurar → auto
+    if (cfg.enabled === false) return false; // master apagado
+    const key = FACTURA_TOGGLE_KEY[String(serviceShort || '').toLowerCase()];
+    if (!key) return true;                 // servicio sin toggle (ej. NATIONAL)
+    return cfg.by_service?.[key] !== false;
+  } catch {
+    return true;
+  }
+};
+
 export const createInvoice = async (
   paymentData: {
     paymentId: string;
@@ -241,8 +274,15 @@ export const createInvoice = async (
     packageIds?: number[];
     serviceType?: string; // 'po_box', 'aereo', 'maritimo', etc.
   }
-): Promise<{ success: boolean; uuid?: string | undefined; pdfUrl?: string | undefined; xmlUrl?: string | undefined; emitterId?: number | undefined; error?: string | undefined }> => {
+): Promise<{ success: boolean; uuid?: string | undefined; pdfUrl?: string | undefined; xmlUrl?: string | undefined; emitterId?: number | undefined; error?: string | undefined; deferred?: boolean | undefined }> => {
   try {
+    // 0. Toggle "Facturas EntregaX": si la facturación automática está apagada
+    //    para este servicio, NO se timbra; la solicitud queda como pendiente por
+    //    timbrar (el pago conserva requiere_factura=true).
+    if (!(await isAutoFacturaEnabled(paymentData.serviceType))) {
+      return { success: false, deferred: true, error: 'Facturación automática desactivada — pendiente por timbrar' };
+    }
+
     // 1. Obtener datos fiscales del usuario
     const userResult = await pool.query(`
       SELECT 
