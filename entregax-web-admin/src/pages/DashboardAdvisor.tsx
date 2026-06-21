@@ -2576,6 +2576,89 @@ export default function DashboardAdvisor() {
           rowsPerPageOptions={[25]}
           labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
         />
+
+        {/* ── Dialog: Datos fiscales del cliente ── */}
+        <Dialog
+          open={fiscalClient !== null}
+          onClose={() => { if (!fiscalSaving) setFiscalClient(null); }}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{ sx: { borderRadius: 3 } }}
+        >
+          <DialogTitle sx={{ fontWeight: 700, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InvoiceIcon sx={{ color: '#7B1FA2' }} /> Datos fiscales — {fiscalClient?.name}
+          </DialogTitle>
+          <DialogContent dividers>
+            {fiscalLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+            ) : fiscalAdding ? (
+              <>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>
+                  {fiscalProfiles.length > 0 ? 'Nuevos datos fiscales' : 'Datos fiscales del cliente'}
+                </Typography>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                  <TextField size="small" label="Razón social" value={fiscalForm.razon_social} sx={{ gridColumn: '1 / -1' }}
+                    onChange={(e) => setFiscalForm(p => ({ ...p, razon_social: e.target.value }))} />
+                  <TextField size="small" label="RFC" value={fiscalForm.rfc}
+                    onChange={(e) => setFiscalForm(p => ({ ...p, rfc: e.target.value.toUpperCase() }))} />
+                  <TextField size="small" label="Código postal" value={fiscalForm.codigo_postal}
+                    onChange={(e) => setFiscalForm(p => ({ ...p, codigo_postal: e.target.value }))} />
+                  <TextField select size="small" label="Régimen fiscal" value={fiscalForm.regimen_fiscal}
+                    onChange={(e) => setFiscalForm(p => ({ ...p, regimen_fiscal: e.target.value }))}>
+                    {satRegimenes.map(r => <MenuItem key={r.clave} value={r.clave}>{r.clave} — {r.descripcion}</MenuItem>)}
+                  </TextField>
+                  <TextField select size="small" label="Uso CFDI" value={fiscalForm.uso_cfdi}
+                    onChange={(e) => setFiscalForm(p => ({ ...p, uso_cfdi: e.target.value }))}>
+                    {satUsos.map(u => <MenuItem key={u.clave} value={u.clave}>{u.clave} — {u.descripcion}</MenuItem>)}
+                  </TextField>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
+                  <Button size="small" variant="contained"
+                    onClick={saveClientFiscalProfile}
+                    disabled={fiscalSaving || !fiscalForm.razon_social || !fiscalForm.rfc || !fiscalForm.codigo_postal || !fiscalForm.regimen_fiscal}
+                    startIcon={fiscalSaving ? <CircularProgress size={16} color="inherit" /> : <AddIcon />}
+                    sx={{ bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6A1B9A' } }}>
+                    {fiscalSaving ? 'Guardando…' : 'Guardar'}
+                  </Button>
+                  {fiscalProfiles.length > 0 && (
+                    <Button size="small" onClick={() => setFiscalAdding(false)} disabled={fiscalSaving}>Cancelar</Button>
+                  )}
+                </Box>
+              </>
+            ) : (
+              <>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    Datos fiscales registrados
+                  </Typography>
+                  <Button size="small" startIcon={<AddIcon />} sx={{ color: '#7B1FA2' }}
+                    onClick={() => { setFiscalForm(emptyFiscal); setFiscalAdding(true); }}>
+                    Agregar
+                  </Button>
+                </Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {fiscalProfiles.map((p) => (
+                    <Box key={p.id}
+                      sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderRadius: 2, border: '1px solid #E0E0E0' }}>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={700} noWrap>{p.razon_social}</Typography>
+                        <Typography variant="caption" color="text.secondary">{p.rfc} · CP {p.codigo_postal} · Rég. {p.regimen_fiscal} · {p.uso_cfdi}</Typography>
+                      </Box>
+                      <Tooltip title="Eliminar">
+                        <IconButton size="small" onClick={() => deleteClientFiscalProfile(p.id)}>
+                          <CloseIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  ))}
+                </Box>
+              </>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ px: 3, py: 2 }}>
+            <Button onClick={() => setFiscalClient(null)} disabled={fiscalSaving}>Cerrar</Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </Fade>
   );
@@ -3981,89 +4064,6 @@ export default function DashboardAdvisor() {
             >
               Entendido
             </Button>
-          </DialogActions>
-        </Dialog>
-
-        {/* ── Dialog: Datos fiscales del cliente ── */}
-        <Dialog
-          open={fiscalClient !== null}
-          onClose={() => { if (!fiscalSaving) setFiscalClient(null); }}
-          maxWidth="sm"
-          fullWidth
-          PaperProps={{ sx: { borderRadius: 3 } }}
-        >
-          <DialogTitle sx={{ fontWeight: 700, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <InvoiceIcon sx={{ color: '#7B1FA2' }} /> Datos fiscales — {fiscalClient?.name}
-          </DialogTitle>
-          <DialogContent dividers>
-            {fiscalLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
-            ) : fiscalAdding ? (
-              <>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>
-                  {fiscalProfiles.length > 0 ? 'Nuevos datos fiscales' : 'Datos fiscales del cliente'}
-                </Typography>
-                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
-                  <TextField size="small" label="Razón social" value={fiscalForm.razon_social} sx={{ gridColumn: '1 / -1' }}
-                    onChange={(e) => setFiscalForm(p => ({ ...p, razon_social: e.target.value }))} />
-                  <TextField size="small" label="RFC" value={fiscalForm.rfc}
-                    onChange={(e) => setFiscalForm(p => ({ ...p, rfc: e.target.value.toUpperCase() }))} />
-                  <TextField size="small" label="Código postal" value={fiscalForm.codigo_postal}
-                    onChange={(e) => setFiscalForm(p => ({ ...p, codigo_postal: e.target.value }))} />
-                  <TextField select size="small" label="Régimen fiscal" value={fiscalForm.regimen_fiscal}
-                    onChange={(e) => setFiscalForm(p => ({ ...p, regimen_fiscal: e.target.value }))}>
-                    {satRegimenes.map(r => <MenuItem key={r.clave} value={r.clave}>{r.clave} — {r.descripcion}</MenuItem>)}
-                  </TextField>
-                  <TextField select size="small" label="Uso CFDI" value={fiscalForm.uso_cfdi}
-                    onChange={(e) => setFiscalForm(p => ({ ...p, uso_cfdi: e.target.value }))}>
-                    {satUsos.map(u => <MenuItem key={u.clave} value={u.clave}>{u.clave} — {u.descripcion}</MenuItem>)}
-                  </TextField>
-                </Box>
-                <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
-                  <Button size="small" variant="contained"
-                    onClick={saveClientFiscalProfile}
-                    disabled={fiscalSaving || !fiscalForm.razon_social || !fiscalForm.rfc || !fiscalForm.codigo_postal || !fiscalForm.regimen_fiscal}
-                    startIcon={fiscalSaving ? <CircularProgress size={16} color="inherit" /> : <AddIcon />}
-                    sx={{ bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6A1B9A' } }}>
-                    {fiscalSaving ? 'Guardando…' : 'Guardar'}
-                  </Button>
-                  {fiscalProfiles.length > 0 && (
-                    <Button size="small" onClick={() => setFiscalAdding(false)} disabled={fiscalSaving}>Cancelar</Button>
-                  )}
-                </Box>
-              </>
-            ) : (
-              <>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                    Datos fiscales registrados
-                  </Typography>
-                  <Button size="small" startIcon={<AddIcon />} sx={{ color: '#7B1FA2' }}
-                    onClick={() => { setFiscalForm(emptyFiscal); setFiscalAdding(true); }}>
-                    Agregar
-                  </Button>
-                </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {fiscalProfiles.map((p) => (
-                    <Box key={p.id}
-                      sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderRadius: 2, border: '1px solid #E0E0E0' }}>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="body2" fontWeight={700} noWrap>{p.razon_social}</Typography>
-                        <Typography variant="caption" color="text.secondary">{p.rfc} · CP {p.codigo_postal} · Rég. {p.regimen_fiscal} · {p.uso_cfdi}</Typography>
-                      </Box>
-                      <Tooltip title="Eliminar">
-                        <IconButton size="small" onClick={() => deleteClientFiscalProfile(p.id)}>
-                          <CloseIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  ))}
-                </Box>
-              </>
-            )}
-          </DialogContent>
-          <DialogActions sx={{ px: 3, py: 2 }}>
-            <Button onClick={() => setFiscalClient(null)} disabled={fiscalSaving}>Cerrar</Button>
           </DialogActions>
         </Dialog>
 
