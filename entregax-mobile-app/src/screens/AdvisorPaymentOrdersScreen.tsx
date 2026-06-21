@@ -34,6 +34,7 @@ interface PaymentOrder {
   status: string;
   created_by: string;
   created_at: string;
+  paid_at?: string | null;
   bank_clabe: string | null;
   bank_name: string | null;
   beneficiario: string | null;
@@ -237,6 +238,120 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
   const [declaredAmount, setDeclaredAmount] = useState<string>('');
   const [proofFile, setProofFile] = useState<{ uri: string; name: string; type: string } | null>(null);
   const [deletingProofId, setDeletingProofId] = useState<number | null>(null);
+  // ── Solicitar factura ──
+  const EMPTY_FISCAL = { razon_social: '', rfc: '', codigo_postal: '', regimen_fiscal: '', uso_cfdi: 'G03' };
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceOrder, setInvoiceOrder] = useState<PaymentOrder | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
+  const [invoiceInfo, setInvoiceInfo] = useState<any | null>(null);
+  const [invoiceResult, setInvoiceResult] = useState<{ uuid?: string; pdfUrl?: string } | null>(null);
+  const [invoiceFiscal, setInvoiceFiscal] = useState(EMPTY_FISCAL);
+  const [invoiceProfiles, setInvoiceProfiles] = useState<any[]>([]);
+  const [invoiceProfileId, setInvoiceProfileId] = useState<number | null>(null);
+  const [invoiceAddingProfile, setInvoiceAddingProfile] = useState(false);
+  const [invoiceSavingProfile, setInvoiceSavingProfile] = useState(false);
+
+  const applyInvoiceInfo = (data: any) => {
+    setInvoiceInfo(data);
+    const profiles: any[] = Array.isArray(data?.profiles) ? data.profiles : [];
+    setInvoiceProfiles(profiles);
+    if (profiles.length > 0) {
+      const def = profiles.find((p) => p.is_default) || profiles[0];
+      setInvoiceProfileId(def.id);
+      setInvoiceFiscal({ razon_social: def.razon_social, rfc: def.rfc, codigo_postal: def.codigo_postal, regimen_fiscal: def.regimen_fiscal, uso_cfdi: def.uso_cfdi || 'G03' });
+      setInvoiceAddingProfile(false);
+    } else {
+      const f = data?.fiscal || {};
+      setInvoiceProfileId(null);
+      setInvoiceFiscal({ razon_social: f.razon_social || '', rfc: f.rfc || '', codigo_postal: f.codigo_postal || '', regimen_fiscal: f.regimen_fiscal || '', uso_cfdi: f.uso_cfdi || 'G03' });
+      setInvoiceAddingProfile(true);
+    }
+  };
+
+  const openInvoiceModal = async (order: PaymentOrder) => {
+    setInvoiceOrder(order);
+    setInvoiceInfo(null);
+    setInvoiceResult(null);
+    setInvoiceProfiles([]);
+    setInvoiceProfileId(null);
+    setInvoiceAddingProfile(false);
+    setShowInvoiceModal(true);
+    setInvoiceLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/payment-orders/${order.id}/invoice-info?source=${order.created_by}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Error');
+      applyInvoiceInfo(data);
+      if (data?.alreadyInvoiced) setInvoiceResult({ uuid: data.alreadyInvoiced.uuid, pdfUrl: data.alreadyInvoiced.pdf });
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'No se pudo cargar la información de facturación');
+      setShowInvoiceModal(false);
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
+
+  const reloadInvoiceInfo = async () => {
+    if (!invoiceOrder) return;
+    const res = await fetch(`${API_URL}/api/advisor/payment-orders/${invoiceOrder.id}/invoice-info?source=${invoiceOrder.created_by}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (res.ok) applyInvoiceInfo(data);
+  };
+
+  const saveFiscalProfile = async () => {
+    if (!invoiceInfo?.clientId) return;
+    setInvoiceSavingProfile(true);
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/clients/${invoiceInfo.clientId}/fiscal-profiles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(invoiceFiscal),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Error');
+      await reloadInvoiceInfo();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'No se pudieron guardar los datos fiscales');
+    } finally {
+      setInvoiceSavingProfile(false);
+    }
+  };
+
+  const deleteFiscalProfile = async (profileId: number) => {
+    if (!invoiceInfo?.clientId) return;
+    try {
+      await fetch(`${API_URL}/api/advisor/clients/${invoiceInfo.clientId}/fiscal-profiles/${profileId}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      });
+      await reloadInvoiceInfo();
+    } catch (e: any) {
+      Alert.alert('Error', 'No se pudo eliminar');
+    }
+  };
+
+  const submitInvoice = async () => {
+    if (!invoiceOrder) return;
+    setInvoiceSubmitting(true);
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/payment-orders/${invoiceOrder.id}/request-invoice`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ source: invoiceOrder.created_by, fiscalData: invoiceFiscal }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Error');
+      setInvoiceResult({ uuid: data.uuid, pdfUrl: data.pdfUrl });
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'No se pudo generar la factura');
+    } finally {
+      setInvoiceSubmitting(false);
+    }
+  };
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -518,6 +633,10 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
     const st     = STATUS_LABEL[o.status] ?? { label: o.status, color: '#888', bg: '#EEE' };
     const isPending = o.status === 'pendiente';
     const isAdvisor = o.created_by === 'advisor';
+    // Solicitar factura: solo si está pagada y dentro de 2 días de marcada como pagada
+    const isPaidStatus = o.status === 'pagado' || o.status === 'completed' || o.status === 'paid';
+    const canInvoice = isPaidStatus && !!o.paid_at &&
+      (Date.now() - new Date(o.paid_at as string).getTime()) <= 2 * 24 * 60 * 60 * 1000;
     const expanded  = expandedIds.has(o.id);
     const mxn       = Number(o.total_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 });
     const guides    = o.trackings || [];
@@ -610,6 +729,11 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
             <TouchableOpacity onPress={() => handleProofsPress(o)} style={styles.actionBtn}>
               <Ionicons name="document-text-outline" size={18} color="#6366f1" />
             </TouchableOpacity>
+            {canInvoice && (
+              <TouchableOpacity onPress={() => openInvoiceModal(o)} style={styles.actionBtn}>
+                <Ionicons name="receipt-outline" size={18} color="#7B1FA2" />
+              </TouchableOpacity>
+            )}
             {isPending && isAdvisor && (
               <TouchableOpacity onPress={() => handleDelete(o)} style={styles.actionBtn} disabled={deletingId === o.id}>
                 {deletingId === o.id
@@ -787,6 +911,120 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                 Puedes subir varios comprobantes. Ingresa el monto de cada uno antes de subir.
               </Text>
             </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Invoice Modal */}
+      <Modal visible={showInvoiceModal} transparent={false} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+            <Text style={{ fontSize: 16, fontWeight: '700', flex: 1, paddingRight: 12 }}>🧾 Solicitar factura</Text>
+            <TouchableOpacity onPress={() => { if (!invoiceSubmitting) setShowInvoiceModal(false); }} hitSlop={20} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="close" size={28} color={BLACK} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={{ flex: 1, padding: 16 }} contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
+            {invoiceLoading || !invoiceInfo ? (
+              <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 40 }} />
+            ) : (
+              <>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <Text style={{ color: '#666' }}>Monto a facturar</Text>
+                  <Text style={{ fontWeight: '700', color: '#E65100' }}>
+                    ${Number(invoiceInfo.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <Text style={{ color: '#666' }}>Empresa emisora</Text>
+                  <Text style={{ fontWeight: '700', flex: 1, textAlign: 'right' }}>
+                    {invoiceInfo.company ? (invoiceInfo.company.legal_name || invoiceInfo.company.alias) : '— sin emisor —'}
+                  </Text>
+                </View>
+                <View style={{ height: 1, backgroundColor: '#eee', marginBottom: 14 }} />
+
+                {invoiceResult ? (
+                  <View style={{ backgroundColor: '#E8F5E9', borderRadius: 12, padding: 16, alignItems: 'center' }}>
+                    <Text style={{ fontWeight: '700', color: '#2E7D32', marginBottom: 6 }}>✅ Factura emitida</Text>
+                    {!!invoiceResult.uuid && <Text style={{ fontSize: 11, fontFamily: 'monospace', marginBottom: 10, textAlign: 'center' }}>UUID: {invoiceResult.uuid}</Text>}
+                    {!!invoiceResult.pdfUrl && (
+                      <TouchableOpacity onPress={() => Linking.openURL(invoiceResult.pdfUrl!)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: '#2E7D32', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 16 }}>
+                        <Ionicons name="download-outline" size={18} color="#2E7D32" />
+                        <Text style={{ color: '#2E7D32', fontWeight: '600' }}>Ver PDF</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ) : invoiceAddingProfile ? (
+                  <>
+                    <Text style={{ fontWeight: '600', color: '#666', marginBottom: 8 }}>
+                      {invoiceProfiles.length > 0 ? 'Nuevos datos fiscales del cliente' : 'Datos fiscales del cliente'}
+                    </Text>
+                    {[
+                      { k: 'razon_social', label: 'Razón social' },
+                      { k: 'rfc', label: 'RFC', upper: true },
+                      { k: 'codigo_postal', label: 'Código postal' },
+                      { k: 'regimen_fiscal', label: 'Régimen fiscal (clave SAT, ej. 601)' },
+                      { k: 'uso_cfdi', label: 'Uso CFDI (ej. G03)', upper: true },
+                    ].map((fld) => (
+                      <TextInput
+                        key={fld.k}
+                        placeholder={fld.label}
+                        value={(invoiceFiscal as any)[fld.k]}
+                        onChangeText={(t) => setInvoiceFiscal((p) => ({ ...p, [fld.k]: fld.upper ? t.toUpperCase() : t }))}
+                        style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10, fontSize: 14 }}
+                      />
+                    ))}
+                    <TouchableOpacity
+                      onPress={saveFiscalProfile}
+                      disabled={invoiceSavingProfile || !invoiceFiscal.razon_social || !invoiceFiscal.rfc || !invoiceFiscal.codigo_postal || !invoiceFiscal.regimen_fiscal}
+                      style={{ backgroundColor: '#7B1FA2', borderRadius: 8, paddingVertical: 12, alignItems: 'center', opacity: (invoiceSavingProfile || !invoiceFiscal.razon_social || !invoiceFiscal.rfc || !invoiceFiscal.codigo_postal || !invoiceFiscal.regimen_fiscal) ? 0.5 : 1 }}>
+                      {invoiceSavingProfile ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Guardar datos fiscales</Text>}
+                    </TouchableOpacity>
+                    {invoiceProfiles.length > 0 && (
+                      <TouchableOpacity onPress={() => setInvoiceAddingProfile(false)} style={{ paddingVertical: 12, alignItems: 'center' }}>
+                        <Text style={{ color: '#666' }}>Cancelar</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <Text style={{ fontWeight: '600', color: '#666' }}>Datos fiscales del cliente</Text>
+                      <TouchableOpacity onPress={() => { setInvoiceProfileId(null); setInvoiceFiscal(EMPTY_FISCAL); setInvoiceAddingProfile(true); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Ionicons name="add-circle-outline" size={18} color="#7B1FA2" />
+                        <Text style={{ color: '#7B1FA2', fontWeight: '600' }}>Agregar</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {invoiceProfiles.map((p) => {
+                      const sel = invoiceProfileId === p.id;
+                      return (
+                        <TouchableOpacity key={p.id} onPress={() => { setInvoiceProfileId(p.id); setInvoiceFiscal({ razon_social: p.razon_social, rfc: p.rfc, codigo_postal: p.codigo_postal, regimen_fiscal: p.regimen_fiscal, uso_cfdi: p.uso_cfdi || 'G03' }); }}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 10, marginBottom: 8, borderWidth: sel ? 2 : 1, borderColor: sel ? '#7B1FA2' : '#E0E0E0', backgroundColor: sel ? '#F3E5F5' : '#fff' }}>
+                          <Ionicons name={sel ? 'radio-button-on' : 'radio-button-off'} size={20} color="#7B1FA2" />
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontWeight: '700' }} numberOfLines={1}>{p.razon_social}</Text>
+                            <Text style={{ color: '#666', fontSize: 12 }}>{p.rfc} · CP {p.codigo_postal} · Rég. {p.regimen_fiscal} · {p.uso_cfdi}</Text>
+                          </View>
+                          <TouchableOpacity onPress={() => deleteFiscalProfile(p.id)} hitSlop={12}>
+                            <Ionicons name="trash-outline" size={18} color="#999" />
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    <Text style={{ color: '#888', fontSize: 12, marginTop: 6 }}>
+                      Se generará un CFDI por el monto indicado, con el RFC seleccionado. Esta acción no se puede deshacer.
+                    </Text>
+                    <TouchableOpacity
+                      onPress={submitInvoice}
+                      disabled={invoiceSubmitting || !invoiceProfileId || !invoiceInfo.company}
+                      style={{ backgroundColor: '#7B1FA2', borderRadius: 8, paddingVertical: 14, alignItems: 'center', marginTop: 16, opacity: (invoiceSubmitting || !invoiceProfileId || !invoiceInfo.company) ? 0.5 : 1 }}>
+                      {invoiceSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Generar factura</Text>}
+                    </TouchableOpacity>
+                  </>
+                )}
+              </>
+            )}
           </ScrollView>
         </View>
       </Modal>
