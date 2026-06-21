@@ -113,6 +113,7 @@ import {
   ExpandLess as ExpandLessIcon,
   Download as DownloadIcon,
   Markunread as SendInstrIcon,
+  ReceiptLong as InvoiceIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import { usePaymentStatus, mapServiceKey } from '../hooks/usePaymentStatus';
@@ -427,6 +428,55 @@ export default function DashboardAdvisor() {
   const [newOrderSaving, setNewOrderSaving] = useState(false);
   const [successOrderData, setSuccessOrderData] = useState<any>(null);
   const [cancelConfirmOrderId, setCancelConfirmOrderId] = useState<number | null>(null);
+  // Diálogo "Solicitar factura"
+  const [invoiceOrder, setInvoiceOrder] = useState<any | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
+  const [invoiceInfo, setInvoiceInfo] = useState<any | null>(null);
+  const [invoiceResult, setInvoiceResult] = useState<{ uuid?: string; pdfUrl?: string } | null>(null);
+  const [invoiceFiscal, setInvoiceFiscal] = useState({ razon_social: '', rfc: '', codigo_postal: '', regimen_fiscal: '', uso_cfdi: 'G03' });
+
+  const openInvoiceDialog = async (op: any) => {
+    setInvoiceOrder(op);
+    setInvoiceInfo(null);
+    setInvoiceResult(null);
+    setInvoiceLoading(true);
+    try {
+      const res = await api.get(`/advisor/payment-orders/${op.id}/invoice-info`, { params: { source: op.created_by } });
+      setInvoiceInfo(res.data);
+      const f = res.data?.fiscal || {};
+      setInvoiceFiscal({
+        razon_social: f.razon_social || '',
+        rfc: f.rfc || '',
+        codigo_postal: f.codigo_postal || '',
+        regimen_fiscal: f.regimen_fiscal || '',
+        uso_cfdi: f.uso_cfdi || 'G03',
+      });
+      if (res.data?.alreadyInvoiced) setInvoiceResult({ uuid: res.data.alreadyInvoiced.uuid, pdfUrl: res.data.alreadyInvoiced.pdf });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo cargar la información de facturación', severity: 'error' });
+      setInvoiceOrder(null);
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
+
+  const submitInvoice = async () => {
+    if (!invoiceOrder) return;
+    setInvoiceSubmitting(true);
+    try {
+      const res = await api.post(`/advisor/payment-orders/${invoiceOrder.id}/request-invoice`, {
+        source: invoiceOrder.created_by,
+        fiscalData: invoiceFiscal,
+      });
+      setInvoiceResult({ uuid: res.data.uuid, pdfUrl: res.data.pdfUrl });
+      setSnackbar({ open: true, message: '✅ Factura generada correctamente', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo generar la factura', severity: 'error' });
+    } finally {
+      setInvoiceSubmitting(false);
+    }
+  };
   const [proofModalOpen, setProofModalOpen] = useState(false);
   const [proofModalOrder, setProofModalOrder] = useState<any | null>(null);
   const [proofModalLoading, setProofModalLoading] = useState(false);
@@ -3139,6 +3189,11 @@ export default function DashboardAdvisor() {
                               <DownloadIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
+                          <Tooltip title="Solicitar factura">
+                            <IconButton size="small" sx={{ color: '#7B1FA2' }} onClick={() => openInvoiceDialog(op)}>
+                              <InvoiceIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                           <Tooltip title="Subir comprobante de pago">
                             <IconButton size="small" sx={{ color: '#0288d1' }} onClick={() => openProofModal(op)}>
                               <AttachFileIcon fontSize="small" />
@@ -3787,6 +3842,100 @@ export default function DashboardAdvisor() {
             >
               Entendido
             </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* ── Dialog: Solicitar factura ── */}
+        <Dialog
+          open={invoiceOrder !== null}
+          onClose={() => { if (!invoiceSubmitting) setInvoiceOrder(null); }}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{ sx: { borderRadius: 3 } }}
+        >
+          <DialogTitle sx={{ fontWeight: 700, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InvoiceIcon sx={{ color: '#7B1FA2' }} /> Solicitar factura
+          </DialogTitle>
+          <DialogContent dividers>
+            {invoiceLoading || !invoiceInfo ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+            ) : (
+              <>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">Monto a facturar</Typography>
+                  <Typography variant="body1" fontWeight={700} sx={{ color: '#E65100' }}>
+                    ${Number(invoiceInfo.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
+                  <Typography variant="body2" color="text.secondary">Empresa emisora</Typography>
+                  <Typography variant="body2" fontWeight={700}>
+                    {invoiceInfo.company ? (invoiceInfo.company.legal_name || invoiceInfo.company.alias) : '— sin emisor configurado —'}
+                  </Typography>
+                </Box>
+                <Divider sx={{ mb: 1.5 }} />
+
+                {invoiceResult ? (
+                  <Box sx={{ bgcolor: '#E8F5E9', borderRadius: 2, p: 2, textAlign: 'center' }}>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#2E7D32', mb: 0.5 }}>
+                      ✅ Factura emitida
+                    </Typography>
+                    {invoiceResult.uuid && (
+                      <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace', mb: 1, wordBreak: 'break-all' }}>
+                        UUID: {invoiceResult.uuid}
+                      </Typography>
+                    )}
+                    {invoiceResult.pdfUrl && (
+                      <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={() => window.open(invoiceResult.pdfUrl, '_blank')}>
+                        Ver PDF
+                      </Button>
+                    )}
+                  </Box>
+                ) : (
+                  <>
+                    {!invoiceInfo.hasCompleteData && (
+                      <Box sx={{ bgcolor: '#FFF3E0', border: '1px solid #FFB74D', borderRadius: 2, p: 1.5, mb: 1.5 }}>
+                        <Typography variant="caption" sx={{ color: '#E65100' }}>
+                          ⚠️ El cliente no tiene datos fiscales completos. Captúralos para emitir la factura (se guardarán en su perfil).
+                        </Typography>
+                      </Box>
+                    )}
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>
+                      Datos fiscales del receptor (cliente)
+                    </Typography>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                      <TextField size="small" label="Razón social" value={invoiceFiscal.razon_social} sx={{ gridColumn: '1 / -1' }}
+                        onChange={(e) => setInvoiceFiscal(p => ({ ...p, razon_social: e.target.value }))} />
+                      <TextField size="small" label="RFC" value={invoiceFiscal.rfc}
+                        onChange={(e) => setInvoiceFiscal(p => ({ ...p, rfc: e.target.value.toUpperCase() }))} />
+                      <TextField size="small" label="Código postal" value={invoiceFiscal.codigo_postal}
+                        onChange={(e) => setInvoiceFiscal(p => ({ ...p, codigo_postal: e.target.value }))} />
+                      <TextField size="small" label="Régimen fiscal (clave SAT)" value={invoiceFiscal.regimen_fiscal} placeholder="601"
+                        onChange={(e) => setInvoiceFiscal(p => ({ ...p, regimen_fiscal: e.target.value }))} />
+                      <TextField size="small" label="Uso CFDI" value={invoiceFiscal.uso_cfdi} placeholder="G03"
+                        onChange={(e) => setInvoiceFiscal(p => ({ ...p, uso_cfdi: e.target.value.toUpperCase() }))} />
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+                      Se generará un CFDI (factura fiscal) por el monto indicado. Esta acción no se puede deshacer.
+                    </Typography>
+                  </>
+                )}
+              </>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ px: 3, py: 2 }}>
+            <Button onClick={() => setInvoiceOrder(null)} disabled={invoiceSubmitting}>Cerrar</Button>
+            {invoiceInfo && !invoiceResult && (
+              <Button
+                variant="contained"
+                onClick={submitInvoice}
+                disabled={invoiceSubmitting || !invoiceFiscal.razon_social || !invoiceFiscal.rfc || !invoiceFiscal.codigo_postal || !invoiceFiscal.regimen_fiscal || !invoiceInfo.company}
+                startIcon={invoiceSubmitting ? <CircularProgress size={16} color="inherit" /> : <InvoiceIcon />}
+                sx={{ bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6A1B9A' } }}
+              >
+                {invoiceSubmitting ? 'Generando…' : 'Generar factura'}
+              </Button>
+            )}
           </DialogActions>
         </Dialog>
 

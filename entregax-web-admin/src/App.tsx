@@ -272,6 +272,12 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [desktopOpen, setDesktopOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem('sidebarOpen') !== '0'; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('sidebarOpen', desktopOpen ? '1' : '0'); } catch {}
+  }, [desktopOpen]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [selectedSubIndex, setSelectedSubIndex] = useState<number | null>(null); // Para submenús
   const [panelsExpanded, setPanelsExpanded] = useState(false); // Estado del submenú expandido
@@ -1705,11 +1711,15 @@ function App() {
           position="fixed" 
           elevation={0}
           sx={{ 
-            width: { sm: `calc(100% - ${drawerWidth}px)` }, 
-            ml: { sm: `${drawerWidth}px` },
+            width: { xs: '100%', sm: desktopOpen ? `calc(100% - ${drawerWidth}px)` : '100%' }, 
+            ml: { xs: 0, sm: desktopOpen ? `${drawerWidth}px` : 0 },
             bgcolor: 'background.paper',
             borderBottom: 1,
             borderColor: 'divider',
+            transition: (theme) => theme.transitions.create(['width', 'margin'], {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.leavingScreen,
+            }),
           }}
         >
           <Toolbar sx={{ justifyContent: 'space-between' }}>
@@ -1721,6 +1731,16 @@ function App() {
               >
                 <MenuIcon />
               </IconButton>
+              <Tooltip title={desktopOpen ? 'Ocultar menú' : 'Mostrar menú'}>
+                <IconButton
+                  edge="start"
+                  onClick={() => setDesktopOpen(v => !v)}
+                  sx={{ mr: 2, display: { xs: 'none', sm: 'inline-flex' }, color: 'text.primary' }}
+                  aria-label={desktopOpen ? 'Ocultar menú lateral' : 'Mostrar menú lateral'}
+                >
+                  <MenuIcon />
+                </IconButton>
+              </Tooltip>
               <Typography variant="h6" color="text.primary" fontWeight={600}>
                 {selectedSubIndex !== null && menuItems[selectedIndex]?.subItems 
                   ? menuItems[selectedIndex].subItems[selectedSubIndex]?.text 
@@ -1800,7 +1820,17 @@ function App() {
         </AppBar>
 
         {/* Sidebar */}
-        <Box component="nav" sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}>
+        <Box
+          component="nav"
+          sx={{
+            width: { sm: desktopOpen ? drawerWidth : 0 },
+            flexShrink: { sm: 0 },
+            transition: (theme) => theme.transitions.create('width', {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.leavingScreen,
+            }),
+          }}
+        >
           <Drawer
             variant="temporary"
             open={mobileOpen}
@@ -1814,12 +1844,12 @@ function App() {
             {drawer}
           </Drawer>
           <Drawer
-            variant="permanent"
+            variant="persistent"
+            open={desktopOpen}
             sx={{
               display: { xs: 'none', sm: 'block' },
               '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth, borderRight: 'none' },
             }}
-            open
           >
             {drawer}
           </Drawer>
@@ -1831,10 +1861,14 @@ function App() {
           sx={{
             flexGrow: 1,
             p: 3,
-            width: { sm: `calc(100% - ${drawerWidth}px)` },
+            width: { xs: '100%', sm: desktopOpen ? `calc(100% - ${drawerWidth}px)` : '100%' },
             mt: 8,
             bgcolor: 'background.default',
             minHeight: '100vh',
+            transition: (theme) => theme.transitions.create(['width', 'margin'], {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.leavingScreen,
+            }),
           }}
         >
           <Paper sx={{ p: 4, borderRadius: 2, minHeight: 'calc(100vh - 140px)' }}>

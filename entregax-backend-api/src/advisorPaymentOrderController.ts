@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as crypto from 'crypto';
 import { pool } from './db';
+import { createInvoice } from './fiscalController';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 const genRef = (prefix = 'EX'): string => {
@@ -706,5 +707,194 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
   } catch (e: any) {
     console.error('[payment-orders] detail:', e);
     return res.status(500).json({ error: 'Error al obtener detalle de orden' });
+  }
+};
+
+// ─── FACTURACIÓN (solicitar factura de servicios para una orden) ─────────────
+// El emisor (empresa) se resuelve por el tipo de servicio de la orden vía
+// service_company_config (PO Box → Rodada). El receptor son los datos fiscales
+// del cliente. createInvoice() resuelve emisor, timbra con Facturama y guarda.
+
+// service_type_cfg (largo) → código corto que espera createInvoice
+const SHORT_SERVICE: Record<string, string> = {
+  POBOX_USA: 'po_box',
+  SEA_CHN_MX: 'maritimo',
+  AA_DHL: 'dhl',
+  AIR_CHN_MX: 'aereo',
+  NATIONAL: 'terrestre',
+};
+
+// Carga una orden (advisor o cliente) verificando que pertenezca al asesor.
+const loadOrderForAdvisor = async (id: any, aid: number, source: string | null) => {
+  const r = await pool.query(`
+    SELECT * FROM (
+      SELECT apo.id, 'advisor' AS created_by, apo.client_id, apo.total_mxn,
+             apo.payment_reference, apo.pobox_payment_id, apo.package_uids,
+             COALESCE(apo.service_type_cfg, 'POBOX_USA') AS service_type_cfg
+      FROM advisor_payment_orders apo
+      WHERE apo.id = $1 AND apo.advisor_id = $2
+      UNION ALL
+      SELECT pp.id, 'client' AS created_by, pp.user_id AS client_id, pp.amount AS total_mxn,
+             pp.payment_reference, pp.id AS pobox_payment_id,
+             COALESCE(pp.package_ids, '[]'::jsonb) AS package_uids,
+             'POBOX_USA' AS service_type_cfg
+      FROM pobox_payments pp
+      JOIN users u ON u.id = pp.user_id
+      WHERE pp.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2)
+    ) o
+    WHERE ($3::text IS NULL OR o.created_by = $3)
+    LIMIT 1
+  `, [id, aid, source]);
+  return r.rows[0] || null;
+};
+
+const paymentIdOf = (order: any): string =>
+  String(order.payment_reference || order.pobox_payment_id || `APO-${order.id}`);
+
+// GET — info para el diálogo: monto, empresa emisora, datos fiscales del
+// cliente y si la orden ya tiene factura.
+export const getAdvisorOrderInvoiceInfo = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const aid = advisorId(req);
+    if (!aid) return res.status(401).json({ error: 'No autenticado' });
+    const { id } = req.params;
+    const source = req.query.source === 'client' || req.query.source === 'advisor'
+      ? String(req.query.source) : null;
+
+    const order = await loadOrderForAdvisor(id, aid, source);
+    if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+
+    const compRes = await pool.query(`
+      SELECT fe.alias, fe.business_name, fe.rfc
+      FROM service_company_config scc
+      JOIN fiscal_emitters fe ON fe.id = scc.emitter_id
+      WHERE scc.service_type = $1 AND scc.is_active = TRUE AND fe.is_active = TRUE
+      LIMIT 1
+    `, [order.service_type_cfg]);
+
+    const fr = await pool.query(`
+      SELECT fiscal_razon_social, fiscal_rfc, fiscal_codigo_postal,
+             fiscal_regimen_fiscal, fiscal_uso_cfdi, email
+      FROM users WHERE id = $1
+    `, [order.client_id]);
+    const f = fr.rows[0] || {};
+
+    const facRes = await pool.query(
+      `SELECT uuid_sat, pdf_url, xml_url FROM facturas_emitidas
+       WHERE payment_id = $1 AND status = 'valid' ORDER BY created_at DESC LIMIT 1`,
+      [paymentIdOf(order)]
+    );
+
+    return res.json({
+      amount: Number(order.total_mxn) || 0,
+      serviceType: order.service_type_cfg,
+      company: compRes.rows[0]
+        ? { alias: compRes.rows[0].alias, legal_name: compRes.rows[0].business_name, rfc: compRes.rows[0].rfc }
+        : null,
+      fiscal: {
+        razon_social: f.fiscal_razon_social || '',
+        rfc: f.fiscal_rfc || '',
+        codigo_postal: f.fiscal_codigo_postal || '',
+        regimen_fiscal: f.fiscal_regimen_fiscal || '',
+        uso_cfdi: f.fiscal_uso_cfdi || 'G03',
+      },
+      hasCompleteData: !!(f.fiscal_razon_social && f.fiscal_rfc && f.fiscal_codigo_postal && f.fiscal_regimen_fiscal),
+      alreadyInvoiced: facRes.rows[0]
+        ? { uuid: facRes.rows[0].uuid_sat, pdf: facRes.rows[0].pdf_url, xml: facRes.rows[0].xml_url }
+        : null,
+    });
+  } catch (e: any) {
+    console.error('[payment-orders] invoice-info:', e);
+    return res.status(500).json({ error: 'Error al obtener datos de facturación' });
+  }
+};
+
+// POST — genera (timbra) la factura. Si vienen datos fiscales en el body, se
+// guardan en el cliente antes de timbrar.
+export const requestAdvisorOrderInvoice = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const aid = advisorId(req);
+    if (!aid) return res.status(401).json({ error: 'No autenticado' });
+    const { id } = req.params;
+    const { source, fiscalData } = req.body || {};
+    const src = source === 'client' || source === 'advisor' ? source : null;
+
+    const order = await loadOrderForAdvisor(id, aid, src);
+    if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+
+    const amount = Number(order.total_mxn) || 0;
+    if (amount <= 0) return res.status(400).json({ error: 'La orden no tiene monto a facturar' });
+
+    // Evitar doble facturación
+    const dup = await pool.query(
+      `SELECT uuid_sat FROM facturas_emitidas WHERE payment_id = $1 AND status = 'valid' LIMIT 1`,
+      [paymentIdOf(order)]
+    );
+    if (dup.rows[0]) {
+      return res.status(400).json({ error: 'Esta orden ya tiene una factura emitida', uuid: dup.rows[0].uuid_sat });
+    }
+
+    // Si el asesor capturó/actualizó datos fiscales, guardarlos en el cliente
+    if (fiscalData && fiscalData.rfc && fiscalData.razon_social && fiscalData.codigo_postal && fiscalData.regimen_fiscal) {
+      await pool.query(
+        `UPDATE users SET
+           fiscal_razon_social = $1, fiscal_rfc = $2, fiscal_codigo_postal = $3,
+           fiscal_regimen_fiscal = $4, fiscal_uso_cfdi = $5
+         WHERE id = $6`,
+        [
+          String(fiscalData.razon_social).trim(),
+          String(fiscalData.rfc).toUpperCase().trim(),
+          String(fiscalData.codigo_postal).trim(),
+          String(fiscalData.regimen_fiscal).trim(),
+          (fiscalData.uso_cfdi || 'G03').trim(),
+          order.client_id,
+        ]
+      );
+    }
+
+    // IDs de paquetes (para la descripción de la factura)
+    let pkgIds: number[] = [];
+    try {
+      const uids = Array.isArray(order.package_uids)
+        ? order.package_uids
+        : JSON.parse(order.package_uids || '[]');
+      pkgIds = (uids as any[])
+        .map((u) => parseInt(String(u).replace(/^[A-Za-z]+-/, ''), 10))
+        .filter((n) => Number.isFinite(n));
+    } catch { /* sin ids */ }
+
+    const result = await createInvoice({
+      paymentId: paymentIdOf(order),
+      paymentType: 'pobox',
+      userId: order.client_id,
+      amount,
+      currency: 'MXN',
+      paymentMethod: 'spei',
+      description: `Servicios de logística y paquetería${pkgIds.length ? ` — ${pkgIds.length} guía(s)` : ''}`,
+      packageIds: pkgIds,
+      serviceType: SHORT_SERVICE[order.service_type_cfg] || 'po_box',
+    });
+
+    if (!result.success) {
+      return res.status(400).json({
+        error: result.error || 'No se pudo generar la factura',
+        needFiscalData: result.error === 'Datos fiscales incompletos',
+      });
+    }
+
+    // Marcar el pago como facturado (si existe pobox_payment vinculado)
+    if (order.pobox_payment_id) {
+      try {
+        await pool.query(
+          `UPDATE pobox_payments SET facturada = TRUE, factura_uuid = $1, factura_created_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [result.uuid, order.pobox_payment_id]
+        );
+      } catch (e) { console.warn('[invoice] no se pudo marcar facturada:', e); }
+    }
+
+    return res.json({ success: true, uuid: result.uuid, pdfUrl: result.pdfUrl, xmlUrl: result.xmlUrl });
+  } catch (e: any) {
+    console.error('[payment-orders] request-invoice:', e);
+    return res.status(500).json({ error: 'Error al generar la factura' });
   }
 };
