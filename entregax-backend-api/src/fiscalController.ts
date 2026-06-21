@@ -363,7 +363,9 @@ export const createInvoice = async (
           product: {
             description: paymentData.description || `Servicio de Logística - ${paymentData.packageIds?.length || 1} paquete(s)`,
             product_key: '78101800',
-            price: paymentData.amount,
+            // El monto recibido es el TOTAL pagado (IVA incluido). Se factura el
+            // neto (monto / 1.16) para que neto + 16% IVA = monto pagado exacto.
+            price: Math.round((paymentData.amount / 1.16) * 100) / 100,
             taxes: [{ type: 'IVA', rate: 0.16 }]
           }
         }],

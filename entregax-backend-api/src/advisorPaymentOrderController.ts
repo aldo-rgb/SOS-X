@@ -896,16 +896,13 @@ export const requestAdvisorOrderInvoice = async (req: Request, res: Response): P
         .filter((n) => Number.isFinite(n));
     } catch { /* sin ids */ }
 
-    // El monto de la orden es el TOTAL pagado (IVA incluido). createInvoice usa
-    // el monto como precio del concepto y le suma 16% de IVA encima, así que le
-    // pasamos el NETO (monto / 1.16) para que neto + IVA = monto pagado exacto.
-    const netAmount = Math.round((amount / 1.16) * 100) / 100;
-
+    // El monto de la orden es el TOTAL pagado (IVA incluido). createInvoice ya
+    // desglosa el IVA hacia adentro (price = monto/1.16), así que pasamos el bruto.
     const result = await createInvoice({
       paymentId: paymentIdOf(order),
       paymentType: 'pobox',
       userId: order.client_id,
-      amount: netAmount,
+      amount,
       currency: 'MXN',
       paymentMethod: 'spei',
       description: `Servicios de logística y paquetería${pkgIds.length ? ` — ${pkgIds.length} guía(s)` : ''}`,
