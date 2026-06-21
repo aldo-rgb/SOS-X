@@ -785,7 +785,17 @@ export const getAdvisorOrderInvoiceInfo = async (req: Request, res: Response): P
       [paymentIdOf(order)]
     );
 
+    // Perfiles fiscales guardados del cliente (varios, como las direcciones)
+    await ensureFiscalProfilesTable();
+    const profRes = await pool.query(
+      `SELECT id, razon_social, rfc, codigo_postal, regimen_fiscal, uso_cfdi, is_default
+       FROM client_fiscal_profiles WHERE user_id = $1 ORDER BY is_default DESC, id DESC`,
+      [order.client_id]
+    );
+
     return res.json({
+      clientId: order.client_id,
+      profiles: profRes.rows,
       amount: Number(order.total_mxn) || 0,
       serviceType: order.service_type_cfg,
       company: compRes.rows[0]
@@ -896,5 +906,108 @@ export const requestAdvisorOrderInvoice = async (req: Request, res: Response): P
   } catch (e: any) {
     console.error('[payment-orders] request-invoice:', e);
     return res.status(500).json({ error: 'Error al generar la factura' });
+  }
+};
+
+// ─── PERFILES FISCALES DEL CLIENTE (varios por cliente, como las direcciones) ─
+const ensureFiscalProfilesTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_fiscal_profiles (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      razon_social VARCHAR(300) NOT NULL,
+      rfc VARCHAR(13) NOT NULL,
+      codigo_postal VARCHAR(5) NOT NULL,
+      regimen_fiscal VARCHAR(5) NOT NULL,
+      uso_cfdi VARCHAR(5) DEFAULT 'G03',
+      is_default BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_cfp_user ON client_fiscal_profiles(user_id)`);
+};
+
+// El asesor solo puede gestionar datos de sus clientes
+const advisorOwnsClient = async (aid: number, clientId: any): Promise<boolean> => {
+  const r = await pool.query(
+    `SELECT 1 FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) LIMIT 1`,
+    [clientId, aid]
+  );
+  return r.rows.length > 0;
+};
+
+// GET — lista los perfiles fiscales de un cliente
+export const listClientFiscalProfiles = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const aid = advisorId(req);
+    if (!aid) return res.status(401).json({ error: 'No autenticado' });
+    const { clientId } = req.params;
+    if (!(await advisorOwnsClient(aid, clientId))) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+    await ensureFiscalProfilesTable();
+    const r = await pool.query(
+      `SELECT id, razon_social, rfc, codigo_postal, regimen_fiscal, uso_cfdi, is_default
+       FROM client_fiscal_profiles WHERE user_id = $1 ORDER BY is_default DESC, id DESC`,
+      [clientId]
+    );
+    return res.json({ profiles: r.rows });
+  } catch (e: any) {
+    console.error('[fiscal-profiles] list:', e);
+    return res.status(500).json({ error: 'Error al listar datos fiscales' });
+  }
+};
+
+// POST — agrega un perfil fiscal a un cliente
+export const addClientFiscalProfile = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const aid = advisorId(req);
+    if (!aid) return res.status(401).json({ error: 'No autenticado' });
+    const { clientId } = req.params;
+    if (!(await advisorOwnsClient(aid, clientId))) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+    await ensureFiscalProfilesTable();
+
+    const { razon_social, rfc, codigo_postal, regimen_fiscal, uso_cfdi } = req.body || {};
+    if (!razon_social || !rfc || !codigo_postal || !regimen_fiscal) {
+      return res.status(400).json({ error: 'Datos fiscales incompletos (razón social, RFC, CP y régimen son obligatorios)' });
+    }
+    const rfcU = String(rfc).toUpperCase().trim();
+    if (rfcU.length < 12 || rfcU.length > 13) return res.status(400).json({ error: 'RFC inválido' });
+    if (!/^\d{5}$/.test(String(codigo_postal).trim())) return res.status(400).json({ error: 'Código postal inválido (5 dígitos)' });
+
+    const cnt = await pool.query(`SELECT COUNT(*)::int AS n FROM client_fiscal_profiles WHERE user_id = $1`, [clientId]);
+    const isDefault = (cnt.rows[0]?.n || 0) === 0; // el primero queda como predeterminado
+
+    const ins = await pool.query(
+      `INSERT INTO client_fiscal_profiles (user_id, razon_social, rfc, codigo_postal, regimen_fiscal, uso_cfdi, is_default)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id, razon_social, rfc, codigo_postal, regimen_fiscal, uso_cfdi, is_default`,
+      [clientId, String(razon_social).trim(), rfcU, String(codigo_postal).trim(), String(regimen_fiscal).trim(), (uso_cfdi || 'G03').trim(), isDefault]
+    );
+
+    // Mantener users.fiscal_* como caché del predeterminado (lo usa createInvoice)
+    if (isDefault) {
+      await pool.query(
+        `UPDATE users SET fiscal_razon_social=$1, fiscal_rfc=$2, fiscal_codigo_postal=$3, fiscal_regimen_fiscal=$4, fiscal_uso_cfdi=$5 WHERE id=$6`,
+        [String(razon_social).trim(), rfcU, String(codigo_postal).trim(), String(regimen_fiscal).trim(), (uso_cfdi || 'G03').trim(), clientId]
+      );
+    }
+    return res.json({ success: true, profile: ins.rows[0] });
+  } catch (e: any) {
+    console.error('[fiscal-profiles] add:', e);
+    return res.status(500).json({ error: 'Error al guardar datos fiscales' });
+  }
+};
+
+// DELETE — elimina un perfil fiscal del cliente
+export const deleteClientFiscalProfile = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const aid = advisorId(req);
+    if (!aid) return res.status(401).json({ error: 'No autenticado' });
+    const { clientId, profileId } = req.params;
+    if (!(await advisorOwnsClient(aid, clientId))) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+    await ensureFiscalProfilesTable();
+    await pool.query(`DELETE FROM client_fiscal_profiles WHERE id = $1 AND user_id = $2`, [profileId, clientId]);
+    return res.json({ success: true });
+  } catch (e: any) {
+    console.error('[fiscal-profiles] delete:', e);
+    return res.status(500).json({ error: 'Error al eliminar datos fiscales' });
   }
 };

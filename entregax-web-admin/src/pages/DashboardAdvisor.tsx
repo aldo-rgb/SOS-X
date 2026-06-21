@@ -46,6 +46,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Radio,
   Divider,
   BottomNavigation,
   BottomNavigationAction,
@@ -114,6 +115,7 @@ import {
   Download as DownloadIcon,
   Markunread as SendInstrIcon,
   ReceiptLong as InvoiceIcon,
+  Add as AddIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import { usePaymentStatus, mapServiceKey } from '../hooks/usePaymentStatus';
@@ -429,35 +431,86 @@ export default function DashboardAdvisor() {
   const [successOrderData, setSuccessOrderData] = useState<any>(null);
   const [cancelConfirmOrderId, setCancelConfirmOrderId] = useState<number | null>(null);
   // Diálogo "Solicitar factura"
+  const emptyFiscal = { razon_social: '', rfc: '', codigo_postal: '', regimen_fiscal: '', uso_cfdi: 'G03' };
   const [invoiceOrder, setInvoiceOrder] = useState<any | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
   const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
   const [invoiceInfo, setInvoiceInfo] = useState<any | null>(null);
   const [invoiceResult, setInvoiceResult] = useState<{ uuid?: string; pdfUrl?: string } | null>(null);
-  const [invoiceFiscal, setInvoiceFiscal] = useState({ razon_social: '', rfc: '', codigo_postal: '', regimen_fiscal: '', uso_cfdi: 'G03' });
+  const [invoiceFiscal, setInvoiceFiscal] = useState(emptyFiscal);
+  // Perfiles fiscales del cliente (varios, como las direcciones)
+  const [invoiceProfiles, setInvoiceProfiles] = useState<any[]>([]);
+  const [invoiceProfileId, setInvoiceProfileId] = useState<number | null>(null);
+  const [invoiceAddingProfile, setInvoiceAddingProfile] = useState(false);
+  const [invoiceSavingProfile, setInvoiceSavingProfile] = useState(false);
+
+  const applyInvoiceInfo = (data: any) => {
+    setInvoiceInfo(data);
+    const profiles: any[] = Array.isArray(data?.profiles) ? data.profiles : [];
+    setInvoiceProfiles(profiles);
+    if (profiles.length > 0) {
+      const def = profiles.find((p) => p.is_default) || profiles[0];
+      setInvoiceProfileId(def.id);
+      setInvoiceFiscal({ razon_social: def.razon_social, rfc: def.rfc, codigo_postal: def.codigo_postal, regimen_fiscal: def.regimen_fiscal, uso_cfdi: def.uso_cfdi || 'G03' });
+      setInvoiceAddingProfile(false);
+    } else {
+      // Sin perfiles: abrir el formulario, prellenando los datos fiscales legacy del cliente si existen
+      const f = data?.fiscal || {};
+      setInvoiceProfileId(null);
+      setInvoiceFiscal({ razon_social: f.razon_social || '', rfc: f.rfc || '', codigo_postal: f.codigo_postal || '', regimen_fiscal: f.regimen_fiscal || '', uso_cfdi: f.uso_cfdi || 'G03' });
+      setInvoiceAddingProfile(true);
+    }
+  };
 
   const openInvoiceDialog = async (op: any) => {
     setInvoiceOrder(op);
     setInvoiceInfo(null);
     setInvoiceResult(null);
+    setInvoiceProfiles([]);
+    setInvoiceProfileId(null);
+    setInvoiceAddingProfile(false);
     setInvoiceLoading(true);
     try {
       const res = await api.get(`/advisor/payment-orders/${op.id}/invoice-info`, { params: { source: op.created_by } });
-      setInvoiceInfo(res.data);
-      const f = res.data?.fiscal || {};
-      setInvoiceFiscal({
-        razon_social: f.razon_social || '',
-        rfc: f.rfc || '',
-        codigo_postal: f.codigo_postal || '',
-        regimen_fiscal: f.regimen_fiscal || '',
-        uso_cfdi: f.uso_cfdi || 'G03',
-      });
+      applyInvoiceInfo(res.data);
       if (res.data?.alreadyInvoiced) setInvoiceResult({ uuid: res.data.alreadyInvoiced.uuid, pdfUrl: res.data.alreadyInvoiced.pdf });
     } catch (e: any) {
       setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo cargar la información de facturación', severity: 'error' });
       setInvoiceOrder(null);
     } finally {
       setInvoiceLoading(false);
+    }
+  };
+
+  const selectInvoiceProfile = (p: any) => {
+    setInvoiceProfileId(p.id);
+    setInvoiceFiscal({ razon_social: p.razon_social, rfc: p.rfc, codigo_postal: p.codigo_postal, regimen_fiscal: p.regimen_fiscal, uso_cfdi: p.uso_cfdi || 'G03' });
+  };
+
+  const saveFiscalProfile = async () => {
+    if (!invoiceInfo?.clientId) return;
+    setInvoiceSavingProfile(true);
+    try {
+      await api.post(`/advisor/clients/${invoiceInfo.clientId}/fiscal-profiles`, invoiceFiscal);
+      // Recargar info para refrescar la lista de perfiles y seleccionar el nuevo
+      const res = await api.get(`/advisor/payment-orders/${invoiceOrder.id}/invoice-info`, { params: { source: invoiceOrder.created_by } });
+      applyInvoiceInfo(res.data);
+      setSnackbar({ open: true, message: '✅ Datos fiscales guardados', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudieron guardar los datos fiscales', severity: 'error' });
+    } finally {
+      setInvoiceSavingProfile(false);
+    }
+  };
+
+  const deleteFiscalProfile = async (profileId: number) => {
+    if (!invoiceInfo?.clientId) return;
+    try {
+      await api.delete(`/advisor/clients/${invoiceInfo.clientId}/fiscal-profiles/${profileId}`);
+      const res = await api.get(`/advisor/payment-orders/${invoiceOrder.id}/invoice-info`, { params: { source: invoiceOrder.created_by } });
+      applyInvoiceInfo(res.data);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo eliminar', severity: 'error' });
     }
   };
 
@@ -3893,31 +3946,71 @@ export default function DashboardAdvisor() {
                   </Box>
                 ) : (
                   <>
-                    {!invoiceInfo.hasCompleteData && (
-                      <Box sx={{ bgcolor: '#FFF3E0', border: '1px solid #FFB74D', borderRadius: 2, p: 1.5, mb: 1.5 }}>
-                        <Typography variant="caption" sx={{ color: '#E65100' }}>
-                          ⚠️ El cliente no tiene datos fiscales completos. Captúralos para emitir la factura (se guardarán en su perfil).
+                    {invoiceAddingProfile ? (
+                      <>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>
+                          {invoiceProfiles.length > 0 ? 'Nuevos datos fiscales del cliente' : 'Datos fiscales del cliente'}
                         </Typography>
-                      </Box>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                          <TextField size="small" label="Razón social" value={invoiceFiscal.razon_social} sx={{ gridColumn: '1 / -1' }}
+                            onChange={(e) => setInvoiceFiscal(p => ({ ...p, razon_social: e.target.value }))} />
+                          <TextField size="small" label="RFC" value={invoiceFiscal.rfc}
+                            onChange={(e) => setInvoiceFiscal(p => ({ ...p, rfc: e.target.value.toUpperCase() }))} />
+                          <TextField size="small" label="Código postal" value={invoiceFiscal.codigo_postal}
+                            onChange={(e) => setInvoiceFiscal(p => ({ ...p, codigo_postal: e.target.value }))} />
+                          <TextField size="small" label="Régimen fiscal (clave SAT)" value={invoiceFiscal.regimen_fiscal} placeholder="601"
+                            onChange={(e) => setInvoiceFiscal(p => ({ ...p, regimen_fiscal: e.target.value }))} />
+                          <TextField size="small" label="Uso CFDI" value={invoiceFiscal.uso_cfdi} placeholder="G03"
+                            onChange={(e) => setInvoiceFiscal(p => ({ ...p, uso_cfdi: e.target.value.toUpperCase() }))} />
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
+                          <Button size="small" variant="contained"
+                            onClick={saveFiscalProfile}
+                            disabled={invoiceSavingProfile || !invoiceFiscal.razon_social || !invoiceFiscal.rfc || !invoiceFiscal.codigo_postal || !invoiceFiscal.regimen_fiscal}
+                            startIcon={invoiceSavingProfile ? <CircularProgress size={16} color="inherit" /> : <AddIcon />}
+                            sx={{ bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6A1B9A' } }}>
+                            {invoiceSavingProfile ? 'Guardando…' : 'Guardar datos fiscales'}
+                          </Button>
+                          {invoiceProfiles.length > 0 && (
+                            <Button size="small" onClick={() => setInvoiceAddingProfile(false)} disabled={invoiceSavingProfile}>Cancelar</Button>
+                          )}
+                        </Box>
+                      </>
+                    ) : (
+                      <>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                            Datos fiscales del cliente
+                          </Typography>
+                          <Button size="small" startIcon={<AddIcon />} sx={{ color: '#7B1FA2' }}
+                            onClick={() => { setInvoiceProfileId(null); setInvoiceFiscal(emptyFiscal); setInvoiceAddingProfile(true); }}>
+                            Agregar
+                          </Button>
+                        </Box>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          {invoiceProfiles.map((p) => (
+                            <Box key={p.id} onClick={() => selectInvoiceProfile(p)}
+                              sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderRadius: 2, cursor: 'pointer',
+                                    border: invoiceProfileId === p.id ? '2px solid #7B1FA2' : '1px solid #E0E0E0',
+                                    bgcolor: invoiceProfileId === p.id ? '#F3E5F5' : '#fff' }}>
+                              <Radio checked={invoiceProfileId === p.id} size="small" sx={{ p: 0.5, color: '#7B1FA2', '&.Mui-checked': { color: '#7B1FA2' } }} />
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography variant="body2" fontWeight={700} noWrap>{p.razon_social}</Typography>
+                                <Typography variant="caption" color="text.secondary">{p.rfc} · CP {p.codigo_postal} · Rég. {p.regimen_fiscal} · {p.uso_cfdi}</Typography>
+                              </Box>
+                              <Tooltip title="Eliminar">
+                                <IconButton size="small" onClick={(e) => { e.stopPropagation(); deleteFiscalProfile(p.id); }}>
+                                  <CloseIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          ))}
+                        </Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+                          Se generará un CFDI (factura fiscal) por el monto indicado, con el RFC seleccionado. Esta acción no se puede deshacer.
+                        </Typography>
+                      </>
                     )}
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>
-                      Datos fiscales del receptor (cliente)
-                    </Typography>
-                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
-                      <TextField size="small" label="Razón social" value={invoiceFiscal.razon_social} sx={{ gridColumn: '1 / -1' }}
-                        onChange={(e) => setInvoiceFiscal(p => ({ ...p, razon_social: e.target.value }))} />
-                      <TextField size="small" label="RFC" value={invoiceFiscal.rfc}
-                        onChange={(e) => setInvoiceFiscal(p => ({ ...p, rfc: e.target.value.toUpperCase() }))} />
-                      <TextField size="small" label="Código postal" value={invoiceFiscal.codigo_postal}
-                        onChange={(e) => setInvoiceFiscal(p => ({ ...p, codigo_postal: e.target.value }))} />
-                      <TextField size="small" label="Régimen fiscal (clave SAT)" value={invoiceFiscal.regimen_fiscal} placeholder="601"
-                        onChange={(e) => setInvoiceFiscal(p => ({ ...p, regimen_fiscal: e.target.value }))} />
-                      <TextField size="small" label="Uso CFDI" value={invoiceFiscal.uso_cfdi} placeholder="G03"
-                        onChange={(e) => setInvoiceFiscal(p => ({ ...p, uso_cfdi: e.target.value.toUpperCase() }))} />
-                    </Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
-                      Se generará un CFDI (factura fiscal) por el monto indicado. Esta acción no se puede deshacer.
-                    </Typography>
                   </>
                 )}
               </>
@@ -3929,7 +4022,7 @@ export default function DashboardAdvisor() {
               <Button
                 variant="contained"
                 onClick={submitInvoice}
-                disabled={invoiceSubmitting || !invoiceFiscal.razon_social || !invoiceFiscal.rfc || !invoiceFiscal.codigo_postal || !invoiceFiscal.regimen_fiscal || !invoiceInfo.company}
+                disabled={invoiceSubmitting || invoiceAddingProfile || !invoiceProfileId || !invoiceInfo.company}
                 startIcon={invoiceSubmitting ? <CircularProgress size={16} color="inherit" /> : <InvoiceIcon />}
                 sx={{ bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6A1B9A' } }}
               >
