@@ -3176,8 +3176,12 @@ export default function DashboardAdvisor() {
                 const ref = op.payment_reference || `#${op.id}`;
                 // Solicitar factura: solo si está pagada y dentro de 2 días de marcada como pagada
                 const isPaidStatus = op.status === 'pagado' || op.status === 'completed' || op.status === 'paid';
+                const yaFacturada = !!op.facturada;
+                const facturaPendiente = !!op.requiere_factura && !yaFacturada; // ya solicitada (cliente o asesor), en pendientes por timbrar
+                // Solicitar factura: pagada, dentro de 2 días, y que no esté ya facturada ni solicitada
                 const canInvoice = isPaidStatus && !!op.paid_at &&
-                  (Date.now() - new Date(op.paid_at).getTime()) <= 2 * 24 * 60 * 60 * 1000;
+                  (Date.now() - new Date(op.paid_at).getTime()) <= 2 * 24 * 60 * 60 * 1000 &&
+                  !yaFacturada && !facturaPendiente;
 
                 const downloadPDF = async () => {
                   // Detalle de la orden (master + guías hijas + desglose). Usa el
@@ -3406,6 +3410,20 @@ export default function DashboardAdvisor() {
                             <Tooltip title="Solicitar factura">
                               <IconButton size="small" sx={{ color: '#7B1FA2' }} onClick={() => openInvoiceDialog(op)}>
                                 <InvoiceIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                          {yaFacturada && op.factura_pdf && (
+                            <Tooltip title="Descargar factura (PDF)">
+                              <IconButton size="small" sx={{ color: '#C62828' }} onClick={() => window.open(op.factura_pdf, '_blank')}>
+                                <InvoiceIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                          {yaFacturada && op.factura_xml && (
+                            <Tooltip title="Descargar factura (XML)">
+                              <IconButton size="small" sx={{ color: '#2E7D32' }} onClick={() => window.open(op.factura_xml, '_blank')}>
+                                <DownloadIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           )}

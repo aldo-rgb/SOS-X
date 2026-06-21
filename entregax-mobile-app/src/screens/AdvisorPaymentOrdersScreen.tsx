@@ -35,6 +35,10 @@ interface PaymentOrder {
   created_by: string;
   created_at: string;
   paid_at?: string | null;
+  facturada?: boolean | null;
+  requiere_factura?: boolean | null;
+  factura_pdf?: string | null;
+  factura_xml?: string | null;
   bank_clabe: string | null;
   bank_name: string | null;
   beneficiario: string | null;
@@ -357,7 +361,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
       if (!res.ok) throw new Error(data?.error || 'Error');
       if (data?.pending) {
         setShowInvoiceModal(false);
-        Alert.alert('Factura solicitada', 'Quedó pendiente por timbrar.');
+        Alert.alert('Factura solicitada', 'en proceso de timbrado.');
       } else {
         setInvoiceResult({ uuid: data.uuid, pdfUrl: data.pdfUrl });
       }
@@ -650,8 +654,12 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
     const isAdvisor = o.created_by === 'advisor';
     // Solicitar factura: solo si está pagada y dentro de 2 días de marcada como pagada
     const isPaidStatus = o.status === 'pagado' || o.status === 'completed' || o.status === 'paid';
+    const yaFacturada = !!o.facturada;
+    const facturaPendiente = !!o.requiere_factura && !yaFacturada; // ya solicitada (cliente o asesor)
+    // Solicitar factura: pagada, ≤2 días, y que no esté ya facturada ni solicitada
     const canInvoice = isPaidStatus && !!o.paid_at &&
-      (Date.now() - new Date(o.paid_at as string).getTime()) <= 2 * 24 * 60 * 60 * 1000;
+      (Date.now() - new Date(o.paid_at as string).getTime()) <= 2 * 24 * 60 * 60 * 1000 &&
+      !yaFacturada && !facturaPendiente;
     const expanded  = expandedIds.has(o.id);
     const mxn       = Number(o.total_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 });
     const guides    = o.trackings || [];
@@ -747,6 +755,16 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
             {canInvoice && (
               <TouchableOpacity onPress={() => openInvoiceModal(o)} style={styles.actionBtn}>
                 <Ionicons name="receipt-outline" size={18} color="#7B1FA2" />
+              </TouchableOpacity>
+            )}
+            {yaFacturada && !!o.factura_pdf && (
+              <TouchableOpacity onPress={() => Linking.openURL(o.factura_pdf as string)} style={styles.actionBtn}>
+                <Ionicons name="receipt-outline" size={18} color="#C62828" />
+              </TouchableOpacity>
+            )}
+            {yaFacturada && !!o.factura_xml && (
+              <TouchableOpacity onPress={() => Linking.openURL(o.factura_xml as string)} style={styles.actionBtn}>
+                <Ionicons name="code-slash-outline" size={18} color="#2E7D32" />
               </TouchableOpacity>
             )}
             {isPending && isAdvisor && (
