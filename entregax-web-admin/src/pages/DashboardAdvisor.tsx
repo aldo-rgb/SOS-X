@@ -2527,7 +2527,7 @@ export default function DashboardAdvisor() {
                     <TableCell align="center">
                       <Tooltip title="Ver y agregar datos fiscales (CFDI)">
                         <Button variant="outlined" size="small"
-                          onClick={() => openFiscalManager({ id: c.id, name: c.fullName || c.full_name || c.name })}
+                          onClick={() => openFiscalManager({ id: c.id, name: c.fullName })}
                           startIcon={<InvoiceIcon />}
                           sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.5, borderColor: '#7B1FA2', color: '#7B1FA2', '&:hover': { bgcolor: '#f3e5f5', borderColor: '#6a1b9a' } }}>
                           Fiscal
