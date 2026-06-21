@@ -1063,6 +1063,17 @@ export default function DashboardAdvisor() {
   // sin parar (causando "Mis Tickets" en carga eterna y parpadeando).
   const activeTabId = tabConfig[activeTab]?.id;
 
+  // ── Navegación desde las tarjetas del Dashboard (por id de pestaña, robusto) ──
+  const goToTab = (id: string) => {
+    const i = tabConfig.findIndex(tb => tb.id === id);
+    if (i >= 0) setActiveTab(i);
+  };
+  const goToClients = (filter: 'all' | 'verified' | 'pending' | 'unverified') => {
+    setClientFilter(filter);
+    setClientPage(0);
+    goToTab('clients');
+  };
+
   // Load data on tab change — use activeTabId to avoid hardcoded index issues
   useEffect(() => {
     if (activeTabId === 'instructions') {
@@ -1538,8 +1549,9 @@ export default function DashboardAdvisor() {
     const code = dashboardData?.advisor.referralCode;
     if (!code) return;
     const link = `https://entregax.app/register?ref=${code}`;
-    navigator.clipboard.writeText(link);
-    setSnackbar({ open: true, message: t('advisor.linkCopied'), severity: 'success' });
+    const msg = `¡Hola! Te invito a usar EntregaX para tus envíos internacionales. Regístrate aquí: ${link}`;
+    navigator.clipboard.writeText(msg);
+    setSnackbar({ open: true, message: '✅ Enlace de referido copiado al portapapeles', severity: 'success' });
   };
 
   const shareWhatsApp = () => {
@@ -1747,6 +1759,7 @@ export default function DashboardAdvisor() {
                 icon={<PeopleIcon />}
                 color={theme.palette.primary.main}
                 trend={d.clients.new7d}
+                onClick={() => goToClients('verified')}
               />
             </Grid>
             <Grid size={ { xs: 6, sm: 6, md: 3 } }>
@@ -1756,6 +1769,7 @@ export default function DashboardAdvisor() {
                 subtitle={`${d.clients.dormant} ${isMobile ? 'dorm.' : t('advisor.dormantLower')}`}
                 icon={<SpeedIcon />}
                 color={theme.palette.success.main}
+                onClick={() => goToClients('all')}
               />
             </Grid>
             <Grid size={ { xs: 6, sm: 6, md: 3 } }>
@@ -1775,6 +1789,7 @@ export default function DashboardAdvisor() {
                 subtitle={`${d.commissions.monthPaidCount} ${isMobile ? 'paq.' : t('advisor.paidPackages')}`}
                 icon={<MoneyIcon />}
                 color={theme.palette.info.main}
+                onClick={() => goToTab('commissions')}
               />
             </Grid>
           </Grid>
@@ -1794,7 +1809,7 @@ export default function DashboardAdvisor() {
             }}>
               {/* Pending Verifications */}
               <Card sx={{ minWidth: 140, flexShrink: 0 }}>
-                <CardActionArea onClick={() => setActiveTab(1)} sx={{ p: 1.5 }}>
+                <CardActionArea onClick={() => goToClients('pending')} sx={{ p: 1.5 }}>
                   <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                     <Avatar sx={{ bgcolor: alpha(theme.palette.warning.main, 0.1), color: 'warning.main', width: 40, height: 40 }}>
                       <PendingIcon sx={{ fontSize: '1.2rem' }} />
@@ -1808,7 +1823,7 @@ export default function DashboardAdvisor() {
               </Card>
               {/* Awaiting Payment */}
               <Card sx={{ minWidth: 140, flexShrink: 0 }}>
-                <CardActionArea onClick={() => { setShipmentFilter('awaiting_payment'); setActiveTab(2); }} sx={{ p: 1.5 }}>
+                <CardActionArea onClick={() => goToTab('payment_order')} sx={{ p: 1.5 }}>
                   <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                     <Avatar sx={{ bgcolor: alpha(theme.palette.error.main, 0.1), color: 'error.main', width: 40, height: 40 }}>
                       <PaymentIcon sx={{ fontSize: '1.2rem' }} />
@@ -1822,7 +1837,7 @@ export default function DashboardAdvisor() {
               </Card>
               {/* Share Referral */}
               <Card sx={{ minWidth: 140, flexShrink: 0 }}>
-                <CardActionArea onClick={() => setActiveTab(4)} sx={{ p: 1.5 }}>
+                <CardActionArea onClick={() => copyReferralLink()} sx={{ p: 1.5 }}>
                   <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                     <Avatar sx={{ bgcolor: alpha(theme.palette.success.main, 0.1), color: 'success.main', width: 40, height: 40 }}>
                       <ShareIcon sx={{ fontSize: '1.2rem' }} />
@@ -1839,7 +1854,7 @@ export default function DashboardAdvisor() {
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid size={ { xs: 12, sm: 6, md: 4 } }>
               <Card sx={{ height: '100%' }}>
-                <CardActionArea onClick={() => setActiveTab(1)} sx={{ p: 2.5, height: '100%' }}>
+                <CardActionArea onClick={() => goToClients('pending')} sx={{ p: 2.5, height: '100%' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Avatar sx={{ bgcolor: alpha(theme.palette.warning.main, 0.1), color: 'warning.main' }}>
                       <PendingIcon />
@@ -1856,7 +1871,7 @@ export default function DashboardAdvisor() {
             </Grid>
             <Grid size={ { xs: 12, sm: 6, md: 4 } }>
               <Card sx={{ height: '100%' }}>
-                <CardActionArea onClick={() => { setShipmentFilter('awaiting_payment'); setActiveTab(2); }} sx={{ p: 2.5, height: '100%' }}>
+                <CardActionArea onClick={() => goToTab('payment_order')} sx={{ p: 2.5, height: '100%' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Avatar sx={{ bgcolor: alpha(theme.palette.error.main, 0.1), color: 'error.main' }}>
                       <PaymentIcon />
@@ -1873,7 +1888,7 @@ export default function DashboardAdvisor() {
             </Grid>
             <Grid size={ { xs: 12, sm: 6, md: 4 } }>
               <Card sx={{ height: '100%' }}>
-                <CardActionArea onClick={() => setActiveTab(4)} sx={{ p: 2.5, height: '100%' }}>
+                <CardActionArea onClick={() => copyReferralLink()} sx={{ p: 2.5, height: '100%' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Avatar sx={{ bgcolor: alpha(theme.palette.success.main, 0.1), color: 'success.main' }}>
                       <ShareIcon />
