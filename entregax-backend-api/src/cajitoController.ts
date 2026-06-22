@@ -684,7 +684,7 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
 
     // --- 1) Resolver al cliente ---------------------------------------
     // Prioridad: box_id exacto > id numérico > email exacto > búsqueda parcial
-    const isBoxIdLike = /^[A-Za-z]{0,4}-?\d{2,}$/.test(q);
+    const isBoxIdLike = /^[A-Za-z]{0,4}-?\d{1,}$/.test(q);
     const isNumeric = /^\d+$/.test(q);
     const isEmail = /@/.test(q);
 

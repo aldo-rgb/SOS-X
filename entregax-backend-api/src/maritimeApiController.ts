@@ -1362,6 +1362,68 @@ export const updateMarkClient = async (req: Request, res: Response): Promise<any
 };
 
 /**
+ * PUT /api/maritime-api/orders/:ordersn/status
+ * Actualizar el status de una orden marítima.
+ * Restringido a super_admin (validado en index.ts vía requireRole).
+ */
+export const updateOrderStatus = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { ordersn } = req.params;
+        const { status } = req.body;
+
+        const ALLOWED_STATUSES = [
+            'pending',
+            'pending_api',
+            'received_china',
+            'consolidated',
+            'in_transit',
+            'in_transit_mx',
+            'arrived_port',
+            'customs_mx',
+            'customs_cleared',
+            'received_cdmx',
+            'out_for_delivery',
+            'delivered',
+            'cancelled',
+        ];
+
+        if (!status || typeof status !== 'string') {
+            return res.status(400).json({ success: false, error: 'status requerido' });
+        }
+        if (!ALLOWED_STATUSES.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                error: `status inválido. Permitidos: ${ALLOWED_STATUSES.join(', ')}`
+            });
+        }
+
+        const result = await pool.query(
+            `UPDATE maritime_orders
+                SET status = $1, updated_at = NOW()
+              WHERE ordersn = $2
+              RETURNING id, ordersn, status, updated_at`,
+            [status, ordersn]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Orden no encontrada' });
+        }
+
+        const userId = (req as any).user?.userId || (req as any).user?.id || null;
+        console.log(`✅ [maritime] status actualizado: ${ordersn} → ${status} (por user=${userId})`);
+
+        return res.json({
+            success: true,
+            message: 'Status actualizado correctamente',
+            order: result.rows[0]
+        });
+    } catch (error: any) {
+        console.error('Error actualizando status de orden marítima:', error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
  * POST /api/maritime-api/orders/:ordersn/packing-list
  * Subir packing list para una orden
  */

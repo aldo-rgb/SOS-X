@@ -232,6 +232,61 @@ const MaritimeConsolidationsPage: React.FC = () => {
 
   const token = localStorage.getItem('token');
 
+  // Rol del usuario actual (para mostrar editor de status solo a super_admin)
+  const currentRole = (() => {
+    try { return (JSON.parse(localStorage.getItem('user') || '{}').role || '').toLowerCase(); }
+    catch { return ''; }
+  })();
+  const isSuperAdmin = currentRole === 'super_admin';
+
+  // Catálogo de estados permitidos para órdenes marítimas
+  const MARITIME_STATUS_OPTIONS: Array<{ value: string; label: string; color: 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' }> = [
+    { value: 'pending',          label: 'Pendiente',           color: 'warning' },
+    { value: 'pending_api',      label: 'Pendiente API',       color: 'default' },
+    { value: 'received_china',   label: 'Recibido en China',   color: 'info' },
+    { value: 'consolidated',     label: 'Consolidado',         color: 'info' },
+    { value: 'in_transit',       label: 'En tránsito',         color: 'primary' },
+    { value: 'in_transit_mx',    label: 'En ruta MX',          color: 'primary' },
+    { value: 'arrived_port',     label: 'En puerto',           color: 'warning' },
+    { value: 'customs_mx',       label: 'En aduana MX',        color: 'warning' },
+    { value: 'customs_cleared',  label: 'Aduana liberada',     color: 'secondary' },
+    { value: 'received_cdmx',    label: 'Recibido CDMX',       color: 'info' },
+    { value: 'out_for_delivery', label: 'En reparto',          color: 'primary' },
+    { value: 'delivered',        label: 'Entregado',           color: 'success' },
+    { value: 'cancelled',        label: 'Cancelado',           color: 'error' },
+  ];
+
+  const getStatusMeta = (status: string | undefined | null) => {
+    const found = MARITIME_STATUS_OPTIONS.find(s => s.value === status);
+    return found ?? { value: status || 'unknown', label: status || '—', color: 'default' as const };
+  };
+
+  // Actualizar status de una orden (solo super_admin)
+  const updateOrderStatus = async (order: MaritimeOrder, newStatus: string) => {
+    if (!isSuperAdmin) return;
+    if (newStatus === order.status) return;
+    try {
+      const res = await fetch(`${API_URL}/api/maritime-api/orders/${order.ordersn}/status`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.error || 'Error al actualizar status');
+      }
+      // Actualización optimista local
+      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: newStatus, updated_at: data?.order?.updated_at || o.updated_at } : o));
+      setSnackbar({ open: true, message: `Status actualizado: ${order.ordersn} → ${getStatusMeta(newStatus).label}`, severity: 'success' });
+    } catch (err: any) {
+      console.error('Error actualizando status:', err);
+      setSnackbar({ open: true, message: err?.message || 'No se pudo actualizar el status', severity: 'error' });
+    }
+  };
+
   // Cargar datos
   const loadData = useCallback(async () => {
     try {
@@ -630,6 +685,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
               <TableCell sx={{ fontWeight: 'bold' }}>Contenedor</TableCell>
               <TableCell sx={{ fontWeight: 'bold' }}>Ruta</TableCell>
               <TableCell sx={{ fontWeight: 'bold' }}>Tipo</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
               <TableCell sx={{ fontWeight: 'bold' }}>Especial</TableCell>
               <TableCell sx={{ fontWeight: 'bold' }}>Packing List</TableCell>
               <TableCell sx={{ fontWeight: 'bold' }} align="center">Acciones</TableCell>
@@ -638,7 +694,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
                   <CircularProgress />
                 </TableCell>
               </TableRow>
@@ -827,6 +883,34 @@ const MaritimeConsolidationsPage: React.FC = () => {
                         }
                       />
                     );
+                  })()}
+                </TableCell>
+                <TableCell>
+                  {(() => {
+                    const meta = getStatusMeta(order.status);
+                    if (isSuperAdmin) {
+                      return (
+                        <FormControl size="small" sx={{ minWidth: 140 }}>
+                          <Select
+                            value={order.status || ''}
+                            onChange={(e) => updateOrderStatus(order, String(e.target.value))}
+                            displayEmpty
+                            renderValue={(val) => {
+                              const m = getStatusMeta(String(val) || meta.value);
+                              return <Chip size="small" label={m.label} color={m.color as any} />;
+                            }}
+                            sx={{ '& .MuiSelect-select': { py: 0.5 } }}
+                          >
+                            {MARITIME_STATUS_OPTIONS.map(opt => (
+                              <MenuItem key={opt.value} value={opt.value}>
+                                <Chip size="small" label={opt.label} color={opt.color as any} sx={{ mr: 1 }} />
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      );
+                    }
+                    return <Chip size="small" label={meta.label} color={meta.color as any} />;
                   })()}
                 </TableCell>
                 <TableCell>

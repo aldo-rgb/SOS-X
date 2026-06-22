@@ -701,37 +701,75 @@ export default function CajitoFab() {
     setLastTracked(raw);
 
     // Heurística: input de cliente vs. tracking de guía.
-    // Casillero: S2907, ETX-1234, S4008, etc. (letra(s) + dígitos, con o sin guion).
+    // Casillero: S1, S2907, ETX-1234, S4008, etc. (letra(s) + dígito(s), con o sin guion).
     // Email: contiene '@'.
     // Numérico puro de 1-6 dígitos: lo tratamos como ID de cliente.
-    // Resto: lo tratamos como tracking de guía.
-    const isCasillero = /^[A-Za-z]{1,4}-?\d{2,8}$/.test(raw) && !/^(US|TDX|TDI|TD|JT|UPS|FX|DHL|EX)/i.test(raw);
+    // Si parece guía de transportista (US-..., TDX-..., TDI-..., etc.): tracking.
+    // Si tiene >=3 letras consecutivas: probablemente nombre → cliente.
+    // Resto largo: tracking.
     const isEmail = /@/.test(raw);
     const isClientId = /^\d{1,6}$/.test(raw);
-    const lookupAsClient = isCasillero || isEmail || isClientId;
+    const isCarrierTracking = /^(US|TDX|TDI|TD|JT|UPS|FX|DHL|EX|RO|PP|CTZ)[-:]?\d/i.test(raw);
+    const isCasillero = /^[A-Za-z]{1,4}-?\d{1,8}$/.test(raw) && !isCarrierTracking;
+    const hasManyLetters = /[A-Za-z]{3,}/.test(raw) && !isCarrierTracking;
+    const lookupAsClient = isCasillero || isEmail || isClientId || hasManyLetters;
+
+    const tryClientLookup = async () => {
+      const res = await api.get(`/cajito/client-lookup`, { params: { q: raw } });
+      if (res.data?.success) {
+        setClientResult(res.data);
+        return true;
+      }
+      return false;
+    };
+
+    const tryTracking = async () => {
+      const res = await api.get(`/packages/track/${encodeURIComponent(raw)}`);
+      if (res.data?.success && (res.data.shipment || res.data.package)) {
+        setTrackResult(res.data);
+        return true;
+      }
+      return false;
+    };
 
     try {
       if (lookupAsClient) {
-        const res = await api.get(`/cajito/client-lookup`, { params: { q: raw } });
-        if (res.data?.success) {
-          setClientResult(res.data);
-        } else {
-          setTrackError('No se encontró información para esta búsqueda');
+        // Intenta cliente primero; si 404, prueba como tracking
+        try {
+          const ok = await tryClientLookup();
+          if (!ok) await tryTracking();
+        } catch (e: any) {
+          if (e.response?.status === 404) {
+            try {
+              const ok = await tryTracking();
+              if (!ok) setTrackError('No se encontró ni cliente ni guía con esa búsqueda');
+            } catch (e2: any) {
+              setTrackError('No se encontró cliente ni guía con esa búsqueda');
+            }
+          } else {
+            throw e;
+          }
         }
       } else {
-        const res = await api.get(`/packages/track/${encodeURIComponent(raw)}`);
-        if (res.data?.success && (res.data.shipment || res.data.package)) {
-          setTrackResult(res.data);
-        } else {
-          setTrackError('No se encontró información para esta guía');
+        // Intenta tracking primero; si 404, prueba como cliente
+        try {
+          const ok = await tryTracking();
+          if (!ok) await tryClientLookup();
+        } catch (e: any) {
+          if (e.response?.status === 404) {
+            try {
+              const ok = await tryClientLookup();
+              if (!ok) setTrackError('No se encontró ni guía ni cliente con esa búsqueda');
+            } catch (e2: any) {
+              setTrackError('No se encontró guía ni cliente con esa búsqueda');
+            }
+          } else {
+            throw e;
+          }
         }
       }
     } catch (e: any) {
-      if (e.response?.status === 404) {
-        setTrackError(lookupAsClient ? 'Cliente no encontrado' : 'Guía no encontrada en el sistema');
-      } else {
-        setTrackError(e.response?.data?.error || e.message || 'Error al consultar');
-      }
+      setTrackError(e.response?.data?.error || e.message || 'Error al consultar');
     } finally {
       setTrackLoading(false);
     }

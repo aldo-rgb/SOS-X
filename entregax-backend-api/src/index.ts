@@ -368,6 +368,9 @@ import {
 } from './entangledController';
 import {
   createPaymentRequestV2 as createEntangledRequestV2,
+  createAdvisorXpayRequest,
+  getAdvisorXpayClients,
+  getAdvisorXpayRequests,
   getExchangeRate as getEntangledExchangeRate,
   searchConceptosProxy as searchEntangledConceptos,
   asignacionProxy as entangledAsignacion,
@@ -900,6 +903,7 @@ import {
   updateOrderConsolidation,
   uploadPackingList,
   updateMarkClient,
+  updateOrderStatus as updateMaritimeOrderStatus,
   // Rutas
   getMaritimeRoutes,
   createMaritimeRoute,
@@ -5288,9 +5292,13 @@ app.post(
   '/api/entangled/payment-requests',
   authenticateToken,
   entangledRequestUpload.single('comprobante'),
-  createEntangledRequestV2
+  (req: Request, res: Response) => createEntangledRequestV2(req, res)
 );
 app.get('/api/entangled/payment-requests/me', authenticateToken, getMyEntangledRequests);
+// Xpay Asesor: el asesor crea operaciones a nombre de un cliente asignado.
+app.get('/api/advisor/xpay/clients', authenticateToken, getAdvisorXpayClients);
+app.get('/api/advisor/xpay/payment-requests', authenticateToken, getAdvisorXpayRequests);
+app.post('/api/advisor/xpay/payment-requests', authenticateToken, entangledRequestUpload.single('comprobante'), createAdvisorXpayRequest);
 app.get('/api/entangled/payment-requests/:id', authenticateToken, getEntangledRequestDetail);
 // Admin
 app.get('/api/admin/entangled/payment-requests', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAllEntangledRequests);
@@ -7053,6 +7061,7 @@ app.get('/api/maritime-api/orders/:ordersn/refresh', authenticateToken, requireM
 app.post('/api/maritime-api/orders/:ordersn/assign', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignOrderToClient);
 app.put('/api/maritime-api/orders/:ordersn/consolidation', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateOrderConsolidation);
 app.put('/api/maritime-api/orders/:ordersn/mark-client', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateMarkClient);
+app.put('/api/maritime-api/orders/:ordersn/status', authenticateToken, requireRole(ROLES.SUPER_ADMIN), updateMaritimeOrderStatus);
 app.post('/api/maritime-api/orders/:ordersn/packing-list', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), uploadPackingList);
 
 // Asignación masiva de precios a órdenes en contenedores
@@ -12806,7 +12815,7 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'advisor_payment_order_enabled', 'require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode', 'entregax_payment_query_enabled', 'facturas_enabled')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'advisor_payment_order_enabled', 'advisor_xpay_enabled', 'require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode', 'entregax_payment_query_enabled', 'facturas_enabled')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -12861,6 +12870,10 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
     const advisorPaymentOrderEnabled = byKey['advisor_payment_order_enabled'] !== undefined
       ? byKey['advisor_payment_order_enabled']?.enabled !== false
       : true;
+
+    // advisor_xpay_enabled: controla la función Xpay para asesores (default FALSE
+    // — es una feature nueva que se habilita explícitamente)
+    const advisorXpayEnabled = byKey['advisor_xpay_enabled']?.enabled === true;
 
     // require_payment_to_load: si está desactivado, el chofer puede cargar sin que el cliente haya pagado
     const requirePaymentToLoad = byKey['require_payment_to_load'] !== undefined
@@ -12937,6 +12950,7 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
         facturas_by_service: facturasByService,
         advisor_instructions_enabled: true,
         advisor_payment_order_enabled: true,
+        advisor_xpay_enabled: advisorXpayEnabled,
         require_payment_to_load: requirePaymentToLoad,
         require_label_to_load: requireLabelToLoad,
         require_instructions_to_load_pobox: requireInstructionsToLoadPobox,
@@ -12962,6 +12976,7 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
       facturas_by_service: facturasByService,
       advisor_instructions_enabled: advisorInstructionsEnabled,
       advisor_payment_order_enabled: advisorPaymentOrderEnabled,
+      advisor_xpay_enabled: advisorXpayEnabled,
       require_payment_to_load: requirePaymentToLoad,
       require_label_to_load: requireLabelToLoad,
       require_instructions_to_load_pobox: requireInstructionsToLoadPobox,
@@ -12974,7 +12989,7 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
       maintenance_mode: maintenanceMode,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, facturas_enabled: true, facturas_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, advisor_instructions_enabled: true, advisor_payment_order_enabled: true, require_payment_to_load: true, require_label_to_load: true, require_instructions_to_load_pobox: false, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, entregax_full_black_url: null, maintenance_mode: false });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, facturas_enabled: true, facturas_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, advisor_instructions_enabled: true, advisor_payment_order_enabled: true, advisor_xpay_enabled: false, require_payment_to_load: true, require_label_to_load: true, require_instructions_to_load_pobox: false, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, entregax_full_black_url: null, maintenance_mode: false });
   }
 });
 
@@ -13133,6 +13148,26 @@ app.post('/api/admin/system/advisor-payment-order-toggle', authenticateToken, re
   } catch (err: any) {
     console.error('[ADVISOR-PAYMENT-ORDER-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar estado de Orden de Pago' });
+  }
+});
+
+// POST /api/admin/system/advisor-xpay-toggle — controla la función Xpay para asesores
+app.post('/api/admin/system/advisor-xpay-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled === true;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('advisor_xpay_enabled', $1::jsonb, 'Control de la función Xpay para asesores (crear operaciones a sus clientes)', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled: !!enabled }), userId]
+    );
+    console.log(`🅧 [XPAY-ASESOR] ${enabled ? '✅ Habilitado' : '🔴 Deshabilitado'} por user #${userId}`);
+    res.json({ success: true, advisor_xpay_enabled: !!enabled });
+  } catch (err: any) {
+    console.error('[ADVISOR-XPAY-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar estado de Xpay Asesor' });
   }
 });
 
