@@ -621,7 +621,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
              AND pp.package_ids @> jsonb_build_array(p.id) LIMIT 1)
         ) AS in_payment_order_ref,
         COALESCE(p.national_label_url, '') as national_label_url,
-        COALESCE(p.national_shipping_cost, 0) as national_shipping_cost
+        COALESCE(p.national_shipping_cost, 0) as national_shipping_cost,
+        0::int as boxes_count
       FROM packages p
       JOIN users u ON (
         p.user_id = u.id
@@ -670,7 +671,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
              AND pp.package_ids @> jsonb_build_array(mo.id) LIMIT 1)
         ) AS in_payment_order_ref,
         COALESCE(mo.national_label_url, '') as national_label_url,
-        0::numeric as national_shipping_cost
+        0::numeric as national_shipping_cost,
+        COALESCE(NULLIF(mo.summary_boxes,0), NULLIF(mo.received_boxes,0), NULLIF(mo.goods_num,0), 1)::int as boxes_count
       FROM maritime_orders mo
       JOIN users u ON mo.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -728,7 +730,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
              AND pp.package_ids @> jsonb_build_array(MIN(ds.id)) LIMIT 1)
         ) AS in_payment_order_ref,
         COALESCE(MAX(ds.national_label_url), '') as national_label_url,
-        0::numeric as national_shipping_cost
+        0::numeric as national_shipping_cost,
+        0::int as boxes_count
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -908,6 +911,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         hasInstructions: s.has_instructions,
         isMaster: s.is_master,
         childrenCount: parseInt(s.children_count) || 0,
+        boxesCount: parseInt(s.boxes_count) || 0,
         hasGex: s.has_gex,
         gexCost: parseFloat(s.gex_cost) || 0,
         createdAt: s.created_at,

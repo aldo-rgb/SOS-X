@@ -198,6 +198,7 @@ interface AdvisorShipment {
   hasInstructions: boolean;
   isMaster: boolean;
   childrenCount: number;
+  boxesCount?: number;
   hasGex: boolean;
   gexCost: number;
   createdAt: string;
@@ -2923,7 +2924,6 @@ export default function DashboardAdvisor() {
                   </Tooltip>
                 </TableCell>
                 <TableCell>{t('advisor.tracking')}</TableCell>
-                <TableCell>Guía Origen</TableCell>
                 <TableCell>{t('advisor.client')}</TableCell>
                 <TableCell align="center">{t('advisor.status')}</TableCell>
                 <TableCell>{t('advisor.service')}</TableCell>
@@ -2941,7 +2941,7 @@ export default function DashboardAdvisor() {
             <TableBody>
               {shipments.length === 0 && !shipmentsLoading && (
                 <TableRow>
-                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('advisor.noShipments')}</Typography>
                   </TableCell>
                 </TableRow>
@@ -2961,38 +2961,43 @@ export default function DashboardAdvisor() {
                     </Tooltip>
                   </TableCell>
                   <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <Typography variant="body2" fontWeight={600}>
-                        {s.serviceType === 'AA_DHL'
-                          ? (s.internationalTracking || s.tracking || `#${s.id}`)
-                          : s.serviceType === 'AIR_CHN_MX'
-                          ? (s.childNo || s.internationalTracking || s.tracking || `#${s.id}`)
-                          : (s.tracking || s.internationalTracking || `#${s.id}`)}
-                      </Typography>
-                      {s.isMaster && s.childrenCount > 0 && (
-                        <Chip label={`${s.childrenCount} guías`} size="small" color="info" variant="outlined" sx={{ fontSize: '0.65rem', height: 20 }} icon={<UnfoldMoreIcon sx={{ fontSize: 14 }} />} />
-                      )}
-                    </Box>
-                    {s.serviceType === 'AA_DHL' && s.internationalTracking && s.tracking && s.tracking !== s.internationalTracking && (
-                      <Typography variant="caption" color="text.secondary" fontFamily="monospace">{s.tracking}</Typography>
-                    )}
-                    {s.serviceType === 'AIR_CHN_MX' && (s.childNo || s.internationalTracking || s.tracking) && (
-                      <Typography variant="caption" color="text.secondary" fontFamily="monospace">
-                        {String(s.childNo || s.internationalTracking || s.tracking || '').replace(/-\d+$/, '')}
-                      </Typography>
-                    )}
-                    {s.serviceType !== 'AA_DHL' && s.serviceType !== 'AIR_CHN_MX' && s.childNo && (
-                      <Typography variant="caption" color="text.secondary">{s.childNo}</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {s.serviceType !== 'AA_DHL' && s.internationalTracking ? (
-                      <Typography variant="body2" fontFamily="monospace" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
-                        {s.internationalTracking}
-                      </Typography>
-                    ) : (
-                      <Typography variant="caption" color="text.disabled">—</Typography>
-                    )}
+                    {(() => {
+                      const guiaOrigen = s.serviceType !== 'AA_DHL' ? String(s.internationalTracking || '').trim() : '';
+                      // Subtítulo: si hay guía origen registrada, se muestra ésta;
+                      // si no, la guía secundaria propia del servicio.
+                      let subtitle = '';
+                      if (s.serviceType === 'AA_DHL') {
+                        subtitle = (s.internationalTracking && s.tracking && s.tracking !== s.internationalTracking) ? s.tracking : '';
+                      } else if (guiaOrigen) {
+                        subtitle = guiaOrigen;
+                      } else if (s.serviceType === 'AIR_CHN_MX') {
+                        subtitle = String(s.childNo || s.tracking || '').replace(/-\d+$/, '');
+                      } else if (s.childNo) {
+                        subtitle = s.childNo;
+                      }
+                      return (
+                        <>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="body2" fontWeight={600}>
+                              {s.serviceType === 'AA_DHL'
+                                ? (s.internationalTracking || s.tracking || `#${s.id}`)
+                                : s.serviceType === 'AIR_CHN_MX'
+                                ? (s.childNo || s.internationalTracking || s.tracking || `#${s.id}`)
+                                : (s.tracking || s.internationalTracking || `#${s.id}`)}
+                            </Typography>
+                            {s.isMaster && s.childrenCount > 0 && (
+                              <Chip label={`${s.childrenCount} guías`} size="small" color="info" variant="outlined" sx={{ fontSize: '0.65rem', height: 20 }} icon={<UnfoldMoreIcon sx={{ fontSize: 14 }} />} />
+                            )}
+                            {s.serviceType === 'SEA_CHN_MX' && (s.boxesCount || 0) > 0 && (
+                              <Chip label={`${s.boxesCount} ${s.boxesCount === 1 ? 'caja' : 'cajas'}`} size="small" color="info" variant="outlined" sx={{ fontSize: '0.65rem', height: 20 }} icon={<InventoryIcon sx={{ fontSize: 13 }} />} />
+                            )}
+                          </Box>
+                          {subtitle && (
+                            <Typography variant="caption" color="text.secondary" fontFamily="monospace">{subtitle}</Typography>
+                          )}
+                        </>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight={600} fontFamily="monospace">{s.clientBoxId || s.clientName}</Typography>
