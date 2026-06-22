@@ -682,6 +682,27 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
             }
         }
 
+        // Si no encontramos en packages ni china_receipts, buscar en maritime_orders
+        // (consolidaciones marítimas China — tracking LOG...).
+        if (!packageId) {
+            const marSearch = await pool.query(`
+                SELECT mo.id, mo.ordersn, mo.shipping_mark, mo.status, mo.user_id,
+                       (SELECT full_name FROM users WHERE id = mo.user_id) as client_name,
+                       (SELECT box_id FROM users WHERE id = mo.user_id) as client_box_id
+                FROM maritime_orders mo
+                WHERE UPPER(mo.ordersn) = UPPER($1)
+                   OR UPPER(REPLACE(mo.ordersn, '-', '')) = UPPER(REPLACE($1, '-', ''))
+                LIMIT 1
+            `, [barcode]);
+            if (marSearch.rows.length > 0) {
+                packageInfo = marSearch.rows[0];
+                packageId = packageInfo.id;
+                tableName = 'maritime_orders';
+                packageServiceType = 'maritimo';
+                console.log(`🚢 Encontrado en maritime_orders: ${barcode}`);
+            }
+        }
+
         // Si no encontramos el paquete
         if (!packageId) {
             // Registrar escaneo fallido
@@ -732,8 +753,16 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
                 // china_receipts usa VARCHAR - podemos poner el nombre de la sucursal
                 newStatus = `received_${branch_code.toLowerCase()}`; // ej: received_cdmx, received_mty
                 await pool.query(`
-                    UPDATE china_receipts 
-                    SET status = $1, updated_at = NOW() 
+                    UPDATE china_receipts
+                    SET status = $1, updated_at = NOW()
+                    WHERE id = $2
+                `, [newStatus, packageId]);
+            } else if (tableName === 'maritime_orders') {
+                // maritime_orders usa VARCHAR status (received_cdmx, etc.)
+                newStatus = `received_${branch_code.toLowerCase()}`;
+                await pool.query(`
+                    UPDATE maritime_orders
+                    SET status = $1, updated_at = NOW()
                     WHERE id = $2
                 `, [newStatus, packageId]);
             } else {
@@ -749,8 +778,10 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
             // 📦 Registrar en branch_inventory (para que aparezca en "Inventario por Sucursal")
             // UPSERT: si el paquete ya estaba en inventario (ej: re-escaneo), actualizar a in_stock
             try {
-                const inventoryTrackingNumber = packageInfo?.tracking_internal || packageInfo?.fno || barcode;
-                const inventoryPackageType = tableName === 'china_receipts' ? 'china_receipt' : 'package';
+                const inventoryTrackingNumber = packageInfo?.tracking_internal || packageInfo?.fno || packageInfo?.ordersn || barcode;
+                const inventoryPackageType = tableName === 'china_receipts' ? 'china_receipt'
+                    : tableName === 'maritime_orders' ? 'maritime_order'
+                    : 'package';
                 await pool.query(`
                     INSERT INTO branch_inventory (
                         branch_id, package_type, package_id, tracking_number,
@@ -790,6 +821,16 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
             console.log(`✅ [WAREHOUSE] INGRESO exitoso: ${barcode} en ${branch_name} (tabla: ${tableName})`);
 
         } else if (scanType === 'SALIDA') {
+          if (tableName === 'maritime_orders') {
+            // Marítimo: salida simple (no tiene guía nacional Skydropx ni
+            // current_branch_id). Marca la orden como en ruta de entrega.
+            newStatus = 'out_for_delivery';
+            await pool.query(`UPDATE maritime_orders SET status = $1, updated_at = NOW() WHERE id = $2`, [newStatus, packageId]);
+            actionMessage = `📤 Salida registrada desde ${branch_name}`;
+            try {
+              await pool.query(`UPDATE branch_inventory SET status='released', released_at=NOW(), released_by=$1 WHERE branch_id=$2 AND package_type='maritime_order' AND package_id=$3`, [workerId, branch_id, packageId]);
+            } catch { /* no bloqueante */ }
+          } else {
             // Validar que el paquete esté en esta bodega.
             // Self-heal: si current_branch_id viene NULL pero el status indica que
             // ya fue recibido (received_mty / received_<code> / received), asumimos
@@ -982,8 +1023,9 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
                 ]);
             }
 
-            console.log(`✅ [WAREHOUSE] SALIDA exitosa: ${barcode} desde ${branch_name}` + 
+            console.log(`✅ [WAREHOUSE] SALIDA exitosa: ${barcode} desde ${branch_name}` +
                        (nationalTracking ? ` - Guía: ${nationalTracking}` : ''));
+          }
         }
 
         // 5. REGISTRAR ESCANEO EXITOSO
