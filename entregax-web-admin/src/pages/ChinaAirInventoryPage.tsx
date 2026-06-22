@@ -75,6 +75,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
     received_mty: { label: 'En bodega MTY', color: '#2E7D32' },
     customs_clearance: { label: 'Aduana', color: '#7B1FA2' },
     in_warehouse: { label: 'En bodega', color: '#2E7D32' },
+    shipped: { label: 'Enviado', color: '#0277BD' },
     delivered: { label: 'Entregado', color: '#424242' },
 };
 
@@ -91,6 +92,24 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
     const [dayFilter, setDayFilter] = useState<string>('');
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(50);
+    const [savingStatusId, setSavingStatusId] = useState<number | null>(null);
+
+    const isSuperAdmin = (() => {
+        try { return JSON.parse(localStorage.getItem('user') || '{}')?.role === 'super_admin'; } catch { return false; }
+    })();
+
+    const changeStatus = async (id: number, status: string) => {
+        setSavingStatusId(id);
+        try {
+            await api.patch(`/admin/china-air/packages/${id}/status`, { status });
+            setPackages(prev => prev.map(p => (p.id === id ? { ...p, status } : p)));
+        } catch (e) {
+            const err = e as { response?: { data?: { error?: string } }; message?: string };
+            setError(err.response?.data?.error || err.message || 'No se pudo actualizar el estado');
+        } finally {
+            setSavingStatusId(null);
+        }
+    };
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -276,11 +295,35 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
                                             </TableCell>
                                             <TableCell align="right">{Number(p.weight || 0).toFixed(2)}</TableCell>
                                             <TableCell>
-                                                <Chip
-                                                    label={meta.label}
-                                                    size="small"
-                                                    sx={{ bgcolor: meta.color, color: '#FFF', fontWeight: 600 }}
-                                                />
+                                                {isSuperAdmin ? (
+                                                    <Select
+                                                        size="small"
+                                                        value={STATUS_LABELS[p.status] ? p.status : ''}
+                                                        disabled={savingStatusId === p.id}
+                                                        onChange={(e) => changeStatus(p.id, e.target.value)}
+                                                        displayEmpty
+                                                        renderValue={() => (
+                                                            <Chip
+                                                                label={savingStatusId === p.id ? 'Guardando…' : meta.label}
+                                                                size="small"
+                                                                sx={{ bgcolor: meta.color, color: '#FFF', fontWeight: 600 }}
+                                                            />
+                                                        )}
+                                                        sx={{ '& .MuiSelect-select': { py: 0, pl: 0 }, '& fieldset': { border: 'none' }, minWidth: 140 }}
+                                                    >
+                                                        {Object.entries(STATUS_LABELS).map(([key, m]) => (
+                                                            <MenuItem key={key} value={key}>
+                                                                <Chip label={m.label} size="small" sx={{ bgcolor: m.color, color: '#FFF', fontWeight: 600 }} />
+                                                            </MenuItem>
+                                                        ))}
+                                                    </Select>
+                                                ) : (
+                                                    <Chip
+                                                        label={meta.label}
+                                                        size="small"
+                                                        sx={{ bgcolor: meta.color, color: '#FFF', fontWeight: 600 }}
+                                                    />
+                                                )}
                                             </TableCell>
                                             <TableCell>
                                                 {p.received_at

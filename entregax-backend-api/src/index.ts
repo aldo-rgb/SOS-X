@@ -10160,6 +10160,29 @@ app.post('/api/admin/china-air/awbs/:id/scan', authenticateToken, requireMinLeve
 app.post('/api/admin/china-air/awbs/:id/finalize', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), finalizeAwbReception);
 app.get('/api/admin/china-air/inventory', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getAirInventory);
 
+// Cambio manual de estado de un paquete aéreo — SOLO super_admin. Corrige
+// estados desde el inventario aéreo sin pasar por el flujo de recepción.
+app.patch('/api/admin/china-air/packages/:id/status', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), async (req: AuthRequest, res: Response) => {
+    try {
+        const id = parseInt(String(req.params.id), 10);
+        const status = String(req.body?.status || '').trim();
+        if (!id) return res.status(400).json({ error: 'ID inválido' });
+        const ALLOWED = ['received_china', 'in_transit', 'in_customs_gz', 'customs_clearance', 'received_mty', 'in_warehouse', 'delivered', 'shipped'];
+        if (!ALLOWED.includes(status)) return res.status(400).json({ error: 'Estado no permitido' });
+        const r = await pool.query(
+            `UPDATE packages SET status = $1::package_status, updated_at = NOW()
+              WHERE id = $2 AND service_type::text = 'AIR_CHN_MX'
+             RETURNING id, status::text AS status`,
+            [status, id]
+        );
+        if (r.rows.length === 0) return res.status(404).json({ error: 'Paquete aéreo no encontrado' });
+        return res.json({ success: true, status: r.rows[0].status });
+    } catch (e: any) {
+        console.error('[china-air status]', e.message);
+        return res.status(500).json({ error: 'No se pudo actualizar el estado', details: e.message });
+    }
+});
+
 // ========== RECEPCIÓN MARÍTIMA POR CONTENEDOR (Hub TDI Marítimo China) ==========
 app.get('/api/admin/china-sea/containers/in-transit', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listInTransitContainers);
 app.get('/api/admin/china-sea/containers/:id/orders', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getContainerOrders);
