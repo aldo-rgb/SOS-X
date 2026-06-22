@@ -416,11 +416,14 @@ function ClientLookupResult({ data }: { data: PackageData }) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       {/* Ficha del cliente */}
       <Paper elevation={0} sx={{ p: 1.5, borderRadius: 2, border: '1px solid #FFE0B2', bgcolor: 'white' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
           <PersonIcon sx={{ color: CAJITO_RING, fontSize: 20 }} />
           <Typography variant="body1" fontWeight={700}>{client.full_name || '(sin nombre)'}</Typography>
           {client.box_id && (
             <Chip size="small" label={client.box_id} sx={{ bgcolor: '#FFF3E0', color: '#D84315', fontWeight: 600 }} />
+          )}
+          {client.is_legacy && (
+            <Chip size="small" label="Legacy" sx={{ bgcolor: '#ECEFF1', color: '#455A64', fontWeight: 600 }} />
           )}
         </Box>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, color: 'text.secondary' }}>

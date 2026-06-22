@@ -737,10 +737,80 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
             id: u.id,
             box_id: u.box_id,
             full_name: u.full_name,
-            email: u.email
+            email: u.email,
+            source: 'users'
           }))
         });
         return;
+      }
+    }
+
+    // --- 1b) Fallback a legacy_clients (clientes no migrados) -----------
+    let isLegacy = false;
+    if (!client) {
+      // Exacto por box_id en legacy
+      if (isBoxIdLike) {
+        const r = await pool.query(
+          `SELECT lc.id, lc.box_id, lc.full_name, lc.email, lc.phone,
+                  lc.asesor, lc.recovery_advisor_id, lc.claimed_by_user_id, lc.is_claimed, lc.created_at
+             FROM legacy_clients lc
+            WHERE UPPER(TRIM(lc.box_id)) = UPPER(TRIM($1))
+            LIMIT 1`,
+          [q]
+        );
+        if (r.rows[0]) {
+          client = { ...r.rows[0], role: 'legacy' };
+          isLegacy = true;
+        }
+      }
+      if (!client && isEmail) {
+        const r = await pool.query(
+          `SELECT lc.id, lc.box_id, lc.full_name, lc.email, lc.phone,
+                  lc.asesor, lc.recovery_advisor_id, lc.claimed_by_user_id, lc.is_claimed, lc.created_at
+             FROM legacy_clients lc
+            WHERE LOWER(lc.email) = LOWER($1)
+            LIMIT 1`,
+          [q]
+        );
+        if (r.rows[0]) { client = { ...r.rows[0], role: 'legacy' }; isLegacy = true; }
+      }
+      if (!client) {
+        // Parcial en legacy
+        const like = `%${q}%`;
+        const r = await pool.query(
+          `SELECT lc.id, lc.box_id, lc.full_name, lc.email
+             FROM legacy_clients lc
+            WHERE lc.box_id ILIKE $1 OR lc.full_name ILIKE $1 OR lc.email ILIKE $1
+            ORDER BY (UPPER(lc.box_id) = UPPER($2)) DESC, lc.box_id NULLS LAST
+            LIMIT 10`,
+          [like, q]
+        );
+        if (r.rows.length === 1) {
+          client = { ...r.rows[0], role: 'legacy' };
+          isLegacy = true;
+          // hidratar campos restantes
+          const full = await pool.query(
+            `SELECT lc.id, lc.box_id, lc.full_name, lc.email, lc.phone,
+                    lc.asesor, lc.recovery_advisor_id, lc.claimed_by_user_id, lc.is_claimed, lc.created_at
+               FROM legacy_clients lc WHERE lc.id = $1 LIMIT 1`,
+            [r.rows[0].id]
+          );
+          if (full.rows[0]) client = { ...full.rows[0], role: 'legacy' };
+        } else if (r.rows.length > 1) {
+          res.json({
+            success: true,
+            multiple: true,
+            query: q,
+            suggestions: r.rows.map(u => ({
+              id: u.id,
+              box_id: u.box_id,
+              full_name: u.full_name,
+              email: u.email,
+              source: 'legacy_clients'
+            }))
+          });
+          return;
+        }
       }
     }
 
@@ -751,7 +821,7 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
 
     // --- 2) Datos del asesor (si existe) ------------------------------
     let advisor: any = null;
-    const advisorId = client.advisor_id || client.referred_by_id;
+    const advisorId = client.advisor_id || client.referred_by_id || client.recovery_advisor_id;
     if (advisorId) {
       const r = await pool.query(
         `SELECT id, full_name, email, box_id, role FROM users WHERE id = $1 LIMIT 1`,
@@ -759,10 +829,16 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
       );
       advisor = r.rows[0] || null;
     }
+    if (!advisor && isLegacy && client.asesor) {
+      // Asesor textual del legacy
+      advisor = { id: null, full_name: client.asesor, email: null, box_id: null, role: 'legacy' };
+    }
 
     // --- 3) Paquetes del cliente --------------------------------------
     // Buscamos por user_id O por box_id (legacy / sin user_id).
+    // OJO: para legacy_clients el id NO corresponde a users.id, así que pasamos NULL.
     const ACTIVE_STATUSES = ['pending', 'received', 'received_china', 'in_transit', 'in_cedis', 'at_port', 'customs', 'customs_cleared', 'consolidated', 'shipped', 'ready_pickup', 'out_for_delivery'];
+    const usersIdForPackages = isLegacy ? (client.claimed_by_user_id || null) : client.id;
     const pkgRes = await pool.query(
       `SELECT p.id, p.tracking_internal, p.tracking_provider, p.status, p.service_type,
               p.weight, p.length, p.width, p.height,
@@ -771,12 +847,12 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
               p.master_id, p.is_master,
               p.national_carrier, p.national_tracking, p.national_label_url
          FROM packages p
-        WHERE (p.user_id = $1
+        WHERE (($1::int IS NOT NULL AND p.user_id = $1::int)
                OR ($2 IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM($2))))
           AND (p.is_master = true OR p.master_id IS NULL)
         ORDER BY p.created_at DESC
         LIMIT 200`,
-      [client.id, client.box_id]
+      [usersIdForPackages, client.box_id]
     );
 
     const allPackages = pkgRes.rows;
@@ -786,41 +862,45 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
       .slice(0, 25);
 
     // --- 4) Órdenes de pago (pobox_payments + advisor_payment_orders) ---
+    // Para clientes legacy no migrados (claimed_by_user_id NULL) no hay órdenes
+    // ya que se generan contra users.id.
     let paymentOrders: any[] = [];
-    try {
-      const poboxRes = await pool.query(
-        `SELECT pp.id, pp.payment_reference, pp.status, pp.amount, pp.payment_method,
-                pp.package_ids, pp.created_at, pp.paid_at, pp.expires_at,
-                pp.facturada, pp.requiere_factura,
-                'client' AS source
-           FROM pobox_payments pp
-          WHERE pp.user_id = $1
-          ORDER BY pp.created_at DESC
-          LIMIT 50`,
-        [client.id]
-      );
-      paymentOrders = poboxRes.rows;
-    } catch (e) {
-      // tabla puede no existir en entornos antiguos
-      paymentOrders = [];
-    }
+    const userIdForOrders = isLegacy ? (client.claimed_by_user_id || null) : client.id;
+    if (userIdForOrders) {
+      try {
+        const poboxRes = await pool.query(
+          `SELECT pp.id, pp.payment_reference, pp.status, pp.amount, pp.payment_method,
+                  pp.package_ids, pp.created_at, pp.paid_at, pp.expires_at,
+                  pp.facturada, pp.requiere_factura,
+                  'client' AS source
+             FROM pobox_payments pp
+            WHERE pp.user_id = $1
+            ORDER BY pp.created_at DESC
+            LIMIT 50`,
+          [userIdForOrders]
+        );
+        paymentOrders = poboxRes.rows;
+      } catch (e) {
+        paymentOrders = [];
+      }
 
-    try {
-      const apoRes = await pool.query(
-        `SELECT apo.id, apo.folio AS payment_reference, apo.status,
-                apo.total_mxn AS amount, apo.package_uids AS package_ids,
-                apo.created_at, NULL::timestamptz AS paid_at, NULL::timestamptz AS expires_at,
-                NULL::boolean AS facturada, NULL::boolean AS requiere_factura,
-                'advisor' AS source
-           FROM advisor_payment_orders apo
-          WHERE apo.client_id = $1
-          ORDER BY apo.created_at DESC
-          LIMIT 50`,
-        [client.id]
-      );
-      paymentOrders = paymentOrders.concat(apoRes.rows);
-    } catch (e) {
-      // tabla puede no existir
+      try {
+        const apoRes = await pool.query(
+          `SELECT apo.id, apo.folio AS payment_reference, apo.status,
+                  apo.total_mxn AS amount, apo.package_uids AS package_ids,
+                  apo.created_at, NULL::timestamptz AS paid_at, NULL::timestamptz AS expires_at,
+                  NULL::boolean AS facturada, NULL::boolean AS requiere_factura,
+                  'advisor' AS source
+             FROM advisor_payment_orders apo
+            WHERE apo.client_id = $1
+            ORDER BY apo.created_at DESC
+            LIMIT 50`,
+          [userIdForOrders]
+        );
+        paymentOrders = paymentOrders.concat(apoRes.rows);
+      } catch (e) {
+        // tabla puede no existir
+      }
     }
 
     paymentOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -870,6 +950,8 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
         box_id: client.box_id,
         role: client.role,
         created_at: client.created_at,
+        is_legacy: isLegacy,
+        claimed_by_user_id: client.claimed_by_user_id || null,
       },
       advisor,
       summary: {
