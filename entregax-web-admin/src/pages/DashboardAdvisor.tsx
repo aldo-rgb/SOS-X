@@ -119,6 +119,7 @@ import {
   AddCircle as ExtraChargeIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
+import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
 import { usePaymentStatus, mapServiceKey } from '../hooks/usePaymentStatus';
 import AdvisorVerificationWizard from '../components/AdvisorVerificationWizard';
 import AdvisorTermsSignatureDialog from '../components/AdvisorTermsSignatureDialog';
@@ -348,7 +349,7 @@ export default function DashboardAdvisor() {
   const { t } = useTranslation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const { advisorInstructionsEnabled, advisorPaymentOrderEnabled, entregaxPaymentsByService } = usePaymentStatus();
+  const { advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, entregaxPaymentsByService } = usePaymentStatus();
 
   // ─── State ───
   const [activeTab, setActiveTab] = useState(0);
@@ -384,6 +385,22 @@ export default function DashboardAdvisor() {
   const [clients, setClients] = useState<AdvisorClient[]>([]);
   const [clientsTotal, setClientsTotal] = useState(0);
   const [clientsLoading, setClientsLoading] = useState(false);
+
+  // ── Xpay (asesor crea operaciones a nombre de un cliente asignado) ──
+  const [xpayClient, setXpayClient] = useState<{ id: number; full_name: string; box_id: string } | null>(null);
+  const [xpayClientOptions, setXpayClientOptions] = useState<{ id: number; full_name: string; box_id: string }[]>([]);
+  const [xpayClientsLoading, setXpayClientsLoading] = useState(false);
+  const fetchXpayClients = useCallback(async (search: string) => {
+    setXpayClientsLoading(true);
+    try {
+      const r = await api.get('/advisor/xpay/clients', { params: search ? { search } : {} });
+      setXpayClientOptions(r.data?.clients || []);
+    } catch {
+      setXpayClientOptions([]);
+    } finally {
+      setXpayClientsLoading(false);
+    }
+  }, []);
   const [clientSearch, setClientSearch] = useState('');
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [clientPage, setClientPage] = useState(0);
@@ -1045,6 +1062,7 @@ export default function DashboardAdvisor() {
       { id: 'clients',      label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: dotIcon(<PeopleIcon />, hasNewClients), shortLabel: 'Clientes' },
       { id: 'instructions', label: 'Instrucciones', icon: <ShippingIcon />, shortLabel: 'Instrucciones' },
       ...(advisorPaymentOrderEnabled ? [{ id: 'payment_order', label: isMobile ? 'Pago' : 'Orden de Pago', icon: <MoneyIcon sx={{ color: 'inherit' }} />, shortLabel: 'Pago' }] : []),
+      ...(advisorXpayEnabled ? [{ id: 'xpay', label: 'Xpay', icon: <PaymentIcon sx={{ color: 'inherit' }} />, shortLabel: 'Xpay' }] : []),
       { id: 'commissions',  label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
       { id: 'tools',        label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
       { id: 'tickets',      label: isMobile ? 'Tickets' : 'Tickets', icon: dotIcon(<TicketIcon />, hasTicketResponses), shortLabel: 'Tickets' },
@@ -1054,7 +1072,7 @@ export default function DashboardAdvisor() {
         : []),
     ];
     return tabs;
-  }, [t, isMobile, dashboardData, advisorTickets, advisorPaymentOrderEnabled]);
+  }, [t, isMobile, dashboardData, advisorTickets, advisorPaymentOrderEnabled, advisorXpayEnabled]);
 
   // ID estable de la pestaña activa. Lo usamos como dependencia en los efectos
   // de carga para EVITAR un loop infinito: `tabConfig` cambia de referencia
@@ -1099,6 +1117,10 @@ export default function DashboardAdvisor() {
   useEffect(() => {
     if (activeTabId === 'commissions') fetchCommissions();
   }, [activeTabId, fetchCommissions]);
+
+  useEffect(() => {
+    if (activeTabId === 'xpay') fetchXpayClients('');
+  }, [activeTabId, fetchXpayClients]);
 
   useEffect(() => {
     if (activeTabId === 'tickets' || activeTabId === 'quotes') fetchAdvisorTickets();
@@ -3180,6 +3202,57 @@ export default function DashboardAdvisor() {
     paid:               { label: 'Pagado',       color: 'success' },
     expired:            { label: 'Expirado',     color: 'error'   },
   };
+
+  const renderXpay = () => (
+    <Fade in timeout={400}>
+      <Box>
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="h6" fontWeight={800}>Xpay</Typography>
+          <Typography variant="caption" color="text.secondary">
+            Crea operaciones Xpay a nombre de tus clientes. El cliente podrá dar seguimiento al pago desde su Xpay.
+          </Typography>
+        </Box>
+
+        {/* Paso 1: seleccionar cliente (solo asignados) */}
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+            1. Selecciona el cliente
+          </Typography>
+          <Autocomplete
+            options={xpayClientOptions}
+            loading={xpayClientsLoading}
+            value={xpayClient}
+            onChange={(_e, v) => setXpayClient(v)}
+            getOptionLabel={(o) => `${o.box_id || '—'} · ${o.full_name || ''}`}
+            isOptionEqualToValue={(o, v) => o.id === v.id}
+            onInputChange={(_e, val, reason) => { if (reason === 'input') fetchXpayClients(val); }}
+            renderInput={(params) => (
+              <TextField {...params} size="small" label="Número de cliente o nombre" placeholder="Ej. S1, S78, nombre…" />
+            )}
+            sx={{ maxWidth: 480 }}
+          />
+        </Paper>
+
+        {/* Paso 2: formulario de operación a nombre del cliente */}
+        {xpayClient ? (
+          <Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Chip label={xpayClient.box_id || '—'} size="small" sx={{ bgcolor: '#1A1A1A', color: '#fff', fontWeight: 700 }} />
+              <Typography variant="body2" fontWeight={700}>{xpayClient.full_name}</Typography>
+              <Button size="small" onClick={() => setXpayClient(null)} sx={{ color: '#C62828', textTransform: 'none' }}>
+                Cambiar cliente
+              </Button>
+            </Box>
+            <EntangledPaymentRequest hideHeader advisorClientId={xpayClient.id} key={xpayClient.id} />
+          </Box>
+        ) : (
+          <Typography variant="body2" color="text.secondary" sx={{ px: 1 }}>
+            Selecciona un cliente para crear su operación Xpay.
+          </Typography>
+        )}
+      </Box>
+    </Fade>
+  );
 
   const renderOrdenDePago = () => (
     <Fade in timeout={400}>
@@ -6062,6 +6135,7 @@ export default function DashboardAdvisor() {
             {tid === 'clients'     && renderClients()}
             {tid === 'instructions'&& renderShipments()}
             {tid === 'payment_order'&&renderOrdenDePago()}
+            {tid === 'xpay'        && renderXpay()}
             {tid === 'commissions' && renderCommissions()}
             {tid === 'tools'       && renderTools()}
             {tid === 'tickets'     && renderTickets()}

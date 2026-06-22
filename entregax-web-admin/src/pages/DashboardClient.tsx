@@ -974,7 +974,9 @@ export default function DashboardClient() {
   const [carrierImageFailed, setCarrierImageFailed] = useState<Record<string, boolean>>({});
   // 🎨 Logo "X" de EntregaX (brand asset activo) para sobreescribir el
   // ícono de cualquier paquetería interna (carrier_key empezando con "entregax_").
-  const [entregaxLogoUrl, setEntregaxLogoUrl] = useState<string>('');
+  // Nota: el valor aún no se consume (WIP). Se mantiene el setter para no
+  // perder la carga del asset; re-agrega `entregaxLogoUrl` cuando lo uses.
+  const [, setEntregaxLogoUrl] = useState<string>('');
   useEffect(() => {
     let cancelled = false;
     (async () => {

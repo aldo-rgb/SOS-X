@@ -345,9 +345,11 @@ const DocCard: React.FC<{
 interface Props {
   /** Cuando true, oculta el header del componente (útil si se mete dentro de otra página). */
   hideHeader?: boolean;
+  /** Modo asesor: crea la operación a nombre de este cliente (su id). */
+  advisorClientId?: number;
 }
 
-export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
+export default function EntangledPaymentRequest({ hideHeader = false, advisorClientId }: Props) {
   const { t } = useTranslation();
   const token = useMemo(() => {
     if (typeof window === 'undefined') return '';
@@ -817,16 +819,18 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     if (!token) return;
     setLoading(true);
     try {
-      const r = await axios.get(`${API_URL}/api/entangled/payment-requests/me`, {
-        headers: authHeader,
-      });
-      setRequests(r.data || []);
+      // Modo asesor: lista las operaciones creadas para el cliente seleccionado.
+      const url = advisorClientId
+        ? `${API_URL}/api/advisor/xpay/payment-requests?client_id=${advisorClientId}`
+        : `${API_URL}/api/entangled/payment-requests/me`;
+      const r = await axios.get(url, { headers: authHeader });
+      setRequests(advisorClientId ? (r.data?.requests || []) : (r.data || []));
     } catch (err: unknown) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [authHeader, token]);
+  }, [authHeader, token, advisorClientId]);
 
   const loadSuppliers = useCallback(async () => {
     if (!token) return;
@@ -1798,8 +1802,13 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         quote,
       }));
 
+      // Modo asesor: crea la operación a nombre del cliente asignado.
+      if (advisorClientId) fd.append('client_id', String(advisorClientId));
+      const endpoint = advisorClientId
+        ? `${API_URL}/api/advisor/xpay/payment-requests`
+        : `${API_URL}/api/entangled/payment-requests`;
       // No fijar Content-Type manualmente: axios lo setea con boundary correcto para FormData
-      const res = await axios.post(`${API_URL}/api/entangled/payment-requests`, fd, {
+      const res = await axios.post(endpoint, fd, {
         headers: authHeader,
       });
 
