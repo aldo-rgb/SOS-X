@@ -138,6 +138,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const clientPaid = m.clientPaid ?? m.client_paid ?? false;
   const paymentStatus = m.paymentStatus ?? m.payment_status ?? '';
   const paid = clientPaid || paymentStatus === 'paid';
+  const clientPaidAt = m.clientPaidAt ?? m.client_paid_at ?? m.paid_at ?? null;
   const status = m.status ?? m.statusLabel ?? '';
   const destAddress = m.assignedAddress;
   const hasInstr = !!destAddress || m.needs_instructions === false;
@@ -175,7 +176,12 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
         <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75, flexWrap: 'wrap' }}>
           <Chip label={statusLabel(status)} size="small" color={statusColor(status)} />
           {totalBoxes > 1 && <Chip label={`${totalBoxes} cajas`} size="small" variant="outlined" />}
-          <Chip label={paid ? '✅ Pagado' : '⏳ Pendiente'} size="small" color={paid ? 'success' : 'warning'} variant="outlined" />
+          <Chip
+            label={paid ? `✅ Pagado${clientPaidAt ? ` · ${fmtDate(clientPaidAt)}` : ''}` : '⏳ Pendiente'}
+            size="small"
+            color={paid ? 'success' : 'warning'}
+            variant="outlined"
+          />
           <Chip label={hasLabel ? '🏷️ Etiquetado' : '📋 Sin etiqueta'} size="small" color={hasLabel ? 'success' : 'default'} variant="outlined" />
           <Chip label={hasInstr ? '📍 Con instrucciones' : '⚠️ Sin instrucciones'} size="small" color={hasInstr ? 'success' : 'warning'} variant="outlined" />
         </Box>
@@ -304,7 +310,9 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
             )}
             {montoPagado != null && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="caption" color="text.secondary">Monto pagado</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Monto pagado{clientPaidAt ? ` · ${fmtDate(clientPaidAt)}` : ''}
+                </Typography>
                 <Typography variant="caption" fontWeight={600} color="success.main">{fmtMoney(Number(montoPagado))}</Typography>
               </Box>
             )}
