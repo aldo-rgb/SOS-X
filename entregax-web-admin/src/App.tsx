@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import {
@@ -36,6 +36,7 @@ import {
   InputAdornment,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
+import MenuOpenIcon from '@mui/icons-material/MenuOpen';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -278,6 +279,22 @@ function App() {
   useEffect(() => {
     try { localStorage.setItem('sidebarOpen', desktopOpen ? '1' : '0'); } catch {}
   }, [desktopOpen]);
+  // Para asesores: cerrar sidebar por defecto al iniciar sesión (una vez por sesión)
+  const advisorSidebarInitRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser) return;
+    const role = currentUser.role;
+    if (role !== 'advisor' && role !== 'sub_advisor') return;
+    const userKey = String(currentUser.id ?? currentUser.email ?? 'unknown');
+    if (advisorSidebarInitRef.current === userKey) return;
+    advisorSidebarInitRef.current = userKey;
+    try {
+      const sessionKey = `sidebarInit:${userKey}`;
+      if (sessionStorage.getItem(sessionKey) === '1') return;
+      sessionStorage.setItem(sessionKey, '1');
+    } catch { /* ignore */ }
+    setDesktopOpen(false);
+  }, [isAuthenticated, currentUser]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [selectedSubIndex, setSelectedSubIndex] = useState<number | null>(null); // Para submenús
   const [panelsExpanded, setPanelsExpanded] = useState(false); // Estado del submenú expandido
@@ -1735,10 +1752,23 @@ function App() {
                 <IconButton
                   edge="start"
                   onClick={() => setDesktopOpen(v => !v)}
-                  sx={{ mr: 2, display: { xs: 'none', sm: 'inline-flex' }, color: 'text.primary' }}
+                  sx={{
+                    mr: 2,
+                    display: { xs: 'none', sm: 'inline-flex' },
+                    color: '#F05A28',
+                    bgcolor: 'rgba(240, 90, 40, 0.08)',
+                    border: '1px solid rgba(240, 90, 40, 0.3)',
+                    borderRadius: 1.5,
+                    width: 40,
+                    height: 40,
+                    '&:hover': {
+                      bgcolor: 'rgba(240, 90, 40, 0.16)',
+                      borderColor: '#F05A28',
+                    },
+                  }}
                   aria-label={desktopOpen ? 'Ocultar menú lateral' : 'Mostrar menú lateral'}
                 >
-                  <MenuIcon />
+                  {desktopOpen ? <MenuOpenIcon /> : <MenuIcon />}
                 </IconButton>
               </Tooltip>
               <Typography variant="h6" color="text.primary" fontWeight={600}>
@@ -1844,10 +1874,10 @@ function App() {
             {drawer}
           </Drawer>
           <Drawer
-            variant="persistent"
-            open={desktopOpen}
+            variant="permanent"
+            open
             sx={{
-              display: { xs: 'none', sm: 'block' },
+              display: { xs: 'none', sm: desktopOpen ? 'block' : 'none' },
               '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth, borderRight: 'none' },
             }}
           >

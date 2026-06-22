@@ -663,3 +663,231 @@ export const getHealth = async (req: AuthRequest, res: Response): Promise<void> 
     ready: hasKey && enabled,
   });
 };
+
+// ============================================================
+// GET /api/cajito/client-lookup?q=<box_id|email|name>
+// Devuelve ficha consolidada del cliente:
+//   - datos básicos + asesor + casillero
+//   - paquetes activos (en tránsito / por entregar)
+//   - paquetes recientes entregados (últimos 25)
+//   - órdenes de pago (pendientes y pagadas, últimas 50)
+//   - últimos movimientos (de paquetes activos)
+// Solo lectura. Pensado para el panel "Rastrear" de Cajito.
+// ============================================================
+export const clientLookup = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const q = String((req.query.q ?? req.query.query ?? '') as string).trim();
+    if (!q || q.length < 2) {
+      res.status(400).json({ error: 'query muy corto (mín 2)' });
+      return;
+    }
+
+    // --- 1) Resolver al cliente ---------------------------------------
+    // Prioridad: box_id exacto > id numérico > email exacto > búsqueda parcial
+    const isBoxIdLike = /^[A-Za-z]{0,4}-?\d{2,}$/.test(q);
+    const isNumeric = /^\d+$/.test(q);
+    const isEmail = /@/.test(q);
+
+    let client: any = null;
+    if (isBoxIdLike) {
+      const r = await pool.query(
+        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at
+           FROM users
+          WHERE UPPER(TRIM(box_id)) = UPPER(TRIM($1))
+          LIMIT 1`,
+        [q]
+      );
+      client = r.rows[0] || null;
+    }
+    if (!client && isNumeric) {
+      const r = await pool.query(
+        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at
+           FROM users WHERE id = $1 LIMIT 1`,
+        [parseInt(q, 10)]
+      );
+      client = r.rows[0] || null;
+    }
+    if (!client && isEmail) {
+      const r = await pool.query(
+        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at
+           FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+        [q]
+      );
+      client = r.rows[0] || null;
+    }
+    if (!client) {
+      // Búsqueda parcial: si hay UNA sola coincidencia, la devolvemos como cliente; si hay varias, devolvemos sugerencias.
+      const like = `%${q}%`;
+      const r = await pool.query(
+        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at
+           FROM users
+          WHERE box_id ILIKE $1 OR full_name ILIKE $1 OR email ILIKE $1
+          ORDER BY (UPPER(box_id) = UPPER($2)) DESC, box_id NULLS LAST
+          LIMIT 10`,
+        [like, q]
+      );
+      if (r.rows.length === 1) {
+        client = r.rows[0];
+      } else if (r.rows.length > 1) {
+        res.json({
+          success: true,
+          multiple: true,
+          query: q,
+          suggestions: r.rows.map(u => ({
+            id: u.id,
+            box_id: u.box_id,
+            full_name: u.full_name,
+            email: u.email
+          }))
+        });
+        return;
+      }
+    }
+
+    if (!client) {
+      res.status(404).json({ error: 'Cliente no encontrado', query: q });
+      return;
+    }
+
+    // --- 2) Datos del asesor (si existe) ------------------------------
+    let advisor: any = null;
+    const advisorId = client.advisor_id || client.referred_by_id;
+    if (advisorId) {
+      const r = await pool.query(
+        `SELECT id, full_name, email, box_id, role FROM users WHERE id = $1 LIMIT 1`,
+        [advisorId]
+      );
+      advisor = r.rows[0] || null;
+    }
+
+    // --- 3) Paquetes del cliente --------------------------------------
+    // Buscamos por user_id O por box_id (legacy / sin user_id).
+    const ACTIVE_STATUSES = ['pending', 'received', 'received_china', 'in_transit', 'in_cedis', 'at_port', 'customs', 'customs_cleared', 'consolidated', 'shipped', 'ready_pickup', 'out_for_delivery'];
+    const pkgRes = await pool.query(
+      `SELECT p.id, p.tracking_internal, p.tracking_provider, p.status, p.service_type,
+              p.weight, p.length, p.width, p.height,
+              p.box_id, p.created_at, p.received_at, p.delivered_at, p.shipped_at,
+              p.assigned_cost_mxn, p.saldo_pendiente, p.client_paid,
+              p.master_id, p.is_master,
+              p.national_carrier, p.national_tracking, p.national_label_url
+         FROM packages p
+        WHERE (p.user_id = $1
+               OR ($2 IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM($2))))
+          AND (p.is_master = true OR p.master_id IS NULL)
+        ORDER BY p.created_at DESC
+        LIMIT 200`,
+      [client.id, client.box_id]
+    );
+
+    const allPackages = pkgRes.rows;
+    const activePackages = allPackages.filter(p => ACTIVE_STATUSES.includes((p.status || '').toLowerCase()));
+    const deliveredPackages = allPackages
+      .filter(p => ['delivered', 'cancelled', 'lost'].includes((p.status || '').toLowerCase()))
+      .slice(0, 25);
+
+    // --- 4) Órdenes de pago (pobox_payments + advisor_payment_orders) ---
+    let paymentOrders: any[] = [];
+    try {
+      const poboxRes = await pool.query(
+        `SELECT pp.id, pp.payment_reference, pp.status, pp.amount, pp.payment_method,
+                pp.package_ids, pp.created_at, pp.paid_at, pp.expires_at,
+                pp.facturada, pp.requiere_factura,
+                'client' AS source
+           FROM pobox_payments pp
+          WHERE pp.user_id = $1
+          ORDER BY pp.created_at DESC
+          LIMIT 50`,
+        [client.id]
+      );
+      paymentOrders = poboxRes.rows;
+    } catch (e) {
+      // tabla puede no existir en entornos antiguos
+      paymentOrders = [];
+    }
+
+    try {
+      const apoRes = await pool.query(
+        `SELECT apo.id, apo.folio AS payment_reference, apo.status,
+                apo.total_mxn AS amount, apo.package_uids AS package_ids,
+                apo.created_at, NULL::timestamptz AS paid_at, NULL::timestamptz AS expires_at,
+                NULL::boolean AS facturada, NULL::boolean AS requiere_factura,
+                'advisor' AS source
+           FROM advisor_payment_orders apo
+          WHERE apo.client_id = $1
+          ORDER BY apo.created_at DESC
+          LIMIT 50`,
+        [client.id]
+      );
+      paymentOrders = paymentOrders.concat(apoRes.rows);
+    } catch (e) {
+      // tabla puede no existir
+    }
+
+    paymentOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    paymentOrders = paymentOrders.slice(0, 50);
+
+    // --- 5) Movimientos recientes (de los paquetes activos) -----------
+    let movements: any[] = [];
+    try {
+      const activeIds = activePackages.map(p => p.id);
+      if (activeIds.length > 0) {
+        const mvRes = await pool.query(
+          `SELECT ph.id, ph.package_id, ph.status,
+                  COALESCE(ph.notes, ph.description) AS description,
+                  b.name AS branch_name,
+                  ph.created_at,
+                  u.full_name AS created_by_name,
+                  p.tracking_internal
+             FROM package_history ph
+             LEFT JOIN users u ON u.id = ph.created_by
+             LEFT JOIN branches b ON b.id = ph.branch_id
+             LEFT JOIN packages p ON p.id = ph.package_id
+            WHERE ph.package_id = ANY($1::int[])
+            ORDER BY ph.created_at DESC
+            LIMIT 30`,
+          [activeIds]
+        );
+        movements = mvRes.rows;
+      }
+    } catch (e) {
+      movements = [];
+    }
+
+    // --- 6) Resumen rápido --------------------------------------------
+    const totalSaldo = activePackages.reduce((acc, p) => acc + (Number(p.saldo_pendiente) || 0), 0);
+    const totalPaymentsPending = paymentOrders
+      .filter(p => ['pending', 'pending_payment', 'pendiente'].includes(String(p.status).toLowerCase()))
+      .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+
+    res.json({
+      success: true,
+      query: q,
+      client: {
+        id: client.id,
+        full_name: client.full_name,
+        email: client.email,
+        phone: client.phone,
+        box_id: client.box_id,
+        role: client.role,
+        created_at: client.created_at,
+      },
+      advisor,
+      summary: {
+        active_packages: activePackages.length,
+        delivered_packages: deliveredPackages.length,
+        total_packages: allPackages.length,
+        pending_payment_orders: paymentOrders.filter(p => ['pending', 'pending_payment', 'pendiente'].includes(String(p.status).toLowerCase())).length,
+        total_payment_orders: paymentOrders.length,
+        balance_pending_mxn: totalSaldo,
+        payment_orders_pending_mxn: totalPaymentsPending,
+      },
+      activePackages,
+      deliveredPackages,
+      paymentOrders,
+      movements,
+    });
+  } catch (err: any) {
+    console.error('[cajito/client-lookup] error:', err);
+    res.status(500).json({ error: err?.message || 'Error en lookup de cliente' });
+  }
+};

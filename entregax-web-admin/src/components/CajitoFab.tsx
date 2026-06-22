@@ -363,6 +363,239 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   );
 }
 
+// Resultado del lookup de cliente: ficha + paquetes en tránsito + historial + órdenes de pago
+function ClientLookupResult({ data }: { data: PackageData }) {
+  // Caso: múltiples coincidencias → mostramos sugerencias
+  if (data.multiple && Array.isArray(data.suggestions)) {
+    return (
+      <Paper elevation={0} sx={{ p: 1.5, borderRadius: 2, border: '1px solid #FFE0B2', bgcolor: 'white' }}>
+        <Typography variant="body2" fontWeight={700} sx={{ mb: 1 }}>
+          Se encontraron {data.suggestions.length} clientes. Refina la búsqueda:
+        </Typography>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          {data.suggestions.map((s: any) => (
+            <Box key={s.id} sx={{ p: 1, borderRadius: 1, border: '1px solid #eee' }}>
+              <Typography variant="body2" fontWeight={600}>{s.full_name || '(sin nombre)'}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {s.box_id ? `${s.box_id} · ` : ''}{s.email || ''}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      </Paper>
+    );
+  }
+
+  const client = data.client || {};
+  const advisor = data.advisor || null;
+  const summary = data.summary || {};
+  const activePackages: PackageData[] = Array.isArray(data.activePackages) ? data.activePackages : [];
+  const deliveredPackages: PackageData[] = Array.isArray(data.deliveredPackages) ? data.deliveredPackages : [];
+  const paymentOrders: PackageData[] = Array.isArray(data.paymentOrders) ? data.paymentOrders : [];
+  const movements: PackageData[] = Array.isArray(data.movements) ? data.movements : [];
+
+  const [tab, setTab] = useState<'transit' | 'history' | 'payments' | 'movements'>('transit');
+
+  const tabBtn = (key: typeof tab, label: string, count?: number) => (
+    <Box
+      onClick={() => setTab(key)}
+      sx={{
+        cursor: 'pointer', px: 1.25, py: 0.5, borderRadius: 999, fontSize: 12, fontWeight: 600,
+        bgcolor: tab === key ? CAJITO_GRADIENT : 'transparent',
+        color: tab === key ? 'white' : 'text.secondary',
+        border: tab === key ? 'none' : '1px solid #FFD7B5',
+        display: 'inline-flex', alignItems: 'center', gap: 0.5,
+        '&:hover': { bgcolor: tab === key ? CAJITO_GRADIENT : '#FFF3E0' },
+      }}
+    >
+      {label}{typeof count === 'number' ? ` · ${count}` : ''}
+    </Box>
+  );
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      {/* Ficha del cliente */}
+      <Paper elevation={0} sx={{ p: 1.5, borderRadius: 2, border: '1px solid #FFE0B2', bgcolor: 'white' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          <PersonIcon sx={{ color: CAJITO_RING, fontSize: 20 }} />
+          <Typography variant="body1" fontWeight={700}>{client.full_name || '(sin nombre)'}</Typography>
+          {client.box_id && (
+            <Chip size="small" label={client.box_id} sx={{ bgcolor: '#FFF3E0', color: '#D84315', fontWeight: 600 }} />
+          )}
+        </Box>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, color: 'text.secondary' }}>
+          {client.email && <Typography variant="caption">📧 {client.email}</Typography>}
+          {client.phone && <Typography variant="caption">📱 {client.phone}</Typography>}
+          {client.id && <Typography variant="caption">ID #{client.id}</Typography>}
+          {advisor && <Typography variant="caption">👤 Asesor: {advisor.full_name}</Typography>}
+        </Box>
+
+        {/* KPIs */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0.75, mt: 1 }}>
+          <Box sx={{ p: 0.75, borderRadius: 1, bgcolor: '#FFF3E0', textAlign: 'center' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>En tránsito</Typography>
+            <Typography variant="body2" fontWeight={700} color="#D84315">{summary.active_packages ?? 0}</Typography>
+          </Box>
+          <Box sx={{ p: 0.75, borderRadius: 1, bgcolor: '#E8F5E9', textAlign: 'center' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Total guías</Typography>
+            <Typography variant="body2" fontWeight={700} color="#2E7D32">{summary.total_packages ?? 0}</Typography>
+          </Box>
+          <Box sx={{ p: 0.75, borderRadius: 1, bgcolor: '#FFF8E1', textAlign: 'center' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Órdenes pend.</Typography>
+            <Typography variant="body2" fontWeight={700} color="#F57F17">{summary.pending_payment_orders ?? 0}</Typography>
+          </Box>
+          <Box sx={{ p: 0.75, borderRadius: 1, bgcolor: '#FFEBEE', textAlign: 'center' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Saldo pend.</Typography>
+            <Typography variant="body2" fontWeight={700} color="#C62828">
+              {fmtMoney(summary.payment_orders_pending_mxn || summary.balance_pending_mxn || 0)}
+            </Typography>
+          </Box>
+        </Box>
+      </Paper>
+
+      {/* Tabs */}
+      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+        {tabBtn('transit', '📦 En tránsito', activePackages.length)}
+        {tabBtn('history', '🗂️ Historial', deliveredPackages.length)}
+        {tabBtn('payments', '💰 Órdenes', paymentOrders.length)}
+        {tabBtn('movements', '🕒 Movimientos', movements.length)}
+      </Box>
+
+      {/* Contenido por tab */}
+      {tab === 'transit' && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+          {activePackages.length === 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+              Sin paquetes en tránsito.
+            </Typography>
+          )}
+          {activePackages.map(p => (
+            <Paper key={p.id} elevation={0} sx={{ p: 1, borderRadius: 2, border: '1px solid #eee', bgcolor: 'white' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography variant="body2" fontWeight={700} fontFamily="monospace" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.tracking_internal || p.tracking_provider || `#${p.id}`}
+                  </Typography>
+                  {p.tracking_provider && p.tracking_provider !== p.tracking_internal && (
+                    <Typography variant="caption" color="text.secondary" fontFamily="monospace">{p.tracking_provider}</Typography>
+                  )}
+                </Box>
+                <Chip size="small" label={statusLabel(p.status)} color={statusColor(p.status)} sx={{ flexShrink: 0 }} />
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1.5, mt: 0.5, color: 'text.secondary', flexWrap: 'wrap' }}>
+                {p.service_type && <Typography variant="caption">{p.service_type}</Typography>}
+                {p.weight != null && <Typography variant="caption">{Number(p.weight).toFixed(2)} kg</Typography>}
+                <Typography variant="caption">Creado: {fmtDate(p.created_at)}</Typography>
+                {p.received_at && <Typography variant="caption">Recibido: {fmtDate(p.received_at)}</Typography>}
+                {p.saldo_pendiente != null && Number(p.saldo_pendiente) > 0 && (
+                  <Typography variant="caption" color="error.main" fontWeight={600}>Saldo: {fmtMoney(p.saldo_pendiente)}</Typography>
+                )}
+              </Box>
+            </Paper>
+          ))}
+        </Box>
+      )}
+
+      {tab === 'history' && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+          {deliveredPackages.length === 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+              Sin historial de entregas.
+            </Typography>
+          )}
+          {deliveredPackages.map(p => (
+            <Paper key={p.id} elevation={0} sx={{ p: 1, borderRadius: 2, border: '1px solid #eee', bgcolor: 'white' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                <Typography variant="body2" fontWeight={700} fontFamily="monospace">
+                  {p.tracking_internal || `#${p.id}`}
+                </Typography>
+                <Chip size="small" label={statusLabel(p.status)} color={statusColor(p.status)} />
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1.5, mt: 0.5, color: 'text.secondary', flexWrap: 'wrap' }}>
+                {p.service_type && <Typography variant="caption">{p.service_type}</Typography>}
+                <Typography variant="caption">
+                  Entregado: {fmtDate(p.delivered_at || p.shipped_at)}
+                </Typography>
+              </Box>
+            </Paper>
+          ))}
+        </Box>
+      )}
+
+      {tab === 'payments' && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+          {paymentOrders.length === 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+              Sin órdenes de pago registradas.
+            </Typography>
+          )}
+          {paymentOrders.map(po => {
+            const st = String(po.status || '').toLowerCase();
+            const color: any = ['pagada', 'paid'].includes(st) ? 'success'
+              : ['cancelada', 'cancelled', 'cancelado'].includes(st) ? 'error'
+              : ['pending', 'pending_payment', 'pendiente'].includes(st) ? 'warning'
+              : 'default';
+            return (
+              <Paper key={`${po.source}-${po.id}`} elevation={0} sx={{ p: 1, borderRadius: 2, border: '1px solid #eee', bgcolor: 'white' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="body2" fontWeight={700} fontFamily="monospace">
+                      {po.payment_reference || `#${po.id}`}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {po.source === 'advisor' ? 'Generada por asesor' : 'Generada por cliente'}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="body2" fontWeight={700}>{fmtMoney(po.amount)}</Typography>
+                    <Chip size="small" label={po.status} color={color} sx={{ mt: 0.25 }} />
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1.5, mt: 0.5, color: 'text.secondary', flexWrap: 'wrap' }}>
+                  <Typography variant="caption">Creada: {fmtDate(po.created_at)}</Typography>
+                  {po.paid_at && <Typography variant="caption">Pagada: {fmtDate(po.paid_at)}</Typography>}
+                  {po.facturada && <Typography variant="caption" color="success.main">✓ Facturada</Typography>}
+                </Box>
+              </Paper>
+            );
+          })}
+        </Box>
+      )}
+
+      {tab === 'movements' && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          {movements.length === 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+              Sin movimientos recientes.
+            </Typography>
+          )}
+          {movements.map(mv => (
+            <Box key={mv.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', p: 0.75, borderLeft: `3px solid ${CAJITO_RING}`, bgcolor: 'white', borderRadius: '0 6px 6px 0' }}>
+              <HistoryIcon sx={{ fontSize: 16, color: CAJITO_RING, mt: 0.25 }} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="caption" fontWeight={600}>
+                  {statusLabel(mv.status)} {mv.branch_name ? `· ${mv.branch_name}` : ''}
+                </Typography>
+                {mv.tracking_internal && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} fontFamily="monospace">
+                    {mv.tracking_internal}
+                  </Typography>
+                )}
+                {mv.description && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{mv.description}</Typography>
+                )}
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  {fmtDate(mv.created_at)} {mv.created_by_name ? `· ${mv.created_by_name}` : ''}
+                </Typography>
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 export default function CajitoFab() {
   const { cajitoEnabled, cajitoAvatarUrl, loading } = usePaymentStatus();
   const [open, setOpen] = useState(false);
@@ -384,6 +617,7 @@ export default function CajitoFab() {
   const [trackInput, setTrackInput] = useState('');
   const [trackLoading, setTrackLoading] = useState(false);
   const [trackResult, setTrackResult] = useState<PackageData | null>(null);
+  const [clientResult, setClientResult] = useState<PackageData | null>(null);
   const [trackError, setTrackError] = useState('');
   const [lastTracked, setLastTracked] = useState('');
 
@@ -463,17 +697,38 @@ export default function CajitoFab() {
     setTrackLoading(true);
     setTrackError('');
     setTrackResult(null);
+    setClientResult(null);
     setLastTracked(raw);
+
+    // Heurística: input de cliente vs. tracking de guía.
+    // Casillero: S2907, ETX-1234, S4008, etc. (letra(s) + dígitos, con o sin guion).
+    // Email: contiene '@'.
+    // Numérico puro de 1-6 dígitos: lo tratamos como ID de cliente.
+    // Resto: lo tratamos como tracking de guía.
+    const isCasillero = /^[A-Za-z]{1,4}-?\d{2,8}$/.test(raw) && !/^(US|TDX|TDI|TD|JT|UPS|FX|DHL|EX)/i.test(raw);
+    const isEmail = /@/.test(raw);
+    const isClientId = /^\d{1,6}$/.test(raw);
+    const lookupAsClient = isCasillero || isEmail || isClientId;
+
     try {
-      const res = await api.get(`/packages/track/${encodeURIComponent(raw)}`);
-      if (res.data?.success && (res.data.shipment || res.data.package)) {
-        setTrackResult(res.data);
+      if (lookupAsClient) {
+        const res = await api.get(`/cajito/client-lookup`, { params: { q: raw } });
+        if (res.data?.success) {
+          setClientResult(res.data);
+        } else {
+          setTrackError('No se encontró información para esta búsqueda');
+        }
       } else {
-        setTrackError('No se encontró información para esta guía');
+        const res = await api.get(`/packages/track/${encodeURIComponent(raw)}`);
+        if (res.data?.success && (res.data.shipment || res.data.package)) {
+          setTrackResult(res.data);
+        } else {
+          setTrackError('No se encontró información para esta guía');
+        }
       }
     } catch (e: any) {
       if (e.response?.status === 404) {
-        setTrackError('Guía no encontrada en el sistema');
+        setTrackError(lookupAsClient ? 'Cliente no encontrado' : 'Guía no encontrada en el sistema');
       } else {
         setTrackError(e.response?.data?.error || e.message || 'Error al consultar');
       }
@@ -625,7 +880,7 @@ export default function CajitoFab() {
               <Box sx={{ p: 1.5, bgcolor: 'white', borderBottom: '1px solid #FFE0B2' }}>
                 <TextField
                   fullWidth size="small"
-                  placeholder="Ej: US-1234567890, TDX-001..."
+                  placeholder="Guía (TDX-…, US-…) o casillero (S2907, ETX-1234) o email"
                   value={trackInput}
                   inputRef={trackInputRef}
                   onChange={(e) => setTrackInput(e.target.value)}
@@ -649,15 +904,28 @@ export default function CajitoFab() {
                 {trackError && (
                   <Box sx={{ bgcolor: '#FFEBEE', border: '1px solid #EF9A9A', borderRadius: 2, p: 1.5, mb: 1 }}>
                     <Typography variant="body2" color="error.main">⚠️ {trackError}</Typography>
-                    <Typography variant="caption" color="text.secondary">Guía buscada: {lastTracked}</Typography>
+                    <Typography variant="caption" color="text.secondary">Buscado: {lastTracked}</Typography>
                   </Box>
                 )}
-                {!trackResult && !trackError && !trackLoading && (
+                {!trackResult && !clientResult && !trackError && !trackLoading && (
                   <Box sx={{ textAlign: 'center', pt: 4, color: 'text.secondary' }}>
                     <SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.3 }} />
-                    <Typography variant="body2">Ingresa un número de guía para ver su información completa</Typography>
-                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>US-..., TDX-..., TDI-..., guía de paquetería...</Typography>
+                    <Typography variant="body2">Busca por guía o por cliente</Typography>
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>Ej: US-1234..., TDX-001, S2907, ETX-1228, correo@…</Typography>
                   </Box>
+                )}
+                {clientResult && (
+                  <>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 0.75 }}>
+                      <Box
+                        onClick={handleTrack}
+                        sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 1, border: `1px solid ${CAJITO_RING}`, color: CAJITO_RING, cursor: 'pointer', fontSize: 12 }}
+                      >
+                        🔄 Actualizar
+                      </Box>
+                    </Box>
+                    <ClientLookupResult data={clientResult} />
+                  </>
                 )}
                 {trackResult && (
                   <>
