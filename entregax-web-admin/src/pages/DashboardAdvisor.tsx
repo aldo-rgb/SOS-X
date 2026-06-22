@@ -2963,6 +2963,8 @@ export default function DashboardAdvisor() {
                       <Typography variant="body2" fontWeight={600}>
                         {s.serviceType === 'AA_DHL'
                           ? (s.internationalTracking || s.tracking || `#${s.id}`)
+                          : s.serviceType === 'AIR_CHN_MX'
+                          ? (s.childNo || s.internationalTracking || s.tracking || `#${s.id}`)
                           : (s.tracking || s.internationalTracking || `#${s.id}`)}
                       </Typography>
                       {s.isMaster && s.childrenCount > 0 && (
@@ -2972,7 +2974,12 @@ export default function DashboardAdvisor() {
                     {s.serviceType === 'AA_DHL' && s.internationalTracking && s.tracking && s.tracking !== s.internationalTracking && (
                       <Typography variant="caption" color="text.secondary" fontFamily="monospace">{s.tracking}</Typography>
                     )}
-                    {s.serviceType !== 'AA_DHL' && s.childNo && (
+                    {s.serviceType === 'AIR_CHN_MX' && (s.childNo || s.internationalTracking || s.tracking) && (
+                      <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                        {String(s.childNo || s.internationalTracking || s.tracking || '').replace(/-\d+$/, '')}
+                      </Typography>
+                    )}
+                    {s.serviceType !== 'AA_DHL' && s.serviceType !== 'AIR_CHN_MX' && s.childNo && (
                       <Typography variant="caption" color="text.secondary">{s.childNo}</Typography>
                     )}
                   </TableCell>
