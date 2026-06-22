@@ -1022,10 +1022,18 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
                 const outStatus = await getOutForDeliveryWriteStatus();
                 const allPkgs = [...pendingRes.rows, ...loadedRes.rows];
-                // paqueteriaCount = paquetes con carrier externo (toggle no aplica a paqueterías)
+                // paqueteriaCount = paquetes con carrier externo que el front
+                // REALMENTE muestra. Debe aplicar el mismo gate de etiqueta que
+                // DriverHomeScreen (si requiere etiqueta y no la tiene y no está
+                // cargado, no se muestra) para que el número del card cuadre con
+                // los grupos del modal.
                 const paqueteriaCount = allPkgs.filter(p => {
                     const carrier = p.national_carrier || '';
-                    return !!(carrier && !isLocalCarrier(carrier));
+                    if (!(carrier && !isLocalCarrier(carrier))) return false;
+                    const isLoaded = String(p.delivery_status || '').includes('out_for_delivery')
+                                  || String(p.delivery_status || '').includes('in_transit');
+                    if (!isLoaded && reqLabel && !p.has_label) return false;
+                    return true;
                 }).length;
 
         const payload = {
