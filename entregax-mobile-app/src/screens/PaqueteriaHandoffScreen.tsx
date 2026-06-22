@@ -104,8 +104,6 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
 
   const inputRef = useRef<TextInput | null>(null);
   const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastInputTimeRef = useRef<number>(0);
-  const recentDelaysRef = useRef<number[]>([]);
 
   // Filtrar por modo:
   // recoleccion → solo paquetes en bodega (NO cargados en camioneta)
@@ -265,20 +263,16 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   }, [scanPhase, mode, carrier, confirmedPackageId, confirmedTracking, token, loading]);
 
   const handleTextChange = (text: string) => {
-    const now = Date.now();
-    const delay = now - lastInputTimeRef.current;
-    lastInputTimeRef.current = now;
-    recentDelaysRef.current = [...recentDelaysRef.current.slice(-5), delay];
     setManualCode(text);
-
     if (autoSubmitTimer.current) clearTimeout(autoSubmitTimer.current);
-    // Scanner HID: delays < 50ms → auto submit after 120ms idle
-    const avgDelay = recentDelaysRef.current.reduce((a, b) => a + b, 0) / recentDelaysRef.current.length;
-    if (avgDelay < 50 && text.length >= 4) {
+    // En modo escáner el lector externo teclea el código en ráfaga y termina.
+    // Tras una breve pausa sin nuevo input, auto-validamos (auto-click en
+    // "Validar") para que el flujo avance solo sin tocar la pantalla. Muchos
+    // lectores también envían Enter → onSubmitEditing valida de inmediato.
+    if (scanMode === 'scanner' && text.trim().length >= 4) {
       autoSubmitTimer.current = setTimeout(() => {
-        processCode(text);
-        recentDelaysRef.current = [];
-      }, 120);
+        processCode(text.trim());
+      }, 180);
     }
   };
 
@@ -426,9 +420,14 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
               placeholder="Escanea o escribe el código"
               placeholderTextColor="#bbb"
               autoCapitalize="characters"
+              autoCorrect={false}
               returnKeyType="done"
               editable={!loading}
               blurOnSubmit={false}
+              // En modo escáner externo NO abrimos el teclado del celular (el
+              // lector teclea como HID); el campo conserva el foco para capturar.
+              showSoftInputOnFocus={scanMode !== 'scanner'}
+              caretHidden={scanMode === 'scanner'}
             />
             <TouchableOpacity style={styles.validateBtn} onPress={handleManualSubmit} disabled={loading}>
               {loading
