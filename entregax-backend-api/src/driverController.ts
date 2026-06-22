@@ -2131,9 +2131,13 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                 });
             }
 
-            const pkgCarrier = String(pkg.national_carrier || '').toLowerCase();
-            const reqCarrier = String(carrier || '').toLowerCase();
-            if (reqCarrier && !pkgCarrier.includes(reqCarrier) && !reqCarrier.includes(pkgCarrier)) {
+            // Normalizar nombres de paquetería antes de comparar: 'paquete_express',
+            // 'Paquete Express' y 'paquete-express' son la MISMA paquetería. Sin esto
+            // daba falso "esta guía es de paquete_express, no de Paquete Express".
+            const normCarrier = (c: any) => String(c || '').toLowerCase().replace(/[\s_-]+/g, '');
+            const pkgCarrier = normCarrier(pkg.national_carrier);
+            const reqCarrier = normCarrier(carrier);
+            if (reqCarrier && pkgCarrier && !pkgCarrier.includes(reqCarrier) && !reqCarrier.includes(pkgCarrier)) {
                 return res.status(400).json({
                     error: `⚠️ Esta guía es de ${pkg.national_carrier || 'otra paquetería'}, no de ${carrier}`
                 });
