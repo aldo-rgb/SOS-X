@@ -7932,6 +7932,8 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
             p.carrier,
             p.service_type::text AS service_type,
             p.created_at,
+            p.payment_status,
+            p.monto_pagado,
             p.assigned_cost_mxn,
             p.saldo_pendiente,
             p.national_shipping_cost,
@@ -7991,7 +7993,16 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
           });
         }
 
-        const montoPendiente = parseFloat(pkg.saldo_pendiente) || parseFloat(pkg.assigned_cost_mxn) || parseFloat(pkg.national_shipping_cost) || 0;
+        // Si el paquete YA está pagado (pago registrado directo sobre el
+        // paquete: payment_status='paid' o saldo 0), NO debe ofrecerse a cobro.
+        const saldo = parseFloat(pkg.saldo_pendiente);
+        const yaPagado = String(pkg.payment_status || '').toLowerCase() === 'paid'
+          || (Number.isFinite(saldo) && saldo <= 0 && parseFloat(pkg.monto_pagado) > 0);
+        const montoPendiente = yaPagado
+          ? 0
+          : (Number.isFinite(saldo) && saldo > 0
+              ? saldo
+              : (parseFloat(pkg.assigned_cost_mxn) || parseFloat(pkg.national_shipping_cost) || 0));
         const isPickup = pkg.carrier && pkg.carrier.toLowerCase().includes('pick up');
 
         return res.json({
@@ -7999,11 +8010,13 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
           source: 'package_direct',
           isPickup: isPickup,
           service_type: pkg.service_type || null,
+          ya_pagado: yaPagado,
+          monto_pagado: parseFloat(pkg.monto_pagado) || 0,
           payment: {
             id: null,
             referencia: pkg.tracking_internal,
             monto: montoPendiente,
-            status: pkg.status === 'ready_pickup' ? 'pending_payment' : pkg.status,
+            status: yaPagado ? 'paid' : (pkg.status === 'ready_pickup' ? 'pending_payment' : pkg.status),
             created_at: pkg.created_at || null
           },
           cliente: {
@@ -8021,7 +8034,7 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
             carrier: pkg.carrier,
             status: pkg.status
           }],
-          puede_confirmar: pkg.status === 'ready_pickup' || montoPendiente > 0
+          puede_confirmar: !yaPagado && (pkg.status === 'ready_pickup' || montoPendiente > 0)
         });
       }
 

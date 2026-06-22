@@ -2456,16 +2456,22 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
             
             return (
               <Box>
-                <Alert severity="warning" sx={{ mb: 2 }}>
-                  <strong>⚠️ Importante:</strong> Verifique que el cliente tenga el comprobante de pago antes de confirmar.
-                </Alert>
-                
-                {!foundPayment.puede_confirmar && isFromSearch && (
+                {foundPayment.ya_pagado ? (
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    <strong>✅ Ya pagado.</strong> Este paquete tiene el pago registrado{foundPayment.monto_pagado ? ` (${formatCurrency(foundPayment.monto_pagado)})` : ''}. No requiere cobro en sucursal.
+                  </Alert>
+                ) : (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    <strong>⚠️ Importante:</strong> Verifique que el cliente tenga el comprobante de pago antes de confirmar.
+                  </Alert>
+                )}
+
+                {!foundPayment.ya_pagado && !foundPayment.puede_confirmar && isFromSearch && (
                   <Alert severity="info" sx={{ mb: 2 }}>
                     Este pago ya fue procesado anteriormente. Estado: <strong>{paymentData.status}</strong>
                   </Alert>
                 )}
-                
+
                 <Box sx={{ display: 'grid', gap: 2 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: '1px solid #eee' }}>
                     <Typography color="text.secondary">Referencia:</Typography>
