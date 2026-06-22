@@ -1182,6 +1182,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                     <TableCell>
                       <Typography variant="body2">
                         {payment.cliente}
+                        {payment.cliente_numero && (
+                          <Chip label={payment.cliente_numero} size="small" sx={{ ml: 1, height: 18, fontSize: '0.68rem', fontWeight: 700, bgcolor: '#FFF3E0', color: '#D84315' }} />
+                        )}
                         {payment.telefono && (
                           <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
                             {payment.telefono}
