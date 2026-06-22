@@ -2493,14 +2493,16 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                   
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: '1px solid #eee' }}>
                     <Typography color="text.secondary">Servicio:</Typography>
-                    <Chip 
-                      label={SERVICE_LABELS[paymentData.tipo_servicio || paymentData.service_type]?.label || paymentData.tipo_servicio || paymentData.service_type || 'N/A'}
-                      size="small"
-                      sx={{ 
-                        bgcolor: SERVICE_LABELS[paymentData.tipo_servicio || paymentData.service_type]?.color || 'grey.500',
-                        color: 'white'
-                      }}
-                    />
+                    {(() => {
+                      const svc = paymentData.tipo_servicio || paymentData.service_type || foundPayment.service_type;
+                      return (
+                        <Chip
+                          label={SERVICE_LABELS[svc]?.label || svc || 'N/A'}
+                          size="small"
+                          sx={{ bgcolor: SERVICE_LABELS[svc]?.color || 'grey.500', color: 'white' }}
+                        />
+                      );
+                    })()}
                   </Box>
 
                   {guiasData && (
@@ -2515,7 +2517,13 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1 }}>
                     <Typography color="text.secondary">Fecha de registro:</Typography>
                     <Typography>
-                      {new Date(paymentData.created_at || paymentData.fecha_pago).toLocaleDateString('es-MX')} - {new Date(paymentData.created_at || paymentData.fecha_pago).toLocaleTimeString('es-MX')}
+                      {(() => {
+                        const raw = paymentData.created_at || paymentData.fecha_pago;
+                        const d = raw ? new Date(raw) : null;
+                        return d && !isNaN(d.getTime())
+                          ? `${d.toLocaleDateString('es-MX')} - ${d.toLocaleTimeString('es-MX')}`
+                          : '—';
+                      })()}
                     </Typography>
                   </Box>
                 </Box>

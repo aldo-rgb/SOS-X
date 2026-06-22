@@ -7924,12 +7924,14 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
         // Para paquetes Pick Up u otros con saldo pendiente
         // ============================================
         const packageResult = await pool.query(`
-          SELECT 
+          SELECT
             p.id,
             p.tracking_internal,
             p.description,
             p.status,
             p.carrier,
+            p.service_type::text AS service_type,
+            p.created_at,
             p.assigned_cost_mxn,
             p.saldo_pendiente,
             p.national_shipping_cost,
@@ -7954,6 +7956,41 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
 
         // Encontrado un paquete directo
         const pkg = packageResult.rows[0];
+
+        // ¿La guía está incluida en alguna REFERENCIA de pago (RO-/PP-)? Si es
+        // así, mostramos esa referencia (con su monto/fecha/estado real) en vez
+        // del paquete suelto — así no sale "N/A" ni "Invalid Date".
+        const refByGuia = await pool.query(`
+          SELECT p.id, p.payment_reference as referencia, p.user_id, p.amount as monto,
+                 p.package_ids, p.status, p.expires_at, p.created_at,
+                 u.full_name as cliente_nombre, u.email as cliente_email, u.phone as cliente_telefono
+            FROM pobox_payments p
+            LEFT JOIN users u ON p.user_id = u.id
+           WHERE p.package_ids @> to_jsonb($1::int)
+             AND COALESCE(p.status,'') NOT IN ('cancelled','expired')
+           ORDER BY (p.status = 'pending_payment') DESC, p.created_at DESC
+           LIMIT 1
+        `, [pkg.id]);
+        if (refByGuia.rows.length > 0) {
+          const rp = refByGuia.rows[0];
+          let rpIds: any[] = [];
+          try { rpIds = typeof rp.package_ids === 'string' ? JSON.parse(rp.package_ids) : (rp.package_ids || []); } catch { /* ignore */ }
+          let rpGuias: any[] = [];
+          if (rpIds.length > 0) {
+            const g = await pool.query(`SELECT id, tracking_internal, description, assigned_cost_mxn FROM packages WHERE id = ANY($1)`, [rpIds]);
+            rpGuias = g.rows;
+          }
+          return res.json({
+            success: true,
+            source: 'pobox_payments_by_guia',
+            matched_guia: pkg.tracking_internal,
+            payment: { id: rp.id, referencia: rp.referencia, monto: parseFloat(rp.monto) || 0, status: rp.status, expires_at: rp.expires_at, created_at: rp.created_at },
+            cliente: { id: rp.user_id, nombre: rp.cliente_nombre, email: rp.cliente_email, telefono: rp.cliente_telefono },
+            guias: rpGuias,
+            puede_confirmar: rp.status === 'pending_payment'
+          });
+        }
+
         const montoPendiente = parseFloat(pkg.saldo_pendiente) || parseFloat(pkg.assigned_cost_mxn) || parseFloat(pkg.national_shipping_cost) || 0;
         const isPickup = pkg.carrier && pkg.carrier.toLowerCase().includes('pick up');
 
@@ -7961,12 +7998,13 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
           success: true,
           source: 'package_direct',
           isPickup: isPickup,
+          service_type: pkg.service_type || null,
           payment: {
             id: null,
             referencia: pkg.tracking_internal,
             monto: montoPendiente,
             status: pkg.status === 'ready_pickup' ? 'pending_payment' : pkg.status,
-            created_at: null
+            created_at: pkg.created_at || null
           },
           cliente: {
             id: pkg.user_id,
