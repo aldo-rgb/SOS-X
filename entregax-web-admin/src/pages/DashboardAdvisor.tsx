@@ -1581,7 +1581,9 @@ export default function DashboardAdvisor() {
       const fd = new FormData();
       nationalGuideFiles.forEach((f) => fd.append('files', f));
       const base = nationalGuideShipment.serviceType === 'SEA_CHN_MX' ? 'maritime' : 'packages';
-      await api.post(`/${base}/${nationalGuideShipment.id}/national-guide`, fd);
+      await api.post(`/${base}/${nationalGuideShipment.id}/national-guide`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
       setSnackbar({ open: true, message: '✅ Guía subida. Ya está disponible para imprimir la etiqueta.', severity: 'success' });
       setNationalGuideShipment(null);
       setNationalGuideFiles([]);
