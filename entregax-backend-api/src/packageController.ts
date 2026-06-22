@@ -78,7 +78,15 @@ const generateTracking = (): string => {
 };
 
 // ============ HELPERS ============
-const getStatusLabel = (status: string): string => {
+const getStatusLabel = (status: string, nationalCarrier?: string | null): string => {
+    // Para paquetería EXTERNA (Sendex, Paquete Express, etc.) 'delivered' significa
+    // entregado al carrier = "Enviado", no entregado al cliente final (eso lo hace
+    // la paquetería). Las entregas locales/EntregaX sí muestran "Entregado".
+    if (status === 'delivered' && nationalCarrier) {
+        const c = String(nationalCarrier).toLowerCase();
+        const isExternal = !!c && !(c.includes('local') || c.includes('entregax') || c.includes('pickup') || c.includes('bodega'));
+        if (isExternal) return '📮 Enviado';
+    }
     const labels: Record<string, string> = {
         received: '📦 En Bodega',
         received_mty: '📦 Recibido en CEDIS MTY',
@@ -968,7 +976,7 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             isMaster: pkg.is_master,
             totalBoxes: parseInt(pkg.real_children_count) > 0 ? parseInt(pkg.real_children_count) : (pkg.total_boxes || 1),
             declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
-            status: pkg.status, statusLabel: getStatusLabel(pkg.status),
+            status: pkg.status, statusLabel: getStatusLabel(pkg.status, pkg.national_carrier),
             imageUrl: await signS3UrlIfNeeded(pkg.effective_image_url || pkg.image_url || null),
             receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
             // Fecha en la que el paquete entró en su estado actual (recepción
@@ -1046,7 +1054,7 @@ export const getUnassignedPackages = async (_req: Request, res: Response): Promi
                 height: pkg.pkg_height ? parseFloat(pkg.pkg_height) : null,
             },
             status: pkg.status,
-            statusLabel: getStatusLabel(pkg.status),
+            statusLabel: getStatusLabel(pkg.status, pkg.national_carrier),
             arrivalDate: pkg.arrival_date,
             daysInWarehouse: Number(pkg.days_in_warehouse) || 0,
             currentBoxId: pkg.box_id,
@@ -1829,7 +1837,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     description: pkg.description, weight: pkg.weight ? parseFloat(pkg.weight) : null,
                     declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
                     isMaster: pkg.is_master, totalBoxes: pkg.total_boxes || 1,
-                    status: pkg.status, statusLabel: getStatusLabel(pkg.status),
+                    status: pkg.status, statusLabel: getStatusLabel(pkg.status, pkg.national_carrier),
                     receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
                     // 📋 Evidencia de entrega (capturada por el repartidor al confirmar)
                     deliveryRecipientName: pkg.delivery_recipient_name || null,
@@ -2872,7 +2880,7 @@ export const getPackagesByClient = async (req: Request, res: Response): Promise<
         const packages = result.rows.map(pkg => ({
             id: pkg.id, tracking: pkg.tracking_internal, description: pkg.description,
             weight: pkg.weight ? parseFloat(pkg.weight) : null, isMaster: pkg.is_master,
-            totalBoxes: pkg.total_boxes || 1, status: pkg.status, statusLabel: getStatusLabel(pkg.status),
+            totalBoxes: pkg.total_boxes || 1, status: pkg.status, statusLabel: getStatusLabel(pkg.status, pkg.national_carrier),
             receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at
         }));
 
@@ -3045,7 +3053,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             
             // Determinar el estado visible para el cliente
             let displayStatus = pkg.status;
-            let displayLabel = getStatusLabel(pkg.status);
+            let displayLabel = getStatusLabel(pkg.status, pkg.national_carrier);
             
             // Si tiene consolidación y está shipped, mostrar "Vuelo Confirmado"
             if (pkg.consolidation_status === 'shipped') {
