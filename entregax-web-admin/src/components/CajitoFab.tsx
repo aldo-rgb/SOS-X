@@ -143,9 +143,11 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const destAddress = m.assignedAddress;
   const hasInstr = !!destAddress || m.needs_instructions === false;
 
-  const carrierNorm = String(m.nationalCarrier || '').toLowerCase();
-  const isLocalCarrier = !carrierNorm || carrierNorm.includes('local') || carrierNorm.includes('entregax') || carrierNorm.includes('pickup');
-  const hasLabel = isLocalCarrier ? !!destAddress : !!(m.nationalLabelUrl || m.nationalTracking);
+  // "Etiquetado" = la etiqueta YA está impresa (national_label_url / national_tracking),
+  // igual que el módulo de Etiquetado. NO basta con tener dirección asignada:
+  // las entregas locales también requieren imprimir/confirmar su etiqueta Local
+  // (mark-label-printed setea national_label_url='manual-printed').
+  const hasLabel = !!(m.nationalLabelUrl || m.nationalTracking);
 
   const totalBoxes = m.totalBoxes ?? m.total_boxes ?? 1;
 
