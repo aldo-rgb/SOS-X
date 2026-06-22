@@ -1627,11 +1627,14 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             [docsPackageId]
         );
 
+        // Firmar las URLs de S3 (el bucket es privado → la URL pública directa
+        // da AccessDenied). signS3UrlIfNeeded devuelve una URL presignada.
+        const { signS3UrlIfNeeded: signDocUrl } = await import('./s3Service');
         const latestDocByType: Record<string, { file_url: string; original_filename: string | null; created_at: string | null }> = {};
         for (const row of docsResult.rows) {
             if (!latestDocByType[row.document_type]) {
                 latestDocByType[row.document_type] = {
-                    file_url: row.file_url,
+                    file_url: (await signDocUrl(row.file_url)) || row.file_url,
                     original_filename: row.original_filename || null,
                     created_at: row.created_at || null,
                 };
