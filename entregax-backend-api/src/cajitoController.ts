@@ -121,7 +121,10 @@ const TOOLS: ToolDef[] = [
       if (!t) return { error: 'tracking vacío' };
       const r = await pool.query(
         `SELECT p.id, p.tracking_internal, p.tracking_provider, p.status, p.service_type,
-                p.weight, p.length, p.width, p.height,
+                p.weight,
+                COALESCE(p.pkg_length, 0) AS length,
+                COALESCE(p.pkg_width, 0)  AS width,
+                COALESCE(p.pkg_height, 0) AS height,
                 p.box_id, p.created_at, p.received_at, p.delivered_at,
                 u.full_name AS client_name, u.email AS client_email
            FROM packages p
@@ -841,7 +844,10 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
     const usersIdForPackages = isLegacy ? (client.claimed_by_user_id || null) : client.id;
     const pkgRes = await pool.query(
       `SELECT p.id, p.tracking_internal, p.tracking_provider, p.status, p.service_type,
-              p.weight, p.length, p.width, p.height,
+              p.weight,
+              COALESCE(p.pkg_length, 0) AS length,
+              COALESCE(p.pkg_width, 0)  AS width,
+              COALESCE(p.pkg_height, 0) AS height,
               p.box_id, p.created_at, p.received_at, p.delivered_at, p.shipped_at,
               p.assigned_cost_mxn, p.saldo_pendiente, p.client_paid,
               p.master_id, p.is_master,
