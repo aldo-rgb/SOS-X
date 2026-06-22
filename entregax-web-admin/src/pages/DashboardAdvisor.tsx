@@ -1616,6 +1616,11 @@ export default function DashboardAdvisor() {
       'at_cedis': { label: 'En CEDIS', color: 'primary' },
       'out_for_delivery': { label: 'En ruta de entrega', color: 'warning' },
       'out_of_delivery': { label: 'En ruta de entrega', color: 'warning' },
+      // Estatus marítimos (maritime_orders / china_sea)
+      'customs_mx': { label: 'En aduana', color: 'warning' },
+      'customs_cleared': { label: 'Liberado de aduana', color: 'info' },
+      'received_cdmx': { label: 'Recibido CDMX', color: 'primary' },
+      'pending_api': { label: 'Procesando', color: 'info' },
     };
     const s = map[status] || { label: status, color: 'default' as const };
     return <Chip label={s.label} color={s.color} size="small" />;
@@ -3010,16 +3015,16 @@ export default function DashboardAdvisor() {
                       size="small" 
                       variant="outlined"
                       label={
-                        s.serviceType === 'AIR_CHN_MX' ? '✈️ TDI Aéreo' :
-                        s.serviceType === 'SEA_CHN_MX' ? '🚢 Marítimo' :
+                        s.serviceType === 'AIR_CHN_MX' || s.serviceType === 'china_air' ? '✈️ TDI Aéreo' :
+                        s.serviceType === 'SEA_CHN_MX' || s.serviceType === 'china_sea' ? '🚢 Marítimo' :
                         s.serviceType === 'AA_DHL' ? '📦 DHL' :
                         s.serviceType === 'POBOX_USA' ? '📮 POBox' :
                         s.serviceType === 'tdi_express' || s.serviceType === 'TDI_EXPRESS' ? '✈️ TDI DHL' :
                         s.serviceType || '—'
                       }
                       color={
-                        s.serviceType === 'AIR_CHN_MX' ? 'primary' :
-                        s.serviceType === 'SEA_CHN_MX' ? 'info' :
+                        s.serviceType === 'AIR_CHN_MX' || s.serviceType === 'china_air' ? 'primary' :
+                        s.serviceType === 'SEA_CHN_MX' || s.serviceType === 'china_sea' ? 'info' :
                         s.serviceType === 'AA_DHL' ? 'warning' :
                         s.serviceType === 'POBOX_USA' ? 'secondary' :
                         s.serviceType === 'tdi_express' || s.serviceType === 'TDI_EXPRESS' ? 'secondary' :
