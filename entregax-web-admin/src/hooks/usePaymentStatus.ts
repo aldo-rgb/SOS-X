@@ -19,6 +19,7 @@ interface PaymentStatusCache {
   facturas_by_service: { pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean };
   advisor_instructions_enabled: boolean;
   advisor_payment_order_enabled: boolean;
+  advisor_xpay_enabled: boolean;
   require_payment_to_load: boolean;
   require_label_to_load: boolean;
   require_instructions_to_load_pobox: boolean;
@@ -45,6 +46,7 @@ const FALLBACK: PaymentStatusCache = {
   facturas_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true },
   advisor_instructions_enabled: true,
   advisor_payment_order_enabled: true,
+  advisor_xpay_enabled: false,
   require_payment_to_load: true,
   require_label_to_load: true,
   require_instructions_to_load_pobox: false,
@@ -126,6 +128,7 @@ export function usePaymentStatus() {
             },
             advisor_instructions_enabled: data.advisor_instructions_enabled !== false,
             advisor_payment_order_enabled: data.advisor_payment_order_enabled !== false,
+            advisor_xpay_enabled: data.advisor_xpay_enabled === true,
             require_payment_to_load: data.require_payment_to_load !== false,
             require_label_to_load: data.require_label_to_load !== false,
             require_instructions_to_load_pobox: data.require_instructions_to_load_pobox === true,
@@ -171,6 +174,7 @@ export function usePaymentStatus() {
     },
     advisorInstructionsEnabled: status.advisor_instructions_enabled,
     advisorPaymentOrderEnabled: status.advisor_payment_order_enabled,
+    advisorXpayEnabled: status.advisor_xpay_enabled,
     requirePaymentToLoad: status.require_payment_to_load,
     requireLabelToLoad: status.require_label_to_load,
     requireInstructionsToLoadPobox: status.require_instructions_to_load_pobox,
@@ -222,6 +226,12 @@ export async function toggleGEX(enabled: boolean): Promise<void> {
 /** Controla visibilidad de la función Orden de Pago en app móvil y web (solo Super Admin) */
 export async function toggleAdvisorPaymentOrder(enabled: boolean): Promise<void> {
   await api.post('/admin/system/advisor-payment-order-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Controla la función Xpay para asesores (crear operaciones a sus clientes) — solo Super Admin */
+export async function toggleAdvisorXpay(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/advisor-xpay-toggle', { enabled });
   invalidatePaymentStatusCache();
 }
 

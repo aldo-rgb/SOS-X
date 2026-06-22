@@ -102,10 +102,14 @@ async function resolveClientFinalCommission(
 // ===========================================================================
 export const createPaymentRequestV2 = async (
   req: Request,
-  res: Response
+  res: Response,
+  opts?: { ownerUserId?: number; advisorId?: number }
 ): Promise<any> => {
-  const userId = getAuthUserId(req);
-  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  const authUserId = getAuthUserId(req);
+  if (!authUserId) return res.status(401).json({ error: 'No autenticado' });
+  // Owner de la operación: normalmente el propio usuario autenticado, pero un
+  // asesor puede crearla a nombre de un cliente asignado (opts.ownerUserId).
+  const userId = opts?.ownerUserId ?? authUserId;
 
   // Comprobante OPCIONAL: si no se envía, la solicitud queda en estado
   // 'pendiente' a la espera de que el cliente suba su comprobante después.
@@ -180,16 +184,19 @@ export const createPaymentRequestV2 = async (
   // Comisión que XPAY le cobra al cliente
   const commission = await resolveClientFinalCommission(userId, servicio);
 
-  // Asesor (informativo, opcional)
-  let advisorId: number | null = null;
-  try {
-    const r = await pool.query(
-      `SELECT assigned_advisor_id FROM users WHERE id = $1`,
-      [userId]
-    );
-    advisorId = r.rows[0]?.assigned_advisor_id || null;
-  } catch {
-    /* columna puede no existir */
+  // Asesor: si la operación la crea un asesor a nombre del cliente, se usa ese
+  // asesor; si no, se resuelve del asesor asignado del cliente (informativo).
+  let advisorId: number | null = opts?.advisorId ?? null;
+  if (!advisorId) {
+    try {
+      const r = await pool.query(
+        `SELECT assigned_advisor_id FROM users WHERE id = $1`,
+        [userId]
+      );
+      advisorId = r.rows[0]?.assigned_advisor_id || null;
+    } catch {
+      /* columna puede no existir */
+    }
   }
 
   // 1) Persistencia local (estado pendiente, sin transaccion_id aún)
@@ -1840,5 +1847,96 @@ export const listClaveSatHistory = async (req: Request, res: Response): Promise<
   } catch (err) {
     console.error('[ENTANGLED] listClaveSatHistory:', err);
     return res.status(500).json({ error: 'Error al consultar historial' });
+  }
+};
+
+// ===========================================================================
+// XPAY ASESOR — el asesor crea operaciones a nombre de sus clientes asignados
+// y el cliente les da seguimiento desde su Xpay.
+// ===========================================================================
+
+// Valida que un cliente pertenezca al asesor (advisor_id o referred_by_id).
+const advisorOwnsClient = async (advisorId: number, clientId: number): Promise<boolean> => {
+  const r = await pool.query(
+    `SELECT 1 FROM users WHERE id = $1 AND role = 'client'
+       AND (advisor_id = $2 OR referred_by_id = $2) LIMIT 1`,
+    [clientId, advisorId]
+  );
+  return r.rows.length > 0;
+};
+
+// GET /api/advisor/xpay/clients?search= — clientes asignados al asesor (para el picker)
+export const getAdvisorXpayClients = async (req: Request, res: Response): Promise<any> => {
+  const advisorId = getAuthUserId(req);
+  if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+  try {
+    const search = String((req.query.search || '')).trim();
+    const params: any[] = [advisorId];
+    let where = `role = 'client' AND (advisor_id = $1 OR referred_by_id = $1)`;
+    if (search) {
+      params.push(`%${search}%`);
+      where += ` AND (full_name ILIKE $${params.length} OR box_id ILIKE $${params.length} OR email ILIKE $${params.length})`;
+    }
+    const r = await pool.query(
+      `SELECT id, full_name, box_id, email, phone, is_verified
+         FROM users WHERE ${where}
+        ORDER BY NULLIF(regexp_replace(COALESCE(box_id,''), '\\D', '', 'g'), '')::bigint ASC NULLS LAST, full_name ASC
+        LIMIT 100`,
+      params
+    );
+    return res.json({ success: true, clients: r.rows });
+  } catch (err: any) {
+    console.error('[XPAY-ASESOR] getAdvisorXpayClients:', err.message);
+    return res.status(500).json({ error: 'Error al listar clientes' });
+  }
+};
+
+// POST /api/advisor/xpay/payment-requests — crea una operación Xpay a nombre de
+// un cliente asignado (multipart, mismos campos que createPaymentRequestV2).
+export const createAdvisorXpayRequest = async (req: Request, res: Response): Promise<any> => {
+  const advisorId = getAuthUserId(req);
+  if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+  const clientId = Number((req.body || {}).client_id);
+  if (!Number.isFinite(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: 'client_id es requerido' });
+  }
+  const owns = await advisorOwnsClient(advisorId, clientId);
+  if (!owns) {
+    return res.status(403).json({ error: 'Ese cliente no está asignado a ti' });
+  }
+  // Reutiliza toda la lógica de creación, pero la operación queda a nombre del
+  // cliente (owner) y con este asesor.
+  return createPaymentRequestV2(req, res, { ownerUserId: clientId, advisorId });
+};
+
+// GET /api/advisor/xpay/payment-requests?client_id= — operaciones creadas por el
+// asesor (opcionalmente filtradas por cliente).
+export const getAdvisorXpayRequests = async (req: Request, res: Response): Promise<any> => {
+  const advisorId = getAuthUserId(req);
+  if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+  try {
+    const params: any[] = [advisorId];
+    let where = `r.advisor_id = $1`;
+    const clientId = Number(req.query.client_id);
+    if (Number.isFinite(clientId) && clientId > 0) {
+      params.push(clientId);
+      where += ` AND r.user_id = $${params.length}`;
+    }
+    const r = await pool.query(
+      `SELECT r.id, r.referencia_pago, r.servicio, r.op_monto, r.op_divisa_destino,
+              r.op_beneficiario_nombre, r.estatus_global, r.estatus_factura, r.estatus_proveedor,
+              r.created_at, r.user_id,
+              u.full_name AS client_name, u.box_id AS client_box_id
+         FROM entangled_payment_requests r
+         LEFT JOIN users u ON u.id = r.user_id
+        WHERE ${where}
+        ORDER BY r.created_at DESC
+        LIMIT 200`,
+      params
+    );
+    return res.json({ success: true, requests: r.rows });
+  } catch (err: any) {
+    console.error('[XPAY-ASESOR] getAdvisorXpayRequests:', err.message);
+    return res.status(500).json({ error: 'Error al listar operaciones' });
   }
 };

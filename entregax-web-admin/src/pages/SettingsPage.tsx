@@ -38,7 +38,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SyncIcon from '@mui/icons-material/Sync';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
-import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleFacturas, toggleGEX, toggleAdvisorInstructions, toggleAdvisorPaymentOrder, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleRequireInstructionsToLoadPobox, toggleExternalSync, toggleEntregaxPaymentQuery, toggleCajito, toggleMaintenanceMode, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleFacturas, toggleGEX, toggleAdvisorInstructions, toggleAdvisorPaymentOrder, toggleAdvisorXpay, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleRequireInstructionsToLoadPobox, toggleExternalSync, toggleEntregaxPaymentQuery, toggleCajito, toggleMaintenanceMode, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
 import CajitoAuditDialog from '../components/CajitoAuditDialog';
@@ -86,7 +86,7 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
-    const { xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, entregaxPaymentQueryEnabled, cajitoEnabled, maintenanceMode, loading: paymentsStatusLoading } = usePaymentStatus();
+    const { xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, entregaxPaymentQueryEnabled, cajitoEnabled, maintenanceMode, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
     const [localFacturas, setLocalFacturas] = useState<boolean | null>(null);
@@ -96,6 +96,7 @@ export default function SettingsPage() {
     const [togglingGex, setTogglingGex] = useState(false);
     const [togglingAdvisorInstr, setTogglingAdvisorInstr] = useState(false);
     const [togglingAdvisorPaymentOrder, setTogglingAdvisorPaymentOrder] = useState(false);
+    const [togglingAdvisorXpay, setTogglingAdvisorXpay] = useState(false);
     const [togglingReqPayment, setTogglingReqPayment] = useState(false);
     const [togglingReqLabel, setTogglingReqLabel] = useState(false);
     const [togglingReqInstrPobox, setTogglingReqInstrPobox] = useState(false);
@@ -107,6 +108,7 @@ export default function SettingsPage() {
     const [localGex, setLocalGex] = useState<boolean | null>(null);
     const [localAdvisorInstr, setLocalAdvisorInstr] = useState<boolean | null>(null);
     const [localAdvisorPaymentOrder, setLocalAdvisorPaymentOrder] = useState<boolean | null>(null);
+    const [localAdvisorXpay, setLocalAdvisorXpay] = useState<boolean | null>(null);
     const [localReqPayment, setLocalReqPayment] = useState<boolean | null>(null);
     const [localReqLabel, setLocalReqLabel] = useState<boolean | null>(null);
     const [localReqInstrPobox, setLocalReqInstrPobox] = useState<boolean | null>(null);
@@ -134,6 +136,7 @@ export default function SettingsPage() {
             setLocalGex(gexEnabled);
             setLocalAdvisorInstr(advisorInstructionsEnabled);
             setLocalAdvisorPaymentOrder(advisorPaymentOrderEnabled);
+            setLocalAdvisorXpay(advisorXpayEnabled);
             setLocalReqPayment(requirePaymentToLoad);
             setLocalReqLabel(requireLabelToLoad);
             setLocalReqInstrPobox(requireInstructionsToLoadPobox);
@@ -142,7 +145,7 @@ export default function SettingsPage() {
             setLocalCajito(cajitoEnabled);
             setLocalMaintenance(maintenanceMode);
         }
-    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, cajitoEnabled, maintenanceMode]);
+    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, cajitoEnabled, maintenanceMode]);
 
     const handleToggleXpay = async (checked: boolean) => {
         setTogglingXpay(true);
@@ -264,6 +267,21 @@ export default function SettingsPage() {
             setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar', severity: 'error' });
         } finally {
             setTogglingAdvisorPaymentOrder(false);
+        }
+    };
+    const handleToggleAdvisorXpay = async (checked: boolean) => {
+        setTogglingAdvisorXpay(true);
+        const prev = localAdvisorXpay;
+        setLocalAdvisorXpay(checked);
+        try {
+            await toggleAdvisorXpay(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Xpay Asesor ${checked ? 'activado' : 'desactivado'} correctamente`, severity: 'success' });
+        } catch (err: any) {
+            setLocalAdvisorXpay(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar', severity: 'error' });
+        } finally {
+            setTogglingAdvisorXpay(false);
         }
     };
     const handleToggleReqPayment = async (checked: boolean) => {
@@ -916,6 +934,36 @@ export default function SettingsPage() {
                                         )}
                                     </Box>
                                 )}
+                            </Paper>
+
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                                        <Typography variant="subtitle1" fontWeight={600}>
+                                            🅧 Xpay (Panel Asesor)
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary">
+                                            Controla si los asesores pueden crear operaciones Xpay a nombre de sus clientes asignados. Si se desactiva, el tab "Xpay" desaparece del panel del asesor.
+                                        </Typography>
+                                    </Box>
+                                    {paymentsStatusLoading || localAdvisorXpay === null ? (
+                                        <CircularProgress size={20} />
+                                    ) : (
+                                        <FormControlLabel
+                                            control={
+                                                <Switch
+                                                    checked={!!localAdvisorXpay}
+                                                    onChange={(e) => handleToggleAdvisorXpay(e.target.checked)}
+                                                    disabled={togglingAdvisorXpay}
+                                                    color="success"
+                                                />
+                                            }
+                                            label={togglingAdvisorXpay ? '...' : (localAdvisorXpay ? 'Activado' : 'Desactivado')}
+                                            labelPlacement="start"
+                                            sx={{ m: 0 }}
+                                        />
+                                    )}
+                                </Box>
                             </Paper>
                         </Stack>
                     </CardContent>
