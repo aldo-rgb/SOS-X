@@ -1132,7 +1132,10 @@ ${body}
 
         const maybeFormat = (url: string) => (opts?.format4x6 ? with4x6Format(url) : url);
 
-        if (raw) {
+        // 'manual-printed' es un MARCADOR de "etiqueta local ya confirmada",
+        // NO un archivo real. No se debe fetchear (daría 404) → se trata como
+        // "sin archivo subido" para que se genere la etiqueta local.
+        if (raw && raw !== 'manual-printed') {
             if (/^https?:\/\//i.test(raw)) return maybeFormat(raw);
             const path = baseEndsWithApi && raw.startsWith('/api/') ? raw.slice(4) : raw;
             if (path.startsWith('/')) return maybeFormat(`${baseUrl}${path}`);
@@ -1149,7 +1152,14 @@ ${body}
     const handlePrintAssignedCarrierGuide = async (opts?: { format4x6?: boolean }) => {
         const guideUrl = getAssignedCarrierGuideUrl(opts);
         if (!guideUrl) {
-            setError('No hay guía disponible para la paquetería asignada');
+            // No hay archivo de guía subido (o es el marcador 'manual-printed'):
+            // generamos la etiqueta local con la dirección de entrega (instrucciones)
+            // y la paquetería asignada, en vez de intentar fetchear un archivo inexistente.
+            if (shipment?.master?.assignedAddress) {
+                handlePrintCarrierDelivery();
+            } else {
+                setError('No hay guía subida ni dirección de entrega para imprimir');
+            }
             return;
         }
         try {
