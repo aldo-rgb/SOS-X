@@ -471,7 +471,11 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
     const params: (string | number)[] = [];
     const IS_TDI_EXPRESS = `(p.air_source = 'tdi_express' OR LOWER(COALESCE(p.service_type,'')) = 'tdi_express')`;
     const IS_AIR_CHN = `(p.service_type = 'AIR_CHN_MX' AND p.international_tracking IS NOT NULL AND p.international_tracking <> '')`;
-    let where = `WHERE (${IS_AIR_CHN} OR ${IS_TDI_EXPRESS})`;
+    // source=tdi → solo TDI Express; cualquier otro valor (default 'air') → solo
+    // AIR_CHN. Así el Inventario Aéreo y el Inventario TDX quedan separados.
+    const source = String(req.query.source || 'air').toLowerCase();
+    const SERVICE_FILTER = source === 'tdi' ? IS_TDI_EXPRESS : IS_AIR_CHN;
+    let where = `WHERE ${SERVICE_FILTER}`;
 
     if (status && status !== 'all') {
       const s = String(status);
@@ -586,7 +590,7 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
           COUNT(*) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE)::int AS missing
         FROM packages p
         LEFT JOIN china_receipts cr ON cr.id = p.china_receipt_id
-        WHERE (${IS_AIR_CHN} OR ${IS_TDI_EXPRESS})
+        WHERE ${SERVICE_FILTER}
       `
     );
 

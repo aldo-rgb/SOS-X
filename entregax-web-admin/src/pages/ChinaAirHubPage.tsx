@@ -33,7 +33,7 @@ interface Props {
     onBack: () => void;
 }
 
-type Panel = 'menu' | 'reception' | 'inventory' | 'tdi_express' | 'tdi_outbound' | 'tdi_cedis_mty';
+type Panel = 'menu' | 'reception' | 'inventory' | 'tdx_inventory' | 'tdi_express' | 'tdi_outbound' | 'tdi_cedis_mty';
 
 const ORANGE = '#FF6B35';
 const BLACK = '#1A1A1A';
@@ -48,10 +48,17 @@ const OPTIONS = [
     },
     {
         key: 'inventory' as const,
-        title: 'Inventario',
-        description: 'Consulta los paquetes del servicio aéreo en bodega y su estado',
+        title: 'Inventario Aéreo',
+        description: 'Consulta los paquetes del servicio aéreo (AIR) en bodega y su estado',
         icon: <InventoryIcon sx={{ fontSize: 56, color: '#FFF' }} />,
         bgGradient: 'linear-gradient(135deg, #1976D2 0%, #42A5F5 100%)',
+    },
+    {
+        key: 'tdx_inventory' as const,
+        title: 'Inventario TDX',
+        description: 'Consulta los paquetes TDI Express (TDX) en bodega y su estado',
+        icon: <InventoryIcon sx={{ fontSize: 56, color: '#FFF' }} />,
+        bgGradient: 'linear-gradient(135deg, #6A1B9A 0%, #AB47BC 100%)',
     },
     {
         key: 'tdi_express' as const,
@@ -83,7 +90,10 @@ export default function ChinaAirHubPage({ onBack }: Props) {
         return <ChinaAirReceptionWizard onBack={() => setPanel('menu')} />;
     }
     if (panel === 'inventory') {
-        return <ChinaAirInventoryPage onBack={() => setPanel('menu')} />;
+        return <ChinaAirInventoryPage onBack={() => setPanel('menu')} source="air" />;
+    }
+    if (panel === 'tdx_inventory') {
+        return <ChinaAirInventoryPage onBack={() => setPanel('menu')} source="tdi" />;
     }
     if (panel === 'tdi_express') {
         return <TdiExpressShipmentsPage onBack={() => setPanel('menu')} />;

@@ -62,6 +62,7 @@ interface Stats {
 
 interface Props {
     onBack: () => void;
+    source?: 'air' | 'tdi';
 }
 
 const ORANGE = '#FF6B35';
@@ -79,7 +80,19 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
     delivered: { label: 'Entregado', color: '#424242' },
 };
 
-export default function ChinaAirInventoryPage({ onBack }: Props) {
+// Estatus propios del flujo TDX (TDI Express): recibido en China → en tránsito
+// → recibido en CEDIS MTY → en ruta → entregado.
+const TDX_STATUS_LABELS: Record<string, { label: string; color: string }> = {
+    received_china: { label: 'Recibido en China', color: '#1976D2' },
+    in_transit: { label: 'En tránsito', color: ORANGE },
+    shipped: { label: 'Enviado', color: '#0277BD' },
+    received_mty: { label: 'Recibido en CEDIS MTY', color: '#2E7D32' },
+    out_for_delivery: { label: 'En ruta de entrega', color: '#EF6C00' },
+    delivered: { label: 'Entregado', color: '#424242' },
+};
+
+export default function ChinaAirInventoryPage({ onBack, source = 'air' }: Props) {
+    const statusLabels = source === 'tdi' ? TDX_STATUS_LABELS : STATUS_LABELS;
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [packages, setPackages] = useState<InvPackage[]>([]);
@@ -123,6 +136,7 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
             if (statusFilter !== 'all') params.status = statusFilter;
             if (awbFilter.trim()) params.awb = awbFilter.trim();
             if (dayFilter.trim()) params.day = dayFilter.trim();
+            params.source = source;
 
             const res = await api.get('/admin/china-air/inventory', { params });
             setPackages(res.data.packages || []);
@@ -134,7 +148,7 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
         } finally {
             setLoading(false);
         }
-    }, [page, pageSize, statusFilter, awbFilter, search, dayFilter]);
+    }, [page, pageSize, statusFilter, awbFilter, search, dayFilter, source]);
 
     useEffect(() => {
         const t = setTimeout(load, 350);
@@ -266,7 +280,7 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
                                         </TableCell>
                                     </TableRow>
                                 ) : packages.map((p) => {
-                                    const meta = STATUS_LABELS[p.status] || { label: p.status, color: '#757575' };
+                                    const meta = statusLabels[p.status] || STATUS_LABELS[p.status] || { label: p.status, color: '#757575' };
                                     return (
                                         <TableRow key={p.id} hover>
                                             <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
@@ -298,7 +312,7 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
                                                 {isSuperAdmin ? (
                                                     <Select
                                                         size="small"
-                                                        value={STATUS_LABELS[p.status] ? p.status : ''}
+                                                        value={statusLabels[p.status] ? p.status : ''}
                                                         disabled={savingStatusId === p.id}
                                                         onChange={(e) => changeStatus(p.id, e.target.value)}
                                                         displayEmpty
@@ -311,7 +325,7 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
                                                         )}
                                                         sx={{ '& .MuiSelect-select': { py: 0, pl: 0 }, '& fieldset': { border: 'none' }, minWidth: 140 }}
                                                     >
-                                                        {Object.entries(STATUS_LABELS).map(([key, m]) => (
+                                                        {Object.entries(statusLabels).map(([key, m]) => (
                                                             <MenuItem key={key} value={key}>
                                                                 <Chip label={m.label} size="small" sx={{ bgcolor: m.color, color: '#FFF', fontWeight: 600 }} />
                                                             </MenuItem>
