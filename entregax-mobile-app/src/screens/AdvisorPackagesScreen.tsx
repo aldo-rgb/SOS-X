@@ -149,6 +149,50 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   // Bulk selection context for the modal
   const [instrBulkShipments, setInstrBulkShipments] = useState<Shipment[]>([]);
 
+  // Subir guías de paquetería nacional
+  const [ngShipment, setNgShipment] = useState<Shipment | null>(null);
+  const [ngFiles, setNgFiles] = useState<{ uri: string; name: string; mimeType?: string }[]>([]);
+  const [ngUploading, setNgUploading] = useState(false);
+  const pickNationalGuides = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/png', 'image/jpeg'],
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const assets = (result.assets || []).map((a: any) => ({ uri: a.uri, name: a.name || 'archivo', mimeType: a.mimeType }));
+      setNgFiles(prev => [...prev, ...assets]);
+    } catch {
+      Alert.alert('Error', 'No se pudieron seleccionar los archivos');
+    }
+  };
+  const submitNationalGuides = async () => {
+    if (!ngShipment || ngFiles.length === 0) return;
+    setNgUploading(true);
+    try {
+      const formData = new FormData();
+      ngFiles.forEach(f => formData.append('files', { uri: f.uri, name: f.name, type: f.mimeType || 'application/octet-stream' } as any));
+      const ngBase = ngShipment.service_type === 'SEA_CHN_MX' ? 'maritime' : 'packages';
+      const resp = await fetch(`${API_URL}/api/${ngBase}/${ngShipment.id}/national-guide`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `Error ${resp.status}`);
+      }
+      setNgShipment(null);
+      setNgFiles([]);
+      Alert.alert('Listo', 'Guía subida. Ya está disponible para imprimir la etiqueta de paquetería.');
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo subir la guía');
+    } finally {
+      setNgUploading(false);
+    }
+  };
+
   // Payment order creation
   const [paymentOrderLoading, setPaymentOrderLoading] = useState(false);
   const [paymentOrderResult, setPaymentOrderResult] = useState<any>(null);
@@ -620,6 +664,14 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                           }}
                         >
                           <Ionicons name="cash-outline" size={14} color={ORANGE} />
+                        </TouchableOpacity>
+                      )}
+                      {(item.service_type === 'POBOX_USA' || item.service_type === 'tdi_express' || item.service_type === 'TDI_EXPRESS' || item.service_type === 'AIR_CHN_MX' || item.service_type === 'SEA_CHN_MX') && (
+                        <TouchableOpacity
+                          style={[styles.pencilBtn, { backgroundColor: '#ECEFF1' }]}
+                          onPress={() => { setNgShipment(item); setNgFiles([]); }}
+                        >
+                          <Ionicons name="cloud-upload-outline" size={14} color="#1A1A1A" />
                         </TouchableOpacity>
                       )}
                     </View>
@@ -1263,6 +1315,47 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       </Modal>
 
       {/* ─── Modal: Asignar Cliente ─── */}
+      {/* Subir guías de paquetería nacional */}
+      <Modal visible={!!ngShipment} animationType="fade" transparent onRequestClose={() => { if (!ngUploading) setNgShipment(null); }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 20 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: '#1A1A1A', marginBottom: 6 }}>Subir guías de paquetería nacional</Text>
+            <Text style={{ fontSize: 13, color: '#666', marginBottom: 14 }}>
+              Sube 1 o más archivos (PDF, JPG o PNG). Se unirán en un solo PDF disponible para imprimir la etiqueta
+              {ngShipment?.is_master ? ' desde la guía maestra y todas sus hijas.' : '.'}
+            </Text>
+            <TouchableOpacity
+              onPress={pickNationalGuides}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#1A1A1A', borderRadius: 10, paddingVertical: 11, marginBottom: 12 }}
+            >
+              <Ionicons name="cloud-upload-outline" size={18} color="#1A1A1A" />
+              <Text style={{ marginLeft: 8, color: '#1A1A1A', fontWeight: '700' }}>Seleccionar archivos</Text>
+            </TouchableOpacity>
+            {ngFiles.map((f, i) => (
+              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                <Ionicons name="document-text-outline" size={14} color="#666" />
+                <Text style={{ marginLeft: 6, fontSize: 12, color: '#666', flex: 1 }} numberOfLines={1}>{f.name}</Text>
+                <TouchableOpacity onPress={() => setNgFiles(prev => prev.filter((_, idx) => idx !== i))}>
+                  <Ionicons name="close-circle" size={16} color="#C62828" />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16, gap: 8 }}>
+              <TouchableOpacity onPress={() => setNgShipment(null)} disabled={ngUploading} style={{ paddingVertical: 10, paddingHorizontal: 16 }}>
+                <Text style={{ color: '#1A1A1A', fontWeight: '600' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={submitNationalGuides}
+                disabled={ngUploading || ngFiles.length === 0}
+                style={{ backgroundColor: ngFiles.length === 0 ? '#ccc' : '#F05A28', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 20 }}
+              >
+                {ngUploading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Subir</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={assignClientModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAssignClientModal(false)}>
         <View style={styles.modalContainer}>
           <View style={[styles.modalHeader, { backgroundColor: '#7B1FA2' }]}>

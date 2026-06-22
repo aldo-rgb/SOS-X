@@ -4661,6 +4661,42 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
 // guarda national_label_url en el paquete + su master + todas las hijas, para
 // que quede disponible en "Imprimir etiqueta de paquetería" (Operaciones).
 // ============================================
+// Fusiona los archivos subidos (PDF/JPG/PNG) en un solo PDF. Devuelve el
+// Buffer del PDF, o null si no se pudo procesar ningún archivo.
+const mergeUploadedFilesToPdf = async (
+    files: Array<{ buffer: Buffer; mimetype: string; originalname: string }>
+): Promise<Buffer | null> => {
+    const { PDFDocument } = await import('pdf-lib');
+    const merged = await PDFDocument.create();
+
+    for (const f of files) {
+        const mime = (f.mimetype || '').toLowerCase();
+        try {
+            if (mime === 'application/pdf') {
+                const src = await PDFDocument.load(f.buffer, { ignoreEncryption: true });
+                const pages = await merged.copyPages(src, src.getPageIndices());
+                pages.forEach((p) => merged.addPage(p));
+            } else if (mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/jpg') {
+                const img = mime.includes('png') ? await merged.embedPng(f.buffer) : await merged.embedJpg(f.buffer);
+                const page = merged.addPage([612, 792]); // tamaño Carta
+                const { width, height } = page.getSize();
+                const margin = 18;
+                const scale = Math.min((width - margin * 2) / img.width, (height - margin * 2) / img.height, 1);
+                const w = img.width * scale, h = img.height * scale;
+                page.drawImage(img, { x: (width - w) / 2, y: (height - h) / 2, width: w, height: h });
+            } else {
+                console.warn('[national-guide] tipo no soportado, se omite:', mime, f.originalname);
+            }
+        } catch (e) {
+            console.warn('[national-guide] no se pudo procesar archivo:', f.originalname, (e as Error).message);
+        }
+    }
+
+    if (merged.getPageCount() === 0) return null;
+    const pdfBytes = await merged.save();
+    return Buffer.from(pdfBytes);
+};
+
 export const uploadNationalGuide = async (req: Request, res: Response): Promise<any> => {
     try {
         const pkgId = parseInt(String(req.params.id), 10);
@@ -4669,38 +4705,8 @@ export const uploadNationalGuide = async (req: Request, res: Response): Promise<
         const files = (req as any).files as Array<{ buffer: Buffer; mimetype: string; originalname: string }> | undefined;
         if (!files || files.length === 0) return res.status(400).json({ error: 'Sube al menos un archivo (PDF, JPG o PNG)' });
 
-        const { PDFDocument } = await import('pdf-lib');
-        const merged = await PDFDocument.create();
-
-        for (const f of files) {
-            const mime = (f.mimetype || '').toLowerCase();
-            try {
-                if (mime === 'application/pdf') {
-                    const src = await PDFDocument.load(f.buffer, { ignoreEncryption: true });
-                    const pages = await merged.copyPages(src, src.getPageIndices());
-                    pages.forEach((p) => merged.addPage(p));
-                } else if (mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/jpg') {
-                    const img = mime.includes('png') ? await merged.embedPng(f.buffer) : await merged.embedJpg(f.buffer);
-                    const page = merged.addPage([612, 792]); // tamaño Carta
-                    const { width, height } = page.getSize();
-                    const margin = 18;
-                    const scale = Math.min((width - margin * 2) / img.width, (height - margin * 2) / img.height, 1);
-                    const w = img.width * scale, h = img.height * scale;
-                    page.drawImage(img, { x: (width - w) / 2, y: (height - h) / 2, width: w, height: h });
-                } else {
-                    console.warn('[national-guide] tipo no soportado, se omite:', mime, f.originalname);
-                }
-            } catch (e) {
-                console.warn('[national-guide] no se pudo procesar archivo:', f.originalname, (e as Error).message);
-            }
-        }
-
-        if (merged.getPageCount() === 0) {
-            return res.status(400).json({ error: 'No se pudo procesar ningún archivo. Usa PDF, JPG o PNG.' });
-        }
-
-        const pdfBytes = await merged.save();
-        const buffer = Buffer.from(pdfBytes);
+        const buffer = await mergeUploadedFilesToPdf(files);
+        if (!buffer) return res.status(400).json({ error: 'No se pudo procesar ningún archivo. Usa PDF, JPG o PNG.' });
 
         // Resolver el master para propagar a todas las hijas
         const pkgRes = await pool.query('SELECT id, master_id FROM packages WHERE id = $1', [pkgId]);
@@ -4722,9 +4728,42 @@ export const uploadNationalGuide = async (req: Request, res: Response): Promise<
             [labelPath, masterId]
         );
 
-        return res.json({ success: true, url: labelPath, pages: merged.getPageCount() });
+        return res.json({ success: true, url: labelPath, pages: -1 });
     } catch (error: any) {
         console.error('[national-guide] error:', error.message);
+        return res.status(500).json({ error: 'Error al subir la guía nacional', details: error.message });
+    }
+};
+
+// Igual que uploadNationalGuide pero para órdenes marítimas (maritime_orders),
+// que viven en su propia tabla con su propio id.
+export const uploadMaritimeNationalGuide = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const orderId = parseInt(String(req.params.id), 10);
+        if (!orderId) return res.status(400).json({ error: 'ID de orden inválido' });
+
+        const files = (req as any).files as Array<{ buffer: Buffer; mimetype: string; originalname: string }> | undefined;
+        if (!files || files.length === 0) return res.status(400).json({ error: 'Sube al menos un archivo (PDF, JPG o PNG)' });
+
+        const buffer = await mergeUploadedFilesToPdf(files);
+        if (!buffer) return res.status(400).json({ error: 'No se pudo procesar ningún archivo. Usa PDF, JPG o PNG.' });
+
+        const moRes = await pool.query('SELECT id FROM maritime_orders WHERE id = $1', [orderId]);
+        if (!moRes.rows[0]) return res.status(404).json({ error: 'Orden marítima no encontrada' });
+
+        const { uploadToS3 } = await import('./s3Service');
+        const key = `national-guides/mar-${orderId}.pdf`;
+        await uploadToS3(buffer, key, 'application/pdf');
+
+        const labelPath = `/api/maritime/${orderId}/national-guide.pdf`;
+        await pool.query(
+            `UPDATE maritime_orders SET national_label_url = $1, updated_at = NOW() WHERE id = $2`,
+            [labelPath, orderId]
+        );
+
+        return res.json({ success: true, url: labelPath });
+    } catch (error: any) {
+        console.error('[national-guide maritime] error:', error.message);
         return res.status(500).json({ error: 'Error al subir la guía nacional', details: error.message });
     }
 };
@@ -4743,6 +4782,22 @@ export const streamNationalGuide = async (req: Request, res: Response): Promise<
         return res.send(buffer);
     } catch (error: any) {
         console.error('[national-guide stream] error:', error.message);
+        return res.status(404).json({ error: 'Guía no encontrada' });
+    }
+};
+
+export const streamMaritimeNationalGuide = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const orderId = parseInt(String(req.params.id), 10);
+        if (!orderId) return res.status(400).json({ error: 'ID inválido' });
+        const { getS3ObjectBuffer } = await import('./s3Service');
+        const buffer = await getS3ObjectBuffer(`national-guides/mar-${orderId}.pdf`);
+        if (!buffer || buffer.length === 0) return res.status(404).json({ error: 'Guía no encontrada' });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename=guia-nacional-mar-${orderId}.pdf`);
+        return res.send(buffer);
+    } catch (error: any) {
+        console.error('[national-guide maritime stream] error:', error.message);
         return res.status(404).json({ error: 'Guía no encontrada' });
     }
 };

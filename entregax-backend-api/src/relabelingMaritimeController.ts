@@ -218,13 +218,14 @@ export async function generatePqtxForMaritimeOrder(req: Request, res: Response):
     }
     const order = orderRes.rows[0];
 
-    // Si ya tiene guía nacional, devolverla
-    if (order.national_tracking) {
+    // Si ya tiene guía nacional (generada con tracking o subida manualmente
+    // como guía de paquetería), devolverla.
+    if (order.national_tracking || order.national_label_url) {
       const labelUrl = order.national_label_url || `/api/admin/paquete-express/label/pdf/${order.national_tracking}`;
       res.json({
         success: true,
         alreadyExists: true,
-        trackingNumber: order.national_tracking,
+        trackingNumber: order.national_tracking || null,
         labelUrl,
         pieces: Math.max(1, parseInt(String(order.summary_boxes || order.goods_num || 1), 10) || 1),
       });

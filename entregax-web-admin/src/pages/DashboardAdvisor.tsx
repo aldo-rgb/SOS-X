@@ -1570,6 +1570,28 @@ export default function DashboardAdvisor() {
     return <Chip icon={<WarningIcon />} label={t('advisor.unverified')} color="error" size="small" variant="outlined" />;
   };
 
+  // --- Subir guías de paquetería nacional ---
+  const [nationalGuideShipment, setNationalGuideShipment] = useState<AdvisorShipment | null>(null);
+  const [nationalGuideFiles, setNationalGuideFiles] = useState<File[]>([]);
+  const [nationalGuideUploading, setNationalGuideUploading] = useState(false);
+  const submitNationalGuide = async () => {
+    if (!nationalGuideShipment || nationalGuideFiles.length === 0) return;
+    setNationalGuideUploading(true);
+    try {
+      const fd = new FormData();
+      nationalGuideFiles.forEach((f) => fd.append('files', f));
+      const base = nationalGuideShipment.serviceType === 'SEA_CHN_MX' ? 'maritime' : 'packages';
+      await api.post(`/${base}/${nationalGuideShipment.id}/national-guide`, fd);
+      setSnackbar({ open: true, message: '✅ Guía subida. Ya está disponible para imprimir la etiqueta.', severity: 'success' });
+      setNationalGuideShipment(null);
+      setNationalGuideFiles([]);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo subir la guía', severity: 'error' });
+    } finally {
+      setNationalGuideUploading(false);
+    }
+  };
+
   const getStatusLabel = (status: string) => {
     const map: Record<string, { label: string; color: 'default' | 'primary' | 'secondary' | 'warning' | 'success' | 'error' | 'info' }> = {
       'china_warehouse': { label: t('advisor.statusChinaWh'), color: 'info' },
@@ -3089,6 +3111,17 @@ export default function DashboardAdvisor() {
                         <VisibilityIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
+                    {(s.serviceType === 'POBOX_USA' || s.serviceType === 'tdi_express' || s.serviceType === 'TDI_EXPRESS' || s.serviceType === 'AIR_CHN_MX' || s.serviceType === 'SEA_CHN_MX') && (
+                      <Tooltip title="Subir guía(s) de paquetería nacional">
+                        <IconButton
+                          size="small"
+                          onClick={() => { setNationalGuideShipment(s); setNationalGuideFiles([]); }}
+                          sx={{ color: '#1A1A1A' }}
+                        >
+                          <UploadFileIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     </Box>
                   </TableCell>
                 </TableRow>
@@ -6065,6 +6098,64 @@ export default function DashboardAdvisor() {
       )}
 
       {/* ── Shipment Detail Dialog ── */}
+      {/* Subir guía(s) de paquetería nacional */}
+      <Dialog
+        open={!!nationalGuideShipment}
+        onClose={() => { if (!nationalGuideUploading) setNationalGuideShipment(null); }}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Subir guías de paquetería nacional</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Sube 1 o más archivos (PDF, JPG o PNG). Se unirán en un solo PDF disponible para imprimir la etiqueta de paquetería{nationalGuideShipment?.isMaster ? ' desde la guía maestra y todas sus hijas' : ''}.
+          </Typography>
+          {nationalGuideShipment && (
+            <Typography variant="caption" sx={{ display: 'block', mb: 1.5, color: '#1A1A1A', fontWeight: 600 }}>
+              Guía: {nationalGuideShipment.tracking}
+            </Typography>
+          )}
+          <Button
+            component="label"
+            variant="outlined"
+            startIcon={<UploadFileIcon />}
+            sx={{ color: '#1A1A1A', borderColor: '#1A1A1A', '&:hover': { borderColor: '#1A1A1A', bgcolor: 'rgba(0,0,0,0.04)' } }}
+          >
+            Seleccionar archivos
+            <input
+              type="file"
+              hidden
+              multiple
+              accept="application/pdf,image/png,image/jpeg"
+              onChange={(e) => setNationalGuideFiles(Array.from(e.target.files || []))}
+            />
+          </Button>
+          {nationalGuideFiles.length > 0 && (
+            <Box sx={{ mt: 2 }}>
+              {nationalGuideFiles.map((f, i) => (
+                <Typography key={i} variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                  • {f.name}
+                </Typography>
+              ))}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setNationalGuideShipment(null)} disabled={nationalGuideUploading} sx={{ color: '#1A1A1A' }}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={submitNationalGuide}
+            disabled={nationalGuideUploading || nationalGuideFiles.length === 0}
+            sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C62828' } }}
+          >
+            {nationalGuideUploading ? 'Subiendo…' : 'Subir'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog
         open={!!selectedShipment}
         onClose={() => setSelectedShipment(null)}
