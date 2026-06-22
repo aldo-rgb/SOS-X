@@ -83,7 +83,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 // Estatus propios del flujo TDX (TDI Express): recibido en China → en tránsito
 // → recibido en CEDIS MTY → en ruta → entregado.
 const TDX_STATUS_LABELS: Record<string, { label: string; color: string }> = {
-    received_china: { label: 'Recibido en China', color: '#1976D2' },
+    received_china: { label: 'Recibido en bodega China', color: '#1976D2' },
     in_transit: { label: 'En tránsito', color: ORANGE },
     shipped: { label: 'Enviado', color: '#0277BD' },
     received_mty: { label: 'Recibido en CEDIS MTY', color: '#2E7D32' },

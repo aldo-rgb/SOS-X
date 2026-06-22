@@ -844,6 +844,7 @@ import {
   getConversation as cajitoGetConversation,
   getAudit as cajitoGetAudit,
   getHealth as cajitoGetHealth,
+  clientLookup as cajitoClientLookup,
 } from './cajitoController';
 import {
   listAwbCosts,
@@ -10118,6 +10119,28 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
     `, [norm]);
 
     if (pkgRes.rows.length === 0) {
+      // Fallback: guías DHL (dhl_shipments) — mismo flujo de 2 pasos. La
+      // recepción en China las deja en received_china; aquí pasan a received_mty.
+      const dhlRes = await pool.query(`
+        SELECT ds.id, COALESCE(NULLIF(ds.secondary_tracking,''), ds.inbound_tracking) AS tracking_internal,
+               ds.status, u.full_name AS client_name, u.box_id AS client_box_id
+          FROM dhl_shipments ds
+          LEFT JOIN users u ON u.id = ds.user_id
+         WHERE UPPER(ds.inbound_tracking) = $1 OR UPPER(COALESCE(ds.secondary_tracking,'')) = $1
+         LIMIT 1
+      `, [norm]);
+      if (dhlRes.rows.length > 0) {
+        const d = dhlRes.rows[0];
+        if (!['received_china', 'in_transit', 'customs'].includes(d.status)) {
+          return res.status(400).json({ error: `Esta guía ya está en status "${d.status}" — no puede recibirse de nuevo`, already_received: d.status === 'received_mty' });
+        }
+        await pool.query(`UPDATE dhl_shipments SET status = 'received_mty', updated_at = NOW() WHERE id = $1`, [d.id]);
+        return res.json({
+          success: true, id: d.id, tracking: d.tracking_internal,
+          client_name: d.client_name || '—', client_box_id: d.client_box_id || '—',
+          is_master: false, children_count: 0, previous_status: d.status, new_status: 'received_mty',
+        });
+      }
       return res.status(404).json({ error: `Guía no encontrada: ${norm}` });
     }
     const pkg = pkgRes.rows[0];
@@ -13796,6 +13819,7 @@ app.post('/api/cajito/chat', authenticateToken, cajitoChat);
 app.get('/api/cajito/conversations', authenticateToken, cajitoGetMyConversations);
 app.get('/api/cajito/conversations/:id', authenticateToken, cajitoGetConversation);
 app.get('/api/cajito/health', authenticateToken, cajitoGetHealth);
+app.get('/api/cajito/client-lookup', authenticateToken, cajitoClientLookup);
 app.get('/api/admin/cajito/audit', authenticateToken, requireRole('super_admin'), cajitoGetAudit);
 
 // ============================================================
