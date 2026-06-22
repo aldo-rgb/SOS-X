@@ -149,6 +149,17 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   // (mark-label-printed setea national_label_url='manual-printed').
   const hasLabel = !!(m.nationalLabelUrl || m.nationalTracking);
 
+  // Para paquetería EXTERNA (Sendex, Paquete Express, etc.) el status 'delivered'
+  // significa que se entregó al carrier = "Enviado", no entregado al cliente
+  // final (eso lo hace la paquetería). Solo las entregas locales/EntregaX que
+  // confirmamos nosotros muestran "Entregado".
+  const carrierNorm = String(m.nationalCarrier || '').toLowerCase();
+  const isExternalCarrier = !!carrierNorm && !(
+    carrierNorm.includes('local') || carrierNorm.includes('entregax') ||
+    carrierNorm.includes('pickup') || carrierNorm.includes('bodega')
+  );
+  const displayStatusLabel = (status === 'delivered' && isExternalCarrier) ? 'Enviado' : statusLabel(status);
+
   const totalBoxes = m.totalBoxes ?? m.total_boxes ?? 1;
 
   // Costos
@@ -176,7 +187,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
           <Typography variant="caption" color="text.secondary">Buscado: {tracking}</Typography>
         )}
         <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75, flexWrap: 'wrap' }}>
-          <Chip label={statusLabel(status)} size="small" color={statusColor(status)} />
+          <Chip label={displayStatusLabel} size="small" color={statusColor(status)} />
           {totalBoxes > 1 && <Chip label={`${totalBoxes} cajas`} size="small" variant="outlined" />}
           <Chip
             label={paid ? `✅ Pagado${clientPaidAt ? ` · ${fmtDate(clientPaidAt)}` : ''}` : '⏳ Pendiente'}
@@ -346,7 +357,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
               </Typography>
               <Chip
                 size="small"
-                label={ev.statusLabel || ev.status_label || ev.label || ev.status || '—'}
+                label={(ev.status === 'delivered' && isExternalCarrier) ? 'Enviado' : (ev.statusLabel || ev.status_label || ev.label || ev.status || '—')}
                 color={statusColor(ev.status)}
                 sx={{ height: 18, fontSize: 10, mb: 0.25 }}
               />
