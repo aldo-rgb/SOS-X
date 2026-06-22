@@ -3132,7 +3132,7 @@ export default function DashboardAdvisor() {
                         <VisibilityIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    {(s.serviceType === 'POBOX_USA' || s.serviceType === 'tdi_express' || s.serviceType === 'TDI_EXPRESS' || s.serviceType === 'AIR_CHN_MX' || s.serviceType === 'SEA_CHN_MX' || s.serviceType === 'AA_DHL') && (
+                    {(s.serviceType === 'POBOX_USA' || s.serviceType === 'tdi_express' || s.serviceType === 'TDI_EXPRESS' || s.serviceType === 'AIR_CHN_MX' || s.serviceType === 'SEA_CHN_MX' || s.serviceType === 'AA_DHL' || s.serviceType === 'china_sea' || s.serviceType === 'china_air') && (
                       <Tooltip title="Subir guía(s) de paquetería nacional">
                         <IconButton
                           size="small"

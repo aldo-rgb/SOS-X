@@ -629,6 +629,13 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         OR (p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM(u.box_id)))
       )
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client' AND p.master_id IS NULL
+        -- Dedup marítimo: si un embarque china_sea (legacy en packages) ya existe
+        -- como orden marítima canónica (maritime_orders), se oculta aquí para no
+        -- duplicar la fila (se muestra la versión Marítimo con "cajas").
+        AND NOT (
+          p.service_type::text = 'china_sea'
+          AND EXISTS (SELECT 1 FROM maritime_orders mo2 WHERE mo2.ordersn = p.tracking_internal)
+        )
     `;
 
     // 2) maritime_orders (SEA_CHN_MX)

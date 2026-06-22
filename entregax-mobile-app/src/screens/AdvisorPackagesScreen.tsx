@@ -668,7 +668,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                           <Ionicons name="cash-outline" size={14} color={ORANGE} />
                         </TouchableOpacity>
                       )}
-                      {(item.service_type === 'POBOX_USA' || item.service_type === 'tdi_express' || item.service_type === 'TDI_EXPRESS' || item.service_type === 'AIR_CHN_MX' || item.service_type === 'SEA_CHN_MX' || item.service_type === 'AA_DHL') && (
+                      {(item.service_type === 'POBOX_USA' || item.service_type === 'tdi_express' || item.service_type === 'TDI_EXPRESS' || item.service_type === 'AIR_CHN_MX' || item.service_type === 'SEA_CHN_MX' || item.service_type === 'AA_DHL' || item.service_type === 'china_sea' || item.service_type === 'china_air') && (
                         <TouchableOpacity
                           style={[styles.pencilBtn, { backgroundColor: '#ECEFF1' }]}
                           onPress={() => { setNgShipment(item); setNgFiles([]); }}
