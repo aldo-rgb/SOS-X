@@ -174,8 +174,11 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       if (p.is_dhl_shipment) return;
       const rawCarrier = p.national_carrier || '';
       if (!rawCarrier || isLocalCarrier(rawCarrier)) return;
-      const isLoaded = String(p.delivery_status || '').includes('out_for_delivery') || String(p.delivery_status || '').includes('in_transit');
-      if (!isLoaded && requireLabel && !p.has_label) return;
+      // Las salidas a paquetería externa (Estafeta, Paquete Express, etc.) se
+      // listan TODAS, tengan o no etiqueta — la guía del carrier se escanea al
+      // momento del handoff. (Antes se ocultaban las sin etiqueta, lo que
+      // dejaba el conteo del backend (todas) distinto al mostrado y escondía
+      // carriers como Estafeta cuyas guías aún no se subían.)
       const c = canonicalCarrier(rawCarrier);
       if (!carrierMap[c]) carrierMap[c] = [];
       carrierMap[c].push(p);
