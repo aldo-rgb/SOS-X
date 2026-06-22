@@ -11187,20 +11187,9 @@ export default function DashboardClient() {
                           <>
                             {serviceLabel && <Divider sx={{ my: 1 }} />}
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                              {(() => {
-                                const carrierCode = selectedPackage.national_carrier || selectedPackage.carrier || '';
-                                const carrierMatch = carrierServices.find(s => s.id === carrierCode);
-                                // 🎨 Cualquier paquetería EntregaX interna usa el logo X
-                                // activo (configurado en Settings → Brand Assets).
-                                const isEntregax = String(carrierCode).toLowerCase().startsWith('entregax_')
-                                  || String(carrierCode).toLowerCase() === 'local';
-                                const iconSrc = (isEntregax && entregaxLogoUrl)
-                                  ? entregaxLogoUrl
-                                  : carrierMatch?.icon;
-                                const isUrl = iconSrc && (iconSrc.startsWith('http') || iconSrc.startsWith('/'));
-                                if (isUrl) return <img src={iconSrc} alt={carrierCode} style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 4 }} />;
-                                return <Box sx={{ fontSize: '1.5rem' }}>{iconSrc || '🚚'}</Box>;
-                              })()}
+                              {/* Solo texto: el logo de la paqueter\u00eda externa se omite
+                                  porque las URLs cambian con frecuencia y rompen la UI. */}
+                              <Box sx={{ fontSize: '1.5rem' }}>🚚</Box>
                               <Box>
                                 <Typography variant="body1" fontWeight="bold" sx={{ color: ((selectedPackage.national_carrier || selectedPackage.carrier || '').toLowerCase().includes('local') ? ORANGE : 'inherit') }}>
                                   {carrierServices.find(s => s.id === (selectedPackage.national_carrier || selectedPackage.carrier))?.name || selectedPackage.national_carrier || selectedPackage.carrier}

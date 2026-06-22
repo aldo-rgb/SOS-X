@@ -133,6 +133,7 @@ const POBoxConsolidacionesPage: React.FC = () => {
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [filtroPago, setFiltroPago] = useState('todos');
   const [filtroConsolId, setFiltroConsolId] = useState<string>('todos');
+  const [filtroTracking, setFiltroTracking] = useState('');
 
   // Selección
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -201,9 +202,15 @@ const POBoxConsolidacionesPage: React.FC = () => {
 
   // ── Toggle helpers ──────────────────────────────────────────────────
   const getAllPackages = () => consolidaciones.flatMap(c => (c.packages || []).map(p => ({ ...p, consolidacion_id: c.id })));
-  const filterByEstado = (p: { consolidacion_id?: number; received_mty_at?: string | null; missing_on_arrival?: boolean; is_lost?: boolean; costing_paid?: boolean }) => {
+  const filterByEstado = (p: { consolidacion_id?: number; received_mty_at?: string | null; missing_on_arrival?: boolean; is_lost?: boolean; costing_paid?: boolean; tracking?: string | null }) => {
     // 0) Filtro por consolidación
     if (filtroConsolId !== 'todos' && p.consolidacion_id !== undefined && String(p.consolidacion_id) !== filtroConsolId) return false;
+    // 0b) Filtro por tracking (búsqueda parcial, case-insensitive)
+    if (filtroTracking.trim()) {
+      const q = filtroTracking.trim().toLowerCase();
+      const t = String(p.tracking || '').toLowerCase();
+      if (!t.includes(q)) return false;
+    }
     // 1) Filtro por fecha de recibida MTY
     const mtyDate = p.received_mty_at ? p.received_mty_at.substring(0, 10) : null;
     if (filtroDesde) { if (!mtyDate || mtyDate < filtroDesde) return false; }
@@ -489,6 +496,14 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
       {/* Filtros */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
         <TextField
+          size="small"
+          label="Buscar tracking"
+          placeholder="Ej: US-2107..."
+          value={filtroTracking}
+          onChange={(e) => setFiltroTracking(e.target.value)}
+          sx={{ minWidth: 220 }}
+        />
+        <TextField
           type="date" size="small" label="Recibida MTY desde" InputLabelProps={{ shrink: true }}
           value={filtroDesde}
           onChange={(e) => setFiltroDesde(e.target.value)}
@@ -519,8 +534,8 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
             ))}
           </Select>
         </FormControl>
-        <Button size="small" variant="outlined" disabled={!filtroDesde && !filtroHasta && filtroEstado === 'todos' && filtroConsolId === 'todos'}
-          onClick={() => { setFiltroDesde(''); setFiltroHasta(''); setFiltroEstado('todos'); setFiltroPago('todos'); setFiltroConsolId('todos'); fetchConsolidaciones(undefined, undefined, proveedorSel?.id); }}>
+        <Button size="small" variant="outlined" disabled={!filtroDesde && !filtroHasta && filtroEstado === 'todos' && filtroConsolId === 'todos' && !filtroTracking.trim()}
+          onClick={() => { setFiltroDesde(''); setFiltroHasta(''); setFiltroEstado('todos'); setFiltroPago('todos'); setFiltroConsolId('todos'); setFiltroTracking(''); fetchConsolidaciones(undefined, undefined, proveedorSel?.id); }}>
           Limpiar filtros
         </Button>
         <Typography variant="body2" color="text.secondary">
