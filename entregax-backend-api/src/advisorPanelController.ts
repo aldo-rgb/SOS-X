@@ -1925,6 +1925,13 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           collect_carrier = $4,
           wants_factura_paqueteria = $5,
           national_delivery_zip = COALESCE($8, national_delivery_zip),
+          -- Si el paquete aún no tiene sucursal, derivarla de su status
+          -- (received_mty → CEDIS MTY, received_cdmx → CDMX), para que aparezca
+          -- en las Salidas de Paquetería del repartidor de ese CEDIS.
+          current_branch_id = COALESCE(current_branch_id, (
+            SELECT b.id FROM branches b
+             WHERE LOWER(b.code) = REPLACE(LOWER(status::text), 'received_', '') LIMIT 1
+          )),
           instructions_assigned_by_id = $7
          WHERE id = $6`,
         [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId, ocurreZip]
@@ -1945,6 +1952,10 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
               collect_carrier = $4,
               wants_factura_paqueteria = $5,
               national_delivery_zip = COALESCE($8, national_delivery_zip),
+              current_branch_id = COALESCE(current_branch_id, (
+                SELECT b.id FROM branches b
+                 WHERE LOWER(b.code) = REPLACE(LOWER(status::text), 'received_', '') LIMIT 1
+              )),
               instructions_assigned_by_id = $6
              WHERE tracking_internal ~ ('^' || $7 || '-\\d{1,4}$')
                AND assigned_address_id IS NULL`,
