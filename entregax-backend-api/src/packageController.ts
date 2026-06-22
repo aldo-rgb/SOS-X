@@ -4802,6 +4802,73 @@ export const streamMaritimeNationalGuide = async (req: Request, res: Response): 
     }
 };
 
+// DHL: los envíos viven en dhl_shipments y se agrupan por secondary_tracking
+// (las guías JJD hijas comparten el mismo master). Al subir se propaga a todo
+// el grupo para que quede disponible desde cualquier guía.
+export const uploadDhlNationalGuide = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const dhlId = parseInt(String(req.params.id), 10);
+        if (!dhlId) return res.status(400).json({ error: 'ID inválido' });
+
+        const files = (req as any).files as Array<{ buffer: Buffer; mimetype: string; originalname: string }> | undefined;
+        if (!files || files.length === 0) return res.status(400).json({ error: 'Sube al menos un archivo (PDF, JPG o PNG)' });
+
+        const buffer = await mergeUploadedFilesToPdf(files);
+        if (!buffer) return res.status(400).json({ error: 'No se pudo procesar ningún archivo. Usa PDF, JPG o PNG.' });
+
+        const rowRes = await pool.query(
+            'SELECT id, inbound_tracking, secondary_tracking FROM dhl_shipments WHERE id = $1',
+            [dhlId]
+        );
+        if (!rowRes.rows[0]) return res.status(404).json({ error: 'Envío DHL no encontrado' });
+        const row = rowRes.rows[0];
+        const isJJD = String(row.inbound_tracking || '').startsWith('JJD');
+        const groupKey = isJJD
+            ? (row.secondary_tracking && String(row.secondary_tracking).trim() ? row.secondary_tracking : row.inbound_tracking)
+            : row.inbound_tracking;
+
+        const { uploadToS3 } = await import('./s3Service');
+        const key = `national-guides/dhl-${dhlId}.pdf`;
+        await uploadToS3(buffer, key, 'application/pdf');
+
+        const labelPath = `/api/dhl/${dhlId}/national-guide.pdf`;
+        // Propagar a todo el grupo (master + hijas que comparten secondary_tracking)
+        if (isJJD) {
+            await pool.query(
+                `UPDATE dhl_shipments SET national_label_url = $1, updated_at = NOW()
+                  WHERE COALESCE(NULLIF(secondary_tracking, ''), inbound_tracking) = $2`,
+                [labelPath, groupKey]
+            );
+        } else {
+            await pool.query(
+                `UPDATE dhl_shipments SET national_label_url = $1, updated_at = NOW() WHERE inbound_tracking = $2`,
+                [labelPath, groupKey]
+            );
+        }
+
+        return res.json({ success: true, url: labelPath });
+    } catch (error: any) {
+        console.error('[national-guide dhl] error:', error.message);
+        return res.status(500).json({ error: 'Error al subir la guía nacional', details: error.message });
+    }
+};
+
+export const streamDhlNationalGuide = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const dhlId = parseInt(String(req.params.id), 10);
+        if (!dhlId) return res.status(400).json({ error: 'ID inválido' });
+        const { getS3ObjectBuffer } = await import('./s3Service');
+        const buffer = await getS3ObjectBuffer(`national-guides/dhl-${dhlId}.pdf`);
+        if (!buffer || buffer.length === 0) return res.status(404).json({ error: 'Guía no encontrada' });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename=guia-nacional-dhl-${dhlId}.pdf`);
+        return res.send(buffer);
+    } catch (error: any) {
+        console.error('[national-guide dhl stream] error:', error.message);
+        return res.status(404).json({ error: 'Guía no encontrada' });
+    }
+};
+
 // Aliases
 export const createPackage = createShipment;
 export const getPackageByTracking = getShipmentByTracking;

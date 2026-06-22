@@ -173,7 +173,9 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     try {
       const formData = new FormData();
       ngFiles.forEach(f => formData.append('files', { uri: f.uri, name: f.name, type: f.mimeType || 'application/octet-stream' } as any));
-      const ngBase = ngShipment.service_type === 'SEA_CHN_MX' ? 'maritime' : 'packages';
+      const ngBase = ngShipment.service_type === 'SEA_CHN_MX' ? 'maritime'
+        : ngShipment.service_type === 'AA_DHL' ? 'dhl'
+        : 'packages';
       const resp = await fetch(`${API_URL}/api/${ngBase}/${ngShipment.id}/national-guide`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
@@ -666,7 +668,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                           <Ionicons name="cash-outline" size={14} color={ORANGE} />
                         </TouchableOpacity>
                       )}
-                      {(item.service_type === 'POBOX_USA' || item.service_type === 'tdi_express' || item.service_type === 'TDI_EXPRESS' || item.service_type === 'AIR_CHN_MX' || item.service_type === 'SEA_CHN_MX') && (
+                      {(item.service_type === 'POBOX_USA' || item.service_type === 'tdi_express' || item.service_type === 'TDI_EXPRESS' || item.service_type === 'AIR_CHN_MX' || item.service_type === 'SEA_CHN_MX' || item.service_type === 'AA_DHL') && (
                         <TouchableOpacity
                           style={[styles.pencilBtn, { backgroundColor: '#ECEFF1' }]}
                           onPress={() => { setNgShipment(item); setNgFiles([]); }}

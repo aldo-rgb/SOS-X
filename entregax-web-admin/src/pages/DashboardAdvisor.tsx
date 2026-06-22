@@ -1581,7 +1581,9 @@ export default function DashboardAdvisor() {
     try {
       const fd = new FormData();
       nationalGuideFiles.forEach((f) => fd.append('files', f));
-      const base = nationalGuideShipment.serviceType === 'SEA_CHN_MX' ? 'maritime' : 'packages';
+      const base = nationalGuideShipment.serviceType === 'SEA_CHN_MX' ? 'maritime'
+        : nationalGuideShipment.serviceType === 'AA_DHL' ? 'dhl'
+        : 'packages';
       await api.post(`/${base}/${nationalGuideShipment.id}/national-guide`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
@@ -3130,7 +3132,7 @@ export default function DashboardAdvisor() {
                         <VisibilityIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    {(s.serviceType === 'POBOX_USA' || s.serviceType === 'tdi_express' || s.serviceType === 'TDI_EXPRESS' || s.serviceType === 'AIR_CHN_MX' || s.serviceType === 'SEA_CHN_MX') && (
+                    {(s.serviceType === 'POBOX_USA' || s.serviceType === 'tdi_express' || s.serviceType === 'TDI_EXPRESS' || s.serviceType === 'AIR_CHN_MX' || s.serviceType === 'SEA_CHN_MX' || s.serviceType === 'AA_DHL') && (
                       <Tooltip title="Subir guía(s) de paquetería nacional">
                         <IconButton
                           size="small"

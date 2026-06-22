@@ -113,6 +113,8 @@ import {
   streamNationalGuide,
   uploadMaritimeNationalGuide,
   streamMaritimeNationalGuide,
+  uploadDhlNationalGuide,
+  streamDhlNationalGuide,
   updatePackageStatus,
   getPackagesByClient,
   getPackageStats,
@@ -4179,9 +4181,11 @@ app.get('/api/packages/track/:tracking', authenticateToken, getPackageByTracking
 const nationalGuideUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 15 } });
 app.post('/api/packages/:id/national-guide', authenticateToken, nationalGuideUpload.array('files', 15), uploadNationalGuide);
 app.post('/api/maritime/:id/national-guide', authenticateToken, nationalGuideUpload.array('files', 15), uploadMaritimeNationalGuide);
+app.post('/api/dhl/:id/national-guide', authenticateToken, nationalGuideUpload.array('files', 15), uploadDhlNationalGuide);
 // Sin auth: se abre/imprime en nueva pestaña desde el módulo de etiquetado.
 app.get('/api/packages/:masterId/national-guide.pdf', streamNationalGuide);
 app.get('/api/maritime/:id/national-guide.pdf', streamMaritimeNationalGuide);
+app.get('/api/dhl/:id/national-guide.pdf', streamDhlNationalGuide);
 
 // Historial de movimientos por tracking (cualquier usuario autenticado con permiso)
 app.get('/api/packages/track/:tracking/movements', authenticateToken, getPackageMovementsByTracking);
