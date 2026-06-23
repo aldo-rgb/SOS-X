@@ -7185,47 +7185,156 @@ app.delete('/api/pobox/payment-references/:id', authenticateToken, requireMinLev
 });
 
 // ── PAGAR por Referencia ─────────────────────────────────────────────────────
+// La referencia es el snapshot autoritativo: el monto y los paquetes a pagar
+// se determinan por lo que se capturó al generarla (packages_data con
+// package_id + countsToTotal). Esto evita discrepancias entre el total que
+// el usuario vio al generar la referencia y el monto del egreso registrado.
 app.post('/api/pobox/payment-references/:id/pay', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: Request, res: Response) => {
   const refId = Number(req.params.id);
   const userId = (req as any).user?.userId ?? (req as any).user?.id ?? null;
+  const adminName = (req as any).user?.email ?? (req as any).user?.name ?? 'Sistema';
+  const dbClient = await pool.connect();
   try {
-    const ref = await pool.query(`SELECT * FROM pobox_payment_references WHERE id = $1`, [refId]);
-    if (ref.rows.length === 0) return res.status(404).json({ error: 'Referencia no encontrada' });
+    const ref = await dbClient.query(`SELECT * FROM pobox_payment_references WHERE id = $1`, [refId]);
+    if (ref.rows.length === 0) {
+      dbClient.release();
+      return res.status(404).json({ error: 'Referencia no encontrada' });
+    }
     const refRow = ref.rows[0];
-    if (refRow.status === 'pagada') return res.status(409).json({ error: 'Esta referencia ya fue pagada' });
+    if (refRow.status === 'pagada') {
+      dbClient.release();
+      return res.status(409).json({ error: 'Esta referencia ya fue pagada' });
+    }
 
-    // Llamar al handler existente inyectando los datos de la referencia
-    const fakeReq = {
-      body: {
-        consolidation_ids: refRow.consolidation_ids,
-        referencia: `REF-${refId}`,
-        notas: refRow.notas || null,
-      },
-      user: (req as any).user,
-    } as any;
+    // Filas pagables del snapshot (countsToTotal === true)
+    const allRows: any[] = Array.isArray(refRow.packages_data) ? refRow.packages_data : [];
+    const payableRows = allRows.filter(r => r && r.countsToTotal !== false);
+    const snapshotPackageIds: number[] = payableRows
+      .map(r => Number(r.package_id))
+      .filter(n => Number.isFinite(n) && n > 0);
 
-    // Capturar respuesta del pago múltiple
-    let pagoResult: any = null;
-    let pagoError: any = null;
-    const fakeRes = {
-      status: (code: number) => ({ json: (data: any) => { if (code >= 400) pagoError = data; else pagoResult = data; return fakeRes; } }),
-      json: (data: any) => { pagoResult = data; return fakeRes; },
-    } as any;
+    // Fallback: si la referencia es antigua y no tiene package_id en el snapshot,
+    // delegamos al flujo legacy basado en consolidation_ids (puede dar discrepancias).
+    if (snapshotPackageIds.length === 0) {
+      dbClient.release();
+      const fakeReq = {
+        body: {
+          consolidation_ids: refRow.consolidation_ids,
+          referencia: `REF-${refId}`,
+          notas: refRow.notas || null,
+        },
+        user: (req as any).user,
+      } as any;
+      let pagoResult: any = null;
+      let pagoError: any = null;
+      const fakeRes = {
+        status: (code: number) => ({ json: (data: any) => { if (code >= 400) pagoError = data; else pagoResult = data; return fakeRes; } }),
+        json: (data: any) => { pagoResult = data; return fakeRes; },
+      } as any;
+      await pagarMultiplesConsolidaciones(fakeReq, fakeRes);
+      if (pagoError) return res.status(400).json(pagoError);
+      await pool.query(
+        `UPDATE pobox_payment_references SET status='pagada', paid_at=NOW(), paid_by=$1 WHERE id=$2`,
+        [userId, refId]
+      );
+      return res.json({
+        ok: true,
+        reference_id: refId,
+        legacy_mode: true,
+        ...pagoResult,
+      });
+    }
 
-    await pagarMultiplesConsolidaciones(fakeReq, fakeRes);
+    // Pago basado en snapshot: monto = total_mxn de la referencia (lo que el usuario vio).
+    const totalMonto = Number(refRow.total_mxn) || 0;
+    const paymentRef = `REF-${refId}`;
+    const supplierName = refRow.supplier_name || '';
+    const consolidationIds: number[] = Array.isArray(refRow.consolidation_ids) ? refRow.consolidation_ids : [];
+    const idsLista = consolidationIds.map(id => `#${id}`).join(', ');
+    const concepto = `Pago Proveedor: ${supplierName || 'N/A'} - ${consolidationIds.length} consolidación(es) (${idsLista}) - ${snapshotPackageIds.length} paquete(s) [REF-${refId}]`;
 
-    if (pagoError) return res.status(400).json(pagoError);
+    await dbClient.query('BEGIN');
 
-    // Marcar referencia como pagada
-    await pool.query(
+    // Saldo actual
+    const saldoResult = await dbClient.query(`
+      SELECT COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0) as saldo
+      FROM caja_chica_transacciones
+    `);
+    const saldoActual = parseFloat(saldoResult.rows[0].saldo);
+    const nuevoSaldo = saldoActual - totalMonto;
+
+    const txInsert = await dbClient.query(`
+      INSERT INTO caja_chica_transacciones
+        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas, referencia)
+      VALUES ('egreso', $1, $2, 'pago_proveedor', $3, $4, $5, $6, $7)
+      RETURNING id
+    `, [totalMonto, concepto, userId, adminName, nuevoSaldo, refRow.notas || null, paymentRef]);
+    const transaccionId: number = txInsert.rows[0].id;
+
+    // Marcar EXACTAMENTE los paquetes del snapshot como pagados.
+    // No re-filtramos por status/missing/lost: si el usuario aceptó cobrarlos
+    // al generar la referencia, se marcan tal cual.
+    const updateRes = await dbClient.query(`
+      UPDATE packages
+         SET costing_paid = TRUE,
+             costing_paid_at = NOW(),
+             costing_payment_reference = $1,
+             updated_at = NOW()
+       WHERE id = ANY($2::int[])
+         AND (costing_paid IS NULL OR costing_paid = FALSE)
+      RETURNING id, consolidation_id, supplier_id
+    `, [paymentRef, snapshotPackageIds]);
+
+    // Historial pobox por proveedor
+    const bySupplier = new Map<number, number[]>();
+    for (const row of updateRes.rows) {
+      if (!row.supplier_id) continue;
+      const arr = bySupplier.get(row.supplier_id) || [];
+      arr.push(row.id);
+      bySupplier.set(row.supplier_id, arr);
+    }
+    for (const [supplierId, packageIds] of bySupplier.entries()) {
+      const monto = payableRows
+        .filter((r: any) => packageIds.includes(Number(r.package_id)))
+        .reduce((s: number, r: any) => s + Number(r.mxn || 0), 0);
+      await dbClient.query('SAVEPOINT sp_pobox_hist');
+      try {
+        await dbClient.query(`
+          INSERT INTO pobox_payment_history
+            (package_ids, total_cost, payment_reference, paid_by, paid_at, supplier_id)
+          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5)
+        `, [JSON.stringify(packageIds), monto, paymentRef, userId, supplierId]);
+        await dbClient.query('RELEASE SAVEPOINT sp_pobox_hist');
+      } catch (err: any) {
+        await dbClient.query('ROLLBACK TO SAVEPOINT sp_pobox_hist');
+        console.warn('pobox_payment_history insert falló, continuando', { supplierId, code: err?.code, message: err?.message });
+      }
+    }
+
+    // Marcar referencia como pagada (dentro de la misma tx)
+    await dbClient.query(
       `UPDATE pobox_payment_references SET status='pagada', paid_at=NOW(), paid_by=$1 WHERE id=$2`,
       [userId, refId]
     );
 
-    return res.json({ ok: true, reference_id: refId, ...pagoResult });
+    await dbClient.query('COMMIT');
+
+    return res.json({
+      ok: true,
+      reference_id: refId,
+      transaccion_id: transaccionId,
+      payment_reference: paymentRef,
+      total_monto: totalMonto,
+      snapshot_packages: snapshotPackageIds.length,
+      packages_marked: updateRes.rows.length,
+      already_paid_skipped: snapshotPackageIds.length - updateRes.rows.length,
+    });
   } catch (err: any) {
+    await dbClient.query('ROLLBACK').catch(() => {});
     console.error('[pobox/payment-references/pay]', err.message);
     res.status(500).json({ error: err.message });
+  } finally {
+    dbClient.release();
   }
 });
 

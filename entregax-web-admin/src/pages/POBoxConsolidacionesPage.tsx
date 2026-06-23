@@ -89,6 +89,7 @@ interface PaymentReference {
 }
 
 interface ReporteRow {
+  package_id?: number;
   consolidacion_id: number;
   supplier_name: string;
   tracking: string;
@@ -275,6 +276,7 @@ const POBoxConsolidacionesPage: React.FC = () => {
         else if (!hasArrived) { statusLabel = 'EN TRÁNSITO'; countsToTotal = false; reasonNoCount = 'Aún no llega a MTY'; }
         if (countsToTotal) { totalUsd += usd; totalMxn += mxn; }
         rows.push({
+          package_id: p.id,
           consolidacion_id: c.id, supplier_name: c.supplier_name,
           tracking: p.tracking, tracking_provider: p.tracking_provider || '',
           client: p.client_name, client_box_id: p.client_box_id,
