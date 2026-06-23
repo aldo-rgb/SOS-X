@@ -106,6 +106,11 @@ export interface EntangledSolicitudResponseV2 {
   tc_aplicado_usd?: number | undefined;
   empresas_asignadas?: EntangledEmpresaAsignadaV2[] | undefined;
   url_comprobante_cliente?: string | undefined;
+  // Contrato Puerta 2 (/v1/solicitud-pago): la orden nace 'pendiente' con un
+  // vencimiento (vence_en) y puede devolver la cuenta de depósito directa.
+  vence_en?: string | undefined;
+  cuenta_deposito?: any;
+  status?: number | undefined; // HTTP status del upstream (para mapear 409, etc.)
   raw?: any;
   error?: string | undefined;
 }
@@ -184,7 +189,7 @@ export const sendSolicitudPago = async (
     return {
       ok: true,
       transaccion_id: transaccionId,
-      estatus: data.estatus || data.status,
+      estatus: data.estatus || data.status || data.estatus_pago_cliente,
       comision_cobrada_porcentaje:
         data.comision_cobrada_porcentaje != null
           ? Number(data.comision_cobrada_porcentaje)
@@ -195,6 +200,10 @@ export const sendSolicitudPago = async (
         ? data.empresas_asignadas
         : undefined,
       url_comprobante_cliente: data.url_comprobante_cliente || undefined,
+      // Puerta 2: vencimiento + cuenta de depósito (pueden venir a este nivel).
+      vence_en: data.vence_en || data.venceEn || data.deadline || undefined,
+      cuenta_deposito:
+        data.cuenta_deposito || data.cuenta_bancaria || undefined,
       raw: data,
     };
   } catch (err) {
@@ -206,7 +215,7 @@ export const sendSolicitudPago = async (
       ax.message ||
       'Error desconocido al contactar ENTANGLED';
     console.error('[ENTANGLED] sendSolicitudPago error:', message, ax.response?.status);
-    return { ok: false, error: message, raw: responseData };
+    return { ok: false, error: message, status: ax.response?.status, raw: responseData };
   }
 };
 

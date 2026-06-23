@@ -1882,6 +1882,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         res.data?.requires_proof_upload ||
         res.data?.status === 'pendiente_comprobante' ||
         res.data?.request?.estatus_global === 'pendiente';
+      // Plazo de pago (vencimiento / congelamiento) si ENTANGLED/nuestro lado lo fija.
+      const venceEn = res.data?.vence_en || res.data?.request?.payment_deadline_at || null;
+      const venceTxt = venceEn
+        ? ` Sube tu comprobante antes de ${new Date(venceEn).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}.`
+        : '';
       setSnack({
         open: true,
         severity: 'success',
@@ -1889,10 +1894,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           res.data?.request?.estatus_global === 'error_envio'
             ? t('entangled.messages.successPending')
             : isPending
-              ? t(
-                  'entangled.messages.successAwaitingProof',
-                  'Solicitud creada. Sube tu comprobante de pago desde "Últimos envíos" para procesarla.'
-                )
+              ? `Solicitud enviada a ENTANGLED.${venceTxt || ' Sube tu comprobante desde "Últimos envíos" para completar el pago.'}`
               : t('entangled.messages.success'),
       });
       loadRequests();

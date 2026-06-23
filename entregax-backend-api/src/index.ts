@@ -391,6 +391,7 @@ import {
   deleteUserServicePricing as deleteEntangledUserServicePricing,
   webhookFacturaGeneradaV2 as entangledWebhookFacturaV2,
   webhookPagoProveedorV2 as entangledWebhookProveedorV2,
+  webhookOrdenesV2 as entangledWebhookOrdenesV2,
   rotateApiKeyAdmin as rotateEntangledApiKey,
   syncProveedoresFromRemote as syncEntangledProveedoresFromRemote,
   listClaveSatHistory as listEntangledClaveSatHistory,
@@ -5489,6 +5490,8 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
 // express.raw route-specific que ya no aplicaría tras express.json global.
 app.post('/api/entangled/webhook/factura-generada', entangledWebhookFacturaV2);
 app.post('/api/entangled/webhook/pago-proveedor', entangledWebhookProveedorV2);
+// webhook_ordenes — orden.cancelada / orden.cuenta.cambiada (dirigido a asesores)
+app.post('/api/entangled/webhook/ordenes', entangledWebhookOrdenesV2);
 
 // Webhooks legacy (v1) — siguen activos para compatibilidad mientras ENTANGLED
 // no haya migrado del todo. Si en producción ya están en v2, estas rutas

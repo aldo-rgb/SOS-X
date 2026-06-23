@@ -19,6 +19,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 interface ServiceConfig {
   comision_pago_con_factura: number;
   comision_pago_sin_factura: number;
+  congelamiento_horas: number;
   updated_at?: string;
 }
 
@@ -39,6 +40,7 @@ export default function EntangledServiceConfigCard() {
       setCfg({
         comision_pago_con_factura: Number(r.data?.comision_pago_con_factura ?? 6),
         comision_pago_sin_factura: Number(r.data?.comision_pago_sin_factura ?? 4),
+        congelamiento_horas: Number(r.data?.congelamiento_horas ?? 24),
         updated_at: r.data?.updated_at,
       });
     } catch (e: unknown) {
@@ -62,6 +64,10 @@ export default function EntangledServiceConfigCard() {
       setFeedback({ severity: 'error', msg: '% sin factura debe estar entre 0 y 100' });
       return;
     }
+    if (cfg.congelamiento_horas < 1 || cfg.congelamiento_horas > 720) {
+      setFeedback({ severity: 'error', msg: 'Horas de congelamiento debe estar entre 1 y 720' });
+      return;
+    }
     try {
       setSaving(true);
       const r = await axios.put(
@@ -69,12 +75,14 @@ export default function EntangledServiceConfigCard() {
         {
           comision_pago_con_factura: cfg.comision_pago_con_factura,
           comision_pago_sin_factura: cfg.comision_pago_sin_factura,
+          congelamiento_horas: cfg.congelamiento_horas,
         },
         { headers: authHeaders }
       );
       setCfg({
         comision_pago_con_factura: Number(r.data.comision_pago_con_factura),
         comision_pago_sin_factura: Number(r.data.comision_pago_sin_factura),
+        congelamiento_horas: Number(r.data.congelamiento_horas ?? cfg.congelamiento_horas),
         updated_at: r.data.updated_at,
       });
       setFeedback({ severity: 'success', msg: 'Configuración guardada' });
@@ -139,6 +147,18 @@ export default function EntangledServiceConfigCard() {
                 inputProps: { min: 0, max: 100, step: 0.1 },
               }}
               helperText="Sin emisión de factura SAT"
+            />
+            <TextField
+              fullWidth
+              label="Congelamiento"
+              type="number"
+              value={cfg.congelamiento_horas}
+              onChange={(e) => setCfg({ ...cfg, congelamiento_horas: Number(e.target.value) })}
+              InputProps={{
+                endAdornment: <InputAdornment position="end">hrs</InputAdornment>,
+                inputProps: { min: 1, max: 720, step: 1 },
+              }}
+              helperText="Horas para pagar antes de cancelar (gana la ventana más corta)"
             />
             <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
               <Button

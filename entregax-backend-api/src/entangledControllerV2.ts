@@ -63,6 +63,23 @@ const isAdminRole = (req: Request): boolean => {
 };
 
 // ---------------------------------------------------------------------------
+// Horas de congelamiento (ventana de TC de NUESTRO lado). Si vence antes que la
+// de ENTANGLED, cancelamos la orden localmente. Configurable por super_admin.
+// Default 24h. Se lee de entangled_service_config.congelamiento_horas.
+// ---------------------------------------------------------------------------
+const DEFAULT_CONGELAMIENTO_HORAS = 24;
+async function getCongelamientoHoras(): Promise<number> {
+  try {
+    const r = await pool.query(
+      `SELECT congelamiento_horas FROM entangled_service_config WHERE id = 1`
+    );
+    const h = Number(r.rows[0]?.congelamiento_horas);
+    return Number.isFinite(h) && h > 0 ? h : DEFAULT_CONGELAMIENTO_HORAS;
+  } catch {
+    return DEFAULT_CONGELAMIENTO_HORAS;
+  }
+}
+
 // Resuelve la comisión que XPAY le cobra al cliente final para un servicio.
 // Override por usuario tiene precedencia sobre la configuración global.
 // ---------------------------------------------------------------------------
@@ -217,7 +234,8 @@ export const createPaymentRequestV2 = async (
       `ALTER TABLE entangled_payment_requests
          ADD COLUMN IF NOT EXISTS tc_cliente_final NUMERIC(14,6),
          ADD COLUMN IF NOT EXISTS instructions_snapshot JSONB,
-         ADD COLUMN IF NOT EXISTS op_beneficiario_nombre VARCHAR(200)`
+         ADD COLUMN IF NOT EXISTS op_beneficiario_nombre VARCHAR(200),
+         ADD COLUMN IF NOT EXISTS payment_deadline_at TIMESTAMPTZ`
     ).catch(() => {});
     // Nombre del beneficiario (proveedor final al que se le envía
     // el dinero) — se persiste para mostrarlo en Últimos envíos.
@@ -344,98 +362,45 @@ export const createPaymentRequestV2 = async (
     });
   }
 
-  // SIN comprobante → no se envía a ENTANGLED todavía. ENTANGLED exige que
-  // POST /solicitud-pago incluya el archivo (multipart) o el link
-  // (comprobante_cliente_url) en el JSON. Si todavía no tenemos comprobante no
-  // podemos cumplir ninguno de los dos, así que dejamos la solicitud local en
-  // 'esperando_comprobante' y la enviaremos cuando el cliente suba el archivo.
-  if (!hasFile) {
-    // cuenta_bancaria_sin_factura: el frontend puede mandarlo en body para incluirlo en el WhatsApp
-    const cuentaSinFactura: any = (() => {
-      try { return body.cuenta_bancaria_sin_factura ? JSON.parse(String(body.cuenta_bancaria_sin_factura)) : {}; }
-      catch { return {}; }
-    })();
-    await pool.query(
-      `UPDATE entangled_payment_requests
-          SET estatus_global = 'esperando_comprobante',
-              empresas_asignadas = $1::jsonb,
-              updated_at = NOW()
-        WHERE id = $2`,
-      [JSON.stringify([]), requestId]
-    );
-    // WhatsApp xpay_confirmacion — debe enviarse aquí porque pago_sin_factura no adjunta comprobante al crear
-    try {
-      const userRow = await pool.query(`SELECT full_name, phone FROM users WHERE id = $1 LIMIT 1`, [userId]);
-      const u = userRow.rows[0];
-      if (u?.phone) {
-        const tc = Number(tcClienteFinal) || 0;
-        const totalMxn = tc > 0
-          ? (monto * tc * (1 + commission.porcentaje / 100)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-          : '—';
-        console.log(`[XPAY WA] Enviando xpay_confirmacion a ${u.phone} ref=${referenciaPago}`);
-        void sendXPayConfirmation({
-          phone: u.phone,
-          nombre: u.full_name || '',
-          montoUsd: `$${Number(monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${divisa}`,
-          totalMxn: `$${totalMxn}`,
-          beneficiario: String(body.beneficiario_nombre || ''),
-          banco: cuentaSinFactura.banco || '',
-          cuenta: cuentaSinFactura.cuenta || '',
-          clabe: cuentaSinFactura.clabe || '',
-          referencia: referenciaPago,
-        });
-      } else {
-        console.warn(`[XPAY WA] Usuario ${userId} sin teléfono para xpay_confirmacion`);
-      }
-    } catch (waErr) {
-      console.warn('[XPAY WA] Error xpay_confirmacion:', waErr);
-    }
-    return res.status(201).json({
-      message: 'Solicitud creada. Sube el comprobante de pago para enviarla a ENTANGLED.',
-      request_id: requestId,
-      referencia_pago: referenciaPago,
-      status: 'esperando_comprobante',
-      requires_proof_upload: true,
-      empresas_asignadas: [],
-    });
-  }
-
-  // Subimos el archivo a NUESTRO S3 primero para obtener una URL pública que
-  // podamos mandarle a ENTANGLED en `comprobante_cliente_url` (opción B de su
-  // contrato). Esto evita el legacy multipart que sus logs reportan como
-  // "No se pudo subir el comprobante a almacenamiento".
+  // NUEVO CONTRATO (Puerta 2): la orden se CREA en ENTANGLED al "Enviar
+  // solicitud", con o sin comprobante. Si llega el archivo, lo subimos a S3 y
+  // lo mandamos como `comprobante_cliente_url`; si no, la orden nace
+  // 'pendiente' con vencimiento y el comprobante se adjunta después.
   let comprobanteUrl: string | null = null;
-  try {
-    const ext = (file!.originalname?.split('.').pop() || 'pdf').toLowerCase();
-    const key = `entangled/comprobantes/${requestId}_${Date.now()}.${ext}`;
-    const { uploadToS3, isS3Configured, getSignedUrlForKey } = await import('./s3Service');
-    if (isS3Configured()) {
-      // El bucket es privado; guardamos la URL pública en DB pero a ENTANGLED
-      // le damos una URL firmada con 7 días de validez para que pueda
-      // descargar el archivo sin AccessDenied.
-      const publicUrl = await uploadToS3(file!.buffer, key, file!.mimetype);
-      const signedUrl = await getSignedUrlForKey(key, 7 * 24 * 60 * 60);
-      await pool.query(
-        `UPDATE entangled_payment_requests
-            SET op_comprobante_cliente_url = $1, comprobante_subido_at = NOW(), updated_at = NOW()
-          WHERE id = $2`,
-        [publicUrl, requestId]
-      );
-      comprobanteUrl = signedUrl;
-      payload.comprobante_cliente_url = signedUrl;
-    } else {
-      comprobanteUrl = `data:${file!.mimetype};base64,${file!.buffer.toString('base64')}`;
-      await pool.query(
-        `UPDATE entangled_payment_requests
-            SET op_comprobante_cliente_url = $1, comprobante_subido_at = NOW(), updated_at = NOW()
-          WHERE id = $2`,
-        [comprobanteUrl, requestId]
-      );
-      payload.comprobante_cliente_url = comprobanteUrl;
+  if (hasFile) {
+    // Subimos el archivo a NUESTRO S3 primero para obtener una URL pública que
+    // podamos mandarle a ENTANGLED en `comprobante_cliente_url`.
+    try {
+      const ext = (file!.originalname?.split('.').pop() || 'pdf').toLowerCase();
+      const key = `entangled/comprobantes/${requestId}_${Date.now()}.${ext}`;
+      const { uploadToS3, isS3Configured, getSignedUrlForKey } = await import('./s3Service');
+      if (isS3Configured()) {
+        // El bucket es privado; guardamos la URL pública en DB pero a ENTANGLED
+        // le damos una URL firmada con 7 días de validez.
+        const publicUrl = await uploadToS3(file!.buffer, key, file!.mimetype);
+        const signedUrl = await getSignedUrlForKey(key, 7 * 24 * 60 * 60);
+        await pool.query(
+          `UPDATE entangled_payment_requests
+              SET op_comprobante_cliente_url = $1, comprobante_subido_at = NOW(), updated_at = NOW()
+            WHERE id = $2`,
+          [publicUrl, requestId]
+        );
+        comprobanteUrl = signedUrl;
+        payload.comprobante_cliente_url = signedUrl;
+      } else {
+        comprobanteUrl = `data:${file!.mimetype};base64,${file!.buffer.toString('base64')}`;
+        await pool.query(
+          `UPDATE entangled_payment_requests
+              SET op_comprobante_cliente_url = $1, comprobante_subido_at = NOW(), updated_at = NOW()
+            WHERE id = $2`,
+          [comprobanteUrl, requestId]
+        );
+        payload.comprobante_cliente_url = comprobanteUrl;
+      }
+    } catch (e) {
+      console.error('[ENTANGLED v2] Error subiendo comprobante a S3:', e);
+      // Seguimos intentando ENTANGLED; si su contrato exige URL fallará abajo.
     }
-  } catch (e) {
-    console.error('[ENTANGLED v2] Error subiendo comprobante a S3:', e);
-    // Seguimos intentando ENTANGLED; si su contrato exige URL fallará abajo.
   }
 
   // POST /solicitud-pago — JSON con el payload + comprobante_cliente_url.
@@ -453,17 +418,26 @@ export const createPaymentRequestV2 = async (
         WHERE id = $3`,
       [remote.error || 'Sin transaccion_id', JSON.stringify(remote.raw || {}), requestId]
     );
-    return res.status(502).json({
+    // 409 de ENTANGLED = proveedor sin cuenta / TC vencido → propagar el código
+    // y el mensaje real para que el front lo muestre.
+    const httpStatus = remote.status === 409 ? 409 : 502;
+    return res.status(httpStatus).json({
       error: remote.error || 'ENTANGLED no devolvió un transaccion_id.',
       request_id: requestId,
       referencia_pago: referenciaPago,
     });
   }
 
-  // Estado tras fase 1: ya tenemos cuenta(s) — esperando comprobante del cliente.
+  // Estado tras crear la orden en ENTANGLED: con comprobante → en_proceso;
+  // sin comprobante → esperando_comprobante (la orden ya existe en remoto).
   const estatusTrasFase1 = hasFile ? 'en_proceso' : 'esperando_comprobante';
 
-  const empresasFinales = remote.empresas_asignadas || [];
+  // La cuenta puede venir en empresas_asignadas[] o directa en cuenta_deposito
+  // (Puerta 2). Normalizamos a empresas_asignadas para UI/WhatsApp existentes.
+  let empresasFinales = remote.empresas_asignadas || [];
+  if (empresasFinales.length === 0 && remote.cuenta_deposito) {
+    empresasFinales = [{ cuenta_bancaria: remote.cuenta_deposito } as any];
+  }
   // Si el API no retornó cuenta bancaria, rechazar — no procesar sin destino real
   if (empresasFinales.length === 0) {
     await pool.query(
@@ -476,6 +450,16 @@ export const createPaymentRequestV2 = async (
     });
   }
 
+  // Deadline = la ventana más corta entre ENTANGLED (vence_en) y la nuestra
+  // (created_at + congelamiento_horas). "Gana la más corta."
+  const congelamientoHoras = await getCongelamientoHoras();
+  const nuestroDeadline = new Date(Date.now() + congelamientoHoras * 60 * 60 * 1000);
+  const entangledDeadline = remote.vence_en ? new Date(remote.vence_en) : null;
+  const paymentDeadline =
+    entangledDeadline && !isNaN(entangledDeadline.getTime())
+      ? new Date(Math.min(entangledDeadline.getTime(), nuestroDeadline.getTime()))
+      : nuestroDeadline;
+
   let updated = (await pool.query(
     `UPDATE entangled_payment_requests
         SET entangled_transaccion_id = $1,
@@ -484,6 +468,7 @@ export const createPaymentRequestV2 = async (
             tc_aplicado_usd = $4,
             empresas_asignadas = $5::jsonb,
             raw_response = $6::jsonb,
+            payment_deadline_at = $8,
             updated_at = NOW()
       WHERE id = $7
       RETURNING *`,
@@ -495,6 +480,7 @@ export const createPaymentRequestV2 = async (
       JSON.stringify(empresasFinales),
       JSON.stringify(remote.raw || {}),
       requestId,
+      paymentDeadline.toISOString(),
     ]
   )).rows[0];
 
@@ -544,17 +530,20 @@ export const createPaymentRequestV2 = async (
   }
 
   return res.status(201).json({
-    message: 'Solicitud enviada y comprobante adjuntado a ENTANGLED.',
+    message: hasFile
+      ? 'Solicitud enviada y comprobante adjuntado a ENTANGLED.'
+      : 'Solicitud enviada a ENTANGLED. Sube tu comprobante para completar el pago.',
     request: updated,
     request_id: requestId,
     referencia_pago: referenciaPago,
     servicio,
+    requires_proof_upload: !hasFile,
+    vence_en: updated?.payment_deadline_at ?? paymentDeadline.toISOString(),
     comision_cliente_final_porcentaje: commission.porcentaje,
     comision_cobrada_porcentaje: remote.comision_cobrada_porcentaje,
     tc_aplicado_usd: remote.tc_aplicado_usd,
     empresas_asignadas: empresasFinales,
     entangled_transaccion_id: remote.transaccion_id,
-    requires_proof_upload: false,
     status: estatusTrasFase1,
   });
 };
@@ -583,6 +572,20 @@ export async function sendPendingRequestToEntangled(
     return { ok: false, status: 404, payload: { error: 'Solicitud no encontrada' } };
   }
   const reqRow = r.rows[0];
+
+  // Orden vencida o cancelada por congelamiento → no se acepta el comprobante.
+  // Alineado con el contrato (409 orden_cancelada / orden_vencida).
+  if (String(reqRow.estatus_global) === 'cancelado') {
+    return { ok: false, status: 409, payload: { error: 'orden_cancelada', message: 'La orden fue cancelada (congelamiento vencido). Crea una nueva solicitud.' } };
+  }
+  if (reqRow.payment_deadline_at && new Date(reqRow.payment_deadline_at).getTime() < Date.now()) {
+    // Marcar cancelada de inmediato (el cron también lo haría) y rechazar.
+    await pool.query(
+      `UPDATE entangled_payment_requests SET estatus_global='cancelado', error_message='congelamiento_vencido', updated_at=NOW() WHERE id=$1`,
+      [requestId]
+    ).catch(() => {});
+    return { ok: false, status: 409, payload: { error: 'orden_vencida', message: 'El plazo de pago venció (congelamiento). Crea una nueva solicitud.' } };
+  }
 
   if (!isEntangledConfigured()) {
     return {
@@ -1204,12 +1207,17 @@ export const searchConceptosProxy = async (req: Request, res: Response): Promise
 export const getServiceConfigAdmin = async (req: Request, res: Response): Promise<any> => {
   if (!isAdminRole(req)) return res.status(403).json({ error: 'Sin permisos' });
   try {
+    await pool.query(
+      `ALTER TABLE entangled_service_config ADD COLUMN IF NOT EXISTS congelamiento_horas INTEGER DEFAULT 24`
+    ).catch(() => {});
     const r = await pool.query(
-      `SELECT comision_pago_con_factura, comision_pago_sin_factura, updated_at, updated_by
+      `SELECT comision_pago_con_factura, comision_pago_sin_factura,
+              COALESCE(congelamiento_horas, ${DEFAULT_CONGELAMIENTO_HORAS}) AS congelamiento_horas,
+              updated_at, updated_by
          FROM entangled_service_config WHERE id = 1`
     );
     return res.json(
-      r.rows[0] || { comision_pago_con_factura: 6, comision_pago_sin_factura: 4 }
+      r.rows[0] || { comision_pago_con_factura: 6, comision_pago_sin_factura: 4, congelamiento_horas: DEFAULT_CONGELAMIENTO_HORAS }
     );
   } catch (err) {
     console.error('[ENTANGLED v2] getServiceConfigAdmin:', err);
@@ -1228,17 +1236,30 @@ export const updateServiceConfig = async (req: Request, res: Response): Promise<
   if (!Number.isFinite(sinFactura) || sinFactura < 0 || sinFactura > 100) {
     return res.status(400).json({ error: 'comision_pago_sin_factura inválida (0-100)' });
   }
+  // Horas de congelamiento (opcional). Si no se manda, conserva el valor actual.
+  let congelamientoHoras: number | null = null;
+  if (req.body?.congelamiento_horas != null && req.body?.congelamiento_horas !== '') {
+    const h = Number(req.body.congelamiento_horas);
+    if (!Number.isFinite(h) || h < 1 || h > 720) {
+      return res.status(400).json({ error: 'congelamiento_horas inválido (1-720)' });
+    }
+    congelamientoHoras = Math.round(h);
+  }
   try {
+    await pool.query(
+      `ALTER TABLE entangled_service_config ADD COLUMN IF NOT EXISTS congelamiento_horas INTEGER DEFAULT 24`
+    ).catch(() => {});
     const r = await pool.query(
-      `INSERT INTO entangled_service_config (id, comision_pago_con_factura, comision_pago_sin_factura, updated_by, updated_at)
-       VALUES (1, $1, $2, $3, NOW())
+      `INSERT INTO entangled_service_config (id, comision_pago_con_factura, comision_pago_sin_factura, congelamiento_horas, updated_by, updated_at)
+       VALUES (1, $1, $2, COALESCE($4, ${DEFAULT_CONGELAMIENTO_HORAS}), $3, NOW())
        ON CONFLICT (id) DO UPDATE SET
          comision_pago_con_factura = EXCLUDED.comision_pago_con_factura,
          comision_pago_sin_factura = EXCLUDED.comision_pago_sin_factura,
+         congelamiento_horas = COALESCE($4, entangled_service_config.congelamiento_horas),
          updated_by = EXCLUDED.updated_by,
          updated_at = NOW()
        RETURNING *`,
-      [conFactura, sinFactura, adminId]
+      [conFactura, sinFactura, adminId, congelamientoHoras]
     );
     return res.json(r.rows[0]);
   } catch (err) {
@@ -1552,6 +1573,126 @@ export const webhookPagoProveedorV2 = async (
   } catch (err) {
     console.error('[ENTANGLED v2] webhookPagoProveedor error:', err);
     await logWebhook(transaccionId, evento, payload, null, (err as Error).message);
+    return res.status(500).json({ error: 'Error procesando webhook' });
+  }
+};
+
+// ===========================================================================
+// POST /api/entangled/webhook/ordenes   (webhook_ordenes — dirigido a asesores)
+// Eventos: orden.cancelada (venció el congelamiento) y orden.cuenta.cambiada
+// (se apagó la cuenta de depósito de una orden pendiente y se reubicó).
+// ===========================================================================
+export const webhookOrdenesV2 = async (req: Request, res: Response): Promise<any> => {
+  const raw: Buffer = ((req as any).rawBody as Buffer) || Buffer.from(JSON.stringify(req.body || {}));
+  const sig = (req.headers['x-entangled-signature'] || req.headers['x-signature']) as string | undefined;
+  const verify = verifyWebhookSignature(raw, sig);
+  const payload = parseRawJson(raw) || req.body || {};
+  const evento = payload.evento || 'orden.desconocido';
+  if (!verify.ok) {
+    await logWebhook(null, evento, payload, null, verify.reason || 'firma');
+    return res.status(401).json({ error: verify.reason || 'No autorizado' });
+  }
+  // El contrato usa `orden_id` (= nuestro entangled_transaccion_id).
+  const ordenId = payload.orden_id || payload.transaccion_id || null;
+  if (!ordenId) {
+    await logWebhook(null, evento, payload, null, 'orden_id faltante');
+    return res.status(400).json({ error: 'orden_id requerido' });
+  }
+
+  try {
+    const found = await pool.query(
+      `SELECT id, advisor_id, user_id, referencia_pago, empresas_asignadas
+         FROM entangled_payment_requests
+        WHERE entangled_transaccion_id = $1`,
+      [ordenId]
+    );
+    if (found.rows.length === 0) {
+      await logWebhook(ordenId, evento, payload, null, 'request no encontrada');
+      return res.status(200).json({ ok: true, ignored: true });
+    }
+    const row = found.rows[0];
+    const requestId = row.id;
+    const ref = row.referencia_pago || `XP${String(requestId).padStart(6, '0')}`;
+
+    if (evento === 'orden.cancelada') {
+      await pool.query(
+        `UPDATE entangled_payment_requests
+            SET estatus_global = 'cancelado',
+                error_message = $1,
+                last_webhook_at = NOW(),
+                updated_at = NOW()
+          WHERE id = $2`,
+        [payload.motivo || 'congelamiento_vencido', requestId]
+      );
+      // Avisar al asesor (si la operación la creó/atiende un asesor)
+      if (row.advisor_id) {
+        try {
+          await pool.query(
+            `INSERT INTO notifications (user_id, title, message, type, icon, data)
+             VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+            [
+              row.advisor_id,
+              'X-Pay: orden cancelada',
+              `La orden ${ref} se canceló (${payload.motivo || 'congelamiento vencido'}).`,
+              'xpay_orden_cancelada',
+              '⚠️',
+              JSON.stringify({ request_id: requestId, orden_id: ordenId, motivo: payload.motivo || null }),
+            ]
+          );
+        } catch (nErr) { console.warn('[XPAY] notif orden.cancelada:', (nErr as Error).message); }
+      }
+      await logWebhook(ordenId, evento, payload, requestId);
+      return res.status(200).json({ ok: true });
+    }
+
+    if (evento === 'orden.cuenta.cambiada') {
+      const cuentaNueva = payload.cuenta_nueva || null;
+      const requiereManual = payload.requiere_reasignacion_manual === true || !cuentaNueva;
+      // Actualizar la cuenta de depósito de la orden (misma comercializadora).
+      let empresas: any[] = Array.isArray(row.empresas_asignadas) ? row.empresas_asignadas : [];
+      if (cuentaNueva) {
+        if (empresas.length > 0) empresas[0] = { ...empresas[0], cuenta_bancaria: cuentaNueva };
+        else empresas = [{ cuenta_bancaria: cuentaNueva }];
+      }
+      await pool.query(
+        `UPDATE entangled_payment_requests
+            SET empresas_asignadas = $1::jsonb,
+                error_message = CASE WHEN $2 THEN 'requiere_reasignacion_manual' ELSE error_message END,
+                last_webhook_at = NOW(),
+                updated_at = NOW()
+          WHERE id = $3`,
+        [JSON.stringify(empresas), requiereManual, requestId]
+      );
+      // Avisar al asesor: el cliente debe pagar a la cuenta nueva (o contactar).
+      if (row.advisor_id) {
+        try {
+          const msg = cuentaNueva
+            ? `La cuenta de depósito de la orden ${ref} cambió. El cliente debe pagar a la nueva cuenta (${cuentaNueva.banco || ''} ${cuentaNueva.clabe || cuentaNueva.cuenta || ''}).`
+            : `La cuenta de la orden ${ref} se desactivó y no hay cuenta alterna. Requiere reasignación manual (contactar a ENTANGLED).`;
+          await pool.query(
+            `INSERT INTO notifications (user_id, title, message, type, icon, data)
+             VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+            [
+              row.advisor_id,
+              'X-Pay: cuenta de depósito cambiada',
+              msg,
+              'xpay_cuenta_cambiada',
+              '🏦',
+              JSON.stringify({ request_id: requestId, orden_id: ordenId, cuenta_nueva: cuentaNueva, requiere_reasignacion_manual: requiereManual }),
+            ]
+          );
+        } catch (nErr) { console.warn('[XPAY] notif orden.cuenta.cambiada:', (nErr as Error).message); }
+      }
+      await logWebhook(ordenId, evento, payload, requestId);
+      return res.status(200).json({ ok: true });
+    }
+
+    // Evento no manejado → registrar y aceptar.
+    await logWebhook(ordenId, evento, payload, requestId, 'evento no manejado');
+    return res.status(200).json({ ok: true, ignored: true });
+  } catch (err) {
+    console.error('[ENTANGLED v2] webhookOrdenes error:', err);
+    await logWebhook(ordenId, evento, payload, null, (err as Error).message);
     return res.status(500).json({ error: 'Error procesando webhook' });
   }
 };

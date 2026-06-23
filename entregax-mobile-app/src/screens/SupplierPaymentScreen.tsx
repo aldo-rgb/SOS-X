@@ -2465,9 +2465,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
-              style={[styles.submitBtn, (!quote || submitting) && { opacity: 0.5 }]}
+              style={[
+                styles.submitBtn,
+                (!quote || submitting || (!requiereFactura && wizardStep === 4 && !sinFacturaCuenta?.cuenta)) && { opacity: 0.5 },
+              ]}
               onPress={submit}
-              disabled={submitting || !quote}
+              disabled={submitting || !quote || (!requiereFactura && wizardStep === 4 && !sinFacturaCuenta?.cuenta)}
             >
               {submitting
                 ? <ActivityIndicator color="white" />

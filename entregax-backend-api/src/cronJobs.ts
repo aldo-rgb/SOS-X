@@ -680,6 +680,36 @@ export const startEntangledSyncCron = () => {
   });
 };
 
+/**
+ * CRON JOB: Auto-cancelación X-Pay por congelamiento vencido.
+ * Cada 15 min cancela las órdenes que pasaron su payment_deadline_at sin pagar
+ * (la ventana de TC de NUESTRO lado venció). El TC quedó congelado y ya no
+ * reenviaremos el comprobante. ENTANGLED cancela por su lado y, si llega, el
+ * webhook orden.cancelada lo confirma.
+ */
+export const startXpayExpiryCron = () => {
+  cron.schedule('*/15 * * * *', async () => {
+    try {
+      const r = await pool.query(
+        `UPDATE entangled_payment_requests
+            SET estatus_global = 'cancelado',
+                error_message = 'congelamiento_vencido',
+                updated_at = NOW()
+          WHERE estatus_global IN ('pendiente', 'esperando_comprobante')
+            AND payment_deadline_at IS NOT NULL
+            AND payment_deadline_at < NOW()
+          RETURNING id`
+      );
+      if (r.rowCount && r.rowCount > 0) {
+        console.log(`⏳ [CRON] X-Pay: ${r.rowCount} órdenes canceladas por congelamiento vencido`);
+      }
+    } catch (err: any) {
+      console.error('❌ [CRON] X-Pay expiry:', err.message);
+    }
+  });
+  console.log('📅 [CRON] X-Pay auto-cancelación por vencimiento: cada 15 min');
+};
+
 export const startDatabaseBackupCron = () => {
   // Todos los días a las 02:00 AM UTC
   cron.schedule('0 2 * * *', async () => {
@@ -789,6 +819,7 @@ export const initCronJobs = () => {
   startAutoCheckoutCron();
   startDatabaseBackupCron();
   startEntangledSyncCron();
+  startXpayExpiryCron();
   startSyncfyAutoSyncCron();
   startChartbackIPromotionCron();
 };

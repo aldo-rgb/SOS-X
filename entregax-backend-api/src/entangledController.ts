@@ -531,7 +531,7 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
               -- proveedor.
               instructions_snapshot,
               created_at, updated_at,
-              (created_at + INTERVAL '24 hours') AS payment_deadline_at,
+              COALESCE(payment_deadline_at, created_at + INTERVAL '24 hours') AS payment_deadline_at,
               CASE
                 WHEN estatus_global = 'cancelado' THEN COALESCE(
                   (raw_response->>'cancellation_fee_usd')::numeric,
@@ -615,7 +615,7 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
     }
     const q = `
       SELECT r.*,
-              (r.created_at + INTERVAL '24 hours') AS payment_deadline_at,
+              COALESCE(r.payment_deadline_at, r.created_at + INTERVAL '24 hours') AS payment_deadline_at,
               CASE
                 WHEN r.estatus_global = 'completado'
                   THEN GREATEST(
