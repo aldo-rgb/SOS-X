@@ -725,18 +725,24 @@ export async function pqtxCancel(req: Request, res: Response) {
     const avisoNoEnc = noEncontrados.length
       ? ` (no se encontraron en el sistema: ${noEncontrados.join(', ')})`
       : '';
-    if (respBody?.success === true) {
+    const cancelOk = respBody?.success === true || response.data?.header?.staTrans === 'ok';
+    if (cancelOk) {
+      // Marcar las guías como canceladas en NUESTRA base — si no, siguen
+      // apareciendo como activas en el listado.
+      try {
+        await pool.query(
+          `UPDATE pqtx_shipments
+              SET status = 'cancelled', cancelled_at = NOW()
+            WHERE tracking_number = ANY($1::text[])`,
+          [resolved]
+        );
+      } catch (uErr: any) {
+        console.error('No se pudo marcar pqtx_shipments como cancelled:', uErr.message);
+      }
       res.json({
         success: true,
         message: `${resolved.length} guía(s) cancelada(s) correctamente: ${resolved.join(', ')}${avisoNoEnc}`,
-        data: respBody.data || respBody,
-        raw: response.data,
-      });
-    } else if (response.data?.header?.staTrans === 'ok') {
-      res.json({
-        success: true,
-        message: `${resolved.length} guía(s) cancelada(s) correctamente: ${resolved.join(', ')}${avisoNoEnc}`,
-        data: response.data.body,
+        data: respBody?.success === true ? (respBody.data || respBody) : response.data.body,
         raw: response.data,
       });
     } else {
