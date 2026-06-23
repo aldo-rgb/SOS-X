@@ -566,8 +566,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   const activeToken = conceptoSearchInput.trim();
 
   useEffect(() => {
-    // Solo busca si el token parece texto (no código numérico puro de 8 dígitos)
-    if (!activeToken || /^\d{5,8}$/.test(activeToken)) {
+    // Buscar SIEMPRE en el catálogo SAT mientras haya texto (incl. la clave
+    // completa de 8 dígitos, para poder verla y seleccionarla del listado).
+    if (!activeToken) {
       setConceptoOptions([]);
       setConceptoSearching(false);
       setConceptoSearchError(null);
@@ -3210,7 +3211,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     onChange={(e) => setConceptoSearchInput(e.target.value)}
                     onKeyDown={(e) => {
                       const v = conceptoSearchInput.trim();
-                      if (e.key === 'Enter' && /^\d{5,8}$/.test(v)) {
+                      if (e.key === 'Enter' && /^\d{8}$/.test(v)) {
                         e.preventDefault();
                         void tryAddConcepto({ clave_prodserv: v, descripcion: '' });
                       }
@@ -3235,9 +3236,12 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       '& .MuiFormHelperText-root': { color: C.textMuted },
                     }}
                   />
-                  {/* Dropdown de sugerencias — visible mientras el usuario escribe texto (no código de 8 dígitos) */}
-                  {activeToken && !/^\d{5,8}$/.test(activeToken) && (
-                    <Paper sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}`, borderRadius: 1, maxHeight: 280, overflowY: 'auto', mt: 0.5 }}>
+                  {/* Dropdown de sugerencias — SIEMPRE busca en el catálogo SAT
+                      (texto o clave de cualquier longitud, incl. 8 dígitos). Al
+                      final ofrece "Agregar clave" cuando ya es una clave completa
+                      de 8 dígitos (fallback si el catálogo no la trae). */}
+                  {activeToken && (
+                    <Paper sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}`, borderRadius: 1, maxHeight: 300, overflowY: 'auto', mt: 0.5 }}>
                       {conceptoSearching && (
                         <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                           <CircularProgress size={14} sx={{ color: ORANGE }} />
@@ -3249,7 +3253,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                           <Typography variant="caption" sx={{ color: '#ef4444' }}>⚠️ {conceptoSearchError}</Typography>
                         </Box>
                       )}
-                      {!conceptoSearching && !conceptoSearchError && conceptoOptions.length === 0 && (
+                      {!conceptoSearching && !conceptoSearchError && conceptoOptions.length === 0 && !/^\d{8}$/.test(activeToken) && (
                         <Box sx={{ p: 1.5 }}>
                           <Typography variant="caption" sx={{ color: C.textFaint }}>Sin resultados para "{activeToken}"</Typography>
                         </Box>
@@ -3276,31 +3280,23 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                           </Tooltip>
                         </Box>
                       ))}
-                    </Paper>
-                  )}
-
-                  {/* Botón explícito cuando ya hay una clave SAT completa de 8 dígitos.
-                      Sin esto, el dropdown desaparece y el usuario no sabe cómo agregarla
-                      (solo funcionaba con Enter). */}
-                  {/^\d{5,8}$/.test(activeToken) && (
-                    <Paper
-                      onClick={() => { void tryAddConcepto({ clave_prodserv: activeToken, descripcion: '' }); }}
-                      sx={{
-                        position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, mt: 0.5,
-                        p: 1.25, cursor: addingConcepto ? 'wait' : 'pointer',
-                        bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}`, borderRadius: 1,
-                        display: 'flex', alignItems: 'center', gap: 1.5,
-                        '&:hover': { bgcolor: 'rgba(240,90,40,0.10)' },
-                        opacity: addingConcepto ? 0.6 : 1,
-                      }}
-                    >
-                      <AddIcon sx={{ color: ORANGE, fontSize: 18 }} />
-                      <Typography variant="caption" sx={{ color: C.textSecondary }}>
-                        Agregar clave{' '}
-                        <Typography component="span" sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE }}>
-                          {activeToken}
-                        </Typography>
-                      </Typography>
+                      {/* Pie: agregar la clave completa tal cual (fallback) */}
+                      {/^\d{8}$/.test(activeToken) && !conceptoOptions.some((o) => o.clave_prodserv === activeToken) && (
+                        <Box
+                          onClick={() => { void tryAddConcepto({ clave_prodserv: activeToken, descripcion: '' }); }}
+                          sx={{ px: 2, py: 1.25, display: 'flex', alignItems: 'center', gap: 1.5, cursor: addingConcepto ? 'wait' : 'pointer',
+                            borderTop: `1px solid ${C.border}`, bgcolor: 'rgba(240,90,40,0.06)',
+                            '&:hover': { bgcolor: 'rgba(240,90,40,0.12)' }, opacity: addingConcepto ? 0.6 : 1 }}
+                        >
+                          <AddIcon sx={{ color: ORANGE, fontSize: 18 }} />
+                          <Typography variant="caption" sx={{ color: C.textSecondary }}>
+                            Agregar clave{' '}
+                            <Typography component="span" sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE }}>
+                              {activeToken}
+                            </Typography>
+                          </Typography>
+                        </Box>
+                      )}
                     </Paper>
                   )}
                 </Box>

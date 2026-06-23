@@ -83,6 +83,8 @@ interface PaymentReference {
   notas: string | null;
   created_by: number | null;
   created_at: string;
+  status?: string | null;
+  paid_at?: string | null;
 }
 
 interface ReporteRow {
@@ -145,6 +147,16 @@ const POBoxConsolidacionesPage: React.FC = () => {
   const [creandoRef, setCreandoRef] = useState(false);
   const [deletingRefId, setDeletingRefId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [showPaidRefs, setShowPaidRefs] = useState(false);
+  // Una referencia se considera pagada cuando status es 'pagada'/'paid'/'pagado' o tiene paid_at
+  const isReferenciaPagada = (r: PaymentReference) => {
+    const st = String(r.status || '').toLowerCase();
+    return st === 'pagada' || st === 'paid' || st === 'pagado' || !!r.paid_at;
+  };
+  const referenciasFiltradas = showPaidRefs
+    ? referencias
+    : referencias.filter(r => !isReferenciaPagada(r));
+  const referenciasPagadasCount = referencias.filter(isReferenciaPagada).length;
 
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'success' });
@@ -675,14 +687,29 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
             <ListAltIcon color="warning" />
             <Typography fontWeight="bold">Referencias de Pago — {proveedorSel?.name}</Typography>
           </Box>
-          <Typography variant="caption" color="text.secondary">{referencias.length} referencia(s)</Typography>
+          <Box display="flex" alignItems="center" gap={2}>
+            {referenciasPagadasCount > 0 && (
+              <FormControlLabel
+                control={<Switch size="small" checked={showPaidRefs} onChange={(e) => setShowPaidRefs(e.target.checked)} />}
+                label={<Typography variant="caption">Ver pagadas ({referenciasPagadasCount})</Typography>}
+                sx={{ mr: 0 }}
+              />
+            )}
+            <Typography variant="caption" color="text.secondary">
+              {referenciasFiltradas.length} de {referencias.length} referencia(s)
+            </Typography>
+          </Box>
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
           {loadingReferencias ? (
             <Box display="flex" justifyContent="center" p={4}><CircularProgress /></Box>
-          ) : referencias.length === 0 ? (
+          ) : referenciasFiltradas.length === 0 ? (
             <Box p={4} textAlign="center">
-              <Typography color="text.secondary">No hay referencias de pago para este proveedor.</Typography>
+              <Typography color="text.secondary">
+                {referencias.length === 0
+                  ? 'No hay referencias de pago para este proveedor.'
+                  : 'No hay referencias pendientes. Activa "Ver pagadas" para mostrarlas.'}
+              </Typography>
             </Box>
           ) : (
             <TableContainer>
@@ -695,11 +722,12 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                     <TableCell align="center"><strong>Guías</strong></TableCell>
                     <TableCell align="right"><strong>Total USD</strong></TableCell>
                     <TableCell align="right"><strong>Total MXN</strong></TableCell>
+                    <TableCell align="center"><strong>Status</strong></TableCell>
                     <TableCell align="center"><strong>Acciones</strong></TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {referencias.map((ref) => {
+                  {referenciasFiltradas.map((ref) => {
                     const rows = ref.packages_data || [];
                     const totalUsd = rows.filter((r: ReporteRow) => r.countsToTotal).reduce((s: number, r: ReporteRow) => s + Number(r.usd || 0), 0);
                     const totalMxn = rows.filter((r: ReporteRow) => r.countsToTotal).reduce((s: number, r: ReporteRow) => s + Number(r.mxn || 0), 0);
@@ -728,6 +756,15 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                         </TableCell>
                         <TableCell align="right">
                           <Typography fontWeight="bold" color="primary.main">{formatCurrency(Number(ref.total_mxn || totalMxn))}</Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          {isReferenciaPagada(ref) ? (
+                            <Tooltip title={ref.paid_at ? `Pagada el ${new Date(ref.paid_at).toLocaleString('es-MX')}` : 'Pagada'}>
+                              <Chip label="Pagada" size="small" color="success" />
+                            </Tooltip>
+                          ) : (
+                            <Chip label="Pendiente" size="small" color="warning" variant="outlined" />
+                          )}
                         </TableCell>
                         <TableCell align="center">
                           <Box display="flex" gap={0.5} justifyContent="center">

@@ -371,8 +371,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [conceptoSearchError, setConceptoSearchError] = useState<string | null>(null);
   useEffect(() => {
     const q = conceptoSearchInput.trim();
-    // Solo omitir búsqueda si está vacío o es exactamente un código SAT de 8 dígitos ya completo
-    if (q.length < 2 || /^\d{8}$/.test(q)) {
+    // Buscar SIEMPRE en el catálogo SAT (incl. la clave completa de 8 dígitos,
+    // para poder verla y seleccionarla del listado). Solo se omite si <2 chars.
+    if (q.length < 2) {
       setConceptoOptions([]);
       setConceptoSearching(false);
       setConceptoSearchError(null);
@@ -2115,8 +2116,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     autoCorrect={false}
                   />
 
-                  {/* Dropdown de resultados */}
-                  {conceptoSearchInput.trim().length >= 2 && !/^\d{8}$/.test(conceptoSearchInput.trim()) && (
+                  {/* Dropdown de resultados — SIEMPRE busca (incl. 8 dígitos) */}
+                  {conceptoSearchInput.trim().length >= 2 && (
                     <View style={{ marginTop: 6, borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, backgroundColor: '#fff', maxHeight: 240 }}>
                       {conceptoSearching && (
                         <View style={{ padding: 10, flexDirection: 'row', alignItems: 'center' }}>
@@ -2127,7 +2128,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                       {!conceptoSearching && conceptoSearchError && (
                         <Text style={{ padding: 10, fontSize: 12, color: '#D32F2F' }}>⚠️ {conceptoSearchError}</Text>
                       )}
-                      {!conceptoSearching && !conceptoSearchError && conceptoOptions.length === 0 && (
+                      {!conceptoSearching && !conceptoSearchError && conceptoOptions.length === 0 && !/^\d{8}$/.test(conceptoSearchInput.trim()) && (
                         <Text style={{ padding: 10, fontSize: 12, color: TEXT_DIM }}>Sin resultados</Text>
                       )}
                       {!conceptoSearching && conceptoOptions.length > 0 && (
