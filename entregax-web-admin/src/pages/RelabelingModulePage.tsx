@@ -1308,7 +1308,12 @@ ${body}
     const handlePrintCarrierDelivery = () => {
         if (!shipment?.master.assignedAddress) return;
         const a = shipment.master.assignedAddress;
-        const carrierLabel = assignedCarrier?.displayName?.toUpperCase() || 'PAQUETERÍA ASIGNADA';
+        let carrierLabel = assignedCarrier?.displayName?.toUpperCase() || 'PAQUETERÍA ASIGNADA';
+        // En la etiqueta impresa, las paqueterías "por cobrar" muestran solo el
+        // nombre base (p.ej. "PAQUETE EXPRESS", sin "POR COBRAR").
+        if (assignedCarrier && isCollectCarrier(assignedCarrier.normalized)) {
+            carrierLabel = carrierLabel.replace(/\s*POR COBRAR\s*/i, ' ').trim();
+        }
         const printWindow = window.open('', '_blank', 'width=400,height=600');
         if (!printWindow) { setError('Permite ventanas emergentes para imprimir'); return; }
         const recipient = (a.recipientName || shipment.client.name || 'CLIENTE').toUpperCase();
@@ -1334,7 +1339,7 @@ ${body}
     <div class="brand">
       <div class="logo">Entrega<span>X</span></div>
       <div class="brand-right">
-        <div class="badge">🚚 ${carrierLabel}</div>
+        <div class="badge">${carrierLabel}</div>
         ${totalBoxes > 1 ? `<div class="box-badge">CAJA ${box.boxNum} / ${totalBoxes}</div>` : ''}
       </div>
     </div>
@@ -1368,7 +1373,7 @@ ${body}
       </div>
       <div class="service-box">
         <div class="lbl">SERVICIO</div>
-        <div class="val">${svc.emoji} ${svc.label.toUpperCase()}</div>
+        <div class="val">${svc.label.toUpperCase()}</div>
         <div class="sub">${carrierLabel}</div>
       </div>
     </div>
@@ -1384,38 +1389,38 @@ ${body}
   body { font-family: Arial, sans-serif; font-size: 11px; }
   .label-page { padding: 0.18in; width: 4in; height: 6in; display: flex; flex-direction: column; }
   .page-break { page-break-after: always; }
-  .brand { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #F05A28; padding-bottom: 6px; margin-bottom: 6px; }
-  .brand .logo { font-size: 22px; font-weight: 900; color: #F05A28; letter-spacing: 1px; font-family: 'Arial Black', sans-serif; }
-  .brand .logo span { color: #111; }
+  .brand { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #000; padding-bottom: 6px; margin-bottom: 6px; }
+  .brand .logo { font-size: 22px; font-weight: 900; color: #000; letter-spacing: 1px; font-family: 'Arial Black', sans-serif; }
+  .brand .logo span { color: #000; }
   .brand-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
-  .badge { background: #1565C0; color: #fff; padding: 4px 10px; font-size: 10px; font-weight: 800; border-radius: 4px; letter-spacing: 1px; }
-  .box-badge { background: #111; color: #fff; padding: 3px 8px; font-size: 12px; font-weight: 900; border-radius: 4px; letter-spacing: 1px; }
+  .badge { background: #000; color: #fff; padding: 4px 10px; font-size: 10px; font-weight: 800; border-radius: 4px; letter-spacing: 1px; }
+  .box-badge { background: #000; color: #fff; padding: 3px 8px; font-size: 12px; font-weight: 900; border-radius: 4px; letter-spacing: 1px; }
   .tracking-row { display: flex; justify-content: space-between; align-items: center; margin: 4px 0; }
-  .tracking-row .tn { font-family: 'Courier New', monospace; font-size: 16px; font-weight: 900; }
-  .tracking-row .date { font-size: 10px; color: #555; }
+  .tracking-row .tn { font-family: 'Courier New', monospace; font-size: 16px; font-weight: 900; color: #000; }
+  .tracking-row .date { font-size: 10px; color: #000; }
   .barcode-box { text-align: center; margin: 4px 0; }
-  .dest { border: 2px solid #111; border-radius: 6px; padding: 8px; margin: 6px 0; }
-  .dest .lbl { font-size: 8px; color: #888; font-weight: 700; letter-spacing: 1px; margin-bottom: 2px; }
-  .dest .name { font-size: 16px; font-weight: 900; color: #111; }
-  .dest .line { font-size: 11px; color: #333; }
-  .dest .city { font-size: 12px; font-weight: 700; color: #111; margin-top: 2px; }
-  .dest .phone { font-size: 11px; color: #F05A28; margin-top: 4px; }
-  .dest .ref-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 3px 6px; font-size: 10px; margin-top: 4px; }
+  .dest { border: 2px solid #000; border-radius: 6px; padding: 8px; margin: 6px 0; }
+  .dest .lbl { font-size: 8px; color: #000; font-weight: 700; letter-spacing: 1px; margin-bottom: 2px; }
+  .dest .name { font-size: 16px; font-weight: 900; color: #000; }
+  .dest .line { font-size: 11px; color: #000; }
+  .dest .city { font-size: 12px; font-weight: 700; color: #000; margin-top: 2px; }
+  .dest .phone { font-size: 11px; color: #000; margin-top: 4px; }
+  .dest .ref-box { background: #fff; border: 1px solid #000; border-radius: 4px; padding: 3px 6px; font-size: 10px; color: #000; margin-top: 4px; }
   .dest-code { display: flex; align-items: center; gap: 10px; margin: 4px 0; }
-  .dest-code .lbl { font-size: 8px; color: #888; font-weight: 700; letter-spacing: 1px; }
-  .dest-code .code { font-size: 22px; font-weight: 900; color: #1565C0; }
-  .pkg-info { display: flex; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; margin: 4px 0; }
-  .pkg-info .cell { flex: 1; padding: 5px; text-align: center; border-right: 1px solid #ddd; }
+  .dest-code .lbl { font-size: 8px; color: #000; font-weight: 700; letter-spacing: 1px; }
+  .dest-code .code { font-size: 22px; font-weight: 900; color: #000; }
+  .pkg-info { display: flex; border: 1px solid #000; border-radius: 4px; overflow: hidden; margin: 4px 0; }
+  .pkg-info .cell { flex: 1; padding: 5px; text-align: center; border-right: 1px solid #000; }
   .pkg-info .cell:last-child { border-right: none; }
-  .pkg-info .lbl { font-size: 7px; color: #888; font-weight: 700; letter-spacing: 1px; }
-  .pkg-info .val { font-size: 13px; font-weight: 900; color: #111; }
+  .pkg-info .lbl { font-size: 7px; color: #000; font-weight: 700; letter-spacing: 1px; }
+  .pkg-info .val { font-size: 13px; font-weight: 900; color: #000; }
   .footer { display: flex; gap: 10px; margin-top: auto; align-items: flex-end; }
   .qr-box { text-align: center; }
-  .qr-label { font-size: 7px; color: #888; margin-top: 2px; }
-  .service-box { flex: 1; border: 1px solid #ddd; border-radius: 4px; padding: 5px; }
-  .service-box .lbl { font-size: 7px; color: #888; font-weight: 700; letter-spacing: 1px; }
-  .service-box .val { font-size: 12px; font-weight: 900; color: #111; }
-  .service-box .sub { font-size: 18px; color: #1565C0; font-weight: 900; letter-spacing: 1px; }
+  .qr-label { font-size: 7px; color: #000; margin-top: 2px; }
+  .service-box { flex: 1; border: 1px solid #000; border-radius: 4px; padding: 5px; }
+  .service-box .lbl { font-size: 7px; color: #000; font-weight: 700; letter-spacing: 1px; }
+  .service-box .val { font-size: 12px; font-weight: 900; color: #000; }
+  .service-box .sub { font-size: 18px; color: #000; font-weight: 900; letter-spacing: 1px; }
 </style></head><body>
 ${labelsHtml}
 <script>
