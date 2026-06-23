@@ -464,16 +464,32 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
     };
 
     const selectedEditAddress = editAddresses.find(a => a.id === Number(editSelectedAddressId));
+    // Paqueterías estándar de respaldo (cuando la dirección no trae carrier_config).
+    // Permite cambiar la paquetería aunque la dirección no tenga config previa.
+    const DEFAULT_CARRIERS: Array<{ id: string; name: string }> = [
+      { id: 'paquete_express', name: 'Paquete Express' },
+      { id: 'pqtx_cod', name: 'Paquete Express Por Cobrar' },
+      { id: 'entregax_local_mty', name: 'EntregaX Local MTY' },
+      { id: 'entregax_local_cdmx', name: 'EntregaX Local CDMX' },
+      { id: 'dhl', name: 'DHL' },
+      { id: 'pickup_hidalgo', name: 'Recoger en Sucursal' },
+    ];
     const carrierConfigEntries: Array<{ id: string; name?: string; price?: number; currency?: string }> = (() => {
       const cfg = selectedEditAddress?.carrier_config;
-      if (!cfg || typeof cfg !== 'object') return [];
-      return Object.entries(cfg).map(([id, val]: any) => {
-        if (val && typeof val === 'object') {
-          return { id, name: val.name || id, price: Number(val.price ?? val.cost ?? 0) || 0, currency: val.currency || 'MXN' };
-        }
-        // Si es solo un número, asumir MXN
-        return { id, name: id, price: Number(val) || 0, currency: 'MXN' };
-      });
+      const fromCfg: Array<{ id: string; name?: string; price?: number; currency?: string }> =
+        (cfg && typeof cfg === 'object')
+          ? Object.entries(cfg).map(([id, val]: any) => (val && typeof val === 'object')
+              ? { id, name: val.name || id, price: Number(val.price ?? val.cost ?? 0) || 0, currency: val.currency || 'MXN' }
+              : { id, name: id, price: Number(val) || 0, currency: 'MXN' })
+          : [];
+      // Merge: config de la dirección + estándar (sin duplicar por id). El carrier
+      // actual también se incluye por si no está en ninguna lista.
+      const byId = new Map<string, { id: string; name?: string; price?: number; currency?: string }>();
+      for (const c of fromCfg) byId.set(c.id, c);
+      for (const d of DEFAULT_CARRIERS) if (!byId.has(d.id)) byId.set(d.id, { ...d, price: 0, currency: 'MXN' });
+      const currentId = String(shipment?.master?.nationalCarrier || '').trim();
+      if (currentId && !byId.has(currentId)) byId.set(currentId, { id: currentId, name: prettifyCarrier(currentId), price: 0, currency: 'MXN' });
+      return Array.from(byId.values());
     })();
 
     const saveEditInstructions = async () => {
@@ -2645,7 +2661,7 @@ ${labelsHtml}
                                             <Paper
                                                 key={a.id}
                                                 variant="outlined"
-                                                onClick={() => { setEditSelectedAddressId(a.id); setEditCarrier(''); setEditCarrierCost(0); }}
+                                                onClick={() => { setEditSelectedAddressId(a.id); }}
                                                 sx={{
                                                     p: 1.5, cursor: 'pointer',
                                                     borderColor: editSelectedAddressId === a.id ? '#F05A28' : 'divider',
