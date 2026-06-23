@@ -387,14 +387,19 @@ export default function DashboardAdvisor() {
   const [clientsLoading, setClientsLoading] = useState(false);
 
   // ── Xpay (asesor crea operaciones a nombre de un cliente asignado) ──
-  const [xpayLogoUrl, setXpayLogoUrl] = useState<string>('');
+  const [xpayLogoUrl, setXpayLogoUrl] = useState<string>('');        // negro (para el tab sobre blanco)
+  const [xpayLogoWhiteUrl, setXpayLogoWhiteUrl] = useState<string>(''); // blanco (para el hero negro)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const r = await api.get('/brand-assets/active');
-        const url = r.data?.assets?.xpay_full_black?.url || '';
-        if (!cancelled && url) setXpayLogoUrl(url);
+        const black = r.data?.assets?.xpay_full_black?.url || '';
+        const white = r.data?.assets?.xpay_full_white?.url || '';
+        if (!cancelled) {
+          if (black) setXpayLogoUrl(black);
+          if (white) setXpayLogoWhiteUrl(white);
+        }
       } catch { /* ignore */ }
     })();
     return () => { cancelled = true; };
@@ -3223,56 +3228,118 @@ export default function DashboardAdvisor() {
     expired:            { label: 'Expirado',     color: 'error'   },
   };
 
-  const renderXpay = () => (
+  const renderXpay = () => {
+    const XO = '#FF6600';
+    return (
     <Fade in timeout={400}>
       <Box>
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="h6" fontWeight={800}>Xpay</Typography>
-          <Typography variant="caption" color="text.secondary">
-            Crea operaciones Xpay a nombre de tus clientes. El cliente podrá dar seguimiento al pago desde su Xpay.
-          </Typography>
+        {/* ── HERO X-Pay (negro + naranja) ─────────────────────────── */}
+        <Box sx={{
+          position: 'relative', overflow: 'hidden', borderRadius: 3, mb: 2.5,
+          background: 'linear-gradient(135deg, #08080a 0%, #15100c 55%, #1f0d00 100%)',
+          border: '1px solid #2a2a2a',
+          px: { xs: 2.5, md: 4 }, py: { xs: 2.5, md: 3.25 },
+        }}>
+          {/* glow naranja */}
+          <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none',
+            background: 'radial-gradient(ellipse 55% 90% at 88% 50%, rgba(255,102,0,0.20) 0%, transparent 70%)' }} />
+          {/* textura de rejilla */}
+          <Box sx={{ position: 'absolute', inset: 0, opacity: 0.05, pointerEvents: 'none',
+            backgroundImage: 'repeating-linear-gradient(0deg,#fff 0 1px,transparent 1px 38px),repeating-linear-gradient(90deg,#fff 0 1px,transparent 1px 38px)' }} />
+
+          <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 2.5, flexWrap: 'wrap' }}>
+            {xpayLogoWhiteUrl
+              ? <Box component="img" src={xpayLogoWhiteUrl} alt="X-Pay" sx={{ height: { xs: 34, md: 44 }, objectFit: 'contain', filter: 'drop-shadow(0 6px 18px rgba(255,102,0,0.25))' }} />
+              : <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: '1.7rem', letterSpacing: 1 }}>X-Pay</Typography>}
+            <Box sx={{ flex: 1, minWidth: 220 }}>
+              <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: { xs: '1.02rem', md: '1.18rem' }, lineHeight: 1.25 }}>
+                Crea operaciones a nombre de tus clientes
+              </Typography>
+              <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.82rem', mt: 0.5 }}>
+                El cliente da seguimiento al pago desde su X-Pay. Envíos de dinero seguros a China y Estados Unidos.
+              </Typography>
+            </Box>
+          </Box>
+
+          <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 1, mt: 2, flexWrap: 'wrap' }}>
+            <Box sx={{ width: 34, height: 3, bgcolor: XO, borderRadius: 2 }} />
+            <Box sx={{ width: 16, height: 3, bgcolor: '#C62828', borderRadius: 2, mr: 0.5 }} />
+            {['CFDI 4.0', 'SWIFT/BIC', 'AES-256', 'PCI-DSS'].map((x) => (
+              <Box key={x} sx={{ px: 1, py: 0.35, borderRadius: 1, border: '1px solid rgba(255,102,0,0.35)', bgcolor: 'rgba(255,102,0,0.08)' }}>
+                <Typography sx={{ color: XO, fontWeight: 700, fontSize: '0.6rem', letterSpacing: 0.5 }}>{x}</Typography>
+              </Box>
+            ))}
+          </Box>
         </Box>
 
-        {/* Paso 1: seleccionar cliente (solo asignados) */}
-        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-            1. Selecciona el cliente
-          </Typography>
-          <Autocomplete
-            options={xpayClientOptions}
-            loading={xpayClientsLoading}
-            value={xpayClient}
-            onChange={(_e, v) => setXpayClient(v)}
-            getOptionLabel={(o) => `${o.box_id || '—'} · ${o.full_name || ''}`}
-            isOptionEqualToValue={(o, v) => o.id === v.id}
-            onInputChange={(_e, val, reason) => { if (reason === 'input') fetchXpayClients(val); }}
-            renderInput={(params) => (
-              <TextField {...params} size="small" label="Número de cliente o nombre" placeholder="Ej. S1, S78, nombre…" />
-            )}
-            sx={{ maxWidth: 480 }}
-          />
-        </Paper>
+        {/* ── Paso 1: seleccionar cliente (resaltado) ─────────────── */}
+        {!xpayClient && (
+          <Paper elevation={0} sx={{
+            borderRadius: 3, mb: 2, overflow: 'hidden',
+            border: `2px solid ${XO}`,
+            boxShadow: '0 12px 34px rgba(255,102,0,0.14)',
+          }}>
+            <Box sx={{ bgcolor: '#08080a', px: 2.5, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ width: 26, height: 26, borderRadius: '50%', bgcolor: XO, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Typography sx={{ color: '#000', fontWeight: 900, fontSize: '0.85rem' }}>1</Typography>
+              </Box>
+              <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '0.96rem' }}>Selecciona el cliente</Typography>
+            </Box>
+            <Box sx={{ p: 2.5, bgcolor: '#fff' }}>
+              <Autocomplete
+                options={xpayClientOptions}
+                loading={xpayClientsLoading}
+                value={xpayClient}
+                onChange={(_e, v) => setXpayClient(v)}
+                getOptionLabel={(o) => `${o.box_id || '—'} · ${o.full_name || ''}`}
+                isOptionEqualToValue={(o, v) => o.id === v.id}
+                onInputChange={(_e, val, reason) => { if (reason === 'input') fetchXpayClients(val); }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Número de cliente o nombre"
+                    placeholder="Ej. S1, S78, nombre…"
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        '& fieldset': { borderColor: 'rgba(0,0,0,0.18)' },
+                        '&:hover fieldset': { borderColor: XO },
+                        '&.Mui-focused fieldset': { borderColor: XO, borderWidth: 2 },
+                      },
+                      '& label.Mui-focused': { color: XO },
+                    }}
+                  />
+                )}
+                sx={{ maxWidth: 520 }}
+              />
+              <Typography sx={{ mt: 1.5, color: 'text.secondary', fontSize: '0.78rem' }}>
+                Solo aparecen tus clientes asignados. Al elegirlo se abre el formulario de la operación X-Pay.
+              </Typography>
+            </Box>
+          </Paper>
+        )}
 
-        {/* Paso 2: formulario de operación a nombre del cliente */}
-        {xpayClient ? (
+        {/* ── Paso 2: formulario de operación a nombre del cliente ── */}
+        {xpayClient && (
           <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              <Chip label={xpayClient.box_id || '—'} size="small" sx={{ bgcolor: '#1A1A1A', color: '#fff', fontWeight: 700 }} />
-              <Typography variant="body2" fontWeight={700}>{xpayClient.full_name}</Typography>
-              <Button size="small" onClick={() => setXpayClient(null)} sx={{ color: '#C62828', textTransform: 'none' }}>
+            <Box sx={{
+              display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, px: 2, py: 1.25,
+              borderRadius: 2, background: 'linear-gradient(135deg,#08080a 0%,#1a0f06 100%)',
+              border: `1px solid ${XO}33`,
+            }}>
+              <Chip label={xpayClient.box_id || '—'} size="small" sx={{ bgcolor: XO, color: '#000', fontWeight: 800 }} />
+              <Typography sx={{ color: '#fff', fontWeight: 700, flex: 1 }}>{xpayClient.full_name}</Typography>
+              <Button size="small" onClick={() => setXpayClient(null)} sx={{ color: XO, textTransform: 'none', fontWeight: 700 }}>
                 Cambiar cliente
               </Button>
             </Box>
             <EntangledPaymentRequest hideHeader lightTheme advisorClientId={xpayClient.id} key={xpayClient.id} />
           </Box>
-        ) : (
-          <Typography variant="body2" color="text.secondary" sx={{ px: 1 }}>
-            Selecciona un cliente para crear su operación Xpay.
-          </Typography>
         )}
       </Box>
     </Fade>
-  );
+    );
+  };
 
   const renderOrdenDePago = () => (
     <Fade in timeout={400}>
