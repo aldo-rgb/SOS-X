@@ -1085,7 +1085,7 @@ export default function DashboardAdvisor() {
       ...(advisorXpayEnabled ? [{
         id: 'xpay',
         label: xpayLogoUrl
-          ? <Box component="img" src={xpayLogoUrl} alt="X-Pay" sx={{ height: 26, objectFit: 'contain', display: 'block', borderRadius: 1 }} />
+          ? <Box component="img" src={xpayLogoUrl} alt="X-Pay" sx={{ height: 22, objectFit: 'contain', display: 'block', borderRadius: 1 }} />
           : 'Xpay',
         icon: xpayLogoUrl ? undefined : <PaymentIcon sx={{ color: 'inherit' }} />,
         shortLabel: 'Xpay',
@@ -6132,10 +6132,22 @@ export default function DashboardAdvisor() {
             scrollButtons="auto"
             allowScrollButtonsMobile
             sx={{
+              minHeight: 48,
+              // Compacto: que quepan todas las pestañas en una sola línea sin scroll
+              '& .MuiTabs-flexContainer': { gap: 0 },
               '& .MuiTab-root': {
                 textTransform: 'none',
                 fontWeight: 600,
-                minHeight: 56,
+                fontSize: '0.8rem',
+                minHeight: 48,
+                minWidth: 0,
+                px: 1.25,
+                py: 1,
+              },
+              '& .MuiTab-iconWrapper': {
+                fontSize: '1.1rem',
+                marginRight: '6px',
+                marginBottom: '0 !important',
               },
             }}
           >
