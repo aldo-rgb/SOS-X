@@ -3322,8 +3322,19 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
                 {/* Error al intentar agregar */}
                 {addConceptoError && !addingConcepto && (
-                  <Alert severity="warning" sx={{ mt: 1.5, bgcolor: 'rgba(239, 68, 68, 0.10)', color: '#fecaca', border: '1px solid #ef4444', '& .MuiAlert-icon': { color: '#ef4444' } }}
-                    onClose={() => setAddConceptoError(null)}>
+                  <Alert
+                    severity="error"
+                    variant="filled"
+                    onClose={() => setAddConceptoError(null)}
+                    sx={{
+                      mt: 1.5,
+                      bgcolor: '#dc2626',
+                      color: '#ffffff',
+                      fontWeight: 600,
+                      '& .MuiAlert-icon': { color: '#ffffff' },
+                      '& .MuiAlert-action svg': { color: '#ffffff' },
+                    }}
+                  >
                     {addConceptoError}
                   </Alert>
                 )}

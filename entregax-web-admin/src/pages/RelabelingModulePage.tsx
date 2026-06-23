@@ -1241,6 +1241,10 @@ ${body}
 
     const getAssignedCarrierGuideUrl = (opts?: { format4x6?: boolean }): string | null => {
         if (!shipment) return null;
+        // Paquetería "por cobrar" / COD: nunca usa guía de paquetería (no se genera
+        // con la API). Aunque exista un tracking viejo/cancelado, se ignora para
+        // forzar la etiqueta local.
+        if (assignedCarrier && isCollectCarrier(assignedCarrier.normalized)) return null;
         const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
         // baseUrl ya termina en /api → si raw también empieza con /api/ removerlo
         const baseEndsWithApi = /\/api$/.test(baseUrl);

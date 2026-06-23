@@ -258,6 +258,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     loading: boolean;
     cuenta?: { banco?: string; titular?: string; cuenta?: string; clabe?: string; moneda?: string };
   } | null>(null);
+  // Mensaje del backend cuando ENTANGLED no pudo asignar cuenta (proveedor sin TC vigente,
+  // comercializadora sin cuenta activa, 409 por TRÉBOL, etc.). Lo mostramos en el step 4
+  // junto al botón para que el asesor sepa por qué no se puede enviar.
+  const [sinFacturaCuentaError, setSinFacturaCuentaError] = useState<string | null>(null);
 
   // Dashboard state
   const [viewMode, setViewMode] = useState<'dashboard' | 'wizard'>('dashboard');
@@ -605,6 +609,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     if (wizardStep !== 4 || requiereFactura || !quote || !monto) return;
     if (sinFacturaCuenta?.cuenta) return; // ya tenemos datos
     setSinFacturaCuenta({ loading: true });
+    setSinFacturaCuentaError(null);
     fetch(`${API_URL}/api/entangled/asignacion`, {
       method: 'POST',
       headers: { ...authHeaders, 'Content-Type': 'application/json' },
@@ -617,16 +622,30 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         comision_cliente_final_porcentaje: Math.round(quote.porcentaje_compra * 100) / 100,
       }),
     })
-      .then(r => r.json())
-      .then(d => {
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setSinFacturaCuentaError(typeof d?.error === 'string' ? d.error : 'El servicio no está disponible para esta operación (el proveedor no tiene TC vigente o la comercializadora no tiene cuenta bancaria activa).');
+          setSinFacturaCuenta(null);
+          return;
+        }
         const cb = d.cuenta_bancaria
           || d.empresa?.cuenta_bancaria
           || d.empresas_asignadas?.[0]?.cuenta_bancaria
           || d.asignacion?.cuenta_bancaria
           || d.raw?.cuenta_bancaria;
-        setSinFacturaCuenta(cb ? { loading: false, cuenta: cb } : null);
+        if (cb) {
+          setSinFacturaCuentaError(null);
+          setSinFacturaCuenta({ loading: false, cuenta: cb });
+        } else {
+          setSinFacturaCuentaError(typeof d?.error === 'string' ? d.error : 'ENTANGLED no devolvió una cuenta bancaria de destino para esta operación. Intenta de nuevo más tarde o cambia de proveedor.');
+          setSinFacturaCuenta(null);
+        }
       })
-      .catch(() => setSinFacturaCuenta(null));
+      .catch(() => {
+        setSinFacturaCuentaError('No se pudo conectar con el servicio de asignación. Revisa tu conexión e intenta de nuevo.');
+        setSinFacturaCuenta(null);
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wizardStep, requiereFactura, selectedProviderId]);
 
@@ -2460,6 +2479,23 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <Ionicons name="information-circle-outline" size={14} color="#93C5FD" style={{ marginRight: 6 }} />
           <Text style={[styles.infoBannerText, { flex: 1 }]}>{t('xpay.proofLater', 'El comprobante se sube después de recibir las instrucciones de pago.')}</Text>
         </View>
+
+        {/* Aviso visible cuando ENTANGLED no devolvió cuenta bancaria (TC vencido,
+            comercializadora sin cuenta activa, 409 TRÉBOL, etc.). Sin esto el botón
+            queda deshabilitado sin explicación. */}
+        {wizardStep === 4 && !requiereFactura && !sinFacturaCuenta?.cuenta && !sinFacturaCuenta?.loading && (
+          <View style={{
+            flexDirection: 'row', alignItems: 'flex-start',
+            backgroundColor: 'rgba(220,38,38,0.12)',
+            borderWidth: 1, borderColor: '#DC2626',
+            borderRadius: 8, padding: 10, marginTop: 8, marginBottom: 4, gap: 8,
+          }}>
+            <Ionicons name="alert-circle" size={18} color="#F87171" style={{ marginTop: 1 }} />
+            <Text style={{ flex: 1, color: '#FCA5A5', fontSize: 12, fontWeight: '600' }}>
+              {sinFacturaCuentaError || 'ENTANGLED no devolvió una cuenta bancaria de destino. No se puede enviar la solicitud hasta que el proveedor tenga TC vigente y cuenta activa.'}
+            </Text>
+          </View>
+        )}
 
         <View style={styles.wizardActionsRow}>
           {wizardStep > 0 && (
