@@ -375,6 +375,8 @@ import {
   createAdvisorXpaySupplier,
   updateAdvisorXpaySupplier,
   deleteAdvisorXpaySupplier,
+  getAdvisorXpayFiscalProfile,
+  upsertAdvisorXpayFiscalProfile,
   getExchangeRate as getEntangledExchangeRate,
   searchConceptosProxy as searchEntangledConceptos,
   asignacionProxy as entangledAsignacion,
@@ -5335,9 +5337,12 @@ app.post('/api/entangled/suppliers', authenticateToken, (req, res) => createMyEn
 app.put('/api/entangled/suppliers/:id', authenticateToken, (req, res) => updateMyEntangledSupplier(req, res));
 app.delete('/api/entangled/suppliers/:id', authenticateToken, (req, res) => deleteMyEntangledSupplier(req, res));
 // Perfil fiscal reutilizable, pricing y cotización
-app.get('/api/entangled/fiscal-profile', authenticateToken, getMyEntangledFiscalProfile);
+app.get('/api/entangled/fiscal-profile', authenticateToken, (req, res) => getMyEntangledFiscalProfile(req, res));
 app.get('/api/entangled/clave-sat-history', authenticateToken, listEntangledClaveSatHistory);
-app.put('/api/entangled/fiscal-profile', authenticateToken, upsertMyEntangledFiscalProfile);
+app.put('/api/entangled/fiscal-profile', authenticateToken, (req, res) => upsertMyEntangledFiscalProfile(req, res));
+// Xpay asesor: perfil fiscal del cliente (precarga + guardar a su nombre)
+app.get('/api/advisor/xpay/fiscal-profile', authenticateToken, getAdvisorXpayFiscalProfile);
+app.put('/api/advisor/xpay/fiscal-profile', authenticateToken, upsertAdvisorXpayFiscalProfile);
 app.get('/api/entangled/pricing', authenticateToken, getEntangledPricingConfig);
 app.put('/api/admin/entangled/pricing', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateEntangledPricingConfig);
 app.post('/api/entangled/quote', authenticateToken, quoteEntangledPayment);

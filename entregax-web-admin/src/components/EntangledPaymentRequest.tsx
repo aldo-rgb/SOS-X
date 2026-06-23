@@ -567,7 +567,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
   useEffect(() => {
     // Solo busca si el token parece texto (no código numérico puro de 8 dígitos)
-    if (!activeToken || /^\d{8}$/.test(activeToken)) {
+    if (!activeToken || /^\d{5,8}$/.test(activeToken)) {
       setConceptoOptions([]);
       setConceptoSearching(false);
       setConceptoSearchError(null);
@@ -853,7 +853,13 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   const loadFiscalProfile = useCallback(async () => {
     if (!token) return;
     try {
-      const r = await axios.get(`${API_URL}/api/entangled/fiscal-profile`, { headers: authHeader });
+      // En modo asesor precargamos los datos fiscales DEL CLIENTE seleccionado.
+      const r = await axios.get(
+        advisorClientId
+          ? `${API_URL}/api/advisor/xpay/fiscal-profile`
+          : `${API_URL}/api/entangled/fiscal-profile`,
+        { headers: authHeader, params: advisorClientId ? { client_id: advisorClientId } : undefined }
+      );
       const p = r.data;
       if (p) {
         setForm((prev) => ({
@@ -869,7 +875,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     } catch (err: unknown) {
       console.error('[ENTANGLED] loadFiscalProfile:', err);
     }
-  }, [authHeader, token]);
+  }, [authHeader, token, advisorClientId]);
 
   const loadPricing = useCallback(async () => {
     if (!token) return;
@@ -1701,7 +1707,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       if (requiereFactura && saveFiscalProfile) {
         try {
           await axios.put(
-            `${API_URL}/api/entangled/fiscal-profile`,
+            advisorClientId
+              ? `${API_URL}/api/advisor/xpay/fiscal-profile`
+              : `${API_URL}/api/entangled/fiscal-profile`,
             {
               rfc: form.rfc.trim().toUpperCase(),
               razon_social: form.razon_social.trim(),
@@ -1710,7 +1718,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               uso_cfdi: form.uso_cfdi,
               email: form.email.trim(),
             },
-            { headers: authHeader }
+            { headers: authHeader, params: advisorClientId ? { client_id: advisorClientId } : undefined }
           );
         } catch (e) {
           console.warn('[ENTANGLED] No se pudo guardar perfil fiscal:', e);
@@ -2715,8 +2723,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 Selecciona si requieres factura SAT para tu cliente final o si solo necesitas enviar el pago al proveedor.
               </Typography>
 
+              {/* Colores de texto por tarjeta: cuando NO está seleccionada el fondo
+                  es negro (#0f0f10) → forzamos texto claro para que no se pierda. */}
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
+                  {(() => {
+                  const sel = requiereFactura;
+                  const cT = sel ? C.textPrimary : '#ffffff';
+                  const cS = sel ? C.textSecondary : 'rgba(255,255,255,0.82)';
+                  const cM = sel ? C.textMuted : 'rgba(255,255,255,0.6)';
+                  return (
                   <Card
                     onClick={() => { setRequiereFactura(true); setWizardStep(1); }}
                     sx={{
@@ -2731,15 +2747,15 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
                         <ReceiptLongIcon sx={{ color: ORANGE, fontSize: 32 }} />
                         <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle1" fontWeight={800} sx={{ color: C.textPrimary }}>
+                          <Typography variant="subtitle1" fontWeight={800} sx={{ color: cT }}>
                             Pago con factura SAT
                           </Typography>
-                          <Typography variant="caption" sx={{ color: C.textMuted }}>
+                          <Typography variant="caption" sx={{ color: cM }}>
                             Recomendado para empresas
                           </Typography>
                         </Box>
                       </Stack>
-                      <Typography variant="body2" sx={{ color: C.textSecondary, mb: 1 }}>
+                      <Typography variant="body2" sx={{ color: cS, mb: 1 }}>
                         Emite factura SAT a tu cliente final. Requiere datos fiscales (RFC, régimen, uso CFDI) y conceptos.
                       </Typography>
 
@@ -2748,18 +2764,18 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                           <Stack direction="row" spacing={1} alignItems="center">
                             <CheckCircleIcon sx={{ color: ORANGE, fontSize: 18 }} />
                             <Box sx={{ flex: 1, minWidth: 0 }}>
-                              <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', lineHeight: 1.1 }}>
+                              <Typography variant="caption" sx={{ color: cM, display: 'block', lineHeight: 1.1 }}>
                                 Se facturará a:
                               </Typography>
                               <Typography
                                 variant="body2"
-                                sx={{ color: C.textPrimary, fontWeight: 700, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                sx={{ color: cT, fontWeight: 700, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                                 title={form.razon_social || ''}
                               >
                                 {form.razon_social || '—'}
                               </Typography>
                               {form.rfc && (
-                                <Typography variant="caption" sx={{ color: C.textSecondary, fontFamily: 'monospace', letterSpacing: '0.04em' }}>
+                                <Typography variant="caption" sx={{ color: cS, fontFamily: 'monospace', letterSpacing: '0.04em' }}>
                                   {form.rfc}
                                 </Typography>
                               )}
@@ -2774,9 +2790,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       </Box>
                     </CardContent>
                   </Card>
+                  ); })()}
                 </Grid>
 
                 <Grid size={{ xs: 12, md: 6 }}>
+                  {(() => {
+                  const sel = !requiereFactura;
+                  const cT = sel ? C.textPrimary : '#ffffff';
+                  const cS = sel ? C.textSecondary : 'rgba(255,255,255,0.82)';
+                  const cM = sel ? C.textMuted : 'rgba(255,255,255,0.6)';
+                  return (
                   <Card
                     onClick={() => { setRequiereFactura(false); setWizardStep(1); }}
                     sx={{
@@ -2791,15 +2814,15 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
                         <AccountBalanceWalletOutlinedIcon sx={{ color: ORANGE, fontSize: 32 }} />
                         <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle1" fontWeight={800} sx={{ color: C.textPrimary }}>
+                          <Typography variant="subtitle1" fontWeight={800} sx={{ color: cT }}>
                             Pago sin factura
                           </Typography>
-                          <Typography variant="caption" sx={{ color: C.textMuted }}>
+                          <Typography variant="caption" sx={{ color: cM }}>
                             Más rápido, sin trámite fiscal
                           </Typography>
                         </Box>
                       </Stack>
-                      <Typography variant="body2" sx={{ color: C.textSecondary, mb: 1 }}>
+                      <Typography variant="body2" sx={{ color: cS, mb: 1 }}>
                         Solo envía el pago al proveedor internacional. No se emite factura SAT.
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
@@ -2808,6 +2831,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       </Box>
                     </CardContent>
                   </Card>
+                  ); })()}
                 </Grid>
               </Grid>
 
@@ -3184,7 +3208,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     onChange={(e) => setConceptoSearchInput(e.target.value)}
                     onKeyDown={(e) => {
                       const v = conceptoSearchInput.trim();
-                      if (e.key === 'Enter' && /^\d{8}$/.test(v)) {
+                      if (e.key === 'Enter' && /^\d{5,8}$/.test(v)) {
                         e.preventDefault();
                         void tryAddConcepto({ clave_prodserv: v, descripcion: '' });
                       }
@@ -3210,7 +3234,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     }}
                   />
                   {/* Dropdown de sugerencias — visible mientras el usuario escribe texto (no código de 8 dígitos) */}
-                  {activeToken && !/^\d{8}$/.test(activeToken) && (
+                  {activeToken && !/^\d{5,8}$/.test(activeToken) && (
                     <Paper sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}`, borderRadius: 1, maxHeight: 280, overflowY: 'auto', mt: 0.5 }}>
                       {conceptoSearching && (
                         <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -3256,7 +3280,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   {/* Botón explícito cuando ya hay una clave SAT completa de 8 dígitos.
                       Sin esto, el dropdown desaparece y el usuario no sabe cómo agregarla
                       (solo funcionaba con Enter). */}
-                  {/^\d{8}$/.test(activeToken) && (
+                  {/^\d{5,8}$/.test(activeToken) && (
                     <Paper
                       onClick={() => { void tryAddConcepto({ clave_prodserv: activeToken, descripcion: '' }); }}
                       sx={{

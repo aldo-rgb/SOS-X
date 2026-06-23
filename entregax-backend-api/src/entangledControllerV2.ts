@@ -26,6 +26,8 @@ import {
   createMySupplier,
   updateMySupplier,
   deleteMySupplier,
+  getMyFiscalProfile,
+  upsertMyFiscalProfile,
 } from './entangledController';
 import {
   sendSolicitudPago,
@@ -2002,4 +2004,19 @@ export const deleteAdvisorXpaySupplier = async (req: Request, res: Response): Pr
   const clientId = await resolveAdvisorClientId(req, res);
   if (clientId == null) return;
   return deleteMySupplier(req, res, { ownerUserId: clientId });
+};
+
+// ── Perfil fiscal del cliente, precargado/guardado por su asesor ───────────
+// GET /api/advisor/xpay/fiscal-profile?client_id=
+export const getAdvisorXpayFiscalProfile = async (req: Request, res: Response): Promise<any> => {
+  const clientId = await resolveAdvisorClientId(req, res);
+  if (clientId == null) return;
+  return getMyFiscalProfile(req, res, { ownerUserId: clientId });
+};
+
+// PUT /api/advisor/xpay/fiscal-profile?client_id=
+export const upsertAdvisorXpayFiscalProfile = async (req: Request, res: Response): Promise<any> => {
+  const clientId = await resolveAdvisorClientId(req, res);
+  if (clientId == null) return;
+  return upsertMyFiscalProfile(req, res, { ownerUserId: clientId });
 };

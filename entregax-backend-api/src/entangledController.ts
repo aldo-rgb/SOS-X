@@ -1157,8 +1157,8 @@ export const adminGetSupplierDetail = async (req: Request, res: Response): Promi
 // FLUJO V2: Perfil fiscal, pricing config, cotización, comprobante diferido
 // ===========================================================================
 
-export const getMyFiscalProfile = async (req: Request, res: Response): Promise<any> => {
-  const userId = getAuthUserId(req);
+export const getMyFiscalProfile = async (req: Request, res: Response, opts?: { ownerUserId?: number }): Promise<any> => {
+  const userId = opts?.ownerUserId ?? getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   try {
     // 1) Perfil ENTANGLED (si existe)
@@ -1196,8 +1196,8 @@ export const getMyFiscalProfile = async (req: Request, res: Response): Promise<a
   }
 };
 
-export const upsertMyFiscalProfile = async (req: Request, res: Response): Promise<any> => {
-  const userId = getAuthUserId(req);
+export const upsertMyFiscalProfile = async (req: Request, res: Response, opts?: { ownerUserId?: number }): Promise<any> => {
+  const userId = opts?.ownerUserId ?? getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   const b = req.body || {};
   try {
