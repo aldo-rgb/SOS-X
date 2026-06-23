@@ -522,10 +522,17 @@ export async function pqtxCreateShipment(req: Request, res: Response) {
         const totalWeight = packages.reduce((s: number, p: any) => s + (Number(p.weight) || 0) * (Number(p.quantity) || 1), 0);
         const totalPieces = packages.reduce((s: number, p: any) => s + (Number(p.quantity) || 1), 0);
         const userId = (req as any).user?.userId || (req as any).user?.id || null;
+        // Guardamos también el REQUEST que mandamos a Paquete Express (token
+        // redactado) para la evidencia de certificación.
+        const reqLog = JSON.parse(JSON.stringify(body));
+        try { if (reqLog.header?.security?.token) reqLog.header.security.token = '***'; } catch { /* noop */ }
         await pool.query(
-          `INSERT INTO pqtx_shipments (tracking_number, folio_porte, service_type, origin_name, origin_zip_code, origin_city, dest_name, dest_zip_code, dest_city, weight, pieces, subtotal, total, status, created_by, raw_response)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'generated',$14,$15)`,
-          [guiaNo, folioPorte, serviceType, originName || 'ENTREGAX', originZipCode, originCity || originMunicipality || '', destName || 'CLIENTE', destZipCode, destCity || destMunicipality || '', totalWeight, totalPieces, addData?.subTotlAmnt || null, addData?.totalAmnt || null, userId, JSON.stringify(response.data)]
+          `ALTER TABLE pqtx_shipments ADD COLUMN IF NOT EXISTS raw_request JSONB`
+        ).catch(() => {});
+        await pool.query(
+          `INSERT INTO pqtx_shipments (tracking_number, folio_porte, service_type, origin_name, origin_zip_code, origin_city, dest_name, dest_zip_code, dest_city, weight, pieces, subtotal, total, status, created_by, raw_request, raw_response)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'generated',$14,$15,$16)`,
+          [guiaNo, folioPorte, serviceType, originName || 'ENTREGAX', originZipCode, originCity || originMunicipality || '', destName || 'CLIENTE', destZipCode, destCity || destMunicipality || '', totalWeight, totalPieces, addData?.subTotlAmnt || null, addData?.totalAmnt || null, userId, JSON.stringify(reqLog), JSON.stringify(response.data)]
         );
       } catch (dbErr: any) {
         console.error('Error guardando guía PQTX en DB:', dbErr.message);
@@ -728,13 +735,22 @@ export async function pqtxCancel(req: Request, res: Response) {
     const cancelOk = respBody?.success === true || response.data?.header?.staTrans === 'ok';
     if (cancelOk) {
       // Marcar las guías como canceladas en NUESTRA base — si no, siguen
-      // apareciendo como activas en el listado.
+      // apareciendo como activas en el listado. Guardamos también el request +
+      // response de la cancelación para la evidencia de certificación.
       try {
+        const cancelReqLog = JSON.parse(JSON.stringify(body));
+        try { if (cancelReqLog.header?.security?.token) cancelReqLog.header.security.token = '***'; } catch { /* noop */ }
+        await pool.query(
+          `ALTER TABLE pqtx_shipments
+             ADD COLUMN IF NOT EXISTS cancel_request JSONB,
+             ADD COLUMN IF NOT EXISTS cancel_response JSONB`
+        ).catch(() => {});
         await pool.query(
           `UPDATE pqtx_shipments
-              SET status = 'cancelled', cancelled_at = NOW()
+              SET status = 'cancelled', cancelled_at = NOW(),
+                  cancel_request = $2::jsonb, cancel_response = $3::jsonb
             WHERE tracking_number = ANY($1::text[])`,
-          [resolved]
+          [resolved, JSON.stringify(cancelReqLog), JSON.stringify(response.data)]
         );
       } catch (uErr: any) {
         console.error('No se pudo marcar pqtx_shipments como cancelled:', uErr.message);
