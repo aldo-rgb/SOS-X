@@ -848,7 +848,7 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
               COALESCE(p.pkg_length, 0) AS length,
               COALESCE(p.pkg_width, 0)  AS width,
               COALESCE(p.pkg_height, 0) AS height,
-              p.box_id, p.created_at, p.received_at, p.delivered_at, p.shipped_at,
+              p.box_id, p.created_at, p.received_at, p.delivered_at,
               p.assigned_cost_mxn, p.saldo_pendiente, p.client_paid,
               p.master_id, p.is_master,
               p.national_carrier, p.national_tracking, p.national_label_url
