@@ -13557,7 +13557,7 @@ export default function DashboardClient() {
                         {(pkg.national_carrier || pkg.carrier || '').toLowerCase().includes('local')
                           ? 'Gratis'
                           : getNationalShippingMXN(pkg) > 0
-                            ? `${formatCurrency(getNationalShippingMXN(pkg))}${Number(pkg.national_shipping_cost) > 0 ? '' : ' (estimado)'}`
+                            ? formatCurrency(getNationalShippingMXN(pkg))
                             : 'Costo según cotización'}
                       </Typography>
                     </Box>
