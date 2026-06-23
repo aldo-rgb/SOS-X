@@ -12,6 +12,7 @@ import {
   TableContainer, TableHead, TableRow, Chip, IconButton, Alert,
   Snackbar, CircularProgress, Tooltip, Checkbox, TextField, Dialog,
   DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel,
+  Switch, FormControlLabel,
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import {
@@ -566,21 +567,39 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
           {/* Resumen */}
           {(() => {
             const allPkgs = getAllPackages().filter(filterByEstado);
-            const toShow = selected.size > 0 ? allPkgs.filter(p => selected.has(p.id)) : allPkgs;
-            const totalUsd = toShow.reduce((s, p) => s + Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0), 0);
-            const totalMxn = toShow.reduce((s, p) => {
+            const toShowAll = selected.size > 0 ? allPkgs.filter(p => selected.has(p.id)) : allPkgs;
+            // Aplicar las MISMAS reglas que getReporteRows():
+            //   - excluir masters multi-caja (no se cobra el master, solo las hijas)
+            //   - excluir perdidas / faltantes / ya pagadas / aún no llegaron a MTY
+            const isPayable = (p: any): boolean => {
+              if (p.is_master && Number(p.total_boxes || 1) > 1) return false;
+              if (p.is_lost) return false;
+              if (p.missing_on_arrival) return false;
+              if (p.costing_paid) return false;
+              if (!p.received_mty_at) return false;
+              return true;
+            };
+            const payablePkgs = toShowAll.filter(isPayable);
+            const excludedCount = toShowAll.length - payablePkgs.length;
+            const totalUsd = payablePkgs.reduce((s, p) => s + Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0), 0);
+            const totalMxn = payablePkgs.reduce((s, p) => {
               const mxn = Number(p.pobox_provider_cost_mxn ?? 0) || (Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0) * Number(p.registered_exchange_rate ?? 0));
               return s + mxn;
             }, 0);
             return (
               <Paper sx={{ p: 2, mb: 3, bgcolor: 'warning.light' }}>
                 <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  {selected.size > 0 ? 'Resumen Seleccionadas' : 'Resumen Total'}
+                  {selected.size > 0 ? 'Resumen Seleccionadas (solo pagables)' : 'Resumen Total (solo pagables)'}
                 </Typography>
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 3 }}>
-                    <Typography variant="body2" color="text.secondary">Guías</Typography>
-                    <Typography variant="h5" fontWeight="bold">{toShow.length}</Typography>
+                    <Typography variant="body2" color="text.secondary">Guías a pagar</Typography>
+                    <Typography variant="h5" fontWeight="bold">{payablePkgs.length}</Typography>
+                    {excludedCount > 0 && (
+                      <Typography variant="caption" color="text.secondary">
+                        {toShowAll.length} sel · {excludedCount} excl.
+                      </Typography>
+                    )}
                   </Grid>
                   <Grid size={{ xs: 3 }}>
                     <Typography variant="body2" color="text.secondary">Total USD</Typography>
@@ -595,6 +614,11 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                     <Typography variant="h6" fontWeight="bold" color="warning.dark">{formatCurrency(totalMxn)}</Typography>
                   </Grid>
                 </Grid>
+                {excludedCount > 0 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    Excluidas {excludedCount} guías (master multi-caja · perdida · faltante · ya pagada · aún sin llegar a MTY). Estas no se sumarán a la referencia.
+                  </Typography>
+                )}
               </Paper>
             );
           })()}
