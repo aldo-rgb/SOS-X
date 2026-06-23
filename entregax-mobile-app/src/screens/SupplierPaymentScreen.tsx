@@ -140,7 +140,10 @@ interface PaymentRequest {
 }
 
 export default function SupplierPaymentScreen({ route, navigation }: any) {
-  const { token } = route.params || {};
+  // Modo asesor: cuando se navega con advisorClientId, la operación Xpay se crea
+  // a nombre de ese cliente (endpoints /api/advisor/xpay/*), no del usuario logueado.
+  const { token, advisorClientId, advisorClientName, advisorClientBoxId } = route.params || {};
+  const isAdvisorMode = !!advisorClientId;
   const { t } = useTranslation();
 
   // Existing state
@@ -253,24 +256,34 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
   const loadRequests = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/entangled/payment-requests/me`, { headers: authHeaders });
+      const url = isAdvisorMode
+        ? `${API_URL}/api/advisor/xpay/payment-requests?client_id=${advisorClientId}`
+        : `${API_URL}/api/entangled/payment-requests/me`;
+      const res = await fetch(url, { headers: authHeaders });
       const data = await res.json();
-      setRequests(Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : []);
+      setRequests(
+        Array.isArray(data?.requests) ? data.requests
+          : Array.isArray(data?.data) ? data.data
+          : Array.isArray(data) ? data : []
+      );
     } catch {
       setRequests([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token]);
+  }, [token, isAdvisorMode, advisorClientId]);
 
   const loadSuppliers = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/entangled/suppliers`, { headers: authHeaders });
+      const url = isAdvisorMode
+        ? `${API_URL}/api/advisor/xpay/suppliers?client_id=${advisorClientId}`
+        : `${API_URL}/api/entangled/suppliers`;
+      const res = await fetch(url, { headers: authHeaders });
       const data = await res.json();
       setSavedSuppliers(Array.isArray(data) ? data : []);
     } catch {}
-  }, [token]);
+  }, [token, isAdvisorMode, advisorClientId]);
 
   // Comisiones XPAY → Cliente final (configuradas en el admin)
   const [clientCommissionCfg, setClientCommissionCfg] = useState<{
@@ -675,17 +688,21 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       // Persistir el supplier por separado (igual que antes) para tu base local
       if (selectedSupplierId === 'new' && saveSupplier) {
         try {
-          await fetch(`${API_URL}/api/entangled/suppliers`, {
-            method: 'POST',
-            headers: { ...authHeaders, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              alias: benefAlias || benefName, nombre_beneficiario: benefName,
-              nombre_chino: benefNameZh, direccion_beneficiario: benefAddress,
-              numero_cuenta: benefAccount, iban: benefIban, banco_nombre: benefBankName,
-              banco_direccion: benefBankAddress, swift_bic: benefSwift,
-              aba_routing: benefAba, divisa_default: divisa,
-            }),
-          });
+          await fetch(
+            isAdvisorMode ? `${API_URL}/api/advisor/xpay/suppliers` : `${API_URL}/api/entangled/suppliers`,
+            {
+              method: 'POST',
+              headers: { ...authHeaders, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...(isAdvisorMode ? { client_id: advisorClientId } : {}),
+                alias: benefAlias || benefName, nombre_beneficiario: benefName,
+                nombre_chino: benefNameZh, direccion_beneficiario: benefAddress,
+                numero_cuenta: benefAccount, iban: benefIban, banco_nombre: benefBankName,
+                banco_direccion: benefBankAddress, swift_bic: benefSwift,
+                aba_routing: benefAba, divisa_default: divisa,
+              }),
+            }
+          );
         } catch {}
       }
 
@@ -769,11 +786,17 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       // NO se envía comprobante aquí: la solicitud queda en estado 'pendiente'
       // y el comprobante se sube después desde Últimos envíos.
 
-      const res = await fetch(`${API_URL}/api/entangled/payment-requests`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      });
+      // Modo asesor: la operación se crea a nombre del cliente seleccionado.
+      if (isAdvisorMode) fd.append('client_id', String(advisorClientId));
+
+      const res = await fetch(
+        isAdvisorMode ? `${API_URL}/api/advisor/xpay/payment-requests` : `${API_URL}/api/entangled/payment-requests`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        }
+      );
       const data = await res.json();
       if (res.ok) {
         const rid = data?.request?.id || data?.request_id || null;
@@ -1285,6 +1308,16 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <View style={{ width: 16, height: 3, backgroundColor: RED, borderRadius: 2 }} />
         </View>
       </ImageBackground>
+
+      {/* ── Banner modo asesor: operando a nombre de un cliente ──── */}
+      {isAdvisorMode && (
+        <View style={styles.advisorBanner}>
+          <Ionicons name="briefcase" size={14} color={ORANGE} />
+          <Text style={styles.advisorBannerText}>
+            Operando para: <Text style={styles.advisorBannerName}>{advisorClientBoxId ? `${advisorClientBoxId} · ` : ''}{advisorClientName || 'cliente'}</Text>
+          </Text>
+        </View>
+      )}
 
       {/* ── Calculator ───────────────────────────────────────────── */}
       <View style={styles.card}>
@@ -2670,6 +2703,15 @@ const styles = StyleSheet.create({
     padding: 16, borderRadius: 16,
     borderWidth: 1, borderColor: BORDER,
   },
+  advisorBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(240,90,40,0.12)',
+    borderWidth: 1, borderColor: 'rgba(240,90,40,0.35)',
+    borderRadius: 12, paddingVertical: 10, paddingHorizontal: 14,
+    margin: 12, marginTop: 0,
+  },
+  advisorBannerText: { flex: 1, color: TEXT, fontSize: 13, fontWeight: '600' },
+  advisorBannerName: { color: ORANGE, fontWeight: '800' },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
   sectionTitle: { fontSize: 15, fontWeight: '800', color: TEXT, letterSpacing: 0.3 },
   iconBadge: {

@@ -27,6 +27,8 @@ import { API_URL } from '../services/api';
 import { useTranslation } from 'react-i18next';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
 import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
+import { useBrandAsset } from '../hooks/useBrandAssets';
+import { usePaymentStatus } from '../hooks/usePaymentStatus';
 
 const { width } = Dimensions.get('window');
 const ORANGE  = '#F05A28';
@@ -90,6 +92,14 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [transitClientsLoading, setTransitClientsLoading] = useState(false);
   const [transitClients, setTransitClients]         = useState<{ id: number; name: string; boxId: string; count: number }[]>([]);
   const [transitClientSearch, setTransitClientSearch] = useState('');
+
+  // Xpay asesor: botón en el hero + selector de cliente para crear la operación
+  const xpayLogo = useBrandAsset('xpay_full_black');
+  const { advisorXpayEnabled } = usePaymentStatus();
+  const [showXpayPicker, setShowXpayPicker] = useState(false);
+  const [xpayClientsLoading, setXpayClientsLoading] = useState(false);
+  const [xpayClients, setXpayClients] = useState<{ id: number; name: string; boxId: string }[]>([]);
+  const [xpayClientSearch, setXpayClientSearch] = useState('');
 
   // 📊 KPIs (tarifas y TC) para asesores
   const [rates, setRates] = useState<{
@@ -263,6 +273,42 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
       setTransitClientsLoading(false);
     }
   };
+
+  // ── Xpay asesor: selector de cliente asignado ──────────────────────────────
+  const fetchXpayClients = useCallback(async (search: string) => {
+    setXpayClientsLoading(true);
+    try {
+      const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+      const res = await fetch(`${API_URL}/api/advisor/xpay/clients${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      const clients = (json.clients || []).map((c: any) => ({
+        id: c.id,
+        name: c.full_name ?? '—',
+        boxId: c.box_id ?? '',
+      }));
+      setXpayClients(clients);
+    } catch {
+      setXpayClients([]);
+    } finally {
+      setXpayClientsLoading(false);
+    }
+  }, [token]);
+
+  const openXpayClientPicker = () => {
+    setXpayClientSearch('');
+    setXpayClients([]);
+    setShowXpayPicker(true);
+    fetchXpayClients('');
+  };
+
+  // Buscar en servidor cuando cambia el texto (debounce ligero)
+  useEffect(() => {
+    if (!showXpayPicker) return;
+    const h = setTimeout(() => fetchXpayClients(xpayClientSearch.trim()), 300);
+    return () => clearTimeout(h);
+  }, [xpayClientSearch, showXpayPicker, fetchXpayClients]);
 
   const copyReferralCode = () => {
     if (data?.advisor.referralCode) {
@@ -440,10 +486,20 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
               <Text style={s.heroName}>{firstName}</Text>
               <Text style={s.heroDate}>{today}</Text>
             </View>
-            <View style={s.heroBadge}>
-              <Ionicons name="briefcase" size={13} color={ORANGE} />
-              <Text style={s.heroBadgeText}>ASESOR</Text>
-            </View>
+            {advisorXpayEnabled ? (
+              <TouchableOpacity style={s.heroXpayBtn} onPress={openXpayClientPicker} activeOpacity={0.85}>
+                {xpayLogo ? (
+                  <Image source={{ uri: xpayLogo }} style={s.heroXpayLogo} resizeMode="contain" />
+                ) : (
+                  <Text style={s.heroXpayFallback}>X-Pay</Text>
+                )}
+              </TouchableOpacity>
+            ) : (
+              <View style={s.heroBadge}>
+                <Ionicons name="briefcase" size={13} color={ORANGE} />
+                <Text style={s.heroBadgeText}>ASESOR</Text>
+              </View>
+            )}
           </View>
           {/* Divisor */}
           <View style={s.heroDivider} />
@@ -552,6 +608,77 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                       </TouchableOpacity>
                     ))
                   }
+                </ScrollView>
+              )}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Xpay asesor: selector de cliente — al elegir, abre el flujo Xpay a su nombre */}
+        <Modal visible={showXpayPicker} transparent animationType="slide" onRequestClose={() => setShowXpayPicker(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%' }}>
+              <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 4 }}>
+                <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: '#DDD' }} />
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12, paddingTop: 4 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 17, fontWeight: '800', color: BLACK }}>Nueva operación X-Pay</Text>
+                  <Text style={{ fontSize: 12, color: '#888', marginTop: 2 }}>¿A nombre de qué cliente?</Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowXpayPicker(false)} style={{ padding: 6 }}>
+                  <Ionicons name="close" size={22} color="#666" />
+                </TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 10, backgroundColor: '#F4F4F6', borderRadius: 10, paddingHorizontal: 10, height: 40 }}>
+                <Ionicons name="search-outline" size={16} color="#999" />
+                <TextInput
+                  style={{ flex: 1, marginLeft: 8, fontSize: 14, color: BLACK }}
+                  placeholder="Número de cliente o nombre (ej. S78)"
+                  placeholderTextColor="#BBB"
+                  value={xpayClientSearch}
+                  onChangeText={setXpayClientSearch}
+                  autoFocus
+                />
+              </View>
+              {xpayClientsLoading ? (
+                <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={ORANGE} />
+                  <Text style={{ color: '#999', marginTop: 10, fontSize: 13 }}>Buscando clientes...</Text>
+                </View>
+              ) : xpayClients.length === 0 ? (
+                <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                  <Ionicons name="people-outline" size={40} color="#DDD" />
+                  <Text style={{ color: '#999', marginTop: 10, fontSize: 13 }}>
+                    {xpayClientSearch ? 'Sin coincidencias' : 'Escribe para buscar tus clientes'}
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView keyboardShouldPersistTaps="handled" style={{ paddingHorizontal: 16 }} contentContainerStyle={{ paddingBottom: 24 }}>
+                  {xpayClients.map(c => (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}
+                      onPress={() => {
+                        setShowXpayPicker(false);
+                        navigation.navigate('SupplierPayment', {
+                          user, token,
+                          advisorClientId: c.id,
+                          advisorClientName: c.name,
+                          advisorClientBoxId: c.boxId,
+                        });
+                      }}
+                    >
+                      <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: ORANGE + '20', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: ORANGE }}>{(c.name || '?').charAt(0).toUpperCase()}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: BLACK }}>{c.name}</Text>
+                        {c.boxId ? <Text style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{c.boxId}</Text> : null}
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color="#CCC" />
+                    </TouchableOpacity>
+                  ))}
                 </ScrollView>
               )}
             </View>
@@ -1438,6 +1565,9 @@ const s = StyleSheet.create({
   heroDate:        { color: '#888', fontSize: 12, marginTop: 5, textTransform: 'capitalize' },
   heroBadge:       { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: ORANGE + '18', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start' },
   heroBadgeText:   { color: ORANGE, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  heroXpayBtn:     { backgroundColor: ORANGE + '14', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 7, alignSelf: 'flex-start', borderWidth: 1, borderColor: ORANGE + '33' },
+  heroXpayLogo:    { width: 72, height: 22 },
+  heroXpayFallback:{ color: ORANGE, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
   heroDivider:     { height: 1, backgroundColor: '#F0F0F0', marginBottom: 12 },
   heroCodeRow:     { flexDirection: 'row', alignItems: 'center', gap: 6 },
   heroCode:        { color: '#111', fontSize: 15, fontWeight: '800', letterSpacing: 1.5 },

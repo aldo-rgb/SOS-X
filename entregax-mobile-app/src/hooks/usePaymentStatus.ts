@@ -9,10 +9,11 @@ interface PaymentStatus {
   entregax_payments_enabled: boolean;
   entregax_payments_by_service: Record<EntregaxServiceKey, boolean>;
   gex_enabled: boolean;
+  advisor_xpay_enabled: boolean;
 }
 
 const FULL_SERVICES: Record<EntregaxServiceKey, boolean> = { pobox: true, maritimo: true, aereo: true, dhl: true };
-const FALLBACK: PaymentStatus = { xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: FULL_SERVICES, gex_enabled: true };
+const FALLBACK: PaymentStatus = { xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: FULL_SERVICES, gex_enabled: true, advisor_xpay_enabled: false };
 let cached: PaymentStatus | null = null;
 let lastFetch: number | null = null;
 const CACHE_TTL_MS = 30_000;
@@ -66,6 +67,7 @@ export function usePaymentStatus() {
               dhl:      bs.dhl      !== false,
             },
             gex_enabled: data.gex_enabled !== false,
+            advisor_xpay_enabled: data.advisor_xpay_enabled === true,
           };
           lastFetch = Date.now();
           setStatus(cached);
@@ -90,5 +92,6 @@ export function usePaymentStatus() {
     entregaxPaymentsByService: status.entregax_payments_by_service,
     isEntregaxPaymentEnabledFor,
     gexEnabled: status.gex_enabled,
+    advisorXpayEnabled: status.advisor_xpay_enabled,
   };
 }
