@@ -854,7 +854,7 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
               p.national_carrier, p.national_tracking, p.national_label_url
          FROM packages p
         WHERE (($1::int IS NOT NULL AND p.user_id = $1::int)
-               OR ($2 IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM($2))))
+               OR ($2::text IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM($2::text))))
           AND (p.is_master = true OR p.master_id IS NULL)
         ORDER BY p.created_at DESC
         LIMIT 200`,
