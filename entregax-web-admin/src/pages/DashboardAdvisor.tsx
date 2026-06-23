@@ -387,6 +387,18 @@ export default function DashboardAdvisor() {
   const [clientsLoading, setClientsLoading] = useState(false);
 
   // ── Xpay (asesor crea operaciones a nombre de un cliente asignado) ──
+  const [xpayLogoUrl, setXpayLogoUrl] = useState<string>('');
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await api.get('/brand-assets/active');
+        const url = r.data?.assets?.xpay_full_white?.url || '';
+        if (!cancelled && url) setXpayLogoUrl(url);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [xpayClient, setXpayClient] = useState<{ id: number; full_name: string; box_id: string } | null>(null);
   const [xpayClientOptions, setXpayClientOptions] = useState<{ id: number; full_name: string; box_id: string }[]>([]);
   const [xpayClientsLoading, setXpayClientsLoading] = useState(false);
@@ -1062,7 +1074,6 @@ export default function DashboardAdvisor() {
       { id: 'clients',      label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: dotIcon(<PeopleIcon />, hasNewClients), shortLabel: 'Clientes' },
       { id: 'instructions', label: 'Instrucciones', icon: <ShippingIcon />, shortLabel: 'Instrucciones' },
       ...(advisorPaymentOrderEnabled ? [{ id: 'payment_order', label: isMobile ? 'Pago' : 'Orden de Pago', icon: <MoneyIcon sx={{ color: 'inherit' }} />, shortLabel: 'Pago' }] : []),
-      ...(advisorXpayEnabled ? [{ id: 'xpay', label: 'Xpay', icon: <PaymentIcon sx={{ color: 'inherit' }} />, shortLabel: 'Xpay' }] : []),
       { id: 'commissions',  label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
       { id: 'tools',        label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
       { id: 'tickets',      label: isMobile ? 'Tickets' : 'Tickets', icon: dotIcon(<TicketIcon />, hasTicketResponses), shortLabel: 'Tickets' },
@@ -1070,9 +1081,18 @@ export default function DashboardAdvisor() {
       ...(dashboardData && dashboardData.subAdvisors > 0
         ? [{ id: 'team', label: isMobile ? 'Equipo' : 'Mi Equipo', icon: <PeopleIcon />, shortLabel: 'Equipo' }]
         : []),
+      // Xpay al final (lado derecho), con el logo X-Pay (slot xpay_full_white).
+      ...(advisorXpayEnabled ? [{
+        id: 'xpay',
+        label: xpayLogoUrl
+          ? <Box component="img" src={xpayLogoUrl} alt="X-Pay" sx={{ height: 26, objectFit: 'contain', display: 'block', borderRadius: 1 }} />
+          : 'Xpay',
+        icon: xpayLogoUrl ? undefined : <PaymentIcon sx={{ color: 'inherit' }} />,
+        shortLabel: 'Xpay',
+      }] : []),
     ];
     return tabs;
-  }, [t, isMobile, dashboardData, advisorTickets, advisorPaymentOrderEnabled, advisorXpayEnabled]);
+  }, [t, isMobile, dashboardData, advisorTickets, advisorPaymentOrderEnabled, advisorXpayEnabled, xpayLogoUrl]);
 
   // ID estable de la pestaña activa. Lo usamos como dependencia en los efectos
   // de carga para EVITAR un loop infinito: `tabConfig` cambia de referencia
