@@ -789,10 +789,10 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         } catch (e: any) {
             const rawErr = e.response?.data?.error;
             const rawMsg = typeof rawErr === 'string' ? rawErr : rawErr ? JSON.stringify(rawErr) : (e.message || 'Error generando guía Paquete Express');
-            const msg = rawMsg.toLowerCase().includes('cobertura') || rawMsg.toLowerCase().includes('postal')
-                ? `Sin cobertura para este código postal. Verifica la dirección de entrega asignada al paquete.`
-                : rawMsg;
-            setPqtxError(msg);
+            // Mostrar el mensaje REAL de Paquete Express (antes lo enmascarábamos
+            // como "Sin cobertura", ocultando la causa real: colonia inválida,
+            // CP sin servicio a domicilio, etc.).
+            setPqtxError(`Paquete Express: ${rawMsg}`);
         } finally {
             setGeneratingPqtx(false);
         }
@@ -1563,7 +1563,7 @@ ${labelsHtml}
                     />
                     <Button
                         variant="contained"
-                        onClick={handleSearch}
+                        onClick={() => handleSearch()}
                         disabled={loading || !tracking.trim()}
                         startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <SearchIcon />}
                         sx={{ minWidth: 140, bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
@@ -2652,7 +2652,7 @@ ${labelsHtml}
                                         {carrierConfigEntries.map((c) => (
                                             <Chip
                                                 key={c.id}
-                                                label={`${c.name}${c.price > 0 ? ` · $${c.price} ${c.currency}` : ' · GRATIS'}`}
+                                                label={`${c.name}${(c.price ?? 0) > 0 ? ` · $${c.price} ${c.currency}` : ' · GRATIS'}`}
                                                 clickable
                                                 onClick={() => { setEditCarrier(c.id); setEditCarrierCost(c.price || 0); }}
                                                 color={editCarrier === c.id ? 'primary' : 'default'}

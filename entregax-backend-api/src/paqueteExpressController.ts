@@ -1114,7 +1114,7 @@ export async function pqtxGetConfig(req: Request, res: Response) {
 //   - Si cotización PQTX < $300 → cobrar $400 MXN total
 //   - Si cotización PQTX >= $300 → cotización + $100 MXN por caja
 // ============================================
-const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64860'; // Bodega MTY
+const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64410'; // CEDIS MTY (origen para cotizar/generar guías PQTX)
 
 export async function pqtxClientQuote(req: Request, res: Response) {
   try {
@@ -1361,7 +1361,7 @@ export async function generateOnePqtxGuide(params: {
   // IDs de hijas para persistir el mismo national_tracking en todas
   childIds?: number[];
 }): Promise<{ ok: true; tracking: string; folioPorte: string; labelUrl: string; pieces: number } | { ok: false; error: string; raw?: any }> {
-  const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64860';
+  const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64410'; // CEDIS MTY
   const PQTX_ORIGIN_CITY = process.env.PQTX_ORIGIN_CITY || 'MONTERREY';
   const PQTX_ORIGIN_STATE = process.env.PQTX_ORIGIN_STATE || 'NUEVO LEON';
   const PQTX_ORIGIN_MUN = process.env.PQTX_ORIGIN_MUN || 'MONTERREY';
