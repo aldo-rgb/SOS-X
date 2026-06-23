@@ -272,11 +272,23 @@ const getAssignedCarrier = (shipment: ShipmentData | null): { displayName: strin
     };
 };
 
+// Paquetería "por cobrar" / COD (p.ej. pqtx_cod). NO se cotiza ni se genera guía
+// con la API de la paquetería: solo se imprime una etiqueta local con los datos
+// de envío y el nombre del carrier (el destinatario paga al recibir).
+const isCollectCarrier = (normalized: string): boolean => (
+    /\bcod\b/.test(normalized) ||
+    /\bpc\b/.test(normalized) ||
+    normalized.includes('por cobrar') ||
+    normalized.includes('collect')
+);
+
 const isPaqueteExpressCarrier = (normalized: string): boolean => (
-    normalized.includes('paquete express') ||
-    normalized.includes('paqueteexpress') ||
-    normalized.includes('paquetexpress') ||
-    normalized.includes('pqtx')
+    !isCollectCarrier(normalized) && (
+        normalized.includes('paquete express') ||
+        normalized.includes('paqueteexpress') ||
+        normalized.includes('paquetexpress') ||
+        normalized.includes('pqtx')
+    )
 );
 
 const isEntregaxLocalCarrier = (normalized: string): boolean => (

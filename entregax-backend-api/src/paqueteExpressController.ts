@@ -1612,6 +1612,16 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     }
     const pkg = pkgRes.rows[0];
 
+    // Paquetería "por cobrar" / COD (pqtx_cod): NO se genera guía con la API de
+    // Paquete Express — el destinatario paga al recibir. Solo se imprime una
+    // etiqueta local (desde el frontend). Rechazamos por si llega por otra vía.
+    const carrierNorm = String(pkg.national_carrier || pkg.carrier || '').toLowerCase().replace(/[_-]+/g, ' ');
+    const isCollect = /\bcod\b/.test(carrierNorm) || /\bpc\b/.test(carrierNorm) || carrierNorm.includes('por cobrar') || carrierNorm.includes('collect');
+    if (isCollect) {
+      res.status(400).json({ success: false, error: 'Esta paquetería es Por Cobrar (COD); no se genera guía con la API. Imprime la etiqueta local.' });
+      return;
+    }
+
     if (!pkg.zip_code) {
       console.warn(`[PQTX-GEN] Sin CP: packageId=${packageId}, assigned_address_id=${pkg.assigned_address_id}, delivery_address_id=${pkg.delivery_address_id}, zip_code=${pkg.zip_code}`);
       res.status(400).json({ success: false, error: 'El paquete no tiene dirección de entrega asignada con código postal' });
