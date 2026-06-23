@@ -166,24 +166,43 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
     else setScannerActive(true);
   };
 
-  // Buscar en lista local por código truncado o compacto
-  // Evita ir al backend cuando el scanner corta el código
+  // Forma canónica del tracking: normaliza el sufijo de caja con ceros para que
+  // "US-3959222906-01", "-001" y "-0001" se consideren la misma guía.
+  const canonTracking = (s: string): string => {
+    const up = String(s || '').toUpperCase().trim();
+    const idx = up.lastIndexOf('-');
+    if (idx > 0) {
+      const base = up.slice(0, idx);
+      const suf = up.slice(idx + 1);
+      if (/^\d{1,5}$/.test(suf)) return `${base}-${parseInt(suf, 10)}`;
+    }
+    return up;
+  };
+
+  // Buscar en lista local por código truncado, compacto o sufijo con ceros.
+  // Evita ir al backend cuando el scanner corta el código o el sufijo difiere.
+  // `code` llega CON guiones (código original normalizado).
   const findLocalMatch = (code: string): HandoffPackage | null => {
-    const normalUpper = code.toUpperCase();
-    // 1. Match exacto
+    const orig = code.toUpperCase().trim();
+    const normalUpper = orig.replace(/-/g, '');
+    const canon = canonTracking(orig);
+    // 1. Match exacto (compacto o con guiones)
     let m = filteredInitial.find(p =>
       p.tracking_number.replace(/-/g, '').toUpperCase() === normalUpper ||
-      p.tracking_number.toUpperCase() === normalUpper
+      p.tracking_number.toUpperCase() === orig
     );
     if (m) return m;
-    // 2. El código escaneado es prefijo del tracking (truncado al final)
+    // 2. Sufijo de caja tolerante a ceros: -01 == -0001
+    m = filteredInitial.find(p => canonTracking(p.tracking_number) === canon);
+    if (m) return m;
+    // 3. El código escaneado es prefijo del tracking (truncado al final)
     m = filteredInitial.find(p => {
       const t = p.tracking_number.toUpperCase();
       const tCompact = t.replace(/-/g, '');
-      return tCompact.startsWith(normalUpper) || t.startsWith(normalUpper);
+      return tCompact.startsWith(normalUpper) || t.startsWith(orig);
     });
     if (m) return m;
-    // 3. El tracking es prefijo del código escaneado (código tiene extra)
+    // 4. El tracking es prefijo del código escaneado (código tiene extra)
     m = filteredInitial.find(p => {
       const t = p.tracking_number.replace(/-/g, '').toUpperCase();
       return normalUpper.startsWith(t) || normalUpper.startsWith(p.tracking_number.toUpperCase().replace(/-/g,''));
@@ -200,7 +219,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
     try {
       if (scanPhase === 'internal' || mode === 'cargar_unidad') {
         // Intentar match local primero para evitar error con scanner truncado
-        const localMatch = findLocalMatch(code.replace(/-/g, ''));
+        const localMatch = findLocalMatch(code);
         const effectiveBarcode = localMatch ? localMatch.tracking_number : code.trim();
 
         const res = await api.post('/api/driver/paqueteria-handoff/scan', {

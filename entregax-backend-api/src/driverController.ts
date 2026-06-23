@@ -2095,6 +2095,31 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                     }
                 }
 
+                // Sufijo de caja con ceros: "<MASTER>-01" / "-1" / "-001" → "-0001".
+                // Cubre cuando el operador captura el sufijo sin padding completo.
+                if (result.rows.length === 0) {
+                    const sufMatch = code.match(/^(.+)-(\d{1,4})$/);
+                    if (sufMatch) {
+                        const padded = `${sufMatch[1]}-${String(parseInt(sufMatch[2] as string, 10)).padStart(4, '0')}`;
+                        if (padded.toUpperCase() !== code.toUpperCase()) {
+                            const retry = await pool.query(
+                                `SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
+                                        COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
+                                        COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
+                                        p.national_tracking
+                                 FROM packages p
+                                 LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                                 WHERE UPPER(p.tracking_internal) = $1 LIMIT 1`,
+                                [padded.toUpperCase()]
+                            );
+                            if (retry.rows.length === 1) {
+                                result.rows = retry.rows;
+                                console.log(`[paqHandoff] Suffix-pad match: ${code} → ${retry.rows[0].tracking_number}`);
+                            }
+                        }
+                    }
+                }
+
                 // Si aún no encontrado, LIKE fuzzy (para truncación al final)
                 if (result.rows.length === 0) {
                     const fuzzyRes = await pool.query(
