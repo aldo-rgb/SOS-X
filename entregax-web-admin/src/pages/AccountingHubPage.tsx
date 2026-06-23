@@ -2497,9 +2497,21 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
   const [stats, setStats] = useState<any>(null);
   const [links, setLinks] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [syncfyModalOpen, setSyncfyModalOpen] = useState(false);
   const [filters, setFilters] = useState<{ from: string; to: string; type: string; match: string; search: string }>({
     from: '', to: '', type: '', match: '', search: '',
   });
+
+  const handleDeleteCred = async (credId: number) => {
+    if (!confirm('¿Desconectar este banco? Se eliminarán las credenciales en Syncfy.')) return;
+    try {
+      await api.delete(`/admin/syncfy/links/${credId}`);
+      setLinks(prev => prev.filter((l: any) => l.id !== credId));
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || 'Error desconectando banco');
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -2605,22 +2617,14 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
             await load();
           }}
         />
-        <SyncfyRefreshButton
-          emitterId={emitter.id}
-          disabled={links.length === 0}
-          label="Sincronizar (re-autenticar)"
+        <Button
+          variant="contained"
+          startIcon={<SyncIcon />}
+          onClick={() => setSyncfyModalOpen(true)}
           sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94e1f' } }}
-          onSuccess={async ({ new_count, credential_warning }) => {
-            if (credential_warning) {
-              setError(`⚠️ ${credential_warning}`);
-            } else if (new_count === 0) {
-              setError('✅ Re-autenticación completada. La descarga automática está programada (~10 min). El banco puede mostrar "sesión activa" mientras Syncfy termina — es normal, espera unos minutos antes de entrar al banco manualmente.');
-            } else {
-              setError(null);
-            }
-            await load();
-          }}
-        />
+        >
+          Sincronizar (re-autenticar)
+        </Button>
       </Stack>
 
       {loading ? (
@@ -2669,6 +2673,89 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           </Table>
         </Paper>
       )}
+
+      {/* ===== Modal Syncfy: Conexión Bancaria (re-autenticar / gestionar) ===== */}
+      <Dialog open={syncfyModalOpen} onClose={() => setSyncfyModalOpen(false)} maxWidth="sm" fullWidth
+        disableEnforceFocus disableAutoFocus disableRestoreFocus>
+        <DialogTitle sx={{ bgcolor: '#1e88e5', color: 'white', fontWeight: 'bold' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AccountBalanceIcon /> Syncfy - Conexión Bancaria - {emitter.alias}
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2">
+              🏦 <strong>Conexión bancaria automática (Syncfy):</strong> Conecta BBVA Net Cash, Banregio, Santander Empresas u otros bancos.
+              Los movimientos se descargan automáticamente y se concilian con los pagos pendientes.
+            </Typography>
+          </Alert>
+
+          {stats && (
+            <Box sx={{ display: 'flex', gap: 1, mb: 3, flexWrap: 'wrap' }}>
+              <Chip label={`${links.length} bancos`} color="primary" size="small" />
+              <Chip label={`${stats.in_count || 0} depósitos`} color="success" size="small" />
+              <Chip label={`${stats.matched_count || 0} conciliados`} color="info" size="small" />
+              <Chip label={`${stats.pending_count || 0} por revisar`} color="warning" size="small" />
+              {stats.environment && <Chip label={`Ambiente: ${stats.environment}`} size="small" />}
+            </Box>
+          )}
+
+          {links.length > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="subtitle2" fontWeight="bold">Bancos Conectados</Typography>
+                <SyncfyRefreshButton
+                  emitterId={emitter.id}
+                  label="Sincronizar todo"
+                  variant="text"
+                  color="primary"
+                  onSuccess={async ({ new_count, matched_count, credential_warning }) => {
+                    if (credential_warning) setError(`⚠️ ${credential_warning}`);
+                    else setError(`✅ Sincronizado: ${new_count} nuevas, ${matched_count} conciliadas`);
+                    await load();
+                  }}
+                />
+              </Box>
+              {links.map((link: any) => (
+                <Box key={link.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, mb: 1, bgcolor: 'grey.50', borderRadius: 2, border: '1px solid', borderColor: 'grey.200' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <AccountBalanceIcon color="primary" />
+                    <Box>
+                      <Typography fontWeight="bold" variant="body2">{link.institution_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Estado: {link.status === 'active' ? '🟢 Activo' : '🔴 ' + link.status}
+                        {link.twofa_required ? ' • 2FA' : ''}
+                        {link.last_sync_at && ` • Último sync: ${fmtDate(link.last_sync_at)}`}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Tooltip title="Desconectar banco">
+                    <IconButton size="small" color="error" onClick={() => handleDeleteCred(link.id)}>
+                      <DeleteIcon />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          {/* Re-autenticar / conectar (abre el widget seguro de Syncfy) */}
+          <SyncfyRefreshButton
+            emitterId={emitter.id}
+            label={links.length > 0 ? 'Re-autenticar / Conectar Banco' : 'Conectar Banco'}
+            sx={{ width: '100%', bgcolor: '#1e88e5', '&:hover': { bgcolor: '#1565c0' }, py: 1.5 }}
+            onSuccess={async ({ new_count, credential_warning }) => {
+              if (credential_warning) setError(`⚠️ ${credential_warning}`);
+              else if (new_count === 0) setError('✅ Re-autenticación completada. La descarga automática está programada (~10 min).');
+              else setError(null);
+              await load();
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setSyncfyModalOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

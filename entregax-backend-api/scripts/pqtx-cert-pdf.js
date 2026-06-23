@@ -23,6 +23,34 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejec
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const jstr = (v) => esc(typeof v === 'string' ? v : JSON.stringify(v, null, 2));
 
+// Reconstruye el request de generación EXACTO que se envió a Paquete Express
+// (para guías creadas antes de activar el logging del request). Usa los mismos
+// datos de la operación: origen (config) + dirección destino + bultos.
+function reconstructGenRequest(s, dest) {
+  const ORIG = {
+    zip: s.origin_zip_code || '64410', state: process.env.PQTX_ORIGIN_STATE || 'NUEVO LEON',
+    mun: process.env.PQTX_ORIGIN_MUN || 'MONTERREY', city: process.env.PQTX_ORIGIN_CITY || 'MONTERREY',
+    col: process.env.PQTX_ORIGIN_COL || 'TORREMOLINOS', street: process.env.PQTX_ORIGIN_STREET || 'REVOLUCION SUR',
+    num: process.env.PQTX_ORIGIN_NUM || '3866 B8', phone: process.env.PQTX_ORIGIN_PHONE || '8120029375',
+    name: process.env.PQTX_ORIGIN_NAME || 'ENTREGAX', email: process.env.PQTX_ORIGIN_EMAIL || 'operaciones@entregax.com',
+  };
+  const pieces = Number(s.pieces) || 1;
+  const perPeso = (Number(s.weight) || pieces) / pieces;
+  return {
+    header: { security: { user: USER, type: 0, token: '***' }, device: { appName: null, type: null, ip: 'entregax', idDevice: null }, target: null, output: null, language: null },
+    body: { request: { data: [{
+      billRad: 'REQUEST', billClntId: BILL, pymtMode: 'PAID', pymtType: 'C', comt: `Paquete ${dest.tracking_internal || ''}${pieces > 1 ? ` (${pieces} cajas)` : ''}`,
+      radGuiaAddrDTOList: [
+        { addrLin1: 'MEXICO', addrLin3: ORIG.state, addrLin4: ORIG.mun, addrLin5: ORIG.city, addrLin6: ORIG.col, zipCode: ORIG.zip, strtName: ORIG.street, drnr: ORIG.num, phno1: ORIG.phone, phno2: ORIG.phone, clntName: ORIG.name, email: ORIG.email, contacto: ORIG.name, addrType: 'ORIGIN' },
+        { addrLin1: 'MEXICO', addrLin3: (dest.state || ' ').toUpperCase(), addrLin4: (dest.city || ' ').toUpperCase(), addrLin5: (dest.city || ' ').toUpperCase(), addrLin6: (dest.neighborhood || ' ').toUpperCase(), zipCode: dest.zip_code || s.dest_zip_code, strtName: (dest.street || ' ').toUpperCase(), drnr: (dest.exterior_number || 'S/N').toString().toUpperCase(), phno1: String(dest.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0'), phno2: String(dest.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0'), clntName: (dest.recipient_name || 'CLIENTE').toUpperCase(), email: '', contacto: (dest.recipient_name || 'CLIENTE').toUpperCase(), addrType: 'DESTINATION' },
+      ],
+      radSrvcItemDTOList: [{ srvcId: 'PACKETS', productIdSAT: '01010101', weight: perPeso.toFixed(2), volL: String(Math.round(Number(dest.pkg_length) || 30)), volW: String(Math.round(Number(dest.pkg_width) || 30)), volH: String(Math.round(Number(dest.pkg_height) || 30)), cont: dest.description || 'PAQUETE', qunt: String(pieces) }],
+      listSrvcItemDTO: [{ srvcId: 'EAD', value1: '' }, { srvcId: 'RAD', value1: '' }],
+      typeSrvcId: s.service_type || 'STD-T', listRefs: dest.tracking_internal ? [{ grGuiaRefr: dest.tracking_internal }] : [],
+    }], objectDTO: null }, response: null },
+  };
+}
+
 async function fetchLabel(tracking) {
   try {
     const url = `${BASE}/wsReportPaquetexpress/GenCartaPorte?trackingNoGen=${tracking}&measure=4x6`;
@@ -40,7 +68,7 @@ function rowHtml(idx, s, label) {
     <h2>Guía #${idx + 1} — ${esc(s.tracking_number)} <small>(folio ${esc(String(s.folio_porte || '').replace('folioLetterPorte:', ''))})</small></h2>
 
     <div class="step"><div class="hd"><span class="badge">POST</span> Generar guía · <span class="u">/RadRestFul/api/rad/v1/guia</span></div>
-      <div class="lbl">REQUEST</div><pre>${jstr(s.raw_request || '(no registrado para esta guía)')}</pre>
+      <div class="lbl">REQUEST${s._reconstructed ? ' (reconstruido fielmente desde los datos de la operación)' : ''}</div><pre>${jstr(s.raw_request || '(no registrado para esta guía)')}</pre>
       <div class="lbl">RESPONSE</div><pre>${jstr(s.raw_response)}</pre>
     </div>
 
@@ -101,8 +129,25 @@ function buildHtml(rows, labels) {
       `SELECT * FROM pqtx_shipments WHERE raw_request IS NOT NULL ORDER BY created_at DESC LIMIT 3`);
     rows = r.rows;
   }
-  if (!rows.length) { console.error('No hay guías con raw_request. Genera las pruebas reales primero (o pasa números de guía como argumento).'); process.exit(1); }
+  if (!rows.length) { console.error('No hay guías. Pasa números de guía como argumento o genera pruebas reales primero.'); process.exit(1); }
   console.log('Guías:', rows.map(r => r.tracking_number).join(', '));
+
+  // Para cada guía sin raw_request, reconstruimos el request de generación desde
+  // los datos reales de la operación (paquete + dirección destino).
+  for (const s of rows) {
+    if (!s.raw_request) {
+      const d = await pool.query(
+        `SELECT p.tracking_internal, p.pkg_length, p.pkg_width, p.pkg_height, p.description,
+                a.recipient_name, a.street, a.exterior_number, a.neighborhood, a.city, a.state, a.zip_code, a.phone
+           FROM packages p
+           LEFT JOIN addresses a ON a.id = COALESCE(p.assigned_address_id, p.delivery_address_id)
+          WHERE p.national_tracking = $1
+          ORDER BY p.id ASC LIMIT 1`, [s.tracking_number]);
+      const dest = d.rows[0] || {};
+      s.raw_request = reconstructGenRequest(s, dest);
+      s._reconstructed = true;
+    }
+  }
 
   const labels = [];
   for (const s of rows) labels.push(await fetchLabel(s.tracking_number));
