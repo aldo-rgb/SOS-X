@@ -2600,17 +2600,31 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   </Text>
                   {lastEmpresas.map((emp, i) => {
                     const cb: any = emp.cuenta_bancaria || {};
-                    const banco = cb.banco || cb.bank || '';
-                    const titular = cb.titular || cb.holder || emp.empresa || '';
-                    const cuenta = cb.cuenta || cb.account || cb.numero_cuenta || '';
-                    const clabe = cb.clabe || cb.CLABE || '';
-                    const sucursal = cb.sucursal || cb.branch || '';
+                    // Helper: coerce a string. Si la API devolvió la empresa
+                    // como objeto { rfc, razon_social, ... } (en vez de string),
+                    // tomamos razon_social/nombre/rfc/JSON antes de romper el render.
+                    const toStr = (v: any): string => {
+                      if (v == null) return '';
+                      if (typeof v === 'string') return v;
+                      if (typeof v === 'number') return String(v);
+                      if (typeof v === 'object') {
+                        return String(v.razon_social || v.nombre || v.empresa || v.titular || v.rfc || '');
+                      }
+                      return '';
+                    };
+                    const empresaStr = toStr(emp.empresa);
+                    const banco = toStr(cb.banco || cb.bank);
+                    const titular = toStr(cb.titular || cb.holder || empresaStr);
+                    const cuenta = toStr(cb.cuenta || cb.account || cb.numero_cuenta);
+                    const clabe = toStr(cb.clabe || cb.CLABE);
+                    const sucursal = toStr(cb.sucursal || cb.branch);
+                    const claveProd = toStr(emp.clave_prodserv);
                     return (
                       <View key={i} style={{ marginBottom: i < lastEmpresas.length - 1 ? 8 : 0, paddingBottom: i < lastEmpresas.length - 1 ? 8 : 0, borderBottomWidth: i < lastEmpresas.length - 1 ? 1 : 0, borderBottomColor: '#333', borderStyle: 'dashed' as any }}>
-                        {!!emp.clave_prodserv && (
+                        {!!claveProd && (
                           <Text style={{ color: TEXT_MUTED, fontSize: 11, marginBottom: 2 }}>
-                            SAT <Text style={{ color: TEXT, fontWeight: '700' }}>{emp.clave_prodserv}</Text>
-                            {emp.monto != null ? <Text> · {Number(emp.monto).toLocaleString()} {emp.divisa || ''}</Text> : null}
+                            SAT <Text style={{ color: TEXT, fontWeight: '700' }}>{claveProd}</Text>
+                            {emp.monto != null ? <Text> · {Number(emp.monto).toLocaleString()} {toStr(emp.divisa)}</Text> : null}
                           </Text>
                         )}
                         {!!banco && <Text style={{ color: TEXT, fontSize: 12 }}>Banco: <Text style={{ fontWeight: '800' }}>{banco}</Text></Text>}

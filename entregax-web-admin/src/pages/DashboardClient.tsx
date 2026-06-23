@@ -845,6 +845,27 @@ export default function DashboardClient() {
     ].includes(pkg.status);
   };
 
+  // Paquetería nacional efectiva en MXN. Si hay costo cotizado se usa; si la
+  // paquetería es local/pickup es gratis; y si hay paquetería nacional pero
+  // todavía SIN cotización, aplica un FALLBACK mínimo de $400.
+  const PQT_FALLBACK_MXN = 400;
+  const getNationalShippingMXN = (pkg: PackageTracking): number => {
+    const direct = Number(pkg.national_shipping_cost) || 0;
+    if (direct > 0) return direct;
+    const fromChildren = (pkg.included_guides || []).reduce(
+      (s, g) => s + (Number(g.national_shipping_cost) || 0), 0
+    );
+    if (fromChildren > 0) return fromChildren;
+    const carrier = String(pkg.national_carrier || pkg.carrier || '').toLowerCase();
+    const isLocalOrFree = !carrier || carrier.includes('local') || carrier.includes('pickup') || carrier.includes('pick up') || ['bodega', 'rack', 'piso', 'tarima'].includes(carrier);
+    // En carga aérea (china_air), la paquetería nacional (paquete express) va
+    // INCLUIDA en el flete → no se cobra aparte, no aplica el fallback.
+    const isAirFreightIncluded = (pkg.shipment_type === 'china_air' || pkg.servicio === 'AIR_CHN_MX') && carrier.includes('paquete');
+    // Hay paquetería nacional real (Paquete Express, DHL, etc.) sin cotización → mínimo $400
+    if (pkg.national_carrier && !isLocalOrFree && !isAirFreightIncluded) return PQT_FALLBACK_MXN;
+    return 0;
+  };
+
   // Helper: compute full package cost in MXN (envío + GEX + paquetería)
   const getPackageTotalMXN = (pkg: PackageTracking): number => {
     const monto = Number(pkg.monto) || 0;
@@ -900,10 +921,9 @@ export default function DashboardClient() {
     }
 
     const gexFromChildren = included.reduce((sum, g) => sum + (Number(g.gex_total_cost) || 0), 0);
-    const paqFromChildren = included.reduce((sum, g) => sum + (Number(g.national_shipping_cost) || 0), 0);
 
     const gex = (Number(pkg.gex_total_cost) || 0) > 0 ? (Number(pkg.gex_total_cost) || 0) : gexFromChildren;
-    const paq = (Number(pkg.national_shipping_cost) || 0) > 0 ? (Number(pkg.national_shipping_cost) || 0) : paqFromChildren;
+    const paq = getNationalShippingMXN(pkg); // incluye fallback mínimo $400 si no hay cotización
     const extra = Number(pkg.extra_charges_total) || 0;
     return envioMXN + gex + paq + extra;
   };
@@ -13533,10 +13553,12 @@ export default function DashboardClient() {
                         🚚 {getCarrierDisplayName(pkg.national_carrier || pkg.carrier)}
                         {pkg.national_tracking && <span style={{ color: '#666' }}> · {pkg.national_tracking}</span>}
                       </Typography>
-                      <Typography variant="caption" fontWeight="bold" color={Number(pkg.national_shipping_cost) > 0 ? 'primary.main' : 'text.secondary'}>
-                        {Number(pkg.national_shipping_cost) > 0 
-                          ? formatCurrency(Number(pkg.national_shipping_cost))
-                          : (pkg.national_carrier || pkg.carrier || '').toLowerCase().includes('local') ? 'Gratis' : 'Costo según cotización'}
+                      <Typography variant="caption" fontWeight="bold" color={getNationalShippingMXN(pkg) > 0 ? 'primary.main' : 'text.secondary'}>
+                        {(pkg.national_carrier || pkg.carrier || '').toLowerCase().includes('local')
+                          ? 'Gratis'
+                          : getNationalShippingMXN(pkg) > 0
+                            ? `${formatCurrency(getNationalShippingMXN(pkg))}${Number(pkg.national_shipping_cost) > 0 ? '' : ' (estimado)'}`
+                            : 'Costo según cotización'}
                       </Typography>
                     </Box>
                   )}
