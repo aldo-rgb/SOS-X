@@ -389,6 +389,103 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
 
     const isMaritimeLog = (tn?: string) => !!tn && /^LOG/i.test(tn);
 
+    // ─── Edición de dirección/instrucciones (solo super_admin) ───
+    const currentUserRole = (() => {
+      try { return (JSON.parse(localStorage.getItem('user') || '{}').role || '').toLowerCase(); }
+      catch { return ''; }
+    })();
+    const isSuperAdmin = currentUserRole === 'super_admin';
+
+    type EditableAddress = {
+      id: number; alias?: string | null; recipient_name?: string | null;
+      street?: string | null; exterior_number?: string | null; interior_number?: string | null;
+      neighborhood?: string | null; city?: string | null; state?: string | null;
+      zip_code?: string | null; phone?: string | null;
+      carrier_config?: Record<string, any> | null;
+    };
+    const [editInstrOpen, setEditInstrOpen] = useState(false);
+    const [editInstrLoading, setEditInstrLoading] = useState(false);
+    const [editInstrSaving, setEditInstrSaving] = useState(false);
+    const [editInstrError, setEditInstrError] = useState<string | null>(null);
+    const [editAddresses, setEditAddresses] = useState<EditableAddress[]>([]);
+    const [editSelectedAddressId, setEditSelectedAddressId] = useState<number | ''>('');
+    const [editCarrier, setEditCarrier] = useState<string>('');
+    const [editCarrierCost, setEditCarrierCost] = useState<number>(0);
+    const [editInstructions, setEditInstructions] = useState<string>('');
+
+    const detectPackageType = (tracking?: string | null): 'usa' | 'maritime' | 'china_air' | 'dhl' => {
+      const t = String(tracking || '').toUpperCase();
+      if (t.startsWith('LOG')) return 'maritime';
+      if (t.startsWith('AIR') || t.startsWith('AIR-')) return 'china_air';
+      if (t.startsWith('TDX') || t.startsWith('TDI') || t.startsWith('DHL')) return 'dhl';
+      return 'usa';
+    };
+
+    const openEditInstructions = async () => {
+      if (!shipment) return;
+      setEditInstrError(null);
+      setEditInstrLoading(true);
+      setEditInstrOpen(true);
+      try {
+        // Cargar direcciones del cliente
+        const res = await api.get(`/client/addresses/${shipment.client.id}`);
+        const addrs: EditableAddress[] = Array.isArray(res.data) ? res.data : (res.data?.addresses || []);
+        setEditAddresses(addrs);
+        // Pre-seleccionar la actual
+        const current = shipment.master.assignedAddress;
+        setEditSelectedAddressId(current?.id || (addrs[0]?.id ?? ''));
+        // Carrier actual
+        setEditCarrier(String(shipment.master.nationalCarrier || ''));
+        // Costo actual
+        setEditCarrierCost(Number(shipment.master.totalCost || 0) > 0 ? 0 : 0);
+        // Instrucciones actuales (no las exponemos directo; se usan para overrides)
+        setEditInstructions('');
+      } catch (e: any) {
+        setEditInstrError(e?.response?.data?.error || e?.message || 'Error cargando direcciones');
+      } finally {
+        setEditInstrLoading(false);
+      }
+    };
+
+    const selectedEditAddress = editAddresses.find(a => a.id === Number(editSelectedAddressId));
+    const carrierConfigEntries: Array<{ id: string; name?: string; price?: number; currency?: string }> = (() => {
+      const cfg = selectedEditAddress?.carrier_config;
+      if (!cfg || typeof cfg !== 'object') return [];
+      return Object.entries(cfg).map(([id, val]: any) => {
+        if (val && typeof val === 'object') {
+          return { id, name: val.name || id, price: Number(val.price ?? val.cost ?? 0) || 0, currency: val.currency || 'MXN' };
+        }
+        // Si es solo un número, asumir MXN
+        return { id, name: id, price: Number(val) || 0, currency: 'MXN' };
+      });
+    })();
+
+    const saveEditInstructions = async () => {
+      if (!shipment || !editSelectedAddressId) {
+        setEditInstrError('Selecciona una dirección');
+        return;
+      }
+      setEditInstrSaving(true);
+      setEditInstrError(null);
+      try {
+        const packageType = detectPackageType(shipment.master.tracking);
+        const carrierName = carrierConfigEntries.find(c => c.id === editCarrier)?.name || editCarrier || 'EntregaX Local';
+        await api.put(`/packages/${packageType}/${shipment.master.id}/delivery-instructions`, {
+          deliveryAddressId: Number(editSelectedAddressId),
+          deliveryInstructions: editInstructions || null,
+          carrier: editCarrier || null,
+          carrierName,
+          carrierCost: editCarrierCost,
+        });
+        setEditInstrOpen(false);
+        await handleSearch();
+      } catch (e: any) {
+        setEditInstrError(e?.response?.data?.error || e?.message || 'Error guardando');
+      } finally {
+        setEditInstrSaving(false);
+      }
+    };
+
     const loadDimsBoxes = async (orderId: string | number) => {
         setDimsLoading(true);
         setDimsError(null);
@@ -1587,7 +1684,7 @@ ${labelsHtml}
                                 bgcolor: '#FFF8F4',
                             }}
                         >
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
                                 <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#C1272D' }}>
                                     📍 Dirección de Entrega
                                 </Typography>
@@ -1597,6 +1694,16 @@ ${labelsHtml}
                                         label={`🚚 ${assignedCarrier.displayName}`}
                                         sx={{ bgcolor: '#1976d2', color: 'white', fontWeight: 700 }}
                                     />
+                                )}
+                                {isSuperAdmin && (
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        onClick={openEditInstructions}
+                                        sx={{ ml: 'auto', borderColor: '#F05A28', color: '#F05A28', textTransform: 'none' }}
+                                    >
+                                        ✏️ Editar dirección / instrucciones
+                                    </Button>
                                 )}
                             </Box>
                             <Typography variant="body2" fontWeight={700}>
@@ -1630,6 +1737,24 @@ ${labelsHtml}
                                     Ref: {shipment.master.assignedAddress.reference}
                                 </Typography>
                             )}
+                        </Box>
+                    )}
+
+                    {!shipment.master.assignedAddress && isSuperAdmin && (
+                        <Box
+                            sx={{
+                                mt: 1, mb: 2, p: 2,
+                                border: '2px dashed #FF9800',
+                                borderRadius: 2, bgcolor: '#FFF8E1',
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2,
+                            }}
+                        >
+                            <Typography variant="body2" sx={{ color: '#E65100' }}>
+                                ⚠️ Este paquete no tiene dirección de entrega asignada.
+                            </Typography>
+                            <Button size="small" variant="contained" color="warning" onClick={openEditInstructions}>
+                                ➕ Asignar dirección
+                            </Button>
                         </Box>
                     )}
 
@@ -2464,6 +2589,99 @@ ${labelsHtml}
                     {pqtxError}
                 </Alert>
             </Snackbar>
+
+            {/* Dialog: editar dirección/instrucciones (super_admin) */}
+            <Dialog open={editInstrOpen} onClose={() => !editInstrSaving && setEditInstrOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ bgcolor: '#F05A28', color: '#fff', fontWeight: 800 }}>
+                    ✏️ Editar dirección e instrucciones
+                </DialogTitle>
+                <DialogContent dividers sx={{ pt: 2 }}>
+                    {editInstrError && <Alert severity="error" sx={{ mb: 2 }}>{editInstrError}</Alert>}
+                    {editInstrLoading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+                    ) : (
+                        <Stack spacing={2}>
+                            <Typography variant="caption" color="text.secondary">
+                                Cliente: <b>{shipment?.client.name}</b> · {shipment?.client.boxId}
+                            </Typography>
+
+                            {editAddresses.length === 0 ? (
+                                <Alert severity="warning">El cliente no tiene direcciones registradas.</Alert>
+                            ) : (
+                                <Box>
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                        Dirección de entrega *
+                                    </Typography>
+                                    <Stack spacing={1}>
+                                        {editAddresses.map((a) => (
+                                            <Paper
+                                                key={a.id}
+                                                variant="outlined"
+                                                onClick={() => { setEditSelectedAddressId(a.id); setEditCarrier(''); setEditCarrierCost(0); }}
+                                                sx={{
+                                                    p: 1.5, cursor: 'pointer',
+                                                    borderColor: editSelectedAddressId === a.id ? '#F05A28' : 'divider',
+                                                    borderWidth: editSelectedAddressId === a.id ? 2 : 1,
+                                                    bgcolor: editSelectedAddressId === a.id ? '#FFF8F4' : 'transparent',
+                                                }}
+                                            >
+                                                <Typography variant="body2" fontWeight={700}>
+                                                    {a.alias || a.recipient_name || `Dirección #${a.id}`}
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    {[a.street, a.exterior_number, a.interior_number ? `Int. ${a.interior_number}` : null].filter(Boolean).join(' ')}
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                                    {[a.neighborhood, a.city, a.state, a.zip_code].filter(Boolean).join(', ')}
+                                                </Typography>
+                                            </Paper>
+                                        ))}
+                                    </Stack>
+                                </Box>
+                            )}
+
+                            {carrierConfigEntries.length > 0 && (
+                                <Box>
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                        Paquetería
+                                    </Typography>
+                                    <Stack direction="row" gap={1} flexWrap="wrap">
+                                        {carrierConfigEntries.map((c) => (
+                                            <Chip
+                                                key={c.id}
+                                                label={`${c.name}${c.price > 0 ? ` · $${c.price} ${c.currency}` : ' · GRATIS'}`}
+                                                clickable
+                                                onClick={() => { setEditCarrier(c.id); setEditCarrierCost(c.price || 0); }}
+                                                color={editCarrier === c.id ? 'primary' : 'default'}
+                                                variant={editCarrier === c.id ? 'filled' : 'outlined'}
+                                            />
+                                        ))}
+                                    </Stack>
+                                </Box>
+                            )}
+
+                            <TextField
+                                label="Instrucciones adicionales"
+                                placeholder="Notas para el entregador (opcional)"
+                                value={editInstructions}
+                                onChange={(e) => setEditInstructions(e.target.value)}
+                                fullWidth multiline minRows={2}
+                            />
+                        </Stack>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ p: 2, gap: 1 }}>
+                    <Button onClick={() => setEditInstrOpen(false)} disabled={editInstrSaving}>Cancelar</Button>
+                    <Button
+                        variant="contained"
+                        onClick={saveEditInstructions}
+                        disabled={editInstrSaving || !editSelectedAddressId}
+                        sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D14A1F' } }}
+                    >
+                        {editInstrSaving ? <CircularProgress size={18} color="inherit" /> : 'Guardar'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }

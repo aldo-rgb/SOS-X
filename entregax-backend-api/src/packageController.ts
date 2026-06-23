@@ -4004,7 +4004,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
         const isPickup = carrier === 'pickup_hidalgo';
 
         // Verificar si es admin/operador para permitir actualizar paquetes de otros usuarios
-        const isAdmin = ['admin', 'superadmin', 'ops_mx', 'ops_usa', 'ops_usa_pobox'].includes(userRole);
+        const isAdmin = ['admin', 'super_admin', 'superadmin', 'ops_mx', 'ops_usa', 'ops_usa_pobox', 'branch_manager', 'director', 'warehouse_ops', 'counter_staff'].includes(String(userRole).toLowerCase());
 
         // Verificar que la dirección existe y pertenece al usuario (solo si no es pickup y no es admin)
         if (deliveryAddressId && !isPickup && !isAdmin) {

@@ -52,6 +52,7 @@ interface Shipment {
   is_master: boolean;
   gex_cost: number;
   national_shipping_cost: number;
+  national_carrier?: string | null;
   extra_charges_total?: number;
   extra_charges_desc?: string;
   is_unidentified?: boolean;
@@ -697,13 +698,18 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                 ))}
               </View>
             )}
-            {(item.gex_cost > 0 || item.national_shipping_cost > 0 || (item.extra_charges_total || 0) !== 0) && (
+            {(item.gex_cost > 0 || item.national_shipping_cost > 0 || (item.extra_charges_total || 0) !== 0 || item.national_carrier) && (
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
-                {item.national_shipping_cost > 0 && (
+                {item.national_shipping_cost > 0 ? (
                   <Text style={{ fontSize: 10, color: '#1565C0' }}>
                     🚚 Paq. ${item.national_shipping_cost.toFixed(2)}
+                    {item.national_carrier ? ` · ${item.national_carrier}` : ''}
                   </Text>
-                )}
+                ) : item.national_carrier ? (
+                  <Text style={{ fontSize: 10, color: '#1565C0' }}>
+                    🚚 {item.national_carrier} (incluido)
+                  </Text>
+                ) : null}
                 {item.gex_cost > 0 && (
                   <Text style={{ fontSize: 10, color: '#2E7D32' }}>
                     🛡 GEX ${item.gex_cost.toFixed(2)}
