@@ -3915,17 +3915,42 @@ export default function DashboardAdvisor() {
           <DialogContent sx={{ pt: 2 }}>
             {/* Filtros: cliente + servicio */}
             <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5, mt: 1 }}>
-              <FormControl size="small" sx={{ flex: 2 }} required>
-                <InputLabel>Seleccionar cliente *</InputLabel>
-                <Select value={newOrderClientId} label="Seleccionar cliente *" displayEmpty onChange={(e) => {
-                  setNewOrderClientId(e.target.value);
+              <Autocomplete
+                size="small"
+                sx={{ flex: 2 }}
+                options={clients}
+                value={clients.find(c => String(c.id) === String(newOrderClientId)) || null}
+                onChange={(_, v) => {
+                  const id = v ? String(v.id) : '';
+                  setNewOrderClientId(id);
                   setNewOrderSelectedUids(new Set());
-                  if (e.target.value) fetchNewOrderShipments(e.target.value);
+                  if (id) fetchNewOrderShipments(id);
                   else setNewOrderShipments([]);
-                }}>
-                  {clients.map(c => <MenuItem key={c.id} value={String(c.id)}>{c.fullName} ({c.boxId})</MenuItem>)}
-                </Select>
-              </FormControl>
+                }}
+                getOptionLabel={(c) => c ? `${c.fullName} (${c.boxId})` : ''}
+                isOptionEqualToValue={(o, v) => String(o.id) === String(v.id)}
+                filterOptions={(opts, state) => {
+                  const q = state.inputValue.trim().toLowerCase();
+                  if (!q) return opts;
+                  return opts.filter(c =>
+                    (c.fullName || '').toLowerCase().includes(q) ||
+                    (c.boxId || '').toLowerCase().includes(q) ||
+                    (c.email || '').toLowerCase().includes(q)
+                  );
+                }}
+                renderOption={(props, c) => (
+                  <li {...props} key={c.id}>
+                    <Box>
+                      <Typography variant="body2" fontWeight={600}>{c.fullName}</Typography>
+                      <Typography variant="caption" color="text.secondary">{c.boxId}{c.email ? ` · ${c.email}` : ''}</Typography>
+                    </Box>
+                  </li>
+                )}
+                renderInput={(params) => (
+                  <TextField {...params} label="Seleccionar cliente *" placeholder="Escribe nombre, casillero o email…" required />
+                )}
+                noOptionsText="Sin coincidencias"
+              />
               <FormControl size="small" sx={{ flex: 1 }} disabled={!!newOrderLockServiceType}>
                 <InputLabel>Servicio</InputLabel>
                 <Select

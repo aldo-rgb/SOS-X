@@ -1087,7 +1087,16 @@ function CancelTab({ token }: { token: string | null }) {
         body: JSON.stringify({ trackingNumbers: numbers }),
       });
       const data = await res.json();
-      if (data.success) setResult(data); else setError(data.error || 'Error al cancelar guía(s)');
+      if (data.success) {
+        setResult(data);
+      } else {
+        // Defensa: el error puede llegar como objeto/array → coaccionar a string
+        // para no romper el render (<Alert>{error}</Alert>).
+        const e = data.error;
+        const msg = typeof e === 'string' ? e
+          : (e ? (e.descripcion || e.message || JSON.stringify(e)) : 'Error al cancelar guía(s)');
+        setError(msg);
+      }
     } catch (err) { setError(String(err)); } finally { setLoading(false); }
   };
 

@@ -140,13 +140,19 @@ export default function DownloadPage() {
                 </Box>
               </Button>
 
-              {/* Google Play — próximamente */}
-              <Box sx={{
-                bgcolor: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.28)',
-                borderRadius: 3, px: 3, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5,
-                border: '1px solid rgba(255,255,255,0.07)', cursor: 'not-allowed', minWidth: 180,
-              }}>
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="20" height="20" style={{ opacity: 0.25 }}>
+              {/* Google Play */}
+              <Button
+                href="https://play.google.com/store/apps/details?id=com.entregax.mobile"
+                target="_blank"
+                rel="noopener noreferrer"
+                sx={{
+                  bgcolor: '#fff', color: '#000', borderRadius: 3, px: 3, py: 1.5,
+                  textTransform: 'none', display: 'flex', alignItems: 'center', gap: 1.5,
+                  boxShadow: '0 4px 20px rgba(255,255,255,0.12)',
+                  '&:hover': { bgcolor: '#f0f0f0' }, minWidth: 180,
+                }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="20" height="20">
                   <path fill="#EA4335" d="M325.3 234.3L104.6 13l280.8 161.2-60.1 60.1z"/>
                   <path fill="#FBBC05" d="M19.7 0C8.8 6.5 0 19 0 35.2v441.6c0 16.2 8.8 28.7 19.7 35.2l3 2.2 247.3-247.3v-5.8L22.7-2.2z"/>
                   <path fill="#34A853" d="M325.3 277.7l-100.1 100-224-129.3 3.5-3.5 320.6-184.3z"/>
@@ -155,10 +161,10 @@ export default function DownloadPage() {
                   <path fill="#30A8E0" d="M0 35.2c0-16.2 8.8-28.7 19.7-35.2L267 247.3l-67.3 67.3z"/>
                 </svg>
                 <Box sx={{ textAlign: 'left' }}>
-                  <Typography variant="caption" display="block" sx={{ fontSize: 9, lineHeight: 1 }}>Muy pronto en</Typography>
+                  <Typography variant="caption" display="block" sx={{ fontSize: 9, lineHeight: 1, opacity: 0.6 }}>Disponible en</Typography>
                   <Typography fontWeight="bold" sx={{ fontSize: 15, lineHeight: 1.2 }}>Google Play</Typography>
                 </Box>
-              </Box>
+              </Button>
             </Stack>
 
             {/* Languages */}

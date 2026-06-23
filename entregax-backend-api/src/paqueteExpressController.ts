@@ -705,15 +705,27 @@ export async function pqtxCancel(req: Request, res: Response) {
         raw: response.data,
       });
     } else {
+      // La API PQTX puede devolver `messages` como string, objeto o array de
+      // objetos. Lo normalizamos SIEMPRE a string para que el frontend pueda
+      // renderizarlo sin crashear ("Objects are not valid as a React child").
+      const rawMsg = respBody?.messages ?? response.data?.header?.desTrans;
+      const toText = (m: any): string =>
+        typeof m === 'string' ? m
+          : (m && typeof m === 'object'
+              ? (m.descripcion || m.description || m.message || m.mensaje || JSON.stringify(m))
+              : String(m ?? ''));
+      const errMsg = Array.isArray(rawMsg)
+        ? rawMsg.map(toText).filter(Boolean).join('; ')
+        : toText(rawMsg);
       res.status(400).json({
         success: false,
-        error: respBody?.messages || response.data?.header?.desTrans || 'Error al cancelar guía(s)',
+        error: errMsg || 'Error al cancelar guía(s)',
         raw: response.data,
       });
     }
   } catch (error: any) {
-    console.error('Error en PQTX cancelación:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Error en PQTX cancelación:', error?.message || error);
+    res.status(500).json({ success: false, error: String(error?.message || 'Error al cancelar guía(s)') });
   }
 }
 

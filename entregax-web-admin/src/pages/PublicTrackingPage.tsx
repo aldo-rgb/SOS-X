@@ -671,12 +671,19 @@ export default function PublicTrackingPage() {
               </Box>
             </Box>
 
-            {/* Google Play badge (placeholder — link pendiente) */}
-            <Box sx={{
-              display: 'flex', alignItems: 'center', gap: 1.5,
-              backgroundColor: '#1A1A2E', color: '#fff', borderRadius: 2,
-              px: 2.5, py: 1.2, opacity: 0.5, cursor: 'not-allowed',
-            }}>
+            {/* Google Play badge */}
+            <Box
+              component="a"
+              href="https://play.google.com/store/apps/details?id=com.entregax.mobile"
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{
+                display: 'flex', alignItems: 'center', gap: 1.5,
+                backgroundColor: '#1A1A2E', color: '#fff', borderRadius: 2,
+                px: 2.5, py: 1.2, textDecoration: 'none', cursor: 'pointer',
+                transition: 'transform 0.15s', '&:hover': { transform: 'translateY(-1px)' },
+              }}
+            >
               <Typography sx={{ fontSize: 22 }}>▶️</Typography>
               <Box sx={{ textAlign: 'left' }}>
                 <Typography sx={{ fontSize: 9, color: 'rgba(255,255,255,0.7)', lineHeight: 1 }}>
@@ -687,7 +694,7 @@ export default function PublicTrackingPage() {
             </Box>
 
             <Typography sx={{ fontSize: 10, color: '#BBB', mt: 1.5 }}>
-              {lang === 'en' ? 'Android — Coming soon' : lang === 'zh' ? 'Android 即将上线' : 'Android — Próximamente'}
+              {lang === 'en' ? 'iOS & Android' : lang === 'zh' ? 'iOS 与 Android' : 'iOS y Android'}
             </Typography>
           </Paper>
         </Box>
