@@ -739,6 +739,7 @@ export default function DashboardClient() {
     if (!code) return '';
     const map: Record<string, string> = {
       'paquete_express': 'Paquete Express', 'local': 'EntregaX Local MTY', 'pickup': 'Pick Up Hidalgo TX',
+      'pqtx_cod': 'Paquete Express Por Cobrar', 'paquete_express_pc': 'Paquete Express Por Cobrar',
       'entregax_local_cdmx': 'EntregaX CDMX', 'evisa': 'EVISA', 'tresguerras': 'Tres Guerras',
       'fedex': 'FedEx', 'estafeta': 'Estafeta', 'dhl': 'DHL', 'nacional': 'Nacional',
     };
