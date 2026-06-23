@@ -42,7 +42,8 @@
       "error_envio": "发送错误",
       "cancelado": "已取消",
       "emitida": "已开票",
-      "enviado": "已发送"
+      "enviado": "已发送",
+      "esperando_comprobante": "待付款"
     },
     "suppliers": {
       "section": "收款供应商",

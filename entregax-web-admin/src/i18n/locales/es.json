@@ -70,7 +70,8 @@
       "error_envio": "Error de envío",
       "cancelado": "Cancelado",
       "emitida": "Emitida",
-      "enviado": "Enviado"
+      "enviado": "Enviado",
+      "esperando_comprobante": "Por pagar"
     },
     "messages": {
       "success": "Solicitud enviada correctamente",

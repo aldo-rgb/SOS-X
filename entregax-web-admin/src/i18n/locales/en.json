@@ -42,7 +42,8 @@
       "error_envio": "Send error",
       "cancelado": "Cancelled",
       "emitida": "Issued",
-      "enviado": "Sent"
+      "enviado": "Sent",
+      "esperando_comprobante": "To pay"
     },
     "suppliers": {
       "section": "Shipping supplier (beneficiary)",
