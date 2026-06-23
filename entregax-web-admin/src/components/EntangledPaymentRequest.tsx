@@ -72,7 +72,6 @@ import { Checkbox, FormControlLabel, Divider, List, ListItem, ListItemText, List
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const ORANGE = '#FF6600';
 const CHARCOAL = '#0a0a0c';
-const BORDER = '#2A2A2A';
 const RATE_HISTORY_KEY = 'xpay_rate_history';
 const RATE_HISTORY_MAX = 288; // ~24h si se guarda cada 5 minutos
 const PRICING_REFRESH_MS = 60 * 1000; // refresco de API para detectar movimiento
@@ -292,7 +291,8 @@ const DocCard: React.FC<{
   label: string;
   onClick: () => void;
   loading?: boolean;
-}> = ({ icon, label, onClick, loading = false }) => (
+  lightTheme?: boolean;
+}> = ({ icon, label, onClick, loading = false, lightTheme = false }) => (
   <Tooltip title={`Descargar ${label}`}>
     <Box
       component="button"
@@ -308,9 +308,9 @@ const DocCard: React.FC<{
         px: 1,
         py: 0.5,
         borderRadius: 1.2,
-        bgcolor: 'rgba(255,255,255,0.04)',
+        bgcolor: lightTheme ? '#f3f4f6' : 'rgba(255,255,255,0.04)',
         backdropFilter: 'blur(8px)',
-        border: '1px solid rgba(255,255,255,0.08)',
+        border: lightTheme ? '1px solid #e3e6ea' : '1px solid rgba(255,255,255,0.08)',
         cursor: loading ? 'wait' : 'pointer',
         transition: 'all 0.15s ease',
         textAlign: 'left',
@@ -321,11 +321,11 @@ const DocCard: React.FC<{
         },
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', color: '#cbd5e1' }}>{icon}</Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', color: lightTheme ? '#374151' : '#cbd5e1' }}>{icon}</Box>
       <Typography sx={{
         fontSize: '0.68rem',
         fontWeight: 600,
-        color: '#d1d5db',
+        color: lightTheme ? '#374151' : '#d1d5db',
         flex: 1,
         textTransform: 'none',
         letterSpacing: 0,
@@ -347,10 +347,47 @@ interface Props {
   hideHeader?: boolean;
   /** Modo asesor: crea la operación a nombre de este cliente (su id). */
   advisorClientId?: number;
+  /** Cuando true, renderiza el panel en modo claro (fondo blanco) — usado por el panel del asesor. */
+  lightTheme?: boolean;
 }
 
-export default function EntangledPaymentRequest({ hideHeader = false, advisorClientId }: Props) {
+export default function EntangledPaymentRequest({ hideHeader = false, advisorClientId, lightTheme = false }: Props) {
   const { t } = useTranslation();
+  const C = lightTheme ? {
+    pageBg: '#f4f5f7',
+    surface: '#ffffff',
+    surfaceAlt: '#f3f4f6',
+    inputBg: '#ffffff',
+    border: '#e3e6ea',
+    borderStrong: '#d1d5db',
+    textPrimary: '#0f1115',
+    textSecondary: '#374151',
+    textMuted: '#6b7280',
+    textFaint: '#9ca3af',
+    shadowSm: '0 2px 8px rgba(0,0,0,0.05)',
+    shadowMd: '0 6px 20px rgba(0,0,0,0.08)',
+    tableHeadBg: '#f3f4f6',
+    rowHover: 'rgba(0,0,0,0.03)',
+    heroGrad: 'linear-gradient(135deg,#fff7f0 0%,#ffffff 45%,#fff2e8 100%)',
+    heroText: '#374151',
+  } : {
+    pageBg: CHARCOAL,
+    surface: 'rgba(255,255,255,0.03)',
+    surfaceAlt: 'rgba(255,255,255,0.05)',
+    inputBg: '#171a20',
+    border: 'rgba(255,255,255,0.14)',
+    borderStrong: '#333333',
+    textPrimary: '#ffffff',
+    textSecondary: '#d1d5db',
+    textMuted: '#9ca3af',
+    textFaint: '#6b7280',
+    shadowSm: '0 6px 18px rgba(0,0,0,0.25)',
+    shadowMd: '0 10px 26px rgba(0,0,0,0.35)',
+    tableHeadBg: '#08080a',
+    rowHover: 'rgba(255,255,255,0.025)',
+    heroGrad: 'linear-gradient(135deg,#050505 0%,#0D0D0D 40%,#1a0800 100%)',
+    heroText: '#d1d5db',
+  };
   const token = useMemo(() => {
     if (typeof window === 'undefined') return '';
     const qsToken = new URLSearchParams(window.location.search).get('token') || '';
@@ -1955,7 +1992,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   };
 
   return (
-    <Box sx={{ bgcolor: CHARCOAL, minHeight: '100vh', color: '#ffffff', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+    <Box sx={{ bgcolor: C.pageBg, minHeight: '100vh', color: C.textPrimary, fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
 
       {/* ══════════════════════════════════════════════════
           X-Pay HERO BANNER
@@ -1963,28 +2000,32 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       {!hideHeader && (
         <Box sx={{
           position: 'relative', overflow: 'hidden',
-          background: `linear-gradient(135deg, #050505 0%, #0D0D0D 40%, #1a0800 100%)`,
-          borderBottom: `1px solid ${BORDER}`,
+          background: C.heroGrad,
+          borderBottom: `1px solid ${C.border}`,
         }}>
           {/* Radial glow */}
           <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none',
             background: `radial-gradient(ellipse 60% 80% at 70% 50%, rgba(255,102,0,0.08) 0%, transparent 70%)` }} />
-          {/* Grid texture */}
-          <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.04,
-            backgroundImage: `repeating-linear-gradient(0deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px),
-              repeating-linear-gradient(90deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px)` }} />
-          {/* World map background */}
-          <Box sx={{
-            position: 'absolute',
-            inset: 0,
-            pointerEvents: 'none',
-            opacity: 0.42,
-            backgroundImage: `url(${WORLD_MAP_BG})`,
-            backgroundRepeat: 'no-repeat',
-            backgroundPosition: 'center 46%',
-            backgroundSize: { xs: '185% auto', md: '118% auto' },
-            filter: 'contrast(1.2) brightness(1.08)',
-          }} />
+          {/* Grid texture (solo modo oscuro) */}
+          {!lightTheme && (
+            <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.04,
+              backgroundImage: `repeating-linear-gradient(0deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px),
+                repeating-linear-gradient(90deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px)` }} />
+          )}
+          {/* World map background (solo modo oscuro) */}
+          {!lightTheme && (
+            <Box sx={{
+              position: 'absolute',
+              inset: 0,
+              pointerEvents: 'none',
+              opacity: 0.42,
+              backgroundImage: `url(${WORLD_MAP_BG})`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center 46%',
+              backgroundSize: { xs: '185% auto', md: '118% auto' },
+              filter: 'contrast(1.2) brightness(1.08)',
+            }} />
+          )}
 
           <Box
             sx={{
@@ -2016,7 +2057,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             />
             <Typography
               sx={{
-                color: '#d1d5db',
+                color: C.heroText,
                 fontWeight: 800,
                 letterSpacing: '0.03em',
                 textTransform: 'uppercase',
@@ -2037,10 +2078,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             variant="outlined"
             sx={{
               p: { xs: 1.6, md: 2 },
-              bgcolor: 'rgba(255,255,255,0.02)',
-              border: '1px solid rgba(255,255,255,0.12)',
+              bgcolor: C.surface,
+              border: `1px solid ${C.border}`,
               borderRadius: '12px',
-              boxShadow: '0 10px 26px rgba(0,0,0,0.25)',
+              boxShadow: C.shadowMd,
               height: '100%',
             }}
           >
@@ -2053,9 +2094,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 value={widgetDestinationCountry}
                 onChange={(e) => setWidgetDestinationCountry(e.target.value)}
                 sx={{
-                  '& .MuiInputBase-root': { bgcolor: '#171a20', color: '#fff', borderRadius: '10px' },
-                  '& .MuiInputLabel-root': { color: '#9ca3af' },
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.16)' },
+                  '& .MuiInputBase-root': { bgcolor: C.inputBg, color: C.textPrimary, borderRadius: '10px' },
+                  '& .MuiInputLabel-root': { color: C.textMuted },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: C.border },
                 }}
               >
                 {DESTINATION_COUNTRIES.map((c) => (
@@ -2071,17 +2112,17 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 onChange={(e) => setWidgetAmountUsd(e.target.value)}
                 InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                 sx={{
-                  '& .MuiInputBase-root': { bgcolor: '#171a20', color: '#fff', borderRadius: '10px' },
-                  '& .MuiInputLabel-root': { color: '#9ca3af' },
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.16)' },
+                  '& .MuiInputBase-root': { bgcolor: C.inputBg, color: C.textPrimary, borderRadius: '10px' },
+                  '& .MuiInputLabel-root': { color: C.textMuted },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: C.border },
                 }}
               />
               <Box sx={{ px: 1.4, py: 1, borderRadius: '10px', border: '1px solid rgba(240,90,40,0.35)', bgcolor: 'rgba(240,90,40,0.08)' }}>
-                <Typography sx={{ color: '#9ca3af', fontSize: '0.68rem' }}>Total estimado en MXN</Typography>
-                <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: '1.1rem', lineHeight: 1.2 }}>
+                <Typography sx={{ color: C.textMuted, fontSize: '0.68rem' }}>Total estimado en MXN</Typography>
+                <Typography sx={{ color: C.textPrimary, fontWeight: 900, fontSize: '1.1rem', lineHeight: 1.2 }}>
                   {widgetEstimate ? `$${formatMoney(widgetEstimate.total)} MXN` : '—'}
                 </Typography>
-                <Typography sx={{ color: '#6b7280', fontSize: '0.64rem', mt: 0.2 }}>
+                <Typography sx={{ color: C.textFaint, fontSize: '0.64rem', mt: 0.2 }}>
                   TC: {widgetEstimate ? `${widgetEstimate.fx.toFixed(4)} MXN/USD` : '—'}
                 </Typography>
               </Box>
@@ -2095,27 +2136,27 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               p: 1.5,
               height: '100%',
               borderRadius: '12px',
-              border: '1px solid rgba(255,255,255,0.16)',
-              background: 'linear-gradient(165deg, rgba(255,255,255,0.06) 0%, rgba(20,22,28,0.9) 100%)',
-              boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
+              border: `1px solid ${C.border}`,
+              background: C.surface,
+              boxShadow: C.shadowMd,
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.1 }}>
-              <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.95rem' }}>
+              <Typography sx={{ color: C.textPrimary, fontWeight: 800, fontSize: '0.95rem' }}>
                 Proceso de envío
               </Typography>
               <Typography
                 onClick={() => setShowHowItWorks(p => !p)}
-                sx={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.7rem', cursor: 'pointer', userSelect: 'none',
-                  '&:hover': { color: 'rgba(255,255,255,0.6)' } }}
+                sx={{ color: C.textMuted, fontSize: '0.7rem', cursor: 'pointer', userSelect: 'none',
+                  '&:hover': { color: C.textSecondary } }}
               >
                 ¿Cómo funciona?
               </Typography>
             </Box>
 
             {showHowItWorks && (
-              <Typography sx={{ color: '#9ca3af', fontSize: '0.75rem', lineHeight: 1.55, mb: 1.2,
-                p: 1.2, borderRadius: '8px', bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <Typography sx={{ color: C.textMuted, fontSize: '0.75rem', lineHeight: 1.55, mb: 1.2,
+                p: 1.2, borderRadius: '8px', bgcolor: C.surface, border: `1px solid ${C.border}` }}>
                 Complete los datos de su proveedor y suba su comprobante de pago. Procesamos el pago internacional y generamos su comprobante de pago junto con la confirmación de pago.
               </Typography>
             )}
@@ -2129,14 +2170,14 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               ].map((step, idx) => (
                 <Box key={step.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.45, flex: 1, minWidth: 0 }}>
                   <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.45, flex: 1, minWidth: 0 }}>
-                    <Box sx={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                    <Box sx={{ width: 24, height: 24, borderRadius: '50%', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textPrimary, flexShrink: 0 }}>
                       {step.icon}
                     </Box>
-                    <Typography sx={{ color: '#d1d5db', fontSize: '0.6rem', fontWeight: 700, lineHeight: 1.05, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <Typography sx={{ color: C.textSecondary, fontSize: '0.6rem', fontWeight: 700, lineHeight: 1.05, textAlign: 'center', whiteSpace: 'nowrap' }}>
                       {step.label}
                     </Typography>
                   </Box>
-                  {idx < 3 && <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem', mt: -1.2 }}>→</Typography>}
+                  {idx < 3 && <Typography sx={{ color: C.textMuted, fontSize: '0.8rem', mt: -1.2 }}>→</Typography>}
                 </Box>
               ))}
             </Box>
@@ -2148,12 +2189,12 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 mt: 'auto',
                 py: 1,
                 borderRadius: 2,
-                color: '#fff',
+                color: C.textPrimary,
                 fontWeight: 900,
                 letterSpacing: '0.03em',
                 bgcolor: ORANGE,
                 background: 'linear-gradient(90deg, #F05A28 0%, #FF6600 100%)',
-                border: '1px solid rgba(255,255,255,0.2)',
+                border: `1px solid ${C.border}`,
                 '&:hover': {
                   background: 'linear-gradient(90deg, #e55523 0%, #f76000 100%)',
                 },
@@ -2170,16 +2211,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             sx={{
               p: { xs: 1.4, md: 1.8 },
               borderRadius: '12px',
-              border: '1px solid rgba(255,255,255,0.14)',
-              background: 'linear-gradient(165deg, rgba(255,255,255,0.04) 0%, rgba(17,20,28,0.92) 100%)',
-              boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
+              border: `1px solid ${C.border}`,
+              background: C.surface,
+              boxShadow: C.shadowMd,
               height: '100%',
               display: 'flex',
               flexDirection: 'column',
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1.1, flexWrap: 'nowrap', overflow: 'hidden' }}>
-              <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.96rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <Typography sx={{ color: C.textPrimary, fontWeight: 800, fontSize: '0.96rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 Tasa de Cambio Promedio
               </Typography>
               <TextField
@@ -2189,8 +2230,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 onChange={(e) => setRateWidgetCurrency((e.target.value as 'USD' | 'RMB') || 'RMB')}
                 sx={{
                   minWidth: 110, flexShrink: 0,
-                  '& .MuiInputBase-root': { bgcolor: '#171a20', color: '#fff', borderRadius: '9px', fontWeight: 700 },
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.16)' },
+                  '& .MuiInputBase-root': { bgcolor: C.inputBg, color: C.textPrimary, borderRadius: '9px', fontWeight: 700 },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: C.border },
                 }}
               >
                 <MenuItem value="RMB">🇨🇳 CNY</MenuItem>
@@ -2198,10 +2239,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               </TextField>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.2, mb: 0.8 }}>
-              <Typography sx={{ color: '#fff', fontSize: '1.35rem', fontWeight: 900, lineHeight: 1 }}>
+              <Typography sx={{ color: C.textPrimary, fontSize: '1.35rem', fontWeight: 900, lineHeight: 1 }}>
                 {rateWidgetCurrent != null ? rateWidgetCurrent.toFixed(4) : '—'}
               </Typography>
-              <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem', fontWeight: 700 }}>
+              <Typography sx={{ color: C.textMuted, fontSize: '0.78rem', fontWeight: 700 }}>
                 MXN/{rateWidgetCurrency === 'RMB' ? 'CNY' : 'USD'}
               </Typography>
               {rateWidgetDelta != null && (
@@ -2210,7 +2251,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 </Typography>
               )}
             </Box>
-            <Box sx={{ flex: 1, minHeight: 120, borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', bgcolor: 'rgba(7,9,13,0.7)', px: 0.8, py: 0.7 }}>
+            <Box sx={{ flex: 1, minHeight: 120, borderRadius: '10px', border: `1px solid ${C.border}`, bgcolor: C.surfaceAlt, px: 0.8, py: 0.7 }}>
               <svg width="100%" height="100%" viewBox="0 0 620 170" preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="xpay-rate-line" x1="0" x2="1" y1="0" y2="0">
@@ -2221,7 +2262,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 <path d={rateWidgetPath} fill="none" stroke="url(#xpay-rate-line)" strokeWidth="2.6" strokeLinecap="round" />
               </svg>
             </Box>
-            <Box sx={{ mt: 0.8, display: 'flex', justifyContent: 'space-between', color: '#9ca3af', fontSize: '0.7rem' }}>
+            <Box sx={{ mt: 0.8, display: 'flex', justifyContent: 'space-between', color: C.textMuted, fontSize: '0.7rem' }}>
               <Typography sx={{ fontSize: '0.7rem' }}>Inicio: {formatTimeLabel(rateWidgetStartTs)}</Typography>
               <Typography sx={{ fontSize: '0.7rem' }}>Actual: {formatTimeLabel(rateWidgetEndTs)}</Typography>
             </Box>
@@ -2233,19 +2274,19 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       <Box sx={{ display: 'flex', gap: 1.5, mb: 3, alignItems: 'stretch', flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
         {/* Tabla: 2/3 del ancho */}
         <Box sx={{ flex: '2 2 0', minWidth: { xs: '100%', md: 0 } }}>
-          <Paper variant="outlined" sx={{ bgcolor: '#0f0f12', border: `1px solid ${BORDER}`, borderRadius: '12px', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5, borderBottom: `1px solid ${BORDER}` }}>
-              <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.96rem' }}>
+          <Paper variant="outlined" sx={{ bgcolor: C.surface, border: `1px solid ${C.border}`, borderRadius: '12px', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5, borderBottom: `1px solid ${C.border}` }}>
+              <Typography sx={{ color: C.textPrimary, fontWeight: 800, fontSize: '0.96rem' }}>
                 Últimos Envíos Realizados
               </Typography>
             </Box>
             <TableContainer sx={{ flex: 1 }}>
               <Table size="small">
                 <TableHead>
-                  <TableRow sx={{ bgcolor: '#08080a' }}>
+                  <TableRow sx={{ bgcolor: C.tableHeadBg }}>
                     {['#', 'Monto', 'Destino / Divisa', 'Estatus', 'Documento Fiscal', 'Comprobante de Pago', 'Acciones'].map((col, i) => (
                       <TableCell key={col} align={i === 6 ? 'center' : i === 1 ? 'right' : 'left'}
-                        sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.62rem', letterSpacing: '0.09em', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap', py: 1.2 }}>
+                        sx={{ color: C.textFaint, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.62rem', letterSpacing: '0.09em', borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap', py: 1.2 }}>
                         {col}
                       </TableCell>
                     ))}
@@ -2254,14 +2295,14 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 <TableBody>
                   {loading && requests.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ bgcolor: '#1a1a1a' }}>
+                      <TableCell colSpan={7} align="center" sx={{ bgcolor: C.surfaceAlt }}>
                         <CircularProgress size={20} sx={{ color: ORANGE }} />
                       </TableCell>
                     </TableRow>
                   ) : requests.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ bgcolor: '#1a1a1a', py: 3 }}>
-                        <Typography variant="body2" sx={{ color: '#666666' }}>
+                      <TableCell colSpan={7} align="center" sx={{ bgcolor: C.surfaceAlt, py: 3 }}>
+                        <Typography variant="body2" sx={{ color: C.textFaint }}>
                           {t('entangled.messages.empty')}
                         </Typography>
                       </TableCell>
@@ -2272,7 +2313,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       const destinationCode = resolveDestinationCountryCode(r as EntangledRequest & Record<string, unknown>, widgetDestinationCountry);
                       const destination = COUNTRY_META[destinationCode] || COUNTRY_META.US;
                       return (
-                      <TableRow key={r.id} hover sx={{ bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.025)' }, '& td': { borderBottom: `1px solid ${BORDER}`, py: 1.4 } }}>
+                      <TableRow key={r.id} hover sx={{ bgcolor: 'transparent', '&:hover': { bgcolor: C.rowHover }, '& td': { borderBottom: `1px solid ${C.border}`, py: 1.4 } }}>
                         {/* Referencia — tooltip con razón social + transaccion_id */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
                           <Tooltip
@@ -2280,11 +2321,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                             placement="top-start"
                             title={
                               <Box sx={{ p: 0.4 }}>
-                                <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: '#fff' }}>
+                                <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: C.textPrimary }}>
                                   {r.cf_razon_social || '—'}
                                 </Typography>
                                 {r.entangled_transaccion_id && (
-                                  <Typography sx={{ fontSize: '0.62rem', color: '#cbd5e1', fontFamily: 'monospace', mt: 0.3 }}>
+                                  <Typography sx={{ fontSize: '0.62rem', color: C.textSecondary, fontFamily: 'monospace', mt: 0.3 }}>
                                     ID ENTANGLED: {r.entangled_transaccion_id}
                                   </Typography>
                                 )}
@@ -2311,9 +2352,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                         </TableCell>
                         {/* Destino / Divisa — bandera + sigla en plata */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.7, px: 0.9, py: 0.4, borderRadius: 1.2, bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.7, px: 0.9, py: 0.4, borderRadius: 1.2, bgcolor: C.surface, border: `1px solid ${C.border}` }}>
                             <Typography sx={{ fontSize: '0.95rem', lineHeight: 1 }}>{destination.flag}</Typography>
-                            <Typography sx={{ color: '#cbd5e1', fontWeight: 700, fontSize: '0.7rem', letterSpacing: '0.06em' }}>
+                            <Typography sx={{ color: C.textSecondary, fontWeight: 700, fontSize: '0.7rem', letterSpacing: '0.06em' }}>
                               {r.op_divisa_destino || '—'}
                             </Typography>
                           </Box>
@@ -2329,12 +2370,14 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                             {r.entangled_transaccion_id && r.cf_rfc ? (
                               <Stack spacing={0.4} sx={{ width: 'fit-content' }}>
                                 <DocCard
+                                  lightTheme={lightTheme}
                                   icon={<PictureAsPdfIcon sx={{ fontSize: 16 }} />}
                                   label="Factura PDF"
                                   loading={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_pdf'}
                                   onClick={() => downloadEntangledDoc(r.id, 'factura_pdf')}
                                 />
                                 <DocCard
+                                  lightTheme={lightTheme}
                                   icon={<DataObjectIcon sx={{ fontSize: 16 }} />}
                                   label="Factura XML"
                                   loading={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_xml'}
@@ -2343,7 +2386,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                               </Stack>
                             ) : (
                               !r.cf_rfc && (
-                                <Typography sx={{ color: '#6b7280', fontSize: '0.65rem', fontStyle: 'italic' }}>
+                                <Typography sx={{ color: C.textFaint, fontSize: '0.65rem', fontStyle: 'italic' }}>
                                   Sin factura
                                 </Typography>
                               )
@@ -2356,6 +2399,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                             <StatusBadge status={r.estatus_proveedor} label={t(`entangled.status.${r.estatus_proveedor}`, r.estatus_proveedor)} variant="outline" />
                             {r.entangled_transaccion_id && (
                               <DocCard
+                                  lightTheme={lightTheme}
                                 icon={<ReceiptLongIcon sx={{ fontSize: 16, color: '#4ade80' }} />}
                                 label="Comprobante"
                                 loading={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'comprobante_proveedor'}
@@ -2386,7 +2430,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                                         onClick={() => openUploadModal(r.id, r.referencia_pago || `XP-${r.id}`)}
                                         sx={{
                                           bgcolor: ORANGE,
-                                          color: '#fff',
+                                          color: C.textPrimary,
                                           textTransform: 'none',
                                           fontSize: '0.7rem',
                                           fontWeight: 700,
@@ -2410,9 +2454,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                                         size="small"
                                         onClick={() => handleDownloadInstructionsPdfForRequest(r.id)}
                                         sx={{
-                                          color: '#fff',
-                                          bgcolor: 'rgba(255,255,255,0.06)',
-                                          border: '1px solid rgba(255,255,255,0.18)',
+                                          color: C.textPrimary,
+                                          bgcolor: C.surface,
+                                          border: `1px solid ${C.border}`,
                                           borderRadius: 1,
                                           p: 0.5,
                                           '&:hover': { bgcolor: 'rgba(255,138,0,0.18)', borderColor: ORANGE },
@@ -2429,7 +2473,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                                     </IconButton>
                                   </Tooltip>
                                 ) : (
-                                  <Typography sx={{ color: '#6b7280', fontSize: '0.7rem', fontStyle: 'italic' }}>—</Typography>
+                                  <Typography sx={{ color: C.textFaint, fontSize: '0.7rem', fontStyle: 'italic' }}>—</Typography>
                                 )}
                                 {r.entangled_transaccion_id && !isTerminal && (
                                   <Tooltip title={t('entangled.actions.syncFromEntangled', 'Refrescar estado desde ENTANGLED') as string}>
@@ -2438,7 +2482,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                                       onClick={() => handleSyncRequest(r.id)}
                                       disabled={syncingId === r.id}
                                       sx={{
-                                        color: '#fff',
+                                        color: C.textPrimary,
                                         bgcolor: 'rgba(96,165,250,0.10)',
                                         border: '1px solid rgba(96,165,250,0.35)',
                                         borderRadius: 1,
@@ -2503,7 +2547,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                               );
                             }
                             return (
-                              <Typography sx={{ color: '#6b7280', fontSize: '0.62rem', mt: 0.5, letterSpacing: '0.04em' }}>
+                              <Typography sx={{ color: C.textFaint, fontSize: '0.62rem', mt: 0.5, letterSpacing: '0.04em' }}>
                                 {new Date(r.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                               </Typography>
                             );
@@ -2525,19 +2569,19 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               p: 1.5,
               height: '100%',
               borderRadius: '12px',
-              border: '1px solid rgba(255,255,255,0.16)',
-              background: 'linear-gradient(165deg, rgba(255,255,255,0.05) 0%, rgba(15,16,20,0.9) 100%)',
-              boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
+              border: `1px solid ${C.border}`,
+              background: C.surface,
+              boxShadow: C.shadowMd,
               display: 'flex',
               flexDirection: 'column',
             }}
           >
-            <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.95rem', mb: 1.1 }}>
+            <Typography sx={{ color: C.textPrimary, fontWeight: 800, fontSize: '0.95rem', mb: 1.1 }}>
               Mis proveedores
             </Typography>
 
             {widgetSuppliersPreview.length === 0 ? (
-              <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem', lineHeight: 1.4, mb: 1.2 }}>
+              <Typography sx={{ color: C.textMuted, fontSize: '0.78rem', lineHeight: 1.4, mb: 1.2 }}>
                 Aún no tienes proveedores guardados. Crea tu primer beneficiario para reutilizarlo.
               </Typography>
             ) : (
@@ -2551,14 +2595,14 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       justifyContent: 'space-between',
                       gap: 1,
                       py: 0.55,
-                      borderBottom: '1px solid rgba(255,255,255,0.08)',
+                      borderBottom: `1px solid ${C.border}`,
                     }}
                   >
                     <Box sx={{ minWidth: 0 }}>
-                      <Typography sx={{ color: '#fff', fontSize: '0.76rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <Typography sx={{ color: C.textPrimary, fontSize: '0.76rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {s.alias || s.nombre_beneficiario}
                       </Typography>
-                      <Typography sx={{ color: '#9ca3af', fontSize: '0.68rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <Typography sx={{ color: C.textMuted, fontSize: '0.68rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {s.banco_nombre || 'Banco no definido'}
                       </Typography>
                     </Box>
@@ -2611,7 +2655,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         sx={{
           mt: 4,
           pt: 3,
-          borderTop: '1px solid rgba(255,255,255,0.05)',
+          borderTop: `1px solid ${C.border}`,
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'center',
@@ -2626,19 +2670,19 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           { Icon: AccountBalanceWalletOutlinedIcon, label: 'SWIFT/BIC', sub: t('xpay.certSwiftSub', 'Network Verified') as string },
         ].map(({ Icon, label, sub }) => (
           <Stack key={label} direction="row" spacing={1.2} alignItems="center" sx={{ opacity: 0.55, transition: 'opacity 0.2s', '&:hover': { opacity: 1 } }}>
-            <Icon sx={{ color: '#9ca3af', fontSize: 22 }} />
+            <Icon sx={{ color: C.textMuted, fontSize: 22 }} />
             <Box>
-              <Typography sx={{ color: '#e5e7eb', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.05em', lineHeight: 1.1 }}>
+              <Typography sx={{ color: C.textSecondary, fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.05em', lineHeight: 1.1 }}>
                 {label}
               </Typography>
-              <Typography sx={{ color: '#6b7280', fontSize: '0.68rem', letterSpacing: '0.04em', lineHeight: 1.1 }}>
+              <Typography sx={{ color: C.textFaint, fontSize: '0.68rem', letterSpacing: '0.04em', lineHeight: 1.1 }}>
                 {sub}
               </Typography>
             </Box>
           </Stack>
         ))}
       </Box>
-      <Typography sx={{ mt: 2, color: '#4b5563', fontSize: '0.7rem', textAlign: 'center', letterSpacing: '0.04em' }}>
+      <Typography sx={{ mt: 2, color: C.textFaint, fontSize: '0.7rem', textAlign: 'center', letterSpacing: '0.04em' }}>
         {t('xpay.footerCopyright', { year: new Date().getFullYear() })}
       </Typography>
 
@@ -2653,9 +2697,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         fullWidth
         PaperProps={{
           sx: {
-            bgcolor: '#0a0a0c',
-            color: '#fff',
-            border: `1px solid ${BORDER}`,
+            bgcolor: C.pageBg,
+            color: C.textPrimary,
+            border: `1px solid ${C.border}`,
             borderRadius: 2,
             backgroundImage: 'linear-gradient(180deg, rgba(255,102,0,0.06) 0%, rgba(0,0,0,0) 22%)',
           },
@@ -2664,7 +2708,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', fontWeight: 800 }}>
           {t('entangled.newRequest')}
         </DialogTitle>
-        <DialogContent sx={{ pt: 3, bgcolor: '#0a0a0c' }}>
+        <DialogContent sx={{ pt: 3, bgcolor: C.pageBg }}>
           <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             {[
               { id: 0 as const, label: '0. Servicio', enabled: true },
@@ -2682,8 +2726,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   fontSize: '0.74rem',
                   fontWeight: 700,
                   border: '1px solid',
-                  borderColor: wizardStep === s.id ? ORANGE : '#2f2f33',
-                  color: !s.enabled ? '#4b5563' : (wizardStep === s.id ? '#fff' : '#9ca3af'),
+                  borderColor: wizardStep === s.id ? ORANGE :  C.border,
+                  color: !s.enabled ? C.textFaint : (wizardStep === s.id ? C.textPrimary : C.textMuted),
                   bgcolor: wizardStep === s.id ? 'rgba(240,90,40,0.26)' : '#121214',
                   cursor: s.enabled ? 'pointer' : 'not-allowed',
                   textDecoration: !s.enabled ? 'line-through' : 'none',
@@ -2697,11 +2741,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           </Box>
 
           {wizardStep === 0 && (
-            <Paper variant="outlined" sx={{ p: 2.5, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
-              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5, color: '#ffffff' }}>
+            <Paper variant="outlined" sx={{ p: 2.5, mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 1 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5, color: C.textPrimary }}>
                 ¿Qué tipo de envío necesitas?
               </Typography>
-              <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mb: 2 }}>
+              <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mb: 2 }}>
                 Selecciona si requieres factura SAT para tu cliente final o si solo necesitas enviar el pago al proveedor.
               </Typography>
 
@@ -2712,7 +2756,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     sx={{
                       cursor: 'pointer',
                       bgcolor: requiereFactura ? 'rgba(240,90,40,0.12)' : '#0f0f10',
-                      border: `2px solid ${requiereFactura ? ORANGE : '#2f2f33'}`,
+                      border: `2px solid ${requiereFactura ? ORANGE :  C.border}`,
                       transition: 'all 0.18s ease',
                       '&:hover': { borderColor: ORANGE, transform: 'translateY(-2px)' },
                     }}
@@ -2721,15 +2765,15 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
                         <ReceiptLongIcon sx={{ color: ORANGE, fontSize: 32 }} />
                         <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle1" fontWeight={800} sx={{ color: '#fff' }}>
+                          <Typography variant="subtitle1" fontWeight={800} sx={{ color: C.textPrimary }}>
                             Pago con factura SAT
                           </Typography>
-                          <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+                          <Typography variant="caption" sx={{ color: C.textMuted }}>
                             Recomendado para empresas
                           </Typography>
                         </Box>
                       </Stack>
-                      <Typography variant="body2" sx={{ color: '#d1d5db', mb: 1 }}>
+                      <Typography variant="body2" sx={{ color: C.textSecondary, mb: 1 }}>
                         Emite factura SAT a tu cliente final. Requiere datos fiscales (RFC, régimen, uso CFDI) y conceptos.
                       </Typography>
 
@@ -2738,18 +2782,18 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                           <Stack direction="row" spacing={1} alignItems="center">
                             <CheckCircleIcon sx={{ color: ORANGE, fontSize: 18 }} />
                             <Box sx={{ flex: 1, minWidth: 0 }}>
-                              <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', lineHeight: 1.1 }}>
+                              <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', lineHeight: 1.1 }}>
                                 Se facturará a:
                               </Typography>
                               <Typography
                                 variant="body2"
-                                sx={{ color: '#fff', fontWeight: 700, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                sx={{ color: C.textPrimary, fontWeight: 700, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                                 title={form.razon_social || ''}
                               >
                                 {form.razon_social || '—'}
                               </Typography>
                               {form.rfc && (
-                                <Typography variant="caption" sx={{ color: '#d1d5db', fontFamily: 'monospace', letterSpacing: '0.04em' }}>
+                                <Typography variant="caption" sx={{ color: C.textSecondary, fontFamily: 'monospace', letterSpacing: '0.04em' }}>
                                   {form.rfc}
                                 </Typography>
                               )}
@@ -2772,7 +2816,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     sx={{
                       cursor: 'pointer',
                       bgcolor: !requiereFactura ? 'rgba(240,90,40,0.12)' : '#0f0f10',
-                      border: `2px solid ${!requiereFactura ? ORANGE : '#2f2f33'}`,
+                      border: `2px solid ${!requiereFactura ? ORANGE :  C.border}`,
                       transition: 'all 0.18s ease',
                       '&:hover': { borderColor: ORANGE, transform: 'translateY(-2px)' },
                     }}
@@ -2781,15 +2825,15 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
                         <AccountBalanceWalletOutlinedIcon sx={{ color: ORANGE, fontSize: 32 }} />
                         <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle1" fontWeight={800} sx={{ color: '#fff' }}>
+                          <Typography variant="subtitle1" fontWeight={800} sx={{ color: C.textPrimary }}>
                             Pago sin factura
                           </Typography>
-                          <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+                          <Typography variant="caption" sx={{ color: C.textMuted }}>
                             Más rápido, sin trámite fiscal
                           </Typography>
                         </Box>
                       </Stack>
-                      <Typography variant="body2" sx={{ color: '#d1d5db', mb: 1 }}>
+                      <Typography variant="body2" sx={{ color: C.textSecondary, mb: 1 }}>
                         Solo envía el pago al proveedor internacional. No se emite factura SAT.
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
@@ -2801,17 +2845,17 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 </Grid>
               </Grid>
 
-              <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 2.5, p: 1.5, bgcolor: '#0f0f10', borderRadius: 1, border: '1px dashed #2f2f33' }}>
+              <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 2.5, p: 1.5, bgcolor: C.surface, borderRadius: 1, border: `1px dashed ${C.border}` }}>
                 <ShieldOutlinedIcon sx={{ color: ORANGE }} />
                 <Box>
-                  <Typography variant="caption" sx={{ color: '#d1d5db', fontWeight: 700, display: 'block' }}>
+                  <Typography variant="caption" sx={{ color: C.textSecondary, fontWeight: 700, display: 'block' }}>
                     {requiereFactura
                       ? (form.razon_social
                           ? `Has seleccionado: Pago con factura SAT a ${form.razon_social}`
                           : 'Has seleccionado: Pago con factura SAT')
                       : 'Has seleccionado: Pago sin factura'}
                   </Typography>
-                  <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+                  <Typography variant="caption" sx={{ color: C.textMuted }}>
                     Puedes cambiar esta selección en cualquier momento desde la barra de pasos.
                   </Typography>
                 </Box>
@@ -2820,8 +2864,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           )}
 
           {wizardStep === 1 && (
-          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2, color: '#ffffff' }}>
+          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2, color: C.textPrimary }}>
               💵 {t('entangled.sections.operation')}
             </Typography>
 
@@ -2836,16 +2880,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   required
                   sx={{
                     '& .MuiOutlinedInput-root': {
-                      color: '#ffffff',
-                      backgroundColor: '#0a0a0a',
-                      '& fieldset': { borderColor: '#333333' },
-                      '&:hover fieldset': { borderColor: '#555555' },
+                      color: C.textPrimary,
+                      backgroundColor: C.inputBg,
+                      '& fieldset': { borderColor: C.border },
+                      '&:hover fieldset': { borderColor: C.borderStrong },
                       '&.Mui-focused fieldset': { borderColor: ORANGE },
                     },
-                    '& .MuiInputLabel-root': { color: '#888888' },
+                    '& .MuiInputLabel-root': { color: C.textMuted },
                     '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                    '& .MuiOutlinedInput-input': { color: '#ffffff' },
-                    '& .MuiInputAdornment-root': { color: '#888888' },
+                    '& .MuiOutlinedInput-input': { color: C.textPrimary },
+                    '& .MuiInputAdornment-root': { color: C.textMuted },
                   }}
                 />
               </Grid>
@@ -2856,15 +2900,15 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   onChange={(e) => setForm({ ...form, divisa_destino: e.target.value })}
                   sx={{
                     '& .MuiOutlinedInput-root': {
-                      color: '#ffffff',
-                      backgroundColor: '#0a0a0a',
-                      '& fieldset': { borderColor: '#333333' },
-                      '&:hover fieldset': { borderColor: '#555555' },
+                      color: C.textPrimary,
+                      backgroundColor: C.inputBg,
+                      '& fieldset': { borderColor: C.border },
+                      '&:hover fieldset': { borderColor: C.borderStrong },
                       '&.Mui-focused fieldset': { borderColor: ORANGE },
                     },
-                    '& .MuiInputLabel-root': { color: '#888888' },
+                    '& .MuiInputLabel-root': { color: C.textMuted },
                     '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                    '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                    '& .MuiOutlinedInput-input': { color: C.textPrimary },
                     '& .MuiSvgIcon-root': { color: ORANGE },
                   }}
                 >
@@ -2876,7 +2920,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             </Grid>
 
             {quote && (
-              <Card sx={{ mt: 2, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}` }}>
+              <Card sx={{ mt: 2, bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}` }}>
                 <CardContent>
                   <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE, mb: 1.5 }}>
                     {t('entangled.wizard.quote', 'Cotización')}
@@ -2884,45 +2928,45 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
                   {/* Encabezado: monto a enviar + TC */}
                   <Stack spacing={0.5} sx={{ mb: 1.5 }}>
-                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                    <Typography variant="body2" sx={{ color: C.textPrimary }}>
                       {t('entangled.wizard.amountSent', 'Monto a enviar al proveedor')}: <strong>${formatMoney(form.monto)} {form.divisa_destino}</strong>
                     </Typography>
-                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                    <Typography variant="body2" sx={{ color: C.textPrimary }}>
                       {t('entangled.wizard.fxRate', 'Tipo de cambio')}: <strong>${quote.tipo_cambio.toFixed(4)} MXN / {form.divisa_destino}</strong>
                     </Typography>
                   </Stack>
 
                   {/* Desglose detallado */}
-                  <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.2 }}>
-                    <Typography variant="caption" sx={{ color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, fontSize: '0.65rem', display: 'block', mb: 0.8 }}>
+                  <Box sx={{ borderTop: `1px solid ${C.border}`, pt: 1.2 }}>
+                    <Typography variant="caption" sx={{ color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, fontSize: '0.65rem', display: 'block', mb: 0.8 }}>
                       Desglose de cobranza
                     </Typography>
                     <Stack spacing={0.6}>
                       {/* Subtotal en MXN */}
                       <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Typography variant="body2" sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>
+                        <Typography variant="body2" sx={{ color: C.textSecondary, fontSize: '0.85rem' }}>
                           Subtotal ({formatMoney(form.monto)} {form.divisa_destino} × ${quote.tipo_cambio.toFixed(4)})
                         </Typography>
-                        <Typography variant="body2" sx={{ color: '#fff', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        <Typography variant="body2" sx={{ color: C.textPrimary, fontFamily: 'monospace', fontSize: '0.85rem' }}>
                           ${formatMoney(quote.monto_mxn_base)} MXN
                         </Typography>
                       </Box>
                       {/* Comisión XPAY (porcentaje) */}
                       <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Typography variant="body2" sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>
+                        <Typography variant="body2" sx={{ color: C.textSecondary, fontSize: '0.85rem' }}>
                           Comisión XPAY ({quote.porcentaje_compra.toFixed(2)}%)
                         </Typography>
-                        <Typography variant="body2" sx={{ color: '#fff', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        <Typography variant="body2" sx={{ color: C.textPrimary, fontFamily: 'monospace', fontSize: '0.85rem' }}>
                           ${formatMoney(quote.monto_mxn_comision)} MXN
                         </Typography>
                       </Box>
                       {/* Costo de operación */}
                       {quote.monto_mxn_costo_op > 0 && (
                         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <Typography variant="body2" sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>
+                          <Typography variant="body2" sx={{ color: C.textSecondary, fontSize: '0.85rem' }}>
                             Costo de operación (${quote.costo_operacion_usd.toFixed(2)} USD × ${quote.tipo_cambio.toFixed(4)})
                           </Typography>
-                          <Typography variant="body2" sx={{ color: '#fff', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                          <Typography variant="body2" sx={{ color: C.textPrimary, fontFamily: 'monospace', fontSize: '0.85rem' }}>
                             ${formatMoney(quote.monto_mxn_costo_op)} MXN
                           </Typography>
                         </Box>
@@ -2956,10 +3000,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           {wizardStep === 3 && requiereFactura && (
             <>
               {/* Banner informativo: ya se eligió "con factura" en paso 0 */}
-              <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}`, borderRadius: 1 }}>
+              <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}`, borderRadius: 1 }}>
                 <Stack direction="row" spacing={1} alignItems="center">
                   <CheckCircleIcon sx={{ color: ORANGE, fontSize: 20 }} />
-                  <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                  <Typography variant="body2" sx={{ color: C.textPrimary }}>
                     <strong style={{ color: ORANGE }}>Pago con factura SAT</strong> — indica la clave de producto/servicio a facturar y verifica tus datos fiscales.
                   </Typography>
                 </Stack>
@@ -2967,7 +3011,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
               {/* Mostrar datos precargados si existen */}
               {form.rfc && form.razon_social && !editingFiscalData && (
-                <Card sx={{ mb: 2, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}` }}>
+                <Card sx={{ mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}` }}>
                   <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
                     <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mb: 1 }}>
                       <CheckCircleIcon sx={{ color: ORANGE, fontSize: 18 }} />
@@ -2976,13 +3020,13 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       </Typography>
                     </Stack>
                     <Stack spacing={0.5}>
-                      <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                      <Typography variant="body2" sx={{ color: C.textPrimary }}>
                         <strong>Razón Social:</strong> {form.razon_social}
                       </Typography>
-                      <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                      <Typography variant="body2" sx={{ color: C.textPrimary }}>
                         <strong>RFC:</strong> {form.rfc}
                       </Typography>
-                      <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                      <Typography variant="body2" sx={{ color: C.textPrimary }}>
                         <strong>C.P. Fiscal:</strong> {form.cp}
                       </Typography>
                       <Button
@@ -2999,8 +3043,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               )}
               
               {(!form.rfc || !form.razon_social || editingFiscalData) && (
-              <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
-                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2, color: '#ffffff' }}>
+              <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 1 }}>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2, color: C.textPrimary }}>
                   📋 {t('entangled.sections.fiscal')}
                 </Typography>
               <Grid container spacing={2}>
@@ -3011,16 +3055,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     inputProps={{ maxLength: 13 }} required
                     sx={{
                       '& .MuiOutlinedInput-root': {
-                        color: '#ffffff',
-                        backgroundColor: '#0a0a0a',
-                        '& fieldset': { borderColor: '#333333' },
-                        '&:hover fieldset': { borderColor: '#555555' },
+                        color: C.textPrimary,
+                        backgroundColor: C.inputBg,
+                        '& fieldset': { borderColor: C.border },
+                        '&:hover fieldset': { borderColor: C.borderStrong },
                         '&.Mui-focused fieldset': { borderColor: ORANGE },
                       },
-                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
-                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputBase-input::placeholder': { color: C.textFaint, opacity: 0.7 },
+                      '& .MuiInputLabel-root': { color: C.textMuted },
                       '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                      '& .MuiOutlinedInput-input': { color: C.textPrimary },
                     }}
                   />
                 </Grid>
@@ -3030,16 +3074,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     onChange={(e) => setForm({ ...form, razon_social: e.target.value })} required
                     sx={{
                       '& .MuiOutlinedInput-root': {
-                        color: '#ffffff',
-                        backgroundColor: '#0a0a0a',
-                        '& fieldset': { borderColor: '#333333' },
-                        '&:hover fieldset': { borderColor: '#555555' },
+                        color: C.textPrimary,
+                        backgroundColor: C.inputBg,
+                        '& fieldset': { borderColor: C.border },
+                        '&:hover fieldset': { borderColor: C.borderStrong },
                         '&.Mui-focused fieldset': { borderColor: ORANGE },
                       },
-                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
-                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputBase-input::placeholder': { color: C.textFaint, opacity: 0.7 },
+                      '& .MuiInputLabel-root': { color: C.textMuted },
                       '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                      '& .MuiOutlinedInput-input': { color: C.textPrimary },
                     }}
                   />
                 </Grid>
@@ -3050,15 +3094,15 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     onChange={(e) => setForm({ ...form, regimen_fiscal: e.target.value })} required
                     sx={{
                       '& .MuiOutlinedInput-root': {
-                        color: '#ffffff',
-                        backgroundColor: '#0a0a0a',
-                        '& fieldset': { borderColor: '#333333' },
-                        '&:hover fieldset': { borderColor: '#555555' },
+                        color: C.textPrimary,
+                        backgroundColor: C.inputBg,
+                        '& fieldset': { borderColor: C.border },
+                        '&:hover fieldset': { borderColor: C.borderStrong },
                         '&.Mui-focused fieldset': { borderColor: ORANGE },
                       },
-                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputLabel-root': { color: C.textMuted },
                       '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                      '& .MuiOutlinedInput-input': { color: C.textPrimary },
                       '& .MuiSvgIcon-root': { color: ORANGE },
                     }}
                   >
@@ -3082,16 +3126,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     inputProps={{ maxLength: 5 }} required
                     sx={{
                       '& .MuiOutlinedInput-root': {
-                        color: '#ffffff',
-                        backgroundColor: '#0a0a0a',
-                        '& fieldset': { borderColor: '#333333' },
-                        '&:hover fieldset': { borderColor: '#555555' },
+                        color: C.textPrimary,
+                        backgroundColor: C.inputBg,
+                        '& fieldset': { borderColor: C.border },
+                        '&:hover fieldset': { borderColor: C.borderStrong },
                         '&.Mui-focused fieldset': { borderColor: ORANGE },
                       },
-                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
-                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputBase-input::placeholder': { color: C.textFaint, opacity: 0.7 },
+                      '& .MuiInputLabel-root': { color: C.textMuted },
                       '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                      '& .MuiOutlinedInput-input': { color: C.textPrimary },
                     }}
                   />
                 </Grid>
@@ -3102,15 +3146,15 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     onChange={(e) => setForm({ ...form, uso_cfdi: e.target.value })} required
                     sx={{
                       '& .MuiOutlinedInput-root': {
-                        color: '#ffffff',
-                        backgroundColor: '#0a0a0a',
-                        '& fieldset': { borderColor: '#333333' },
-                        '&:hover fieldset': { borderColor: '#555555' },
+                        color: C.textPrimary,
+                        backgroundColor: C.inputBg,
+                        '& fieldset': { borderColor: C.border },
+                        '&:hover fieldset': { borderColor: C.borderStrong },
                         '&.Mui-focused fieldset': { borderColor: ORANGE },
                       },
-                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputLabel-root': { color: C.textMuted },
                       '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                      '& .MuiOutlinedInput-input': { color: C.textPrimary },
                       '& .MuiSvgIcon-root': { color: ORANGE },
                     }}
                   >
@@ -3133,16 +3177,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     onChange={(e) => setForm({ ...form, email: e.target.value })} required
                     sx={{
                       '& .MuiOutlinedInput-root': {
-                        color: '#ffffff',
-                        backgroundColor: '#0a0a0a',
-                        '& fieldset': { borderColor: '#333333' },
-                        '&:hover fieldset': { borderColor: '#555555' },
+                        color: C.textPrimary,
+                        backgroundColor: C.inputBg,
+                        '& fieldset': { borderColor: C.border },
+                        '&:hover fieldset': { borderColor: C.borderStrong },
                         '&.Mui-focused fieldset': { borderColor: ORANGE },
                       },
-                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
-                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputBase-input::placeholder': { color: C.textFaint, opacity: 0.7 },
+                      '& .MuiInputLabel-root': { color: C.textMuted },
                       '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                      '& .MuiOutlinedInput-input': { color: C.textPrimary },
                     }}
                   />
                 </Grid>
@@ -3156,7 +3200,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       />
                     }
                     label={t('entangled.wizard.saveFiscal', 'Guardar estos datos para próximas solicitudes')}
-                    sx={{ color: '#ffffff' }}
+                    sx={{ color: C.textPrimary }}
                   />
                 </Grid>
               </Grid>
@@ -3164,7 +3208,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               )}
 
               {/* Clave SAT — SIEMPRE visible (incluso con datos fiscales precargados) */}
-              <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
+              <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 1 }}>
                 <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 700, display: 'block', mb: 1 }}>
                   📝 Productos SAT a facturar *
                 </Typography>
@@ -3186,26 +3230,26 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       : 'Escriba el nombre del producto o la clave SAT y selecciónelo del listado. Puede agregar varios productos.'}
                     sx={{
                       '& .MuiOutlinedInput-root': {
-                        color: '#ffffff',
-                        backgroundColor: '#0a0a0a',
-                        '& fieldset': { borderColor: '#333333' },
-                        '&:hover fieldset': { borderColor: '#555555' },
+                        color: C.textPrimary,
+                        backgroundColor: C.inputBg,
+                        '& fieldset': { borderColor: C.border },
+                        '&:hover fieldset': { borderColor: C.borderStrong },
                         '&.Mui-focused fieldset': { borderColor: ORANGE },
                       },
-                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
-                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputBase-input::placeholder': { color: C.textFaint, opacity: 0.7 },
+                      '& .MuiInputLabel-root': { color: C.textMuted },
                       '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
-                      '& .MuiFormHelperText-root': { color: '#9ca3af' },
+                      '& .MuiOutlinedInput-input': { color: C.textPrimary },
+                      '& .MuiFormHelperText-root': { color: C.textMuted },
                     }}
                   />
                   {/* Dropdown de sugerencias — visible mientras el usuario escribe texto (no código de 8 dígitos) */}
                   {activeToken && !/^\d{8}$/.test(activeToken) && (
-                    <Paper sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}`, borderRadius: 1, maxHeight: 280, overflowY: 'auto', mt: 0.5 }}>
+                    <Paper sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}`, borderRadius: 1, maxHeight: 280, overflowY: 'auto', mt: 0.5 }}>
                       {conceptoSearching && (
                         <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                           <CircularProgress size={14} sx={{ color: ORANGE }} />
-                          <Typography variant="caption" sx={{ color: '#9ca3af' }}>Buscando en catálogo SAT…</Typography>
+                          <Typography variant="caption" sx={{ color: C.textMuted }}>Buscando en catálogo SAT…</Typography>
                         </Box>
                       )}
                       {!conceptoSearching && conceptoSearchError && (
@@ -3215,20 +3259,20 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       )}
                       {!conceptoSearching && !conceptoSearchError && conceptoOptions.length === 0 && (
                         <Box sx={{ p: 1.5 }}>
-                          <Typography variant="caption" sx={{ color: '#6b7280' }}>Sin resultados para "{activeToken}"</Typography>
+                          <Typography variant="caption" sx={{ color: C.textFaint }}>Sin resultados para "{activeToken}"</Typography>
                         </Box>
                       )}
                       {!conceptoSearching && conceptoOptions.map((opt) => (
                         <Box
                           key={opt.clave_prodserv}
-                          sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: '1px solid #222',
+                          sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: `1px solid ${C.border}`,
                             '&:hover': { bgcolor: 'rgba(240,90,40,0.10)' } }}
                         >
                           <Box onClick={() => pickConceptoOption(opt)} sx={{ flex: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1.5 }}>
                             <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE, fontSize: '0.8rem', minWidth: 80 }}>
                               {opt.clave_prodserv}
                             </Typography>
-                            <Typography variant="caption" sx={{ color: '#d1d5db', lineHeight: 1.3 }}>
+                            <Typography variant="caption" sx={{ color: C.textSecondary, lineHeight: 1.3 }}>
                               {opt.descripcion}
                             </Typography>
                           </Box>
@@ -3252,14 +3296,14 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       sx={{
                         position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, mt: 0.5,
                         p: 1.25, cursor: addingConcepto ? 'wait' : 'pointer',
-                        bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}`, borderRadius: 1,
+                        bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}`, borderRadius: 1,
                         display: 'flex', alignItems: 'center', gap: 1.5,
                         '&:hover': { bgcolor: 'rgba(240,90,40,0.10)' },
                         opacity: addingConcepto ? 0.6 : 1,
                       }}
                     >
                       <AddIcon sx={{ color: ORANGE, fontSize: 18 }} />
-                      <Typography variant="caption" sx={{ color: '#d1d5db' }}>
+                      <Typography variant="caption" sx={{ color: C.textSecondary }}>
                         Agregar clave{' '}
                         <Typography component="span" sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE }}>
                           {activeToken}
@@ -3273,7 +3317,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 {addingConcepto && (
                   <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <CircularProgress size={14} sx={{ color: ORANGE }} />
-                    <Typography variant="caption" sx={{ color: '#9ca3af' }}>Verificando empresa asignada…</Typography>
+                    <Typography variant="caption" sx={{ color: C.textMuted }}>Verificando empresa asignada…</Typography>
                   </Box>
                 )}
 
@@ -3288,7 +3332,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 {/* Lista de claves seleccionadas — chips con descripción y botón de eliminar */}
                 {selectedConceptos.length > 0 && (
                   <Box sx={{ mt: 1.5 }}>
-                    <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mb: 0.5 }}>
+                    <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mb: 0.5 }}>
                       {selectedConceptos.length === 1 ? '1 producto agregado' : `${selectedConceptos.length} productos agregados`}
                     </Typography>
                     {selectedConceptos.map((c) => (
@@ -3301,14 +3345,14 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                         }}
                       >
                         <Typography sx={{ color: '#10b981', fontWeight: 700 }}>✓</Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#fff', fontFamily: 'monospace' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, color: C.textPrimary, fontFamily: 'monospace' }}>
                           {c.clave_prodserv}
                         </Typography>
-                        <Typography variant="caption" sx={{ color: '#d1d5db', flex: 1 }}>
+                        <Typography variant="caption" sx={{ color: C.textSecondary, flex: 1 }}>
                           {c.descripcion || '—'}
                         </Typography>
                         <IconButton size="small" onClick={() => removeSelectedConcepto(c.clave_prodserv)}
-                          sx={{ color: '#9ca3af', '&:hover': { color: '#ef4444', bgcolor: 'rgba(239,68,68,0.15)' } }}>
+                          sx={{ color: C.textMuted, '&:hover': { color: '#ef4444', bgcolor: 'rgba(239,68,68,0.15)' } }}>
                           <DeleteIcon sx={{ fontSize: 16 }} />
                         </IconButton>
                       </Box>
@@ -3331,11 +3375,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   >
                     <Typography sx={{ color: ORANGE, fontSize: 18, mr: 1 }}>🏢</Typography>
                     <Box sx={{ flex: 1 }}>
-                      <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block' }}>
+                      <Typography variant="caption" sx={{ color: C.textMuted, display: 'block' }}>
                         Empresa que enviará el pago
                       </Typography>
-                      <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700 }}>{lockedEmpresa.razon_social}</Typography>
-                      <Typography variant="caption" sx={{ color: '#9ca3af', fontFamily: 'monospace' }}>{lockedEmpresa.rfc}</Typography>
+                      <Typography variant="body2" sx={{ color: C.textPrimary, fontWeight: 700 }}>{lockedEmpresa.razon_social}</Typography>
+                      <Typography variant="caption" sx={{ color: C.textMuted, fontFamily: 'monospace' }}>{lockedEmpresa.rfc}</Typography>
                     </Box>
                   </Box>
                 )}
@@ -3345,8 +3389,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
           {/* === Proveedor de envío === */}
           {wizardStep === 2 && (
-          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2, color: '#ffffff' }}>
+          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2, color: C.textPrimary }}>
               🏦 {t('entangled.suppliers.section', 'Proveedor de envío (beneficiario)')}
             </Typography>
             <TextField
@@ -3357,15 +3401,15 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               sx={{ 
                 mb: 2,
                 '& .MuiOutlinedInput-root': {
-                  color: '#ffffff',
-                  backgroundColor: '#0a0a0a',
-                  '& fieldset': { borderColor: '#333333' },
-                  '&:hover fieldset': { borderColor: '#555555' },
+                  color: C.textPrimary,
+                  backgroundColor: C.inputBg,
+                  '& fieldset': { borderColor: C.border },
+                  '&:hover fieldset': { borderColor: C.borderStrong },
                   '&.Mui-focused fieldset': { borderColor: ORANGE },
                 },
-                '& .MuiInputLabel-root': { color: '#888888' },
+                '& .MuiInputLabel-root': { color: C.textMuted },
                 '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                '& .MuiOutlinedInput-input': { color: C.textPrimary },
                 '& .MuiSvgIcon-root': { color: ORANGE },
               }}
             >
@@ -3381,7 +3425,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
             {/* Card de proveedor seleccionado */}
             {selectedSupplierId !== 'new' && suppliers.find((s) => s.id === selectedSupplierId) && !editingSupplierData && (
-              <Card sx={{ mb: 2, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}` }}>
+              <Card sx={{ mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}` }}>
                 <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
                   <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mb: 1 }}>
                     <CheckCircleIcon sx={{ color: ORANGE, fontSize: 18 }} />
@@ -3390,16 +3434,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     </Typography>
                   </Stack>
                   <Stack spacing={0.5}>
-                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                    <Typography variant="body2" sx={{ color: C.textPrimary }}>
                       <strong>Beneficiario:</strong> {suppliers.find((s) => s.id === selectedSupplierId)?.nombre_beneficiario}
                     </Typography>
                     {suppliers.find((s) => s.id === selectedSupplierId)?.banco_nombre && (
-                      <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                      <Typography variant="body2" sx={{ color: C.textPrimary }}>
                         <strong>Banco:</strong> {suppliers.find((s) => s.id === selectedSupplierId)?.banco_nombre}
                       </Typography>
                     )}
                     {suppliers.find((s) => s.id === selectedSupplierId)?.numero_cuenta && (
-                      <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                      <Typography variant="body2" sx={{ color: C.textPrimary }}>
                         <strong>Cuenta:</strong> ...{suppliers.find((s) => s.id === selectedSupplierId)?.numero_cuenta.slice(-4)}
                       </Typography>
                     )}
@@ -3422,11 +3466,12 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               onChange={setSupplierForm}
               onUploadPhoto={handleUploadSupplierPhoto}
               uploading={uploadingSupplier}
+              lightTheme={lightTheme}
             />
             )}
             {selectedSupplierId === 'new' && (
               <FormControlLabel
-                sx={{ mt: 1, color: '#ffffff' }}
+                sx={{ mt: 1, color: C.textPrimary }}
                 control={
                   <Checkbox
                     checked={saveSupplierForLater}
@@ -3442,33 +3487,33 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
           {/* === Monto y cotización === */}
           {wizardStep === 4 && (
-          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#141414', border: `1px solid ${BORDER}`, borderRadius: 2 }}>
-            <Typography variant="subtitle1" fontWeight={800} sx={{ color: '#fff', mb: 1.5 }}>
+          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: C.surface, border: `1px solid ${C.border}`, borderRadius: 2 }}>
+            <Typography variant="subtitle1" fontWeight={800} sx={{ color: C.textPrimary, mb: 1.5 }}>
               ✅ Resumen total de la operación
             </Typography>
             <Stack spacing={0.9}>
-              <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Divisa destino: <strong style={{ color: '#fff' }}>{form.divisa_destino}</strong></Typography>
-              <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Monto al proveedor: <strong style={{ color: '#fff' }}>${formatMoney(form.monto)} {form.divisa_destino}</strong></Typography>
-              <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Proveedor de pago: <strong style={{ color: '#fff' }}>{providers.find((p) => p.id === selectedProviderId)?.name || '—'}</strong></Typography>
+              <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Divisa destino: <strong style={{ color: C.textPrimary }}>{form.divisa_destino}</strong></Typography>
+              <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Monto al proveedor: <strong style={{ color: C.textPrimary }}>${formatMoney(form.monto)} {form.divisa_destino}</strong></Typography>
+              <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Proveedor de pago: <strong style={{ color: C.textPrimary }}>{providers.find((p) => p.id === selectedProviderId)?.name || '—'}</strong></Typography>
               {asignacion?.loading ? (
-                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid #333', borderRadius: 1.5 }}>
-                  <Typography sx={{ color: '#9ca3af', fontSize: '0.82rem' }}>Consultando asignación bancaria…</Typography>
+                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: `1px solid ${C.border}`, borderRadius: 1.5 }}>
+                  <Typography sx={{ color: C.textMuted, fontSize: '0.82rem' }}>Consultando asignación bancaria…</Typography>
                 </Box>
               ) : asignacion?.cuenta_bancaria ? (() => {
                 const cb = asignacion.cuenta_bancaria!;
                 return (
-                  <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(240,90,40,0.45)', borderRadius: 1.5 }}>
+                  <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: '1px solid rgba(240,90,40,0.45)', borderRadius: 1.5 }}>
                     <Typography sx={{ color: '#f97316', fontSize: '0.78rem', fontWeight: 700, mb: 0.8, letterSpacing: 0.4 }}>
                       🏦 CUENTA BANCARIA DESTINO
                     </Typography>
                     {asignacion.empresa && (
-                      <Typography sx={{ color: '#fff', fontSize: '0.82rem', fontWeight: 600, mb: 0.5 }}>{asignacion.empresa.razon_social}</Typography>
+                      <Typography sx={{ color: C.textPrimary, fontSize: '0.82rem', fontWeight: 600, mb: 0.5 }}>{asignacion.empresa.razon_social}</Typography>
                     )}
-                    {cb.banco && <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem' }}>Banco: <strong>{cb.banco}</strong>{cb.moneda ? ` (${cb.moneda})` : ''}</Typography>}
-                    {cb.titular && <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem' }}>Titular: {cb.titular}</Typography>}
-                    {cb.clabe && <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem', fontFamily: 'monospace' }}>CLABE: {cb.clabe}</Typography>}
-                    {cb.cuenta && <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem', fontFamily: 'monospace' }}>Cuenta: {cb.cuenta}</Typography>}
-                    {cb.sucursal && <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem' }}>Sucursal: {cb.sucursal}</Typography>}
+                    {cb.banco && <Typography sx={{ color: C.textSecondary, fontSize: '0.82rem' }}>Banco: <strong>{cb.banco}</strong>{cb.moneda ? ` (${cb.moneda})` : ''}</Typography>}
+                    {cb.titular && <Typography sx={{ color: C.textMuted, fontSize: '0.78rem' }}>Titular: {cb.titular}</Typography>}
+                    {cb.clabe && <Typography sx={{ color: C.textSecondary, fontSize: '0.82rem', fontFamily: 'monospace' }}>CLABE: {cb.clabe}</Typography>}
+                    {cb.cuenta && <Typography sx={{ color: C.textSecondary, fontSize: '0.82rem', fontFamily: 'monospace' }}>Cuenta: {cb.cuenta}</Typography>}
+                    {cb.sucursal && <Typography sx={{ color: C.textMuted, fontSize: '0.78rem' }}>Sucursal: {cb.sucursal}</Typography>}
                     {asignacion.facturacion?.sustitucion && (
                       <Typography sx={{ color: '#facc15', fontSize: '0.75rem', mt: 0.5 }}>
                         ⚠️ Clave sustituida: {asignacion.facturacion.clave_solicitada} → {asignacion.facturacion.clave_facturacion}
@@ -3477,30 +3522,30 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   </Box>
                 );
               })() : !requiereFactura ? (
-                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(239,68,68,0.5)', borderRadius: 1.5 }}>
+                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: '1px solid rgba(239,68,68,0.5)', borderRadius: 1.5 }}>
                   <Typography sx={{ color: '#ef4444', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>⚠️ SIN CUENTA BANCARIA</Typography>
                   <Typography sx={{ color: '#fca5a5', fontSize: '0.82rem', lineHeight: 1.4 }}>
                     ENTANGLED no devolvió una cuenta bancaria de destino. No se puede enviar la solicitud.
                   </Typography>
                 </Box>
               ) : (
-                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(59,130,246,0.45)', borderRadius: 1.5 }}>
+                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: '1px solid rgba(59,130,246,0.45)', borderRadius: 1.5 }}>
                   <Typography sx={{ color: '#93c5fd', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>ℹ️ CUENTA BANCARIA DESTINO</Typography>
                   <Typography sx={{ color: '#bfdbfe', fontSize: '0.82rem', lineHeight: 1.4 }}>
                     {asignacion?.error || 'La cuenta bancaria se asignará al confirmar según la clave SAT seleccionada.'}
                   </Typography>
                 </Box>
               )}
-              <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Beneficiario: <strong style={{ color: '#fff' }}>{supplierForm.nombre_beneficiario || '—'}</strong></Typography>
-              <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Factura: <strong style={{ color: '#fff' }}>{requiereFactura ? 'Sí' : 'No'}</strong></Typography>
+              <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Beneficiario: <strong style={{ color: C.textPrimary }}>{supplierForm.nombre_beneficiario || '—'}</strong></Typography>
+              <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Factura: <strong style={{ color: C.textPrimary }}>{requiereFactura ? 'Sí' : 'No'}</strong></Typography>
               {requiereFactura && (
-                <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>RFC: <strong style={{ color: '#fff' }}>{form.rfc || '—'}</strong></Typography>
+                <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>RFC: <strong style={{ color: C.textPrimary }}>{form.rfc || '—'}</strong></Typography>
               )}
               {quote && (
                 <>
-                  <Divider sx={{ borderColor: '#333333', my: 0.6 }} />
-                  <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Tipo de cambio: <strong style={{ color: '#fff' }}>${quote.tipo_cambio.toFixed(4)} MXN / {form.divisa_destino}</strong></Typography>
-                  <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Comisión: <strong style={{ color: '#fff' }}>${formatMoney(quote.monto_mxn_comision)} MXN</strong></Typography>
+                  <Divider sx={{ borderColor: C.border, my: 0.6 }} />
+                  <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Tipo de cambio: <strong style={{ color: C.textPrimary }}>${quote.tipo_cambio.toFixed(4)} MXN / {form.divisa_destino}</strong></Typography>
+                  <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Comisión: <strong style={{ color: C.textPrimary }}>${formatMoney(quote.monto_mxn_comision)} MXN</strong></Typography>
                   <Typography sx={{ color: ORANGE, fontSize: '1.05rem', fontWeight: 800 }}>Total: ${formatMoney(quote.monto_mxn_total)} MXN</Typography>
                 </>
               )}
@@ -3508,8 +3553,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           </Paper>
           )}
         </DialogContent>
-        <DialogActions sx={{ bgcolor: '#0a0a0a', borderTop: '1px solid #333333', p: 2, display: 'flex', gap: 1 }}>
-          <Button onClick={() => { setDialogOpen(false); setWizardStep(0); }} sx={{ color: '#888888', mr: 'auto', '&:hover': { bgcolor: '#2a2a2a' } }}>
+        <DialogActions sx={{ bgcolor: C.pageBg, borderTop: `1px solid ${C.border}`, p: 2, display: 'flex', gap: 1 }}>
+          <Button onClick={() => { setDialogOpen(false); setWizardStep(0); }} sx={{ color: C.textMuted, mr: 'auto', '&:hover': { bgcolor: C.surfaceAlt } }}>
             {t('common.cancel')}
           </Button>
           {wizardStep > 0 && (
@@ -3520,7 +3565,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               if (s === 1) return 0;
               return 0;
             })}
-              sx={{ borderColor: '#555', color: '#ddd', minWidth: 90, flex: '0 0 auto' }}>
+              sx={{ borderColor: C.borderStrong, color: C.textSecondary, minWidth: 90, flex: '0 0 auto' }}>
               {t('common.back', 'Atrás')}
             </Button>
           )}
@@ -3545,31 +3590,31 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       <Dialog open={instructionsOpen} onClose={() => setInstructionsOpen(false)} maxWidth="md" fullWidth
         PaperProps={{
           sx: {
-            bgcolor: '#070709',
-            color: '#ffffff',
-            border: `1px solid ${BORDER}`,
+            bgcolor: C.pageBg,
+            color: C.textPrimary,
+            border: `1px solid ${C.border}`,
             borderRadius: 2,
             backgroundImage: 'linear-gradient(180deg, rgba(255,102,0,0.08) 0%, rgba(0,0,0,0) 30%)',
           }
         }}
       >
         <DialogTitle sx={{
-          color: '#fff',
+          color: C.textPrimary,
           fontWeight: 800,
-          borderBottom: `1px solid ${BORDER}`,
+          borderBottom: `1px solid ${C.border}`,
           background: 'linear-gradient(90deg, rgba(255,102,0,0.95) 0%, rgba(255,102,0,0.7) 30%, rgba(255,102,0,0.15) 100%)'
         }}>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <CheckCircleIcon sx={{ color: '#fff' }} />
+            <CheckCircleIcon sx={{ color: C.textPrimary }} />
             <span>{t('entangled.wizard.instructionsTitle', 'Solicitud creada — Instrucciones de pago')}</span>
           </Stack>
         </DialogTitle>
-        <DialogContent sx={{ pt: 3, bgcolor: '#070709' }}>
+        <DialogContent sx={{ pt: 3, bgcolor: C.pageBg }}>
           {/* Referencia de pago — visible siempre */}
           {lastCreated?.referencia_pago && (
             <Box sx={{ mb: 2, p: 2, borderRadius: 2, bgcolor: 'rgba(255,102,0,0.08)', border: '1px solid rgba(255,102,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
               <Box>
-                <Typography variant="caption" sx={{ color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, fontSize: '0.65rem' }}>
+                <Typography variant="caption" sx={{ color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, fontSize: '0.65rem' }}>
                   Referencia de pago
                 </Typography>
                 <Typography sx={{ fontFamily: 'monospace', fontSize: '1.6rem', fontWeight: 900, color: ORANGE, letterSpacing: '0.1em', lineHeight: 1.1 }}>
@@ -3598,11 +3643,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 <Typography variant="subtitle2" sx={{ color: ORANGE, fontWeight: 700 }}>
                   {t('entangled.wizard.totalToPay', 'Total a pagar')}
                 </Typography>
-                <Typography variant="h5" sx={{ color: '#ffffff' }}>
+                <Typography variant="h5" sx={{ color: C.textPrimary }}>
                   ${formatMoney(lastCreated.quote.monto_mxn_total)} MXN
                 </Typography>
                 {lastCreated.operationSnapshot && (
-                  <Typography variant="caption" sx={{ color: '#bbb', display: 'block', mt: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mt: 0.5 }}>
                     Equivalente a ${formatMoney(lastCreated.operationSnapshot.monto)} {lastCreated.operationSnapshot.divisa} al tipo de cambio ${lastCreated.quote.tipo_cambio.toFixed(4)} MXN/{lastCreated.operationSnapshot.divisa}
                   </Typography>
                 )}
@@ -3612,7 +3657,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
           {/* Cuenta(s) bancaria(s) ASIGNADAS POR ENTANGLED (dinámicas según clave SAT) */}
           {lastCreated?.empresas_asignadas && lastCreated.empresas_asignadas.length > 0 && (
-            <Card sx={{ mb: 2, bgcolor: '#0a0a0a', border: `1px solid ${ORANGE}` }}>
+            <Card sx={{ mb: 2, bgcolor: C.pageBg, border: `1px solid ${ORANGE}` }}>
               <CardContent>
                 <Typography variant="subtitle2" sx={{ color: ORANGE, fontWeight: 800, mb: 1, letterSpacing: 0.4 }}>
                   💳 DEPOSITAR / TRANSFERIR A — Cuenta(s) asignada(s)
@@ -3625,33 +3670,33 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   const clabe = cb.clabe || cb.CLABE || '';
                   const sucursal = cb.sucursal || cb.branch || '';
                   return (
-                    <Box key={i} sx={{ mb: i < (lastCreated.empresas_asignadas?.length || 0) - 1 ? 1.5 : 0, pb: i < (lastCreated.empresas_asignadas?.length || 0) - 1 ? 1.5 : 0, borderBottom: i < (lastCreated.empresas_asignadas?.length || 0) - 1 ? '1px dashed #333' : 'none' }}>
+                    <Box key={i} sx={{ mb: i < (lastCreated.empresas_asignadas?.length || 0) - 1 ? 1.5 : 0, pb: i < (lastCreated.empresas_asignadas?.length || 0) - 1 ? 1.5 : 0, borderBottom: i < (lastCreated.empresas_asignadas?.length || 0) - 1 ? `1px dashed ${C.border}` : 'none' }}>
                       {emp.clave_prodserv && (
-                        <Typography sx={{ color: '#9ca3af', fontSize: '0.72rem', mb: 0.4, letterSpacing: 0.5 }}>
-                          Clave SAT: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{emp.clave_prodserv}</strong>
-                          {emp.monto != null && <span> · Monto: <strong style={{ color: '#fff' }}>${formatMoney(emp.monto)} {emp.divisa || ''}</strong></span>}
+                        <Typography sx={{ color: C.textMuted, fontSize: '0.72rem', mb: 0.4, letterSpacing: 0.5 }}>
+                          Clave SAT: <strong style={{ color: C.textPrimary, fontFamily: 'monospace' }}>{emp.clave_prodserv}</strong>
+                          {emp.monto != null && <span> · Monto: <strong style={{ color: C.textPrimary }}>${formatMoney(emp.monto)} {emp.divisa || ''}</strong></span>}
                         </Typography>
                       )}
-                      {banco && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Banco: <strong style={{ color: '#fff' }}>{banco}</strong></Typography>}
-                      {titular && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Titular: <strong style={{ color: '#fff' }}>{titular}</strong></Typography>}
+                      {banco && <Typography sx={{ color: C.textSecondary, fontSize: '0.92rem' }}>Banco: <strong style={{ color: C.textPrimary }}>{banco}</strong></Typography>}
+                      {titular && <Typography sx={{ color: C.textSecondary, fontSize: '0.92rem' }}>Titular: <strong style={{ color: C.textPrimary }}>{titular}</strong></Typography>}
                       {cuenta && (
                         <Stack direction="row" spacing={0.8} alignItems="center">
-                          <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Cuenta: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{cuenta}</strong></Typography>
+                          <Typography sx={{ color: C.textSecondary, fontSize: '0.92rem' }}>Cuenta: <strong style={{ color: C.textPrimary, fontFamily: 'monospace' }}>{cuenta}</strong></Typography>
                           <Button size="small" onClick={() => { try { navigator.clipboard.writeText(String(cuenta)); } catch {} }} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
                         </Stack>
                       )}
                       {clabe && (
                         <Stack direction="row" spacing={0.8} alignItems="center">
-                          <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>CLABE: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{clabe}</strong></Typography>
+                          <Typography sx={{ color: C.textSecondary, fontSize: '0.92rem' }}>CLABE: <strong style={{ color: C.textPrimary, fontFamily: 'monospace' }}>{clabe}</strong></Typography>
                           <Button size="small" onClick={() => { try { navigator.clipboard.writeText(String(clabe)); } catch {} }} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
                         </Stack>
                       )}
-                      {sucursal && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Sucursal: <strong style={{ color: '#fff' }}>{sucursal}</strong></Typography>}
+                      {sucursal && <Typography sx={{ color: C.textSecondary, fontSize: '0.92rem' }}>Sucursal: <strong style={{ color: C.textPrimary }}>{sucursal}</strong></Typography>}
                     </Box>
                   );
                 })}
                 <Alert severity="warning" sx={{ mt: 1.5, bgcolor: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', color: '#fcd34d' }}>
-                  Incluye la referencia <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{lastCreated.referencia_pago}</strong> en el concepto de tu transferencia.
+                  Incluye la referencia <strong style={{ color: C.textPrimary, fontFamily: 'monospace' }}>{lastCreated.referencia_pago}</strong> en el concepto de tu transferencia.
                 </Alert>
               </CardContent>
             </Card>
@@ -3663,32 +3708,32 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             const mxn = all.filter((a) => String(a.currency || '').toUpperCase() === 'MXN');
             const accounts = mxn.length > 0 ? mxn : all;
             return (
-              <Card sx={{ mb: 2, bgcolor: '#0a0a0a', border: `1px solid ${ORANGE}` }}>
+              <Card sx={{ mb: 2, bgcolor: C.pageBg, border: `1px solid ${ORANGE}` }}>
                 <CardContent>
                   <Typography variant="subtitle2" sx={{ color: ORANGE, fontWeight: 800, mb: 1, letterSpacing: 0.4 }}>
                     💳 DEPOSITAR / TRANSFERIR A — {lastCreated.providerSnapshot.name}
                   </Typography>
                   {accounts.map((acc, i) => (
-                    <Box key={i} sx={{ mb: i < accounts.length - 1 ? 1.5 : 0, pb: i < accounts.length - 1 ? 1.5 : 0, borderBottom: i < accounts.length - 1 ? '1px dashed #333' : 'none' }}>
-                      {acc.bank && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Banco: <strong style={{ color: '#fff' }}>{acc.bank}</strong>{acc.currency ? <span style={{ color: '#888' }}> ({acc.currency})</span> : null}</Typography>}
-                      {acc.holder && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Titular: <strong style={{ color: '#fff' }}>{acc.holder}</strong></Typography>}
+                    <Box key={i} sx={{ mb: i < accounts.length - 1 ? 1.5 : 0, pb: i < accounts.length - 1 ? 1.5 : 0, borderBottom: i < accounts.length - 1 ? `1px dashed ${C.border}` : 'none' }}>
+                      {acc.bank && <Typography sx={{ color: C.textSecondary, fontSize: '0.92rem' }}>Banco: <strong style={{ color: C.textPrimary }}>{acc.bank}</strong>{acc.currency ? <span style={{ color: C.textMuted }}> ({acc.currency})</span> : null}</Typography>}
+                      {acc.holder && <Typography sx={{ color: C.textSecondary, fontSize: '0.92rem' }}>Titular: <strong style={{ color: C.textPrimary }}>{acc.holder}</strong></Typography>}
                       {acc.account && (
                         <Stack direction="row" spacing={0.8} alignItems="center">
-                          <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Cuenta: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{acc.account}</strong></Typography>
+                          <Typography sx={{ color: C.textSecondary, fontSize: '0.92rem' }}>Cuenta: <strong style={{ color: C.textPrimary, fontFamily: 'monospace' }}>{acc.account}</strong></Typography>
                           <Button size="small" onClick={() => { try { navigator.clipboard.writeText(String(acc.account)); } catch {} }} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
                         </Stack>
                       )}
                       {acc.clabe && (
                         <Stack direction="row" spacing={0.8} alignItems="center">
-                          <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>CLABE: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{acc.clabe}</strong></Typography>
+                          <Typography sx={{ color: C.textSecondary, fontSize: '0.92rem' }}>CLABE: <strong style={{ color: C.textPrimary, fontFamily: 'monospace' }}>{acc.clabe}</strong></Typography>
                           <Button size="small" onClick={() => { try { navigator.clipboard.writeText(String(acc.clabe)); } catch {} }} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
                         </Stack>
                       )}
-                      {acc.reference && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Referencia adicional: <strong style={{ color: '#fff' }}>{acc.reference}</strong></Typography>}
+                      {acc.reference && <Typography sx={{ color: C.textSecondary, fontSize: '0.92rem' }}>Referencia adicional: <strong style={{ color: C.textPrimary }}>{acc.reference}</strong></Typography>}
                     </Box>
                   ))}
                   <Alert severity="warning" sx={{ mt: 1.5, bgcolor: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', color: '#fcd34d' }}>
-                    Incluye la referencia <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{lastCreated.referencia_pago}</strong> en el concepto de tu transferencia.
+                    Incluye la referencia <strong style={{ color: C.textPrimary, fontFamily: 'monospace' }}>{lastCreated.referencia_pago}</strong> en el concepto de tu transferencia.
                   </Alert>
                 </CardContent>
               </Card>
@@ -3701,7 +3746,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             </Typography>
           </Alert>
         </DialogContent>
-        <DialogActions sx={{ bgcolor: '#070709', borderTop: '1px solid #333333', p: 2 }}>
+        <DialogActions sx={{ bgcolor: C.pageBg, borderTop: `1px solid ${C.border}`, p: 2 }}>
           <Button
             onClick={() => generateInstructionsPDF()}
             variant="outlined"
@@ -3718,14 +3763,14 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       {/* Dialog: Mis Proveedores de envío */}
       <Dialog open={suppliersDialogOpen} onClose={() => setSuppliersDialogOpen(false)} maxWidth="md" fullWidth
         PaperProps={{
-          sx: { bgcolor: '#000000', color: '#ffffff' }
+          sx: { bgcolor: C.pageBg, color: C.textPrimary }
         }}
       >
         <DialogTitle sx={{ bgcolor: ORANGE, color: '#000000', fontWeight: 700 }}>
           {t('entangled.suppliers.manage', 'Mis proveedores de envío')}
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
-          <Typography variant="body2" sx={{ mb: 2, color: '#888888' }}>
+          <Typography variant="body2" sx={{ mb: 2, color: C.textMuted }}>
             {t(
               'entangled.suppliers.manageHelp',
               'Guarda los datos bancarios de tus beneficiarios frecuentes para reutilizarlos en futuras solicitudes.'
@@ -3734,30 +3779,30 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
           {suppliers.length > 0 && (
             <>
-              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#ffffff' }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: C.textPrimary }}>
                 {t('entangled.suppliers.savedList', 'Proveedores guardados')} ({suppliers.length})
               </Typography>
-              <List dense sx={{ border: '1px solid #333333', borderRadius: 1, mb: 3, bgcolor: '#1a1a1a' }}>
+              <List dense sx={{ border: `1px solid ${C.border}`, borderRadius: 1, mb: 3, bgcolor: C.surfaceAlt }}>
                 {suppliers.map((s) => (
                   <ListItem
                     key={s.id}
                     divider
                     sx={{
-                      bgcolor: editingSupplier?.id === s.id ? '#0a3a1a' : 'transparent',
-                      borderBottomColor: '#333333',
-                      '&:hover': { bgcolor: '#242424' },
+                      bgcolor: editingSupplier?.id === s.id ? (lightTheme ? 'rgba(16,185,129,0.12)' : '#0a3a1a') : 'transparent',
+                      borderBottomColor: C.border,
+                      '&:hover': { bgcolor: C.surfaceAlt },
                     }}
                   >
                     <IconButton
                       size="small"
                       onClick={() => handleToggleFavorite(s)}
-                      sx={{ mr: 1, color: s.is_favorite ? ORANGE : '#555555' }}
+                      sx={{ mr: 1, color: s.is_favorite ? ORANGE :  C.textFaint }}
                     >
                       {s.is_favorite ? <StarIcon /> : <StarBorderIcon />}
                     </IconButton>
                     <ListItemText
                       primary={
-                        <Typography fontWeight={600} sx={{ color: '#ffffff' }}>
+                        <Typography fontWeight={600} sx={{ color: C.textPrimary }}>
                           {s.alias || s.nombre_beneficiario}
                           {s.divisa_default && (
                             <Chip
@@ -3769,7 +3814,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                         </Typography>
                       }
                       secondary={
-                        <Typography variant="body2" sx={{ color: '#888888' }}>
+                        <Typography variant="body2" sx={{ color: C.textMuted }}>
                           {s.nombre_beneficiario}
                           {s.banco_nombre ? ` · ${s.banco_nombre}` : ''}
                           {s.swift_bic ? ` · SWIFT ${s.swift_bic}` : ''}
@@ -3791,7 +3836,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             </>
           )}
 
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#ffffff' }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: C.textPrimary }}>
             {editingSupplier
               ? t('entangled.suppliers.editing', 'Editando proveedor')
               : t('entangled.suppliers.newOne', 'Nuevo proveedor')}
@@ -3801,21 +3846,22 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             onChange={setSupplierForm}
             onUploadPhoto={handleUploadSupplierPhoto}
             uploading={uploadingSupplier}
+            lightTheme={lightTheme}
           />
         </DialogContent>
-        <DialogActions sx={{ bgcolor: '#0a0a0a', borderTop: '1px solid #333333', p: 2 }}>
+        <DialogActions sx={{ bgcolor: C.pageBg, borderTop: `1px solid ${C.border}`, p: 2 }}>
           {editingSupplier && (
             <Button
               onClick={() => {
                 setEditingSupplier(null);
                 setSupplierForm(EMPTY_SUPPLIER);
               }}
-              sx={{ color: '#888888', '&:hover': { bgcolor: '#2a2a2a' } }}
+              sx={{ color: C.textMuted, '&:hover': { bgcolor: C.surfaceAlt } }}
             >
               {t('common.cancel', 'Cancelar')}
             </Button>
           )}
-          <Button onClick={() => setSuppliersDialogOpen(false)} sx={{ color: '#888888', '&:hover': { bgcolor: '#2a2a2a' } }}>
+          <Button onClick={() => setSuppliersDialogOpen(false)} sx={{ color: C.textMuted, '&:hover': { bgcolor: C.surfaceAlt } }}>
             {t('common.close', 'Cerrar')}
           </Button>
           <Button
@@ -3852,8 +3898,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         fullWidth
         PaperProps={{
           sx: {
-            bgcolor: '#0a0a0a',
-            color: '#fff',
+            bgcolor: C.pageBg,
+            color: C.textPrimary,
             border: `1.5px solid ${ORANGE}`,
             boxShadow: `0 0 0 1px ${ORANGE}33, 0 20px 50px rgba(0,0,0,0.6)`,
             borderRadius: 2,
@@ -3861,15 +3907,15 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           },
         }}
       >
-        <DialogTitle sx={{ bgcolor: '#0a0a0a', color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <DialogTitle sx={{ bgcolor: C.pageBg, color: C.textPrimary, borderBottom: `1px solid ${C.border}` }}>
           Subir comprobante
           {uploadModal.referencia && (
-            <Typography variant="caption" sx={{ display: 'block', opacity: 0.7, fontFamily: 'monospace', color: '#d1d5db' }}>
+            <Typography variant="caption" sx={{ display: 'block', opacity: 0.7, fontFamily: 'monospace', color: C.textSecondary }}>
               {uploadModal.referencia}
             </Typography>
           )}
         </DialogTitle>
-        <DialogContent sx={{ pt: 3, bgcolor: '#0a0a0a', color: '#fff' }}>
+        <DialogContent sx={{ pt: 3, bgcolor: C.pageBg, color: C.textPrimary }}>
           <Stack spacing={2}>
             {uploadModal.state !== 'success' && (
               <Box
@@ -3888,10 +3934,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 }}
               >
                 <ReceiptLongIcon sx={{ fontSize: 40, color: ORANGE, mb: 1 }} />
-                <Typography variant="body2" fontWeight={700} sx={{ color: '#fff' }}>
+                <Typography variant="body2" fontWeight={700} sx={{ color: C.textPrimary }}>
                   {uploadModal.file ? uploadModal.file.name : 'Haz clic o arrastra el archivo del comprobante'}
                 </Typography>
-                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#9ca3af' }}>
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: C.textMuted }}>
                   Imagen (JPG/PNG) o PDF. Tamaño máximo recomendado: 10 MB.
                 </Typography>
                 <input
@@ -3960,11 +4006,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             )}
           </Stack>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2, bgcolor: '#0a0a0a', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        <DialogActions sx={{ px: 3, pb: 2, bgcolor: C.pageBg, borderTop: `1px solid ${C.border}` }}>
           <Button
             onClick={closeUploadModal}
             disabled={uploadModal.state === 'uploading'}
-            sx={{ color: '#d1d5db', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}
+            sx={{ color: C.textSecondary, '&:hover': { bgcolor: C.surface } }}
           >
             {uploadModal.state === 'success' ? 'Cerrar' : 'Cancelar'}
           </Button>
@@ -3975,7 +4021,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               disabled={!uploadModal.file || uploadModal.state === 'uploading'}
               sx={{
                 bgcolor: ORANGE,
-                color: '#fff',
+                color: C.textPrimary,
                 fontWeight: 700,
                 '&:hover': { bgcolor: '#e07a00' },
                 '&.Mui-disabled': { bgcolor: 'rgba(255,102,0,0.3)', color: 'rgba(255,255,255,0.5)' },

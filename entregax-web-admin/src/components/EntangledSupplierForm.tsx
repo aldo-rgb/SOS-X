@@ -51,27 +51,13 @@ export const EMPTY_SUPPLIER: SupplierFormData = {
 const DIVISAS = ['RMB', 'USD', 'EUR', 'JPY', 'KRW', 'GBP'];
 
 const ORANGE = '#F05A28';
-const textFieldSx = {
-  '& .MuiOutlinedInput-root': {
-    color: '#ffffff',
-    backgroundColor: '#0a0a0a',
-    '& fieldset': { borderColor: '#333333' },
-    '&:hover fieldset': { borderColor: '#555555' },
-    '&.Mui-focused fieldset': { borderColor: ORANGE },
-  },
-  '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
-  '& .MuiInputLabel-root': { color: '#888888' },
-  '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-  '& .MuiOutlinedInput-input': { color: '#ffffff' },
-  '& .MuiSvgIcon-root': { color: ORANGE },
-  '& .MuiFormHelperText-root': { color: '#666666' },
-};
 
 interface Props {
   value: SupplierFormData;
   onChange: (next: SupplierFormData) => void;
   onUploadPhoto: (file: File) => Promise<void> | void;
   uploading?: boolean;
+  lightTheme?: boolean;
 }
 
 export default function EntangledSupplierForm({
@@ -79,14 +65,46 @@ export default function EntangledSupplierForm({
   onChange,
   onUploadPhoto,
   uploading,
+  lightTheme = false,
 }: Props) {
   const { t } = useTranslation();
   const isRMB = value.divisa_default === 'RMB';
   const set = (patch: Partial<SupplierFormData>) => onChange({ ...value, ...patch });
 
+  const C = lightTheme ? {
+    inputBg: '#ffffff',
+    border: '#e3e6ea',
+    borderStrong: '#d1d5db',
+    textPrimary: '#0f1115',
+    textMuted: '#6b7280',
+    textFaint: '#9ca3af',
+  } : {
+    inputBg: '#0a0a0a',
+    border: '#333333',
+    borderStrong: '#555555',
+    textPrimary: '#ffffff',
+    textMuted: '#888888',
+    textFaint: '#666666',
+  };
+  const textFieldSx = {
+    '& .MuiOutlinedInput-root': {
+      color: C.textPrimary,
+      backgroundColor: C.inputBg,
+      '& fieldset': { borderColor: C.border },
+      '&:hover fieldset': { borderColor: C.borderStrong },
+      '&.Mui-focused fieldset': { borderColor: ORANGE },
+    },
+    '& .MuiInputBase-input::placeholder': { color: C.textFaint, opacity: 0.7 },
+    '& .MuiInputLabel-root': { color: C.textMuted },
+    '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+    '& .MuiOutlinedInput-input': { color: C.textPrimary },
+    '& .MuiSvgIcon-root': { color: ORANGE },
+    '& .MuiFormHelperText-root': { color: C.textFaint },
+  };
+
   return (
     <Box>
-      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#ffffff' }}>
+      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: C.textPrimary }}>
         {t('entangled.suppliers.beneficiary', 'Datos del beneficiario')}
       </Typography>
       <Grid container spacing={2}>
@@ -159,7 +177,7 @@ export default function EntangledSupplierForm({
         </Grid>
       </Grid>
 
-      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1, color: '#ffffff' }}>
+      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1, color: C.textPrimary }}>
         {t('entangled.suppliers.account', 'Cuenta bancaria')}
       </Typography>
       <Grid container spacing={2}>
@@ -175,7 +193,7 @@ export default function EntangledSupplierForm({
         </Grid>
       </Grid>
 
-      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1, color: '#ffffff' }}>
+      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1, color: C.textPrimary }}>
         {t('entangled.suppliers.bank', 'Banco receptor')}
       </Typography>
       <Grid container spacing={2}>
@@ -229,7 +247,7 @@ export default function EntangledSupplierForm({
         </Grid>
       </Grid>
 
-      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1, color: '#ffffff' }}>
+      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1, color: C.textPrimary }}>
         {t('entangled.suppliers.extra', 'Información adicional')}
       </Typography>
       <Grid container spacing={2}>

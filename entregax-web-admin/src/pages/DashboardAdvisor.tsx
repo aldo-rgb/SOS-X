@@ -393,7 +393,7 @@ export default function DashboardAdvisor() {
     (async () => {
       try {
         const r = await api.get('/brand-assets/active');
-        const url = r.data?.assets?.xpay_full_white?.url || '';
+        const url = r.data?.assets?.xpay_full_black?.url || '';
         if (!cancelled && url) setXpayLogoUrl(url);
       } catch { /* ignore */ }
     })();
@@ -1081,7 +1081,7 @@ export default function DashboardAdvisor() {
       ...(dashboardData && dashboardData.subAdvisors > 0
         ? [{ id: 'team', label: isMobile ? 'Equipo' : 'Mi Equipo', icon: <PeopleIcon />, shortLabel: 'Equipo' }]
         : []),
-      // Xpay al final (lado derecho), con el logo X-Pay (slot xpay_full_white).
+      // Xpay al final (lado derecho), con el logo X-Pay (slot xpay_full_black, fondo blanco del panel).
       ...(advisorXpayEnabled ? [{
         id: 'xpay',
         label: xpayLogoUrl
@@ -3263,7 +3263,7 @@ export default function DashboardAdvisor() {
                 Cambiar cliente
               </Button>
             </Box>
-            <EntangledPaymentRequest hideHeader advisorClientId={xpayClient.id} key={xpayClient.id} />
+            <EntangledPaymentRequest hideHeader lightTheme advisorClientId={xpayClient.id} key={xpayClient.id} />
           </Box>
         ) : (
           <Typography variant="body2" color="text.secondary" sx={{ px: 1 }}>
