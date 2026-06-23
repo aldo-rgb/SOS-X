@@ -478,7 +478,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
           carrierCost: editCarrierCost,
         });
         setEditInstrOpen(false);
-        await handleSearch();
+        await handleSearch({ internal: true });
       } catch (e: any) {
         setEditInstrError(e?.response?.data?.error || e?.message || 'Error guardando');
       } finally {
@@ -713,7 +713,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
                 setDimsModalOpen(false);
                 const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
                 window.open(`${baseUrl}/admin/paquete-express/label/pdf/${tn}`, '_blank');
-                await handleSearch();
+                await handleSearch({ internal: true });
             } else {
                 const rawErr = res.data?.error;
                 setError(typeof rawErr === 'string' ? rawErr : rawErr ? JSON.stringify(rawErr) : 'No se pudo generar la guía');
@@ -780,7 +780,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
                     setError(`Algunas cajas fallaron: ${res.data.errors.map((e: any) => `Caja ${e.boxNumber || '?'}: ${e.error}`).join(' | ')}`);
                 }
 
-                await handleSearch();
+                await handleSearch({ internal: true });
             } else {
                 const rawErr = res.data?.error;
                 const msg = typeof rawErr === 'string' ? rawErr : Array.isArray(rawErr) ? rawErr.map((x: any) => (typeof x === 'string' ? x : x?.description || JSON.stringify(x))).join(' | ') : rawErr ? JSON.stringify(rawErr) : 'No se pudo generar la guía';
@@ -945,14 +945,17 @@ ${labelsHtml}
         printWindow.document.close();
     };
 
-    const handleSearch = async () => {
+    const handleSearch = async (opts?: { internal?: boolean }) => {
         const normalized = extractTracking(tracking);
         if (!normalized) {
             setError('Ingresa un tracking válido');
             return;
         }
-        // Si es la misma guía escaneada anteriormente, marcar para auto-impresión
-        const isRescan = lastScannedRef.current === normalized;
+        // Solo consideramos "re-escaneo" (que dispara auto-impresión) si el
+        // usuario disparó la búsqueda manualmente; los refrescos internos
+        // (después de imprimir, marcar etiqueta, generar PQTX, etc.) NO deben
+        // re-abrir el PDF.
+        const isRescan = !opts?.internal && lastScannedRef.current === normalized;
         setLoading(true);
         setError(null);
         setShipment(null);
@@ -1274,7 +1277,7 @@ ${body}
             // Marcar como etiquetado al imprimir guía asignada
             if (shipment?.master?.id) {
                 api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`)
-                    .then(() => { setPqtxMsg('✅ Guía impresa — etiquetado marcado'); handleSearch(); })
+                    .then(() => { setPqtxMsg('✅ Guía impresa — etiquetado marcado'); handleSearch({ internal: true }); })
                     .catch(() => { /* silencioso */ });
             }
         } catch (e: any) {
@@ -1407,7 +1410,7 @@ ${labelsHtml}
         // Marcar como etiquetado al imprimir guía de paquetería
         if (shipment?.master?.id) {
             api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`)
-                .then(() => { setPqtxMsg('✅ Guía de paquetería impresa — etiquetado marcado'); handleSearch(); })
+                .then(() => { setPqtxMsg('✅ Guía de paquetería impresa — etiquetado marcado'); handleSearch({ internal: true }); })
                 .catch(() => { /* silencioso */ });
         }
     };
@@ -2036,7 +2039,7 @@ ${labelsHtml}
                                             sx={{ mb: 1, borderColor: '#FF6F00', color: '#FF6F00', fontSize: 11 }}
                                             onClick={() => {
                                                 api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`)
-                                                    .then(() => { setPqtxMsg('✅ Etiqueta confirmada como impresa'); handleSearch(); })
+                                                    .then(() => { setPqtxMsg('✅ Etiqueta confirmada como impresa'); handleSearch({ internal: true }); })
                                                     .catch(() => { setPqtxMsg('❌ Error al confirmar etiqueta'); });
                                             }}
                                         >
@@ -2106,7 +2109,7 @@ ${labelsHtml}
                                                         // Marcar como etiqueta impresa al descargar
                                                         try {
                                                             await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
-                                                            await handleSearch();
+                                                            await handleSearch({ internal: true });
                                                         } catch { /* no crítico */ }
                                                     }}
                                                     sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
