@@ -2405,7 +2405,6 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               );
             })()}
 
-            <Text style={[styles.quoteLine, { marginTop: 8 }]}>Proveedor ENTANGLED: <Text style={styles.quoteVal}>{providers.find((x) => x.id === selectedProviderId)?.name || '-'}</Text></Text>
             {(() => {
               const prov = providers.find((x) => x.id === selectedProviderId);
               const all = Array.isArray(prov?.bank_accounts) ? prov!.bank_accounts! : [];
