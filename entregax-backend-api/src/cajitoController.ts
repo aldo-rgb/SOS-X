@@ -108,11 +108,11 @@ const TOOLS: ToolDef[] = [
   {
     name: 'lookup_package',
     requiredCapability: 'cajito.read.packages',
-    description: 'Busca un paquete por tracking interno o tracking del transportista. Devuelve estado, peso, dimensiones, cliente y fechas clave.',
+    description: 'Busca un paquete por su número de GUÍA/tracking (US-…, TDX-…, AIR…, LOG…, JJD…, o tracking del transportista). Devuelve estado, peso, dimensiones, cliente y fechas. NO la uses para casilleros de cliente como "S2345"/"S96" — para eso usa search_clients.',
     parameters: {
       type: 'object',
       properties: {
-        tracking: { type: 'string', description: 'Tracking interno (TDX-…, US-…) o tracking externo' }
+        tracking: { type: 'string', description: 'Número de guía/tracking (TDX-…, US-…, AIR…, LOG…). NO es un casillero S####.' }
       },
       required: ['tracking']
     },
@@ -144,11 +144,11 @@ const TOOLS: ToolDef[] = [
   {
     name: 'search_clients',
     requiredCapability: 'cajito.read.clients',
-    description: 'Busca clientes por casillero (box_id), nombre o correo. Devuelve hasta 25 coincidencias.',
+    description: 'Busca CLIENTES por número de casillero (box_id, p.ej. "S1", "S96", "S2345"), nombre o correo, y devuelve sus datos. ÚSALA siempre que pidan información/detalles de un cliente o cuando den un número que empieza con "S" seguido de dígitos (eso es un casillero de cliente, NO una guía).',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Texto a buscar (mín 2 caracteres)' }
+        query: { type: 'string', description: 'Casillero (S2345), nombre o correo del cliente (mín 2 caracteres)' }
       },
       required: ['query']
     },
