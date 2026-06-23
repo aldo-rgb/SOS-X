@@ -313,7 +313,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
   const loadFiscalProfile = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/entangled/fiscal-profile`, { headers: authHeaders });
+      // En modo asesor precargamos los datos fiscales DEL CLIENTE seleccionado.
+      const url = isAdvisorMode
+        ? `${API_URL}/api/advisor/xpay/fiscal-profile?client_id=${advisorClientId}`
+        : `${API_URL}/api/entangled/fiscal-profile`;
+      const res = await fetch(url, { headers: authHeaders });
       const p = await res.json();
       if (p && p.rfc) {
         setRfc(p.rfc || '');
@@ -325,7 +329,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setRequiereFactura(true);
       }
     } catch {}
-  }, [token]);
+  }, [token, isAdvisorMode, advisorClientId]);
 
   const loadClaveHistory = useCallback(async () => {
     try {
