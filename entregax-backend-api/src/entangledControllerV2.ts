@@ -22,6 +22,12 @@ import crypto from 'crypto';
 import { pool } from './db';
 import { sendXPayConfirmation } from './whatsappService';
 import {
+  listMySuppliers,
+  createMySupplier,
+  updateMySupplier,
+  deleteMySupplier,
+} from './entangledController';
+import {
   sendSolicitudPago,
   uploadComprobanteToTransaccion,
   getTipoCambio,
@@ -1915,12 +1921,21 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
   const advisorId = getAuthUserId(req);
   if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
   try {
-    const params: any[] = [advisorId];
-    let where = `r.advisor_id = $1`;
+    let params: any[];
+    let where: string;
     const clientId = Number(req.query.client_id);
     if (Number.isFinite(clientId) && clientId > 0) {
-      params.push(clientId);
-      where += ` AND r.user_id = $${params.length}`;
+      // Vista de un cliente específico: el asesor ve TODO el historial Xpay del
+      // cliente (creado por el propio cliente o por cualquier asesor), siempre
+      // que el cliente le pertenezca.
+      const owns = await advisorOwnsClient(advisorId, clientId);
+      if (!owns) return res.status(403).json({ error: 'Ese cliente no está asignado a ti' });
+      params = [clientId];
+      where = `r.user_id = $1`;
+    } else {
+      // Sin cliente: solo las operaciones que creó este asesor.
+      params = [advisorId];
+      where = `r.advisor_id = $1`;
     }
     const r = await pool.query(
       `SELECT r.id, r.referencia_pago, r.servicio, r.op_monto, r.op_divisa_destino,
@@ -1939,4 +1954,52 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
     console.error('[XPAY-ASESOR] getAdvisorXpayRequests:', err.message);
     return res.status(500).json({ error: 'Error al listar operaciones' });
   }
+};
+
+// ── Proveedores Xpay del cliente, gestionados por su asesor ─────────────────
+// El asesor opera la libreta de proveedores DEL CLIENTE (no la suya). Cada
+// endpoint verifica que el cliente esté asignado al asesor y delega en los
+// handlers base con ownerUserId = clienteId.
+const resolveAdvisorClientId = async (
+  req: Request,
+  res: Response,
+): Promise<number | null> => {
+  const advisorId = getAuthUserId(req);
+  if (!advisorId) { res.status(401).json({ error: 'No autenticado' }); return null; }
+  const clientId = Number((req.query.client_id ?? (req.body || {}).client_id));
+  if (!Number.isFinite(clientId) || clientId <= 0) {
+    res.status(400).json({ error: 'client_id es requerido' });
+    return null;
+  }
+  const owns = await advisorOwnsClient(advisorId, clientId);
+  if (!owns) { res.status(403).json({ error: 'Ese cliente no está asignado a ti' }); return null; }
+  return clientId;
+};
+
+// GET /api/advisor/xpay/suppliers?client_id=
+export const getAdvisorXpaySuppliers = async (req: Request, res: Response): Promise<any> => {
+  const clientId = await resolveAdvisorClientId(req, res);
+  if (clientId == null) return;
+  return listMySuppliers(req, res, { ownerUserId: clientId });
+};
+
+// POST /api/advisor/xpay/suppliers   (client_id en el body)
+export const createAdvisorXpaySupplier = async (req: Request, res: Response): Promise<any> => {
+  const clientId = await resolveAdvisorClientId(req, res);
+  if (clientId == null) return;
+  return createMySupplier(req, res, { ownerUserId: clientId });
+};
+
+// PUT /api/advisor/xpay/suppliers/:id?client_id=
+export const updateAdvisorXpaySupplier = async (req: Request, res: Response): Promise<any> => {
+  const clientId = await resolveAdvisorClientId(req, res);
+  if (clientId == null) return;
+  return updateMySupplier(req, res, { ownerUserId: clientId });
+};
+
+// DELETE /api/advisor/xpay/suppliers/:id?client_id=
+export const deleteAdvisorXpaySupplier = async (req: Request, res: Response): Promise<any> => {
+  const clientId = await resolveAdvisorClientId(req, res);
+  if (clientId == null) return;
+  return deleteMySupplier(req, res, { ownerUserId: clientId });
 };

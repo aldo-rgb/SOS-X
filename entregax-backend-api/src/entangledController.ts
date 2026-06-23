@@ -837,8 +837,8 @@ export const webhookPagoProveedor = async (req: Request, res: Response): Promise
 // CRUD: Proveedores de Envío del cliente (beneficiarios)
 // ===========================================================================
 
-export const listMySuppliers = async (req: Request, res: Response): Promise<any> => {
-  const userId = getAuthUserId(req);
+export const listMySuppliers = async (req: Request, res: Response, opts?: { ownerUserId?: number }): Promise<any> => {
+  const userId = opts?.ownerUserId ?? getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   try {
     const r = await pool.query(
@@ -854,8 +854,8 @@ export const listMySuppliers = async (req: Request, res: Response): Promise<any>
   }
 };
 
-export const createMySupplier = async (req: Request, res: Response): Promise<any> => {
-  const userId = getAuthUserId(req);
+export const createMySupplier = async (req: Request, res: Response, opts?: { ownerUserId?: number }): Promise<any> => {
+  const userId = opts?.ownerUserId ?? getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   const b = req.body || {};
   if (!b.nombre_beneficiario || !b.numero_cuenta || !b.banco_nombre) {
@@ -957,8 +957,8 @@ export const createMySupplier = async (req: Request, res: Response): Promise<any
   }
 };
 
-export const updateMySupplier = async (req: Request, res: Response): Promise<any> => {
-  const userId = getAuthUserId(req);
+export const updateMySupplier = async (req: Request, res: Response, opts?: { ownerUserId?: number }): Promise<any> => {
+  const userId = opts?.ownerUserId ?? getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
@@ -1012,8 +1012,8 @@ export const updateMySupplier = async (req: Request, res: Response): Promise<any
   }
 };
 
-export const deleteMySupplier = async (req: Request, res: Response): Promise<any> => {
-  const userId = getAuthUserId(req);
+export const deleteMySupplier = async (req: Request, res: Response, opts?: { ownerUserId?: number }): Promise<any> => {
+  const userId = opts?.ownerUserId ?? getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });

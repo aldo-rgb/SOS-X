@@ -869,15 +869,29 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     }
   }, [authHeader, token, advisorClientId]);
 
+  // En modo asesor la libreta de proveedores es la DEL CLIENTE, vía los endpoints
+  // /api/advisor/xpay/suppliers (con client_id). En modo normal, los del usuario.
+  const supplierUrl = useCallback(
+    (id?: number) =>
+      advisorClientId
+        ? `${API_URL}/api/advisor/xpay/suppliers${id ? `/${id}` : ''}`
+        : `${API_URL}/api/entangled/suppliers${id ? `/${id}` : ''}`,
+    [advisorClientId]
+  );
+  const supplierClientParams = advisorClientId ? { client_id: advisorClientId } : undefined;
+
   const loadSuppliers = useCallback(async () => {
     if (!token) return;
     try {
-      const r = await axios.get(`${API_URL}/api/entangled/suppliers`, { headers: authHeader });
+      const r = await axios.get(supplierUrl(), {
+        headers: authHeader,
+        params: advisorClientId ? { client_id: advisorClientId } : undefined,
+      });
       setSuppliers(r.data || []);
     } catch (err: unknown) {
       console.error('[ENTANGLED] loadSuppliers:', err);
     }
-  }, [authHeader, token]);
+  }, [authHeader, token, advisorClientId, supplierUrl]);
 
   const loadFiscalProfile = useCallback(async () => {
     if (!token) return;
@@ -995,14 +1009,17 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   const persistSupplier = async (data: SupplierFormData): Promise<number | null> => {
     try {
       if (data.id) {
-        const r = await axios.put(`${API_URL}/api/entangled/suppliers/${data.id}`, data, {
+        const r = await axios.put(supplierUrl(data.id), data, {
           headers: authHeader,
+          params: supplierClientParams,
         });
         return r.data?.id ?? data.id;
       }
-      const r = await axios.post(`${API_URL}/api/entangled/suppliers`, data, {
-        headers: authHeader,
-      });
+      const r = await axios.post(
+        supplierUrl(),
+        advisorClientId ? { ...data, client_id: advisorClientId } : data,
+        { headers: authHeader }
+      );
       return r.data?.id ?? null;
     } catch (err: any) {
       console.error('[ENTANGLED] persistSupplier:', err);
@@ -1023,7 +1040,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   const handleDeleteSupplier = async (id: number) => {
     if (!confirm(t('entangled.suppliers.confirmDelete', '¿Eliminar este proveedor?'))) return;
     try {
-      await axios.delete(`${API_URL}/api/entangled/suppliers/${id}`, { headers: authHeader });
+      await axios.delete(supplierUrl(id), { headers: authHeader, params: supplierClientParams });
       await loadSuppliers();
     } catch {
       setSnack({ open: true, severity: 'error', message: t('entangled.messages.error') });
@@ -1033,9 +1050,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   const handleToggleFavorite = async (s: SavedSupplier) => {
     try {
       await axios.put(
-        `${API_URL}/api/entangled/suppliers/${s.id}`,
+        supplierUrl(s.id),
         { ...s, is_favorite: !s.is_favorite },
-        { headers: authHeader }
+        { headers: authHeader, params: supplierClientParams }
       );
       await loadSuppliers();
     } catch {
@@ -2272,8 +2289,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
 
       <Box sx={{ display: 'flex', gap: 1.5, mb: 3, alignItems: 'stretch', flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
-        {/* Tabla: 2/3 del ancho */}
-        <Box sx={{ flex: '2 2 0', minWidth: { xs: '100%', md: 0 } }}>
+        {/* Tabla: 3/4 del ancho (más ancha) */}
+        <Box sx={{ flex: '3 3 0', minWidth: { xs: '100%', md: 0 } }}>
           <Paper variant="outlined" sx={{ bgcolor: C.surface, border: `1px solid ${C.border}`, borderRadius: '12px', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5, borderBottom: `1px solid ${C.border}` }}>
               <Typography sx={{ color: C.textPrimary, fontWeight: 800, fontSize: '0.96rem' }}>
@@ -2561,7 +2578,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             </TableContainer>
           </Paper>
         </Box>
-        {/* Mis proveedores: 1/3 del ancho — alineado bajo Tasa de Cambio */}
+        {/* Mis proveedores: 1/4 del ancho (más angosto) */}
         <Box sx={{ flex: '1 1 0', minWidth: { xs: '100%', md: 0 } }}>
           <Paper
             variant="outlined"

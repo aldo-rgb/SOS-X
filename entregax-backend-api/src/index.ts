@@ -371,6 +371,10 @@ import {
   createAdvisorXpayRequest,
   getAdvisorXpayClients,
   getAdvisorXpayRequests,
+  getAdvisorXpaySuppliers,
+  createAdvisorXpaySupplier,
+  updateAdvisorXpaySupplier,
+  deleteAdvisorXpaySupplier,
   getExchangeRate as getEntangledExchangeRate,
   searchConceptosProxy as searchEntangledConceptos,
   asignacionProxy as entangledAsignacion,
@@ -5299,6 +5303,11 @@ app.get('/api/entangled/payment-requests/me', authenticateToken, getMyEntangledR
 app.get('/api/advisor/xpay/clients', authenticateToken, getAdvisorXpayClients);
 app.get('/api/advisor/xpay/payment-requests', authenticateToken, getAdvisorXpayRequests);
 app.post('/api/advisor/xpay/payment-requests', authenticateToken, entangledRequestUpload.single('comprobante'), createAdvisorXpayRequest);
+// Libreta de proveedores del cliente, operada por su asesor
+app.get('/api/advisor/xpay/suppliers', authenticateToken, getAdvisorXpaySuppliers);
+app.post('/api/advisor/xpay/suppliers', authenticateToken, createAdvisorXpaySupplier);
+app.put('/api/advisor/xpay/suppliers/:id', authenticateToken, updateAdvisorXpaySupplier);
+app.delete('/api/advisor/xpay/suppliers/:id', authenticateToken, deleteAdvisorXpaySupplier);
 app.get('/api/entangled/payment-requests/:id', authenticateToken, getEntangledRequestDetail);
 // Admin
 app.get('/api/admin/entangled/payment-requests', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAllEntangledRequests);
@@ -5321,10 +5330,10 @@ app.post('/api/entangled/payment-requests/cleanup', authenticateToken, entangled
 app.post('/api/admin/entangled/rotate-api-key', authenticateToken, requireMinLevel(ROLES.DIRECTOR), rotateEntangledApiKey);
 app.post('/api/admin/entangled/providers/sync', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncEntangledProveedoresFromRemote);
 // Proveedores de envío (beneficiarios) por cliente
-app.get('/api/entangled/suppliers', authenticateToken, listMyEntangledSuppliers);
-app.post('/api/entangled/suppliers', authenticateToken, createMyEntangledSupplier);
-app.put('/api/entangled/suppliers/:id', authenticateToken, updateMyEntangledSupplier);
-app.delete('/api/entangled/suppliers/:id', authenticateToken, deleteMyEntangledSupplier);
+app.get('/api/entangled/suppliers', authenticateToken, (req, res) => listMyEntangledSuppliers(req, res));
+app.post('/api/entangled/suppliers', authenticateToken, (req, res) => createMyEntangledSupplier(req, res));
+app.put('/api/entangled/suppliers/:id', authenticateToken, (req, res) => updateMyEntangledSupplier(req, res));
+app.delete('/api/entangled/suppliers/:id', authenticateToken, (req, res) => deleteMyEntangledSupplier(req, res));
 // Perfil fiscal reutilizable, pricing y cotización
 app.get('/api/entangled/fiscal-profile', authenticateToken, getMyEntangledFiscalProfile);
 app.get('/api/entangled/clave-sat-history', authenticateToken, listEntangledClaveSatHistory);
