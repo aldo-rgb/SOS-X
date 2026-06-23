@@ -143,49 +143,6 @@ const DESTINATION_COUNTRIES = [
   { code: 'CN', label: 'China', flag: '🇨🇳' },
   { code: 'US', label: 'Estados Unidos', flag: '🇺🇸' },
 ];
-const COUNTRY_META: Record<string, { label: string; flag: string }> = {
-  MX: { label: 'México', flag: '🇲🇽' },
-  CN: { label: 'China', flag: '🇨🇳' },
-  US: { label: 'Estados Unidos', flag: '🇺🇸' },
-  KR: { label: 'Corea del Sur', flag: '🇰🇷' },
-  JP: { label: 'Japón', flag: '🇯🇵' },
-};
-
-const normalizeCountryCode = (raw: unknown): string | null => {
-  if (typeof raw !== 'string') return null;
-  const v = raw.trim().toUpperCase();
-  if (!v) return null;
-  if (COUNTRY_META[v]) return v;
-  if (v === 'CHINA') return 'CN';
-  if (v === 'ESTADOS UNIDOS' || v === 'USA' || v === 'UNITED STATES') return 'US';
-  if (v === 'COREA' || v === 'COREA DEL SUR' || v === 'SOUTH KOREA') return 'KR';
-  if (v === 'JAPON' || v === 'JAPÓN' || v === 'JAPAN') return 'JP';
-  if (v === 'MEXICO' || v === 'MÉXICO') return 'MX';
-  return null;
-};
-
-const resolveDestinationCountryCode = (
-  request: EntangledRequest & Record<string, unknown>,
-  fallbackCode: string,
-): string => {
-  const candidates = [
-    request.pais_destino,
-    request.destino_pais,
-    request.supplier_country,
-    request.beneficiary_country,
-    request.country_destino,
-  ];
-  for (const candidate of candidates) {
-    const normalized = normalizeCountryCode(candidate);
-    if (normalized) return normalized;
-  }
-  if (String(request.op_divisa_destino || '').toUpperCase() === 'RMB') return 'CN';
-  if (String(request.op_divisa_destino || '').toUpperCase() === 'USD') return normalizeCountryCode(fallbackCode) || 'US';
-  return 'US';
-};
-
-
-
 const formatTimeLabel = (ts: number | null | undefined) => {
   if (!ts) return '—';
   return new Intl.DateTimeFormat('es-MX', {
@@ -2301,8 +2258,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ bgcolor: C.tableHeadBg }}>
-                    {['#', 'Monto', 'Destino / Divisa', 'Estatus', 'Documento Fiscal', 'Comprobante de Pago', 'Acciones'].map((col, i) => (
-                      <TableCell key={col} align={i === 6 ? 'center' : i === 1 ? 'right' : 'left'}
+                    {['#', 'Monto', 'Estatus', 'Documento Fiscal', 'Comprobante de Pago', 'Acciones'].map((col, i) => (
+                      <TableCell key={col} align={i === 5 ? 'center' : i === 1 ? 'right' : 'left'}
                         sx={{ color: C.textFaint, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.62rem', letterSpacing: '0.09em', borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap', py: 1.2 }}>
                         {col}
                       </TableCell>
@@ -2312,13 +2269,13 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 <TableBody>
                   {loading && requests.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ bgcolor: C.surfaceAlt }}>
+                      <TableCell colSpan={6} align="center" sx={{ bgcolor: C.surfaceAlt }}>
                         <CircularProgress size={20} sx={{ color: ORANGE }} />
                       </TableCell>
                     </TableRow>
                   ) : requests.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ bgcolor: C.surfaceAlt, py: 3 }}>
+                      <TableCell colSpan={6} align="center" sx={{ bgcolor: C.surfaceAlt, py: 3 }}>
                         <Typography variant="body2" sx={{ color: C.textFaint }}>
                           {t('entangled.messages.empty')}
                         </Typography>
@@ -2327,8 +2284,6 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   ) : (
                     requests.map((r) => {
                       const cancellationFee = Number(r.cancellation_fee_usd || 0);
-                      const destinationCode = resolveDestinationCountryCode(r as EntangledRequest & Record<string, unknown>, widgetDestinationCountry);
-                      const destination = COUNTRY_META[destinationCode] || COUNTRY_META.US;
                       return (
                       <TableRow key={r.id} hover sx={{ bgcolor: 'transparent', '&:hover': { bgcolor: C.rowHover }, '& td': { borderBottom: `1px solid ${C.border}`, py: 1.4 } }}>
                         {/* Referencia — tooltip con razón social + transaccion_id */}
@@ -2356,25 +2311,19 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                             </Box>
                           </Tooltip>
                         </TableCell>
-                        {/* Monto — sólo el número naranja, protagonista */}
+                        {/* Monto — número naranja + divisa */}
                         <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                           <Stack spacing={0.2} alignItems="flex-end">
                             <Typography sx={{ color: ORANGE, fontWeight: 800, fontSize: '1.05rem', lineHeight: 1.1, letterSpacing: '-0.01em' }}>
                               ${formatMoney(r.op_monto)}
+                              <Box component="span" sx={{ color: C.textMuted, fontWeight: 700, fontSize: '0.72rem', ml: 0.5 }}>
+                                {r.op_divisa_destino || ''}
+                              </Box>
                             </Typography>
                             {String(r.estatus_global || '').toLowerCase() === 'cancelado' && cancellationFee > 0 && (
                               <Typography sx={{ color: '#fdba74', fontSize: '0.62rem' }}>Fee ${formatMoney(cancellationFee)} USD</Typography>
                             )}
                           </Stack>
-                        </TableCell>
-                        {/* Destino / Divisa — bandera + sigla en plata */}
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.7, px: 0.9, py: 0.4, borderRadius: 1.2, bgcolor: C.surface, border: `1px solid ${C.border}` }}>
-                            <Typography sx={{ fontSize: '0.95rem', lineHeight: 1 }}>{destination.flag}</Typography>
-                            <Typography sx={{ color: C.textSecondary, fontWeight: 700, fontSize: '0.7rem', letterSpacing: '0.06em' }}>
-                              {r.op_divisa_destino || '—'}
-                            </Typography>
-                          </Box>
                         </TableCell>
                         {/* Estatus */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
