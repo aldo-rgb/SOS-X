@@ -667,6 +667,38 @@ export async function pqtxCancel(req: Request, res: Response) {
       });
     }
 
+    // El usuario puede pegar el número de guía real de Paquete Express
+    // (numérico, p.ej. 19168443576) o el folio/carta porte interno
+    // (MTY01WE0A18510). cancelguia SOLO acepta el número de guía real, así que
+    // resolvemos cada entrada contra pqtx_shipments (por tracking o por folio).
+    const resolved: string[] = [];
+    const noEncontrados: string[] = [];
+    for (const raw of trackingNumbers) {
+      const n = String(raw).trim();
+      if (!n) continue;
+      // Numérico largo → ya es el número de guía de Paquete Express.
+      if (/^\d{6,}$/.test(n)) { resolved.push(n); continue; }
+      // Si no, buscar el tracking real por folio (folio_porte = 'folioLetterPorte:MTY...').
+      const row = await pool.query(
+        `SELECT tracking_number FROM pqtx_shipments
+          WHERE tracking_number = $1
+             OR folio_porte = $1
+             OR folio_porte ILIKE '%' || $1 || '%'
+          ORDER BY created_at DESC LIMIT 1`,
+        [n]
+      );
+      const tn = row.rows[0]?.tracking_number;
+      if (tn) resolved.push(String(tn));
+      else noEncontrados.push(n);
+    }
+
+    if (resolved.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: `No se encontró ninguna guía para: ${noEncontrados.join(', ')}. Usa el número de guía de Paquete Express (numérico) o el folio (MTY...).`,
+      });
+    }
+
     const url = `${PQTX_BASE_URL}/RadRestFul/api/rad/v1/cancelguia`;
     const body = {
       header: {
@@ -677,7 +709,7 @@ export async function pqtxCancel(req: Request, res: Response) {
       },
       body: {
         request: {
-          data: trackingNumbers,
+          data: resolved,
         },
       },
     };
@@ -690,17 +722,20 @@ export async function pqtxCancel(req: Request, res: Response) {
     // La API PQTX responde con header:null y datos en body.response.data
     const respBody = response.data?.body?.response;
 
+    const avisoNoEnc = noEncontrados.length
+      ? ` (no se encontraron en el sistema: ${noEncontrados.join(', ')})`
+      : '';
     if (respBody?.success === true) {
       res.json({
         success: true,
-        message: `${trackingNumbers.length} guía(s) cancelada(s) correctamente`,
+        message: `${resolved.length} guía(s) cancelada(s) correctamente: ${resolved.join(', ')}${avisoNoEnc}`,
         data: respBody.data || respBody,
         raw: response.data,
       });
     } else if (response.data?.header?.staTrans === 'ok') {
       res.json({
         success: true,
-        message: `${trackingNumbers.length} guía(s) cancelada(s) correctamente`,
+        message: `${resolved.length} guía(s) cancelada(s) correctamente: ${resolved.join(', ')}${avisoNoEnc}`,
         data: response.data.body,
         raw: response.data,
       });

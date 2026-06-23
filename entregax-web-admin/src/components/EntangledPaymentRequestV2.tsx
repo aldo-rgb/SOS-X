@@ -51,7 +51,7 @@ interface RequestRow {
   created_at: string;
 }
 
-const REGIMENES = ['601', '603', '605', '606', '612', '621', '626', '616'];
+const REGIMENES = ['601', '603', '605', '606', '607', '608', '610', '611', '612', '614', '615', '616', '620', '621', '622', '623', '624', '625', '626'];
 const USOS_CFDI = ['G01', 'G03', 'P01', 'I01', 'I02', 'I04', 'I08'];
 
 const formatMoney = (v: number | string) =>
