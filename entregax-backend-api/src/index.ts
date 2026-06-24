@@ -5390,10 +5390,18 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
     const { pool: dbPool } = await import('./db');
     const owner = await dbPool.query(
-      'SELECT user_id, entangled_transaccion_id FROM entangled_payment_requests WHERE id = $1', [id]
+      'SELECT user_id, advisor_id, entangled_transaccion_id FROM entangled_payment_requests WHERE id = $1', [id]
     );
     if (!owner.rows.length) return res.status(404).json({ error: 'Solicitud no encontrada' });
-    if (owner.rows[0].user_id !== userId) return res.status(403).json({ error: 'Sin acceso' });
+    // Acceso: el cliente dueño, el asesor que la creó, o staff con rol elevado
+    const ownerUserId = Number(owner.rows[0].user_id);
+    const ownerAdvisorId = owner.rows[0].advisor_id != null ? Number(owner.rows[0].advisor_id) : null;
+    const role = String(req.user?.role || '').toLowerCase();
+    const elevatedRoles = ['super_admin', 'admin', 'director', 'branch_manager'];
+    const allowed = ownerUserId === Number(userId)
+      || (ownerAdvisorId != null && ownerAdvisorId === Number(userId))
+      || elevatedRoles.includes(role);
+    if (!allowed) return res.status(403).json({ error: 'Sin acceso' });
 
     // Backfill de tc_cliente_final para solicitudes antiguas: si el frontend
     // envía un TC en el body y la columna está vacía, lo persistimos antes de
