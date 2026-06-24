@@ -975,6 +975,12 @@ ${labelsHtml}
 </body></html>`;
         printWindow.document.write(html);
         printWindow.document.close();
+        // Marcar como etiquetado al imprimir etiqueta EntregaX Local/Nacional
+        if (shipment?.master?.id) {
+            api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`)
+                .then(() => { setPqtxMsg('✅ Etiqueta impresa — paquete marcado como etiquetado'); handleSearch({ internal: true }); })
+                .catch(() => { /* silencioso */ });
+        }
     };
 
     const handleSearch = async (opts?: { internal?: boolean }) => {
