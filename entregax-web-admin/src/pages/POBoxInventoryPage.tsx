@@ -4,7 +4,7 @@
 // Paleta: naranja, negro, blanco, rojo
 // ============================================
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import {
     Box,
     Typography,
@@ -40,6 +40,8 @@ import {
     SwapHoriz as SwapHorizIcon,
     Warning as WarningIcon,
     Inventory as InventoryStackIcon,
+    KeyboardArrowDown as ExpandMoreIcon,
+    KeyboardArrowRight as ExpandRightIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -80,6 +82,21 @@ interface InventoryPackage {
     vehiclePlates?: string | null;
 }
 
+// Guía hija (caja) de un master — para ver/cambiar su estado individual.
+interface ChildPackage {
+    id: number;
+    tracking: string;
+    description?: string;
+    boxNumber?: number | null;
+    weight?: number | null;
+    status: string;
+    statusLabel?: string;
+    receivedAt?: string;
+    statusDate?: string;
+    deliveredAt?: string;
+    dimensions?: { length: number | null; width: number | null; height: number | null };
+}
+
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
     received: { label: 'Recibido CEDIS HIDALGO TX', color: '#1976D2' },
     processing: { label: 'Procesando', color: '#F9A825' },
@@ -115,9 +132,14 @@ export default function POBoxInventoryPage({ onBack }: Props) {
     const [savingId, setSavingId] = useState<number | null>(null);
     // Confirmación con diseño (reemplaza window.confirm nativo)
     const [pendingChange, setPendingChange] = useState<
-        | { pkg: InventoryPackage; newStatus: string; newLabel: string; currentLabel: string }
+        | { pkg: InventoryPackage; newStatus: string; newLabel: string; currentLabel: string; masterId?: number }
         | null
     >(null);
+
+    // Despliegue de guías hijas (cajas) por master
+    const [expanded, setExpanded] = useState<Set<number>>(new Set());
+    const [childrenMap, setChildrenMap] = useState<Record<number, ChildPackage[]>>({});
+    const [loadingChildren, setLoadingChildren] = useState<Set<number>>(new Set());
 
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -138,16 +160,43 @@ export default function POBoxInventoryPage({ onBack }: Props) {
         }
     }, []);
 
-    const handleChangeStatus = async (pkg: InventoryPackage, newStatus: string) => {
+    const handleChangeStatus = async (pkg: InventoryPackage, newStatus: string, masterId?: number) => {
         if (!isSuperAdmin || newStatus === pkg.status) return;
         const newLabel = EDITABLE_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
         const currentLabel = STATUS_LABELS[pkg.status]?.label || pkg.statusLabel || pkg.status;
-        setPendingChange({ pkg, newStatus, newLabel, currentLabel });
+        setPendingChange({ pkg, newStatus, newLabel, currentLabel, masterId });
+    };
+
+    // Carga (lazy) y refresco de las guías hijas de un master
+    const fetchChildren = useCallback(async (masterId: number) => {
+        try {
+            const token = localStorage.getItem('token') || '';
+            const res = await axios.get(`${API_URL}/api/packages/${masterId}/children`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            setChildrenMap(prev => ({ ...prev, [masterId]: res.data.children || [] }));
+        } catch {
+            setChildrenMap(prev => ({ ...prev, [masterId]: prev[masterId] || [] }));
+        }
+    }, []);
+
+    const toggleMaster = async (masterId: number) => {
+        const isOpen = expanded.has(masterId);
+        setExpanded(prev => {
+            const n = new Set(prev);
+            n.has(masterId) ? n.delete(masterId) : n.add(masterId);
+            return n;
+        });
+        if (!isOpen && !childrenMap[masterId] && !loadingChildren.has(masterId)) {
+            setLoadingChildren(prev => new Set(prev).add(masterId));
+            await fetchChildren(masterId);
+            setLoadingChildren(prev => { const n = new Set(prev); n.delete(masterId); return n; });
+        }
     };
 
     const confirmChangeStatus = async () => {
         if (!pendingChange) return;
-        const { pkg, newStatus } = pendingChange;
+        const { pkg, newStatus, masterId } = pendingChange;
         setPendingChange(null);
         setSavingId(pkg.id);
         try {
@@ -162,6 +211,10 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                     ? { ...p, status: newStatus }
                     : p
             ));
+            // Si cambió una guía hija, refrescar las hijas de su master.
+            if (masterId) await fetchChildren(masterId);
+            // Si cambió un master, sus hijas cambian en cascada → refrescar si están abiertas.
+            else if (pkg.isMaster && expanded.has(pkg.id)) await fetchChildren(pkg.id);
             load();
         } catch (e) {
             const err = e as { response?: { data?: { error?: string; detail?: string; code?: string } }; message?: string };
@@ -351,16 +404,30 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                     const dimStr = dim?.length && dim?.width && dim?.height
                                         ? `${dim.length}×${dim.width}×${dim.height} cm`
                                         : '—';
+                                    const canExpand = !!(p.isMaster && p.totalBoxes && p.totalBoxes > 1);
+                                    const isOpen = expanded.has(p.id);
+                                    const kids = childrenMap[p.id] || [];
                                     return (
-                                        <TableRow key={p.id} hover>
+                                      <Fragment key={p.id}>
+                                        <TableRow hover>
                                             <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE }}>
-                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                                                    {canExpand && (
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={() => toggleMaster(p.id)}
+                                                            sx={{ p: 0.2, color: BLACK }}
+                                                        >
+                                                            {isOpen ? <ExpandMoreIcon fontSize="small" /> : <ExpandRightIcon fontSize="small" />}
+                                                        </IconButton>
+                                                    )}
                                                     {p.tracking}
-                                                    {p.isMaster && p.totalBoxes && p.totalBoxes > 1 && (
+                                                    {canExpand && (
                                                         <Chip
                                                             label={`${p.totalBoxes} cajas`}
                                                             size="small"
-                                                            sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700, fontSize: 11, height: 20 }}
+                                                            onClick={() => toggleMaster(p.id)}
+                                                            sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700, fontSize: 11, height: 20, cursor: 'pointer' }}
                                                         />
                                                     )}
                                                 </Box>
@@ -473,6 +540,94 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                                 </TableCell>
                                             )}
                                         </TableRow>
+
+                                        {/* Guías hijas (cajas) — estado individual */}
+                                        {isOpen && loadingChildren.has(p.id) && (
+                                            <TableRow>
+                                                <TableCell colSpan={isSuperAdmin ? 12 : 11} sx={{ bgcolor: '#FFF8F0', py: 1 }}>
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 4 }}>
+                                                        <CircularProgress size={16} sx={{ color: ORANGE }} />
+                                                        <Typography variant="caption" color="text.secondary">Cargando cajas…</Typography>
+                                                    </Box>
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
+                                        {isOpen && !loadingChildren.has(p.id) && kids.length === 0 && (
+                                            <TableRow>
+                                                <TableCell colSpan={isSuperAdmin ? 12 : 11} sx={{ bgcolor: '#FFF8F0', py: 1, pl: 6 }}>
+                                                    <Typography variant="caption" color="text.secondary">Sin cajas hijas registradas.</Typography>
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
+                                        {isOpen && kids.map((c, ci) => {
+                                            const cMeta = STATUS_LABELS[c.status] || { label: c.statusLabel || c.status, color: '#757575' };
+                                            const cd = c.dimensions;
+                                            const cDimStr = cd?.length && cd?.width && cd?.height ? `${cd.length}×${cd.width}×${cd.height} cm` : '—';
+                                            return (
+                                                <TableRow key={`c-${c.id}`} sx={{ bgcolor: '#FFFCF7' }}>
+                                                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600, color: '#8a3f1f', pl: 4 }}>
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.7 }}>
+                                                            <Box component="span" sx={{ color: BLACK, opacity: 0.4 }}>↳</Box>
+                                                            {c.tracking}
+                                                            <Chip label={`caja ${c.boxNumber || ci + 1}`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, borderColor: ORANGE, color: ORANGE }} />
+                                                        </Box>
+                                                    </TableCell>
+                                                    <TableCell><Typography variant="caption" color="text.secondary">—</Typography></TableCell>
+                                                    <TableCell><Typography variant="caption" color="text.secondary">—</Typography></TableCell>
+                                                    <TableCell align="right">{c.weight ? Number(c.weight).toFixed(2) : '—'}</TableCell>
+                                                    <TableCell>{cDimStr}</TableCell>
+                                                    <TableCell>
+                                                        <Chip label={cMeta.label} size="small" sx={{ bgcolor: cMeta.color, color: '#FFF', fontWeight: 600 }} />
+                                                    </TableCell>
+                                                    <TableCell><Typography variant="caption" color="text.secondary">—</Typography></TableCell>
+                                                    <TableCell>
+                                                        {(() => {
+                                                            const raw = c.statusDate || c.receivedAt;
+                                                            if (!raw) return <Typography variant="caption" color="text.secondary">—</Typography>;
+                                                            const d = new Date(raw);
+                                                            return (
+                                                                <Box>
+                                                                    <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', lineHeight: 1.2 }}>
+                                                                        {d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                                    </Typography>
+                                                                    <Typography variant="caption" sx={{ color: '#666', fontFamily: 'monospace' }}>
+                                                                        {d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false })} hrs
+                                                                    </Typography>
+                                                                </Box>
+                                                            );
+                                                        })()}
+                                                    </TableCell>
+                                                    <TableCell><Typography variant="caption" color="text.secondary">—</Typography></TableCell>
+                                                    <TableCell><Typography variant="caption" color="text.secondary">—</Typography></TableCell>
+                                                    <TableCell><Typography variant="caption" color="text.secondary">—</Typography></TableCell>
+                                                    {isSuperAdmin && (
+                                                        <TableCell sx={{ minWidth: 200 }}>
+                                                            <FormControl size="small" fullWidth disabled={savingId === c.id}>
+                                                                <Select
+                                                                    value={EDITABLE_STATUSES.some(s => s.value === c.status) ? c.status : ''}
+                                                                    displayEmpty
+                                                                    onChange={(e) => handleChangeStatus(
+                                                                        { ...c, isMaster: false, client: p.client } as unknown as InventoryPackage,
+                                                                        String(e.target.value),
+                                                                        p.id
+                                                                    )}
+                                                                    sx={{ fontSize: '0.8rem', bgcolor: '#FFF', '& .MuiSelect-select': { py: 0.6 } }}
+                                                                >
+                                                                    <MenuItem value="" disabled><em>Seleccionar…</em></MenuItem>
+                                                                    {EDITABLE_STATUSES.map(s => (
+                                                                        <MenuItem key={s.value} value={s.value} disabled={s.value === c.status}>{s.label}</MenuItem>
+                                                                    ))}
+                                                                </Select>
+                                                                {savingId === c.id && (
+                                                                    <Typography variant="caption" sx={{ color: ORANGE, mt: 0.3 }}>Guardando…</Typography>
+                                                                )}
+                                                            </FormControl>
+                                                        </TableCell>
+                                                    )}
+                                                </TableRow>
+                                            );
+                                        })}
+                                      </Fragment>
                                     );
                                 })}
                             </TableBody>

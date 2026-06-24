@@ -116,6 +116,7 @@ import {
   uploadDhlNationalGuide,
   streamDhlNationalGuide,
   updatePackageStatus,
+  getPackageChildren,
   getPackagesByClient,
   getPackageStats,
   getPackageLabels,
@@ -4453,6 +4454,8 @@ app.get('/api/packages/:id/movements', authenticateToken, getPackageMovementsByI
 // Obtener etiquetas para imprimir (Bodega o superior)
 app.get('/api/packages/:id/labels', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getPackageLabels);
 
+// Guías hijas (cajas) de una guía master — para ver/cambiar estado individual
+app.get('/api/packages/:id/children', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getPackageChildren);
 // Actualizar estatus de paquete (Bodega o superior)
 app.patch('/api/packages/:id/status', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updatePackageStatus);
 

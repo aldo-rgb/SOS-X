@@ -1004,6 +1004,53 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
     }
 };
 
+// ============ GUÍAS HIJAS DE UNA GUÍA MASTER ============
+// GET /api/packages/:id/children — devuelve las cajas (guías hijas) de un master
+// para poder ver/cambiar su estado individualmente desde el inventario.
+export const getPackageChildren = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const masterId = Number(req.params.id);
+        if (!Number.isFinite(masterId) || masterId <= 0) {
+            res.status(400).json({ error: 'id inválido' });
+            return;
+        }
+        const result = await pool.query(`
+            SELECT p.id, p.tracking_internal, p.tracking_provider, p.description, p.weight,
+                   p.pkg_length, p.pkg_width, p.pkg_height, p.box_number, p.status,
+                   p.national_carrier, p.received_at, p.delivered_at, p.created_at,
+                   (SELECT MAX(ph.created_at) FROM package_history ph
+                     WHERE ph.package_id = p.id AND ph.status::text = p.status::text) AS status_date
+              FROM packages p
+             WHERE p.master_id = $1
+             ORDER BY p.box_number ASC NULLS LAST, p.id ASC
+        `, [masterId]);
+
+        const children = result.rows.map((pkg: any) => ({
+            id: pkg.id,
+            tracking: pkg.tracking_internal,
+            trackingProvider: pkg.tracking_provider,
+            description: pkg.description,
+            boxNumber: pkg.box_number,
+            weight: pkg.weight ? parseFloat(pkg.weight) : null,
+            dimensions: {
+                length: pkg.pkg_length ? parseFloat(pkg.pkg_length) : null,
+                width: pkg.pkg_width ? parseFloat(pkg.pkg_width) : null,
+                height: pkg.pkg_height ? parseFloat(pkg.pkg_height) : null,
+            },
+            status: pkg.status,
+            statusLabel: getStatusLabel(pkg.status, pkg.national_carrier),
+            receivedAt: pkg.received_at,
+            deliveredAt: pkg.delivered_at,
+            statusDate: pkg.status_date || pkg.received_at || pkg.created_at,
+        }));
+
+        res.json({ success: true, children });
+    } catch (error: any) {
+        console.error('❌ Error en getPackageChildren:', error?.message || error);
+        res.status(500).json({ error: 'Error al obtener guías hijas', details: error?.message });
+    }
+};
+
 // ============ LISTAR PAQUETES POBOX SIN CLIENTE ASIGNADO ============
 // GET /api/packages/unassigned
 // Devuelve paquetes POBOX_USA que no tienen user_id válido vinculado.
