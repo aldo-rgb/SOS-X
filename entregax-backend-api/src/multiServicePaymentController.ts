@@ -1866,20 +1866,33 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
           await pool.query(`
             INSERT INTO openpay_webhook_logs (
               transaction_id, monto_recibido, monto_neto, concepto,
-              fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method
-            ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'paypal')
+              fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method,
+              empresa_id, service_type, payload_json
+            ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'paypal', $5, $6, $7)
             ON CONFLICT (transaction_id) DO UPDATE SET
               estatus_procesamiento = 'procesado',
               payment_method = 'paypal',
               tipo_pago = 'paypal',
               monto_recibido = EXCLUDED.monto_recibido,
               monto_neto = EXCLUDED.monto_neto,
-              fecha_pago = EXCLUDED.fecha_pago
+              fecha_pago = EXCLUDED.fecha_pago,
+              empresa_id = COALESCE(openpay_webhook_logs.empresa_id, EXCLUDED.empresa_id),
+              service_type = COALESCE(openpay_webhook_logs.service_type, EXCLUDED.service_type)
           `, [
             captureDetails?.id || paypalOrderId,
             intentAmount,
             `Pago PayPal - ${pkgIds.length} paquete(s)`,
             parsedUserId,
+            intent.emitter_id || null,
+            intent.service_type || null,
+            JSON.stringify({
+              source: 'paypal_callback',
+              intent_id: intent.id,
+              paypal_order_id: paypalOrderId,
+              capture_id: captureDetails?.id || null,
+              payment_ref: refForLog,
+              package_ids: pkgIds,
+            }),
           ]);
         } catch (logErr: any) {
           console.log('Note: webhook_logs insert:', logErr.message);

@@ -186,15 +186,113 @@ export const handlePayPalWebhook = async (req: Request, res: Response): Promise<
     try {
         switch (eventType) {
             case 'PAYMENT.CAPTURE.COMPLETED': {
-                // Caso normal: ya el callback lo procesó. Reforzamos idempotente.
+                // El callback (GET) normalmente hace todo el trabajo (marcar paquetes,
+                // registrar el ingreso en openpay_webhook_logs, etc.). Pero si el cliente
+                // cierra el navegador antes de que se ejecute el callback, sólo el webhook
+                // llega y el flujo queda incompleto: el intent se marca capturado pero el
+                // dashboard de cobranza no ve el ingreso. Por eso aquí garantizamos:
+                //   1) marcar el intent como capturado
+                //   2) marcar paquetes como pagados (idempotente)
+                //   3) insertar registro en openpay_webhook_logs (idempotente por transaction_id)
                 if (resource?.custom_id || resource?.invoice_id) {
-                    // Si tenemos refs, marcar el intent en BD si no lo está.
                     await pool.query(
                         `UPDATE paypal_payment_intents
                             SET status = 'captured', capture_id = $1, captured_at = COALESCE(captured_at, NOW()), updated_at = NOW()
                           WHERE capture_id IS NULL AND payment_ref = $2 AND status <> 'captured'`,
                         [resourceId, String(resource.invoice_id || resource.custom_id)]
                     ).catch(() => {});
+                }
+
+                // Buscar el intent por capture_id o por payment_ref para hacer el backfill
+                // del flujo de cobranza si el callback no se ejecutó.
+                let intentRow: any = null;
+                try {
+                    const r = await pool.query(
+                        `SELECT id, paypal_order_id, payment_ref, payment_reference, user_id,
+                                package_ids, amount, currency, service_type, emitter_id,
+                                capture_id, captured_at
+                           FROM paypal_payment_intents
+                          WHERE capture_id = $1
+                             OR ($2::text IS NOT NULL AND payment_ref = $2::text)
+                             OR ($3::text IS NOT NULL AND paypal_order_id = $3::text)
+                          LIMIT 1`,
+                        [
+                            resourceId,
+                            resource?.invoice_id || resource?.custom_id || null,
+                            resource?.supplementary_data?.related_ids?.order_id || null,
+                        ]
+                    );
+                    intentRow = r.rows[0] || null;
+                } catch { /* ignore */ }
+
+                if (intentRow) {
+                    const pkgIds: number[] = (Array.isArray(intentRow.package_ids)
+                        ? intentRow.package_ids
+                        : (() => { try { return JSON.parse(intentRow.package_ids || '[]'); } catch { return []; } })()
+                    ).map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0);
+                    const intentAmount = Number(intentRow.amount) || 0;
+                    const userId = Number(intentRow.user_id) || 0;
+                    const captureId = String(intentRow.capture_id || resourceId);
+                    const paymentRef = String(intentRow.payment_reference || intentRow.payment_ref || `PP-${intentRow.id}`);
+
+                    if (pkgIds.length > 0 && userId > 0 && intentAmount > 0) {
+                        // Marcar paquetes como pagados (idempotente)
+                        await pool.query(`
+                          UPDATE packages SET
+                            payment_status = 'paid',
+                            monto_pagado = COALESCE(monto_pagado, 0) + $1,
+                            saldo_pendiente = 0,
+                            costing_paid = TRUE,
+                            client_paid = TRUE,
+                            costing_paid_at = COALESCE(costing_paid_at, CURRENT_TIMESTAMP),
+                            payment_reference = COALESCE(payment_reference, $2)
+                          WHERE id = ANY($3) AND user_id = $4
+                            AND COALESCE(payment_status, '') <> 'paid'
+                        `, [intentAmount, paymentRef, pkgIds, userId]).catch((e: any) => {
+                            console.warn('[paypal webhook] packages update:', e.message);
+                        });
+
+                        // Registrar el ingreso en openpay_webhook_logs para el dashboard.
+                        // ON CONFLICT por transaction_id evita duplicados con el callback.
+                        try {
+                            await pool.query(`
+                              INSERT INTO openpay_webhook_logs (
+                                transaction_id, monto_recibido, monto_neto, concepto,
+                                fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method,
+                                empresa_id, service_type, payload_json
+                              ) VALUES ($1, $2, $2, $3, COALESCE($7::timestamptz, CURRENT_TIMESTAMP), 'procesado', $4, 'paypal', 'paypal', $5, $6, $8)
+                              ON CONFLICT (transaction_id) DO UPDATE SET
+                                estatus_procesamiento = 'procesado',
+                                payment_method = 'paypal',
+                                tipo_pago = 'paypal',
+                                monto_recibido = EXCLUDED.monto_recibido,
+                                monto_neto = EXCLUDED.monto_neto,
+                                fecha_pago = EXCLUDED.fecha_pago,
+                                empresa_id = COALESCE(openpay_webhook_logs.empresa_id, EXCLUDED.empresa_id),
+                                service_type = COALESCE(openpay_webhook_logs.service_type, EXCLUDED.service_type)
+                            `, [
+                                captureId,
+                                intentAmount,
+                                `Pago PayPal - ${pkgIds.length} paquete(s)`,
+                                userId,
+                                intentRow.emitter_id || null,
+                                intentRow.service_type || null,
+                                intentRow.captured_at || null,
+                                JSON.stringify({
+                                    source: 'paypal_webhook',
+                                    intent_id: intentRow.id,
+                                    paypal_order_id: intentRow.paypal_order_id,
+                                    capture_id: captureId,
+                                    payment_ref: paymentRef,
+                                    package_ids: pkgIds,
+                                    event_type: eventType,
+                                    event_id: eventId,
+                                }),
+                            ]);
+                        } catch (logErr: any) {
+                            console.warn('[paypal webhook] webhook_logs insert:', logErr.message);
+                        }
+                    }
                 }
                 break;
             }
