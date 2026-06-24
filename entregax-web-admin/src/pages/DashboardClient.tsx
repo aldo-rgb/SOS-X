@@ -1418,6 +1418,7 @@ export default function DashboardClient() {
     amount: number;
     currency: string;
     expiresAt: string;
+    method?: 'cash' | 'transfer';
     bankInfo: { banco: string; clabe: string; cuenta: string; beneficiario: string; concepto: string };
     branchInfo: { nombre: string; direccion: string; telefono: string; horario: string };
   } | null>(null);
@@ -3929,6 +3930,7 @@ export default function DashboardClient() {
             amount: response.data.amount,
             currency: response.data.currency || 'MXN',
             expiresAt: response.data.expiresAt,
+            method: isTransfer ? 'transfer' : 'cash',
             bankInfo: response.data.bankInfo || { banco: '', clabe: '', cuenta: '', beneficiario: '', concepto: response.data.reference },
             branchInfo: response.data.branchInfo || { nombre: '', direccion: '', telefono: '', horario: '' }
           });
@@ -12833,20 +12835,29 @@ export default function DashboardClient() {
                 </Typography>
               </Box>
 
-              {/* Info bancaria */}
-              {paymentInstructionsDialog.bankInfo?.clabe && (
+              {/* Info bancaria — Transferencia muestra solo CLABE; Efectivo solo Cuenta */}
+              {paymentInstructionsDialog.bankInfo?.clabe && (() => {
+                const isTransferDlg = paymentInstructionsDialog.method === 'transfer';
+                return (
                 <Box sx={{ mb: 2, p: 2, bgcolor: '#f8fafc', borderRadius: 2, border: '1px solid #e2e8f0' }}>
-                  <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>🏦 Depósito / Transferencia SPEI:</Typography>
+                  <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                    {isTransferDlg ? '🏦 Transferencia bancaria (SPEI):' : '💵 Depósito en efectivo:'}
+                  </Typography>
                   <Typography variant="body2">Banco: <strong>{paymentInstructionsDialog.bankInfo.banco}</strong></Typography>
-                  <Typography variant="body2">Cuenta: <strong>{paymentInstructionsDialog.bankInfo.cuenta}</strong></Typography>
-                  <Typography variant="body2">CLABE: <strong>{paymentInstructionsDialog.bankInfo.clabe}</strong></Typography>
+                  {!isTransferDlg && paymentInstructionsDialog.bankInfo.cuenta && (
+                    <Typography variant="body2">Cuenta: <strong>{paymentInstructionsDialog.bankInfo.cuenta}</strong></Typography>
+                  )}
+                  {isTransferDlg && (
+                    <Typography variant="body2">CLABE: <strong>{paymentInstructionsDialog.bankInfo.clabe}</strong></Typography>
+                  )}
                   <Typography variant="body2">Beneficiario: <strong>{paymentInstructionsDialog.bankInfo.beneficiario}</strong></Typography>
                   <Typography variant="body2">Referencia: <strong>{paymentInstructionsDialog.reference}</strong></Typography>
                 </Box>
-              )}
+                );
+              })()}
 
-              {/* Info sucursal */}
-              {paymentInstructionsDialog.branchInfo?.nombre && (
+              {/* Info sucursal (solo efectivo, no transferencia) */}
+              {paymentInstructionsDialog.method !== 'transfer' && paymentInstructionsDialog.branchInfo?.nombre && (
                 <Box sx={{ mb: 2, p: 2, bgcolor: '#f8fafc', borderRadius: 2, border: '1px solid #e2e8f0' }}>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>🏪 Pago en efectivo:</Typography>
                   <Typography variant="body2">{paymentInstructionsDialog.branchInfo.nombre}</Typography>

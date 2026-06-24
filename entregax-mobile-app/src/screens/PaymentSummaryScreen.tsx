@@ -633,8 +633,9 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                   <Text style={styles.instructionsTitle}>{selectedPaymentType === 'transfer' ? '🏦 Transferencia bancaria (SPEI):' : '💵 Depósito en efectivo:'}</Text>
                   <View style={styles.bankInfo}>
                     <Text style={styles.bankInfoRow}>Banco: <Text style={styles.bankInfoValue}>{bankInfo?.banco || '—'}</Text></Text>
-                    {bankInfo?.clabe ? <Text style={styles.bankInfoRow}>CLABE: <Text style={styles.bankInfoValue}>{bankInfo.clabe}</Text></Text> : null}
-                    {bankInfo?.cuenta ? <Text style={styles.bankInfoRow}>Cuenta: <Text style={styles.bankInfoValue}>{bankInfo.cuenta}</Text></Text> : null}
+                    {/* Transferencia → solo CLABE. Efectivo → solo Cuenta. */}
+                    {selectedPaymentType === 'transfer' && bankInfo?.clabe ? <Text style={styles.bankInfoRow}>CLABE: <Text style={styles.bankInfoValue}>{bankInfo.clabe}</Text></Text> : null}
+                    {selectedPaymentType !== 'transfer' && bankInfo?.cuenta ? <Text style={styles.bankInfoRow}>Cuenta: <Text style={styles.bankInfoValue}>{bankInfo.cuenta}</Text></Text> : null}
                     <Text style={styles.bankInfoRow}>Beneficiario: <Text style={styles.bankInfoValue}>{bankInfo?.beneficiario || '—'}</Text></Text>
                     <Text style={styles.bankInfoRow}>Referencia: <Text style={styles.bankInfoValue}>{paymentReference}</Text></Text>
                   </View>
