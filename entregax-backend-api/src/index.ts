@@ -9167,6 +9167,8 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
       params1.push(branch_id);
     }
 
+    // Lista de alias del servicio seleccionado (compartida por ambas fuentes).
+    let serviceList: string[] | null = null;
     if (service_type) {
       const SERVICE_ALIASES: Record<string, string[]> = {
         china_air:  ['china_air', 'AIR_CHN_MX', 'aereo'],
@@ -9178,9 +9180,9 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         mx_cedis:   ['mx_cedis', 'AA_DHL', 'dhl'],
         AA_DHL:     ['mx_cedis', 'AA_DHL', 'dhl'],
       };
-      const list = SERVICE_ALIASES[service_type as string] || [service_type as string];
+      serviceList = SERVICE_ALIASES[service_type as string] || [service_type as string];
       whereClause1 += ` AND owl.service_type = ANY($${paramIndex1++})`;
-      params1.push(list);
+      params1.push(serviceList);
     }
 
     const webhookResult = await pool.query(`
@@ -9222,11 +9224,18 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
     `, params1);
 
     // 2. Obtener pagos con comprobantes enviados (listos para conciliar)
+    // Servicio real desde openpay_webhook_logs (la tabla pobox_payments no lo
+    // guarda). Aplica el mismo filtro de servicio que la fuente #1, para no
+    // mostrar órdenes de otro servicio (p.ej. PO Box en el filtro Aéreo China).
     let whereClause2 = "WHERE pp.status = 'vouchers_submitted' AND pp.payment_method = 'cash'";
     const params2: any[] = [];
+    if (serviceList) {
+      params2.push(serviceList);
+      whereClause2 += ` AND COALESCE(owl2.service_type, 'POBOX_USA') = ANY($${params2.length})`;
+    }
 
     const poboxResult = await pool.query(`
-      SELECT 
+      SELECT
         pp.id,
         pp.payment_reference as referencia,
         pp.user_id,
@@ -9235,7 +9244,7 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         pp.created_at,
         pp.voucher_total,
         pp.voucher_count,
-        'POBOX_USA' as tipo_servicio,
+        COALESCE(owl2.service_type, 'POBOX_USA') as tipo_servicio,
         pp.payment_method,
         COALESCE(pp.credit_applied, 0) as credit_applied,
         COALESCE(pp.wallet_applied, 0) as wallet_applied,
@@ -9246,6 +9255,7 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         'pobox' as source
       FROM pobox_payments pp
       LEFT JOIN users u ON pp.user_id = u.id
+      LEFT JOIN openpay_webhook_logs owl2 ON owl2.transaction_id = pp.payment_reference
       ${whereClause2}
       ORDER BY pp.created_at DESC
     `, params2);
