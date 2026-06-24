@@ -49,7 +49,7 @@ const OPENPAY_RED = '#E11B1B';
 const CASH_YELLOW = '#F59E0B';
 
 // Tipos de método de pago
-type PaymentType = 'card' | 'paypal' | 'cash';
+type PaymentType = 'card' | 'paypal' | 'cash' | 'transfer';
 
 type RootStackParamList = {
   Home: { user: any; token: string };
@@ -335,17 +335,20 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     }
   };
 
-  // ============ PAGO EN EFECTIVO ============
-  const startCashPayment = async () => {
+  // ============ PAGO A CUENTA / TRANSFERENCIA ============
+  // method 'cash' = Pago a cuenta (sin factura). 'transferencia' = Transferencia
+  // bancaria (permite factura, se clasifica como Transferencia en cobranza).
+  const startCashPayment = async (method: 'cash' | 'transferencia' = 'cash') => {
     setLoading(true);
     try {
       const packageIds = packages.map(p => (p as any).payment_source_id ?? p.id);
       const reference = generatePaymentReference();
-      
+
       // Obtener el branch_id del primer paquete si existe
       const firstPackage = packages[0] as any;
       const branchId = firstPackage?.destination_branch_id || firstPackage?.branch_id || null;
-      
+      const wantsInvoice = method === 'transferencia' && requireInvoice;
+
       const res = await fetch(`${API_URL}/api/pobox/payment/cash/create`, {
         method: 'POST',
         headers: {
@@ -358,6 +361,9 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
           totalAmount: totalMXN,
           reference,
           branchId,
+          paymentMethod: method,
+          requireInvoice: wantsInvoice,
+          fiscalData: wantsInvoice ? fiscalForm : null,
         }),
       });
 
@@ -500,7 +506,10 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
         startPayPalPayment();
         break;
       case 'cash':
-        startCashPayment();
+        startCashPayment('cash');
+        break;
+      case 'transfer':
+        startCashPayment('transferencia');
         break;
     }
   };
@@ -621,7 +630,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 </View>
 
                 <View style={styles.instructionsSection}>
-                  <Text style={styles.instructionsTitle}>💵 Depósito en efectivo:</Text>
+                  <Text style={styles.instructionsTitle}>{selectedPaymentType === 'transfer' ? '🏦 Transferencia bancaria (SPEI):' : '💵 Depósito en efectivo:'}</Text>
                   <View style={styles.bankInfo}>
                     <Text style={styles.bankInfoRow}>Banco: <Text style={styles.bankInfoValue}>{bankInfo?.banco || '—'}</Text></Text>
                     {bankInfo?.clabe ? <Text style={styles.bankInfoRow}>CLABE: <Text style={styles.bankInfoValue}>{bankInfo.clabe}</Text></Text> : null}
@@ -1097,6 +1106,26 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                     <Text style={styles.paymentOptionSublabel}>Pago en efectivo o transferencia</Text>
                   </View>
                 </TouchableOpacity>
+
+                {/* Opción: Transferencia bancaria (permite factura) */}
+                <TouchableOpacity
+                  style={[
+                    styles.paymentOption,
+                    selectedPaymentType === 'transfer' && styles.paymentOptionSelected,
+                  ]}
+                  onPress={() => setSelectedPaymentType('transfer')}
+                >
+                  <View style={styles.paymentOptionRadio}>
+                    <RadioButton value="transfer" color={'#1e88e5'} />
+                  </View>
+                  <View style={[styles.paymentOptionIcon, { backgroundColor: '#1e88e520' }]}>
+                    <Text style={styles.paymentEmoji}>🏦</Text>
+                  </View>
+                  <View style={styles.paymentOptionInfo}>
+                    <Text style={styles.paymentOptionLabel}>Transferencia bancaria</Text>
+                    <Text style={styles.paymentOptionSublabel}>Transferencia SPEI con opción de factura</Text>
+                  </View>
+                </TouchableOpacity>
               </RadioButton.Group>
             </Card.Content>
           </Card>
@@ -1195,13 +1224,14 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                   selectedPaymentType === 'card' && { backgroundColor: OPENPAY_RED },
                   selectedPaymentType === 'paypal' && { backgroundColor: PAYPAL_BLUE },
                   selectedPaymentType === 'cash' && { backgroundColor: CASH_YELLOW },
+                  selectedPaymentType === 'transfer' && { backgroundColor: '#1e88e5' },
                 ]}
                 labelStyle={styles.payButtonLabel}
-                icon={selectedPaymentType === 'cash' ? 'file-document' : 'credit-card'}
+                icon={(selectedPaymentType === 'cash' || selectedPaymentType === 'transfer') ? 'file-document' : 'credit-card'}
               >
-                {loading 
-                  ? 'Procesando...' 
-                  : selectedPaymentType === 'cash'
+                {loading
+                  ? 'Procesando...'
+                  : (selectedPaymentType === 'cash' || selectedPaymentType === 'transfer')
                     ? 'Generar Orden de Pago'
                     : `Pagar $${totalMXN.toFixed(2)} MXN`
                 }

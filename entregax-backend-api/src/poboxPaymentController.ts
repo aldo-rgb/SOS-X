@@ -702,8 +702,16 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
 // ============================================
 export const createPoboxCashPayment = async (req: AuthRequest, res: Response): Promise<any> => {
     try {
-        const { packageIds, totalAmount, currency = 'MXN', branchId } = req.body;
+        const { packageIds, totalAmount, currency = 'MXN', branchId, requireInvoice, fiscalData } = req.body;
         const userId = req.body.userId || req.user?.userId || req.user?.id;
+
+        // Método: 'cash' (Pago a cuenta, sin factura) o 'transferencia' (permite
+        // factura y se clasifica como Transferencia en cobranza). La diferencia
+        // operativa con cash es: factura permitida + payment_method distinto.
+        const rawMethod = String(req.body.paymentMethod || req.body.method || 'cash').toLowerCase();
+        const paymentMethod = rawMethod === 'transferencia' ? 'transferencia' : 'cash';
+        // Solo la transferencia permite factura.
+        const wantsInvoice = paymentMethod === 'transferencia' && !!requireInvoice;
 
         if (!packageIds || !Array.isArray(packageIds) || packageIds.length === 0) {
             return res.status(400).json({ error: 'packageIds es requerido y debe ser un array' });
@@ -711,6 +719,33 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
 
         if (!totalAmount || totalAmount <= 0) {
             return res.status(400).json({ error: 'totalAmount es requerido y debe ser mayor a 0' });
+        }
+
+        // Si pidió factura (solo transferencia), validar y guardar datos fiscales
+        // del usuario (mismo patrón que el flujo PayPal).
+        if (wantsInvoice) {
+            if (!fiscalData || !fiscalData.razon_social || !fiscalData.rfc || !fiscalData.codigo_postal || !fiscalData.regimen_fiscal) {
+                return res.status(400).json({
+                    error: 'Datos fiscales incompletos',
+                    message: 'Para solicitar factura, debes proporcionar: razón social, RFC, código postal y régimen fiscal'
+                });
+            }
+            await pool.query(`
+                UPDATE users SET
+                    fiscal_razon_social = $1,
+                    fiscal_rfc = $2,
+                    fiscal_codigo_postal = $3,
+                    fiscal_regimen_fiscal = $4,
+                    fiscal_uso_cfdi = $5
+                WHERE id = $6
+            `, [
+                fiscalData.razon_social,
+                String(fiscalData.rfc).toUpperCase(),
+                fiscalData.codigo_postal,
+                fiscalData.regimen_fiscal,
+                fiscalData.uso_cfdi || 'G03',
+                userId
+            ]);
         }
 
         // Resolver el box_id del usuario para aceptar también paquetes legacy
@@ -1005,11 +1040,11 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         const paymentResult = await pool.query(`
             INSERT INTO pobox_payments (
                 user_id, package_ids, amount, currency, payment_method,
-                payment_reference, status, created_at
-            ) VALUES ($1, $2, $3, $4, 'cash', $5, 'pending_payment',
+                payment_reference, status, requiere_factura, created_at
+            ) VALUES ($1, $2, $3, $4, $6, $5, 'pending_payment', $7,
                       CURRENT_TIMESTAMP)
             RETURNING id
-        `, [userId, JSON.stringify(filteredPackageIds), finalTotalAmount, currency, paymentRef]);
+        `, [userId, JSON.stringify(filteredPackageIds), finalTotalAmount, currency, paymentRef, paymentMethod, wantsInvoice]);
 
         const payment = paymentResult.rows[0];
 
@@ -1026,7 +1061,7 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
                 ) VALUES (
                     $1, $2, $3, $4, $4,
                     $5, CURRENT_TIMESTAMP, 'pending_payment', $8,
-                    'cash', $6, $7
+                    $9, $6, $7
                 )
             `, [
                 paymentRef,
@@ -1040,9 +1075,10 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
                     trackings: trackings
                 }),
                 branchId || null,
-                serviceTypeForConfig
+                serviceTypeForConfig,
+                paymentMethod
             ]);
-            console.log(`📝 Registro pendiente creado en dashboard: ${paymentRef}`);
+            console.log(`📝 Registro pendiente creado en dashboard: ${paymentRef} (${paymentMethod})`);
         } catch (logError) {
             console.log('Nota: No se pudo crear log en dashboard', logError);
         }
@@ -1279,6 +1315,69 @@ export const confirmPoboxCashPayment = async (req: AuthRequest, res: Response): 
         res.status(500).json({ error: 'Error al confirmar pago' });
     } finally {
         client.release();
+    }
+};
+
+// ============================================
+// Facturación de una Orden de Pago por TRANSFERENCIA al confirmarse en cobranza.
+// Pago a cuenta (efectivo) no factura; transferencia sí, si requiere_factura.
+// Idempotente: si ya está facturada o no requiere factura, no hace nada.
+// Forma de pago SAT '03' (transferencia electrónica de fondos).
+// ============================================
+export const generateInvoiceForPoboxPaymentByRef = async (paymentReference: string): Promise<void> => {
+    try {
+        const ref = String(paymentReference || '').toUpperCase().trim();
+        if (!ref) return;
+        const r = await pool.query(
+            `SELECT id, user_id, package_ids, amount, currency, payment_method,
+                    requiere_factura, facturada
+               FROM pobox_payments WHERE payment_reference = $1`,
+            [ref]
+        );
+        const payment = r.rows[0];
+        if (!payment) return;
+        if (payment.payment_method !== 'transferencia') return; // solo transferencia
+        if (!payment.requiere_factura || payment.facturada) return;
+
+        const packageIds = typeof payment.package_ids === 'string'
+            ? JSON.parse(payment.package_ids)
+            : (payment.package_ids || []);
+
+        console.log(`🧾 [TRANSFERENCIA] Generando factura para orden ${ref}...`);
+        const invoiceResult = await createInvoice({
+            paymentId: ref,
+            paymentType: 'pobox',
+            userId: payment.user_id,
+            amount: parseFloat(payment.amount) || 0,
+            currency: payment.currency || 'MXN',
+            paymentMethod: 'spei', // SAT forma '03' transferencia
+            description: `Servicio de logística - ${packageIds.length} paquete(s)`,
+            packageIds: packageIds,
+            serviceType: 'po_box'
+        });
+
+        if (invoiceResult?.success) {
+            await pool.query(
+                `UPDATE pobox_payments SET facturada = TRUE, factura_uuid = $1,
+                        factura_created_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                [invoiceResult.uuid, payment.id]
+            );
+            console.log(`✅ [TRANSFERENCIA] Factura generada: ${invoiceResult.uuid}`);
+        } else {
+            await pool.query(
+                `UPDATE pobox_payments SET factura_error = $1 WHERE id = $2`,
+                [invoiceResult?.error || 'Error desconocido', payment.id]
+            );
+            console.error(`❌ [TRANSFERENCIA] Error generando factura: ${invoiceResult?.error}`);
+        }
+    } catch (e: any) {
+        console.error('❌ [TRANSFERENCIA] Excepción generando factura:', e.message);
+        try {
+            await pool.query(
+                `UPDATE pobox_payments SET factura_error = $1 WHERE payment_reference = $2`,
+                [e.message, String(paymentReference).toUpperCase().trim()]
+            );
+        } catch { /* noop */ }
     }
 };
 

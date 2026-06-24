@@ -1215,7 +1215,7 @@ export default function DashboardClient() {
   
   // Modal de Pago
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'card' | 'paypal' | 'branch'>('card');  const [requiresInvoice, setRequiresInvoice] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'card' | 'paypal' | 'branch' | 'transfer'>('card');  const [requiresInvoice, setRequiresInvoice] = useState(false);
   // Selección de tarjeta Openpay (guardada o nueva tokenizada)
   const [openpaySelection, setOpenpaySelection] = useState<OpenpaySelection>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
@@ -1230,6 +1230,7 @@ export default function DashboardClient() {
   const paymentGatewayMethods = useMemo(() => [
     { id: 'card', name: t('cd.payment.card'), description: t('cd.payment.cardDesc'), icon: '💳', color: '#00D4AA', provider: 'OpenPay' },
     { id: 'paypal', name: 'PayPal', description: t('cd.payment.paypalDesc'), icon: '🅿️', color: '#0070ba', provider: 'PayPal' },
+    { id: 'transfer', name: 'Transferencia bancaria', description: 'Transferencia SPEI con opción de factura', icon: '🏦', color: '#1e88e5', provider: 'Referencia' },
     { id: 'branch', name: t('cd.payment.branch'), description: t('cd.payment.branchDesc'), icon: '💵', color: '#f39c12', provider: 'Referencia' },
   ], [t]);
   
@@ -3880,14 +3881,29 @@ export default function DashboardClient() {
           throw new Error(response.data.error || t('cd.snackbar.paypalCreateError'));
         }
         
-      } else if (selectedPaymentMethod === 'branch') {
-        // Pago en Sucursal - usar endpoint real de pobox
-        const cashData = {
+      } else if (selectedPaymentMethod === 'branch' || selectedPaymentMethod === 'transfer') {
+        // Pago a cuenta (sucursal/efectivo) o Transferencia bancaria — mismo
+        // endpoint de Orden de Pago. La diferencia: transferencia permite
+        // factura y se clasifica como "Transferencia" en cobranza.
+        const isTransfer = selectedPaymentMethod === 'transfer';
+        const cashData: Record<string, unknown> = {
           packageIds: selectedIds,
           userId: JSON.parse(localStorage.getItem('user') || '{}').id,
           totalAmount: total,
-          currency: 'MXN'
+          currency: 'MXN',
+          paymentMethod: isTransfer ? 'transferencia' : 'cash',
         };
+        // Solo la transferencia adjunta datos de factura (si la pidió).
+        if (isTransfer && requiresInvoice) {
+          cashData.requireInvoice = true;
+          cashData.fiscalData = {
+            razon_social: effectiveInvoice.razon_social,
+            rfc: effectiveInvoice.rfc,
+            codigo_postal: effectiveInvoice.codigo_postal,
+            regimen_fiscal: effectiveInvoice.regimen_fiscal,
+            uso_cfdi: effectiveInvoice.uso_cfdi,
+          };
+        }
         const response = await api.post('/pobox/payment/cash/create', cashData);
         
         if (response.data.success) {
@@ -13621,9 +13637,9 @@ export default function DashboardClient() {
               <RadioGroup
                 value={selectedPaymentMethod}
                 onChange={(e) => {
-                  const newMethod = e.target.value as 'card' | 'paypal' | 'branch';
+                  const newMethod = e.target.value as 'card' | 'paypal' | 'branch' | 'transfer';
                   setSelectedPaymentMethod(newMethod);
-                  // Si selecciona pago en sucursal, desactivar facturación
+                  // Pago a cuenta (sucursal) NO permite factura. Transferencia SÍ.
                   if (newMethod === 'branch') {
                     setRequiresInvoice(false);
                   }
@@ -13632,8 +13648,8 @@ export default function DashboardClient() {
                 {(() => {
                   const selectedCount = getSelectedPackages().length;
                   const visibleMethods = paymentGatewayMethods.filter((method) => {
-                    // Multi-paquete: solo Pago en efectivo
-                    if (selectedCount > 1 && method.id !== 'branch') {
+                    // Multi-paquete: solo Pago a cuenta o Transferencia
+                    if (selectedCount > 1 && method.id !== 'branch' && method.id !== 'transfer') {
                       return false;
                     }
                     // Tarjeta solo se ofrece si OpenPay está configurado para el servicio

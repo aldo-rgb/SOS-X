@@ -1222,6 +1222,7 @@ import {
   getPoboxPaymentStatus,
   confirmPoboxCashPayment,
   handlePoboxOpenpayWebhook,
+  generateInvoiceForPoboxPaymentByRef,
   handlePoboxOpenpayCallback,
   getPoboxPendingPayments,
   getPoboxPaymentHistory,
@@ -7708,7 +7709,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         COALESCE(SUM(owl.monto_recibido), 0) as total_bruto,
         COALESCE(SUM(owl.monto_neto), 0) as total_neto,
         COUNT(*) as total_transacciones,
-        COALESCE(SUM(CASE WHEN COALESCE(owl.payment_method, owl.tipo_pago, 'spei') = 'spei' THEN owl.monto_neto ELSE 0 END), 0) as spei_neto,
+        COALESCE(SUM(CASE WHEN COALESCE(owl.payment_method, owl.tipo_pago, 'spei') IN ('spei', 'transferencia') THEN owl.monto_neto ELSE 0 END), 0) as spei_neto,
         COALESCE(SUM(CASE WHEN COALESCE(owl.payment_method, owl.tipo_pago, 'spei') = 'cash' THEN owl.monto_neto ELSE 0 END), 0) as efectivo_neto,
         COALESCE(SUM(CASE WHEN COALESCE(owl.payment_method, owl.tipo_pago, 'spei') = 'paypal' THEN owl.monto_neto ELSE 0 END), 0) as paypal_neto
       FROM openpay_webhook_logs owl
@@ -8441,6 +8442,11 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
             );
           }
 
+          // 🧾 Transferencia con factura solicitada → generar CFDI.
+          generateInvoiceForPoboxPaymentByRef(refStr).catch(err =>
+            console.error('Error generando factura transferencia (confirm pobox voucher):', err)
+          );
+
           console.log(`✅ Pago PO Box confirmado: ${refStr} - $${montoPago} por ${adminName || adminId}`);
 
           return res.json({
@@ -8781,6 +8787,11 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
           console.error('Error activando GEX (confirm-payment webhook flow):', err)
         );
       }
+
+      // 🧾 Si es una orden por TRANSFERENCIA con factura solicitada, generar CFDI.
+      generateInvoiceForPoboxPaymentByRef(refStr).catch(err =>
+        console.error('Error generando factura transferencia (confirm-payment):', err)
+      );
 
       console.log(`✅ Pago confirmado: ${refStr} - $${payment.monto_recibido} por ${adminName || adminId}`);
 
@@ -9904,7 +9915,12 @@ app.get('/api/admin/finance/export', authenticateToken, requireMinLevel(ROLES.DI
           owl.monto_recibido as monto_bruto,
           owl.monto_neto,
           owl.monto_recibido - owl.monto_neto as comision_openpay,
-          'Transferencia SPEI' as metodo_pago,
+          CASE
+            WHEN owl.payment_method = 'transferencia' THEN 'Transferencia'
+            WHEN owl.payment_method = 'cash' THEN 'Efectivo'
+            WHEN owl.payment_method = 'paypal' OR owl.tipo_pago = 'paypal' THEN 'PayPal'
+            ELSE 'Transferencia SPEI'
+          END as metodo_pago,
           fe.alias as empresa_receptora,
           owl.concepto,
           'Sistema Automatizado' as registrado_por,

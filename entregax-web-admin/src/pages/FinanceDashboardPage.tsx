@@ -103,7 +103,7 @@ const PAYMENT_METHOD_LABELS: Record<string, { label: string; color: string; icon
   efectivo: { label: 'Efectivo', color: '#27ae60', icon: '💵' },
   spei: { label: 'SPEI', color: '#1565C0', icon: '🏦' },
   transfer: { label: 'SPEI', color: '#1565C0', icon: '🏦' },
-  transferencia: { label: 'SPEI', color: '#1565C0', icon: '🏦' },
+  transferencia: { label: 'Transferencia', color: '#00897B', icon: '🏦' },
   card: { label: 'Tarjeta', color: '#6A1B9A', icon: '💳' },
   tarjeta: { label: 'Tarjeta', color: '#6A1B9A', icon: '💳' },
   openpay: { label: 'Tarjeta', color: '#6A1B9A', icon: '💳' },
@@ -924,7 +924,8 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     const key = String(method || '').toLowerCase().trim();
     if (['efectivo', 'cash'].includes(key)) return 'cash';
     if (['card', 'tarjeta', 'openpay'].includes(key)) return 'card';
-    if (['spei', 'transfer', 'transferencia'].includes(key)) return 'spei';
+    if (key === 'transferencia') return 'transferencia'; // categoría propia
+    if (['spei', 'transfer'].includes(key)) return 'spei';
     return key;
   };
 
@@ -1366,6 +1367,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                   <MenuItem value="efectivo">Efectivo</MenuItem>
                   <MenuItem value="card">Tarjeta</MenuItem>
                   <MenuItem value="spei">SPEI</MenuItem>
+                  <MenuItem value="transferencia">Transferencia</MenuItem>
                   <MenuItem value="paypal">PayPal</MenuItem>
                   <MenuItem value="credit">Crédito</MenuItem>
                   <MenuItem value="wallet">Saldo a favor</MenuItem>
@@ -1605,6 +1607,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
               <MenuItem value="all">Todos</MenuItem>
               <MenuItem value="efectivo">Efectivo</MenuItem>
               <MenuItem value="spei">SPEI</MenuItem>
+              <MenuItem value="transferencia">Transferencia</MenuItem>
               <MenuItem value="paypal">PayPal</MenuItem>
             </Select>
           </FormControl>
