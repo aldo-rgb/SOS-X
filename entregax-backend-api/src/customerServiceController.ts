@@ -1577,26 +1577,55 @@ export const reassignPackageClient = async (req: Request, res: Response) => {
   }
 
   try {
+    // 1) Buscar primero un cliente REGISTRADO por número de casillero.
     const userRes = await pool.query(
       `SELECT id, full_name, box_id FROM users WHERE UPPER(TRIM(box_id)) = UPPER(TRIM($1)) LIMIT 1`,
       [new_box_id]
     );
-    if (userRes.rows.length === 0) {
-      return res.status(404).json({ error: `No se encontró cliente con número ${new_box_id}` });
+
+    // 2) Si no existe como usuario, aceptar también un cliente LEGACY (sin
+    //    cuenta). Si el legacy ya fue reclamado por un usuario, asignamos al
+    //    usuario; si no, asignamos como legacy (user_id = NULL + box_id).
+    let target: { id: number | null; full_name: string; box_id: string; isLegacy: boolean };
+    if (userRes.rows.length > 0) {
+      const u = userRes.rows[0];
+      target = { id: u.id, full_name: u.full_name, box_id: u.box_id, isLegacy: false };
+    } else {
+      const legacyRes = await pool.query(
+        `SELECT id, box_id, full_name, claimed_by_user_id
+           FROM legacy_clients WHERE UPPER(TRIM(box_id)) = UPPER(TRIM($1)) LIMIT 1`,
+        [new_box_id]
+      );
+      if (legacyRes.rows.length === 0) {
+        return res.status(404).json({ error: `No se encontró cliente con número ${new_box_id}` });
+      }
+      const lc = legacyRes.rows[0];
+      if (lc.claimed_by_user_id) {
+        // El casillero legacy ya fue reclamado por un usuario real → usarlo.
+        const claimed = await pool.query(
+          `SELECT id, full_name, box_id FROM users WHERE id = $1 LIMIT 1`,
+          [lc.claimed_by_user_id]
+        );
+        const cu = claimed.rows[0];
+        target = cu
+          ? { id: cu.id, full_name: cu.full_name, box_id: cu.box_id || lc.box_id, isLegacy: false }
+          : { id: null, full_name: lc.full_name, box_id: lc.box_id, isLegacy: true };
+      } else {
+        target = { id: null, full_name: lc.full_name, box_id: lc.box_id, isLegacy: true };
+      }
     }
-    const newUser = userRes.rows[0];
 
     if (source_type === 'package') {
-      await pool.query(`UPDATE packages SET user_id = $1, box_id = $2 WHERE id = $3`, [newUser.id, newUser.box_id, id]);
+      await pool.query(`UPDATE packages SET user_id = $1, box_id = $2 WHERE id = $3`, [target.id, target.box_id, id]);
     } else if (source_type === 'china_receipt') {
-      await pool.query(`UPDATE china_receipts SET user_id = $1, shipping_mark = $2 WHERE id = $3`, [newUser.id, newUser.box_id, id]);
+      await pool.query(`UPDATE china_receipts SET user_id = $1, shipping_mark = $2 WHERE id = $3`, [target.id, target.box_id, id]);
     } else if (source_type === 'maritime_order') {
-      await pool.query(`UPDATE maritime_orders SET user_id = $1, shipping_mark = $2 WHERE id = $3`, [newUser.id, newUser.box_id, id]);
+      await pool.query(`UPDATE maritime_orders SET user_id = $1, shipping_mark = $2 WHERE id = $3`, [target.id, target.box_id, id]);
     } else {
       return res.status(400).json({ error: `Tipo de fuente no soportado: ${source_type}` });
     }
 
-    return res.json({ success: true, cliente: { id: newUser.id, nombre: newUser.full_name, box_id: newUser.box_id } });
+    return res.json({ success: true, cliente: { id: target.id, nombre: target.full_name, box_id: target.box_id, isLegacy: target.isLegacy } });
   } catch (error: any) {
     console.error('Error reassignPackageClient:', error);
     return res.status(500).json({ error: error.message });
