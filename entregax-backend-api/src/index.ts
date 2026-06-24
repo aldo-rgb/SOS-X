@@ -148,6 +148,12 @@ import {
   searchClients
 } from './packageController';
 import {
+  uploadConstancia as csfUploadHandler,
+  getConstanciaStatus as csfStatusHandler,
+  uploadConstanciaForClient as csfUploadForClientHandler,
+  getClientConstanciaStatus as csfClientStatusHandler,
+} from './fiscalConstanciaController';
+import {
   createPaymentOrder,
   capturePaymentOrder,
   getPaymentStatus
@@ -4292,12 +4298,6 @@ app.get('/api/packages/saved-constancia', authenticateToken, getSavedConstancia)
 // Constancia de Situación Fiscal (CSF) — per-cliente con vigencia 3 meses
 // =========================================================================
 const csfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
-const {
-  uploadConstancia: csfUploadHandler,
-  getConstanciaStatus: csfStatusHandler,
-  uploadConstanciaForClient: csfUploadForClientHandler,
-  getClientConstanciaStatus: csfClientStatusHandler,
-} = require('./fiscalConstanciaController');
 // Self (cliente sube la suya / asesor sube la suya)
 app.post('/api/fiscal/constancia', authenticateToken, csfUpload.single('constancia'), csfUploadHandler);
 app.get('/api/fiscal/constancia', authenticateToken, csfStatusHandler);
