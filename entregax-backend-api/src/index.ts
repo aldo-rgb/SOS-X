@@ -5491,13 +5491,59 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
       });
     }
 
-    // 3) Comprobante adicional/reemplazo para una solicitud ya enviada
+    // 3) Comprobante adicional/reemplazo para una solicitud ya enviada:
+    //    re-enviar a ENTANGLED para que actualicen el comprobante en su sistema.
+    //    Antes solo se guardaba localmente y nunca llegaba al proveedor.
+    const transaccionId = String(owner.rows[0].entangled_transaccion_id);
+    let forwardOk = false;
+    let forwardError: string | undefined;
+    try {
+      const ext2 = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase();
+      const safeFilename = `comprobante_${id}_${Date.now()}.${ext2}`;
+      const { uploadComprobanteToTransaccion } = await import('./entangledServiceV2');
+      const up = await uploadComprobanteToTransaccion(transaccionId, {
+         buffer: req.file.buffer,
+         filename: safeFilename,
+         mimetype: req.file.mimetype || 'application/octet-stream',
+      });
+      forwardOk = !!up.ok;
+      if (!up.ok) forwardError = up.error || 'No se pudo enviar comprobante a ENTANGLED';
+      else {
+        await dbPool.query(
+          `UPDATE entangled_payment_requests
+              SET estatus_global = CASE WHEN estatus_global IN ('pendiente','error_envio') THEN 'en_proceso' ELSE estatus_global END,
+                  comprobante_subido_at = NOW(),
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [id]
+        );
+      }
+    } catch (e: any) {
+      forwardError = e?.message || 'Error inesperado enviando comprobante a ENTANGLED';
+      console.error('[ENTANGLED] forward comprobante:', e);
+    }
+
     const r = await dbPool.query(
-      `SELECT id, referencia_pago, op_comprobante_cliente_url, comprobante_subido_at
+      `SELECT id, referencia_pago, op_comprobante_cliente_url, comprobante_subido_at,
+              entangled_transaccion_id, estatus_global
          FROM entangled_payment_requests WHERE id = $1`,
       [id]
     );
-    return res.json({ ok: true, ...r.rows[0] });
+    if (!forwardOk) {
+      return res.status(502).json({
+        ok: false,
+        error: forwardError || 'No se pudo enviar el comprobante a ENTANGLED',
+        comprobante_url: url,
+        request: r.rows[0],
+      });
+    }
+    return res.json({
+      ok: true,
+      message: 'Comprobante enviado a ENTANGLED.',
+      comprobante_url: url,
+      request: r.rows[0],
+      entangled_transaccion_id: transaccionId,
+    });
   } catch (err: any) {
     console.error('[ENTANGLED] upload-proof-file:', err);
     return res.status(500).json({ error: 'Error al subir comprobante' });

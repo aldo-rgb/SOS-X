@@ -4124,11 +4124,14 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             {uploadModal.state === 'success' && (
               <Alert
                 severity="success"
+                variant="filled"
                 sx={{
-                  bgcolor: 'rgba(16,185,129,0.12)',
-                  color: '#a7f3d0',
-                  border: '1px solid rgba(16,185,129,0.35)',
-                  '& .MuiAlert-icon': { color: '#34d399' },
+                  bgcolor: '#10b981',
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  border: '1px solid #047857',
+                  '& .MuiAlert-icon': { color: '#ffffff' },
+                  '& .MuiAlert-message': { color: '#ffffff' },
                 }}
               >
                 {uploadModal.message}
