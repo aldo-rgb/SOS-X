@@ -290,6 +290,42 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     }
   }, [token, isAdvisorMode, advisorClientId]);
 
+  // Borrado de una operación (solo asesor) — para limpiar pruebas/errores.
+  // Las canceladas / en proceso / pagadas no se pueden borrar (bloqueado también
+  // en el backend).
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const deleteRequest = useCallback((req: PaymentRequest) => {
+    if (!isAdvisorMode) return;
+    const referencia = req.referencia_pago || `XP${String(req.id).padStart(6, '0')}`;
+    Alert.alert(
+      'Borrar operación',
+      `Vas a borrar la operación ${referencia}. Esta acción no se puede deshacer.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sí, borrar',
+          style: 'destructive',
+          onPress: async () => {
+            setDeletingId(req.id);
+            try {
+              const res = await fetch(
+                `${API_URL}/api/advisor/xpay/payment-requests/${req.id}?client_id=${advisorClientId}`,
+                { method: 'DELETE', headers: authHeaders }
+              );
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(data?.error || 'No se pudo borrar la operación');
+              await loadRequests();
+            } catch (e: any) {
+              Alert.alert('Error', e?.message || 'No se pudo borrar la operación');
+            } finally {
+              setDeletingId(null);
+            }
+          },
+        },
+      ]
+    );
+  }, [isAdvisorMode, advisorClientId, authHeaders, loadRequests]);
+
   const loadSuppliers = useCallback(async () => {
     try {
       const url = isAdvisorMode
@@ -1610,7 +1646,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   const mostrarSubir = isActive && !r.op_comprobante_cliente_url;
                   const mostrarReemplazar = isActive && !!r.op_comprobante_cliente_url;
                   const mostrarDescargar = !operacionCerrada;
-                  if (!mostrarSubir && !mostrarReemplazar && !mostrarDescargar) return null;
+                  // Borrar: solo asesor y solo si NO está cancelada/en proceso/pagada.
+                  const estatusLc = String(r.estatus_global || '').toLowerCase();
+                  const mostrarBorrar = isAdvisorMode &&
+                    !['en_proceso', 'completado', 'pagado', 'pagado_proveedor', 'finalizado', 'cancelado', 'rechazado'].includes(estatusLc);
+                  if (!mostrarSubir && !mostrarReemplazar && !mostrarDescargar && !mostrarBorrar) return null;
                   return (
                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'stretch' }}>
                       {mostrarSubir && (
@@ -1649,6 +1689,17 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                           <Text style={[styles.linkText, { color: ORANGE, fontSize: 11, fontWeight: '700' }]} numberOfLines={1}>
                             Descargar instrucciones
                           </Text>
+                        </TouchableOpacity>
+                      )}
+                      {mostrarBorrar && (
+                        <TouchableOpacity
+                          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: '#EF4444', backgroundColor: 'rgba(239,68,68,0.10)' }}
+                          onPress={() => deleteRequest(r)}
+                          disabled={deletingId === r.id}
+                        >
+                          {deletingId === r.id
+                            ? <ActivityIndicator size="small" color="#EF4444" />
+                            : <Ionicons name="trash-outline" size={15} color="#EF4444" />}
                         </TouchableOpacity>
                       )}
                     </View>

@@ -2531,8 +2531,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                                     </IconButton>
                                   </Tooltip>
                                 )}
-                                {/* Borrar operación (solo asesor) — bloqueado para en proceso/pagado */}
-                                {advisorClientId && !['en_proceso', 'completado', 'pagado', 'pagado_proveedor', 'finalizado'].includes(estatus) && (
+                                {/* Borrar operación (solo asesor) — bloqueado para canceladas/en proceso/pagadas */}
+                                {advisorClientId && !['en_proceso', 'completado', 'pagado', 'pagado_proveedor', 'finalizado', 'cancelado', 'rechazado'].includes(estatus) && (
                                   <Tooltip title="Borrar operación">
                                     <IconButton
                                       size="small"

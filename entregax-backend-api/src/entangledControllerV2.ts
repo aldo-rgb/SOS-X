@@ -2139,9 +2139,9 @@ export const deleteAdvisorXpayRequest = async (req: Request, res: Response): Pro
     if (!row) return res.status(404).json({ error: 'Operación no encontrada' });
     const owns = await advisorOwnsClient(advisorId, row.user_id);
     if (!owns) return res.status(403).json({ error: 'Esa operación no pertenece a un cliente asignado a ti' });
-    const BLOCKED = ['en_proceso', 'completado', 'pagado', 'pagado_proveedor', 'finalizado'];
+    const BLOCKED = ['en_proceso', 'completado', 'pagado', 'pagado_proveedor', 'finalizado', 'cancelado', 'rechazado'];
     if (BLOCKED.includes(String(row.estatus_global || ''))) {
-      return res.status(409).json({ error: 'No puedes borrar una operación en proceso o pagada' });
+      return res.status(409).json({ error: 'No puedes borrar una operación cancelada, en proceso o pagada' });
     }
     await pool.query(`DELETE FROM entangled_payment_requests WHERE id = $1`, [id]);
     console.log(`[XPAY-ASESOR] asesor ${advisorId} borró operación ${row.referencia_pago} (id ${id}, estatus ${row.estatus_global})`);
