@@ -1518,7 +1518,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const cb: any = emp.cuenta_bancaria || {};
           const banco = cb.banco || cb.bank;
-          const titular = cb.titular || cb.holder || emp.empresa;
+          // `emp.empresa` puede venir como objeto { rfc, razon_social }.
+          const empresaName = typeof emp.empresa === 'string' ? emp.empresa : ((emp.empresa as any)?.razon_social || (emp.empresa as any)?.nombre || '');
+          const titular = cb.titular || cb.holder || empresaName;
           const cuenta = cb.cuenta || cb.account || cb.numero_cuenta;
           const clabe = cb.clabe || cb.CLABE;
           const sucursal = cb.sucursal || cb.branch;
@@ -3674,7 +3676,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 {lastCreated.empresas_asignadas.map((emp, i) => {
                   const cb: any = emp.cuenta_bancaria || {};
                   const banco = cb.banco || cb.bank || '';
-                  const titular = cb.titular || cb.holder || emp.empresa || '';
+                  // `emp.empresa` puede venir como objeto { rfc, razon_social } → extraer el nombre.
+                  const empresaName = typeof emp.empresa === 'string' ? emp.empresa : ((emp.empresa as any)?.razon_social || (emp.empresa as any)?.nombre || '');
+                  const titular = cb.titular || cb.holder || empresaName || '';
                   const cuenta = cb.cuenta || cb.account || cb.numero_cuenta || '';
                   const clabe = cb.clabe || cb.CLABE || '';
                   const sucursal = cb.sucursal || cb.branch || '';
