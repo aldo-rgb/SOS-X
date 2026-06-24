@@ -65,10 +65,10 @@ export const extractIssueDateFromText = (rawText: string): Date | null => {
   // Patrón 1: "06 de junio de 2026" / "6 de jun 2026"
   const m1 = text.match(/(\d{1,2})\s+de?\s+([a-z]{3,12})\s+de?\s+(\d{4})/i);
   if (m1) {
-    const day = parseInt(m1[1], 10);
-    const monKey = m1[2].toLowerCase();
+    const day = parseInt(m1[1] as string, 10);
+    const monKey = String(m1[2]).toLowerCase();
     const month = SPANISH_MONTHS[monKey] || SPANISH_MONTHS[monKey.slice(0, 4)] || SPANISH_MONTHS[monKey.slice(0, 3) + monKey.slice(3)] || 0;
-    const year = parseInt(m1[3], 10);
+    const year = parseInt(m1[3] as string, 10);
     if (day >= 1 && day <= 31 && month >= 1 && month <= 12 && year >= 2000) {
       return new Date(Date.UTC(year, month - 1, day));
     }
@@ -77,9 +77,9 @@ export const extractIssueDateFromText = (rawText: string): Date | null => {
   // Patrón 2: "06/06/2026" o "06-06-2026"
   const m2 = text.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
   if (m2) {
-    const day = parseInt(m2[1], 10);
-    const month = parseInt(m2[2], 10);
-    const year = parseInt(m2[3], 10);
+    const day = parseInt(m2[1] as string, 10);
+    const month = parseInt(m2[2] as string, 10);
+    const year = parseInt(m2[3] as string, 10);
     if (day >= 1 && day <= 31 && month >= 1 && month <= 12 && year >= 2000) {
       return new Date(Date.UTC(year, month - 1, day));
     }
@@ -88,9 +88,9 @@ export const extractIssueDateFromText = (rawText: string): Date | null => {
   // Patrón 3: "2026-06-06"
   const m3 = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (m3) {
-    const year = parseInt(m3[1], 10);
-    const month = parseInt(m3[2], 10);
-    const day = parseInt(m3[3], 10);
+    const year = parseInt(m3[1] as string, 10);
+    const month = parseInt(m3[2] as string, 10);
+    const day = parseInt(m3[3] as string, 10);
     if (day >= 1 && day <= 31 && month >= 1 && month <= 12 && year >= 2000) {
       return new Date(Date.UTC(year, month - 1, day));
     }
@@ -108,7 +108,10 @@ export const tryExtractIssueDateFromPdf = async (file: UploadedFile): Promise<Da
   const mime = String(file.mimetype || '').toLowerCase();
   if (!mime.includes('pdf')) return null;
   try {
-    const pdfParse = (await import('pdf-parse')).default as (b: Buffer) => Promise<{ text: string }>;
+    // pdf-parse no expone tipos oficiales: usamos require dinamico para evitar
+    // tener que agregar @types/pdf-parse al build.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const pdfParse = require('pdf-parse') as (b: Buffer) => Promise<{ text: string }>;
     const parsed = await pdfParse(file.buffer);
     return extractIssueDateFromText(parsed.text || '');
   } catch (e) {
