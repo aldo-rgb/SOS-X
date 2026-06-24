@@ -629,6 +629,21 @@ export default function FiscalPage() {
     }
   };
 
+  // Acceso directo desde Contabilidad → "Conectar banco": al llegar a esta
+  // página con un emitterId pendiente en localStorage, abrimos el modal de
+  // Syncfy de esa empresa automáticamente y limpiamos el flag.
+  useEffect(() => {
+    const pendingId = localStorage.getItem('pending_syncfy_emitter_id');
+    if (!pendingId || emitters.length === 0) return;
+    localStorage.removeItem('pending_syncfy_emitter_id');
+    const emitter = emitters.find((e) => String(e.id) === pendingId);
+    if (emitter) {
+      setTabValue(0); // pestaña "Mis Empresas"
+      handleOpenSyncfyModal(emitter);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emitters]);
+
   const handleConnectSyncfy = async () => {
     console.warn('[Syncfy] Conectar Banco click. emitter=', selectedEmpresaSyncfy?.id);
     if (!selectedEmpresaSyncfy) {

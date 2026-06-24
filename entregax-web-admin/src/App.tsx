@@ -739,9 +739,22 @@ function App() {
   // Navegación rápida desde DashboardBranchManager
   useEffect(() => {
     const quickNavHandler = (rawEvent: Event) => {
-      const event = rawEvent as CustomEvent<{ action?: string; employeeId?: number }>;
+      const event = rawEvent as CustomEvent<{ action?: string; employeeId?: number; emitterId?: number }>;
       const action = event.detail?.action;
       if (!action) return;
+
+      // Acceso directo a Empresas → Syncfy para conectar el banco de una empresa.
+      if (action === 'connect_syncfy') {
+        const fiscalIndex = menuItems.findIndex((item) => item.key === 'fiscal');
+        if (fiscalIndex < 0) return; // el rol no tiene acceso a Empresas
+        const emitterId = event.detail?.emitterId;
+        if (emitterId != null) {
+          localStorage.setItem('pending_syncfy_emitter_id', String(emitterId));
+        }
+        setSelectedIndex(fiscalIndex);
+        setSelectedSubIndex(null);
+        return;
+      }
 
       const panelsIndex = menuItems.findIndex((item) => item.key === 'panels');
       if (panelsIndex < 0) return;

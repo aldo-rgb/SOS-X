@@ -26,6 +26,7 @@ import MoveToInboxIcon from '@mui/icons-material/MoveToInbox';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import SyncIcon from '@mui/icons-material/Sync';
+import AddLinkIcon from '@mui/icons-material/AddLink';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import PaidIcon from '@mui/icons-material/Paid';
@@ -2617,14 +2618,29 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
             await load();
           }}
         />
-        <Button
-          variant="contained"
-          startIcon={<SyncIcon />}
-          onClick={() => setSyncfyModalOpen(true)}
-          sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94e1f' } }}
-        >
-          Sincronizar (re-autenticar)
-        </Button>
+        {links.length === 0 ? (
+          // Sin bancos conectados → acceso directo a Empresas → Syncfy para
+          // conectar el banco de esta empresa (en vez de re-autenticar).
+          <Button
+            variant="contained"
+            startIcon={<AddLinkIcon />}
+            onClick={() => window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', {
+              detail: { action: 'connect_syncfy', emitterId: emitter.id },
+            }))}
+            sx={{ bgcolor: '#1e88e5', '&:hover': { bgcolor: '#1565c0' } }}
+          >
+            Conectar banco
+          </Button>
+        ) : (
+          <Button
+            variant="contained"
+            startIcon={<SyncIcon />}
+            onClick={() => setSyncfyModalOpen(true)}
+            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94e1f' } }}
+          >
+            Sincronizar (re-autenticar)
+          </Button>
+        )}
       </Stack>
 
       {loading ? (
