@@ -370,8 +370,6 @@ export default function ServiceInventoryPage() {
     if (!ex || ex.state !== 'done') return false;
     // Marítimo: instrucciones en EntregaX pero no en nuestro sistema
     if (service === 'maritimo' && !!ex.hasInstrucciones && !row.has_instructions) return true;
-    // Marítimo: pago + instrucciones en EntregaX → debe marcarse como entregado
-    if (service === 'maritimo' && !!ex.hasPago && !!ex.hasInstrucciones && row.status !== 'delivered') return true;
     if (!!ex.hasPago && !row.costing_paid) return true;
     if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
     // Solo inyectar dirección si: EntregaX tiene datos físicos, el paquete no tiene address_id,
@@ -395,9 +393,9 @@ export default function ServiceInventoryPage() {
     const maritimeMarkInstr = service === 'maritimo' && !!ex.hasInstrucciones && !row.has_instructions;
     const shouldInjectInstrucciones = maritimeMarkInstr || (!!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_delivery_address && canInjectAddr);
     const mappedStatus = mapExStatusToInternal(ex);
-    // Marítimo: si EntregaX tiene pago + instrucciones → el paquete ya fue entregado
-    const maritimeDelivered = service === 'maritimo' && !!ex.hasPago && !!ex.hasInstrucciones && row.status !== 'delivered';
-    const newStatus = maritimeDelivered ? 'delivered' : (mappedStatus && mappedStatus !== row.status ? mappedStatus : undefined);
+    // El status solo debe cambiar al valor real que reporta EntregaX (mappedStatus).
+    // No forzar 'delivered' por la mera presencia de Pago+Inst en marítimo.
+    const newStatus = mappedStatus && mappedStatus !== row.status ? mappedStatus : undefined;
     try {
       await api.post('/packages/sync-from-entregax', {
         guia: row.guia, service,
@@ -417,7 +415,7 @@ export default function ServiceInventoryPage() {
           : (r.has_instructions ? r.paqueteria : (ex.paqueteria || r.paqueteria));
         const newGuiaSalida = ex.guiaSalida || r.guia_salida;
         const newCostingPaid = r.costing_paid || (ex.hasPago ?? false);
-        const newHasInst = r.has_instructions || shouldInjectInstrucciones || hasGuiaSalida || maritimeDelivered || maritimeMarkInstr;
+        const newHasInst = r.has_instructions || shouldInjectInstrucciones || hasGuiaSalida || maritimeMarkInstr;
         const newHasAddr = r.has_delivery_address || shouldInjectInstrucciones;
         // El backend actualiza tanto el master como las hijas (child_no LIKE 'guia-%'),
         // asi que reflejamos los mismos cambios en cada hija para evitar estado stale.
@@ -425,7 +423,7 @@ export default function ServiceInventoryPage() {
           ? (r as any).children.map((c: any) => ({
               ...c,
               costing_paid: c.costing_paid || (ex.hasPago ?? false),
-              has_instructions: c.has_instructions || shouldInjectInstrucciones || hasGuiaSalida || maritimeDelivered || maritimeMarkInstr,
+              has_instructions: c.has_instructions || shouldInjectInstrucciones || hasGuiaSalida || maritimeMarkInstr,
               paqueteria: newPaqueteria,
               guia_salida: newGuiaSalida,
               status: newStatus || c.status,
