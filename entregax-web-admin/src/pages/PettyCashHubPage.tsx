@@ -1735,20 +1735,18 @@ export default function PettyCashHubPage() {
                                   </IconButton>
                                 </span>
                               </Tooltip>
-                              {isSuperAdmin && (
-                                <Tooltip title="Eliminar movimiento (solo super admin)">
-                                  <span>
-                                    <IconButton
-                                      size="small"
-                                      color="error"
-                                      disabled={deletingMovId === m.id}
-                                      onClick={() => handleDeleteMovement(m.id)}
-                                    >
-                                      <DeleteIcon fontSize="small" />
-                                    </IconButton>
-                                  </span>
-                                </Tooltip>
-                              )}
+                              <Tooltip title={canEditThisMovement ? 'Eliminar movimiento (revierte el saldo)' : 'Operaciones: solo eliminable el mismo día de creación'}>
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    disabled={deletingMovId === m.id || !canEditThisMovement}
+                                    onClick={() => handleDeleteMovement(m.id)}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
                             </TableCell>
                           )}
                         </TableRow>

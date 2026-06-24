@@ -1581,6 +1581,23 @@ export const deleteMovement = async (req: Request, res: Response): Promise<any> 
     const walletId = mov.wallet_id;
     const amount = Number(mov.amount_mxn) || 0;
 
+    // Roles privilegiados pueden eliminar cualquier movimiento. Operaciones /
+    // encargados de caja solo pueden eliminar los de SU caja creados el MISMO
+    // día (para corregir errores recientes), no movimientos históricos.
+    const role = getUserRole(req);
+    const isPrivileged = ['super_admin', 'admin', 'director', 'accountant', 'contador'].includes(role);
+    if (!isPrivileged) {
+      const createdAt = new Date(mov.created_at);
+      const now = new Date();
+      const sameDay = createdAt.getFullYear() === now.getFullYear()
+        && createdAt.getMonth() === now.getMonth()
+        && createdAt.getDate() === now.getDate();
+      if (!sameDay) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Solo puedes eliminar movimientos creados el mismo día.' });
+      }
+    }
+
     // 1. Revertir saldo del wallet si fue aprobado/liquidado.
     //    fund/return → sumaron saldo → revertir restando.
     //    advance → restó saldo → revertir sumando.
