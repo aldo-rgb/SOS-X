@@ -371,6 +371,7 @@ import {
   createAdvisorXpayRequest,
   getAdvisorXpayClients,
   getAdvisorXpayRequests,
+  deleteAdvisorXpayRequest,
   getAdvisorXpaySuppliers,
   createAdvisorXpaySupplier,
   updateAdvisorXpaySupplier,
@@ -5306,6 +5307,7 @@ app.get('/api/entangled/payment-requests/me', authenticateToken, getMyEntangledR
 app.get('/api/advisor/xpay/clients', authenticateToken, getAdvisorXpayClients);
 app.get('/api/advisor/xpay/payment-requests', authenticateToken, getAdvisorXpayRequests);
 app.post('/api/advisor/xpay/payment-requests', authenticateToken, entangledRequestUpload.single('comprobante'), createAdvisorXpayRequest);
+app.delete('/api/advisor/xpay/payment-requests/:id', authenticateToken, deleteAdvisorXpayRequest);
 // Libreta de proveedores del cliente, operada por su asesor
 app.get('/api/advisor/xpay/suppliers', authenticateToken, getAdvisorXpaySuppliers);
 app.post('/api/advisor/xpay/suppliers', authenticateToken, createAdvisorXpaySupplier);

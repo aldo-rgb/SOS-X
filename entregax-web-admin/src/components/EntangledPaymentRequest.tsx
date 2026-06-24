@@ -1137,6 +1137,30 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     }
   };
 
+  // Borrado de una operación (solo asesor) — para limpiar pruebas/errores.
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const handleDeleteRequest = async (requestId: number, referencia: string) => {
+    if (!advisorClientId) return;
+    const ok = window.confirm(`¿Borrar la operación ${referencia}? Esta acción no se puede deshacer.`);
+    if (!ok) return;
+    setDeletingId(requestId);
+    try {
+      await axios.delete(
+        `${API_URL}/api/advisor/xpay/payment-requests/${requestId}`,
+        { headers: authHeader, params: { client_id: advisorClientId } }
+      );
+      await loadRequests();
+      setSnack({ open: true, severity: 'success', message: `Operación ${referencia} borrada.` });
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        || (err as Error)?.message
+        || 'No se pudo borrar la operación';
+      setSnack({ open: true, severity: 'error', message: msg });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   // Modal de subida de comprobante con estado en vivo (idle/uploading/success/error)
   const [uploadModal, setUploadModal] = useState<{
     open: boolean;
@@ -2492,6 +2516,27 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                                           },
                                         }}
                                       />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
+                                {/* Borrar operación (solo asesor) — bloqueado para en proceso/pagado */}
+                                {advisorClientId && !['en_proceso', 'completado', 'pagado', 'pagado_proveedor', 'finalizado'].includes(estatus) && (
+                                  <Tooltip title="Borrar operación">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleDeleteRequest(r.id, r.referencia_pago || `XP-${r.id}`)}
+                                      disabled={deletingId === r.id}
+                                      sx={{
+                                        color: '#ef4444',
+                                        bgcolor: 'rgba(239,68,68,0.10)',
+                                        border: '1px solid rgba(239,68,68,0.35)',
+                                        borderRadius: 1,
+                                        p: 0.5,
+                                        '&:hover': { bgcolor: 'rgba(239,68,68,0.22)', borderColor: '#ef4444' },
+                                        '&.Mui-disabled': { opacity: 0.5 },
+                                      }}
+                                    >
+                                      <DeleteIcon sx={{ fontSize: 14 }} />
                                     </IconButton>
                                   </Tooltip>
                                 )}

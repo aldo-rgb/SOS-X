@@ -68,6 +68,28 @@ const isAdminRole = (req: Request): boolean => {
 // Default 24h. Se lee de entangled_service_config.congelamiento_horas.
 // ---------------------------------------------------------------------------
 const DEFAULT_CONGELAMIENTO_HORAS = 24;
+
+// Traduce los códigos de error que devuelve ENTANGLED a un mensaje claro en
+// español para el usuario final. Si no hay match, regresa el texto original.
+function friendlyEntangledError(code?: string | null): string {
+  const raw = String(code || '').trim();
+  if (!raw) return '';
+  const key = raw.toLowerCase().replace(/\s+/g, '_');
+  const MAP: Record<string, string> = {
+    sin_disponibilidad:
+      'El proveedor de facturación no tiene disponibilidad para este monto/concepto en este momento. Intenta más tarde o con otro concepto.',
+    proveedor_tc_vencido:
+      'El proveedor no tiene un tipo de cambio vigente. Intenta de nuevo en unos minutos.',
+    sin_cuenta_activa:
+      'No hay un proveedor con cuenta bancaria activa para esta operación en este momento.',
+    proveedor_sin_cuenta:
+      'No hay un proveedor con cuenta bancaria activa para esta operación en este momento.',
+    orden_vencida: 'La orden venció. Genera una nueva solicitud.',
+    orden_cancelada: 'La orden fue cancelada.',
+  };
+  return MAP[key] || raw;
+}
+
 async function getCongelamientoHoras(): Promise<number> {
   try {
     const r = await pool.query(
@@ -418,11 +440,12 @@ export const createPaymentRequestV2 = async (
         WHERE id = $3`,
       [remote.error || 'Sin transaccion_id', JSON.stringify(remote.raw || {}), requestId]
     );
-    // 409 de ENTANGLED = proveedor sin cuenta / TC vencido → propagar el código
-    // y el mensaje real para que el front lo muestre.
+    // 409 de ENTANGLED = proveedor sin cuenta / TC vencido / sin disponibilidad
+    // → propagar el código y traducir el mensaje a algo claro para el usuario.
     const httpStatus = remote.status === 409 ? 409 : 502;
     return res.status(httpStatus).json({
-      error: remote.error || 'ENTANGLED no devolvió un transaccion_id.',
+      error: friendlyEntangledError(remote.error) || 'ENTANGLED no devolvió un transaccion_id.',
+      error_code: remote.error || null,
       request_id: requestId,
       referencia_pago: referenciaPago,
     });
@@ -2096,6 +2119,36 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
   } catch (err: any) {
     console.error('[XPAY-ASESOR] getAdvisorXpayRequests:', err.message);
     return res.status(500).json({ error: 'Error al listar operaciones' });
+  }
+};
+
+// DELETE /api/advisor/xpay/payment-requests/:id — el asesor borra una operación
+// de un cliente asignado (para limpiar pruebas / errores). No se permite borrar
+// operaciones que ya están en proceso o pagadas (dinero en movimiento).
+export const deleteAdvisorXpayRequest = async (req: Request, res: Response): Promise<any> => {
+  const advisorId = getAuthUserId(req);
+  if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
+  try {
+    const row = (await pool.query(
+      `SELECT id, user_id, estatus_global, referencia_pago
+         FROM entangled_payment_requests WHERE id = $1`,
+      [id]
+    )).rows[0];
+    if (!row) return res.status(404).json({ error: 'Operación no encontrada' });
+    const owns = await advisorOwnsClient(advisorId, row.user_id);
+    if (!owns) return res.status(403).json({ error: 'Esa operación no pertenece a un cliente asignado a ti' });
+    const BLOCKED = ['en_proceso', 'completado', 'pagado', 'pagado_proveedor', 'finalizado'];
+    if (BLOCKED.includes(String(row.estatus_global || ''))) {
+      return res.status(409).json({ error: 'No puedes borrar una operación en proceso o pagada' });
+    }
+    await pool.query(`DELETE FROM entangled_payment_requests WHERE id = $1`, [id]);
+    console.log(`[XPAY-ASESOR] asesor ${advisorId} borró operación ${row.referencia_pago} (id ${id}, estatus ${row.estatus_global})`);
+    return res.json({ success: true, deleted_id: id });
+  } catch (err: any) {
+    console.error('[XPAY-ASESOR] deleteAdvisorXpayRequest:', err.message);
+    return res.status(500).json({ error: 'Error al borrar la operación' });
   }
 };
 
