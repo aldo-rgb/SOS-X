@@ -4288,6 +4288,14 @@ app.get('/api/packages/repack-instructions', authenticateToken, requireMinLevel(
 app.post('/api/packages/assign-delivery', authenticateToken, uploadDeliveryDocs, bulkAssignDelivery);
 app.get('/api/packages/saved-constancia', authenticateToken, getSavedConstancia);
 
+// =========================================================================
+// Constancia de Situación Fiscal (CSF) — per-cliente con vigencia 3 meses
+// =========================================================================
+const csfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+const { uploadConstancia: csfUploadHandler, getConstanciaStatus: csfStatusHandler } = require('./fiscalConstanciaController');
+app.post('/api/fiscal/constancia', authenticateToken, csfUpload.single('constancia'), csfUploadHandler);
+app.get('/api/fiscal/constancia', authenticateToken, csfStatusHandler);
+
 // 📋 Paquetes PO Box sin cliente asignado (con días en bodega) - DEBE IR ANTES DE /:id
 app.get('/api/packages/unassigned', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getUnassignedPackages);
 // 🔎 Búsqueda libre de clientes (users + legacy_clients) - DEBE IR ANTES DE /:id
