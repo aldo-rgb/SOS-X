@@ -13638,6 +13638,42 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
       } catch { /* ignore */ }
     }
 
+    // Marítimo: el API de sistemaentregax devuelve flags numéricos (estado, cedis, pagado,
+    // instrucciones, guiasalida, salida_fecha) en vez de un texto. Derivamos un estado_texto
+    // legible para que el panel lo muestre.
+    if (tipo === 'maritimo' && waybillMsg && typeof waybillMsg === 'object') {
+      const s = (v: any) => (v == null ? '' : String(v).trim());
+      const cedis = s(waybillMsg.cedis);
+      const guiaSalidaWb = s(waybillMsg.guiasalida || waybillMsg.guia_salida);
+      const salidaFecha = s(waybillMsg.salida_fecha);
+      const pagado = s(waybillMsg.pagado);
+      const instr = s(waybillMsg.instrucciones);
+      const arrived = s(waybillMsg.arrived);
+      const today = new Date().toISOString().slice(0, 10);
+      const arrivedReached = arrived && arrived !== '0000-00-00' && arrived <= today;
+      let estado_texto: string | undefined;
+      if (guiaSalidaWb && guiaSalidaWb !== '0' && guiaSalidaWb !== '1') {
+        estado_texto = 'Enviado';
+      } else if (salidaFecha && salidaFecha !== '0000-00-00 00:00:00') {
+        estado_texto = 'En reparto';
+      } else if (cedis === '3') {
+        estado_texto = 'Recibido en CEDIS CDMX';
+      } else if (cedis === '2') {
+        estado_texto = 'Recibido en CEDIS MTY';
+      } else if (cedis === '1') {
+        estado_texto = 'Recibido en CEDIS';
+      } else if (pagado === '1' && instr === '1') {
+        estado_texto = 'Pago e instrucciones recibidos';
+      } else if (arrivedReached) {
+        estado_texto = 'En aduanas / liberación';
+      } else if (arrived && arrived !== '0000-00-00') {
+        estado_texto = 'En tránsito marítimo';
+      } else {
+        estado_texto = 'Pendiente';
+      }
+      (waybillMsg as any).estado_texto = estado_texto;
+    }
+
     console.log(`[PAYMENT-QUERY] guide=${rawGuide} waybill_keys=${waybillMsg ? Object.keys(waybillMsg).join(',') : 'null'} instrucciones=${JSON.stringify(waybillMsg?.instrucciones)} direccion_entrega=${JSON.stringify(waybillMsg?.direccion_entrega)}`);
     return (res as any).json({
       status: 'success',

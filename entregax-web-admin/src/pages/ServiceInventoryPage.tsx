@@ -115,6 +115,8 @@ const pickStatus = (d: any): string | undefined => {
   const hist: any[] = Array.isArray(d?.historial) ? d.historial : [];
   const lastH: any = hist.length > 0 ? hist[hist.length - 1] : null;
   const candidates: any[] = [
+    // Texto derivado por el backend (marítimo) tiene prioridad
+    wb.estado_texto, wb.descripcion_estado,
     wb.estado, wb.estado_actual, wb.status, wb.descripcion, wb.estado_descripcion,
     wb.ultimo_estado, wb.last_status,
     lastH?.estado, lastH?.estado_actual, lastH?.status, lastH?.descripcion, lastH?.evento, lastH?.mensaje,
@@ -135,8 +137,10 @@ const pickGuiaSalida = (d: any): string | undefined => {
 };
 
 // ── Cache localStorage de datos EntregaX (24h TTL) ──
+// CACHE_VERSION: bump cuando cambie el shape de EntregaxRow para invalidar entradas viejas.
+const EX_CACHE_VERSION = 'v2';
 function readExCache(service: string): Record<string, { data: EntregaxRow; ts: number }> {
-  try { return JSON.parse(localStorage.getItem(`ex_cache_${service}`) || '{}'); } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem(`ex_cache_${EX_CACHE_VERSION}_${service}`) || '{}'); } catch { return {}; }
 }
 function getCachedEx(service: string, guia: string): EntregaxRow | null {
   const cache = readExCache(service);
@@ -150,14 +154,14 @@ function setCachedEx(service: string, guia: string, data: EntregaxRow) {
     const now = Date.now();
     (Object.keys(cache) as string[]).forEach(k => { if (now - cache[k].ts > EX_CACHE_TTL) delete cache[k]; });
     cache[guia] = { data, ts: now };
-    localStorage.setItem(`ex_cache_${service}`, JSON.stringify(cache));
+    localStorage.setItem(`ex_cache_${EX_CACHE_VERSION}_${service}`, JSON.stringify(cache));
   } catch {}
 }
 function removeCachedEx(service: string, guia: string) {
   try {
     const cache = readExCache(service);
     delete cache[guia];
-    localStorage.setItem(`ex_cache_${service}`, JSON.stringify(cache));
+    localStorage.setItem(`ex_cache_${EX_CACHE_VERSION}_${service}`, JSON.stringify(cache));
   } catch {}
 }
 
@@ -324,7 +328,7 @@ export default function ServiceInventoryPage() {
   const mapExStatusToInternal = (ex: EntregaxRow): string | undefined => {
     const ls = (ex.lastStatus || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     if (ls.includes('entregado') || ls.includes('delivered')) return 'delivered';
-    if (ls.includes('en ruta') || ls.includes('en camino') || ls.includes('out_for_delivery')) return 'out_for_delivery';
+    if (ls.includes('en ruta') || ls.includes('en camino') || ls.includes('reparto') || ls.includes('out_for_delivery')) return 'out_for_delivery';
     const pak = (ex.paqueteria || '').toLowerCase();
     const isLocalDelivery = pak.includes('local') || pak.includes('nacional') || pak.startsWith('entregax');
     const isSent = ls.includes('enviado') || ls.includes('shipped') || ls.includes('sent');
@@ -339,7 +343,7 @@ export default function ServiceInventoryPage() {
       // por defecto CDMX (cubre "Recibido en Cedis CDMX" y "Recibido en Cedis")
       return 'received_cdmx';
     }
-    if (ls.includes('transito') || ls.includes('transit')) return 'in_transit';
+    if (ls.includes('transito') || ls.includes('transit') || ls.includes('aduana') || ls.includes('liberacion')) return 'in_transit';
     return undefined;
   };
 
