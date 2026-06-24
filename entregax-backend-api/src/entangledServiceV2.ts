@@ -220,10 +220,12 @@ export const sendSolicitudPago = async (
 };
 
 // ---------------------------------------------------------------------------
-// POST /api/v1/solicitud-pago/:transaccion_id/comprobante  (multipart)
-// Adjunta el comprobante a una solicitud previamente creada (modo "sin
-// comprobante"). El path exacto es configurable vía variable de entorno
-// ENTANGLED_UPLOAD_PROOF_PATH (default: /solicitud-pago/:id/comprobante).
+// POST /api/v1/solicitud-pago/:transaccion_id/comprobante-cliente  (multipart)
+// Adjunta el comprobante a una solicitud previamente creada. Con cualquiera
+// de las dos formas (archivo multipart o JSON con url_comprobante) la orden
+// pasa automáticamente a "pagada" en ENTANGLED.
+// El path exacto es configurable vía variable de entorno
+// ENTANGLED_UPLOAD_PROOF_PATH (default: /solicitud-pago/:id/comprobante-cliente).
 // ---------------------------------------------------------------------------
 export const uploadComprobanteToTransaccion = async (
   transaccionId: string,
@@ -236,7 +238,7 @@ export const uploadComprobanteToTransaccion = async (
   }
 
   const pathTpl =
-    process.env.ENTANGLED_UPLOAD_PROOF_PATH || '/solicitud-pago/:id/comprobante';
+    process.env.ENTANGLED_UPLOAD_PROOF_PATH || '/solicitud-pago/:id/comprobante-cliente';
   const path = pathTpl.replace(':id', encodeURIComponent(transaccionId));
 
   try {
