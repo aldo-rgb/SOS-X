@@ -1761,14 +1761,11 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         pkg.addr_reference = m.addr_reference;
                         pkg.addr_carrier_config = m.addr_carrier_config;
                     }
-                    // Status: el más avanzado entre child y master
-                    const order = ['received', 'in_transit', 'received_mty', 'received_partial',
-                                   'out_for_delivery', 'ready_pickup', 'delivered'];
-                    const childIdx = order.indexOf(String(pkg.status || '').toLowerCase());
-                    const masterIdx = order.indexOf(String(m.status || '').toLowerCase());
-                    if (masterIdx > childIdx && masterIdx >= 0) {
-                        pkg.status = m.status;
-                    }
+                    // Status: cuando se busca una CAJA HIJA directamente, mostramos
+                    // SU PROPIO estado (no el del master). Cada caja puede tener un
+                    // estado individual (p.ej. una caja sigue en CEDIS MTY aunque el
+                    // master ya esté "Entregado"). Antes se heredaba el estado "más
+                    // avanzado" del master, lo que ocultaba el estado real de la caja.
                     pkg.warehouse_location = m.warehouse_location ?? pkg.warehouse_location;
                 }
             } catch (err) {
