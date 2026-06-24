@@ -1887,6 +1887,14 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
     const isCollectBool = isCollect === 'true' || isCollect === true;
     const wantsFacturaBool = wantsFacturaPaqueteria === 'true' || wantsFacturaPaqueteria === true;
 
+    // Costo de paquetería por caja (Paquete Express API, incl. Ocurre). El front
+    // ya cotizó vía /api/shipping/pqtx-quote; lo persistimos en
+    // national_shipping_cost (× cajas del paquete). Antes quedaba en 0 porque el
+    // handler asignaba el carrier pero nunca el costo.
+    const pqtxPerBox = (carrierKey === 'paquete_express' && !isCollectBool)
+      ? (parseFloat(req.body.nationalShippingCostPerBox) || 0)
+      : 0;
+
     // Parse uid
     const uidStr = String(uid);
     const dashIdx = uidStr.indexOf('-');
@@ -1925,6 +1933,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           collect_carrier = $4,
           wants_factura_paqueteria = $5,
           national_delivery_zip = COALESCE($8, national_delivery_zip),
+          national_shipping_cost = CASE WHEN $9::numeric > 0 THEN $9::numeric * COALESCE(total_boxes, 1) ELSE national_shipping_cost END,
           -- Si el paquete aún no tiene sucursal, derivarla de su status
           -- (received_mty → CEDIS MTY, received_cdmx → CDMX), para que aparezca
           -- en las Salidas de Paquetería del repartidor de ese CEDIS.
@@ -1934,7 +1943,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           )),
           instructions_assigned_by_id = $7
          WHERE id = $6`,
-        [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId, ocurreZip]
+        [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId, ocurreZip, pqtxPerBox]
       );
 
       // Propagar instrucciones a cajas hijas del mismo master (multipieza)
@@ -1952,6 +1961,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
               collect_carrier = $4,
               wants_factura_paqueteria = $5,
               national_delivery_zip = COALESCE($8, national_delivery_zip),
+              national_shipping_cost = CASE WHEN $9::numeric > 0 THEN $9::numeric * COALESCE(total_boxes, 1) ELSE national_shipping_cost END,
               current_branch_id = COALESCE(current_branch_id, (
                 SELECT b.id FROM branches b
                  WHERE LOWER(b.code) = REPLACE(LOWER(status::text), 'received_', '') LIMIT 1
@@ -1959,7 +1969,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
               instructions_assigned_by_id = $6
              WHERE tracking_internal ~ ('^' || $7 || '-\\d{1,4}$')
                AND assigned_address_id IS NULL`,
-            [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, advisorId, masterTracking, ocurreZip]
+            [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, advisorId, masterTracking, ocurreZip, pqtxPerBox]
           );
         }
       }

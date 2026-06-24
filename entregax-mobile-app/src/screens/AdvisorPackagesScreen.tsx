@@ -519,6 +519,16 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       Alert.alert('Paquetería requerida', 'Debes seleccionar una paquetería antes de guardar');
       return;
     }
+    // Paquete Express API: no permitir asignar sin cotización (evita costo $0).
+    if (instrCarrierKey === 'paquete_express' && (instrPriceLoading || !instrPriceEstimate)) {
+      Alert.alert(
+        instrPriceLoading ? 'Calculando cotización' : 'Sin cotización',
+        instrPriceLoading
+          ? 'Espera a que termine de calcularse el costo de Paquete Express.'
+          : 'No se pudo cotizar Paquete Express. Intenta de nuevo o elige otra paquetería.'
+      );
+      return;
+    }
     setInstrSaving(true);
     const targets = instrBulkShipments.length > 1 ? instrBulkShipments : [instrShipment];
     try {
@@ -532,6 +542,11 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
           if (instrCarrierKey && serviceKey) {
             formData.append('carrierKey', instrCarrierKey);
             formData.append('serviceKey', serviceKey);
+          }
+          // Paquete Express API: mandar el costo cotizado por caja + zip Ocurre.
+          if (instrCarrierKey === 'paquete_express' && instrPriceEstimate) {
+            formData.append('nationalShippingCostPerBox', String(instrPriceEstimate.perBox));
+            if (instrOcurreInfo?.usedZip) formData.append('nationalDeliveryZip', String(instrOcurreInfo.usedZip));
           }
           formData.append('isCollect', String(instrIsCollect));
           formData.append('wantsFacturaPaqueteria', String(instrWantsFactura));
@@ -549,6 +564,11 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         } else {
           const body: any = { addressId: instrSelectedId };
           if (instrCarrierKey && serviceKey) { body.carrierKey = instrCarrierKey; body.serviceKey = serviceKey; }
+          // Paquete Express API: mandar el costo cotizado por caja + zip Ocurre.
+          if (instrCarrierKey === 'paquete_express' && instrPriceEstimate) {
+            body.nationalShippingCostPerBox = instrPriceEstimate.perBox;
+            if (instrOcurreInfo?.usedZip) body.nationalDeliveryZip = instrOcurreInfo.usedZip;
+          }
           return fetch(`${API_URL}/api/advisor/shipments/${uid}/instructions`, {
             method: 'PUT',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1304,18 +1324,32 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
               </ScrollView>
 
               <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#f0f0f0' }}>
-                <TouchableOpacity
-                  style={[styles.saveBtn, (instrSaving || instrSelectedId === null || (instrCarriers.length > 0 && !instrCarrierKey)) && { opacity: 0.5 }]}
-                  onPress={saveInstructions}
-                  disabled={instrSaving || instrSelectedId === null || (instrCarriers.length > 0 && !instrCarrierKey)}
-                >
-                  {instrSaving
-                    ? <ActivityIndicator size="small" color="#fff" />
-                    : <Text style={styles.saveBtnText}>
-                        {instrCarriers.length > 0 && !instrCarrierKey ? 'Selecciona paquetería' : 'Asignar instrucciones'}
-                      </Text>
-                  }
-                </TouchableOpacity>
+                {(() => {
+                  // Paquete Express API requiere cotización lista antes de asignar
+                  // (si no, el costo de paquetería se guardaría en 0).
+                  const pqtxApi = instrCarrierKey === 'paquete_express';
+                  const pqtxNotReady = pqtxApi && (instrPriceLoading || !instrPriceEstimate);
+                  const blocked = instrSaving || instrSelectedId === null
+                    || (instrCarriers.length > 0 && !instrCarrierKey) || pqtxNotReady;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.saveBtn, blocked && { opacity: 0.5 }]}
+                      onPress={saveInstructions}
+                      disabled={blocked}
+                    >
+                      {instrSaving
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Text style={styles.saveBtnText}>
+                            {instrCarriers.length > 0 && !instrCarrierKey
+                              ? 'Selecciona paquetería'
+                              : pqtxNotReady
+                                ? (instrPriceLoading ? 'Calculando cotización…' : 'Cotización no disponible')
+                                : 'Asignar instrucciones'}
+                          </Text>
+                      }
+                    </TouchableOpacity>
+                  );
+                })()}
               </View>
             </>
           )}
