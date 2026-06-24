@@ -8191,100 +8191,10 @@ export default function DashboardClient() {
                 {t('cd.invoicesTab.title')}
               </Typography>
 
-              {/* ── Constancia de Situación Fiscal (CSF) ──────────────── */}
-              <Paper
-                variant="outlined"
-                sx={{
-                  p: 2,
-                  mb: 2,
-                  borderRadius: 2,
-                  borderWidth: 2,
-                  borderColor: csfStatus?.is_valid ? '#2e7d32' : csfStatus?.exists ? '#ed6c02' : '#bdbdbd',
-                  bgcolor: csfStatus?.is_valid ? '#e8f5e9' : csfStatus?.exists ? '#fff3e0' : '#fafafa',
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <ReceiptIcon sx={{ color: csfStatus?.is_valid ? '#2e7d32' : csfStatus?.exists ? '#ed6c02' : '#9e9e9e' }} />
-                    <Box>
-                      <Typography variant="subtitle1" fontWeight={700}>
-                        Constancia de Situación Fiscal
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Necesaria para facturar. Vigencia: 3 meses desde su emisión.
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {csfLoading ? (
-                      <CircularProgress size={18} />
-                    ) : csfStatus?.exists && csfStatus.is_valid ? (
-                      <>
-                        <Chip
-                          label={`Vigente · hasta ${new Date(csfStatus.valid_until + 'T00:00:00').toLocaleDateString('es-MX')}`}
-                          color="success"
-                          size="small"
-                          sx={{ fontWeight: 700 }}
-                        />
-                        {csfStatus.file_url && (
-                          <Tooltip title="Ver constancia">
-                            <IconButton
-                              size="small"
-                              component="a"
-                              href={csfStatus.file_url}
-                              target="_blank"
-                              rel="noopener"
-                              sx={{ color: '#2e7d32', border: '1px solid rgba(46,125,50,0.4)' }}
-                            >
-                              <DownloadIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => { setCsfFile(null); setCsfManualDate(''); setCsfNeedsManualDate(false); setCsfError(null); setCsfUploadOpen(true); }}
-                        >
-                          Reemplazar
-                        </Button>
-                      </>
-                    ) : csfStatus?.exists ? (
-                      <>
-                        <Chip
-                          label={`Expirada · venció el ${new Date(csfStatus.valid_until + 'T00:00:00').toLocaleDateString('es-MX')}`}
-                          color="warning"
-                          size="small"
-                          sx={{ fontWeight: 700 }}
-                        />
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color="warning"
-                          startIcon={<DownloadIcon />}
-                          onClick={() => { setCsfFile(null); setCsfManualDate(''); setCsfNeedsManualDate(false); setCsfError(null); setCsfUploadOpen(true); }}
-                        >
-                          Actualizar
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        size="small"
-                        variant="contained"
-                        sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
-                        startIcon={<DownloadIcon />}
-                        onClick={() => { setCsfFile(null); setCsfManualDate(''); setCsfNeedsManualDate(false); setCsfError(null); setCsfUploadOpen(true); }}
-                      >
-                        Subir constancia
-                      </Button>
-                    )}
-                  </Box>
-                </Box>
-                {csfStatus?.exists && csfStatus.is_valid && csfStatus.days_to_expire != null && csfStatus.days_to_expire <= 14 && (
-                  <Alert severity="warning" sx={{ mt: 1.5, py: 0.5 }}>
-                    Tu constancia vence en {csfStatus.days_to_expire} día{csfStatus.days_to_expire === 1 ? '' : 's'}. Renuévala pronto desde el portal SAT.
-                  </Alert>
-                )}
-              </Paper>
+              {/* ── Constancia de Situación Fiscal (CSF) — componente reutilizable */}
+              <Box sx={{ mb: 2 }}>
+                <CsfPanel mode="self" />
+              </Box>
 
               <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
                 <Table>
