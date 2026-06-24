@@ -1683,6 +1683,23 @@ export const updateMovement = async (req: Request, res: Response): Promise<any> 
       return res.status(404).json({ error: 'Movimiento no encontrado' });
     }
     const mov = movRes.rows[0];
+
+    // Encargados de caja (no privilegiados) solo pueden editar movimientos del
+    // mismo día (corrección de errores recientes).
+    const editRole = getUserRole(req);
+    const editPrivileged = ['super_admin', 'admin', 'director', 'accountant', 'contador'].includes(editRole);
+    if (!editPrivileged) {
+      const createdAt = new Date(mov.created_at);
+      const now = new Date();
+      const sameDay = createdAt.getFullYear() === now.getFullYear()
+        && createdAt.getMonth() === now.getMonth()
+        && createdAt.getDate() === now.getDate();
+      if (!sameDay) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Solo puedes editar movimientos creados el mismo día.' });
+      }
+    }
+
     const oldAmount = Number(mov.amount_mxn) || 0;
     const walletId = mov.wallet_id;
     const amountDiff = newAmount - oldAmount;

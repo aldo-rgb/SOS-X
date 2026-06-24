@@ -182,8 +182,11 @@ export default function PettyCashHubPage() {
   const normalizedRole = (currentUserRole || '').toLowerCase();
   const isSuperAdmin = normalizedRole === 'super_admin';
   const isAccountant = ['accountant', 'contador'].includes(normalizedRole);
-  const isOperations = ['operaciones', 'operations'].includes(normalizedRole);
-  const canEditWalletMovements = ['super_admin', 'accountant', 'contador', 'operaciones', 'operations'].includes(normalizedRole);
+  // "Encargados de caja" (operaciones / gerente de sucursal): pueden editar y
+  // eliminar SUS movimientos del mismo día. branch_manager es el rol real del
+  // encargado de la caja sucursal.
+  const isOperations = ['operaciones', 'operations', 'branch_manager'].includes(normalizedRole);
+  const canEditWalletMovements = ['super_admin', 'accountant', 'contador', 'operaciones', 'operations', 'branch_manager'].includes(normalizedRole);
   const isDirector = currentUserRole === 'director';
   // Bloques de Ruta: solo super_admin, admin y operaciones de CEDIS GDL
   const canSeeRouteBlocks = ['super_admin', 'admin'].includes(currentUserRole)

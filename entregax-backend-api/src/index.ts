@@ -2565,7 +2565,7 @@ app.get('/api/admin/petty-cash/pending', authenticateToken, requireRole(...PCASH
 app.post('/api/admin/petty-cash/movements/:id/approve', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcApproveExpense);
 app.post('/api/admin/petty-cash/movements/:id/reject', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcRejectExpense);
 app.delete('/api/admin/petty-cash/movements/:id', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcDeleteMovement);
-app.put('/api/admin/petty-cash/movements/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), pcUpdateMovement);
+app.put('/api/admin/petty-cash/movements/:id', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcUpdateMovement);
 app.post('/api/admin/petty-cash/route-settle', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcCloseRouteSettlement);
 app.get('/api/admin/petty-cash/settlements', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcListSettlements);
 
