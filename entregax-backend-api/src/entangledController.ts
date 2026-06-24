@@ -571,7 +571,16 @@ export const getPaymentRequestDetail = async (req: Request, res: Response): Prom
     if (r.rows.length === 0) return res.status(404).json({ error: 'No encontrada' });
     const row = r.rows[0];
     if (!isAdmin && row.user_id !== userId) {
-      return res.status(403).json({ error: 'Sin acceso a esta solicitud' });
+      // Xpay asesor: permitir al asesor dueño del cliente (la solicitud es de su
+      // cliente asignado) ver/descargar el detalle e instrucciones.
+      const owns = await pool.query(
+        `SELECT 1 FROM users WHERE id = $1 AND role = 'client'
+            AND (advisor_id = $2 OR referred_by_id = $2) LIMIT 1`,
+        [row.user_id, userId]
+      );
+      if (owns.rows.length === 0) {
+        return res.status(403).json({ error: 'Sin acceso a esta solicitud' });
+      }
     }
     // Expone factura_xml_url al top-level (vive dentro de raw_response).
     if (row.raw_response && typeof row.raw_response === 'object' && row.raw_response.factura_xml_url) {
