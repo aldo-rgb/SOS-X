@@ -107,6 +107,33 @@ interface EntregaxRow {
   direccionEntrega?: DireccionEntregax;
 }
 
+// Helpers para extraer campos del waybill/historial de EntregaX. El API marítimo
+// usa nombres distintos (estado_actual / descripcion / evento) y a veces devuelve
+// guiasalida='1' como flag booleano en vez de un tracking real.
+const pickStatus = (d: any): string | undefined => {
+  const wb: any = d?.waybill || {};
+  const hist: any[] = Array.isArray(d?.historial) ? d.historial : [];
+  const lastH: any = hist.length > 0 ? hist[hist.length - 1] : null;
+  const candidates: any[] = [
+    wb.estado, wb.estado_actual, wb.status, wb.descripcion, wb.estado_descripcion,
+    wb.ultimo_estado, wb.last_status,
+    lastH?.estado, lastH?.estado_actual, lastH?.status, lastH?.descripcion, lastH?.evento, lastH?.mensaje,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim() && c.trim() !== '0' && c.trim() !== '1') return c.trim();
+  }
+  return undefined;
+};
+const pickGuiaSalida = (d: any): string | undefined => {
+  const wb: any = d?.waybill || {};
+  const raw = wb.guiasalida || wb.guia_salida || wb.tracking_salida;
+  if (!raw) return undefined;
+  const s = String(raw).trim();
+  // Marítimo devuelve '1' como flag booleano → ignorar (no es un tracking real)
+  if (!s || s === '0' || s === '1' || s.toLowerCase() === 'true' || s.toLowerCase() === 'false') return undefined;
+  return s;
+};
+
 // ── Cache localStorage de datos EntregaX (24h TTL) ──
 function readExCache(service: string): Record<string, { data: EntregaxRow; ts: number }> {
   try { return JSON.parse(localStorage.getItem(`ex_cache_${service}`) || '{}'); } catch { return {}; }
@@ -493,17 +520,15 @@ export default function ServiceInventoryPage() {
       const res = await api.get(`/national/payment-query/${encodeURIComponent(guia_unica)}`).catch((err: any) => ({ data: null, _notfound: err?.response?.status === 404 } as any));
       const d = res?.data?.status === 'success' ? res.data.data : null;
       if (d) {
-        const historial = d.historial || [];
-        const lastH = historial[historial.length - 1];
         const foundGuia = d.guia_unica || d.waybill?.guia_unica || d.guias?.[0]?.guia_unica || guia_unica;
         const exEntry: EntregaxRow = {
           state: 'done',
           hasPago: (d.pagos || []).length > 0 || d.waybill?.pagado === '1',
           hasInstrucciones: !!d.waybill,
-          guiaSalida: d.waybill?.guiasalida || d.waybill?.guia_salida || undefined,
+          guiaSalida: pickGuiaSalida(d),
           guiaIngreso: foundGuia,
           paqueteria: d.waybill?.paqueteria && d.waybill.paqueteria !== '0' ? d.waybill.paqueteria : undefined,
-          lastStatus: d.waybill?.estado || lastH?.estado || undefined,
+          lastStatus: pickStatus(d),
           direccionEntrega: d.waybill?.direccion_entrega || undefined,
         };
         setExData(prev => ({ ...prev, [storeKey]: exEntry }));
@@ -582,8 +607,6 @@ export default function ServiceInventoryPage() {
           }
 
           if (d) {
-            const historial = d.historial || [];
-            const lastH = historial[historial.length - 1];
             const guiaUnica = d.guia_unica || d.waybill?.guia_unica || d.guias?.[0]?.guia_unica || undefined;
             // PO Box: guardar guia_unica si aún no está guardada
             if (isPoBox && guiaUnica && !localUsGuias[storeKey]) {
@@ -596,10 +619,10 @@ export default function ServiceInventoryPage() {
               state: 'done',
               hasPago: (d.pagos || []).length > 0 || d.waybill?.pagado === '1',
               hasInstrucciones: !!d.waybill,
-              guiaSalida: d.waybill?.guiasalida || d.waybill?.guia_salida || undefined,
+              guiaSalida: pickGuiaSalida(d),
               guiaIngreso: guiaUnica,
               paqueteria: d.waybill?.paqueteria && d.waybill.paqueteria !== '0' ? d.waybill.paqueteria : undefined,
-              lastStatus: d.waybill?.estado || lastH?.estado || undefined,
+              lastStatus: pickStatus(d),
               direccionEntrega: d.waybill?.direccion_entrega || undefined,
             };
             setExData(prev => ({ ...prev, [storeKey]: exEntry }));
