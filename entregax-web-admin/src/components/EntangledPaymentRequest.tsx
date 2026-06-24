@@ -2439,9 +2439,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                           {(() => {
                             const estatus = String(r.estatus_global || '').toLowerCase();
                             const isTerminal = ['cancelado', 'rechazado', 'completado', 'pagado'].includes(estatus);
-                            // Permitir re-upload aunque ya haya comprobante si la solicitud quedó
-                            // en error_envio (envío a ENTANGLED falló) o sigue pendiente.
-                            const isRetryable = ['error_envio', 'error', 'pendiente'].includes(estatus);
+                            // Re-subir SOLO si hubo error de envio a ENTANGLED. Si el comprobante
+                            // ya esta arriba (op_comprobante_cliente_url) y la orden esta pendiente/
+                            // en_proceso, ocultamos "Subir" y mostramos el visor del comprobante.
+                            const isRetryable = ['error_envio', 'error'].includes(estatus);
                             const canUpload = !isTerminal && (!r.op_comprobante_cliente_url || isRetryable);
                             return (
                               <Stack direction="row" spacing={0.4} justifyContent="center" alignItems="center">
