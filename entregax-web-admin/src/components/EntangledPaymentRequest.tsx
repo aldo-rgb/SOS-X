@@ -1543,7 +1543,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       const all = provSnap.bank_accounts;
       const mxn = all.filter((a) => String(a.currency || '').toUpperCase() === 'MXN');
       const accounts = mxn.length > 0 ? mxn : all;
-      renderPanel(`Depositar / Transferir a — ${provSnap.name}`, () => {
+      renderPanel('Depositar / Transferir a', () => {
         accounts.forEach((acc) => {
           if (acc.holder) panelRow('Titular', acc.holder, { emphasize: true });
           if (acc.bank) panelRow('Banco', `${acc.bank}${acc.currency ? `  (${acc.currency})` : ''}`);
@@ -3504,7 +3504,6 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
             <Stack spacing={0.9}>
               <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Divisa destino: <strong style={{ color: C.textPrimary }}>{form.divisa_destino}</strong></Typography>
               <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Monto al proveedor: <strong style={{ color: C.textPrimary }}>${formatMoney(form.monto)} {form.divisa_destino}</strong></Typography>
-              <Typography sx={{ color: C.textSecondary, fontSize: '0.9rem' }}>Proveedor de pago: <strong style={{ color: C.textPrimary }}>{providers.find((p) => p.id === selectedProviderId)?.name || '—'}</strong></Typography>
               {asignacion?.loading ? (
                 <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: `1px solid ${C.border}`, borderRadius: 1.5 }}>
                   <Typography sx={{ color: C.textMuted, fontSize: '0.82rem' }}>Consultando asignación bancaria…</Typography>
@@ -3721,7 +3720,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               <Card sx={{ mb: 2, bgcolor: C.pageBg, border: `1px solid ${ORANGE}` }}>
                 <CardContent>
                   <Typography variant="subtitle2" sx={{ color: ORANGE, fontWeight: 800, mb: 1, letterSpacing: 0.4 }}>
-                    💳 DEPOSITAR / TRANSFERIR A — {lastCreated.providerSnapshot.name}
+                    💳 DEPOSITAR / TRANSFERIR A
                   </Typography>
                   {accounts.map((acc, i) => (
                     <Box key={i} sx={{ mb: i < accounts.length - 1 ? 1.5 : 0, pb: i < accounts.length - 1 ? 1.5 : 0, borderBottom: i < accounts.length - 1 ? `1px dashed ${C.border}` : 'none' }}>

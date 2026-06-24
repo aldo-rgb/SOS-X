@@ -1726,18 +1726,15 @@ export default function PettyCashHubPage() {
                           </TableCell>
                           {canEditWalletMovements && (
                             <TableCell align="center">
-                              <Tooltip title={canEditThisMovement ? 'Editar movimiento' : 'Operaciones: solo editable el mismo día de creación'}>
-                                <span>
-                                  <IconButton
-                                    size="small"
-                                    color="primary"
-                                    disabled={!canEditThisMovement}
-                                    onClick={() => handleOpenEditMovement(m)}
-                                  >
-                                    <EditIcon fontSize="small" />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
+                              {isSuperAdmin && (
+                                <Tooltip title="Editar movimiento">
+                                  <span>
+                                    <IconButton size="small" color="primary" onClick={() => handleOpenEditMovement(m)}>
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                              )}
                               <Tooltip title={canEditThisMovement ? 'Eliminar movimiento (revierte el saldo)' : 'Operaciones: solo eliminable el mismo día de creación'}>
                                 <span>
                                   <IconButton
