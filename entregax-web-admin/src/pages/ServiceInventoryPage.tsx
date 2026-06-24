@@ -385,16 +385,34 @@ export default function ServiceInventoryPage() {
       });
       setRows(prev => prev.map(r => {
         if (r.guia !== row.guia) return r;
+        const newPaqueteria = (ex.paqueteria && ex.paqueteria.toUpperCase() !== (r.paqueteria || '').toUpperCase())
+          ? ex.paqueteria
+          : (r.has_instructions ? r.paqueteria : (ex.paqueteria || r.paqueteria));
+        const newGuiaSalida = ex.guiaSalida || r.guia_salida;
+        const newCostingPaid = r.costing_paid || (ex.hasPago ?? false);
+        const newHasInst = r.has_instructions || shouldInjectInstrucciones || hasGuiaSalida || maritimeDelivered || maritimeMarkInstr;
+        const newHasAddr = r.has_delivery_address || shouldInjectInstrucciones;
+        // El backend actualiza tanto el master como las hijas (child_no LIKE 'guia-%'),
+        // asi que reflejamos los mismos cambios en cada hija para evitar estado stale.
+        const updatedChildren = Array.isArray((r as any).children)
+          ? (r as any).children.map((c: any) => ({
+              ...c,
+              costing_paid: c.costing_paid || (ex.hasPago ?? false),
+              has_instructions: c.has_instructions || shouldInjectInstrucciones || hasGuiaSalida || maritimeDelivered || maritimeMarkInstr,
+              paqueteria: newPaqueteria,
+              guia_salida: newGuiaSalida,
+              status: newStatus || c.status,
+            }))
+          : (r as any).children;
         return {
           ...r,
-          costing_paid: r.costing_paid || (ex.hasPago ?? false),
-          has_instructions: r.has_instructions || shouldInjectInstrucciones || hasGuiaSalida || maritimeDelivered || maritimeMarkInstr,
-          has_delivery_address: r.has_delivery_address || shouldInjectInstrucciones,
-          paqueteria: (ex.paqueteria && ex.paqueteria.toUpperCase() !== (r.paqueteria || '').toUpperCase())
-            ? ex.paqueteria
-            : (r.has_instructions ? r.paqueteria : (ex.paqueteria || r.paqueteria)),
-          guia_salida: ex.guiaSalida || r.guia_salida,
+          costing_paid: newCostingPaid,
+          has_instructions: newHasInst,
+          has_delivery_address: newHasAddr,
+          paqueteria: newPaqueteria,
+          guia_salida: newGuiaSalida,
           status: newStatus || r.status,
+          children: updatedChildren,
         };
       }));
       // Invalidar cache para forzar re-fetch fresco en el próximo Actualizar EntregaX
