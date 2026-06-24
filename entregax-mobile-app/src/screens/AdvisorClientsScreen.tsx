@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, Avatar, Chip, ActivityIndicator } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -97,6 +98,116 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   const [fiscalAdding, setFiscalAdding] = useState(false);
   const [fiscalSaving, setFiscalSaving] = useState(false);
   const [fiscalForm, setFiscalForm] = useState(EMPTY_FISCAL);
+
+  // ─── CSF (Constancia de Situación Fiscal) — gestión por asesor ───
+  type CsfStatus = {
+    exists: boolean;
+    file_url?: string;
+    issued_at?: string | null;
+    valid_until?: string | null;
+    is_valid?: boolean;
+    days_to_expire?: number | null;
+  };
+  const [csfModal, setCsfModal] = useState(false);
+  const [csfClient, setCsfClient] = useState<Client | null>(null);
+  const [csfStatus, setCsfStatus] = useState<CsfStatus | null>(null);
+  const [csfLoading, setCsfLoading] = useState(false);
+  const [csfFile, setCsfFile] = useState<{ uri: string; name: string; mimeType?: string | null } | null>(null);
+  const [csfManualDate, setCsfManualDate] = useState<string>('');
+  const [csfNeedsManualDate, setCsfNeedsManualDate] = useState(false);
+  const [csfUploading, setCsfUploading] = useState(false);
+  const [csfError, setCsfError] = useState<string | null>(null);
+
+  const loadCsf = async (clientId: number) => {
+    setCsfLoading(true);
+    setCsfError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/clients/${clientId}/constancia`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setCsfStatus(res.ok ? data : { exists: false });
+    } catch {
+      setCsfStatus({ exists: false });
+    } finally {
+      setCsfLoading(false);
+    }
+  };
+
+  const openCsfModal = (client: Client) => {
+    setCsfClient(client);
+    setCsfFile(null);
+    setCsfManualDate('');
+    setCsfNeedsManualDate(false);
+    setCsfError(null);
+    setCsfStatus(null);
+    setCsfModal(true);
+    loadCsf(client.id);
+  };
+
+  const pickCsfFile = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/*'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (res.canceled || !res.assets || res.assets.length === 0) return;
+      const a = res.assets[0];
+      setCsfFile({ uri: a.uri, name: a.name || 'constancia.pdf', mimeType: a.mimeType });
+      setCsfError(null);
+      setCsfNeedsManualDate(false);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'No se pudo seleccionar el archivo');
+    }
+  };
+
+  const submitCsf = async () => {
+    if (!csfClient || !csfFile) {
+      setCsfError('Selecciona el archivo de la constancia.');
+      return;
+    }
+    setCsfUploading(true);
+    setCsfError(null);
+    try {
+      const fd = new FormData();
+      // @ts-ignore — formato requerido por React Native
+      fd.append('constancia', {
+        uri: csfFile.uri,
+        name: csfFile.name,
+        type: csfFile.mimeType || 'application/pdf',
+      });
+      if (csfManualDate && /^\d{4}-\d{2}-\d{2}$/.test(csfManualDate)) {
+        fd.append('issued_at', csfManualDate);
+      }
+      const res = await fetch(`${API_URL}/api/advisor/clients/${csfClient.id}/constancia`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok) {
+        setCsfFile(null);
+        setCsfManualDate('');
+        setCsfNeedsManualDate(false);
+        await loadCsf(csfClient.id);
+        Alert.alert('Listo', 'Constancia subida y validada.');
+      } else if (res.status === 422 && data?.needs_manual_date) {
+        setCsfNeedsManualDate(true);
+        setCsfError('No pudimos leer la fecha del PDF. Indícala manualmente.');
+      } else if (data?.error === 'expired') {
+        setCsfError(data?.message || 'La constancia tiene más de 3 meses. Descarga una más reciente del SAT.');
+      } else if (data?.error === 'future_date') {
+        setCsfError(data?.message || 'La fecha de emisión no puede ser futura.');
+      } else {
+        setCsfError(data?.message || data?.error || 'Error al subir la constancia');
+      }
+    } catch (e: any) {
+      setCsfError(e?.message || 'Error de red al subir la constancia');
+    } finally {
+      setCsfUploading(false);
+    }
+  };
 
   const loadFiscalProfiles = async (clientId: number) => {
     setFiscalLoading(true);
@@ -478,6 +589,9 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
           <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#f3e5f5' }]} onPress={() => openFiscalModal(item)}>
             <Ionicons name="receipt-outline" size={20} color="#7B1FA2" />
           </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#e8f5e9' }]} onPress={() => openCsfModal(item)}>
+            <Ionicons name="document-text-outline" size={20} color="#2e7d32" />
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -552,6 +666,131 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
           }
         />
       )}
+
+      {/* ─── Modal: CSF (Constancia de Situación Fiscal) ─── */}
+      <Modal visible={csfModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setCsfModal(false)}>
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalHeader, { backgroundColor: '#2e7d32' }]}>
+            <Text style={styles.modalTitle}>📄 Constancia Fiscal</Text>
+            <TouchableOpacity onPress={() => setCsfModal(false)}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+            <Text style={{ fontWeight: '700', marginBottom: 4 }}>{csfClient?.full_name || ''}</Text>
+            <Text style={{ color: '#666', marginBottom: 12, fontSize: 12 }}>
+              Vigencia: 3 meses desde su emisión. Necesaria para facturar.
+            </Text>
+
+            {csfLoading ? (
+              <ActivityIndicator color="#2e7d32" style={{ marginVertical: 20 }} />
+            ) : (
+              <View
+                style={{
+                  padding: 12,
+                  borderRadius: 10,
+                  borderWidth: 2,
+                  marginBottom: 16,
+                  borderColor: csfStatus?.is_valid ? '#2e7d32' : csfStatus?.exists ? '#ed6c02' : '#bdbdbd',
+                  backgroundColor: csfStatus?.is_valid ? '#e8f5e9' : csfStatus?.exists ? '#fff3e0' : '#fafafa',
+                }}
+              >
+                {csfStatus?.exists && csfStatus.is_valid ? (
+                  <>
+                    <Text style={{ color: '#2e7d32', fontWeight: '700' }}>
+                      Vigente · hasta {new Date(csfStatus.valid_until + 'T00:00:00').toLocaleDateString('es-MX')}
+                    </Text>
+                    {csfStatus.days_to_expire != null && csfStatus.days_to_expire <= 14 && (
+                      <Text style={{ color: '#ed6c02', marginTop: 4, fontSize: 12 }}>
+                        Vence en {csfStatus.days_to_expire} día{csfStatus.days_to_expire === 1 ? '' : 's'}.
+                      </Text>
+                    )}
+                    {csfStatus.file_url ? (
+                      <TouchableOpacity
+                        onPress={() => Linking.openURL(csfStatus.file_url!)}
+                        style={{ marginTop: 8, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center' }}
+                      >
+                        <Ionicons name="cloud-download-outline" size={16} color="#2e7d32" />
+                        <Text style={{ color: '#2e7d32', marginLeft: 4, fontWeight: '600' }}>Ver constancia</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </>
+                ) : csfStatus?.exists ? (
+                  <Text style={{ color: '#ed6c02', fontWeight: '700' }}>
+                    Expirada · venció el {new Date(csfStatus.valid_until + 'T00:00:00').toLocaleDateString('es-MX')}
+                  </Text>
+                ) : (
+                  <Text style={{ color: '#666' }}>El cliente aún no tiene constancia subida.</Text>
+                )}
+              </View>
+            )}
+
+            <Text style={{ fontWeight: '700', marginBottom: 8 }}>
+              {csfStatus?.exists ? 'Actualizar / Reemplazar constancia' : 'Subir constancia'}
+            </Text>
+
+            <TouchableOpacity
+              onPress={pickCsfFile}
+              disabled={csfUploading}
+              style={{
+                borderWidth: 2,
+                borderColor: '#2e7d32',
+                borderStyle: 'dashed',
+                borderRadius: 10,
+                padding: 16,
+                alignItems: 'center',
+                backgroundColor: 'rgba(46,125,50,0.04)',
+                opacity: csfUploading ? 0.6 : 1,
+              }}
+            >
+              <Ionicons name="document-attach-outline" size={32} color="#2e7d32" />
+              <Text style={{ marginTop: 6, fontWeight: '700', color: '#1b5e20' }}>
+                {csfFile ? csfFile.name : 'Toca para elegir PDF / imagen'}
+              </Text>
+              <Text style={{ color: '#666', marginTop: 4, fontSize: 11 }}>Máximo 15 MB</Text>
+            </TouchableOpacity>
+
+            {csfNeedsManualDate && (
+              <View style={{ marginTop: 12 }}>
+                <Text style={{ fontSize: 12, color: '#444', marginBottom: 4 }}>
+                  Fecha de emisión (YYYY-MM-DD)
+                </Text>
+                <TextInput
+                  value={csfManualDate}
+                  onChangeText={setCsfManualDate}
+                  placeholder="2026-06-24"
+                  placeholderTextColor="#999"
+                  style={{ borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, fontSize: 14 }}
+                />
+              </View>
+            )}
+
+            {csfError && (
+              <View style={{ marginTop: 12, padding: 10, borderRadius: 8, backgroundColor: csfNeedsManualDate ? '#fff8e1' : '#ffebee' }}>
+                <Text style={{ color: csfNeedsManualDate ? '#b26a00' : '#c62828' }}>{csfError}</Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              disabled={!csfFile || csfUploading || (csfNeedsManualDate && !csfManualDate)}
+              onPress={submitCsf}
+              style={{
+                marginTop: 16,
+                backgroundColor: '#2e7d32',
+                paddingVertical: 14,
+                borderRadius: 10,
+                alignItems: 'center',
+                opacity: (!csfFile || csfUploading || (csfNeedsManualDate && !csfManualDate)) ? 0.5 : 1,
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '700' }}>
+                {csfUploading ? 'Subiendo y validando…' : 'Subir y validar'}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
 
       {/* ─── Modal: Instrucciones de Envío ─── */}
       <Modal visible={shipInstrModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShipInstrModal(false)}>
