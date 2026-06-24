@@ -1985,12 +1985,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       return null;
     }
     if (step === 3 && requiereFactura) {
-      // CSF obligatoria + vigente para facturar
-      if (!csfStatus || !csfStatus.exists || !csfStatus.is_valid) {
-        return csfStatus?.exists
-          ? 'Tu Constancia de Situación Fiscal ya expiró. Sube una vigente (no mayor a 3 meses) para continuar.'
-          : 'Sube tu Constancia de Situación Fiscal vigente para poder facturar.';
-      }
+      // CSF: no bloquea, solo se muestra Alert arriba avisando al cliente
+      // que debe subir/actualizar su Constancia para que ENTANGLED genere la factura.
       if (!form.rfc || !form.razon_social || !form.cp || !form.email) {
         return t('entangled.messages.requiredFields');
       }
@@ -3082,7 +3078,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 </Stack>
               </Paper>
 
-              {/* Constancia de Situación Fiscal (CSF) — obligatoria + vigente */}
+              {/* Constancia de Situación Fiscal (CSF) — informativa, no bloquea */}
               <Box sx={{ mb: 2 }}>
                 <CsfPanel
                   mode="self"
@@ -3092,8 +3088,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 {csfStatus && !(csfStatus.exists && csfStatus.is_valid) && (
                   <Alert severity="warning" sx={{ mt: 1.5 }}>
                     {csfStatus.exists
-                      ? 'Tu constancia ya expiró. Sube una nueva del SAT (no mayor a 3 meses) para poder facturar.'
-                      : 'Sube tu Constancia de Situación Fiscal vigente para poder continuar con el pago con factura.'}
+                      ? 'Tu constancia ya expiró. Actualízala (no mayor a 3 meses) para que podamos generar tu factura. Puedes continuar, pero la factura quedará pendiente hasta que la subas.'
+                      : 'Aún no has subido tu Constancia de Situación Fiscal. Súbela para que podamos generar tu factura. Puedes continuar, pero la factura quedará pendiente hasta que la subas.'}
                   </Alert>
                 )}
               </Box>
