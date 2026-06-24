@@ -1702,7 +1702,7 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             LIMIT 50
         `, [userId]);
 
-        // Get company bank info per service type
+        // Get company bank info per service type (once)
         let bankInfo: any = null;
         let branchInfo: any = null;
         try {
@@ -1729,148 +1729,156 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             // bankInfo remains null — frontend handles gracefully
         }
 
-        // Enrich with package details
+        // ─── BATCH QUERIES (fix N+1) ────────────────────────────────────
+        // Parse all package_ids once
+        const rowPkgIds: number[][] = result.rows.map((row: any) => {
+            try {
+                const raw = typeof row.package_ids === 'string' ? JSON.parse(row.package_ids) : row.package_ids;
+                return (Array.isArray(raw) ? raw : []).map(Number).filter((n: number) => Number.isFinite(n) && n > 0);
+            } catch { return []; }
+        });
+        const allTopIds = Array.from(new Set(rowPkgIds.flat()));
+
+        // 1) Cargar todos los paquetes top-level de una sola vez
+        const PKG_COLS = `
+            id, tracking_internal, international_tracking, weight,
+            assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
+            pobox_service_cost, pobox_tarifa_nivel,
+            national_carrier, status,
+            COALESCE(pkg_length, long_cm, 0) as length_cm,
+            COALESCE(pkg_width, width_cm, 0) as width_cm,
+            COALESCE(pkg_height, height_cm, 0) as height_cm,
+            COALESCE(is_master, false) as is_master,
+            description,
+            COALESCE(gex_total_cost, 0) as gex_total_cost,
+            master_id
+        `;
+        const topPkgsRes = allTopIds.length > 0
+            ? await pool.query(`SELECT ${PKG_COLS} FROM packages WHERE id = ANY($1)`, [allTopIds])
+            : { rows: [] as any[] };
+        const topPkgById = new Map<number, any>(topPkgsRes.rows.map((p: any) => [Number(p.id), p]));
+
+        // 2) Para masters multi-pieza, cargar TODAS las hijas en un solo query
+        const masterIds = topPkgsRes.rows.filter((p: any) => p.is_master).map((p: any) => Number(p.id));
+        const childRes = masterIds.length > 0
+            ? await pool.query(`SELECT ${PKG_COLS} FROM packages WHERE master_id = ANY($1) ORDER BY master_id ASC, id ASC`, [masterIds])
+            : { rows: [] as any[] };
+        const childrenByMaster = new Map<number, any[]>();
+        for (const c of childRes.rows) {
+            const mid = Number(c.master_id);
+            const arr = childrenByMaster.get(mid) || [];
+            arr.push(c);
+            childrenByMaster.set(mid, arr);
+        }
+
+        // 3) Fallback por payment_reference: cargar advisor_payment_orders en batch
+        const allRefs = result.rows.map((r: any) => r.payment_reference).filter(Boolean);
+        const apoMap = new Map<string, string[]>(); // payment_reference -> trackings[]
+        if (allRefs.length > 0) {
+            const apoRes = await pool.query(
+                `SELECT payment_reference, trackings FROM advisor_payment_orders WHERE payment_reference = ANY($1::text[])`,
+                [allRefs]
+            ).catch(() => ({ rows: [] as any[] }));
+            for (const r of apoRes.rows) {
+                try {
+                    const t = typeof r.trackings === 'string' ? JSON.parse(r.trackings) : r.trackings;
+                    apoMap.set(String(r.payment_reference), Array.isArray(t) ? t.map(String) : []);
+                } catch { apoMap.set(String(r.payment_reference), []); }
+            }
+        }
+        // Cargar paquetes por tracking_internal en batch (para fallback)
+        const allFallbackTrks = Array.from(new Set(Array.from(apoMap.values()).flat()));
+        const trkPkgByTracking = new Map<string, any>();
+        if (allFallbackTrks.length > 0) {
+            const trkRes = await pool.query(
+                `SELECT ${PKG_COLS} FROM packages WHERE tracking_internal = ANY($1::text[]) ORDER BY is_master ASC, id ASC`,
+                [allFallbackTrks]
+            ).catch(() => ({ rows: [] as any[] }));
+            for (const r of trkRes.rows) {
+                trkPkgByTracking.set(String(r.tracking_internal), r);
+            }
+        }
+
+        // 4) Cargar ajustes financieros (cargos extra) por tracking en batch
+        const allRelevantTrks = new Set<string>();
+        for (const p of topPkgsRes.rows) if (p.tracking_internal) allRelevantTrks.add(String(p.tracking_internal));
+        for (const c of childRes.rows) if (c.tracking_internal) allRelevantTrks.add(String(c.tracking_internal));
+        const ajustesByTracking = new Map<string, number>(); // tracking -> sum
+        if (allRelevantTrks.size > 0) {
+            const ajRes = await pool.query(
+                `SELECT guia_tracking, tipo, monto FROM guias_ajustes_financieros
+                 WHERE activo = true AND guia_tracking = ANY($1::text[])`,
+                [Array.from(allRelevantTrks)]
+            ).catch(() => ({ rows: [] as any[] }));
+            for (const a of ajRes.rows) {
+                const t = String(a.guia_tracking);
+                const sign = a.tipo === 'descuento' ? -1 : 1;
+                const cur = ajustesByTracking.get(t) || 0;
+                ajustesByTracking.set(t, cur + sign * (Number(a.monto) || 0));
+            }
+        }
+
+        // ─── Construir respuesta por orden usando los maps batch ────────
         const payments = [];
-        for (const row of result.rows) {
+        for (let i = 0; i < result.rows.length; i++) {
+            const row = result.rows[i];
+            const pkgIds = rowPkgIds[i] || [];
             let packages: any[] = [];
-            const pkgIds = typeof row.package_ids === 'string'
-                ? JSON.parse(row.package_ids)
-                : row.package_ids;
-            if (Array.isArray(pkgIds) && pkgIds.length > 0) {
-                try {
-                    const pkgResult = await pool.query(`
-                        SELECT id, tracking_internal, international_tracking, weight,
-                               assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
-                               pobox_service_cost, pobox_tarifa_nivel,
-                               national_carrier, status,
-                               COALESCE(pkg_length, long_cm, 0) as length_cm,
-                               COALESCE(pkg_width, width_cm, 0) as width_cm,
-                               COALESCE(pkg_height, height_cm, 0) as height_cm,
-                               COALESCE(is_master, false) as is_master,
-                               description
-                        FROM packages
-                        WHERE id = ANY($1)
-                    `, [pkgIds]);
-                    for (const pkg of pkgResult.rows) {
-                        if (pkg.is_master) {
-                            try {
-                                const childRes = await pool.query(`
-                                    SELECT id, tracking_internal, international_tracking, weight,
-                                           assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
-                                           pobox_service_cost, pobox_tarifa_nivel,
-                                           national_carrier, status,
-                                           COALESCE(pkg_length, long_cm, 0) as length_cm,
-                                           COALESCE(pkg_width, width_cm, 0) as width_cm,
-                                           COALESCE(pkg_height, height_cm, 0) as height_cm,
-                                           description
-                                    FROM packages WHERE master_id = $1 ORDER BY id ASC
-                                `, [pkg.id]);
-                                if (childRes.rows.length > 0) {
-                                    packages.push(...childRes.rows);
-                                } else {
-                                    packages.push(pkg);
-                                }
-                            } catch { packages.push(pkg); }
-                        } else {
-                            packages.push(pkg);
-                        }
-                    }
-                } catch (e) {
-                    console.error('[getPoboxPaymentHistory] packages enrichment error:', e);
+
+            // 1) Expandir paquetes (top + hijas si master)
+            for (const id of pkgIds) {
+                const pkg = topPkgById.get(id);
+                if (!pkg) continue;
+                if (pkg.is_master) {
+                    const ch = childrenByMaster.get(Number(pkg.id)) || [];
+                    if (ch.length > 0) packages.push(...ch);
+                    else packages.push(pkg);
+                } else {
+                    packages.push(pkg);
                 }
             }
-            // Fallback: if packages is still empty, try to find by trackings stored in advisor_payment_orders
+
+            // 2) Fallback por tracking_internal si packages está vacío
             if (packages.length === 0 && row.payment_reference) {
-                try {
-                    const apoRes = await pool.query(
-                        `SELECT trackings FROM advisor_payment_orders WHERE payment_reference = $1 LIMIT 1`,
-                        [row.payment_reference]
-                    );
-                    if (apoRes.rows[0]?.trackings) {
-                        const trks = typeof apoRes.rows[0].trackings === 'string'
-                            ? JSON.parse(apoRes.rows[0].trackings)
-                            : apoRes.rows[0].trackings;
-                        if (Array.isArray(trks) && trks.length > 0) {
-                            // Find children first (they have master_id set), then masters
-                            const trkRes = await pool.query(`
-                                SELECT id, tracking_internal, international_tracking, weight,
-                                       assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
-                                       pobox_service_cost, pobox_tarifa_nivel,
-                                       national_carrier, status,
-                                       COALESCE(pkg_length, long_cm, 0) as length_cm,
-                                       COALESCE(pkg_width, width_cm, 0) as width_cm,
-                                       COALESCE(pkg_height, height_cm, 0) as height_cm,
-                                       COALESCE(is_master, false) as is_master,
-                                       description
-                                FROM packages
-                                WHERE tracking_internal = ANY($1)
-                                ORDER BY is_master ASC, id ASC
-                            `, [trks]);
-                            // If only the master came back, expand to children
-                            const nonMasters = trkRes.rows.filter((r: any) => !r.is_master);
-                            const masters = trkRes.rows.filter((r: any) => r.is_master);
-                            if (nonMasters.length > 0) {
-                                packages.push(...nonMasters);
-                            } else if (masters.length > 0) {
-                                for (const m of masters) {
-                                    const cRes = await pool.query(`
-                                        SELECT id, tracking_internal, international_tracking, weight,
-                                               assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
-                                               pobox_service_cost, pobox_tarifa_nivel,
-                                               national_carrier, status,
-                                               COALESCE(pkg_length, long_cm, 0) as length_cm,
-                                               COALESCE(pkg_width, width_cm, 0) as width_cm,
-                                               COALESCE(pkg_height, height_cm, 0) as height_cm,
-                                               description
-                                        FROM packages WHERE master_id = $1 ORDER BY id ASC
-                                    `, [m.id]);
-                                    if (cRes.rows.length > 0) packages.push(...cRes.rows);
-                                    else packages.push(m);
-                                }
-                            }
+                const trks = apoMap.get(String(row.payment_reference)) || [];
+                if (trks.length > 0) {
+                    const found = trks.map(t => trkPkgByTracking.get(t)).filter(Boolean) as any[];
+                    const nonMasters = found.filter(r => !r.is_master);
+                    const masters = found.filter(r => r.is_master);
+                    if (nonMasters.length > 0) {
+                        packages.push(...nonMasters);
+                    } else if (masters.length > 0) {
+                        for (const m of masters) {
+                            const ch = childrenByMaster.get(Number(m.id)) || [];
+                            // Si no estaba cargado el master desde topPkgsRes, intentar hijas con master_id
+                            if (ch.length > 0) packages.push(...ch);
+                            else packages.push(m);
                         }
                     }
-                } catch (e2) {
-                    console.error('[getPoboxPaymentHistory] tracking fallback error:', e2);
                 }
             }
-            // Desglose de costos para la cotización/PDF. Paquetería y GEX se toman
-            // SOLO de las guías del pago (top-level), no de las hijas: esos campos se
-            // guardan a nivel master y se duplican en las hijas, así que sumarlas
-            // multiplicaría el monto. Cargos extra sí se buscan por tracking en master
-            // + hijas (pueden estar en cualquiera). PO Box queda como remanente para
-            // que el desglose reconcilie exactamente con el TOTAL (order.amount).
+
+            // 3) cost_breakdown: usa los maps (sin más queries)
             const cost_breakdown = { pobox: 0, paqueteria: 0, gex: 0, extra: 0 };
             try {
-                if (Array.isArray(pkgIds) && pkgIds.length > 0) {
-                    // Paquetería y GEX: solo las guías del pago (master/individuales)
-                    const topRes = await pool.query(`
-                        SELECT COALESCE(national_shipping_cost, 0) AS ship,
-                               COALESCE(gex_total_cost, 0) AS gex
-                        FROM packages
-                        WHERE id = ANY($1)
-                    `, [pkgIds]);
-                    for (const r of topRes.rows) {
-                        cost_breakdown.paqueteria += Number(r.ship) || 0;
-                        cost_breakdown.gex += Number(r.gex) || 0;
+                if (pkgIds.length > 0) {
+                    for (const id of pkgIds) {
+                        const pkg = topPkgById.get(id);
+                        if (!pkg) continue;
+                        cost_breakdown.paqueteria += Number(pkg.national_shipping_cost) || 0;
+                        cost_breakdown.gex += Number(pkg.gex_total_cost) || 0;
                     }
                     // Cargos extra: trackings de master + hijas
-                    const trkRes = await pool.query(`
-                        SELECT tracking_internal FROM packages
-                        WHERE id = ANY($1) OR master_id = ANY($1)
-                    `, [pkgIds]);
-                    const trks = trkRes.rows.map((r: any) => r.tracking_internal).filter(Boolean).map(String);
-                    if (trks.length > 0) {
-                        const ch = await pool.query(
-                            `SELECT tipo, monto FROM guias_ajustes_financieros
-                             WHERE activo = true AND guia_tracking = ANY($1::text[])`,
-                            [trks]
-                        );
-                        for (const c of ch.rows) {
-                            cost_breakdown.extra += (c.tipo === 'descuento' ? -1 : 1) * (Number(c.monto) || 0);
-                        }
+                    const trks: string[] = [];
+                    for (const id of pkgIds) {
+                        const pkg = topPkgById.get(id);
+                        if (pkg?.tracking_internal) trks.push(String(pkg.tracking_internal));
+                        const ch = childrenByMaster.get(id) || [];
+                        for (const c of ch) if (c.tracking_internal) trks.push(String(c.tracking_internal));
                     }
-                    // PO Box = remanente del total (reconcilia el desglose con order.amount)
+                    for (const t of trks) {
+                        cost_breakdown.extra += ajustesByTracking.get(t) || 0;
+                    }
                     cost_breakdown.pobox = (Number(row.amount) || 0)
                         - cost_breakdown.paqueteria - cost_breakdown.gex - cost_breakdown.extra;
                 }
