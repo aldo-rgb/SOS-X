@@ -124,6 +124,7 @@ import { usePaymentStatus, mapServiceKey } from '../hooks/usePaymentStatus';
 import AdvisorVerificationWizard from '../components/AdvisorVerificationWizard';
 import AdvisorTermsSignatureDialog from '../components/AdvisorTermsSignatureDialog';
 import AdvisorQuoteRequestModal from '../components/AdvisorQuoteRequestModal';
+import CsfPanel from '../components/CsfPanel';
 
 // ─── Types ───
 
@@ -582,6 +583,9 @@ export default function DashboardAdvisor() {
   // ── Gestor de datos fiscales del cliente (desde Mis Clientes) ──
   const [fiscalClient, setFiscalClient] = useState<{ id: number; name: string } | null>(null);
   const [fiscalProfiles, setFiscalProfiles] = useState<any[]>([]);
+
+  // ── Gestor de CSF del cliente (asesor sube en nombre del cliente) ──
+  const [csfClient, setCsfClient] = useState<{ id: number; name: string } | null>(null);
   const [fiscalLoading, setFiscalLoading] = useState(false);
   const [fiscalAdding, setFiscalAdding] = useState(false);
   const [fiscalSaving, setFiscalSaving] = useState(false);
@@ -2518,6 +2522,14 @@ export default function DashboardAdvisor() {
                   >
                     Instrucciones
                   </Button>
+                  <Button
+                    variant="outlined" size="small" fullWidth
+                    onClick={() => setCsfClient({ id: c.id, name: c.fullName })}
+                    startIcon={<InvoiceIcon />}
+                    sx={{ textTransform: 'none', fontSize: '0.75rem', borderColor: '#2e7d32', color: '#2e7d32', '&:hover': { bgcolor: '#e8f5e9' } }}
+                  >
+                    CSF
+                  </Button>
                 </Box>
               </Paper>
             ))}
@@ -2536,6 +2548,7 @@ export default function DashboardAdvisor() {
                   <TableCell>{t('advisor.lastShipment')}</TableCell>
                   <TableCell align="center">Direcciones</TableCell>
                   <TableCell align="center">Datos Fiscales</TableCell>
+                  <TableCell align="center">CSF</TableCell>
                   <TableCell align="center">Cartera</TableCell>
                   <TableCell align="center">Instrucciones</TableCell>
                 </TableRow>
@@ -2543,7 +2556,7 @@ export default function DashboardAdvisor() {
               <TableBody>
                 {clients.length === 0 && !clientsLoading && (
                   <TableRow>
-                    <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">{t('advisor.noClients')}</Typography>
                     </TableCell>
                   </TableRow>
@@ -2626,6 +2639,16 @@ export default function DashboardAdvisor() {
                           startIcon={<InvoiceIcon />}
                           sx={{ textTransform: 'none', fontSize: '0.72rem', fontWeight: 700, py: 0.5, px: 1.5, borderRadius: 2, borderWidth: 1.5, minWidth: 92, color: '#F05A28', borderColor: '#F05A28', bgcolor: '#fff', '&:hover': { borderWidth: 1.5, bgcolor: '#F05A28', color: '#fff', borderColor: '#F05A28' } }}>
                           Fiscal
+                        </Button>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Constancia de Situación Fiscal del cliente">
+                        <Button variant="outlined" size="small"
+                          onClick={() => setCsfClient({ id: c.id, name: c.fullName })}
+                          startIcon={<InvoiceIcon />}
+                          sx={{ textTransform: 'none', fontSize: '0.72rem', fontWeight: 700, py: 0.5, px: 1.5, borderRadius: 2, borderWidth: 1.5, minWidth: 92, color: '#2e7d32', borderColor: '#2e7d32', bgcolor: '#fff', '&:hover': { borderWidth: 1.5, bgcolor: '#2e7d32', color: '#fff', borderColor: '#2e7d32' } }}>
+                          CSF
                         </Button>
                       </Tooltip>
                     </TableCell>
@@ -2746,6 +2769,31 @@ export default function DashboardAdvisor() {
           </DialogContent>
           <DialogActions sx={{ px: 3, py: 2 }}>
             <Button onClick={() => setFiscalClient(null)} disabled={fiscalSaving}>Cerrar</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* ── Dialog: CSF (Constancia de Situación Fiscal) del cliente ── */}
+        <Dialog
+          open={csfClient !== null}
+          onClose={() => setCsfClient(null)}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{ sx: { borderRadius: 3 } }}
+        >
+          <DialogTitle sx={{ fontWeight: 700, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InvoiceIcon sx={{ color: '#2e7d32' }} /> Constancia de Situación Fiscal — {csfClient?.name}
+          </DialogTitle>
+          <DialogContent dividers>
+            {csfClient && (
+              <CsfPanel
+                mode="for-client"
+                clientUserId={csfClient.id}
+                title="Constancia de Situación Fiscal (CSF)"
+              />
+            )}
+          </DialogContent>
+          <DialogActions sx={{ px: 3, py: 2 }}>
+            <Button onClick={() => setCsfClient(null)}>Cerrar</Button>
           </DialogActions>
         </Dialog>
       </Box>

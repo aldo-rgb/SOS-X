@@ -133,10 +133,62 @@ const isoDate = (d: Date) => d.toISOString().slice(0, 10);
  *     extraer la fecha del PDF.
  */
 export const uploadConstancia = async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user?.userId;
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  return _upsertConstancia(userId, req, res);
+};
+
+/**
+ * POST /api/advisor/clients/:clientId/constancia
+ * Mismo flujo que uploadConstancia pero el asesor sube en nombre de un
+ * cliente. El asesor debe ser dueño del cliente (advisor_id o referred_by_id).
+ */
+export const uploadConstanciaForClient = async (req: Request, res: Response): Promise<any> => {
+  const advisorIdNum = (req as any).user?.userId;
+  if (!advisorIdNum) return res.status(401).json({ error: 'No autenticado' });
+  const role = String((req as any).user?.role || '').toLowerCase();
+  const clientId = Number(req.params.clientId);
+  if (!clientId) return res.status(400).json({ error: 'clientId inválido' });
+  // Staff con rol elevado puede subir por cualquier cliente; asesores solo
+  // por sus clientes asignados.
+  const elevatedRoles = ['super_admin', 'admin', 'director', 'branch_manager'];
+  if (!elevatedRoles.includes(role)) {
+    const owns = await pool.query(
+      `SELECT 1 FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) LIMIT 1`,
+      [clientId, advisorIdNum]
+    );
+    if (owns.rows.length === 0) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+  }
+  return _upsertConstancia(clientId, req, res);
+};
+
+/**
+ * GET /api/advisor/clients/:clientId/constancia
+ */
+export const getClientConstanciaStatus = async (req: Request, res: Response): Promise<any> => {
+  const advisorIdNum = (req as any).user?.userId;
+  if (!advisorIdNum) return res.status(401).json({ error: 'No autenticado' });
+  const role = String((req as any).user?.role || '').toLowerCase();
+  const clientId = Number(req.params.clientId);
+  if (!clientId) return res.status(400).json({ error: 'clientId inválido' });
+  const elevatedRoles = ['super_admin', 'admin', 'director', 'branch_manager'];
+  if (!elevatedRoles.includes(role)) {
+    const owns = await pool.query(
+      `SELECT 1 FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) LIMIT 1`,
+      [clientId, advisorIdNum]
+    );
+    if (owns.rows.length === 0) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+  }
+  return _readConstanciaStatus(clientId, res);
+};
+
+/**
+ * Implementación interna del upload — usada por uploadConstancia (self)
+ * y uploadConstanciaForClient (asesor en nombre del cliente).
+ */
+const _upsertConstancia = async (userId: number, req: Request, res: Response): Promise<any> => {
   try {
     await ensureCsfColumns();
-    const userId = (req as any).user?.userId;
-    if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
     const file: UploadedFile | undefined = (req as any).file;
     if (!file || !file.buffer || file.buffer.length === 0) {
@@ -227,7 +279,7 @@ export const uploadConstancia = async (req: Request, res: Response): Promise<any
       detection_method: detectionMethod,
     });
   } catch (err: any) {
-    console.error('[CSF] uploadConstancia error:', err);
+    console.error('[CSF] _upsertConstancia error:', err);
     return res.status(500).json({ error: 'Error al subir la constancia', details: err?.message });
   }
 };
@@ -237,10 +289,14 @@ export const uploadConstancia = async (req: Request, res: Response): Promise<any
  * Devuelve estado actual de la constancia del cliente con flag is_valid.
  */
 export const getConstanciaStatus = async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user?.userId;
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  return _readConstanciaStatus(userId, res);
+};
+
+const _readConstanciaStatus = async (userId: number, res: Response): Promise<any> => {
   try {
     await ensureCsfColumns();
-    const userId = (req as any).user?.userId;
-    if (!userId) return res.status(401).json({ error: 'No autenticado' });
     const r = await pool.query(
       `SELECT file_url, original_filename, issued_at, valid_until, updated_at
          FROM user_saved_documents
@@ -270,7 +326,7 @@ export const getConstanciaStatus = async (req: Request, res: Response): Promise<
       updated_at: row.updated_at,
     });
   } catch (err: any) {
-    console.error('[CSF] getConstanciaStatus error:', err);
+    console.error('[CSF] _readConstanciaStatus error:', err);
     return res.status(500).json({ error: 'Error al consultar constancia', details: err?.message });
   }
 };
