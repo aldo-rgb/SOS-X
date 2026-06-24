@@ -1139,10 +1139,21 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
   // Borrado de una operación (solo asesor) — para limpiar pruebas/errores.
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const handleDeleteRequest = async (requestId: number, referencia: string) => {
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; requestId: number | null; referencia: string }>(
+    { open: false, requestId: null, referencia: '' }
+  );
+  const handleDeleteRequest = (requestId: number, referencia: string) => {
     if (!advisorClientId) return;
-    const ok = window.confirm(`¿Borrar la operación ${referencia}? Esta acción no se puede deshacer.`);
-    if (!ok) return;
+    setConfirmDelete({ open: true, requestId, referencia });
+  };
+  const closeConfirmDelete = () => {
+    if (deletingId != null) return; // no cerrar mientras borra
+    setConfirmDelete({ open: false, requestId: null, referencia: '' });
+  };
+  const performDeleteRequest = async () => {
+    const requestId = confirmDelete.requestId;
+    const referencia = confirmDelete.referencia;
+    if (!advisorClientId || requestId == null) return;
     setDeletingId(requestId);
     try {
       await axios.delete(
@@ -1150,6 +1161,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         { headers: authHeader, params: { client_id: advisorClientId } }
       );
       await loadRequests();
+      setConfirmDelete({ open: false, requestId: null, referencia: '' });
       setSnack({ open: true, severity: 'success', message: `Operación ${referencia} borrada.` });
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
@@ -3639,6 +3651,88 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               {submitting ? t('entangled.actions.sending') : t('entangled.actions.submit')}
             </Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: confirmar borrado de operación (asesor) — diseño X-Pay */}
+      <Dialog
+        open={confirmDelete.open}
+        onClose={closeConfirmDelete}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: 'hidden',
+            bgcolor: '#0d0d0f',
+            border: '1px solid rgba(239,68,68,0.35)',
+            boxShadow: '0 24px 60px rgba(0,0,0,0.55)',
+          },
+        }}
+      >
+        {/* Encabezado con ícono de advertencia */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 3.5, px: 3 }}>
+          <Box
+            sx={{
+              width: 60, height: 60, borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              bgcolor: 'rgba(239,68,68,0.12)',
+              border: '1px solid rgba(239,68,68,0.4)',
+              mb: 1.5,
+              animation: 'xpay-del-pulse 2s infinite',
+              '@keyframes xpay-del-pulse': {
+                '0%, 100%': { boxShadow: '0 0 0 0 rgba(239,68,68,0.28)' },
+                '50%': { boxShadow: '0 0 0 10px rgba(239,68,68,0)' },
+              },
+            }}
+          >
+            <DeleteIcon sx={{ fontSize: 30, color: '#ef4444' }} />
+          </Box>
+          <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1.15rem', textAlign: 'center' }}>
+            Borrar operación
+          </Typography>
+        </Box>
+        <DialogContent sx={{ pt: 1.5, pb: 1, px: 3 }}>
+          <Typography sx={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.9rem', textAlign: 'center', lineHeight: 1.5 }}>
+            Vas a borrar la operación{' '}
+            <Box component="span" sx={{ color: ORANGE, fontWeight: 800, fontFamily: 'monospace' }}>
+              {confirmDelete.referencia}
+            </Box>
+            . Esta acción no se puede deshacer.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, pt: 1.5, gap: 1.2 }}>
+          <Button
+            onClick={closeConfirmDelete}
+            disabled={deletingId != null}
+            fullWidth
+            sx={{
+              textTransform: 'none', fontWeight: 700, borderRadius: 2, py: 1,
+              color: 'rgba(255,255,255,0.85)',
+              border: '1px solid rgba(255,255,255,0.18)',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.35)' },
+            }}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={performDeleteRequest}
+            disabled={deletingId != null}
+            fullWidth
+            variant="contained"
+            startIcon={deletingId != null
+              ? <CircularProgress size={15} sx={{ color: '#fff' }} />
+              : <DeleteIcon sx={{ fontSize: 16 }} />}
+            sx={{
+              textTransform: 'none', fontWeight: 800, borderRadius: 2, py: 1,
+              bgcolor: '#ef4444', color: '#fff',
+              boxShadow: '0 6px 16px rgba(239,68,68,0.4)',
+              '&:hover': { bgcolor: '#dc2626', boxShadow: '0 8px 20px rgba(239,68,68,0.55)' },
+              '&.Mui-disabled': { bgcolor: 'rgba(239,68,68,0.5)', color: 'rgba(255,255,255,0.7)' },
+            }}
+          >
+            {deletingId != null ? 'Borrando…' : 'Sí, borrar'}
+          </Button>
         </DialogActions>
       </Dialog>
 
