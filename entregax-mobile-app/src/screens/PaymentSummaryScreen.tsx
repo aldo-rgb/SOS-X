@@ -1015,22 +1015,6 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
             </Card.Content>
           </Card>
 
-          {/* Destino */}
-          <Card style={styles.card}>
-            <Card.Content>
-              <Text style={styles.sectionTitle}>📍 Información de Envío</Text>
-              <Divider style={styles.divider} />
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Próximo Destino:</Text>
-                <Text style={styles.infoValue}>CEDIS Monterrey</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>País:</Text>
-                <Text style={styles.infoValue}>México</Text>
-              </View>
-            </Card.Content>
-          </Card>
-
           {/* ============ PASARELA DE PAGO ============ */}
           <Card style={styles.paymentCard}>
             <Card.Content>
