@@ -1915,7 +1915,21 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     consolidationId: pkg.consolidation_id || null,
                     missingOnArrival: pkg.missing_on_arrival_eff === true || pkg.missing_on_arrival === true,
                     isLost: pkg.is_lost_eff === true || pkg.is_lost === true,
-                    totalCost: pkg.gex_total_cost ? parseFloat(pkg.gex_total_cost) : null,
+                    // "Total a cobrar" = lo que debe pagar el cliente. ANTES se
+                    // mapeaba por error a gex_total_cost (daba $0 si no había GEX
+                    // aunque hubiera venta). Ahora: venta (PO Box USD × TC) + GEX +
+                    // paquetería nacional; si hay un assigned_cost_mxn guardado mayor
+                    // (servicios no-PO Box: marítimo/aéreo/DHL), se usa ese.
+                    totalCost: (() => {
+                        const tc = parseFloat(pkg.registered_exchange_rate) || 0;
+                        const ventaMxn = (parseFloat(pkg.pobox_venta_usd) || 0) * tc;
+                        const gex = parseFloat(pkg.gex_total_cost) || 0;
+                        const envio = parseFloat(pkg.national_shipping_cost) || 0;
+                        const computed = ventaMxn + gex + envio;
+                        const assigned = parseFloat(pkg.assigned_cost_mxn) || 0;
+                        const total = Math.max(computed, assigned);
+                        return total > 0 ? total : null;
+                    })(),
                     poboxCostUsd: pkg.pobox_cost_usd ? parseFloat(pkg.pobox_cost_usd) : null,
                     // Costos visibles solo para super_admin/admin/director/customer_service en frontend
                     nationalLabelCost: pkg.national_shipping_cost != null ? parseFloat(pkg.national_shipping_cost) : null,
