@@ -101,6 +101,10 @@ export default function FiscalPage() {
   const currentUser = savedUser ? JSON.parse(savedUser) : null;
   const isSuperAdmin = currentUser?.role === 'super_admin';
   const isDirector = currentUser?.role === 'director';
+  // Contador: vista aún más restringida que director — solo la columna Syncfy.
+  const isAccountant = ['accountant', 'contador'].includes(currentUser?.role);
+  // Vista restringida (director o contador): oculta todo lo de configuración.
+  const isRestricted = isDirector || isAccountant;
 
   const [emitters, setEmitters] = useState<FiscalEmitter[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -1066,7 +1070,7 @@ export default function FiscalPage() {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 2 }}>
-          {!isDirector && (
+          {!isRestricted && (
             <Button
               variant="contained"
               startIcon={<AddBusinessIcon />}
@@ -1145,7 +1149,7 @@ export default function FiscalPage() {
       <Paper sx={{ mb: 3, borderRadius: 2 }}>
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tab icon={<BusinessIcon />} label={i18n.language === 'es' ? 'Mis Empresas' : 'My Companies'} />
-          {!isDirector && <Tab icon={<SettingsIcon />} label="Servicios" />}
+          {!isRestricted && <Tab icon={<SettingsIcon />} label="Servicios" />}
         </Tabs>
       </Paper>
 
@@ -1170,16 +1174,16 @@ export default function FiscalPage() {
                 <TableRow sx={{ bgcolor: 'grey.100' }}>
                   <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Empresa' : 'Company'}</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>RFC</TableCell>
-                  {!isDirector && <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Régimen' : 'Regime'}</TableCell>}
-                  {!isDirector && <TableCell sx={{ fontWeight: 'bold' }}>C.P.</TableCell>}
-                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>Openpay</TableCell>}
-                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>Banco</TableCell>
-                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>PayPal</TableCell>}
+                  {!isRestricted && <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Régimen' : 'Regime'}</TableCell>}
+                  {!isRestricted && <TableCell sx={{ fontWeight: 'bold' }}>C.P.</TableCell>}
+                  {!isRestricted && <TableCell align="center" sx={{ fontWeight: 'bold' }}>Openpay</TableCell>}
+                  {!isAccountant && <TableCell align="center" sx={{ fontWeight: 'bold' }}>Banco</TableCell>}
+                  {!isRestricted && <TableCell align="center" sx={{ fontWeight: 'bold' }}>PayPal</TableCell>}
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Syncfy</TableCell>
-                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturama</TableCell>}
-                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturapi</TableCell>}
-                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Estado' : 'Status'}</TableCell>}
-                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Acciones' : 'Actions'}</TableCell>}
+                  {!isRestricted && <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturama</TableCell>}
+                  {!isRestricted && <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturapi</TableCell>}
+                  {!isRestricted && <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Estado' : 'Status'}</TableCell>}
+                  {!isRestricted && <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Acciones' : 'Actions'}</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -1199,11 +1203,11 @@ export default function FiscalPage() {
                     <TableCell>
                       <Chip label={emitter.rfc} size="small" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }} />
                     </TableCell>
-                    {!isDirector && <TableCell>
+                    {!isRestricted && <TableCell>
                       {FISCAL_REGIMES.find(r => r.code === emitter.fiscal_regime)?.code || emitter.fiscal_regime || '-'}
                     </TableCell>}
-                    {!isDirector && <TableCell>{emitter.zip_code || '-'}</TableCell>}
-                    {!isDirector && <TableCell align="center">
+                    {!isRestricted && <TableCell>{emitter.zip_code || '-'}</TableCell>}
+                    {!isRestricted && <TableCell align="center">
                       {emitter.openpay_configured ? (
                         <Tooltip title={`${emitter.clientes_con_clabe || 0} clientes con CLABE - ${emitter.openpay_production_mode ? 'Producción' : 'Sandbox'}`}>
                           <Chip 
@@ -1229,7 +1233,7 @@ export default function FiscalPage() {
                       )}
                     </TableCell>}
                     {/* Banco */}
-                    <TableCell align="center">
+                    {!isAccountant && <TableCell align="center">
                       {(emitter as any).bank_clabe ? (
                         <Tooltip title={`${(emitter as any).bank_name}: ${(emitter as any).bank_clabe}`}>
                           <Chip 
@@ -1253,9 +1257,9 @@ export default function FiscalPage() {
                           />
                         </Tooltip>
                       )}
-                    </TableCell>
+                    </TableCell>}
                     {/* PayPal */}
-                    {!isDirector && <TableCell align="center">
+                    {!isRestricted && <TableCell align="center">
                       {(emitter as any).paypal_configured ? (
                         <Tooltip title={`PayPal configurado (${(emitter as any).paypal_sandbox ? 'Sandbox' : 'Producción'})`}>
                           <Chip
@@ -1305,7 +1309,7 @@ export default function FiscalPage() {
                       )}
                     </TableCell>
                     {/* Facturama */}
-                    {!isDirector && <TableCell align="center">
+                    {!isRestricted && <TableCell align="center">
                       {(emitter as any).facturama_configured ? (
                         <Tooltip title={`Facturama (${(emitter as any).facturama_environment || 'sandbox'}) - Recepción ${(emitter as any).facturama_reception_enabled ? 'ON' : 'OFF'}`}>
                           <Chip
@@ -1331,7 +1335,7 @@ export default function FiscalPage() {
                       )}
                     </TableCell>}
                     {/* Facturapi */}
-                    {!isDirector && <TableCell align="center">
+                    {!isRestricted && <TableCell align="center">
                       {(emitter as any).facturapi_configured ? (
                         <Tooltip title={`Facturapi (${(emitter as any).facturapi_environment || 'live'}) - Descarga de CFDIs recibidos`}>
                           <Chip
@@ -1356,14 +1360,14 @@ export default function FiscalPage() {
                         </Tooltip>
                       )}
                     </TableCell>}
-                    {!isDirector && <TableCell align="center">
+                    {!isRestricted && <TableCell align="center">
                       <Chip
                         label={emitter.is_active ? (i18n.language === 'es' ? 'Activa' : 'Active') : (i18n.language === 'es' ? 'Inactiva' : 'Inactive')}
                         color={emitter.is_active ? 'success' : 'default'}
                         size="small"
                       />
                     </TableCell>}
-                    {!isDirector && <TableCell align="center">
+                    {!isRestricted && <TableCell align="center">
                       <IconButton onClick={() => handleOpenModal(emitter)} size="small">
                         <EditIcon />
                       </IconButton>
@@ -1376,7 +1380,7 @@ export default function FiscalPage() {
                   </TableRow>
                 )) : (
                   <TableRow>
-                    <TableCell colSpan={isDirector ? 4 : 11} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={isAccountant ? 3 : isDirector ? 4 : 11} align="center" sx={{ py: 4 }}>
                       <BusinessIcon sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
                       <Typography color="text.secondary">
                         {i18n.language === 'es' ? 'No hay empresas registradas. Agrega tu primera empresa emisora.' : 'No companies registered. Add your first issuing company.'}

@@ -5108,8 +5108,12 @@ app.post('/api/admin/verifications/:userId/reject', authenticateToken, canVerify
 app.post('/api/admin/verifications/:userId/reanalyze', authenticateToken, canVerifyIdentity, reanalyzeVerification);
 
 // --- RUTAS DE FACTURACIÓN FISCAL ---
+// Acceso de SOLO LECTURA a la lista de empresas + conexión Syncfy para el
+// contador (accountant). En la sección "Empresas" el contador ve únicamente la
+// columna Syncfy (mismo nivel de visibilidad que el director, pero más acotado).
+const requireEmpresasSyncfyAccess = requireRole(ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT);
 // Admin: Gestión de empresas emisoras
-app.get('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getFiscalEmitters);
+app.get('/api/admin/fiscal/emitters', authenticateToken, requireEmpresasSyncfyAccess, getFiscalEmitters);
 app.post('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createFiscalEmitter);
 app.put('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateFiscalEmitter);
 app.delete('/api/admin/fiscal/emitters/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteFiscalEmitter);
@@ -5128,7 +5132,7 @@ app.get('/api/admin/fiscal/service-emitter/:service_type', authenticateToken, ge
 // OPENPAY MULTI-EMPRESA - COBRANZA SPEI AUTOMATIZADA
 // ============================================
 // Configuración por empresa
-app.get('/api/admin/openpay/empresas', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getEmpresasOpenpay);
+app.get('/api/admin/openpay/empresas', authenticateToken, requireEmpresasSyncfyAccess, getEmpresasOpenpay);
 app.get('/api/admin/openpay/config/:empresa_id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getOpenpayConfig);
 app.post('/api/admin/openpay/config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveOpenpayConfig);
 
@@ -5173,12 +5177,12 @@ app.post('/api/webhooks/belvo', handleBelvoWebhook);
 // SYNCFY (Paybook) - REEMPLAZO DE BELVO
 // Multi-empresa: cada fiscal_emitter tiene su propio id_user.
 // ============================================
-app.post('/api/admin/syncfy/widget-token', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getSyncfyWidgetToken);
-app.get('/api/admin/syncfy/links', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getSyncfyLinks);
-app.post('/api/admin/syncfy/links', authenticateToken, requireMinLevel(ROLES.DIRECTOR), registerSyncfyLink);
-app.delete('/api/admin/syncfy/links/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteSyncfyLink);
-app.post('/api/admin/syncfy/sync', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncSyncfyTransactions);
-app.get('/api/admin/syncfy/stats', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getSyncfyStats);
+app.post('/api/admin/syncfy/widget-token', authenticateToken, requireEmpresasSyncfyAccess, getSyncfyWidgetToken);
+app.get('/api/admin/syncfy/links', authenticateToken, requireEmpresasSyncfyAccess, getSyncfyLinks);
+app.post('/api/admin/syncfy/links', authenticateToken, requireEmpresasSyncfyAccess, registerSyncfyLink);
+app.delete('/api/admin/syncfy/links/:id', authenticateToken, requireEmpresasSyncfyAccess, deleteSyncfyLink);
+app.post('/api/admin/syncfy/sync', authenticateToken, requireEmpresasSyncfyAccess, syncSyncfyTransactions);
+app.get('/api/admin/syncfy/stats', authenticateToken, requireEmpresasSyncfyAccess, getSyncfyStats);
 app.post('/api/admin/syncfy/match', authenticateToken, requireMinLevel(ROLES.ADMIN), syncfyManualMatch);
 app.post('/api/admin/syncfy/ignore', authenticateToken, requireMinLevel(ROLES.ADMIN), syncfyIgnoreTransaction);
 // Webhook (público, recibe notificaciones de Syncfy)

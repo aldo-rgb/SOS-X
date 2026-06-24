@@ -682,9 +682,9 @@ function App() {
         return ['dashboard', 'panels', 'cajaChicaGroup'].includes(item.key);
       }
 
-      // accountant: solo Dashboard + Herramientas (donde solo verá Contabilidad)
-      if (role === 'accountant') {
-        return ['dashboard', 'panels'].includes(item.key);
+      // accountant (contador): Dashboard + Herramientas + Empresas (solo columna Syncfy)
+      if (role === 'accountant' || role === 'contador') {
+        return ['dashboard', 'panels', 'fiscal'].includes(item.key);
       }
 
       // abogado: Dashboard + Herramientas + Documentos Legales
