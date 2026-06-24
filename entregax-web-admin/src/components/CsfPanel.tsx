@@ -15,7 +15,7 @@ import {
 import DownloadIcon from '@mui/icons-material/Download';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import CloseIcon from '@mui/icons-material/Close';
-import api from '../api/axios';
+import api from '../services/api';
 
 const ORANGE = '#F05A28';
 
