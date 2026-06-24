@@ -295,7 +295,7 @@ export default function ServiceInventoryPage() {
 
   // Mapea status de EntregaX a nuestro valor interno
   const mapExStatusToInternal = (ex: EntregaxRow): string | undefined => {
-    const ls = (ex.lastStatus || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const ls = (ex.lastStatus || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     if (ls.includes('entregado') || ls.includes('delivered')) return 'delivered';
     if (ls.includes('en ruta') || ls.includes('en camino') || ls.includes('out_for_delivery')) return 'out_for_delivery';
     const pak = (ex.paqueteria || '').toLowerCase();
@@ -305,6 +305,13 @@ export default function ServiceInventoryPage() {
     if (isLocalDelivery && isSent) return 'delivered';
     // Paquete Express enviado = sale hacia paquetería externa
     if (!isLocalDelivery && (ex.guiaSalida || isSent)) return 'shipped';
+    // Recibido en CEDIS (almacén central) — EntregaX puede decir "Recibido en Cedis CDMX"
+    // o "Recibido en CEDIS Monterrey". Detectar la ciudad para elegir received_cdmx/received_mty.
+    if (ls.includes('recibido') && (ls.includes('cedis') || ls.includes('almacen') || ls.includes('bodega'))) {
+      if (ls.includes('mty') || ls.includes('monterrey')) return 'received_mty';
+      // por defecto CDMX (cubre "Recibido en Cedis CDMX" y "Recibido en Cedis")
+      return 'received_cdmx';
+    }
     if (ls.includes('transito') || ls.includes('transit')) return 'in_transit';
     return undefined;
   };
@@ -342,7 +349,7 @@ export default function ServiceInventoryPage() {
     if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
     // Solo inyectar dirección si: EntregaX tiene datos físicos, el paquete no tiene address_id,
     // y el status aún lo requiere (recibido en alguna etapa, no enviado/entregado)
-    const canInjectAddr = ['received', 'received_china', 'received_mty'].includes(row.status);
+    const canInjectAddr = ['received', 'received_china', 'received_mty', 'received_cdmx'].includes(row.status);
     if (!!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_delivery_address && canInjectAddr) return true;
     // Paquetería diferente → siempre actualizar (ej. DHL en nuestro sistema pero EntregaX dice Local)
     if (ex.paqueteria && ex.paqueteria.toUpperCase() !== (row.paqueteria || '').toUpperCase()) return true;
@@ -356,7 +363,7 @@ export default function ServiceInventoryPage() {
     if (!ex || ex.state !== 'done') return;
     setSyncState(prev => ({ ...prev, [row.guia]: 'syncing' }));
     const hasGuiaSalida = !!ex.guiaSalida;
-    const canInjectAddr = ['received', 'received_china', 'received_mty'].includes(row.status);
+    const canInjectAddr = ['received', 'received_china', 'received_mty', 'received_cdmx'].includes(row.status);
     // Marítimo: marcar instrucciones confirmadas sin inyectar dirección
     const maritimeMarkInstr = service === 'maritimo' && !!ex.hasInstrucciones && !row.has_instructions;
     const shouldInjectInstrucciones = maritimeMarkInstr || (!!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_delivery_address && canInjectAddr);

@@ -13685,7 +13685,7 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
         colonia?: string; cp?: string; estado?: string; pais?: string;
       };
     };
-    const VALID_STATUSES = ['received', 'received_china', 'received_mty', 'in_transit', 'shipped', 'out_for_delivery', 'delivered'];
+    const VALID_STATUSES = ['received', 'received_china', 'received_mty', 'received_cdmx', 'received_gdl', 'received_qro', 'in_transit', 'shipped', 'out_for_delivery', 'delivered'];
     const safeNewStatus = newStatus && VALID_STATUSES.includes(newStatus) ? newStatus : undefined;
     if (!guia || !service) return (res as any).status(400).json({ error: 'guia y service son requeridos' });
     console.log(`[sync-entregax] guia=${guia} hasPago=${hasPago} hasInstr=${hasInstrucciones} guia_salida=${guia_salida} paqueteria=${paqueteria} direccion_entrega=${JSON.stringify(direccion_entrega)}`);
