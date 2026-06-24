@@ -15,13 +15,14 @@ INSERT INTO admin_panel_modules (panel_key, module_key, module_name, description
 ON CONFLICT (panel_key, module_key) DO NOTHING;
 
 -- 2. Módulos para Recepción China Aéreo (ops_china_air)
+--    Alineados con las operaciones reales del hub aéreo (ChinaAirHubPage).
 INSERT INTO admin_panel_modules (panel_key, module_key, module_name, description, icon, sort_order) VALUES
-('ops_china_air', 'reception', 'Recepción', 'Recepción de carga aérea', 'MoveToInbox', 1),
-('ops_china_air', 'processing', 'Procesamiento', 'Clasificación y procesamiento', 'Assignment', 2),
-('ops_china_air', 'customs_release', 'Liberación Aduanal', 'Control de liberación de aduana', 'VerifiedUser', 3),
-('ops_china_air', 'distribution', 'Distribución', 'Asignación a sucursales', 'Route', 4),
-('ops_china_air', 'scanning', 'Escaneo', 'Escaneo de paquetes', 'QrCodeScanner', 5),
-('ops_china_air', 'photos', 'Fotografías', 'Evidencia fotográfica', 'PhotoCamera', 6)
+('ops_china_air', 'reception', 'Recibir AWB', 'Escanea las guías que llegaron en una AWB y registra la recepción en MTY', 'QrCodeScanner', 1),
+('ops_china_air', 'inventory', 'Inventario Aéreo', 'Consulta los paquetes del servicio aéreo (AIR) en bodega y su estado', 'Inventory', 2),
+('ops_china_air', 'tdx_inventory', 'Inventario TDX', 'Consulta los paquetes TDI Express (TDX) en bodega y su estado', 'Inventory', 3),
+('ops_china_air', 'tdi_express', 'Recibir TDI DHL Express', 'Captura en serie de envíos de la ruta TDI Express China → Monterrey', 'LocalShipping', 4),
+('ops_china_air', 'tdi_outbound', 'Enviar TDI DHL Express', 'Da salida a las cajas TDI Express listas para salir de China', 'FlightTakeoff', 5),
+('ops_china_air', 'tdi_cedis_mty', 'Recibir en CEDIS MTY', 'Escanea guías TDX que llegaron a Monterrey para marcarlas como Recibido MTY', 'LocalShipping', 6)
 ON CONFLICT (panel_key, module_key) DO NOTHING;
 
 -- 3. Módulos para Recepción China Marítimo (ops_china_sea)
