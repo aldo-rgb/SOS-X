@@ -66,6 +66,7 @@ import axios from 'axios';
 import jsPDF from 'jspdf';
 import EntangledSupplierForm, { EMPTY_SUPPLIER } from './EntangledSupplierForm';
 import type { SupplierFormData } from './EntangledSupplierForm';
+import CsfPanel, { type CsfStatus } from './CsfPanel';
 
 import { Checkbox, FormControlLabel, Divider, List, ListItem, ListItemText, ListItemSecondaryAction, Card, CardContent } from '@mui/material';
 
@@ -397,6 +398,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   const [saveFiscalProfile, setSaveFiscalProfile] = useState(true);
   const [editingFiscalData, setEditingFiscalData] = useState(false);
   const [editingSupplierData, setEditingSupplierData] = useState(false);
+  // CSF (Constancia de Situación Fiscal) — obligatoria y vigente para facturar
+  const [csfStatus, setCsfStatus] = useState<CsfStatus | null>(null);
   const [pricing, setPricing] = useState<{ tipo_cambio_usd: number; tipo_cambio_rmb: number; porcentaje_compra: number; costo_operacion_usd: number } | null>(null);
   // Comisiones XPAY → Cliente final (% que XPAY le cobra al cliente, configurable
   // por admin en EntangledServiceConfigCard, con override por usuario opcional).
@@ -1982,6 +1985,12 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       return null;
     }
     if (step === 3 && requiereFactura) {
+      // CSF obligatoria + vigente para facturar
+      if (!csfStatus || !csfStatus.exists || !csfStatus.is_valid) {
+        return csfStatus?.exists
+          ? 'Tu Constancia de Situación Fiscal ya expiró. Sube una vigente (no mayor a 3 meses) para continuar.'
+          : 'Sube tu Constancia de Situación Fiscal vigente para poder facturar.';
+      }
       if (!form.rfc || !form.razon_social || !form.cp || !form.email) {
         return t('entangled.messages.requiredFields');
       }
@@ -3072,6 +3081,22 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   </Typography>
                 </Stack>
               </Paper>
+
+              {/* Constancia de Situación Fiscal (CSF) — obligatoria + vigente */}
+              <Box sx={{ mb: 2 }}>
+                <CsfPanel
+                  mode="self"
+                  title="Constancia de Situación Fiscal (CSF)"
+                  onChange={(s) => setCsfStatus(s)}
+                />
+                {csfStatus && !(csfStatus.exists && csfStatus.is_valid) && (
+                  <Alert severity="warning" sx={{ mt: 1.5 }}>
+                    {csfStatus.exists
+                      ? 'Tu constancia ya expiró. Sube una nueva del SAT (no mayor a 3 meses) para poder facturar.'
+                      : 'Sube tu Constancia de Situación Fiscal vigente para poder continuar con el pago con factura.'}
+                  </Alert>
+                )}
+              </Box>
 
               {/* Mostrar datos precargados si existen */}
               {form.rfc && form.razon_social && !editingFiscalData && (

@@ -121,6 +121,7 @@ import ExternalProviderPage from './ExternalProviderPage';
 import OpenpaySavedCards from '../components/OpenpaySavedCards';
 import type { OpenpaySelection } from '../components/OpenpaySavedCards';
 import CorporateFooter from '../components/CorporateFooter';
+import CsfPanel from '../components/CsfPanel';
 
 const ORANGE = '#F05A28';
 const GREEN = '#4CAF50';
@@ -659,80 +660,6 @@ export default function DashboardClient() {
   const [wantsFacturaPaqueteria, setWantsFacturaPaqueteria] = useState<boolean>(false);
   const [savedConstanciaUrl, setSavedConstanciaUrl] = useState<string | null>(null);
   const [savedConstanciaName, setSavedConstanciaName] = useState<string | null>(null);
-
-  // CSF (Constancia de Situación Fiscal) — gestión global per-cliente con
-  // vigencia de 3 meses. Se sube desde la pestaña Facturas.
-  type CsfStatus = {
-    exists: boolean;
-    file_url?: string;
-    original_filename?: string;
-    issued_at?: string | null;
-    valid_until?: string | null;
-    is_valid?: boolean;
-    days_to_expire?: number | null;
-  };
-  const [csfStatus, setCsfStatus] = useState<CsfStatus | null>(null);
-  const [csfLoading, setCsfLoading] = useState(false);
-  const [csfUploadOpen, setCsfUploadOpen] = useState(false);
-  const [csfFile, setCsfFile] = useState<File | null>(null);
-  const [csfManualDate, setCsfManualDate] = useState<string>(''); // YYYY-MM-DD, solo si el PDF no se pudo leer
-  const [csfNeedsManualDate, setCsfNeedsManualDate] = useState(false);
-  const [csfUploading, setCsfUploading] = useState(false);
-  const [csfError, setCsfError] = useState<string | null>(null);
-
-  const loadCsfStatus = async () => {
-    setCsfLoading(true);
-    try {
-      const res = await api.get('/fiscal/constancia');
-      setCsfStatus(res.data);
-    } catch {
-      setCsfStatus(null);
-    } finally {
-      setCsfLoading(false);
-    }
-  };
-
-  // Cargar status al abrir la pestaña de Facturas
-  useEffect(() => {
-    if (activeTab === 3) loadCsfStatus();
-  }, [activeTab]);
-
-  const submitCsf = async () => {
-    if (!csfFile) { setCsfError('Selecciona el archivo de la constancia.'); return; }
-    setCsfUploading(true);
-    setCsfError(null);
-    try {
-      const fd = new FormData();
-      fd.append('constancia', csfFile);
-      if (csfManualDate && /^\d{4}-\d{2}-\d{2}$/.test(csfManualDate)) {
-        fd.append('issued_at', csfManualDate);
-      }
-      const res = await api.post('/fiscal/constancia', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      if (res.data?.ok) {
-        setCsfUploadOpen(false);
-        setCsfFile(null);
-        setCsfManualDate('');
-        setCsfNeedsManualDate(false);
-        await loadCsfStatus();
-      }
-    } catch (e: any) {
-      const data = e?.response?.data;
-      if (data?.needs_manual_date) {
-        setCsfNeedsManualDate(true);
-        setCsfError('No pudimos leer la fecha del PDF. Indícala manualmente.');
-      } else if (data?.error === 'expired') {
-        setCsfError(data?.message || 'La constancia ya tiene más de 3 meses. Descarga una más reciente del SAT.');
-      } else if (data?.error === 'future_date') {
-        setCsfError(data?.message || 'La fecha de emisión no puede ser futura.');
-      } else {
-        setCsfError(data?.message || data?.error || e?.message || 'Error al subir la constancia');
-      }
-    } finally {
-      setCsfUploading(false);
-    }
-  };
 
   const resolveCarrierIconUrl = (iconValue: string | undefined | null): string => {
     const raw = String(iconValue || '').trim();
