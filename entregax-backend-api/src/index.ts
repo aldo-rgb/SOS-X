@@ -13828,6 +13828,26 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
         }
       }
       if (safeNewStatus) { params.push(safeNewStatus); updates.push(`status = $${params.length}`); syncedFields.push('status'); }
+      // Si el status nuevo es received_mty/received_cdmx/received_gdl/received_qro,
+      // tambien fijar current_branch_id al CEDIS correspondiente. Sin esto los
+      // paneles de repartidor (que filtran por current_branch_id) no veran la guia.
+      if (safeNewStatus && /^received_(mty|cdmx|gdl|qro)$/.test(safeNewStatus)) {
+        const branchCodeByStatus: Record<string, string> = {
+          received_mty: 'MTY', received_cdmx: 'CDMX', received_gdl: 'GDL', received_qro: 'QRO',
+        };
+        const code = branchCodeByStatus[safeNewStatus];
+        try {
+          const br = await pool.query(
+            `SELECT id FROM branches WHERE UPPER(code) = $1 AND is_active = TRUE LIMIT 1`,
+            [code]
+          );
+          const brId = br.rows[0]?.id;
+          if (brId) {
+            params.push(brId);
+            updates.push(`current_branch_id = COALESCE(current_branch_id, $${params.length})`);
+          }
+        } catch (e) { /* sin codigo de branch, ignoramos */ }
+      }
       if (updates.length > 0) {
         params.push(guia);
         // Para TDI Aéreo el guía del master es la base guía (sin sufijo -NNN); buscar también por LIKE
