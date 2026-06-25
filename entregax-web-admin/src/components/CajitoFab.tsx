@@ -143,11 +143,19 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const destAddress = m.assignedAddress;
   const hasInstr = !!destAddress || m.needs_instructions === false;
 
-  // "Etiquetado" = la etiqueta YA está impresa (national_label_url / national_tracking),
-  // igual que el módulo de Etiquetado. NO basta con tener dirección asignada:
-  // las entregas locales también requieren imprimir/confirmar su etiqueta Local
-  // (mark-label-printed setea national_label_url='manual-printed').
-  const hasLabel = !!(m.nationalLabelUrl || m.nationalTracking);
+  // "Etiquetado" = la etiqueta YA está impresa:
+  //  - LOCAL (EntregaX Local/Nacional, pickup): solo cuenta national_label_url
+  //    (mark-label-printed setea 'manual-printed' o URL de PDF). national_tracking
+  //    NO aplica porque los locales no tienen tracking nacional; cualquier valor
+  //    ahí es ruido (ej. origin tracking del courier USA filtrado por un sync).
+  //  - EXTERNAL (DHL, Paquete Express, Skydropx, etc.): cuenta national_label_url
+  //    O national_tracking (el waybill nacional vale como evidencia).
+  // Esto debe coincidir con UnifiedWarehousePanel y con el módulo de Etiquetado.
+  const _carrierForLabel = String(m.nationalCarrier || '').toLowerCase();
+  const _isLocalForLabel = !_carrierForLabel || _carrierForLabel.includes('local') || _carrierForLabel.includes('entregax') || _carrierForLabel.includes('pickup') || _carrierForLabel.includes('bodega');
+  const hasLabel = _isLocalForLabel
+    ? !!m.nationalLabelUrl
+    : !!(m.nationalLabelUrl || m.nationalTracking);
 
   // Para paquetería EXTERNA (Sendex, Paquete Express, etc.) el status 'delivered'
   // significa que se entregó al carrier = "Enviado", no entregado al cliente

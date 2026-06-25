@@ -1394,8 +1394,18 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                       />
                       {(() => {
                         const carrierNorm = String(m.nationalCarrier || '').toLowerCase();
-                        const isLocal = !carrierNorm || carrierNorm.includes('local') || carrierNorm.includes('entregax') || carrierNorm.includes('pickup');
-                        const hasLabel = isLocal ? !!m.assignedAddress : !!(m.nationalLabelUrl || m.nationalTracking);
+                        const isLocal = !carrierNorm || carrierNorm.includes('local') || carrierNorm.includes('entregax') || carrierNorm.includes('pickup') || carrierNorm.includes('bodega');
+                        // "Etiquetado" = la etiqueta YA está impresa:
+                        //  - LOCAL (EntregaX Local/Nacional, pickup): solo cuenta national_label_url
+                        //    (mark-label-printed setea 'manual-printed' o URL de PDF). national_tracking
+                        //    NO aplica porque los locales no tienen tracking nacional; cualquier valor
+                        //    ahí es ruido (ej. origin tracking del courier USA filtrado por un sync).
+                        //  - EXTERNAL (DHL, Paquete Express, Skydropx, etc.): cuenta national_label_url
+                        //    O national_tracking (el waybill nacional vale como evidencia).
+                        // Esto debe coincidir con Cajito y con el módulo de Etiquetado.
+                        const hasLabel = isLocal
+                          ? !!m.nationalLabelUrl
+                          : !!(m.nationalLabelUrl || m.nationalTracking);
                         return (
                           <>
                             <Chip
