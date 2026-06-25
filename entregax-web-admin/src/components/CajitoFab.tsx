@@ -188,6 +188,14 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
         )}
         <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75, flexWrap: 'wrap' }}>
           <Chip label={displayStatusLabel} size="small" color={statusColor(status)} />
+          {m.eta && (
+            <Chip
+              label={`🚢 ETA ${fmtDate(m.eta)}${m.containerWeek ? ` · Sem ${m.containerWeek}` : ''}`}
+              size="small"
+              color="info"
+              variant="outlined"
+            />
+          )}
           {totalBoxes > 1 && <Chip label={`${totalBoxes} cajas`} size="small" variant="outlined" />}
           <Chip
             label={paid ? `✅ Pagado${clientPaidAt ? ` · ${fmtDate(clientPaidAt)}` : ''}` : '⏳ Pendiente'}
@@ -504,10 +512,16 @@ function ClientLookupResult({ data }: { data: PackageData }) {
                     <Typography variant="caption" color="text.secondary" fontFamily="monospace">{p.tracking_provider}</Typography>
                   )}
                 </Box>
-                <Chip size="small" label={statusLabel(p.status)} color={statusColor(p.status)} sx={{ flexShrink: 0 }} />
+                <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0, alignItems: 'center' }}>
+                  {p.container_eta && (
+                    <Chip size="small" label={`🚢 ETA ${fmtDate(p.container_eta)}`} color="info" variant="outlined" sx={{ flexShrink: 0 }} />
+                  )}
+                  <Chip size="small" label={statusLabel(p.status)} color={statusColor(p.status)} sx={{ flexShrink: 0 }} />
+                </Box>
               </Box>
               <Box sx={{ display: 'flex', gap: 1.5, mt: 0.5, color: 'text.secondary', flexWrap: 'wrap' }}>
                 {p.service_type && <Typography variant="caption">{p.service_type}</Typography>}
+                {p.container_week && <Typography variant="caption">Semana {p.container_week}</Typography>}
                 {p.weight != null && <Typography variant="caption">{Number(p.weight).toFixed(2)} kg</Typography>}
                 <Typography variant="caption">Creado: {fmtDate(p.created_at)}</Typography>
                 {p.received_at && <Typography variant="caption">Recibido: {fmtDate(p.received_at)}</Typography>}

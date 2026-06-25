@@ -1400,6 +1400,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                                mo.weight, mo.volume as cbm, mo.status, mo.created_at, mo.delivery_address_id,
                                mo.national_carrier, mo.national_tracking, mo.national_label_url,
                                mo.box_dimensions,
+                               mo.last_tracking_status, mo.last_tracking_detail, mo.last_tracking_date,
+                               c.eta as container_eta, c.week_number as container_week,
                                COALESCE(mo.summary_boxes, mo.goods_num, 1) as total_boxes,
                                u.id as user_id, u.full_name, u.email, u.box_id as user_box_id,
                                a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
@@ -1411,6 +1413,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         FROM maritime_orders mo
                         LEFT JOIN users u ON mo.user_id = u.id
                         LEFT JOIN addresses a ON mo.delivery_address_id = a.id
+                        LEFT JOIN containers c ON c.id = mo.container_id
                         WHERE UPPER(COALESCE(mo.ordersn, '')) = $1
                            OR REGEXP_REPLACE(UPPER(COALESCE(mo.ordersn, '')), '[^A-Z0-9]', '', 'g') = $2
                         LIMIT 1
@@ -1913,6 +1916,12 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     clientPaid: pkg.client_paid === true,
                     clientPaidAt: pkg.client_paid_at || null,
                     consolidationId: pkg.consolidation_id || null,
+                    // ETA marítimo: se asigna a la semana/contenedor (containers.eta).
+                    eta: pkg.container_eta || null,
+                    containerWeek: pkg.container_week ?? null,
+                    lastTrackingStatus: pkg.last_tracking_status || null,
+                    lastTrackingDetail: pkg.last_tracking_detail || null,
+                    lastTrackingDate: pkg.last_tracking_date || null,
                     missingOnArrival: pkg.missing_on_arrival_eff === true || pkg.missing_on_arrival === true,
                     isLost: pkg.is_lost_eff === true || pkg.is_lost === true,
                     // "Total a cobrar" = lo que debe pagar el cliente. ANTES se

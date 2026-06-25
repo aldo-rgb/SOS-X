@@ -876,8 +876,10 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
                 NULL::int AS master_id, false AS is_master,
                 mo.national_carrier, mo.national_tracking, mo.national_label_url,
                 mo.last_tracking_status, mo.last_tracking_detail, mo.last_tracking_date,
-                mo.current_location, mo.ship_number
+                mo.current_location, mo.ship_number,
+                c.eta AS container_eta, c.week_number AS container_week
            FROM maritime_orders mo
+           LEFT JOIN containers c ON c.id = mo.container_id
           WHERE (($1::int IS NOT NULL AND mo.user_id = $1::int)
                  OR ($2::text IS NOT NULL AND UPPER(TRIM(mo.shipping_mark)) = UPPER(TRIM($2::text))))
           ORDER BY mo.created_at DESC
