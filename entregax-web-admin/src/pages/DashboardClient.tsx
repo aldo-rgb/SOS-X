@@ -8135,17 +8135,31 @@ export default function DashboardClient() {
                         <Box sx={{ mt: 1.5 }}>
                           <Typography variant="caption" color="text.secondary">Régimen Fiscal</Typography>
                           <Typography variant="body2" fontWeight="bold">
-                            {fiscalData.fiscal_regimen_fiscal === '601' && '601 - General de Ley Personas Morales'}
-                            {fiscalData.fiscal_regimen_fiscal === '603' && '603 - Personas Morales con Fines no Lucrativos'}
-                            {fiscalData.fiscal_regimen_fiscal === '605' && '605 - Sueldos y Salarios'}
-                            {fiscalData.fiscal_regimen_fiscal === '606' && '606 - Arrendamiento'}
-                            {fiscalData.fiscal_regimen_fiscal === '608' && '608 - Demás ingresos'}
-                            {fiscalData.fiscal_regimen_fiscal === '612' && '612 - Personas Físicas con Actividades Empresariales'}
-                            {fiscalData.fiscal_regimen_fiscal === '616' && '616 - Sin obligaciones fiscales'}
-                            {fiscalData.fiscal_regimen_fiscal === '621' && '621 - Incorporación Fiscal'}
-                            {fiscalData.fiscal_regimen_fiscal === '625' && '625 - Régimen de Actividades Agrícolas'}
-                            {fiscalData.fiscal_regimen_fiscal === '626' && '626 - Régimen Simplificado de Confianza'}
-                            {!['601','603','605','606','608','612','616','621','625','626'].includes(fiscalData.fiscal_regimen_fiscal) && (fiscalData.fiscal_regimen_fiscal || t('cd.account.notConfigured'))}
+                            {(() => {
+                              const REGIMENES_SAT: Record<string, string> = {
+                                '601': '601 - General de Ley Personas Morales',
+                                '603': '603 - Personas Morales con Fines no Lucrativos',
+                                '605': '605 - Sueldos y Salarios e Ingresos Asimilados a Salarios',
+                                '606': '606 - Arrendamiento',
+                                '607': '607 - Régimen de Enajenación o Adquisición de Bienes',
+                                '608': '608 - Demás ingresos',
+                                '610': '610 - Residentes en el Extranjero sin Establecimiento Permanente',
+                                '611': '611 - Ingresos por Dividendos (socios y accionistas)',
+                                '612': '612 - Personas Físicas con Actividades Empresariales y Profesionales',
+                                '614': '614 - Ingresos por intereses',
+                                '615': '615 - Régimen de los ingresos por obtención de premios',
+                                '616': '616 - Sin obligaciones fiscales',
+                                '620': '620 - Sociedades Cooperativas de Producción',
+                                '621': '621 - Incorporación Fiscal',
+                                '622': '622 - Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras',
+                                '623': '623 - Opcional para Grupos de Sociedades',
+                                '624': '624 - Coordinados',
+                                '625': '625 - Actividades Empresariales con plataformas tecnológicas',
+                                '626': '626 - Régimen Simplificado de Confianza (RESICO)',
+                              };
+                              const key = String(fiscalData.fiscal_regimen_fiscal || '').trim();
+                              return REGIMENES_SAT[key] || (key || t('cd.account.notConfigured'));
+                            })()}
                           </Typography>
                         </Box>
                         
@@ -14036,14 +14050,23 @@ export default function DashboardClient() {
               >
                 <MenuItem value="601">601 - General de Ley Personas Morales</MenuItem>
                 <MenuItem value="603">603 - Personas Morales con Fines no Lucrativos</MenuItem>
-                <MenuItem value="605">605 - Sueldos y Salarios e Ingresos Asimilados</MenuItem>
+                <MenuItem value="605">605 - Sueldos y Salarios e Ingresos Asimilados a Salarios</MenuItem>
                 <MenuItem value="606">606 - Arrendamiento</MenuItem>
+                <MenuItem value="607">607 - Régimen de Enajenación o Adquisición de Bienes</MenuItem>
                 <MenuItem value="608">608 - Demás ingresos</MenuItem>
+                <MenuItem value="610">610 - Residentes en el Extranjero sin Establecimiento Permanente en México</MenuItem>
+                <MenuItem value="611">611 - Ingresos por Dividendos (socios y accionistas)</MenuItem>
                 <MenuItem value="612">612 - Personas Físicas con Actividades Empresariales y Profesionales</MenuItem>
                 <MenuItem value="614">614 - Ingresos por intereses</MenuItem>
+                <MenuItem value="615">615 - Régimen de los ingresos por obtención de premios</MenuItem>
                 <MenuItem value="616">616 - Sin obligaciones fiscales</MenuItem>
+                <MenuItem value="620">620 - Sociedades Cooperativas de Producción que difieren sus ingresos</MenuItem>
                 <MenuItem value="621">621 - Incorporación Fiscal</MenuItem>
                 <MenuItem value="622">622 - Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras</MenuItem>
+                <MenuItem value="623">623 - Opcional para Grupos de Sociedades</MenuItem>
+                <MenuItem value="624">624 - Coordinados</MenuItem>
+                <MenuItem value="625">625 - Actividades Empresariales con ingresos a través de Plataformas Tecnológicas</MenuItem>
+                <MenuItem value="626">626 - Régimen Simplificado de Confianza (RESICO)</MenuItem>
               </TextField>
             </Grid>
             <Grid size={12}>
