@@ -102,6 +102,31 @@ const generatePaymentReference = (prefix: string = 'PB'): string => {
     return `${prefix}-${timestamp}${random}`;
 };
 
+// Marca como PAGADA la guía master cuyas cajas hijas ya están todas pagadas.
+// Necesario porque las órdenes a veces incluyen las hijas (o ids mezclados) y el
+// master quedaba 'pending' aunque el pago cubrió toda la guía.
+export const markMastersPaidIfChildrenPaid = async (packageIds: number[]): Promise<void> => {
+    if (!Array.isArray(packageIds) || packageIds.length === 0) return;
+    await pool.query(`
+        UPDATE packages m SET
+            payment_status = 'paid',
+            client_paid = TRUE,
+            saldo_pendiente = 0,
+            client_paid_at = COALESCE(m.client_paid_at, NOW())
+        WHERE m.is_master = TRUE
+          AND COALESCE(m.payment_status, '') <> 'paid'
+          AND (
+                m.id = ANY($1)
+                OR m.id IN (SELECT master_id FROM packages WHERE id = ANY($1) AND master_id IS NOT NULL)
+              )
+          AND EXISTS (SELECT 1 FROM packages c WHERE c.master_id = m.id)
+          AND NOT EXISTS (
+                SELECT 1 FROM packages c
+                 WHERE c.master_id = m.id AND COALESCE(c.payment_status, '') <> 'paid'
+              )
+    `, [packageIds]);
+};
+
 // Verificar si alguno de los paquetes ya está en una orden de pago pendiente
 const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: number): Promise<{ hasDuplicates: boolean; duplicates: { packageId: number; reference: string; tracking?: string }[] }> => {
     // 1) Auto-cancelar órdenes pendientes "huérfanas" (>30 min sin completarse) del usuario.
@@ -437,6 +462,11 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                     UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP
                     WHERE id = ANY($1)
                 `, [packageIds]);
+
+                // Marcar la guía MASTER como pagada si TODAS sus cajas hijas ya
+                // están pagadas. Cubre el caso en que la orden incluía las hijas
+                // (o ids mezclados) y el master quedaba 'pending'.
+                await markMastersPaidIfChildrenPaid(packageIds).catch(() => {});
 
                 // Si la orden ya tenía un log pendiente con la REFERENCIA (RO-...),
                 // marcarlo procesado para que salga de "Pagos Pendientes en Sucursal".

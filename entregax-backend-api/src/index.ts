@@ -1230,6 +1230,7 @@ import {
   confirmPoboxCashPayment,
   handlePoboxOpenpayWebhook,
   generateInvoiceForPoboxPaymentByRef,
+  markMastersPaidIfChildrenPaid,
   handlePoboxOpenpayCallback,
   getPoboxPendingPayments,
   getPoboxPaymentHistory,
@@ -8523,6 +8524,8 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
           generateInvoiceForPoboxPaymentByRef(refStr).catch(err =>
             console.error('Error generando factura transferencia (confirm pobox voucher):', err)
           );
+          // Marcar master como pagado si todas sus hijas quedaron pagadas.
+          if (packageIds.length > 0) markMastersPaidIfChildrenPaid(packageIds).catch(() => {});
 
           console.log(`✅ Pago PO Box confirmado: ${refStr} - $${montoPago} por ${adminName || adminId}`);
 
@@ -8869,6 +8872,8 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
       generateInvoiceForPoboxPaymentByRef(refStr).catch(err =>
         console.error('Error generando factura transferencia (confirm-payment):', err)
       );
+      // Marcar master como pagado si todas sus hijas quedaron pagadas.
+      if (packageIds.length > 0) markMastersPaidIfChildrenPaid(packageIds).catch(() => {});
 
       console.log(`✅ Pago confirmado: ${refStr} - $${payment.monto_recibido} por ${adminName || adminId}`);
 
