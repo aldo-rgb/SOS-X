@@ -2537,6 +2537,81 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [emitter.id]);
 
+  // ── Contador regresivo del cron auto (sync 10 min → extract 5 min) ──
+  // Tick cada 1s para que el contador baje en vivo. Recarga los links
+  // cada 30s para no quedarnos con timestamps stale (Railway puede haber
+  // movido los flags ya).
+  const [nowTick, setNowTick] = useState<number>(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    const t = setInterval(() => { load(); }, 30000);
+    return () => clearInterval(t);
+    /* eslint-disable-next-line */
+  }, [emitter.id]);
+
+  const formatCountdown = (ms: number): string => {
+    if (ms <= 0) return '0:00';
+    const totalSec = Math.ceil(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
+  const renderAutoSyncCountdown = () => {
+    if (links.length === 0) return null;
+    // Tomamos el flag más próximo de cualquier credencial activa del emisor.
+    const earliestSyncMs = links
+      .map((l: any) => l.next_auto_sync_at ? new Date(l.next_auto_sync_at).getTime() : null)
+      .filter((x: number | null): x is number => x != null)
+      .sort((a, b) => a - b)[0];
+    const earliestExtractMs = links
+      .map((l: any) => l.next_auto_extract_at ? new Date(l.next_auto_extract_at).getTime() : null)
+      .filter((x: number | null): x is number => x != null)
+      .sort((a, b) => a - b)[0];
+
+    if (!earliestSyncMs && !earliestExtractMs) return null;
+
+    return (
+      <Alert
+        severity="info"
+        icon={<PendingActionsIcon />}
+        sx={{ mb: 2, bgcolor: '#fff7ed', borderLeft: '4px solid #f97316', '& .MuiAlert-icon': { color: '#ea580c' } }}
+      >
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+          {earliestSyncMs && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ fontWeight: 700, color: '#9a3412' }}>⬇️ Descarga automática de movimientos en:</Box>
+              <Chip
+                size="small"
+                label={formatCountdown(earliestSyncMs - nowTick)}
+                sx={{
+                  bgcolor: '#f97316', color: 'white', fontWeight: 800, fontFamily: 'monospace',
+                  fontSize: '0.85rem', minWidth: 70,
+                }}
+              />
+            </Box>
+          )}
+          {earliestExtractMs && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ fontWeight: 700, color: '#065f46' }}>✅ Extracción y conciliación automática en:</Box>
+              <Chip
+                size="small"
+                label={formatCountdown(earliestExtractMs - nowTick)}
+                sx={{
+                  bgcolor: '#10b981', color: 'white', fontWeight: 800, fontFamily: 'monospace',
+                  fontSize: '0.85rem', minWidth: 70,
+                }}
+              />
+            </Box>
+          )}
+        </Stack>
+      </Alert>
+    );
+  };
+
   const matchChip = (s: string) => {
     if (s === 'matched') return <Chip size="small" label="Conciliado" sx={{ bgcolor: '#16a34a', color: 'white' }} />;
     if (s === 'pending') return <Chip size="small" label="Pendiente" sx={{ bgcolor: '#f59e0b', color: 'white' }} />;
@@ -2569,6 +2644,8 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           {links[0]?.last_sync_at && <span style={{ marginLeft: 8, color: '#6b7280' }}>Última sync: {fmtDate(links[0].last_sync_at)}</span>}
         </Alert>
       )}
+
+      {renderAutoSyncCountdown()}
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 2 }} alignItems="center">
         <TextField size="small" type="date" label="Desde" InputLabelProps={{ shrink: true }} value={filters.from} onChange={e => setFilters({ ...filters, from: e.target.value })} />

@@ -724,15 +724,34 @@ export const startDatabaseBackupCron = () => {
 };
 
 /**
- * CRON JOB: Auto-sync diferido de Syncfy
- * Cada 2 minutos busca credenciales con next_auto_sync_at <= NOW() y dispara
- * el sync. Esto soporta el flujo "reconectar banco con 2FA": al terminar el
- * widget se programa el auto-sync 10 min después (Syncfy necesita ese tiempo
- * para correr el primer fetch_jobs del banco antes de que haya movimientos
- * disponibles). Tras ejecutar se limpia el flag.
+ * CRON JOB: Auto-sync diferido de Syncfy + Auto-extract+conciliación
+ *
+ * Flujo en 2 fases (corre cada 2 minutos):
+ *   FASE 1 — Sync: cuando next_auto_sync_at <= NOW(), descarga movimientos
+ *            del banco con syncEmitter(). Al terminar programa la fase 2
+ *            seteando next_auto_extract_at = NOW() + 5min y limpia
+ *            next_auto_sync_at. Esto soporta el flujo "reconectar banco
+ *            con 2FA": al terminar el widget se programa el sync 10 min
+ *            después (Syncfy necesita ese tiempo para correr el primer
+ *            fetch_jobs antes de que haya movimientos disponibles).
+ *
+ *   FASE 2 — Extract: cuando next_auto_extract_at <= NOW(), corre
+ *            autoAuthorizeAndNotifyAfterSync() que (a) auto-autoriza las
+ *            órdenes matched, (b) notifica al cliente y a su asesor, y
+ *            (c) envía notificación masiva "Estado de cuenta actualizado"
+ *            a asesores, directores, admins y super_admin.
  */
 export const startSyncfyAutoSyncCron = () => {
   cron.schedule('*/2 * * * *', async () => {
+    // Asegurar columnas (idempotente). En primera ejecución crea
+    // next_auto_extract_at si no existe.
+    try {
+      await pool.query(`ALTER TABLE syncfy_credentials ADD COLUMN IF NOT EXISTS next_auto_sync_at TIMESTAMP`);
+      await pool.query(`ALTER TABLE syncfy_credentials ADD COLUMN IF NOT EXISTS next_auto_extract_at TIMESTAMP`);
+      await pool.query(`ALTER TABLE syncfy_credentials ADD COLUMN IF NOT EXISTS last_sync_summary JSONB`);
+    } catch { /* ignore */ }
+
+    // ── FASE 1: SYNC ────────────────────────────────────────────────
     try {
       const due = await pool.query(`
         SELECT DISTINCT emitter_id
@@ -741,32 +760,72 @@ export const startSyncfyAutoSyncCron = () => {
           AND next_auto_sync_at <= NOW()
           AND is_active = TRUE
       `);
-      if (due.rows.length === 0) return;
-
-      console.log(`⏰ [Syncfy auto-sync] ${due.rows.length} emisor(es) listo(s) para sync diferido`);
-      const { syncEmitter } = await import('./syncfyService');
-
-      for (const row of due.rows) {
-        const emitterId = row.emitter_id;
-        try {
-          const result = await syncEmitter(Number(emitterId), 30);
-          console.log(`   ✅ emitter ${emitterId}: new=${result.new_count} dup=${result.duplicate_count} matched=${result.matched_count}`);
-        } catch (e: any) {
-          console.warn(`   ⚠️ emitter ${emitterId}: ${e.message}`);
-        } finally {
-          // Limpiar el flag para no re-ejecutar (independiente de si tuvo éxito o falló).
-          await pool.query(
-            `UPDATE syncfy_credentials SET next_auto_sync_at = NULL, updated_at = NOW()
-             WHERE emitter_id = $1 AND next_auto_sync_at IS NOT NULL`,
-            [emitterId]
-          );
+      if (due.rows.length > 0) {
+        console.log(`⏰ [Syncfy auto-sync FASE 1 SYNC] ${due.rows.length} emisor(es) listo(s)`);
+        const { syncEmitter } = await import('./syncfyService');
+        for (const row of due.rows) {
+          const emitterId = row.emitter_id;
+          let summary: any = null;
+          try {
+            summary = await syncEmitter(Number(emitterId), 30);
+            console.log(`   ✅ sync emitter ${emitterId}: new=${summary.new_count} dup=${summary.duplicate_count} matched=${summary.matched_count}`);
+          } catch (e: any) {
+            console.warn(`   ⚠️ sync emitter ${emitterId}: ${e.message}`);
+          } finally {
+            // Limpiar sync flag y programar FASE 2 (extract) en +5 minutos.
+            await pool.query(
+              `UPDATE syncfy_credentials
+                  SET next_auto_sync_at = NULL,
+                      next_auto_extract_at = NOW() + INTERVAL '5 minutes',
+                      last_sync_summary = $2::jsonb,
+                      updated_at = NOW()
+                WHERE emitter_id = $1 AND next_auto_sync_at IS NOT NULL`,
+              [emitterId, summary ? JSON.stringify(summary) : null]
+            );
+            console.log(`   ⏳ FASE 2 EXTRACT programada en 5 min para emitter ${emitterId}`);
+          }
         }
       }
     } catch (err: any) {
-      console.error('[CRON] Syncfy auto-sync error:', err.message);
+      console.error('[CRON] Syncfy FASE 1 SYNC error:', err.message);
+    }
+
+    // ── FASE 2: EXTRACT + AUTO-AUTORIZAR + NOTIFICAR ────────────────
+    try {
+      const dueExtract = await pool.query(`
+        SELECT DISTINCT emitter_id, last_sync_summary
+        FROM syncfy_credentials
+        WHERE next_auto_extract_at IS NOT NULL
+          AND next_auto_extract_at <= NOW()
+          AND is_active = TRUE
+      `);
+      if (dueExtract.rows.length > 0) {
+        console.log(`⏰ [Syncfy auto-sync FASE 2 EXTRACT] ${dueExtract.rows.length} emisor(es) listo(s)`);
+        const { autoAuthorizeAndNotifyAfterSync } = await import('./bankAutoMatchService');
+        for (const row of dueExtract.rows) {
+          const emitterId = row.emitter_id;
+          const summary = row.last_sync_summary || { new_count: 0, duplicate_count: 0, matched_count: 0 };
+          try {
+            const result = await autoAuthorizeAndNotifyAfterSync(Number(emitterId), summary);
+            console.log(`   ✅ extract emitter ${emitterId}: authorized=${result.authorized} already_paid=${result.already_paid} errors=${result.errors}`);
+          } catch (e: any) {
+            console.warn(`   ⚠️ extract emitter ${emitterId}: ${e.message}`);
+          } finally {
+            await pool.query(
+              `UPDATE syncfy_credentials
+                  SET next_auto_extract_at = NULL,
+                      updated_at = NOW()
+                WHERE emitter_id = $1 AND next_auto_extract_at IS NOT NULL`,
+              [emitterId]
+            );
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error('[CRON] Syncfy FASE 2 EXTRACT error:', err.message);
     }
   });
-  console.log('📅 [CRON] Syncfy auto-sync programado: cada 2 minutos');
+  console.log('📅 [CRON] Syncfy auto-sync 2-fases (sync + extract) programado: cada 2 minutos');
 };
 
 /**

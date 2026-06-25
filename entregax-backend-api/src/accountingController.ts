@@ -2390,7 +2390,9 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
             [emitterId]
         ).catch(() => ({ rows: [] as any[] }));
         const syncfyLinks = await pool.query(
-            `SELECT id, institution_name, last_sync_at, twofa_required, status, 'syncfy' AS provider, is_active FROM syncfy_credentials WHERE emitter_id=$1 AND is_active=TRUE`,
+            `SELECT id, institution_name, last_sync_at, twofa_required, status, 'syncfy' AS provider, is_active,
+                    next_auto_sync_at, next_auto_extract_at
+               FROM syncfy_credentials WHERE emitter_id=$1 AND is_active=TRUE`,
             [emitterId]
         ).catch(() => ({ rows: [] as any[] }));
         const linksRes = { rows: [...syncfyLinks.rows, ...belvoLinks.rows] };
