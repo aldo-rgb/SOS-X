@@ -890,7 +890,12 @@ export const getAdvisorClientAddresses = async (req: Request, res: Response): Pr
             `SELECT id, alias, recipient_name, street, exterior_number, interior_number,
                     neighborhood AS colony, city, state, zip_code, phone, reference, reception_hours,
                     is_default, default_for_service, carrier_config, created_by_advisor_id
-               FROM addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC`,
+               FROM addresses
+              WHERE user_id = $1
+                -- Ocultar direcciones internas "EntregaX Sync" (auto-creadas por el
+                -- sync); no son direcciones reales del cliente y no deben elegirse.
+                AND (internal_only IS NULL OR internal_only = FALSE)
+              ORDER BY is_default DESC, created_at DESC`,
             [clientId]
         );
         res.json(result.rows);
