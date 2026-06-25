@@ -1940,8 +1940,27 @@ export const cancelPoboxPaymentOrder = async (req: AuthRequest, res: Response): 
         }
 
         const order = orderRes.rows[0];
-        if (Number(order.user_id) !== Number(userId)) {
+        const role = String((req.user as any)?.role || '').toLowerCase();
+        const isPrivileged = ['super_admin', 'admin', 'director'].includes(role);
+        const isAdvisorRole = ['advisor', 'asesor', 'sub_advisor'].includes(role);
+        if (Number(order.user_id) !== Number(userId) && !isPrivileged && !isAdvisorRole) {
             return res.status(403).json({ error: 'No autorizado para esta orden' });
+        }
+
+        // El CLIENTE (dueño) no puede cancelar órdenes creadas por su ASESOR —
+        // solo las que él mismo generó. El asesor/admin sí puede.
+        const advisorLink = await pool.query(
+            `SELECT id, advisor_id FROM advisor_payment_orders
+              WHERE pobox_payment_id = $1 OR payment_reference = $2 LIMIT 1`,
+            [orderId, order.payment_reference]
+        );
+        const isAdvisorOrder = advisorLink.rows.length > 0;
+        const callerIsOwnerClient = Number(order.user_id) === Number(userId) && !isPrivileged && !isAdvisorRole;
+        if (isAdvisorOrder && callerIsOwnerClient) {
+            return res.status(403).json({
+                error: 'Orden creada por tu asesor',
+                message: 'Esta orden de pago fue creada por tu asesor. Pídele a él que la cancele.',
+            });
         }
 
         const cancelableStatuses = ['pending_payment', 'pending', 'vouchers_partial'];
@@ -1996,6 +2015,20 @@ export const cancelPoboxPaymentOrder = async (req: AuthRequest, res: Response): 
              WHERE id = $1`,
             [orderId]
         );
+
+        // Sincronizar la orden del asesor vinculada (si existe), para que no
+        // quede como activa en la verificación de duplicados ni en su panel.
+        try {
+            await pool.query(
+                `UPDATE advisor_payment_orders
+                    SET status = 'cancelado', updated_at = NOW()
+                  WHERE (pobox_payment_id = $1 OR payment_reference = $2)
+                    AND status NOT IN ('cancelado', 'pagado')`,
+                [orderId, order.payment_reference]
+            );
+        } catch (e) {
+            console.warn('No se pudo sincronizar advisor_payment_orders al cancelar', e);
+        }
 
         // Limpiar el log del dashboard para que los paquetes vuelvan a estar disponibles
         try {

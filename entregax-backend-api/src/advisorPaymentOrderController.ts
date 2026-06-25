@@ -211,7 +211,11 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     const dupCheckRes = await pool.query(`
       SELECT COALESCE(apo.payment_reference, apo.folio) as ref
       FROM advisor_payment_orders apo
+      LEFT JOIN pobox_payments pp ON pp.id = apo.pobox_payment_id
       WHERE apo.status NOT IN ('cancelado', 'pagado')
+        -- La orden vinculada (pobox_payments) puede estar cancelada/pagada aunque
+        -- el status del advisor_payment_orders haya quedado desincronizado.
+        AND COALESCE(pp.status, '') NOT IN ('cancelled', 'expired', 'paid', 'completed')
         AND apo.client_id = $1
         AND EXISTS (
           SELECT 1 FROM jsonb_array_elements_text(apo.package_uids) uid
