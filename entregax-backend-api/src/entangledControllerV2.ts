@@ -2107,6 +2107,13 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
       `SELECT r.id, r.referencia_pago, r.servicio, r.op_monto, r.op_divisa_destino,
               r.op_beneficiario_nombre, r.estatus_global, r.estatus_factura, r.estatus_proveedor,
               r.created_at, r.user_id,
+              r.entangled_transaccion_id,
+              r.cf_rfc, r.cf_razon_social, r.cf_regimen_fiscal, r.cf_cp, r.cf_uso_cfdi, r.cf_email,
+              r.op_comprobante_cliente_url, r.url_comprobante_cliente,
+              r.comprobante_subido_at,
+              r.payment_deadline_at,
+              r.tc_cliente_final,
+              r.error_message,
               u.full_name AS client_name, u.box_id AS client_box_id
          FROM entangled_payment_requests r
          LEFT JOIN users u ON u.id = r.user_id
