@@ -59,15 +59,8 @@ const ensureTable = async () => {
 
 const advisorId = (req: Request): number | null => (req as any).user?.userId ?? null;
 
-// Fin del mes (último ms) de la fecha dada, en hora de México (UTC-6). Se usa
-// como límite para solicitar factura: hasta el último día del mes del pago.
-const endOfMonthMs = (atMs: number): number => {
-  const MX_OFFSET_MS = 6 * 60 * 60 * 1000; // UTC-6
-  const local = new Date(atMs - MX_OFFSET_MS);
-  // Primer ms del mes siguiente (en hora local MX) → convertir de vuelta a UTC.
-  const firstOfNextMonthLocal = Date.UTC(local.getUTCFullYear(), local.getUTCMonth() + 1, 1, 0, 0, 0, 0);
-  return firstOfNextMonthLocal + MX_OFFSET_MS;
-};
+// Ventana para solicitar factura: 3 días después del pago.
+const INVOICE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 
 // ─── LIST ───────────────────────────────────────────────────────────────────
 // Returns both advisor-created orders AND client self-generated orders for
@@ -863,15 +856,13 @@ export const requestAdvisorOrderInvoice = async (req: Request, res: Response): P
     const amount = Number(order.total_mxn) || 0;
     if (amount <= 0) return res.status(400).json({ error: 'La orden no tiene monto a facturar' });
 
-    // La factura se puede solicitar hasta el FIN DEL MES en que se pagó la orden
-    // (alineado con la práctica del SAT: el CFDI corresponde al mes de la
-    // operación). Antes el límite eran 2 días, demasiado corto.
+    // La factura se puede solicitar dentro de los 3 días posteriores al pago.
     const isPaid = ['completed', 'paid'].includes(String(order.pay_status || ''));
     const paidAtMs = order.paid_at ? new Date(order.paid_at).getTime() : 0;
-    const withinInvoiceWindow = paidAtMs > 0 && Date.now() < endOfMonthMs(paidAtMs);
+    const withinInvoiceWindow = paidAtMs > 0 && (Date.now() - paidAtMs) <= INVOICE_WINDOW_MS;
     if (!isPaid || !withinInvoiceWindow) {
       return res.status(400).json({
-        error: 'La factura solo puede solicitarse hasta el último día del mes en que se pagó la orden',
+        error: 'La factura solo puede solicitarse dentro de los 3 días posteriores al pago de la orden',
       });
     }
 

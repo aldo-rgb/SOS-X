@@ -3453,20 +3453,12 @@ export default function DashboardAdvisor() {
                 const isClientCreated = op.created_by === 'client';
                 const isPending = op.status === 'pendiente' || op.status === 'pending' || op.status === 'pending_payment';
                 const ref = op.payment_reference || `#${op.id}`;
-                // Solicitar factura: pagada y hasta el FIN DEL MES en que se pagó
-                // (alineado con el SAT). Antes era una ventana de 2 días.
+                // Solicitar factura: pagada y dentro de los 3 días posteriores al pago.
                 const isPaidStatus = op.status === 'pagado' || op.status === 'completed' || op.status === 'paid';
                 const yaFacturada = !!op.facturada;
                 const facturaPendiente = !!op.requiere_factura && !yaFacturada; // ya solicitada (cliente o asesor), en pendientes por timbrar
-                // Fin del mes del pago en hora MX (UTC-6) como límite.
-                const endOfPaidMonthMs = (() => {
-                  if (!op.paid_at) return 0;
-                  const MX = 6 * 60 * 60 * 1000;
-                  const local = new Date(new Date(op.paid_at).getTime() - MX);
-                  return Date.UTC(local.getUTCFullYear(), local.getUTCMonth() + 1, 1) + MX;
-                })();
                 const canInvoice = isPaidStatus && !!op.paid_at &&
-                  Date.now() < endOfPaidMonthMs &&
+                  (Date.now() - new Date(op.paid_at).getTime()) <= 3 * 24 * 60 * 60 * 1000 &&
                   !yaFacturada && !facturaPendiente;
 
                 const downloadPDF = async () => {
