@@ -601,7 +601,14 @@ export async function sendPendingRequestToEntangled(
   if (String(reqRow.estatus_global) === 'cancelado') {
     return { ok: false, status: 409, payload: { error: 'orden_cancelada', message: 'La orden fue cancelada (congelamiento vencido). Crea una nueva solicitud.' } };
   }
-  if (reqRow.payment_deadline_at && new Date(reqRow.payment_deadline_at).getTime() < Date.now()) {
+  // Solo vence si AÚN no se había subido comprobante. Si ya hay comprobante
+  // previo, el cliente pagó dentro de la ventana → no cancelar (este reupload
+  // es un reemplazo/reintento, debe seguir su curso a en_proceso).
+  if (
+    reqRow.payment_deadline_at &&
+    new Date(reqRow.payment_deadline_at).getTime() < Date.now() &&
+    !reqRow.comprobante_subido_at
+  ) {
     // Marcar cancelada de inmediato (el cron también lo haría) y rechazar.
     await pool.query(
       `UPDATE entangled_payment_requests SET estatus_global='cancelado', error_message='congelamiento_vencido', updated_at=NOW() WHERE id=$1`,
@@ -970,7 +977,10 @@ export const proxyEntangledDocumento = async (req: Request, res: Response): Prom
   );
   if (r.rows.length === 0) return res.status(404).json({ error: 'Solicitud no encontrada' });
   const row = r.rows[0];
-  if (!isAdminRole(req) && row.user_id !== userId) {
+  // Acceso: admin, el cliente dueño, o el ASESOR del cliente (la solicitud es de
+  // su cliente asignado). Antes el asesor recibía 403 porque su userId nunca
+  // coincide con row.user_id (el del cliente).
+  if (!isAdminRole(req) && row.user_id !== userId && !(await advisorOwnsClient(userId, row.user_id))) {
     return res.status(403).json({ error: 'Sin acceso a esta solicitud' });
   }
   if (!row.entangled_transaccion_id) {
@@ -1015,7 +1025,7 @@ export const syncRequestFromEntangled = async (req: Request, res: Response): Pro
   );
   if (r.rows.length === 0) return res.status(404).json({ error: 'Solicitud no encontrada' });
   const row = r.rows[0];
-  if (!isAdminRole(req) && row.user_id !== userId) {
+  if (!isAdminRole(req) && row.user_id !== userId && !(await advisorOwnsClient(userId, row.user_id))) {
     return res.status(403).json({ error: 'Sin acceso a esta solicitud' });
   }
   if (!row.entangled_transaccion_id) {

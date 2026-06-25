@@ -5532,7 +5532,7 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
       else {
         await dbPool.query(
           `UPDATE entangled_payment_requests
-              SET estatus_global = CASE WHEN estatus_global IN ('pendiente','error_envio') THEN 'en_proceso' ELSE estatus_global END,
+              SET estatus_global = CASE WHEN estatus_global IN ('pendiente','esperando_comprobante','error_envio') THEN 'en_proceso' ELSE estatus_global END,
                   comprobante_subido_at = NOW(),
                   updated_at = NOW()
             WHERE id = $1`,

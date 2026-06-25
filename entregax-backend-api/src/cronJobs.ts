@@ -682,10 +682,13 @@ export const startEntangledSyncCron = () => {
 
 /**
  * CRON JOB: Auto-cancelación X-Pay por congelamiento vencido.
- * Cada 15 min cancela las órdenes que pasaron su payment_deadline_at sin pagar
- * (la ventana de TC de NUESTRO lado venció). El TC quedó congelado y ya no
- * reenviaremos el comprobante. ENTANGLED cancela por su lado y, si llega, el
- * webhook orden.cancelada lo confirma.
+ * Cada 15 min cancela las órdenes que pasaron su payment_deadline_at SIN que el
+ * cliente haya subido su comprobante (la ventana de TC de NUESTRO lado venció).
+ * El congelamiento es sobre el PAGO del cliente: si ya subió comprobante
+ * (comprobante_subido_at IS NOT NULL) significa que pagó dentro de la ventana,
+ * así que NO se cancela aunque ENTANGLED todavía no procese — quedaría a la
+ * espera. ENTANGLED cancela por su lado y, si llega, el webhook orden.cancelada
+ * lo confirma.
  */
 export const startXpayExpiryCron = () => {
   cron.schedule('*/15 * * * *', async () => {
@@ -698,6 +701,7 @@ export const startXpayExpiryCron = () => {
           WHERE estatus_global IN ('pendiente', 'esperando_comprobante')
             AND payment_deadline_at IS NOT NULL
             AND payment_deadline_at < NOW()
+            AND comprobante_subido_at IS NULL
           RETURNING id`
       );
       if (r.rowCount && r.rowCount > 0) {
