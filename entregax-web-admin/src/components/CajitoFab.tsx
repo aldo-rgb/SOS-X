@@ -170,10 +170,14 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
 
   const totalBoxes = m.totalBoxes ?? m.total_boxes ?? 1;
 
+  // Roles "track-only" (asesor, sub-asesor, servicio a cliente) no deben ver el costo proveedor
+  const _trRole = String(getCurrentUser()?.role || '').toLowerCase();
+  const isTrackOnly = ['advisor', 'sub_advisor', 'customer_service'].includes(_trRole);
+
   // Costos
   const lastMileCost = m.nationalLabelCost != null ? Number(m.nationalLabelCost) : null;
-  const providerCostMxn = m.poboxProviderCostMxn ?? m.poboxServiceCost ?? null;
-  const providerCostUsd = m.poboxProviderCostUsd ?? m.poboxCostUsd ?? null;
+  const providerCostMxn = isTrackOnly ? null : (m.poboxProviderCostMxn ?? m.poboxServiceCost ?? null);
+  const providerCostUsd = isTrackOnly ? null : (m.poboxProviderCostUsd ?? m.poboxCostUsd ?? null);
   const ventaUsd = m.poboxVentaUsd != null ? Number(m.poboxVentaUsd) : null;
   const totalCost = m.totalCost != null ? Number(m.totalCost) : null;
   const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
@@ -203,6 +207,12 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
               color="info"
               variant="outlined"
             />
+          )}
+          {m.containerNumber && (
+            <Chip label={`📦 Cont. ${m.containerNumber}`} size="small" variant="outlined" />
+          )}
+          {m.blNumber && (
+            <Chip label={`📄 BL ${m.blNumber}`} size="small" variant="outlined" />
           )}
           {totalBoxes > 1 && <Chip label={`${totalBoxes} cajas`} size="small" variant="outlined" />}
           <Chip
@@ -649,7 +659,7 @@ export default function CajitoFab() {
   // arrancan en modo track.
   const [mode, setMode] = useState<'chat' | 'track'>(() => {
     const u = getCurrentUser();
-    return ['advisor', 'sub_advisor'].includes(String(u?.role || '').toLowerCase()) ? 'track' : 'chat';
+    return ['advisor', 'sub_advisor', 'customer_service'].includes(String(u?.role || '').toLowerCase()) ? 'track' : 'chat';
   });
   const [imgError, setImgError] = useState(false);
 
@@ -685,8 +695,13 @@ export default function CajitoFab() {
 
   const user = getCurrentUser();
   const isSuperAdmin = user?.role === 'super_admin';
+  const _role = String(user?.role || '').toLowerCase();
   // Asesores: acceso por default solo a "Rastrear guía" (acotado a sus clientes).
-  const isAdvisor = ['advisor', 'sub_advisor'].includes(String(user?.role || '').toLowerCase());
+  const isAdvisor = ['advisor', 'sub_advisor'].includes(_role);
+  // Servicio a cliente: misma versión "Rastrear guía" por default (sin scope).
+  const isCustomerService = _role === 'customer_service';
+  // Roles que solo ven "Rastrear guía" (sin Chat IA) y sin costo proveedor.
+  const isTrackOnly = isAdvisor || isCustomerService;
 
   useEffect(() => {
     if (open && mode === 'chat' && messages.length === 0) {
@@ -711,7 +726,7 @@ export default function CajitoFab() {
   }, [open, mode]);
 
   if (loading || !cajitoEnabled) return null;
-  if (!isSuperAdmin && !isAdvisor) return null;
+  if (!isSuperAdmin && !isTrackOnly) return null;
 
   const avatar = imgError ? null : resolveUrl(cajitoAvatarUrl);
 
@@ -886,7 +901,7 @@ export default function CajitoFab() {
             </Avatar>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography variant="subtitle1" fontWeight={700} lineHeight={1.1}>Cajito</Typography>
-              <Typography variant="caption" sx={{ opacity: 0.9 }}>Asistente IA · Solo lectura{isSuperAdmin ? ' · Super Admin' : (isAdvisor ? ' · Mis clientes' : '')}</Typography>
+              <Typography variant="caption" sx={{ opacity: 0.9 }}>Asistente IA · Solo lectura{isSuperAdmin ? ' · Super Admin' : (isAdvisor ? ' · Mis clientes' : (isCustomerService ? ' · Servicio a cliente' : ''))}</Typography>
             </Box>
             {mode === 'chat' && (
               <Tooltip title="Nueva conversación">
@@ -900,9 +915,9 @@ export default function CajitoFab() {
             </IconButton>
           </Box>
 
-          {/* Tabs de modo — los asesores solo ven "Rastrear guía" */}
+          {/* Tabs de modo — asesores y servicio a cliente solo ven "Rastrear guía" */}
           <Box sx={{ display: 'flex', borderBottom: '1px solid #FFE0B2', bgcolor: 'white' }}>
-            {!isAdvisor && (
+            {!isTrackOnly && (
             <Box
               onClick={() => setMode('chat')}
               sx={{ flex: 1, py: 1, textAlign: 'center', cursor: 'pointer', borderBottom: mode === 'chat' ? `2px solid ${CAJITO_RING}` : '2px solid transparent', transition: 'border-color 0.15s' }}

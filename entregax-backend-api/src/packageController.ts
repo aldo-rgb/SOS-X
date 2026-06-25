@@ -1402,6 +1402,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                                mo.box_dimensions,
                                mo.last_tracking_status, mo.last_tracking_detail, mo.last_tracking_date,
                                c.eta as container_eta, c.week_number as container_week,
+                               c.container_number, c.bl_number,
                                COALESCE(mo.summary_boxes, mo.goods_num, 1) as total_boxes,
                                u.id as user_id, u.full_name, u.email, u.box_id as user_box_id,
                                a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
@@ -1416,6 +1417,18 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         LEFT JOIN containers c ON c.id = mo.container_id
                         WHERE UPPER(COALESCE(mo.ordersn, '')) = $1
                            OR REGEXP_REPLACE(UPPER(COALESCE(mo.ordersn, '')), '[^A-Z0-9]', '', 'g') = $2
+                           -- 🚢 Búsqueda por referencia marítima: número de contenedor o BL.
+                           --   Un contenedor agrupa muchas órdenes; devolvemos la primera (LIMIT 1)
+                           --   para que Cajito muestre el embarque (ETA, semana, estatus del contenedor).
+                           OR UPPER(COALESCE(c.container_number, '')) = $1
+                           OR UPPER(COALESCE(c.bl_number, '')) = $1
+                           OR REGEXP_REPLACE(UPPER(COALESCE(c.container_number, '')), '[^A-Z0-9]', '', 'g') = $2
+                           OR REGEXP_REPLACE(UPPER(COALESCE(c.bl_number, '')), '[^A-Z0-9]', '', 'g') = $2
+                        ORDER BY
+                          CASE WHEN UPPER(COALESCE(mo.ordersn, '')) = $1
+                                 OR REGEXP_REPLACE(UPPER(COALESCE(mo.ordersn, '')), '[^A-Z0-9]', '', 'g') = $2
+                               THEN 0 ELSE 1 END ASC,
+                          mo.id ASC
                         LIMIT 1
                     `,
                 },
@@ -1552,6 +1565,33 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
 
             if (!fallbackRow || !fallbackKind) { res.status(404).json({ error: 'No encontrado' }); return; }
 
+            // 🔒 Acotamiento por ASESOR también en el fallback (marítimo/nacional/DHL):
+            //   solo puede rastrear guías de SUS clientes. Para marítimo, el cliente
+            //   puede venir por user_id o por casillero (shipping_mark = description).
+            const _fbRole = String(((req as any).user)?.role || '').toLowerCase();
+            const _fbId = ((req as any).user)?.userId || ((req as any).user)?.id;
+            if (['advisor', 'sub_advisor'].includes(_fbRole)) {
+                let owned = false;
+                if (fallbackRow.user_id) {
+                    const o = await pool.query(
+                        `SELECT 1 FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) LIMIT 1`,
+                        [fallbackRow.user_id, _fbId]
+                    );
+                    owned = o.rows.length > 0;
+                } else if (fallbackRow.description) {
+                    const mark = String(fallbackRow.description).trim();
+                    const o = await pool.query(
+                        `SELECT 1 FROM users WHERE UPPER(TRIM(box_id)) = UPPER($1) AND (advisor_id = $2 OR referred_by_id = $2)
+                         UNION ALL
+                         SELECT 1 FROM legacy_clients WHERE UPPER(TRIM(box_id)) = UPPER($1) AND recovery_advisor_id = $2
+                         LIMIT 1`,
+                        [mark, _fbId]
+                    );
+                    owned = o.rows.length > 0;
+                }
+                if (!owned) { res.status(404).json({ error: 'Guía no encontrada' }); return; }
+            }
+
             const resolvedName = fallbackRow.full_name || 'SIN CLIENTE';
             const resolvedBoxId = fallbackRow.user_box_id || 'N/A';
             const destinationCode = cityCodeFor(fallbackRow.addr_city, fallbackRow.addr_state);
@@ -1624,6 +1664,14 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         nationalCarrier: fallbackRow.national_carrier || null,
                         nationalTracking: fallbackRow.national_tracking || null,
                         nationalLabelUrl: fallbackRow.national_label_url || null,
+                        // 🚢 ETA / semana / contenedor marítimo (containers.eta vía container_id)
+                        eta: fallbackRow.container_eta || null,
+                        containerWeek: fallbackRow.container_week ?? null,
+                        containerNumber: fallbackRow.container_number || null,
+                        blNumber: fallbackRow.bl_number || null,
+                        lastTrackingStatus: fallbackRow.last_tracking_status || null,
+                        lastTrackingDetail: fallbackRow.last_tracking_detail || null,
+                        lastTrackingDate: fallbackRow.last_tracking_date || null,
                         boxDimensions,
                         scannedBox: logBoxSuffix ? {
                             boxNumber: logBoxSuffix,
