@@ -3488,7 +3488,7 @@ export default function DashboardAdvisor() {
                     pkgRows += `<tr>
                       <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px">${idx + 1}</td>
                       <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:600">${it.tracking || guideList[idx] || '—'}</td>
-                      <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${it.weight > 0 ? `${Number(it.weight).toFixed(1)} lb` : '—'}</td>
+                      <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${it.weight > 0 ? `${Number(it.weight).toFixed(1)} kg` : '—'}</td>
                       <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${dims}</td>
                       <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center">${tipo}</td>
                       <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:right;font-weight:600">${fmt(it.venta_mxn)}</td>
@@ -3499,7 +3499,7 @@ export default function DashboardAdvisor() {
                       pkgRows += `<tr style="background:#FFF8F0">
                         <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#000">&nbsp;↳ ${ci + 1}</td>
                         <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;font-family:monospace">${c.tracking || '—'} ${nivel}</td>
-                        <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${c.weight > 0 ? `${Number(c.weight).toFixed(1)} lb` : '—'}</td>
+                        <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${c.weight > 0 ? `${Number(c.weight).toFixed(1)} kg` : '—'}</td>
                         <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${cdims}</td>
                         <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">—</td>
                         <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right">${fmt(c.venta_mxn)}</td>
@@ -3762,7 +3762,7 @@ export default function DashboardAdvisor() {
                                           {r.child ? '↳ ' : ''}{r.tracking}
                                           {r.nivel ? <Chip label={r.nivel} size="small" sx={{ ml: 0.5, height: 16, fontSize: '0.6rem', bgcolor: '#FEE2E2', color: '#B91C1C' }} /> : null}
                                         </TableCell>
-                                        <TableCell align="center">{r.weight > 0 ? `${r.weight.toFixed(1)} lb` : '—'}</TableCell>
+                                        <TableCell align="center">{r.weight > 0 ? `${r.weight.toFixed(1)} kg` : '—'}</TableCell>
                                         <TableCell align="center">{r.dims}</TableCell>
                                       </TableRow>
                                     ))}

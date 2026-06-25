@@ -4785,7 +4785,7 @@ export default function DashboardClient() {
                                 <TableCell sx={{ py: 0.5 }}>
                                   <Typography variant="body2" fontWeight="bold">{pkg.tracking_internal}</Typography>
                                   <Typography variant="caption" color="text.secondary">
-                                    {pkg.descripcion || ''}{pkg.weight ? ` · ${Number(pkg.weight).toFixed(1)} lb` : ''}
+                                    {pkg.descripcion || ''}{pkg.weight ? ` · ${Number(pkg.weight).toFixed(1)} kg` : ''}
                                   </Typography>
                                 </TableCell>
                                 <TableCell sx={{ py: 0.5 }}>
@@ -14633,7 +14633,7 @@ export default function DashboardClient() {
                                     const pkgs = Array.isArray(order.packages) ? order.packages : [];
                                     const today = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
                                     const fmtCur = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2 });
-                                    const pkgRows = pkgs.map((pkg: any, i: number) => { const dims = (pkg.length_cm>0||pkg.width_cm>0||pkg.height_cm>0)?`${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm`:'—'; const intTrk = pkg.international_tracking ? `<br><span style="font-size:9px;color:#000;">${pkg.international_tracking}</span>` : ''; return `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;">${i+1}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:600;">${pkg.tracking_internal||'-'}${intTrk}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${pkg.weight ? Number(pkg.weight).toFixed(1)+' lb' : '—'}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${dims}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${pkg.national_carrier||'—'}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:right;font-weight:600;">${fmtCur(Number(pkg.pobox_service_cost||pkg.saldo_pendiente||pkg.assigned_cost_mxn||0))}</td></tr>`; }).join('');
+                                    const pkgRows = pkgs.map((pkg: any, i: number) => { const dims = (pkg.length_cm>0||pkg.width_cm>0||pkg.height_cm>0)?`${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm`:'—'; const intTrk = pkg.international_tracking ? `<br><span style="font-size:9px;color:#000;">${pkg.international_tracking}</span>` : ''; return `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;">${i+1}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:600;">${pkg.tracking_internal||'-'}${intTrk}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${pkg.weight ? Number(pkg.weight).toFixed(1)+' kg' : '—'}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${dims}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${pkg.national_carrier||'—'}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:right;font-weight:600;">${fmtCur(Number(pkg.pobox_service_cost||pkg.saldo_pendiente||pkg.assigned_cost_mxn||0))}</td></tr>`; }).join('');
                                     const bd = order.cost_breakdown || {};
                                     const fmtBrk = (label: string, val: number, color?: string) => Number(val) !== 0 ? `<tr><td style="border-bottom:1px solid #f0f0f0;"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color||'#000'};">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color||'#000'};">${fmtCur(Number(val))}</td></tr>` : '';
                                     // Paquetería: si el breakdown no la trae (p.ej. fallback mínimo $400),
@@ -14697,7 +14697,7 @@ export default function DashboardClient() {
                                         <TableCell align="center" sx={{ py: 0.5 }}>
                                           {nivel && <Chip label={nivel} size="small" sx={{ bgcolor: '#FEE2E2', color: '#B91C1C', fontWeight: 700, fontSize: '0.65rem', height: 18 }} />}
                                         </TableCell>
-                                        <TableCell align="center" sx={{ py: 0.5, fontSize: '0.75rem' }}>{pkg.weight ? `${Number(pkg.weight).toFixed(1)} lb` : '—'}</TableCell>
+                                        <TableCell align="center" sx={{ py: 0.5, fontSize: '0.75rem' }}>{pkg.weight ? `${Number(pkg.weight).toFixed(1)} kg` : '—'}</TableCell>
                                         <TableCell align="center" sx={{ py: 0.5, fontSize: '0.75rem', color: '#555' }}>{dims}</TableCell>
                                       </TableRow>
                                     );

@@ -107,7 +107,7 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
   if (items.length > 0) {
     items.forEach((it, idx) => {
       const monto = Number(it.venta_mxn || 0);
-      const peso  = it.weight ? `${Number(it.weight).toFixed(1)} lb` : '—';
+      const peso  = it.weight ? `${Number(it.weight).toFixed(1)} kg` : '—';
       const tipo  = it.total_boxes ? `${it.tipo} (${it.total_boxes} cajas)` : (it.tipo || '—');
       pkgRows += `<tr>
         <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px">${idx + 1}</td>
@@ -120,7 +120,7 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
       (it.children || []).forEach((c, ci) => {
         const cdims = (c.lengthCm || 0) > 0 || (c.widthCm || 0) > 0 || (c.heightCm || 0) > 0
           ? `${c.lengthCm}×${c.widthCm}×${c.heightCm} cm` : '—';
-        const cpeso = c.weight ? `${Number(c.weight).toFixed(1)} lb` : '—';
+        const cpeso = c.weight ? `${Number(c.weight).toFixed(1)} kg` : '—';
         const nivel = c.n_level ? `<span style="background:#FEE2E2;color:#B91C1C;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700">${c.n_level}</span>` : '';
         pkgRows += `<tr style="background:#FFF8F0">
           <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;color:#000">&nbsp;↳ ${ci + 1}</td>
@@ -721,7 +721,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                       {r.child ? '↳ ' : ''}{r.tracking}{r.nivel ? `  ${r.nivel}` : ''}
                     </Text>
                     <Text style={styles.guideDetailMeta}>
-                      {r.weight > 0 ? `${r.weight.toFixed(1)} lb` : '—'}{r.dims ? `  ·  ${r.dims}` : ''}
+                      {r.weight > 0 ? `${r.weight.toFixed(1)} kg` : '—'}{r.dims ? `  ·  ${r.dims}` : ''}
                     </Text>
                   </View>
                 ))

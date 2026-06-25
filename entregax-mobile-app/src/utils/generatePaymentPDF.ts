@@ -96,7 +96,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
     packageRows = data.packages.map((pkg, i) => {
       const tracking = pkg.tracking_internal || '-';
       const intTrk = pkg.international_tracking ? `<br><span style="font-size:9px;color:#000;">${pkg.international_tracking}</span>` : '';
-      const weight = pkg.weight ? `${Number(pkg.weight).toFixed(1)} lb` : '—';
+      const weight = pkg.weight ? `${Number(pkg.weight).toFixed(1)} kg` : '—';
       const dims = (pkg.length_cm && pkg.length_cm > 0) || (pkg.width_cm && pkg.width_cm > 0) || (pkg.height_cm && pkg.height_cm > 0)
         ? `${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm`
         : '—';
