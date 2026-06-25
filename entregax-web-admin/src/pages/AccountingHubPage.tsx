@@ -1136,7 +1136,11 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
       const it = newEmptyItem();
       it.description = `Servicio de logística PO Box${prefill.reference ? ` - Ref: ${prefill.reference}` : ''}`;
       it.quantity = 1;
-      it.unit_price = Number(prefill.amount);
+      // ⚠️ prefill.amount es el TOTAL pagado/depositado (IVA INCLUIDO). El form
+      // suma el IVA sobre el unit_price, así que el unit_price debe ser el NETO
+      // (monto / 1.16) para que neto + 16% IVA = total del depósito. Antes se
+      // pasaba el bruto y se facturaba de más (bruto × 1.16).
+      it.unit_price = Math.round((Number(prefill.amount) / 1.16) * 100) / 100;
       it.sat_clave_prod_serv = '78101803';
       it.sat_clave_unidad = 'E48';
       it.iva_rate = 0.16;

@@ -59,6 +59,16 @@ const ensureTable = async () => {
 
 const advisorId = (req: Request): number | null => (req as any).user?.userId ?? null;
 
+// Fin del mes (último ms) de la fecha dada, en hora de México (UTC-6). Se usa
+// como límite para solicitar factura: hasta el último día del mes del pago.
+const endOfMonthMs = (atMs: number): number => {
+  const MX_OFFSET_MS = 6 * 60 * 60 * 1000; // UTC-6
+  const local = new Date(atMs - MX_OFFSET_MS);
+  // Primer ms del mes siguiente (en hora local MX) → convertir de vuelta a UTC.
+  const firstOfNextMonthLocal = Date.UTC(local.getUTCFullYear(), local.getUTCMonth() + 1, 1, 0, 0, 0, 0);
+  return firstOfNextMonthLocal + MX_OFFSET_MS;
+};
+
 // ─── LIST ───────────────────────────────────────────────────────────────────
 // Returns both advisor-created orders AND client self-generated orders for
 // clients linked to this advisor (union view).
@@ -853,13 +863,15 @@ export const requestAdvisorOrderInvoice = async (req: Request, res: Response): P
     const amount = Number(order.total_mxn) || 0;
     if (amount <= 0) return res.status(400).json({ error: 'La orden no tiene monto a facturar' });
 
-    // Solo se puede facturar dentro de los 2 días posteriores a marcarse como pagada
+    // La factura se puede solicitar hasta el FIN DEL MES en que se pagó la orden
+    // (alineado con la práctica del SAT: el CFDI corresponde al mes de la
+    // operación). Antes el límite eran 2 días, demasiado corto.
     const isPaid = ['completed', 'paid'].includes(String(order.pay_status || ''));
     const paidAtMs = order.paid_at ? new Date(order.paid_at).getTime() : 0;
-    const within2Days = paidAtMs > 0 && (Date.now() - paidAtMs) <= 2 * 24 * 60 * 60 * 1000;
-    if (!isPaid || !within2Days) {
+    const withinInvoiceWindow = paidAtMs > 0 && Date.now() < endOfMonthMs(paidAtMs);
+    if (!isPaid || !withinInvoiceWindow) {
       return res.status(400).json({
-        error: 'La factura solo puede solicitarse dentro de los 2 días posteriores al pago de la orden',
+        error: 'La factura solo puede solicitarse hasta el último día del mes en que se pagó la orden',
       });
     }
 
