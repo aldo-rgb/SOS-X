@@ -932,6 +932,20 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                     <View key={`delivered-${pkg.id}-${i}`} style={{ backgroundColor: '#F1F8E9', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#4CAF50' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                         <Text style={{ fontSize: 13, fontWeight: '800', color: '#2E7D32', flexShrink: 1 }}>{pkg.tracking_number}</Text>
+                        <TouchableOpacity
+                          onPress={async () => {
+                            await copyToClipboard(String(pkg.tracking_number || ''));
+                            setCopiedTrackingId(pkg.id);
+                            setTimeout(() => setCopiedTrackingId(null), 1500);
+                          }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <MaterialIcons
+                            name={copiedTrackingId === pkg.id ? 'check' : 'content-copy'}
+                            size={15}
+                            color={copiedTrackingId === pkg.id ? '#4CAF50' : '#81C784'}
+                          />
+                        </TouchableOpacity>
                         {pkg.client_number ? <View style={{ backgroundColor: '#C8E6C9', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}><Text style={{ fontSize: 11, fontWeight: '700', color: '#1B5E20' }}>{pkg.client_number}</Text></View> : null}
                       </View>
                       {pkg.recipient_name ? <Text style={{ fontSize: 12, color: '#388E3C' }}>{pkg.recipient_name}</Text> : null}
@@ -951,6 +965,20 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                     <View key={`loaded-${pkg.id}-${i}`} style={{ backgroundColor: '#E3F2FD', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#2196F3' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                         <Text style={{ fontSize: 13, fontWeight: '800', color: '#1565C0', flexShrink: 1 }}>{pkg.tracking_number}</Text>
+                        <TouchableOpacity
+                          onPress={async () => {
+                            await copyToClipboard(String(pkg.tracking_number || ''));
+                            setCopiedTrackingId(pkg.id);
+                            setTimeout(() => setCopiedTrackingId(null), 1500);
+                          }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <MaterialIcons
+                            name={copiedTrackingId === pkg.id ? 'check' : 'content-copy'}
+                            size={15}
+                            color={copiedTrackingId === pkg.id ? '#4CAF50' : '#90CAF9'}
+                          />
+                        </TouchableOpacity>
                         {pkg.client_number ? <View style={{ backgroundColor: '#BBDEFB', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}><Text style={{ fontSize: 11, fontWeight: '700', color: '#0D47A1' }}>{pkg.client_number}</Text></View> : null}
                       </View>
                       {pkg.recipient_name ? <Text style={{ fontSize: 12, color: '#1976D2' }}>{pkg.recipient_name}</Text> : null}
@@ -974,6 +1002,20 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                       <View key={`pending-${pkg.id}-${i}`} style={{ backgroundColor: '#FFF8E1', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#FF9800' }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                           <Text style={{ fontSize: 13, fontWeight: '800', color: '#E65100', flexShrink: 1 }}>{pkg.tracking_number}</Text>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              await copyToClipboard(String(pkg.tracking_number || ''));
+                              setCopiedTrackingId(pkg.id);
+                              setTimeout(() => setCopiedTrackingId(null), 1500);
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <MaterialIcons
+                              name={copiedTrackingId === pkg.id ? 'check' : 'content-copy'}
+                              size={15}
+                              color={copiedTrackingId === pkg.id ? '#4CAF50' : '#FFB74D'}
+                            />
+                          </TouchableOpacity>
                           <View style={{ backgroundColor: isLocal ? '#FFE0B2' : '#FFCDD2', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
                             <Text style={{ fontSize: 10, fontWeight: '700', color: isLocal ? '#BF360C' : '#B71C1C' }}>{carrierLabel}</Text>
                           </View>
