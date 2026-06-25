@@ -524,14 +524,16 @@ export const createMyAddress = async (req: Request, res: Response): Promise<void
             );
         }
 
+        // Truncar a los límites de columna para evitar 22001 (value too long).
+        const cut = (v: any, n: number) => (v == null ? v : String(v).slice(0, n));
         const result = await pool.query(
-            `INSERT INTO addresses 
-             (user_id, alias, recipient_name, street, exterior_number, interior_number, 
+            `INSERT INTO addresses
+             (user_id, alias, recipient_name, street, exterior_number, interior_number,
               neighborhood, city, state, zip_code, phone, reference, reception_hours, is_default, default_for_service)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
              RETURNING *`,
-            [userId, alias || 'Principal', contact_name, street, exterior_number, interior_number || null,
-             colony, city, state, zip_code, phone || null, reference || null, reception_hours || null, isFirst, default_for_service || null]
+            [userId, cut(alias || 'Principal', 50), cut(contact_name, 100), cut(street, 255), cut(exterior_number, 60), cut(interior_number, 60) || null,
+             cut(colony, 100), cut(city, 100), cut(state, 100), cut(zip_code, 20), cut(phone, 30) || null, reference || null, reception_hours || null, isFirst, default_for_service || null]
         );
 
         await pool.query('UPDATE users SET has_address = TRUE WHERE id = $1', [userId]);
@@ -978,10 +980,12 @@ export const createAdvisorClientAddress = async (req: Request, res: Response): P
         if (isDefault) {
             await pool.query(`UPDATE addresses SET is_default = FALSE WHERE user_id = $1`, [clientId]);
         }
+        // Truncar a los límites de columna para evitar 22001 (value too long).
+        const cut = (v: any, n: number) => (v == null ? v : String(v).slice(0, n));
         const result = await pool.query(
             `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number, interior_number, neighborhood, city, state, zip_code, is_default, phone, reference, reception_hours, created_by_advisor_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
-            [clientId, alias || 'Dirección', recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault || false, phone || null, notes || reference || null, receptionHours || null, advisorId]
+            [clientId, cut(alias || 'Dirección', 50), cut(recipientName, 100), cut(street, 255), cut(exteriorNumber, 60), cut(interiorNumber, 60), cut(neighborhood, 100), cut(city, 100), cut(state, 100), cut(zipCode, 20), isDefault || false, cut(phone, 30) || null, notes || reference || null, receptionHours || null, advisorId]
         );
         res.status(201).json({ message: 'Dirección creada exitosamente', address: result.rows[0] });
     } catch (error) {
