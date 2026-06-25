@@ -342,7 +342,7 @@ export const autoAuthorizeAndNotifyAfterSync = async (
        JOIN pobox_payments pp ON pp.id = st.matched_payment_id
       WHERE st.emitter_id = $1
         AND st.match_status = 'matched'
-        AND pp.status IN ('pending','pending_payment')
+        AND pp.status IN ('pending','pending_payment','vouchers_submitted','vouchers_partial')
         AND st.matched_at >= NOW() - INTERVAL '24 hours'`,
     [emitterId]
   ).catch((e) => {

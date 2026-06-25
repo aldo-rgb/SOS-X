@@ -434,21 +434,23 @@ export async function processTransactions(
 async function autoMatchTransaction(
   txId: number, emitterId: number, amount: number, description: string, reference: string
 ): Promise<boolean> {
-  const refPatterns = [
-    /\b(EP-[A-F0-9]{8})\b/i,
-    /\b(GL-[A-F0-9]{8})\b/i,
-    /\b(tr_[a-zA-Z0-9]+)\b/,
-  ];
   let extractedRef: string | null = null;
   const searchText = `${description} ${reference}`;
-  for (const p of refPatterns) {
-    const m = searchText.match(p);
-    if (m && m[1]) { extractedRef = m[1]; break; }
+  // Referencias RO-/PP-/EP-/GL- + 8 hex, tolerando separador faltante o espacio
+  // en el concepto bancario (ej. "RO 2476D963", "RO65202C21", "RO94575AD9").
+  // Antes solo se reconocían EP-/GL-/tr_, por eso las órdenes RO-/PP- solo se
+  // matcheaban por monto y muchas quedaban sin conciliar.
+  const prefixed = searchText.match(/(RO|PP|EP|GL)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/);
+  if (prefixed && prefixed[1] && prefixed[2]) {
+    extractedRef = `${prefixed[1].toUpperCase()}-${prefixed[2].toUpperCase()}`;
+  } else {
+    const tr = searchText.match(/\b(tr_[a-zA-Z0-9]+)\b/);
+    if (tr && tr[1]) extractedRef = tr[1];
   }
 
   if (extractedRef) {
     const pobox = await pool.query(
-      `SELECT id FROM pobox_payments WHERE payment_reference = $1 AND status IN ('pending','pending_payment')`,
+      `SELECT id FROM pobox_payments WHERE payment_reference = $1 AND status IN ('pending','pending_payment','vouchers_submitted','vouchers_partial')`,
       [extractedRef]
     );
     if (pobox.rows.length > 0) {
@@ -463,7 +465,7 @@ async function autoMatchTransaction(
   const amountMatch = await pool.query(`
     SELECT pp.id FROM pobox_payments pp
     LEFT JOIN service_company_config scc ON scc.service_type = pp.metadata->>'service_type'
-    WHERE pp.status IN ('pending','pending_payment')
+    WHERE pp.status IN ('pending','pending_payment','vouchers_submitted','vouchers_partial')
       AND ABS(pp.amount - $1) < 0.01
       AND pp.created_at >= NOW() - INTERVAL '48 hours'
       AND (scc.emitter_id = $2 OR scc.emitter_id IS NULL)
