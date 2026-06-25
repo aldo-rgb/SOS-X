@@ -2,6 +2,47 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { AuthRequest } from './authController';
 
+// Valida longitudes de los campos de dirección contra los límites de columna y
+// devuelve el MOTIVO REAL (qué campo y por qué) o null si todo cabe.
+const ADDRESS_FIELD_LIMITS: Array<{ key: string; label: string; max: number }> = [
+    { key: 'alias', label: 'Alias', max: 50 },
+    { key: 'recipientName', label: 'Nombre de quien recibe', max: 100 },
+    { key: 'contact_name', label: 'Nombre de quien recibe', max: 100 },
+    { key: 'street', label: 'Calle', max: 255 },
+    { key: 'exteriorNumber', label: 'Número exterior', max: 60 },
+    { key: 'exterior_number', label: 'Número exterior', max: 60 },
+    { key: 'interiorNumber', label: 'Número interior', max: 60 },
+    { key: 'interior_number', label: 'Número interior', max: 60 },
+    { key: 'neighborhood', label: 'Colonia', max: 100 },
+    { key: 'colony', label: 'Colonia', max: 100 },
+    { key: 'city', label: 'Ciudad', max: 100 },
+    { key: 'state', label: 'Estado', max: 100 },
+    { key: 'zipCode', label: 'Código postal', max: 20 },
+    { key: 'zip_code', label: 'Código postal', max: 20 },
+    { key: 'phone', label: 'Teléfono', max: 30 },
+];
+export function validateAddressLengths(fields: Record<string, any>): string | null {
+    for (const { key, label, max } of ADDRESS_FIELD_LIMITS) {
+        const v = fields[key];
+        if (v != null && String(v).length > max) {
+            return `El campo "${label}" es demasiado largo: ${String(v).length} caracteres (máximo ${max}). Probablemente capturaste ahí algo que va en otro campo (p. ej. la dirección completa en "Número exterior").`;
+        }
+    }
+    return null;
+}
+function addressErrorStatus(error: any): number {
+    return error?.code === '22001' || error?.code === '23502' ? 400 : 500;
+}
+function addressErrorMessage(error: any): string {
+    if (error?.code === '22001') {
+        return 'Un campo de la dirección es demasiado largo (revisa Número exterior/interior, C.P. y teléfono). No se guardó.';
+    }
+    if (error?.code === '23502') {
+        return 'Falta un campo obligatorio de la dirección.';
+    }
+    return error?.message ? `Error al crear dirección: ${error.message}` : 'Error al crear dirección';
+}
+
 // ============ OBTENER DIRECCIONES DEL CLIENTE ============
 // IDOR-safe: ignora :userId del path; usa el userId del token. Staff (role !== client/customer/user)
 // puede consultar a otro usuario explícitamente vía param para soporte/back-office.
@@ -524,27 +565,29 @@ export const createMyAddress = async (req: Request, res: Response): Promise<void
             );
         }
 
-        // Truncar a los límites de columna para evitar 22001 (value too long).
-        const cut = (v: any, n: number) => (v == null ? v : String(v).slice(0, n));
+        // Validar longitudes con el MOTIVO REAL antes de insertar.
+        const lengthError = validateAddressLengths({ alias, contact_name, street, exterior_number, interior_number, colony, city, state, zip_code, phone });
+        if (lengthError) { res.status(400).json({ error: lengthError }); return; }
+
         const result = await pool.query(
             `INSERT INTO addresses
              (user_id, alias, recipient_name, street, exterior_number, interior_number,
               neighborhood, city, state, zip_code, phone, reference, reception_hours, is_default, default_for_service)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
              RETURNING *`,
-            [userId, cut(alias || 'Principal', 50), cut(contact_name, 100), cut(street, 255), cut(exterior_number, 60), cut(interior_number, 60) || null,
-             cut(colony, 100), cut(city, 100), cut(state, 100), cut(zip_code, 20), cut(phone, 30) || null, reference || null, reception_hours || null, isFirst, default_for_service || null]
+            [userId, alias || 'Principal', contact_name, street, exterior_number, interior_number || null,
+             colony, city, state, zip_code, phone || null, reference || null, reception_hours || null, isFirst, default_for_service || null]
         );
 
         await pool.query('UPDATE users SET has_address = TRUE WHERE id = $1', [userId]);
 
-        res.status(201).json({ 
+        res.status(201).json({
             message: 'Dirección creada',
             address: result.rows[0]
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error al crear dirección:', error);
-        res.status(500).json({ error: 'Error al crear dirección' });
+        res.status(addressErrorStatus(error)).json({ error: addressErrorMessage(error) });
     }
 };
 
@@ -977,20 +1020,23 @@ export const createAdvisorClientAddress = async (req: Request, res: Response): P
         if (!street || !city || !state || !zipCode) {
             res.status(400).json({ error: 'Faltan campos requeridos: street, city, state, zipCode' }); return;
         }
+        // Validar longitudes con el MOTIVO REAL (qué campo y por qué), en vez de
+        // un 500 genérico o un truncado silencioso.
+        const lengthError = validateAddressLengths({ alias, recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, phone });
+        if (lengthError) { res.status(400).json({ error: lengthError }); return; }
+
         if (isDefault) {
             await pool.query(`UPDATE addresses SET is_default = FALSE WHERE user_id = $1`, [clientId]);
         }
-        // Truncar a los límites de columna para evitar 22001 (value too long).
-        const cut = (v: any, n: number) => (v == null ? v : String(v).slice(0, n));
         const result = await pool.query(
             `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number, interior_number, neighborhood, city, state, zip_code, is_default, phone, reference, reception_hours, created_by_advisor_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
-            [clientId, cut(alias || 'Dirección', 50), cut(recipientName, 100), cut(street, 255), cut(exteriorNumber, 60), cut(interiorNumber, 60), cut(neighborhood, 100), cut(city, 100), cut(state, 100), cut(zipCode, 20), isDefault || false, cut(phone, 30) || null, notes || reference || null, receptionHours || null, advisorId]
+            [clientId, alias || 'Dirección', recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault || false, phone || null, notes || reference || null, receptionHours || null, advisorId]
         );
         res.status(201).json({ message: 'Dirección creada exitosamente', address: result.rows[0] });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error createAdvisorClientAddress:', error);
-        res.status(500).json({ error: 'Error al crear dirección' });
+        res.status(addressErrorStatus(error)).json({ error: addressErrorMessage(error) });
     }
 };
 

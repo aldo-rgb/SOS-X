@@ -1450,8 +1450,10 @@ export default function DashboardAdvisor() {
       setNewAddrOpen(false);
       setNewAddrForm(EMPTY_ADDR);
       setSnackbar({ open: true, message: 'Dirección agregada correctamente', severity: 'success' });
-    } catch {
-      setSnackbar({ open: true, message: 'Error al agregar dirección', severity: 'error' });
+    } catch (e: any) {
+      // Mostrar el motivo real del backend (p. ej. "Número exterior demasiado largo").
+      const msg = e?.response?.data?.error || e?.message || 'Error al agregar dirección';
+      setSnackbar({ open: true, message: msg, severity: 'error' });
     } finally {
       setNewAddrSaving(false);
     }
