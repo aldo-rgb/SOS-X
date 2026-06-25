@@ -322,6 +322,7 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
         const r = await pool.query(`
             SELECT pp.id, pp.payment_reference, pp.amount, pp.currency, pp.payment_method,
                    pp.paid_at, pp.created_at, pp.facturada, pp.factura_error,
+                   (SELECT COUNT(*) FROM payment_vouchers pv WHERE pv.payment_order_id = pp.id)::int AS voucher_count,
                    'POBOX_USA'::text AS service_type,
                    u.id AS user_id,
                    u.full_name,
@@ -346,6 +347,7 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
             return pool.query(`
                 SELECT pp.id, pp.payment_reference, pp.amount, pp.currency, pp.payment_method,
                        pp.paid_at, pp.created_at, pp.facturada, pp.factura_error,
+                       (SELECT COUNT(*) FROM payment_vouchers pv WHERE pv.payment_order_id = pp.id)::int AS voucher_count,
                        'POBOX_USA'::text AS service_type,
                        u.id AS user_id, u.full_name, u.email, u.box_id,
                        '' AS rfc, u.full_name AS razon_social,

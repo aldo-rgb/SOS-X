@@ -35,6 +35,7 @@ import ThumbDownIcon from '@mui/icons-material/ThumbDown';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DoNotDisturbAltIcon from '@mui/icons-material/DoNotDisturbAlt';
 import ArchiveIcon from '@mui/icons-material/Archive';
+import ReceiptIcon from '@mui/icons-material/Receipt';
 import EmailIcon from '@mui/icons-material/Email';
 import SaveIcon from '@mui/icons-material/Save';
 import axios from 'axios';
@@ -2364,6 +2365,7 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
   const [loading, setLoading] = useState(true);
   const [prefill, setPrefill] = useState<any | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'warning' }>({ open: false, message: '', severity: 'success' });
+  const [voucherDialog, setVoucherDialog] = useState<{ open: boolean; loading: boolean; reference: string; vouchers: any[] } | null>(null);
   const currentRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; } })();
   const isSuperAdmin = currentRole === 'super_admin';
 
@@ -2376,6 +2378,18 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
       console.error('pending:', e?.response?.data || e.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Ver el/los comprobante(s) de pago que subió el cliente.
+  const openVouchers = async (r: any) => {
+    setVoucherDialog({ open: true, loading: true, reference: r.payment_reference, vouchers: [] });
+    try {
+      const res = await api.get(`/admin/vouchers/order/${r.id}`);
+      setVoucherDialog({ open: true, loading: false, reference: r.payment_reference, vouchers: res.data.vouchers || [] });
+    } catch (e: any) {
+      setVoucherDialog(null);
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo cargar el comprobante', severity: 'error' });
     }
   };
 
@@ -2426,6 +2440,13 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
                 </TableCell>
                 <TableCell align="center">
                   <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    {r.voucher_count > 0 && (
+                      <Tooltip title={`Ver comprobante de pago del cliente (${r.voucher_count})`}>
+                        <IconButton size="small" onClick={() => openVouchers(r)} sx={{ color: '#1565C0' }}>
+                          <ReceiptIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     <Button
                       size="small"
                       variant="contained"
@@ -2486,6 +2507,54 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
         onCreated={() => { setPrefill(null); load(); }}
         prefill={prefill || undefined}
       />
+
+      {/* Comprobante(s) de pago subido(s) por el cliente */}
+      <Dialog open={!!voucherDialog?.open} onClose={() => setVoucherDialog(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#1565C0', color: 'white' }}>
+          🧾 Comprobante de pago — {voucherDialog?.reference}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2, mt: 1 }}>
+          {voucherDialog?.loading ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress /></Box>
+          ) : (voucherDialog?.vouchers || []).length === 0 ? (
+            <Alert severity="info">El cliente no ha subido comprobante para este pago.</Alert>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {voucherDialog!.vouchers.map((v: any, idx: number) => {
+                const isPdf = String(v.file_type || '').toLowerCase() === 'pdf' || String(v.file_url || '').toLowerCase().includes('.pdf');
+                return (
+                  <Paper key={v.id || idx} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Comprobante {idx + 1}{v.created_at ? ` · ${fmtDate(v.created_at)}` : ''}
+                      </Typography>
+                      {v.declared_amount != null && (
+                        <Chip size="small" label={`Declarado: ${fmt(parseFloat(v.declared_amount))}`} />
+                      )}
+                    </Box>
+                    {isPdf ? (
+                      <Button variant="outlined" fullWidth startIcon={<PictureAsPdfIcon />} onClick={() => window.open(v.file_url, '_blank')}>
+                        Abrir comprobante (PDF)
+                      </Button>
+                    ) : (
+                      <Box
+                        component="img"
+                        src={v.file_url}
+                        alt={`Comprobante ${idx + 1}`}
+                        sx={{ width: '100%', maxHeight: 420, objectFit: 'contain', bgcolor: '#f5f5f5', borderRadius: 1, cursor: 'pointer' }}
+                        onClick={() => window.open(v.file_url, '_blank')}
+                      />
+                    )}
+                  </Paper>
+                );
+              })}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setVoucherDialog(null)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
       <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar(s => ({ ...s, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
         <Alert onClose={() => setSnackbar(s => ({ ...s, open: false }))} severity={snackbar.severity} variant="filled" sx={{ width: '100%' }}>{snackbar.message}</Alert>
       </Snackbar>
