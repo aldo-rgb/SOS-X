@@ -398,7 +398,7 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
 
         // Obtener el pago de la BD incluyendo requiere_factura
         const paymentResult = await pool.query(
-            'SELECT id, user_id, package_ids, amount, requiere_factura FROM pobox_payments WHERE external_order_id = $1',
+            'SELECT id, user_id, package_ids, amount, requiere_factura, payment_reference FROM pobox_payments WHERE external_order_id = $1',
             [paypalOrderId]
         );
 
@@ -437,6 +437,16 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                     UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP
                     WHERE id = ANY($1)
                 `, [packageIds]);
+
+                // Si la orden ya tenía un log pendiente con la REFERENCIA (RO-...),
+                // marcarlo procesado para que salga de "Pagos Pendientes en Sucursal".
+                if (payment.payment_reference) {
+                    await pool.query(`
+                        UPDATE openpay_webhook_logs
+                           SET estatus_procesamiento = 'procesado', processed_at = CURRENT_TIMESTAMP
+                         WHERE transaction_id = $1 AND estatus_procesamiento = 'pending_payment'
+                    `, [payment.payment_reference]);
+                }
 
                 // Registrar en openpay_webhook_logs (idempotente por transaction_id)
                 await pool.query(`

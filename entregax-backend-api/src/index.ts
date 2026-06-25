@@ -9173,11 +9173,15 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
 
     // 1. Obtener pagos de openpay_webhook_logs
     // Exclude entries whose linked pobox_payments record is cancelled
+    // Excluir referencias cuya orden ya esté cancelada O ya pagada/completada.
+    // Los pagos PayPal/online se completan automáticamente (pobox_payments.status
+    // = completed/paid) pero su log puede quedar 'pending_payment'; no deben
+    // seguir apareciendo como pendientes de confirmar en sucursal.
     let whereClause1 = `WHERE owl.estatus_procesamiento = 'pending_payment'
       AND NOT EXISTS (
         SELECT 1 FROM pobox_payments _pp
         WHERE _pp.payment_reference = owl.transaction_id
-          AND _pp.status = 'cancelled'
+          AND _pp.status IN ('cancelled', 'completed', 'paid')
       )`;
     const params1: any[] = [];
     let paramIndex1 = 1;
