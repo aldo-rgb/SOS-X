@@ -1196,14 +1196,18 @@ export const cancelEmittedInvoice = async (req: AuthRequest, res: Response): Pro
     // Reabrir el pago vinculado para que regrese a "Pendientes por Timbrar" y
     // pueda re-emitirse (mantiene requiere_factura=TRUE). Se localiza por
     // payment_id (CFDIs nuevos) o por factura_uuid en el pago (compatibilidad).
+    // payment_id en facturas_emitidas es VARCHAR → normalizar a int.
     try {
+        const pid = row.payment_id != null && /^[0-9]+$/.test(String(row.payment_id))
+            ? Number(row.payment_id)
+            : null;
         const r = await pool.query(
             `UPDATE pobox_payments
                 SET facturada = FALSE, factura_uuid = NULL, factura_error = NULL, factura_created_at = NULL
-              WHERE (($1::int IS NOT NULL AND id = $1) OR ($2::text IS NOT NULL AND factura_uuid = $2))
+              WHERE (($1::int IS NOT NULL AND id = $1::int) OR ($2::text IS NOT NULL AND factura_uuid = $2))
                 AND COALESCE(facturada, FALSE) = TRUE
               RETURNING id`,
-            [row.payment_id || null, row.uuid_sat || null]
+            [pid, row.uuid_sat || null]
         );
         if (r.rowCount) console.log(`[cancelEmittedInvoice] pago ${r.rows[0].id} reabierto a Pendientes por Timbrar`);
     } catch (e: any) {
