@@ -579,24 +579,26 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
                 INSERT INTO facturas_emitidas
                     (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
                      receptor_rfc, receptor_razon_social, subtotal, total, currency,
-                     payment_form, status, pdf_url, xml_url, created_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
+                     payment_form, status, pdf_url, xml_url, payment_id, created_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,$15,NOW())
             `, [
                 pay.user_id, fiscal_emitter_id,
                 facturamaId, uuidSat, invoice.folio_number, invoice.series || null,
                 receptorRfc, receptorNombre,
                 invoice.subtotal, invoice.total, invoice.currency,
-                formaPago, invoice.pdf_url, invoice.xml_url,
+                formaPago, invoice.pdf_url, invoice.xml_url, payment_id,
             ]);
         } catch (dbErr: any) {
             if (dbErr?.code !== '23505') throw dbErr;
             console.warn('[emitManualCFDI] CFDI ya estaba persistido (idempotencia):', uuidSat || facturamaId);
         }
 
-        // 6. Marcar el pago como facturado
+        // 6. Marcar el pago como facturado. Guardamos también el UUID en el pago
+        //    para que el asesor/cliente puedan descargar el PDF/XML y para que la
+        //    cancelación de la factura pueda reabrir el pago.
         await pool.query(
-            `UPDATE pobox_payments SET facturada=TRUE, factura_error=NULL WHERE id=$1`,
-            [payment_id]
+            `UPDATE pobox_payments SET facturada=TRUE, factura_uuid=COALESCE($2, factura_uuid), factura_error=NULL WHERE id=$1`,
+            [payment_id, uuidSat]
         );
 
         return res.json({ success: true, invoice_id: facturamaId, uuid: uuidSat, pdf_url: invoice.pdf_url });
@@ -902,8 +904,8 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
                     INSERT INTO facturas_emitidas
                         (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
                          receptor_rfc, receptor_razon_social, subtotal, total, currency,
-                         payment_form, status, pdf_url, xml_url, created_at)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
+                         payment_form, status, pdf_url, xml_url, payment_id, created_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,$15,NOW())
                     RETURNING id
                 `, [
                     linkedUserId, emitterId,
@@ -912,7 +914,7 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
                     invoice.subtotal, invoice.total,
                     String(currency || 'MXN').toUpperCase().slice(0, 3),
                     String(paymentForm || '99').slice(0, 2),
-                    invoice.pdf_url, invoice.xml_url,
+                    invoice.pdf_url, invoice.xml_url, linkPoboxPaymentId,
                 ]);
                 insertedInvoiceId = ins.rows[0].id;
             } catch (dbErr: any) {
@@ -994,9 +996,9 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
             try {
                 await pool.query(
                     `UPDATE pobox_payments
-                        SET facturada = TRUE, factura_error = NULL
+                        SET facturada = TRUE, factura_uuid = COALESCE($2, factura_uuid), factura_error = NULL
                       WHERE id = $1`,
-                    [linkPoboxPaymentId]
+                    [linkPoboxPaymentId, uuidSat]
                 );
             } catch (e: any) {
                 console.warn('[createManualInvoice] no se pudo marcar pobox_payment como facturada:', e?.message);
@@ -1107,7 +1109,7 @@ export const cancelEmittedInvoice = async (req: AuthRequest, res: Response): Pro
     const folioSustitucion = req.body?.folio_sustitucion ? String(req.body.folio_sustitucion) : undefined;
 
     const inv = await pool.query(
-        `SELECT id, facturama_id, uuid_sat, status, canceled_at
+        `SELECT id, facturama_id, uuid_sat, status, canceled_at, payment_id
            FROM facturas_emitidas
           WHERE id=$1 AND fiscal_emitter_id=$2`,
         [invoiceId, emitterId]
@@ -1189,6 +1191,23 @@ export const cancelEmittedInvoice = async (req: AuthRequest, res: Response): Pro
         return res.status(500).json({ error: 'Error al actualizar BD tras cancelación', message: txErr.message });
     } finally {
         dbClient.release();
+    }
+
+    // Reabrir el pago vinculado para que regrese a "Pendientes por Timbrar" y
+    // pueda re-emitirse (mantiene requiere_factura=TRUE). Se localiza por
+    // payment_id (CFDIs nuevos) o por factura_uuid en el pago (compatibilidad).
+    try {
+        const r = await pool.query(
+            `UPDATE pobox_payments
+                SET facturada = FALSE, factura_uuid = NULL, factura_error = NULL, factura_created_at = NULL
+              WHERE (($1::int IS NOT NULL AND id = $1) OR ($2::text IS NOT NULL AND factura_uuid = $2))
+                AND COALESCE(facturada, FALSE) = TRUE
+              RETURNING id`,
+            [row.payment_id || null, row.uuid_sat || null]
+        );
+        if (r.rowCount) console.log(`[cancelEmittedInvoice] pago ${r.rows[0].id} reabierto a Pendientes por Timbrar`);
+    } catch (e: any) {
+        console.warn('[cancelEmittedInvoice] no se pudo reabrir el pago vinculado:', e?.message);
     }
 
     return res.json({ success: true, message: 'Factura cancelada' });
