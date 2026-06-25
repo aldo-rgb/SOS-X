@@ -265,6 +265,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const [tablePage, setTablePage] = useState(1);
   const TABLE_PAGE_SIZE = 30;
   const [refMatchModal, setRefMatchModal] = useState<{ open: boolean; loading: boolean; matches: any[]; wrongAccount: any[]; unmatched: any[]; summary: any } | null>(null);
+  const [amountMatchModal, setAmountMatchModal] = useState<{ open: boolean; loading: boolean; matches: any[]; ambiguous: any[]; unmatched: any[]; summary: any } | null>(null);
   const [confirmAuthorize, setConfirmAuthorize] = useState<{ open: boolean; toAuthorize: any[]; totalSurplus: number } | null>(null);
   const [_loadingSavedEntries, setLoadingSavedEntries] = useState(false);
   const [_savedEntriesCount, setSavedEntriesCount] = useState<number | null>(null);
@@ -701,6 +702,80 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     }
   };
 
+  // 💰 Extraer por monto: concilia las líneas del estado de cuenta contra órdenes
+  // pendientes cuyo MONTO coincide exactamente (no por referencia). Los montos
+  // duplicados/ambiguos/ya conciliados se marcan en rojo para revisión manual.
+  const handleExtraerPorMonto = async () => {
+    const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
+    if (!empresaFilt) {
+      setSnackbar({ open: true, message: 'Selecciona una empresa primero', severity: 'warning' });
+      return;
+    }
+
+    let rows = estadoCuentaRows;
+    if (rows.length === 0) {
+      setSnackbar({ open: true, message: '⏳ Cargando movimientos...', severity: 'info' });
+      try {
+        const res = await api.get(`/admin/finance/bank-entries?empresa_id=${empresaFilt.id}`);
+        rows = (res.data.entries || []).map((e: any) => {
+          const isoDate = (e.fecha || '').substring(0, 10);
+          const [yyyy, mm, dd] = isoDate.split('-');
+          return {
+            fecha: `${dd}-${mm}-${yyyy}`,
+            concepto: e.concepto,
+            referencia: e.referencia,
+            cargo: e.cargo ? parseFloat(e.cargo) : null,
+            abono: e.abono ? parseFloat(e.abono) : null,
+            saldo: e.saldo ? parseFloat(e.saldo) : 0,
+            seq: e.seq ?? 0,
+          };
+        });
+      } catch {
+        setSnackbar({ open: true, message: 'Error cargando movimientos', severity: 'error' });
+        return;
+      }
+    }
+
+    const abonos = rows.filter((r) => Number(r.abono) > 0);
+    if (abonos.length === 0) {
+      setSnackbar({ open: true, message: 'No hay abonos (depósitos) en los movimientos actuales', severity: 'info' });
+      return;
+    }
+
+    setAmountMatchModal({ open: true, loading: true, matches: [], ambiguous: [], unmatched: [], summary: null });
+    try {
+      const res = await api.post('/admin/finance/match-by-amount', {
+        entries: abonos,
+        service_type: empresaFilt.servicio_asignado,
+      });
+      if (res.data.success) {
+        setAmountMatchModal({
+          open: true,
+          loading: false,
+          matches: res.data.matches || [],
+          ambiguous: res.data.ambiguous || [],
+          unmatched: res.data.unmatched || [],
+          summary: { ...res.data.summary, infoMsg: `💰 ${abonos.length} abonos analizados por monto exacto` },
+        });
+      }
+    } catch (err) {
+      console.error('Error matching by amount:', err);
+      setAmountMatchModal(null);
+      setSnackbar({ open: true, message: 'Error conciliando por monto', severity: 'error' });
+    }
+  };
+
+  const handleAutorizarPorMonto = () => {
+    if (!amountMatchModal?.matches?.length) return;
+    const toAuthorize = amountMatchModal.matches.filter((m: any) => m.safe && m.status !== 'paid' && m.total_bank_abonos >= m.amount);
+    if (toAuthorize.length === 0) {
+      setSnackbar({ open: true, message: 'No hay coincidencias seguras que autorizar (las ambiguas requieren revisión manual)', severity: 'info' });
+      return;
+    }
+    const totalSurplus = toAuthorize.reduce((s: number, m: any) => s + Math.max(0, m.total_bank_abonos - m.amount), 0);
+    setConfirmAuthorize({ open: true, toAuthorize, totalSurplus });
+  };
+
   const handleAutorizarBankPayments = () => {
     if (!refMatchModal?.matches?.length) return;
     const toAuthorize = refMatchModal.matches.filter((m: any) => m.status !== 'paid' && m.total_bank_abonos >= m.amount);
@@ -727,6 +802,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       if (totalSurplus > 0) msg += `. Excedente acreditado: $${totalSurplus.toFixed(2)}`;
       setSnackbar({ open: true, message: msg, severity: summary.errors > 0 ? 'warning' : 'success' });
       setRefMatchModal(null);
+      setAmountMatchModal(null);
     } catch (err: any) {
       console.error('Error authorizing:', err);
       setSnackbar({ open: true, message: 'Error al autorizar pagos: ' + (err.response?.data?.error || err.message), severity: 'error' });
@@ -1850,6 +1926,14 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                   >
                     Extraer
                   </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    sx={{ ml: 1, borderColor: '#00897B', color: '#00897B' }}
+                    onClick={handleExtraerPorMonto}
+                  >
+                    Extraer por monto
+                  </Button>
                   <SyncfyRefreshButton
                     emitterId={empresaFiltrada.id}
                     size="small"
@@ -2379,6 +2463,168 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
               startIcon={refMatchModal?.loading ? <CircularProgress size={18} /> : undefined}
             >
               ✅ Autorizar {refMatchModal?.matches?.filter((m: any) => m.status !== 'paid' && m.total_bank_abonos >= m.amount).length} pago(s)
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog de conciliación POR MONTO */}
+      <Dialog
+        open={!!amountMatchModal?.open}
+        onClose={() => setAmountMatchModal(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#00695C', color: 'white' }}>
+          💰 Conciliación por Monto Exacto
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2, mt: 1 }}>
+          {amountMatchModal?.loading ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <CircularProgress />
+              <Typography sx={{ mt: 2 }}>Buscando órdenes por monto...</Typography>
+            </Box>
+          ) : (
+            <>
+              {amountMatchModal?.summary?.infoMsg && (
+                <Alert severity="info" sx={{ mb: 2 }}>{amountMatchModal.summary.infoMsg}</Alert>
+              )}
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                El cruce por <strong>monto</strong> es ambiguo: dos órdenes pueden tener el mismo importe.
+                Solo las coincidencias <strong>verdes</strong> (un único pago pendiente con ese monto) se pueden autorizar.
+                Los montos <strong>en rojo</strong> están duplicados, repetidos en el banco, o ya fueron conciliados — revísalos a mano.
+              </Alert>
+              {/* Resumen */}
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid size={{ xs: 4 }}>
+                  <Card sx={{ bgcolor: '#E8F5E9', borderRadius: 2 }}>
+                    <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                      <Typography variant="h4" fontWeight="bold" color="success.main">{amountMatchModal?.summary?.matched || 0}</Typography>
+                      <Typography variant="caption">Coincidencia única</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid size={{ xs: 4 }}>
+                  <Card sx={{ bgcolor: '#FFEBEE', borderRadius: 2 }}>
+                    <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                      <Typography variant="h4" fontWeight="bold" color="error.main">{amountMatchModal?.summary?.ambiguous || 0}</Typography>
+                      <Typography variant="caption">Duplicado / ambiguo</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid size={{ xs: 4 }}>
+                  <Card sx={{ bgcolor: '#ECEFF1', borderRadius: 2 }}>
+                    <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                      <Typography variant="h4" fontWeight="bold" color="text.secondary">{amountMatchModal?.summary?.unmatched || 0}</Typography>
+                      <Typography variant="caption">Sin orden</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              {/* Coincidencias seguras (verde) */}
+              {(amountMatchModal?.matches || []).length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>✅ Coincidencias únicas (autorizables)</Typography>
+                  {amountMatchModal!.matches.map((m: any, idx: number) => (
+                    <Paper key={idx} sx={{ p: 2, mb: 1.5, border: '1px solid #c8e6c9', borderRadius: 2, bgcolor: '#f1f8e9' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Box>
+                          <Chip label={m.ref} size="small" sx={{ fontFamily: 'monospace', fontWeight: 'bold', bgcolor: '#00695C', color: 'white', mr: 1 }} />
+                          <Typography variant="body2" component="span" fontWeight="bold">{m.cliente}</Typography>
+                          {m.box_id && <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>📦 {m.box_id}</Typography>}
+                        </Box>
+                        <Typography variant="body1" fontWeight="bold" color="success.main">{formatCurrency(m.amount)}</Typography>
+                      </Box>
+                      <Divider sx={{ my: 1 }} />
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                        {m.bank_entries.map((e: any, i: number) => (
+                          <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Typography variant="caption">{e.fecha} - {e.concepto}</Typography>
+                            <Typography variant="caption" fontWeight="bold" color="success.main">+{formatCurrency(e.abono)}</Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Paper>
+                  ))}
+                </Box>
+              )}
+
+              {/* Montos ambiguos / duplicados (rojo) */}
+              {(amountMatchModal?.ambiguous || []).length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle1" fontWeight="bold" color="error.main" sx={{ mb: 1 }}>🔴 Montos duplicados o ya conciliados — revisar a mano</Typography>
+                  {amountMatchModal!.ambiguous.map((m: any, idx: number) => {
+                    const reasons: string[] = [];
+                    if (m.pendiente_count > 1) reasons.push(`${m.pendiente_count} órdenes pendientes con el mismo monto`);
+                    if (m.bank_count > 1) reasons.push(`${m.bank_count} abonos bancarios del mismo monto`);
+                    if (m.conciliado_count > 0) reasons.push(`${m.conciliado_count} ya conciliada(s) con este monto`);
+                    return (
+                      <Paper key={idx} sx={{ p: 2, mb: 1.5, border: '2px solid #d32f2f', borderRadius: 2, bgcolor: '#ffebee' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                          <Typography variant="body1" fontWeight="bold" color="error.main">{formatCurrency(m.amount)}</Typography>
+                          <Typography variant="caption" color="error.main">{m.bank_count} abono{m.bank_count !== 1 ? 's' : ''} · {m.candidate_count} orden{m.candidate_count !== 1 ? 'es' : ''}</Typography>
+                        </Box>
+                        <Typography variant="caption" color="error.main" sx={{ display: 'block', mb: 1 }}>
+                          ⚠️ {reasons.join(' · ')}
+                        </Typography>
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="caption" fontWeight="bold">Órdenes con este monto:</Typography>
+                        {m.candidates.map((c: any, i: number) => (
+                          <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pl: 1, py: 0.3 }}>
+                            <Box>
+                              <Chip label={c.ref} size="small" sx={{ fontFamily: 'monospace', fontSize: 11, height: 18, mr: 0.5 }} />
+                              <Typography variant="caption">{c.cliente}{c.box_id ? ` · ${c.box_id}` : ''}</Typography>
+                            </Box>
+                            <Chip
+                              label={c.conciliado ? '✓ Ya conciliada' : 'Pendiente'}
+                              size="small"
+                              color={c.conciliado ? 'default' : 'warning'}
+                              sx={{ height: 18, fontSize: 10, ...(c.conciliado ? { bgcolor: '#9e9e9e', color: 'white' } : {}) }}
+                            />
+                          </Box>
+                        ))}
+                        <Typography variant="caption" fontWeight="bold" sx={{ display: 'block', mt: 1 }}>Abonos en el banco:</Typography>
+                        {m.bank_entries.map((e: any, i: number) => (
+                          <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', pl: 1, py: 0.3 }}>
+                            <Typography variant="caption">{e.fecha} - {e.concepto}</Typography>
+                            <Typography variant="caption" fontWeight="bold" color="error.main">+{formatCurrency(e.abono)}</Typography>
+                          </Box>
+                        ))}
+                      </Paper>
+                    );
+                  })}
+                </Box>
+              )}
+
+              {/* Sin orden (gris) */}
+              {(amountMatchModal?.unmatched || []).length > 0 && (
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="bold" color="text.secondary" sx={{ mb: 1 }}>❓ Sin orden con ese monto</Typography>
+                  {amountMatchModal!.unmatched.map((m: any, idx: number) => (
+                    <Paper key={idx} sx={{ p: 1.5, mb: 1, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="body2" fontWeight="bold">{formatCurrency(m.amount)}</Typography>
+                        <Typography variant="caption" color="text.secondary">{m.bank_count} abono{m.bank_count !== 1 ? 's' : ''}</Typography>
+                      </Box>
+                    </Paper>
+                  ))}
+                </Box>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setAmountMatchModal(null)}>Cerrar</Button>
+          {(amountMatchModal?.matches || []).some((m: any) => m.safe && m.status !== 'paid' && m.total_bank_abonos >= m.amount) && (
+            <Button
+              variant="contained"
+              color="success"
+              onClick={handleAutorizarPorMonto}
+              disabled={amountMatchModal?.loading}
+              startIcon={amountMatchModal?.loading ? <CircularProgress size={18} /> : undefined}
+            >
+              ✅ Autorizar {amountMatchModal?.matches?.filter((m: any) => m.safe && m.status !== 'paid' && m.total_bank_abonos >= m.amount).length} pago(s)
             </Button>
           )}
         </DialogActions>

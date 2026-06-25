@@ -9777,6 +9777,168 @@ app.post('/api/admin/finance/match-references', authenticateToken, requireMinLev
 });
 
 // ============================================
+// EXTRAER POR MONTO — conciliación de estado de cuenta bancario por MONTO EXACTO
+// (no por referencia). Igual que /match-references pero busca órdenes pendientes
+// cuyo monto coincide EXACTAMENTE con el abono bancario.
+//
+// ⚠️ El matching por monto es AMBIGUO por naturaleza: dos órdenes distintas pueden
+// tener el mismo monto. Por eso clasificamos en:
+//   - matches (verde):   exactamente 1 orden pendiente con ese monto + 1 abono
+//                        bancario con ese monto + NINGUNA orden ya conciliada con
+//                        el mismo monto. Solo estas se pueden autorizar en lote.
+//   - ambiguous (rojo):  hay >1 orden pendiente con ese monto, o >1 abono con ese
+//                        monto, o YA EXISTE una orden conciliada con el mismo monto
+//                        (riesgo de duplicado). Requiere revisión manual.
+//   - unmatched (gris):  ningún orden tiene ese monto.
+// ============================================
+app.post('/api/admin/finance/match-by-amount', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { entries, service_type } = req.body;
+    // entries = [{ fecha, concepto, referencia, cargo, abono, saldo, seq }]
+    const round2 = (n: any) => Math.round((Number(n) || 0) * 100) / 100;
+
+    const abonoLines = (Array.isArray(entries) ? entries : [])
+      .filter((e: any) => Number(e.abono) > 0)
+      .map((e: any) => ({ ...e, abono: round2(e.abono) }));
+
+    if (abonoLines.length === 0) {
+      return res.json({
+        success: true, matches: [], ambiguous: [], unmatched: [],
+        summary: { total_amounts: 0, matched: 0, ambiguous: 0, unmatched: 0 },
+      });
+    }
+
+    // Acotar candidatos por servicio de la empresa seleccionada (mismo mapeo que
+    // /pending-payments) para no cruzar montos entre servicios distintos.
+    const SERVICE_ALIASES: Record<string, string[]> = {
+      china_air:  ['china_air', 'AIR_CHN_MX', 'aereo'],
+      AIR_CHN_MX: ['china_air', 'AIR_CHN_MX', 'aereo'],
+      china_sea:  ['china_sea', 'SEA_CHN_MX', 'maritime', 'fcl'],
+      SEA_CHN_MX: ['china_sea', 'SEA_CHN_MX', 'maritime', 'fcl'],
+      usa_pobox:  ['usa_pobox', 'POBOX_USA', 'usa', 'pobox', 'po_box'],
+      POBOX_USA:  ['usa_pobox', 'POBOX_USA', 'usa', 'pobox', 'po_box'],
+      mx_cedis:   ['mx_cedis', 'AA_DHL', 'dhl'],
+      AA_DHL:     ['mx_cedis', 'AA_DHL', 'dhl'],
+    };
+    const serviceList: string[] | null = service_type
+      ? (SERVICE_ALIASES[service_type as string] || [service_type as string])
+      : null;
+
+    // Estados conciliables (pendientes) y ya conciliados (riesgo de duplicado).
+    const CONCILIABLE = ['pending', 'pending_payment', 'pending_review', 'vouchers_submitted', 'vouchers_partial'];
+    const CONCILIADO = ['paid', 'completed'];
+
+    const params: any[] = [[...CONCILIABLE, ...CONCILIADO]];
+    let serviceFilter = '';
+    if (serviceList) {
+      params.push(serviceList);
+      serviceFilter = `AND COALESCE(owl.service_type, 'POBOX_USA') = ANY($${params.length})`;
+    }
+
+    const ordersRes = await pool.query(`
+      SELECT pp.id, pp.payment_reference AS ref, pp.amount, pp.status, pp.user_id, pp.created_at,
+             pp.package_ids,
+             u.full_name AS cliente, u.box_id, u.email,
+             COALESCE(owl.service_type, 'POBOX_USA') AS service_type
+      FROM pobox_payments pp
+      LEFT JOIN users u ON pp.user_id = u.id
+      LEFT JOIN openpay_webhook_logs owl ON owl.transaction_id = pp.payment_reference
+      WHERE pp.amount IS NOT NULL
+        AND pp.status = ANY($1)
+        AND pp.created_at >= NOW() - INTERVAL '120 days'
+        ${serviceFilter}
+    `, params);
+
+    const CONCILIADO_SET = new Set(CONCILIADO);
+    const CONCILIABLE_SET = new Set(CONCILIABLE);
+
+    // Indexar órdenes por monto redondeado a 2 decimales.
+    const byAmount = new Map<number, any[]>();
+    for (const o of ordersRes.rows) {
+      const a = round2(o.amount);
+      if (!byAmount.has(a)) byAmount.set(a, []);
+      byAmount.get(a)!.push({
+        id: o.id,
+        ref: o.ref,
+        cliente: o.cliente || 'Desconocido',
+        box_id: o.box_id,
+        email: o.email,
+        amount: a,
+        status: o.status,
+        user_id: o.user_id,
+        service_type: o.service_type,
+        created_at: o.created_at,
+        package_ids: o.package_ids,
+        conciliado: CONCILIADO_SET.has(o.status),
+      });
+    }
+
+    // Agrupar abonos bancarios por monto.
+    const bankByAmount = new Map<number, any[]>();
+    for (const e of abonoLines) {
+      const a = round2(e.abono);
+      if (!bankByAmount.has(a)) bankByAmount.set(a, []);
+      bankByAmount.get(a)!.push(e);
+    }
+
+    const matches: any[] = [];
+    const ambiguous: any[] = [];
+    const unmatched: any[] = [];
+
+    for (const [amount, bankEntries] of bankByAmount.entries()) {
+      const candidates = byAmount.get(amount) || [];
+      const pendientes = candidates.filter((c) => CONCILIABLE_SET.has(c.status));
+      const conciliados = candidates.filter((c) => c.conciliado);
+      const totalAbonos = round2(bankEntries.reduce((s: number, e: any) => s + e.abono, 0));
+
+      if (candidates.length === 0) {
+        unmatched.push({ amount, bank_entries: bankEntries, bank_count: bankEntries.length, total_bank_abonos: totalAbonos });
+        continue;
+      }
+
+      // 🔴 Marca en rojo: monto duplicado / ambiguo / ya conciliado.
+      const duplicateAmount = pendientes.length > 1 || bankEntries.length > 1 || conciliados.length > 0;
+
+      const base = {
+        amount,
+        bank_entries: bankEntries,
+        bank_count: bankEntries.length,
+        total_bank_abonos: totalAbonos,
+        candidates,
+        candidate_count: candidates.length,
+        pendiente_count: pendientes.length,
+        conciliado_count: conciliados.length,
+        duplicateAmount,
+      };
+
+      if (!duplicateAmount && pendientes.length === 1) {
+        // ✅ Match seguro: una sola orden pendiente, un solo abono, sin conciliación previa.
+        const c = pendientes[0];
+        matches.push({ ...base, ...c, safe: true });
+      } else {
+        ambiguous.push({ ...base, safe: false });
+      }
+    }
+
+    res.json({
+      success: true,
+      matches,
+      ambiguous,
+      unmatched,
+      summary: {
+        total_amounts: bankByAmount.size,
+        matched: matches.length,
+        ambiguous: ambiguous.length,
+        unmatched: unmatched.length,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error matching by amount:', error);
+    res.status(500).json({ error: 'Error conciliando por monto', details: error.message });
+  }
+});
+
+// ============================================
 // AUTORIZAR PAGOS DESDE ESTADO DE CUENTA BANCARIO
 // Marca órdenes como pagadas y acredita excedente como saldo a favor
 // ============================================
