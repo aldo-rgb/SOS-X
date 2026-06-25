@@ -3463,7 +3463,10 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           WHEN 'delivered' THEN '✅ Entregado'
           ELSE status
         END as status_label,
-        COALESCE(container_number, bl_number, 'En tránsito') as fecha_estimada,
+        COALESCE(
+          (SELECT ct.eta::text FROM containers ct WHERE ct.id = maritime_orders.container_id),
+          'En tránsito'
+        ) as fecha_estimada,
         COALESCE(assigned_cost_mxn, saldo_pendiente, 0) as monto,
         CASE WHEN payment_status = 'paid' THEN true ELSE false END as client_paid,
         delivery_address_id,
@@ -3647,7 +3650,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
             WHEN 'delivered' THEN '✅ Entregado'
             ELSE c.status
           END as status_label,
-          COALESCE(c.vessel_name, c.bl_number, 'En tránsito') as fecha_estimada,
+          COALESCE(c.eta::text, 'En tránsito') as fecha_estimada,
           COALESCE(c.sale_price, 0) as monto,
           false as client_paid,
           c.delivery_address_id,
