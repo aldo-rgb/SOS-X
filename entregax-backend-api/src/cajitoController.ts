@@ -861,7 +861,35 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
       [usersIdForPackages, client.box_id]
     );
 
-    const allPackages = pkgRes.rows;
+    // --- 3b) Órdenes MARÍTIMAS del cliente -----------------------------
+    // Se ligan por user_id O por shipping_mark (casillero). Muchas vienen con
+    // user_id NULL y sólo shipping_mark, por eso antes Cajito no las encontraba.
+    let maritimeRows: any[] = [];
+    try {
+      const mRes = await pool.query(
+        `SELECT mo.id, mo.ordersn AS tracking_internal, mo.ship_number AS tracking_provider,
+                mo.status, 'maritime' AS service_type, mo.weight,
+                0 AS length, 0 AS width, 0 AS height,
+                mo.shipping_mark AS box_id, mo.created_at, mo.received_at, mo.delivered_at,
+                mo.assigned_cost_mxn, mo.saldo_pendiente,
+                (mo.payment_status = 'paid') AS client_paid,
+                NULL::int AS master_id, false AS is_master,
+                mo.national_carrier, mo.national_tracking, mo.national_label_url,
+                mo.last_tracking_status, mo.last_tracking_detail, mo.last_tracking_date,
+                mo.current_location, mo.ship_number
+           FROM maritime_orders mo
+          WHERE (($1::int IS NOT NULL AND mo.user_id = $1::int)
+                 OR ($2::text IS NOT NULL AND UPPER(TRIM(mo.shipping_mark)) = UPPER(TRIM($2::text))))
+          ORDER BY mo.created_at DESC
+          LIMIT 200`,
+        [usersIdForPackages, client.box_id]
+      );
+      maritimeRows = mRes.rows;
+    } catch (e) {
+      maritimeRows = [];
+    }
+
+    const allPackages = [...pkgRes.rows, ...maritimeRows];
     const activePackages = allPackages.filter(p => ACTIVE_STATUSES.includes((p.status || '').toLowerCase()));
     const deliveredPackages = allPackages
       .filter(p => ['delivered', 'cancelled', 'lost'].includes((p.status || '').toLowerCase()))
@@ -915,7 +943,8 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
     // --- 5) Movimientos recientes (de los paquetes activos) -----------
     let movements: any[] = [];
     try {
-      const activeIds = activePackages.map(p => p.id);
+      // Solo ids de packages (package_history no aplica a marítimos).
+      const activeIds = activePackages.filter(p => p.service_type !== 'maritime').map(p => p.id);
       if (activeIds.length > 0) {
         const mvRes = await pool.query(
           `SELECT ph.id, ph.package_id, ph.status,
