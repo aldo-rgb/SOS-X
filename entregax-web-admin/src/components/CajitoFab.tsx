@@ -645,7 +645,12 @@ function ClientLookupResult({ data }: { data: PackageData }) {
 export default function CajitoFab() {
   const { cajitoEnabled, cajitoAvatarUrl, loading } = usePaymentStatus();
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<'chat' | 'track'>('chat');
+  // Los asesores solo tienen la versión "Rastrear guía" (sin Chat IA), por eso
+  // arrancan en modo track.
+  const [mode, setMode] = useState<'chat' | 'track'>(() => {
+    const u = getCurrentUser();
+    return ['advisor', 'sub_advisor'].includes(String(u?.role || '').toLowerCase()) ? 'track' : 'chat';
+  });
   const [imgError, setImgError] = useState(false);
 
   // Chat state
@@ -680,6 +685,8 @@ export default function CajitoFab() {
 
   const user = getCurrentUser();
   const isSuperAdmin = user?.role === 'super_admin';
+  // Asesores: acceso por default solo a "Rastrear guía" (acotado a sus clientes).
+  const isAdvisor = ['advisor', 'sub_advisor'].includes(String(user?.role || '').toLowerCase());
 
   useEffect(() => {
     if (open && mode === 'chat' && messages.length === 0) {
@@ -704,7 +711,7 @@ export default function CajitoFab() {
   }, [open, mode]);
 
   if (loading || !cajitoEnabled) return null;
-  if (!isSuperAdmin) return null;
+  if (!isSuperAdmin && !isAdvisor) return null;
 
   const avatar = imgError ? null : resolveUrl(cajitoAvatarUrl);
 
@@ -879,7 +886,7 @@ export default function CajitoFab() {
             </Avatar>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography variant="subtitle1" fontWeight={700} lineHeight={1.1}>Cajito</Typography>
-              <Typography variant="caption" sx={{ opacity: 0.9 }}>Asistente IA · Solo lectura{isSuperAdmin ? ' · Super Admin' : ''}</Typography>
+              <Typography variant="caption" sx={{ opacity: 0.9 }}>Asistente IA · Solo lectura{isSuperAdmin ? ' · Super Admin' : (isAdvisor ? ' · Mis clientes' : '')}</Typography>
             </Box>
             {mode === 'chat' && (
               <Tooltip title="Nueva conversación">
@@ -893,8 +900,9 @@ export default function CajitoFab() {
             </IconButton>
           </Box>
 
-          {/* Tabs de modo */}
+          {/* Tabs de modo — los asesores solo ven "Rastrear guía" */}
           <Box sx={{ display: 'flex', borderBottom: '1px solid #FFE0B2', bgcolor: 'white' }}>
+            {!isAdvisor && (
             <Box
               onClick={() => setMode('chat')}
               sx={{ flex: 1, py: 1, textAlign: 'center', cursor: 'pointer', borderBottom: mode === 'chat' ? `2px solid ${CAJITO_RING}` : '2px solid transparent', transition: 'border-color 0.15s' }}
@@ -906,6 +914,7 @@ export default function CajitoFab() {
                 </Typography>
               </Box>
             </Box>
+            )}
             <Box
               onClick={() => setMode('track')}
               sx={{ flex: 1, py: 1, textAlign: 'center', cursor: 'pointer', borderBottom: mode === 'track' ? `2px solid ${CAJITO_RING}` : '2px solid transparent', transition: 'border-color 0.15s' }}

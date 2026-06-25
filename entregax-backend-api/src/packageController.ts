@@ -1669,6 +1669,35 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         }
 
         const pkg = result.rows[0];
+
+        // 🔒 Acotamiento por ASESOR: solo puede rastrear guías de SUS clientes.
+        const _reqRole = String(((req as any).user)?.role || '').toLowerCase();
+        const _reqId = ((req as any).user)?.userId || ((req as any).user)?.id;
+        if (['advisor', 'sub_advisor'].includes(_reqRole)) {
+            let owned = false;
+            if (pkg.user_id) {
+                const o = await pool.query(
+                    `SELECT 1 FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) LIMIT 1`,
+                    [pkg.user_id, _reqId]
+                );
+                owned = o.rows.length > 0;
+            } else if (pkg.box_id) {
+                // Cliente legacy (sin user_id): verificar por casillero.
+                const o = await pool.query(
+                    `SELECT 1 FROM users WHERE UPPER(box_id) = UPPER($1) AND (advisor_id = $2 OR referred_by_id = $2)
+                     UNION ALL
+                     SELECT 1 FROM legacy_clients WHERE UPPER(box_id) = UPPER($1) AND recovery_advisor_id = $2
+                     LIMIT 1`,
+                    [pkg.box_id, _reqId]
+                );
+                owned = o.rows.length > 0;
+            }
+            if (!owned) {
+                res.status(404).json({ error: 'Guía no encontrada' });
+                return;
+            }
+        }
+
         let children: any[] = [];
 
         // Documentos subidos por cliente en el flujo "por cobrar"

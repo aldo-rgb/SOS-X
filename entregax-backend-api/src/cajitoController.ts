@@ -685,6 +685,13 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
+    // Solicitante (para acotar por asesor). isAdvisorReq → solo sus clientes.
+    const reqRole = String((req.user as any)?.role || '').toLowerCase();
+    const reqUserId = (req.user as any)?.userId || (req.user as any)?.id;
+    const isAdvisorReq = ['advisor', 'sub_advisor'].includes(reqRole);
+    const ownedByAdvisor = (row: any): boolean =>
+      Number(row?.advisor_id) === Number(reqUserId) || Number(row?.referred_by_id) === Number(reqUserId);
+
     // --- 1) Resolver al cliente ---------------------------------------
     // Prioridad: box_id exacto > id numérico > email exacto > búsqueda parcial
     const isBoxIdLike = /^[A-Za-z]{0,4}-?\d{1,}$/.test(q);
@@ -729,14 +736,16 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
           LIMIT 10`,
         [like, q]
       );
-      if (r.rows.length === 1) {
-        client = r.rows[0];
-      } else if (r.rows.length > 1) {
+      // Asesor: solo sus clientes entre las coincidencias.
+      const rows = isAdvisorReq ? r.rows.filter(ownedByAdvisor) : r.rows;
+      if (rows.length === 1) {
+        client = rows[0];
+      } else if (rows.length > 1) {
         res.json({
           success: true,
           multiple: true,
           query: q,
-          suggestions: r.rows.map(u => ({
+          suggestions: rows.map(u => ({
             id: u.id,
             box_id: u.box_id,
             full_name: u.full_name,
@@ -820,6 +829,16 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
     if (!client) {
       res.status(404).json({ error: 'Cliente no encontrado', query: q });
       return;
+    }
+
+    // 🔒 Acotamiento por ASESOR: un asesor solo puede consultar SUS clientes
+    // (asignados por advisor_id / referred_by_id / recovery_advisor_id).
+    if (isAdvisorReq) {
+      const clientAdvisor = client.advisor_id || client.referred_by_id || client.recovery_advisor_id;
+      if (Number(clientAdvisor) !== Number(reqUserId)) {
+        res.status(404).json({ error: 'Cliente no encontrado', query: q });
+        return;
+      }
     }
 
     // --- 2) Datos del asesor (si existe) ------------------------------
