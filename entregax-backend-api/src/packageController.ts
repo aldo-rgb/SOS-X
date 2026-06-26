@@ -1268,7 +1268,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
              v.license_plates AS vehicle_license_plates
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
-            LEFT JOIN users adv ON u.referred_by_id = adv.id
+            LEFT JOIN users adv ON adv.id = COALESCE(u.advisor_id, u.referred_by_id)
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
             LEFT JOIN addresses a ON p.assigned_address_id = a.id
             LEFT JOIN branches br ON p.current_branch_id = br.id

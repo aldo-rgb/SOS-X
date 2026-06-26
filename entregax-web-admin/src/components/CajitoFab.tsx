@@ -244,6 +244,11 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
           <Typography variant="body2" fontWeight={600}>{client.name || '—'}</Typography>
           {client.boxId && <Typography variant="caption" color="text.secondary">{client.boxId}</Typography>}
           {client.email && <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{client.email}</Typography>}
+          {client.advisor?.name && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: CAJITO_RING, fontWeight: 600 }}>
+              👤 Asesor: {client.advisor.name}
+            </Typography>
+          )}
         </Paper>
       )}
 
