@@ -1144,7 +1144,7 @@ export const getRepackChildren = async (req: Request, res: Response): Promise<an
         COALESCE(p.assigned_cost_mxn, p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) as monto,
         CASE WHEN COALESCE(p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0 THEN true ELSE false END as client_paid,
         p.weight,
-        COALESCE(p.pkg_length, p.length_cm, 0) as length_cm,
+        COALESCE(p.pkg_length, p.long_cm, 0) as length_cm,
         COALESCE(p.pkg_width, p.width_cm, 0) as width_cm,
         COALESCE(p.pkg_height, p.height_cm, 0) as height_cm,
         p.pobox_tarifa_nivel, p.description,

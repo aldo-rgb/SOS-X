@@ -400,7 +400,45 @@ export const createPaymentRequestV2 = async (
   if (servicio === 'pago_sin_factura' && subservicio) {
     payload.subservicio = subservicio;
   }
-  if (body.notas) {
+  // 🏦 Beneficiario final (proveedor al que ENTANGLED le envía el dinero).
+  // ENTANGLED necesita su cuenta bancaria; la recibe en notas.proveedor_envio.
+  // Antes solo se mandaba en el path legacy (reupload), por eso ENTANGLED se
+  // quedaba sin la cuenta del proveedor en el flujo nuevo.
+  const benefSnap = instructionsSnapshot?.beneficiarioSnapshot || null;
+  const benefNombre = String(body.beneficiario_nombre || '').trim();
+  if (benefSnap || benefNombre) {
+    const notasObj: any = {
+      proveedor_envio: {
+        nombre_beneficiario: benefSnap?.nombre || benefNombre || '',
+        nombre_chino: benefSnap?.nombre_chino || '',
+        numero_cuenta: benefSnap?.cuenta || '',
+        iban: benefSnap?.iban || '',
+        banco_nombre: benefSnap?.banco || '',
+        banco_direccion: benefSnap?.banco_direccion || '',
+        swift_bic: benefSnap?.swift || '',
+        aba_routing: benefSnap?.aba || '',
+        direccion_beneficiario: benefSnap?.direccion || '',
+      },
+    };
+    if (body.notas) notasObj.nota_cliente = String(body.notas);
+    payload.notas = JSON.stringify(notasObj);
+    // Persistir los datos del beneficiario para nuestros registros/UI.
+    if (benefSnap) {
+      await pool.query(
+        `UPDATE entangled_payment_requests SET
+           sup_nombre_beneficiario = $1, sup_nombre_chino = $2, sup_numero_cuenta = $3,
+           sup_iban = $4, sup_banco_nombre = $5, sup_banco_direccion = $6,
+           sup_swift_bic = $7, sup_aba_routing = $8, sup_direccion = $9
+         WHERE id = $10`,
+        [
+          benefSnap.nombre || benefNombre || null, benefSnap.nombre_chino || null,
+          benefSnap.cuenta || null, benefSnap.iban || null, benefSnap.banco || null,
+          benefSnap.banco_direccion || null, benefSnap.swift || null, benefSnap.aba || null,
+          benefSnap.direccion || null, requestId,
+        ]
+      ).catch(() => {});
+    }
+  } else if (body.notas) {
     payload.notas = String(body.notas);
   }
 
