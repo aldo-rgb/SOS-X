@@ -1700,7 +1700,12 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     let cancelled = false;
     (async () => {
       try {
-        const r = await axios.get(`${API_URL}/api/entangled/service-config`, { headers: authHeader });
+        // En modo asesor, pedimos la config del CLIENTE (con su override) para que
+        // la cotización muestre el % real que se le cobrará, no el del asesor.
+        const url = advisorClientId
+          ? `${API_URL}/api/entangled/service-config?client_id=${advisorClientId}`
+          : `${API_URL}/api/entangled/service-config`;
+        const r = await axios.get(url, { headers: authHeader });
         if (!cancelled) setClientCommissionCfg(r.data);
       } catch (err) {
         console.warn('[ENTANGLED] no pude cargar service-config, usaré % de proveedor', err);
@@ -1708,7 +1713,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       }
     })();
     return () => { cancelled = true; };
-  }, [token, authHeader]);
+  }, [token, authHeader, advisorClientId]);
 
   // Recalcular quote cuando cambia monto, divisa, proveedor o requiereFactura.
   // El % cobrado al cliente sale de XPAY → Cliente final (no del proveedor).

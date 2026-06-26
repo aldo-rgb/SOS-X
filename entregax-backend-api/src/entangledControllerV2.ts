@@ -1361,13 +1361,23 @@ export const updateServiceConfig = async (req: Request, res: Response): Promise<
   }
 };
 
-// Cliente: ve sus % efectivos (con override aplicado si existe)
+// Cliente: ve sus % efectivos (con override aplicado si existe).
+// Un asesor/admin puede consultar los de un cliente suyo pasando ?client_id=,
+// para que la cotización muestre el % real que se le cobrará a ESE cliente
+// (no el del asesor).
 export const getMyServiceConfig = async (req: Request, res: Response): Promise<any> => {
   const userId = getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   try {
-    const conFactura = await resolveClientFinalCommission(userId, 'pago_con_factura');
-    const sinFactura = await resolveClientFinalCommission(userId, 'pago_sin_factura');
+    let targetUserId = userId;
+    const clientId = Number((req.query?.client_id ?? '') as any);
+    if (Number.isFinite(clientId) && clientId > 0 && clientId !== userId) {
+      if (isAdminRole(req) || (await advisorOwnsClient(userId, clientId))) {
+        targetUserId = clientId;
+      }
+    }
+    const conFactura = await resolveClientFinalCommission(targetUserId, 'pago_con_factura');
+    const sinFactura = await resolveClientFinalCommission(targetUserId, 'pago_sin_factura');
     return res.json({
       pago_con_factura: {
         comision_porcentaje: conFactura.porcentaje,

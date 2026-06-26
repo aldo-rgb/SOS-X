@@ -355,9 +355,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
   const loadPricing = useCallback(async () => {
     try {
+      // En modo asesor, pedimos la config del CLIENTE (con su override) para que
+      // la cotización muestre el % real que se le cobrará, no el del asesor.
+      const cfgUrl = isAdvisorMode && advisorClientId
+        ? `${API_URL}/api/entangled/service-config?client_id=${advisorClientId}`
+        : `${API_URL}/api/entangled/service-config`;
       const [provRes, cfgRes] = await Promise.allSettled([
         fetch(`${API_URL}/api/entangled/providers`, { headers: authHeaders }),
-        fetch(`${API_URL}/api/entangled/service-config`, { headers: authHeaders }),
+        fetch(cfgUrl, { headers: authHeaders }),
       ]);
       if (provRes.status === 'fulfilled') {
         const data = await provRes.value.json();
@@ -371,7 +376,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         if (cfg?.pago_con_factura && cfg?.pago_sin_factura) setClientCommissionCfg(cfg);
       }
     } catch {}
-  }, [token, selectedProviderId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, selectedProviderId, advisorClientId]);
 
   const loadFiscalProfile = useCallback(async () => {
     try {
