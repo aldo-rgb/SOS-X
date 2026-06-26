@@ -377,6 +377,25 @@ export const createPaymentRequestV2 = async (
   };
   if (servicio === 'pago_con_factura') {
     payload.conceptos = conceptos as any[];
+    // Adjuntar la Constancia de Situación Fiscal (CSF) del cliente final:
+    // ENTANGLED la necesita para validar/emitir el CFDI al receptor. Va como
+    // URL firmada (el bucket es privado). Si el cliente no la tiene, se omite
+    // (la factura quedará pendiente hasta que la suba).
+    try {
+      const csf = await pool.query(
+        `SELECT file_url FROM user_saved_documents
+          WHERE user_id = $1 AND document_type = 'constancia_fiscal' LIMIT 1`,
+        [userId]
+      );
+      const csfUrl = csf.rows[0]?.file_url;
+      if (csfUrl) {
+        const { signS3UrlIfNeeded } = await import('./s3Service');
+        const signed = await signS3UrlIfNeeded(csfUrl, 7 * 24 * 60 * 60);
+        payload.constancia_url = signed || csfUrl;
+      }
+    } catch (csfErr) {
+      console.warn('[ENTANGLED v2] no se pudo adjuntar constancia:', (csfErr as Error).message);
+    }
   }
   if (servicio === 'pago_sin_factura' && subservicio) {
     payload.subservicio = subservicio;

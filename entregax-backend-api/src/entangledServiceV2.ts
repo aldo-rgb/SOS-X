@@ -92,6 +92,10 @@ export interface EntangledSolicitudPayloadV2 {
   // Cuando seguimos el contrato JSON (sin multipart) ENTANGLED espera el
   // link público al PDF/imagen del comprobante en este campo.
   comprobante_cliente_url?: string | undefined;
+  // Constancia de Situación Fiscal (CSF) del cliente final — URL firmada al
+  // PDF/imagen. Solo para pago_con_factura (ENTANGLED la usa para validar /
+  // emitir el CFDI al receptor).
+  constancia_url?: string | undefined;
 }
 
 export interface EntangledEmpresaAsignadaV2 {
