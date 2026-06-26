@@ -99,7 +99,9 @@ export default function SalesReportPage() {
   const [teamLeaders, setTeamLeaders] = useState<TeamLeader[]>([]);
   const [expandedTeams, setExpandedTeams] = useState<number[]>([]);
   // Modal de detalle por asesor (desglose por servicio + ingreso a la empresa)
-  const [advisorDetail, setAdvisorDetail] = useState<{ open: boolean; loading: boolean; name: string; services: any[]; totals: any } | null>(null);
+  const [advisorDetail, setAdvisorDetail] = useState<{ open: boolean; loading: boolean; advisorId: number | string; name: string; services: any[]; totals: any } | null>(null);
+  // Drill-down: lista de items (guías/GEX/X-Pay) de un servicio
+  const [serviceDetail, setServiceDetail] = useState<{ open: boolean; loading: boolean; title: string; kind: string; items: any[] } | null>(null);
   
   // Churn Report State
   const [churnData, setChurnData] = useState<ChurnData[]>([]);
@@ -156,16 +158,32 @@ export default function SalesReportPage() {
   // Abrir detalle de un asesor (desglose por servicio)
   const openAdvisorDetail = async (advisor: SalesData) => {
     const id = advisor.advisor_id ?? 'sin-asesor';
-    setAdvisorDetail({ open: true, loading: true, name: advisor.advisor_name || 'Sin Asesor', services: [], totals: null });
+    setAdvisorDetail({ open: true, loading: true, advisorId: id, name: advisor.advisor_name || 'Sin Asesor', services: [], totals: null });
     try {
       const params = new URLSearchParams({ startDate, endDate });
       const res = await axios.get(`${API_URL}/admin/crm/reports/sales/advisor/${id}?${params.toString()}`, {
         headers: { Authorization: `Bearer ${getToken()}` }
       });
-      setAdvisorDetail({ open: true, loading: false, name: res.data.advisor?.name || advisor.advisor_name, services: res.data.services || [], totals: res.data.totals || null });
+      setAdvisorDetail({ open: true, loading: false, advisorId: id, name: res.data.advisor?.name || advisor.advisor_name, services: res.data.services || [], totals: res.data.totals || null });
     } catch (err) {
       console.error('Error fetching advisor detail:', err);
-      setAdvisorDetail({ open: true, loading: false, name: advisor.advisor_name || 'Sin Asesor', services: [], totals: null });
+      setAdvisorDetail({ open: true, loading: false, advisorId: id, name: advisor.advisor_name || 'Sin Asesor', services: [], totals: null });
+    }
+  };
+
+  // Drill-down de un servicio: lista de guías / GEX / X-Pay
+  const openServiceDetail = async (serviceType: string) => {
+    if (!advisorDetail) return;
+    setServiceDetail({ open: true, loading: true, title: serviceType, kind: '', items: [] });
+    try {
+      const params = new URLSearchParams({ startDate, endDate, service: serviceType });
+      const res = await axios.get(`${API_URL}/admin/crm/reports/sales/advisor/${advisorDetail.advisorId}/items?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setServiceDetail({ open: true, loading: false, title: serviceType, kind: res.data.kind || 'package', items: res.data.items || [] });
+    } catch (err) {
+      console.error('Error fetching service items:', err);
+      setServiceDetail({ open: true, loading: false, title: serviceType, kind: 'package', items: [] });
     }
   };
 
@@ -684,8 +702,8 @@ export default function SalesReportPage() {
                 </TableHead>
                 <TableBody>
                   {advisorDetail!.services.map((s: any) => (
-                    <TableRow key={s.service_type}>
-                      <TableCell>{s.service_type}</TableCell>
+                    <TableRow key={s.service_type} hover sx={{ cursor: 'pointer' }} onClick={() => openServiceDetail(s.service_type)}>
+                      <TableCell sx={{ color: 'primary.main', fontWeight: 600 }}>{s.service_type} ›</TableCell>
                       <TableCell align="center">{s.count}</TableCell>
                       <TableCell align="right">{formatCurrency(s.revenue)}</TableCell>
                       <TableCell align="right" sx={{ color: 'text.secondary' }}>{formatCurrency(s.provider_cost)}</TableCell>
@@ -719,6 +737,102 @@ export default function SalesReportPage() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setAdvisorDetail(null)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Drill-down: items del servicio (guías / GEX / X-Pay) */}
+      <Dialog open={!!serviceDetail?.open} onClose={() => setServiceDetail(null)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ bgcolor: 'primary.dark', color: 'primary.contrastText' }}>
+          {serviceDetail?.title} — Detalle
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2, mt: 1 }}>
+          {serviceDetail?.loading ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress /></Box>
+          ) : (serviceDetail?.items || []).length === 0 ? (
+            <Typography color="text.secondary" sx={{ py: 2 }}>Sin registros en el periodo.</Typography>
+          ) : serviceDetail?.kind === 'gex' ? (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell><strong>Folio GEX</strong></TableCell>
+                  <TableCell><strong>Ruta / Descripción</strong></TableCell>
+                  <TableCell><strong>Estatus</strong></TableCell>
+                  <TableCell align="right"><strong>Ingreso</strong></TableCell>
+                  <TableCell align="right"><strong>Comisión</strong></TableCell>
+                  <TableCell align="right"><strong>Ganancia</strong></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {serviceDetail!.items.map((it: any, i: number) => (
+                  <TableRow key={i}>
+                    <TableCell sx={{ fontFamily: 'monospace' }}>{it.gex_folio}</TableCell>
+                    <TableCell>{it.route || it.description || '—'}</TableCell>
+                    <TableCell><Chip size="small" label={it.status} variant="outlined" /></TableCell>
+                    <TableCell align="right">{formatCurrency(it.revenue)}</TableCell>
+                    <TableCell align="right" sx={{ color: 'text.secondary' }}>{formatCurrency(it.provider_cost)}</TableCell>
+                    <TableCell align="right" sx={{ color: 'success.main', fontWeight: 600 }}>{formatCurrency(it.margin)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : serviceDetail?.kind === 'xpay' ? (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell><strong>Referencia</strong></TableCell>
+                  <TableCell><strong>Beneficiario</strong></TableCell>
+                  <TableCell align="right"><strong>Monto</strong></TableCell>
+                  <TableCell><strong>Estatus</strong></TableCell>
+                  <TableCell align="right"><strong>Ingreso</strong></TableCell>
+                  <TableCell align="right"><strong>Ganancia</strong></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {serviceDetail!.items.map((it: any, i: number) => (
+                  <TableRow key={i}>
+                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{it.referencia}</TableCell>
+                    <TableCell>{it.beneficiario || '—'}</TableCell>
+                    <TableCell align="right">{Number(it.op_monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {it.divisa || 'USD'}</TableCell>
+                    <TableCell><Chip size="small" label={it.status} variant="outlined" /></TableCell>
+                    <TableCell align="right">{formatCurrency(it.revenue)}</TableCell>
+                    <TableCell align="right" sx={{ color: 'success.main', fontWeight: 600 }}>{formatCurrency(it.margin)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell><strong>Guía</strong></TableCell>
+                  <TableCell><strong>Orden de pago</strong></TableCell>
+                  <TableCell><strong>Estatus</strong></TableCell>
+                  <TableCell align="right"><strong>Ingreso</strong></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {serviceDetail!.items.map((it: any, i: number) => (
+                  <TableRow key={i}>
+                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                      {it.tracking}
+                      {it.origin_tracking && <Typography variant="caption" color="text.secondary" display="block">{it.origin_tracking}</Typography>}
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', color: it.payment_ref ? 'primary.main' : 'text.disabled' }}>{it.payment_ref || 'Sin orden'}</TableCell>
+                    <TableCell><Chip size="small" label={it.status} variant="outlined" /></TableCell>
+                    <TableCell align="right">{formatCurrency(it.revenue)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          {!serviceDetail?.loading && (serviceDetail?.items || []).length > 0 && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+              {serviceDetail!.items.length} registro(s)
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setServiceDetail(null)}>Cerrar</Button>
         </DialogActions>
       </Dialog>
     </Box>

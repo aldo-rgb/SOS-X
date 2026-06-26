@@ -1137,6 +1137,89 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
 };
 
 /**
+ * Detalle (lista) de un servicio de un asesor: guías + orden de pago (paquetes),
+ * garantías (GEX) u operaciones X-Pay. Para el drill-down del modal.
+ * GET /api/admin/crm/reports/sales/advisor/:advisorId/items?service=...
+ */
+export const getSalesReportServiceItems = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { advisorId } = req.params;
+    const { service, startDate, endDate } = req.query as Record<string, string>;
+    const isSinAsesor = advisorId === 'null' || advisorId === 'sin-asesor';
+    const svc = String(service || '');
+    const start = startDate || '2020-01-01';
+    const end = endDate || new Date().toISOString();
+
+    // ── GEX (garantías) ──────────────────────────────────────────────
+    if (svc.toUpperCase().startsWith('GEX')) {
+      const p: any[] = [start, end];
+      let f = 'w.advisor_id IS NULL';
+      if (!isSinAsesor) { p.push(Number(advisorId)); f = 'w.advisor_id = $3'; }
+      const r = await pool.query(`
+        SELECT w.gex_folio, w.status, w.description, w.route, w.created_at,
+               COALESCE(w.total_cost_mxn,0)::numeric AS revenue,
+               COALESCE(w.advisor_commission,0)::numeric AS provider_cost,
+               (COALESCE(w.total_cost_mxn,0) - COALESCE(w.advisor_commission,0))::numeric AS margin
+        FROM warranties w
+        WHERE ${f} AND w.created_at BETWEEN $1 AND $2
+        ORDER BY w.created_at DESC`, p);
+      return res.json({ success: true, kind: 'gex', items: r.rows });
+    }
+
+    // ── X-Pay (pagos a proveedor) ────────────────────────────────────
+    if (svc.replace(/[-\s]/g, '').toUpperCase() === 'XPAY') {
+      const p: any[] = [start, end];
+      let f = 'epr.advisor_id IS NULL';
+      if (!isSinAsesor) { p.push(Number(advisorId)); f = 'epr.advisor_id = $3'; }
+      const BASE = `COALESCE(epr.op_monto,0) * COALESCE(epr.tc_aplicado_usd, epr.tc_cliente_final, 0)`;
+      const r = await pool.query(`
+        SELECT COALESCE(epr.referencia_pago, 'XP'||LPAD(epr.id::text,6,'0')) AS referencia,
+               epr.op_beneficiario_nombre AS beneficiario,
+               epr.op_monto, epr.op_divisa_destino AS divisa,
+               epr.estatus_global AS status, epr.created_at,
+               (${BASE} * COALESCE(epr.comision_cliente_final_porcentaje,0)/100)::numeric AS revenue,
+               (${BASE} * (COALESCE(epr.comision_cliente_final_porcentaje,0) - COALESCE(epr.comision_cobrada_porcentaje,0))/100)::numeric AS margin
+        FROM entangled_payment_requests epr
+        WHERE ${f} AND epr.created_at BETWEEN $1 AND $2
+          AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')
+        ORDER BY epr.created_at DESC`, p);
+      return res.json({ success: true, kind: 'xpay', items: r.rows });
+    }
+
+    // ── Paquetes (servicio de paquetería): guías + orden de pago ─────
+    const p: any[] = [start, end];
+    let advCond = 'COALESCE(client.advisor_id, client.referred_by_id) IS NULL';
+    if (!isSinAsesor) { p.push(Number(advisorId)); advCond = 'COALESCE(client.advisor_id, client.referred_by_id) = $3'; }
+    p.push(svc);
+    const svcIdx = p.length;
+    const REVENUE_EXPR = `COALESCE(NULLIF(p.assigned_cost_mxn, 0), p.pobox_service_cost, 0)`;
+    const r = await pool.query(`
+      SELECT p.tracking_internal AS tracking, p.tracking_provider AS origin_tracking,
+             p.status, p.created_at,
+             ${REVENUE_EXPR}::numeric AS revenue,
+             (SELECT payment_reference FROM (
+                SELECT payment_reference, created_at, package_ids AS ids FROM pobox_payments WHERE COALESCE(status,'') <> 'cancelled'
+                UNION ALL
+                SELECT payment_reference, created_at, package_uids AS ids FROM advisor_payment_orders
+              ) o
+              WHERE o.payment_reference IS NOT NULL AND EXISTS (
+                SELECT 1 FROM jsonb_array_elements_text(COALESCE(o.ids,'[]'::jsonb)) e
+                WHERE e = p.id::text OR e = 'PKG-'||p.id::text
+              )
+              ORDER BY o.created_at DESC LIMIT 1) AS payment_ref
+      FROM packages p
+      JOIN users client ON p.user_id = client.id
+      WHERE p.created_at BETWEEN $1 AND $2 AND ${advCond} AND p.service_type = $${svcIdx}
+      ORDER BY p.created_at DESC
+      LIMIT 1000`, p);
+    return res.json({ success: true, kind: 'package', items: r.rows });
+  } catch (error: any) {
+    console.error('Error getSalesReportServiceItems:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
  * Reporte de clientes perdidos (churn)
  * GET /api/admin/crm/reports/churn
  */

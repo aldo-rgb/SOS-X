@@ -602,6 +602,7 @@ import {
   deleteProspect,
   getSalesReport,
   getSalesReportByAdvisor,
+  getSalesReportServiceItems,
   getChurnReport,
   getCRMDashboard,
   getAdvisorsForCRM,
@@ -6711,6 +6712,7 @@ app.delete('/api/admin/crm/prospects/:id', authenticateToken, requireMinLevel(RO
 // Módulo 4: Reportes
 app.get('/api/admin/crm/reports/sales', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSalesReport);
 app.get('/api/admin/crm/reports/sales/advisor/:advisorId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSalesReportByAdvisor);
+app.get('/api/admin/crm/reports/sales/advisor/:advisorId/items', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSalesReportServiceItems);
 app.get('/api/admin/crm/reports/churn', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getChurnReport);
 
 // Utilidades CRM
