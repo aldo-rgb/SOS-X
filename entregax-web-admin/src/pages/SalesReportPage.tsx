@@ -186,7 +186,7 @@ export default function SalesReportPage() {
       };
     }
     acc[teamId].advisors.push(sale);
-    acc[teamId].totals.shipments += sale.total_shipments;
+    acc[teamId].totals.shipments += Number(sale.total_shipments) || 0;
     acc[teamId].totals.revenue += parseFloat(sale.total_revenue || '0');
     return acc;
   }, {} as Record<number, { teamLeader: string; teamLeaderId: number; advisors: SalesData[]; totals: { shipments: number; revenue: number } }>);

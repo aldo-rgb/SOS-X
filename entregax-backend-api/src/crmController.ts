@@ -957,32 +957,51 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
 
     const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
 
+    // Venta por paquete: el costo asignado si existe, si no el precio de venta
+    // PO Box. (assigned_cost_mxn solo está en una fracción de los paquetes; sin
+    // este fallback los ingresos salían casi en cero.)
+    const REVENUE_EXPR = `COALESCE(NULLIF(p.assigned_cost_mxn, 0), p.pobox_service_cost, 0)`;
+
+    // ⚠️ COUNT()/SUM() en Postgres regresan bigint/numeric que node-pg entrega
+    // como STRING. Casteamos los conteos a ::int para que el frontend reciba
+    // números (antes el frontend concatenaba strings → "0297532...").
     const query = `
-      SELECT 
-        COALESCE(leader.full_name, 'Sin Líder') as team_leader,
-        COALESCE(advisor.full_name, 'Sin Asesor') as advisor_name,
-        p.service_type,
-        p.status,
-        COUNT(p.id) as total_shipments,
-        SUM(p.weight) as total_weight,
-        SUM(COALESCE(p.assigned_cost_mxn, 0)) as total_sales_mxn
-      FROM packages p
-      JOIN users client ON p.user_id = client.id
-      LEFT JOIN users advisor ON client.referred_by_id = advisor.id
-      LEFT JOIN users leader ON advisor.team_leader_id = leader.id
-      ${whereClause}
-      GROUP BY leader.full_name, advisor.full_name, p.service_type, p.status
-      ORDER BY total_sales_mxn DESC
+      WITH base AS (
+        SELECT
+          advisor.id AS advisor_id,
+          COALESCE(advisor.full_name, 'Sin Asesor') AS advisor_name,
+          leader.id AS team_leader_id,
+          leader.full_name AS team_leader_name,
+          p.service_type, p.status, p.consolidation_id,
+          ${REVENUE_EXPR}::numeric AS revenue
+        FROM packages p
+        JOIN users client ON p.user_id = client.id
+        LEFT JOIN users advisor ON client.referred_by_id = advisor.id
+        LEFT JOIN users leader ON advisor.team_leader_id = leader.id
+        ${whereClause}
+      )
+      SELECT
+        advisor_id, advisor_name, team_leader_id, team_leader_name,
+        COUNT(*)::int AS total_shipments,
+        COALESCE(SUM(revenue), 0)::numeric AS total_revenue,
+        COUNT(*) FILTER (WHERE service_type IN ('AIR_CHN_MX','china_air','aereo'))::int AS air_shipments,
+        COUNT(*) FILTER (WHERE service_type IN ('china_sea','SEA_CHN_MX','maritime','fcl'))::int AS sea_shipments,
+        COUNT(*) FILTER (WHERE consolidation_id IS NOT NULL)::int AS consolidation_shipments,
+        COUNT(*) FILTER (WHERE status = 'delivered')::int AS completed_shipments,
+        (COALESCE(SUM(revenue), 0) / NULLIF(COUNT(*), 0))::numeric AS avg_revenue_per_shipment
+      FROM base
+      GROUP BY advisor_id, advisor_name, team_leader_id, team_leader_name
+      ORDER BY total_revenue DESC
     `;
 
     const result = await pool.query(query, params);
 
-    // Totales generales
+    // Totales generales (nombres alineados con el frontend: shipments/revenue/advisors)
     const totalsQuery = `
-      SELECT 
-        COUNT(DISTINCT p.id) as total_shipments,
-        COUNT(DISTINCT p.user_id) as total_clients,
-        SUM(COALESCE(p.assigned_cost_mxn, 0)) as total_revenue
+      SELECT
+        COUNT(*)::int AS shipments,
+        COALESCE(SUM(${REVENUE_EXPR}), 0)::numeric AS revenue,
+        COUNT(DISTINCT advisor.id)::int AS advisors
       FROM packages p
       JOIN users client ON p.user_id = client.id
       LEFT JOIN users advisor ON client.referred_by_id = advisor.id
@@ -991,10 +1010,26 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
     `;
     const totalsResult = await pool.query(totalsQuery, params);
 
+    // Desglose por servicio
+    const serviceQuery = `
+      SELECT p.service_type,
+             COUNT(*)::int AS count,
+             COALESCE(SUM(${REVENUE_EXPR}), 0)::numeric AS revenue
+      FROM packages p
+      JOIN users client ON p.user_id = client.id
+      LEFT JOIN users advisor ON client.referred_by_id = advisor.id
+      LEFT JOIN users leader ON advisor.team_leader_id = leader.id
+      ${whereClause}
+      GROUP BY p.service_type
+      ORDER BY count DESC
+    `;
+    const serviceResult = await pool.query(serviceQuery, params);
+
     res.json({
       success: true,
       data: result.rows,
       totals: totalsResult.rows[0],
+      serviceStats: serviceResult.rows,
       filters: { startDate, endDate, teamLeaderId, advisorId, serviceType, status }
     });
   } catch (error: any) {
