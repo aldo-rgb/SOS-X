@@ -1087,10 +1087,38 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
       advisorName = a.rows[0]?.full_name || `Asesor #${advisorId}`;
     }
 
-    const services = result.rows;
+    const services = [...result.rows];
+
+    // GEX (garantías): ingreso = total cobrado; costo = comisión pagada al asesor.
+    const gexFilter = isSinAsesor ? 'w.advisor_id IS NULL' : 'w.advisor_id = $3';
+    const gex = await pool.query(`
+      SELECT COUNT(*)::int AS count,
+             COUNT(*) FILTER (WHERE w.status = 'active')::int AS completed,
+             COALESCE(SUM(w.total_cost_mxn), 0)::numeric AS revenue,
+             COALESCE(SUM(w.advisor_commission), 0)::numeric AS provider_cost,
+             COALESCE(SUM(w.total_cost_mxn) - SUM(w.advisor_commission), 0)::numeric AS margin
+      FROM warranties w
+      WHERE ${gexFilter} AND w.created_at BETWEEN $1 AND $2
+    `, params);
+    if (Number(gex.rows[0].count) > 0) services.push({ service_type: 'GEX (Garantía)', ...gex.rows[0] });
+
+    // X-Pay (pago a proveedor): ingreso = comisión a la empresa; costo = comisión al asesor.
+    const xpayFilter = isSinAsesor ? 'epr.advisor_id IS NULL' : 'epr.advisor_id = $3';
+    const xpay = await pool.query(`
+      SELECT COUNT(*)::int AS count,
+             COUNT(*) FILTER (WHERE epr.estatus_global = 'completado')::int AS completed,
+             COALESCE(SUM(epr.comision_entregax), 0)::numeric AS revenue,
+             COALESCE(SUM(epr.comision_asesor), 0)::numeric AS provider_cost,
+             COALESCE(SUM(epr.comision_entregax) - SUM(epr.comision_asesor), 0)::numeric AS margin
+      FROM entangled_payment_requests epr
+      WHERE ${xpayFilter} AND epr.created_at BETWEEN $1 AND $2
+    `, params);
+    if (Number(xpay.rows[0].count) > 0) services.push({ service_type: 'X-Pay', ...xpay.rows[0] });
+
+    // Envíos/completados = solo paquetes; ingreso/costo/ganancia = todo (incl. GEX y X-Pay).
     const totals = {
-      shipments: services.reduce((s, r) => s + Number(r.count || 0), 0),
-      completed: services.reduce((s, r) => s + Number(r.completed || 0), 0),
+      shipments: result.rows.reduce((s, r) => s + Number(r.count || 0), 0),
+      completed: result.rows.reduce((s, r) => s + Number(r.completed || 0), 0),
       revenue: services.reduce((s, r) => s + parseFloat(r.revenue || '0'), 0).toFixed(2),
       provider_cost: services.reduce((s, r) => s + parseFloat(r.provider_cost || '0'), 0).toFixed(2),
       margin: services.reduce((s, r) => s + parseFloat(r.margin || '0'), 0).toFixed(2),

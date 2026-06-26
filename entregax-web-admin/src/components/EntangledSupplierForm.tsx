@@ -114,7 +114,7 @@ export default function EntangledSupplierForm({
             label={t('entangled.suppliers.alias', 'Alias / nombre corto')}
             value={value.alias}
             onChange={(e) => set({ alias: e.target.value })}
-            placeholder="Mi proveedor de Shenzhen"
+            placeholder="Ej. Mi proveedor de ...."
             sx={textFieldSx}
           />
         </Grid>
