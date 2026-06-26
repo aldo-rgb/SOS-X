@@ -1188,6 +1188,10 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
 
         // 🔎 Si el input es una REFERENCIA DE PAGO (RO-/PP-/CTZ:...), resolverla a la
         // guía (master) para que el rastreo muestre los detalles completos de las guías.
+        // Guardamos TODAS las guías de la referencia: una referencia puede agrupar
+        // varias guías independientes (no un master con hijas), y el rastreo debe
+        // mostrarlas todas, no solo una.
+        let refPackageIds: number[] = [];
         try {
             const refKey = trackingUpper.replace(/^CTZ:\s*/i, '').trim();
             const refRes = await pool.query(
@@ -1203,6 +1207,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     .map((x: any) => parseInt(String(x).replace(/^[A-Za-z]+-/, ''), 10))
                     .filter((n: number) => Number.isFinite(n));
                 if (ids.length > 0) {
+                    refPackageIds = ids;
                     const tr = await pool.query(
                         `SELECT tracking_internal FROM packages
                          WHERE id = ANY($1::int[])
@@ -1779,6 +1784,22 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         if (pkg.is_master) {
             const childResult = await pool.query('SELECT * FROM packages WHERE master_id = $1 ORDER BY box_number', [pkg.id]);
             children = childResult.rows;
+        }
+
+        // 📦 Si la búsqueda fue por REFERENCIA DE PAGO que agrupa varias guías,
+        // mostrar TODAS las guías de esa orden de pago (no solo la resuelta). La
+        // guía resuelta (pkg) es la "principal" y el resto se listan como hijas.
+        // NO tocamos pkg.total_boxes: ese campo significa "cajas de ESTA guía" y
+        // se usa para prorratear costos (nationalLabelCostPerBox); estas son guías
+        // independientes, cada una con su propio costo.
+        if (refPackageIds.length > 1) {
+            const refRows = await pool.query(
+                `SELECT * FROM packages WHERE id = ANY($1::int[]) ORDER BY COALESCE(box_number, 0), id`,
+                [refPackageIds]
+            );
+            if (refRows.rows.length > 1) {
+                children = refRows.rows.filter((r: any) => Number(r.id) !== Number(pkg.id));
+            }
         }
 
         // Si es una HIJA (master_id != null), heredar status y payment del master
