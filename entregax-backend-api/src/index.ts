@@ -1202,6 +1202,11 @@ import {
   getDiscountRequests,
   getDiscountStats,
   resolveDiscountRequest,
+  // Saldo a favor
+  createSaldoFavorRequest,
+  getSaldoFavorRequests,
+  getSaldoFavorStats,
+  resolveSaldoFavorRequest,
   // Cron helpers
   actualizarCarteraVencida,
   sincronizarCartera,
@@ -12461,6 +12466,14 @@ app.post('/api/cs/descuentos/solicitar', authenticateToken, createDiscountReques
 app.get('/api/cs/descuentos/pendientes', authenticateToken, getDiscountRequests);
 app.get('/api/cs/descuentos/stats', authenticateToken, getDiscountStats);
 app.post('/api/cs/descuentos/:id/resolver', authenticateToken, resolveDiscountRequest);
+
+// Saldo a favor (con comprobante foto/PDF; requiere PIN de director para aprobar)
+const saldoFavorUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+app.post('/api/cs/saldo-a-favor/solicitar', authenticateToken, saldoFavorUpload.single('proof'), handleMulterError, createSaldoFavorRequest);
+app.get('/api/cs/saldo-a-favor/pendientes', authenticateToken, getSaldoFavorRequests);
+app.get('/api/cs/saldo-a-favor/stats', authenticateToken, getSaldoFavorStats);
+app.post('/api/cs/saldo-a-favor/:id/resolver', authenticateToken, resolveSaldoFavorRequest);
+
 app.get('/api/firma-abandono/:token', getDocumentoAbandono); // Público
 app.post('/api/firma-abandono/:token', firmarDocumentoAbandono); // Público
 

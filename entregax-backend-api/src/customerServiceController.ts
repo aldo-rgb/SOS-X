@@ -1529,6 +1529,197 @@ export const resolveDiscountRequest = async (req: Request, res: Response) => {
   }
 };
 
+// ========== SALDO A FAVOR (requiere aprobación de director/admin) ==========
+// Un saldo a favor es un crédito a favor del cliente que se abona a su
+// users.wallet_balance al aprobarse, y queda disponible para pagos futuros
+// (método 'wallet'). Mismo flujo de verificación que los descuentos, pero
+// además exige un motivo y un comprobante (foto/PDF) que respalde la razón.
+
+const SALDO_FAVOR_TABLE_DDL = `
+  CREATE TABLE IF NOT EXISTS saldo_a_favor_pendientes (
+    id SERIAL PRIMARY KEY,
+    cliente_id INTEGER NOT NULL,
+    cliente_nombre VARCHAR(200),
+    monto DECIMAL(12,2) NOT NULL,
+    moneda VARCHAR(3) DEFAULT 'MXN',
+    motivo TEXT NOT NULL,
+    proof_file_url TEXT,
+    proof_file_key TEXT,
+    solicitado_por INTEGER,
+    solicitado_nombre VARCHAR(200),
+    estado VARCHAR(20) DEFAULT 'pendiente',
+    aprobado_por INTEGER,
+    aprobado_nombre VARCHAR(200),
+    motivo_rechazo TEXT,
+    fecha_solicitud TIMESTAMP DEFAULT NOW(),
+    fecha_resolucion TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+  )
+`;
+
+// Crear solicitud de saldo a favor (CS agent). Multipart: campo 'proof' (foto/PDF).
+export const createSaldoFavorRequest = async (req: Request, res: Response) => {
+  const { cliente_id, cliente_nombre, monto, moneda, motivo } = req.body;
+  const solicitado_por = (req as any).user?.id || null;
+  const solicitado_nombre = (req as any).user?.full_name || 'Agente CS';
+
+  const montoNum = Math.abs(Number(monto));
+  if (!cliente_id || !Number.isFinite(montoNum) || montoNum <= 0 || !motivo) {
+    return res.status(400).json({ error: 'Faltan campos requeridos: cliente_id, monto (>0), motivo' });
+  }
+
+  try {
+    await pool.query(SALDO_FAVOR_TABLE_DDL);
+
+    // Subir comprobante (foto/PDF) a S3 si viene archivo
+    let proofUrl: string | null = null;
+    let proofKey: string | null = null;
+    const file = (req as any).file;
+    if (file) {
+      const { uploadToS3, isS3Configured } = await import('./s3Service');
+      const ext = (file.originalname?.split('.').pop() || 'jpg').toLowerCase();
+      proofKey = `cs/saldo-a-favor/${cliente_id}_${Date.now()}.${ext}`;
+      if (isS3Configured()) {
+        proofUrl = await uploadToS3(file.buffer, proofKey, file.mimetype || 'application/octet-stream');
+      } else {
+        proofUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+      }
+    }
+
+    const result = await pool.query(
+      `INSERT INTO saldo_a_favor_pendientes
+       (cliente_id, cliente_nombre, monto, moneda, motivo, proof_file_url, proof_file_key, solicitado_por, solicitado_nombre)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [cliente_id, cliente_nombre || null, montoNum, moneda || 'MXN', motivo, proofUrl, proofKey, solicitado_por, solicitado_nombre]
+    );
+
+    res.json({ success: true, saldo: result.rows[0] });
+  } catch (error: any) {
+    console.error('Error createSaldoFavorRequest:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Listar solicitudes de saldo a favor (para director/admin)
+export const getSaldoFavorRequests = async (req: Request, res: Response) => {
+  const { estado } = req.query;
+  try {
+    await pool.query(SALDO_FAVOR_TABLE_DDL);
+    const filter = estado && estado !== 'all' ? `WHERE estado = $1` : '';
+    const params = filter ? [estado] : [];
+    const result = await pool.query(
+      `SELECT * FROM saldo_a_favor_pendientes ${filter} ORDER BY fecha_solicitud DESC LIMIT 100`,
+      params
+    );
+
+    // Firmar URLs de comprobante (S3) para visualización temporal
+    try {
+      const { getSignedUrlForKey, signS3UrlIfNeeded } = await import('./s3Service');
+      for (const r of result.rows) {
+        if (r.proof_file_key) {
+          try { r.proof_file_url = await getSignedUrlForKey(r.proof_file_key, 3600); } catch { /* fallback */ }
+        } else if (r.proof_file_url) {
+          r.proof_file_url = await signS3UrlIfNeeded(r.proof_file_url, 3600);
+        }
+      }
+    } catch { /* no-op */ }
+
+    res.json(result.rows);
+  } catch (error: any) {
+    console.error('Error getSaldoFavorRequests:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Estadísticas de saldo a favor para el panel
+export const getSaldoFavorStats = async (_req: Request, res: Response) => {
+  try {
+    await pool.query(SALDO_FAVOR_TABLE_DDL);
+    const result = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE estado = 'pendiente') as pendientes,
+        COUNT(*) FILTER (WHERE estado = 'aprobado') as aprobados,
+        COUNT(*) FILTER (WHERE estado = 'rechazado') as rechazados,
+        COALESCE(SUM(monto) FILTER (WHERE estado = 'pendiente'), 0) as monto_pendiente,
+        COALESCE(SUM(monto) FILTER (WHERE estado = 'aprobado'), 0) as monto_aprobado
+      FROM saldo_a_favor_pendientes
+    `);
+    res.json(result.rows[0]);
+  } catch (error: any) {
+    console.error('Error getSaldoFavorStats:', error);
+    res.json({ pendientes: 0, aprobados: 0, rechazados: 0, monto_pendiente: 0, monto_aprobado: 0 });
+  }
+};
+
+// Aprobar/Rechazar saldo a favor (requiere PIN de director/super_admin).
+// Al aprobar: abona el monto a users.wallet_balance del cliente.
+export const resolveSaldoFavorRequest = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { accion, pin, motivo_rechazo } = req.body;
+
+  if (!['aprobar', 'rechazar'].includes(accion)) {
+    return res.status(400).json({ error: 'Acción debe ser aprobar o rechazar' });
+  }
+
+  try {
+    // Verificar PIN de director/super_admin
+    const pinResult = await pool.query(
+      `SELECT id, full_name, role FROM users WHERE supervisor_pin = $1 AND role IN ('director', 'super_admin')`,
+      [pin]
+    );
+    if (pinResult.rows.length === 0) {
+      return res.status(403).json({ error: 'PIN de autorización inválido. Se requiere PIN de director.' });
+    }
+    const autorizador = pinResult.rows[0];
+
+    const solicitud = await pool.query('SELECT * FROM saldo_a_favor_pendientes WHERE id = $1', [id]);
+    if (solicitud.rows.length === 0) {
+      return res.status(404).json({ error: 'Solicitud no encontrada' });
+    }
+    const sf = solicitud.rows[0];
+
+    if (sf.estado !== 'pendiente') {
+      return res.status(400).json({ error: `Solicitud ya fue ${sf.estado}` });
+    }
+
+    if (accion === 'aprobar') {
+      await pool.query(
+        `UPDATE saldo_a_favor_pendientes SET estado = 'aprobado', aprobado_por = $1, aprobado_nombre = $2, fecha_resolucion = NOW() WHERE id = $3`,
+        [autorizador.id, autorizador.full_name, id]
+      );
+
+      // Abonar a la billetera (saldo a favor) del cliente
+      await pool.query(
+        `UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + $1 WHERE id = $2`,
+        [sf.monto, sf.cliente_id]
+      );
+
+      // Registrar la transacción financiera
+      try {
+        await pool.query(
+          `INSERT INTO financial_transactions (user_id, type, amount, description, reference_id, reference_type, created_at)
+           VALUES ($1, 'credit', $2, $3, $4, 'saldo_a_favor', NOW())`,
+          [sf.cliente_id, sf.monto, `Saldo a favor aprobado por ${autorizador.full_name}: ${sf.motivo}`, sf.id]
+        );
+      } catch (e) {
+        console.warn('No se pudo registrar financial_transactions del saldo a favor:', e);
+      }
+
+      res.json({ success: true, message: `Saldo a favor de $${sf.monto} ${sf.moneda} abonado al cliente por ${autorizador.full_name}` });
+    } else {
+      await pool.query(
+        `UPDATE saldo_a_favor_pendientes SET estado = 'rechazado', aprobado_por = $1, aprobado_nombre = $2, motivo_rechazo = $3, fecha_resolucion = NOW() WHERE id = $4`,
+        [autorizador.id, autorizador.full_name, motivo_rechazo || 'Sin motivo', id]
+      );
+      res.json({ success: true, message: 'Solicitud rechazada' });
+    }
+  } catch (error: any) {
+    console.error('Error resolveSaldoFavorRequest:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // =========================================
 // GET /api/cs/abandono/listos-proceso
 // Lista guías con abandono ya firmado por el cliente

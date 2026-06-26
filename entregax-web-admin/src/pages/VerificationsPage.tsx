@@ -22,6 +22,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import CloseIcon from '@mui/icons-material/Close';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import DiscountIcon from '@mui/icons-material/LocalOffer';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -133,6 +134,20 @@ interface DiscountStats {
   monto_pendiente: number;
 }
 
+interface SaldoFavorRequest {
+  id: number;
+  cliente_id: number;
+  cliente_nombre: string;
+  monto: number;
+  moneda: string;
+  motivo: string;
+  proof_file_url: string | null;
+  solicitado_por: number;
+  solicitado_nombre: string;
+  estado: 'pendiente' | 'aprobado' | 'rechazado';
+  created_at: string;
+}
+
 export default function VerificationsPage() {
   const { i18n } = useTranslation();
   const currentUserRole: string = (() => {
@@ -162,6 +177,17 @@ export default function VerificationsPage() {
   const [discountPin, setDiscountPin] = useState('');
   const [discountPinError, setDiscountPinError] = useState('');
   const [discountRejectReason, setDiscountRejectReason] = useState('');
+
+  // Saldo a favor verification state
+  const [saldoRequests, setSaldoRequests] = useState<SaldoFavorRequest[]>([]);
+  const [saldoStats, setSaldoStats] = useState<DiscountStats | null>(null);
+  const [saldoLoading, setSaldoLoading] = useState(false);
+  const [saldoPinDialog, setSaldoPinDialog] = useState(false);
+  const [selectedSaldo, setSelectedSaldo] = useState<SaldoFavorRequest | null>(null);
+  const [saldoAction, setSaldoAction] = useState<'aprobar' | 'rechazar'>('aprobar');
+  const [saldoPin, setSaldoPin] = useState('');
+  const [saldoPinError, setSaldoPinError] = useState('');
+  const [saldoRejectReason, setSaldoRejectReason] = useState('');
 
   const getToken = () => localStorage.getItem('token');
 
@@ -212,11 +238,62 @@ export default function VerificationsPage() {
     setDiscountLoading(false);
   }, []);
 
+  // Load saldo a favor requests
+  const loadSaldoData = useCallback(async () => {
+    setSaldoLoading(true);
+    const token = getToken();
+    if (!token) return;
+    try {
+      const [reqRes, statsRes] = await Promise.all([
+        axios.get(`${API_URL}/cs/saldo-a-favor/pendientes?estado=pendiente`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/cs/saldo-a-favor/stats`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      setSaldoRequests(Array.isArray(reqRes.data) ? reqRes.data : (reqRes.data.saldos || []));
+      setSaldoStats(statsRes.data);
+    } catch (error: any) {
+      console.error('Error loading saldo a favor data:', error?.response?.data || error.message);
+    }
+    setSaldoLoading(false);
+  }, []);
+
   useEffect(() => {
     if (activeTab === 1) {
       loadDiscountData();
+    } else if (activeTab === 2) {
+      loadSaldoData();
     }
-  }, [activeTab, loadDiscountData]);
+  }, [activeTab, loadDiscountData, loadSaldoData]);
+
+  // Handle saldo a favor approval/rejection
+  const handleResolveSaldo = async () => {
+    if (!selectedSaldo || !saldoPin) return;
+    setSaldoPinError('');
+    setProcessing(true);
+    try {
+      await axios.post(
+        `${API_URL}/cs/saldo-a-favor/${selectedSaldo.id}/resolver`,
+        {
+          accion: saldoAction,
+          pin: saldoPin,
+          motivo_rechazo: saldoAction === 'rechazar' ? saldoRejectReason : undefined,
+        },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSnackbar({
+        open: true,
+        message: saldoAction === 'aprobar' ? '✅ Saldo a favor aprobado y abonado al cliente' : '❌ Saldo a favor rechazado',
+        severity: 'success',
+      });
+      setSaldoPinDialog(false);
+      setSaldoPin('');
+      setSaldoRejectReason('');
+      setSelectedSaldo(null);
+      loadSaldoData();
+    } catch (error: any) {
+      setSaldoPinError(error?.response?.data?.error || 'PIN inválido');
+    }
+    setProcessing(false);
+  };
 
   // Handle discount approval/rejection
   const handleResolveDiscount = async () => {
@@ -388,7 +465,7 @@ export default function VerificationsPage() {
           </Typography>
         </Box>
         <Tooltip title={i18n.language === 'es' ? 'Actualizar' : 'Refresh'}>
-          <IconButton onClick={() => { loadData(); if (activeTab === 1) loadDiscountData(); }} sx={{ bgcolor: 'grey.100' }}>
+          <IconButton onClick={() => { loadData(); if (activeTab === 1) loadDiscountData(); if (activeTab === 2) loadSaldoData(); }} sx={{ bgcolor: 'grey.100' }}>
             <RefreshIcon />
           </IconButton>
         </Tooltip>
@@ -405,6 +482,12 @@ export default function VerificationsPage() {
             <Tab
               icon={<Badge badgeContent={discountStats?.pendientes || 0} color="error"><DiscountIcon /></Badge>}
               label={i18n.language === 'es' ? 'Verificar Descuento' : 'Discount Verification'}
+            />
+          )}
+          {!hideDiscountTab && (
+            <Tab
+              icon={<Badge badgeContent={saldoStats?.pendientes || 0} color="error"><AccountBalanceWalletIcon /></Badge>}
+              label={i18n.language === 'es' ? 'Saldo a Favor' : 'Customer Credit'}
             />
           )}
         </Tabs>
@@ -697,6 +780,151 @@ export default function VerificationsPage() {
                               setSelectedDiscount(req);
                               setDiscountAction('rechazar');
                               setDiscountPinDialog(true);
+                            }}
+                          >
+                            Rechazar
+                          </Button>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </Paper>
+        </Box>
+      )}
+
+      {/* Tab 2: Saldo a Favor Verification */}
+      {activeTab === 2 && (
+        <Box>
+          {/* Saldo Stats */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mb: 4 }}>
+            <Box sx={{ flex: '1 1 200px', minWidth: 180 }}>
+              <Card sx={{ background: 'linear-gradient(135deg, #ff9800 0%, #ffb74d 100%)', color: 'white' }}>
+                <CardContent sx={{ py: 2 }}>
+                  <Typography variant="h3" fontWeight="bold">{saldoStats?.pendientes || 0}</Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Pendientes</Typography>
+                </CardContent>
+              </Card>
+            </Box>
+            <Box sx={{ flex: '1 1 200px', minWidth: 180 }}>
+              <Card sx={{ background: 'linear-gradient(135deg, #4caf50 0%, #81c784 100%)', color: 'white' }}>
+                <CardContent sx={{ py: 2 }}>
+                  <Typography variant="h3" fontWeight="bold">{saldoStats?.aprobados || 0}</Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Aprobados</Typography>
+                </CardContent>
+              </Card>
+            </Box>
+            <Box sx={{ flex: '1 1 200px', minWidth: 180 }}>
+              <Card sx={{ background: 'linear-gradient(135deg, #f44336 0%, #e57373 100%)', color: 'white' }}>
+                <CardContent sx={{ py: 2 }}>
+                  <Typography variant="h3" fontWeight="bold">{saldoStats?.rechazados || 0}</Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Rechazados</Typography>
+                </CardContent>
+              </Card>
+            </Box>
+            <Box sx={{ flex: '1 1 200px', minWidth: 180 }}>
+              <Card sx={{ background: 'linear-gradient(135deg, #2e7d32 0%, #66bb6a 100%)', color: 'white' }}>
+                <CardContent sx={{ py: 2 }}>
+                  <Typography variant="h3" fontWeight="bold">
+                    ${(saldoStats?.monto_pendiente || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Monto Pendiente</Typography>
+                </CardContent>
+              </Card>
+            </Box>
+          </Box>
+
+          {/* Saldo Requests Table */}
+          <Paper elevation={3} sx={{ borderRadius: 3, overflow: 'hidden' }}>
+            <Box sx={{ bgcolor: '#2e7d32', px: 3, py: 2 }}>
+              <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
+                💰 Solicitudes de Saldo a Favor Pendientes
+                {saldoRequests.length > 0 && (
+                  <Chip label={saldoRequests.length} size="small" sx={{ ml: 2, bgcolor: 'white', color: '#2e7d32' }} />
+                )}
+              </Typography>
+            </Box>
+
+            {saldoLoading ? (
+              <Box sx={{ textAlign: 'center', py: 6 }}>
+                <CircularProgress />
+              </Box>
+            ) : saldoRequests.length === 0 ? (
+              <Box sx={{ textAlign: 'center', py: 6 }}>
+                <AccountBalanceWalletIcon sx={{ fontSize: 64, color: '#4caf50', mb: 2 }} />
+                <Typography variant="h6" color="text.secondary">¡Todo al día!</Typography>
+                <Typography variant="body2" color="text.secondary">No hay saldos a favor pendientes de aprobación</Typography>
+              </Box>
+            ) : (
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Cliente</TableCell>
+                    <TableCell>Motivo</TableCell>
+                    <TableCell align="center">Comprobante</TableCell>
+                    <TableCell align="right">Monto</TableCell>
+                    <TableCell>Solicitante</TableCell>
+                    <TableCell>Fecha</TableCell>
+                    <TableCell align="center">Acciones</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {saldoRequests.map((req) => (
+                    <TableRow key={req.id} hover>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={600}>{req.cliente_nombre || `ID: ${req.cliente_id}`}</Typography>
+                      </TableCell>
+                      <TableCell sx={{ maxWidth: 280 }}>
+                        <Typography variant="body2">{req.motivo}</Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        {req.proof_file_url ? (
+                          <Button size="small" variant="text" startIcon={<VisibilityIcon />} href={req.proof_file_url} target="_blank" rel="noopener noreferrer">
+                            Ver
+                          </Button>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">—</Typography>
+                        )}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2" fontWeight={700} color="success.main">
+                          +${Number(req.monto).toLocaleString('en-US', { minimumFractionDigits: 2 })} {req.moneda || 'MXN'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">{req.solicitado_nombre || `ID: ${req.solicitado_por}`}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption">
+                          {new Date(req.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="success"
+                            startIcon={<CheckCircleIcon />}
+                            onClick={() => {
+                              setSelectedSaldo(req);
+                              setSaldoAction('aprobar');
+                              setSaldoPinDialog(true);
+                            }}
+                          >
+                            Aprobar
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            startIcon={<CancelIcon />}
+                            onClick={() => {
+                              setSelectedSaldo(req);
+                              setSaldoAction('rechazar');
+                              setSaldoPinDialog(true);
                             }}
                           >
                             Rechazar
@@ -1105,6 +1333,75 @@ export default function VerificationsPage() {
             startIcon={processing ? <CircularProgress size={20} color="inherit" /> : discountAction === 'aprobar' ? <CheckCircleIcon /> : <CancelIcon />}
           >
             {discountAction === 'aprobar' ? 'Autorizar Descuento' : 'Confirmar Rechazo'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Saldo a favor PIN Dialog */}
+      <Dialog open={saldoPinDialog} onClose={() => { setSaldoPinDialog(false); setSaldoPin(''); setSaldoPinError(''); setSaldoRejectReason(''); }} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ color: saldoAction === 'aprobar' ? '#4caf50' : '#f44336' }}>
+          {saldoAction === 'aprobar' ? '✅ Aprobar Saldo a Favor' : '❌ Rechazar Saldo a Favor'}
+        </DialogTitle>
+        <DialogContent>
+          {selectedSaldo && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+              <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
+                <Typography variant="body2"><strong>Cliente:</strong> {selectedSaldo.cliente_nombre || `ID: ${selectedSaldo.cliente_id}`}</Typography>
+                <Typography variant="body2"><strong>Monto:</strong> <span style={{ color: '#4caf50', fontWeight: 700 }}>+${Number(selectedSaldo.monto).toLocaleString('en-US', { minimumFractionDigits: 2 })} {selectedSaldo.moneda || 'MXN'}</span></Typography>
+                <Typography variant="body2"><strong>Motivo:</strong> {selectedSaldo.motivo}</Typography>
+                <Typography variant="body2"><strong>Solicitado por:</strong> {selectedSaldo.solicitado_nombre}</Typography>
+                {selectedSaldo.proof_file_url && (
+                  <Button size="small" variant="text" startIcon={<VisibilityIcon />} href={selectedSaldo.proof_file_url} target="_blank" rel="noopener noreferrer" sx={{ mt: 1, pl: 0 }}>
+                    Ver comprobante adjunto
+                  </Button>
+                )}
+              </Paper>
+
+              <Alert severity={saldoAction === 'aprobar' ? 'success' : 'warning'}>
+                {saldoAction === 'aprobar'
+                  ? 'Al aprobar, el monto se abonará a la billetera del cliente y quedará disponible para sus pagos. Se requiere PIN de Director o Super Admin.'
+                  : 'Se requiere el PIN de un Director o Super Admin para rechazar esta solicitud.'}
+              </Alert>
+
+              {saldoAction === 'rechazar' && (
+                <TextField
+                  label="Motivo del rechazo"
+                  multiline
+                  rows={2}
+                  value={saldoRejectReason}
+                  onChange={(e) => setSaldoRejectReason(e.target.value)}
+                  placeholder="Explica por qué se rechaza la solicitud..."
+                />
+              )}
+
+              <TextField
+                label="PIN de Director"
+                type="password"
+                value={saldoPin}
+                onChange={(e) => { setSaldoPin(e.target.value); setSaldoPinError(''); }}
+                autoFocus
+                onKeyDown={(e) => e.key === 'Enter' && handleResolveSaldo()}
+                error={!!saldoPinError}
+                helperText={saldoPinError}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">🔑</InputAdornment>,
+                }}
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setSaldoPinDialog(false); setSaldoPin(''); setSaldoPinError(''); setSaldoRejectReason(''); }}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            color={saldoAction === 'aprobar' ? 'success' : 'error'}
+            onClick={handleResolveSaldo}
+            disabled={!saldoPin || processing}
+            startIcon={processing ? <CircularProgress size={20} color="inherit" /> : saldoAction === 'aprobar' ? <CheckCircleIcon /> : <CancelIcon />}
+          >
+            {saldoAction === 'aprobar' ? 'Autorizar Saldo' : 'Confirmar Rechazo'}
           </Button>
         </DialogActions>
       </Dialog>

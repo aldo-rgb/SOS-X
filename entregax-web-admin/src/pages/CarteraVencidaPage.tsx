@@ -35,6 +35,7 @@ import {
   Snackbar,
   Checkbox,
   FormControlLabel,
+  Autocomplete,
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import SearchIcon from '@mui/icons-material/Search';
@@ -54,6 +55,7 @@ import UndoIcon from '@mui/icons-material/Undo';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import CloseIcon from '@mui/icons-material/Close';
 import InfoIcon from '@mui/icons-material/Info';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import api from '../services/api';
 
 // Interfaces
@@ -190,6 +192,16 @@ export default function CarteraVencidaPage() {
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState(false);
   const [ajusteToDelete, setAjusteToDelete] = useState<{ id: number; concepto: string; monto: number; tipo: string } | null>(null);
   
+  // Saldo a favor (crédito al cliente, requiere aprobación de director)
+  const [saldoDialog, setSaldoDialog] = useState(false);
+  const [saldoForm, setSaldoForm] = useState({ monto: '', moneda: 'MXN' as 'MXN' | 'USD', motivo: '' });
+  const [saldoClient, setSaldoClient] = useState<any | null>(null);
+  const [saldoClientQuery, setSaldoClientQuery] = useState('');
+  const [saldoClientOpts, setSaldoClientOpts] = useState<any[]>([]);
+  const [saldoClientLoading, setSaldoClientLoading] = useState(false);
+  const [saldoFile, setSaldoFile] = useState<File | null>(null);
+  const [saldoSubmitting, setSaldoSubmitting] = useState(false);
+
   // Modal de abandono
   const [abandonoDialog, setAbandonoDialog] = useState(false);
   const [selectedForAbandono, setSelectedForAbandono] = useState<CarteraItem[]>([]);
@@ -344,6 +356,54 @@ export default function CarteraVencidaPage() {
     setLoadingResumen(false);
   };
 
+  // Búsqueda de clientes para el saldo a favor (debounce simple)
+  useEffect(() => {
+    if (!saldoDialog) return;
+    if (!saldoClientQuery || saldoClientQuery.trim().length < 2) { setSaldoClientOpts([]); return; }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        setSaldoClientLoading(true);
+        const r = await api.get('/admin/users/search', { params: { q: saldoClientQuery.trim() } });
+        if (cancelled) return;
+        const list = Array.isArray(r.data) ? r.data : (r.data?.data || []);
+        setSaldoClientOpts(list.slice(0, 25));
+      } catch {
+        if (!cancelled) setSaldoClientOpts([]);
+      } finally {
+        if (!cancelled) setSaldoClientLoading(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [saldoClientQuery, saldoDialog]);
+
+  // Solicitar saldo a favor (va a verificación de director/admin)
+  const handleSubmitSaldoFavor = async () => {
+    if (!saldoClient) { setSnackbar({ open: true, message: 'Selecciona un cliente', severity: 'error' }); return; }
+    const monto = parseFloat(saldoForm.monto);
+    if (!Number.isFinite(monto) || monto <= 0) { setSnackbar({ open: true, message: 'Captura un monto válido', severity: 'error' }); return; }
+    if (!saldoForm.motivo.trim()) { setSnackbar({ open: true, message: 'Captura el motivo del saldo a favor', severity: 'error' }); return; }
+    setSaldoSubmitting(true);
+    try {
+      const fd = new FormData();
+      fd.append('cliente_id', String(saldoClient.id));
+      fd.append('cliente_nombre', saldoClient.full_name || saldoClient.email || '');
+      fd.append('monto', String(monto));
+      fd.append('moneda', saldoForm.moneda);
+      fd.append('motivo', saldoForm.motivo.trim());
+      if (saldoFile) fd.append('proof', saldoFile);
+      await api.post('/cs/saldo-a-favor/solicitar', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setSaldoDialog(false);
+      setSaldoForm({ monto: '', moneda: 'MXN', motivo: '' });
+      setSaldoClient(null); setSaldoClientQuery(''); setSaldoClientOpts([]); setSaldoFile(null);
+      setSnackbar({ open: true, message: '📨 Solicitud de saldo a favor enviada a Dirección para aprobación', severity: 'success' });
+    } catch (error: any) {
+      console.error('Error solicitando saldo a favor:', error);
+      setSnackbar({ open: true, message: error?.response?.data?.error || 'Error al enviar solicitud', severity: 'error' });
+    }
+    setSaldoSubmitting(false);
+  };
+
   // Crear ajuste (cargo directo) o solicitar descuento
   const handleCreateAjuste = async () => {
     if (!selectedGuia || !ajusteForm.monto || !ajusteForm.concepto) return;
@@ -492,13 +552,23 @@ export default function CarteraVencidaPage() {
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h5" fontWeight={700}>
-           Ajustes Financieros
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Gestión de cargos extra, descuentos, cobranza y abandono de mercancía
-        </Typography>
+      <Box sx={{ mb: 4, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+        <Box>
+          <Typography variant="h5" fontWeight={700}>
+             Ajustes Financieros
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Gestión de cargos extra, descuentos, cobranza y abandono de mercancía
+          </Typography>
+        </Box>
+        <Button
+          variant="contained"
+          color="success"
+          startIcon={<AccountBalanceWalletIcon />}
+          onClick={() => setSaldoDialog(true)}
+        >
+          Saldo a favor
+        </Button>
       </Box>
 
       {/* Tabs */}
@@ -1737,6 +1807,94 @@ export default function CarteraVencidaPage() {
           </Button>
           <Button variant="contained" color="error" onClick={confirmDeleteAjuste}>
             Sí, Eliminar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: Saldo a favor */}
+      <Dialog open={saldoDialog} onClose={() => !saldoSubmitting && setSaldoDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <AccountBalanceWalletIcon color="success" />
+          Solicitar saldo a favor
+        </DialogTitle>
+        <DialogContent dividers>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            La solicitud se envía a Dirección/Admin para verificación. Al aprobarse, el monto se abona
+            a la billetera del cliente y queda disponible para sus pagos.
+          </Alert>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Autocomplete
+              options={saldoClientOpts}
+              loading={saldoClientLoading}
+              value={saldoClient}
+              onChange={(_, v) => setSaldoClient(v)}
+              onInputChange={(_, v) => setSaldoClientQuery(v)}
+              filterOptions={(x) => x}
+              getOptionLabel={(o) => `${o.full_name || ''}${o.box_id ? ` · ${o.box_id}` : ''} · ${o.email || ''} (#${o.id})`}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              noOptionsText={saldoClientQuery.trim().length < 2 ? 'Escribe al menos 2 caracteres' : 'Sin resultados'}
+              renderInput={(params) => (
+                <TextField {...params} label="Cliente" placeholder="Buscar nombre, email o box" />
+              )}
+            />
+            <Stack direction="row" spacing={2}>
+              <TextField
+                label="Monto"
+                type="number"
+                value={saldoForm.monto}
+                onChange={(e) => setSaldoForm(prev => ({ ...prev, monto: e.target.value }))}
+                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                sx={{ flex: 1 }}
+              />
+              <FormControl sx={{ minWidth: 110 }}>
+                <InputLabel>Moneda</InputLabel>
+                <Select
+                  label="Moneda"
+                  value={saldoForm.moneda}
+                  onChange={(e) => setSaldoForm(prev => ({ ...prev, moneda: e.target.value as 'MXN' | 'USD' }))}
+                >
+                  <MenuItem value="MXN">MXN</MenuItem>
+                  <MenuItem value="USD">USD</MenuItem>
+                </Select>
+              </FormControl>
+            </Stack>
+            <TextField
+              label="Motivo de la aplicación"
+              value={saldoForm.motivo}
+              onChange={(e) => setSaldoForm(prev => ({ ...prev, motivo: e.target.value }))}
+              multiline
+              minRows={3}
+              placeholder="Explica por qué se otorga este saldo a favor"
+              fullWidth
+            />
+            <Box>
+              <Button variant="outlined" component="label" startIcon={<AddIcon />}>
+                {saldoFile ? 'Cambiar comprobante' : 'Adjuntar comprobante (foto/PDF)'}
+                <input
+                  hidden
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => setSaldoFile(e.target.files?.[0] || null)}
+                />
+              </Button>
+              {saldoFile && (
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }} color="text.secondary">
+                  📎 {saldoFile.name}
+                </Typography>
+              )}
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSaldoDialog(false)} disabled={saldoSubmitting}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handleSubmitSaldoFavor}
+            disabled={saldoSubmitting}
+            startIcon={saldoSubmitting ? <CircularProgress size={16} color="inherit" /> : <AccountBalanceWalletIcon />}
+          >
+            Enviar a verificación
           </Button>
         </DialogActions>
       </Dialog>
