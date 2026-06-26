@@ -1824,7 +1824,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 [refPackageIds]
             );
             if (refRows.rows.length > 1) {
-                children = refRows.rows.filter((r: any) => Number(r.id) !== Number(pkg.id));
+                // Incluimos TODAS las guías de la orden (incluida la principal) para
+                // que el listado muestre las 5 y no confunda mostrando solo 4.
+                children = refRows.rows;
             }
         }
 
