@@ -927,108 +927,101 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
   try {
     const { startDate, endDate, teamLeaderId, advisorId, serviceType, status } = req.query;
 
-    let whereConditions = ['p.created_at BETWEEN $1 AND $2'];
+    // Filtros a nivel PAQUETE (fecha siempre; servicio/estatus opcionales).
     const params: any[] = [startDate || '2020-01-01', endDate || new Date().toISOString()];
-    let paramIndex = 3;
+    let i = 3;
+    const pkgConds = ['p.created_at BETWEEN $1 AND $2'];
+    if (serviceType) { pkgConds.push(`p.service_type = $${i++}`); params.push(serviceType); }
+    if (status) { pkgConds.push(`p.status = $${i++}`); params.push(status); }
+    const pkgWhere = `WHERE ${pkgConds.join(' AND ')}`;
 
-    if (teamLeaderId) {
-      whereConditions.push(`leader.id = $${paramIndex}`);
-      params.push(teamLeaderId);
-      paramIndex++;
-    }
-
-    if (advisorId) {
-      whereConditions.push(`advisor.id = $${paramIndex}`);
-      params.push(advisorId);
-      paramIndex++;
-    }
-
-    if (serviceType) {
-      whereConditions.push(`p.service_type = $${paramIndex}`);
-      params.push(serviceType);
-      paramIndex++;
-    }
-
-    if (status) {
-      whereConditions.push(`p.status = $${paramIndex}`);
-      params.push(status);
-      paramIndex++;
-    }
-
-    const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
+    // Filtros a nivel ASESOR (team leader / asesor específico).
+    const advConds = [`a.role IN ('advisor','sub_advisor')`];
+    if (teamLeaderId) { advConds.push(`a.team_leader_id = $${i++}`); params.push(teamLeaderId); }
+    if (advisorId) { advConds.push(`a.id = $${i++}`); params.push(advisorId); }
+    const advWhere = `WHERE ${advConds.join(' AND ')}`;
+    const noAdvFilter = !teamLeaderId && !advisorId;
 
     // Venta por paquete: el costo asignado si existe, si no el precio de venta
-    // PO Box. (assigned_cost_mxn solo está en una fracción de los paquetes; sin
-    // este fallback los ingresos salían casi en cero.)
+    // PO Box. (assigned_cost_mxn solo está en una fracción de los paquetes.)
     const REVENUE_EXPR = `COALESCE(NULLIF(p.assigned_cost_mxn, 0), p.pobox_service_cost, 0)`;
 
-    // ⚠️ COUNT()/SUM() en Postgres regresan bigint/numeric que node-pg entrega
-    // como STRING. Casteamos los conteos a ::int para que el frontend reciba
-    // números (antes el frontend concatenaba strings → "0297532...").
-    const query = `
-      WITH base AS (
-        SELECT
-          advisor.id AS advisor_id,
-          COALESCE(advisor.full_name, 'Sin Asesor') AS advisor_name,
-          leader.id AS team_leader_id,
-          leader.full_name AS team_leader_name,
-          p.service_type, p.status, p.consolidation_id,
-          ${REVENUE_EXPR}::numeric AS revenue
+    // CTE de paquetes atribuidos al asesor (por advisor_id y, si no, referred_by_id).
+    const pkgCte = `
+      WITH pkg AS (
+        SELECT COALESCE(client.advisor_id, client.referred_by_id) AS advisor_id,
+               p.service_type, p.status, p.consolidation_id,
+               ${REVENUE_EXPR}::numeric AS revenue
         FROM packages p
         JOIN users client ON p.user_id = client.id
-        LEFT JOIN users advisor ON advisor.id = COALESCE(client.advisor_id, client.referred_by_id)
-        LEFT JOIN users leader ON advisor.team_leader_id = leader.id
-        ${whereClause}
-      )
-      SELECT
-        advisor_id, advisor_name, team_leader_id, team_leader_name,
-        COUNT(*)::int AS total_shipments,
-        COALESCE(SUM(revenue), 0)::numeric AS total_revenue,
-        COUNT(*) FILTER (WHERE service_type IN ('AIR_CHN_MX','china_air','aereo'))::int AS air_shipments,
-        COUNT(*) FILTER (WHERE service_type IN ('china_sea','SEA_CHN_MX','maritime','fcl'))::int AS sea_shipments,
-        COUNT(*) FILTER (WHERE consolidation_id IS NOT NULL)::int AS consolidation_shipments,
-        COUNT(*) FILTER (WHERE status = 'delivered')::int AS completed_shipments,
-        (COALESCE(SUM(revenue), 0) / NULLIF(COUNT(*), 0))::numeric AS avg_revenue_per_shipment
-      FROM base
-      GROUP BY advisor_id, advisor_name, team_leader_id, team_leader_name
-      ORDER BY total_revenue DESC
-    `;
+        ${pkgWhere}
+      )`;
 
+    // Una fila por asesor (TODOS los asesores). LEFT JOIN a pkg → 0 si no vendió.
+    // COUNT(pkg.advisor_id) ignora la fila nula del LEFT JOIN → 0 correcto.
+    const query = `
+      ${pkgCte}
+      SELECT
+        a.id AS advisor_id, a.full_name AS advisor_name,
+        a.team_leader_id, leader.full_name AS team_leader_name,
+        COUNT(pkg.advisor_id)::int AS total_shipments,
+        COALESCE(SUM(pkg.revenue), 0)::numeric AS total_revenue,
+        COUNT(pkg.advisor_id) FILTER (WHERE pkg.service_type IN ('AIR_CHN_MX','china_air','aereo'))::int AS air_shipments,
+        COUNT(pkg.advisor_id) FILTER (WHERE pkg.service_type IN ('china_sea','SEA_CHN_MX','maritime','fcl'))::int AS sea_shipments,
+        COUNT(pkg.advisor_id) FILTER (WHERE pkg.consolidation_id IS NOT NULL)::int AS consolidation_shipments,
+        COUNT(pkg.advisor_id) FILTER (WHERE pkg.status = 'delivered')::int AS completed_shipments,
+        COALESCE(COALESCE(SUM(pkg.revenue), 0) / NULLIF(COUNT(pkg.advisor_id), 0), 0)::numeric AS avg_revenue_per_shipment
+      FROM users a
+      LEFT JOIN users leader ON a.team_leader_id = leader.id
+      LEFT JOIN pkg ON pkg.advisor_id = a.id
+      ${advWhere}
+      GROUP BY a.id, a.full_name, a.team_leader_id, leader.full_name
+      ORDER BY total_shipments DESC, total_revenue DESC
+    `;
     const result = await pool.query(query, params);
+    const data: any[] = result.rows;
 
-    // Totales generales (nombres alineados con el frontend: shipments/revenue/advisors)
-    const totalsQuery = `
-      SELECT
-        COUNT(*)::int AS shipments,
-        COALESCE(SUM(${REVENUE_EXPR}), 0)::numeric AS revenue,
-        COUNT(DISTINCT advisor.id)::int AS advisors
-      FROM packages p
-      JOIN users client ON p.user_id = client.id
-      LEFT JOIN users advisor ON advisor.id = COALESCE(client.advisor_id, client.referred_by_id)
-      LEFT JOIN users leader ON advisor.team_leader_id = leader.id
-      ${whereClause}
-    `;
-    const totalsResult = await pool.query(totalsQuery, params);
+    // Fila "Sin Asesor" (paquetes sin asesor atribuido). Solo cuando no se filtra
+    // por asesor/team leader.
+    if (noAdvFilter) {
+      const sa = await pool.query(`
+        ${pkgCte}
+        SELECT
+          COUNT(*)::int AS total_shipments,
+          COALESCE(SUM(revenue), 0)::numeric AS total_revenue,
+          COUNT(*) FILTER (WHERE service_type IN ('AIR_CHN_MX','china_air','aereo'))::int AS air_shipments,
+          COUNT(*) FILTER (WHERE service_type IN ('china_sea','SEA_CHN_MX','maritime','fcl'))::int AS sea_shipments,
+          COUNT(*) FILTER (WHERE consolidation_id IS NOT NULL)::int AS consolidation_shipments,
+          COUNT(*) FILTER (WHERE status = 'delivered')::int AS completed_shipments,
+          COALESCE(SUM(revenue), 0) / NULLIF(COUNT(*), 0) AS avg_revenue_per_shipment
+        FROM pkg WHERE advisor_id IS NULL
+      `, params);
+      const row = sa.rows[0];
+      if (row && Number(row.total_shipments) > 0) {
+        data.push({ advisor_id: null, advisor_name: 'Sin Asesor', team_leader_id: null, team_leader_name: null, ...row });
+      }
+    }
 
-    // Desglose por servicio
-    const serviceQuery = `
-      SELECT p.service_type,
-             COUNT(*)::int AS count,
-             COALESCE(SUM(${REVENUE_EXPR}), 0)::numeric AS revenue
-      FROM packages p
-      JOIN users client ON p.user_id = client.id
-      LEFT JOIN users advisor ON advisor.id = COALESCE(client.advisor_id, client.referred_by_id)
-      LEFT JOIN users leader ON advisor.team_leader_id = leader.id
-      ${whereClause}
-      GROUP BY p.service_type
+    // Totales (calculados en JS para respetar todos los filtros).
+    const shipments = data.reduce((s, r) => s + Number(r.total_shipments || 0), 0);
+    const revenue = data.reduce((s, r) => s + parseFloat(r.total_revenue || '0'), 0);
+    const advisors = result.rows.filter((r: any) => Number(r.total_shipments) > 0).length;
+
+    // Desglose por servicio (acotado a los asesores filtrados si aplica).
+    const svcWhere = noAdvFilter ? '' : `WHERE pkg.advisor_id IN (SELECT a.id FROM users a ${advWhere})`;
+    const serviceResult = await pool.query(`
+      ${pkgCte}
+      SELECT pkg.service_type, COUNT(*)::int AS count, COALESCE(SUM(pkg.revenue), 0)::numeric AS revenue
+      FROM pkg
+      ${svcWhere}
+      GROUP BY pkg.service_type
       ORDER BY count DESC
-    `;
-    const serviceResult = await pool.query(serviceQuery, params);
+    `, params);
 
     res.json({
       success: true,
-      data: result.rows,
-      totals: totalsResult.rows[0],
+      data,
+      totals: { shipments, revenue: revenue.toFixed(2), advisors },
       serviceStats: serviceResult.rows,
       filters: { startDate, endDate, teamLeaderId, advisorId, serviceType, status }
     });
