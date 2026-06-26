@@ -462,8 +462,13 @@ export const createPaymentRequestV2 = async (
     // 409 de ENTANGLED = proveedor sin cuenta / TC vencido / sin disponibilidad
     // → propagar el código y traducir el mensaje a algo claro para el usuario.
     const httpStatus = remote.status === 409 ? 409 : 502;
+    // 🐞 Bug conocido de ENTANGLED en el carril "efectivo": devuelve un error de
+    // BD ("value too long for type character varying(10)"). Mensaje claro.
+    const isEfectivoBug = subservicio === 'efectivo' && /character varying\(10\)|value too long/i.test(String(remote.error || ''));
     return res.status(httpStatus).json({
-      error: friendlyEntangledError(remote.error) || 'ENTANGLED no devolvió un transaccion_id.',
+      error: isEfectivoBug
+        ? 'La modalidad Efectivo aún no está disponible en el proveedor de pagos (error del proveedor). Por favor usa Transferencia bancaria por ahora.'
+        : (friendlyEntangledError(remote.error) || 'ENTANGLED no devolvió un transaccion_id.'),
       error_code: remote.error || null,
       request_id: requestId,
       referencia_pago: referenciaPago,
@@ -1198,6 +1203,16 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
   console.warn(`[ENTANGLED asignacion proxy] servicio=${servicio} payload=${JSON.stringify(payloadAsignacion)}`);
   const result = await callAsignacion(payloadAsignacion as any);
   if (!result.ok) {
+    // 🐞 Bug conocido de ENTANGLED: el carril "efectivo" devuelve un error de
+    // base de datos ("value too long for type character varying(10)"). Traducimos
+    // a un mensaje claro y sugerimos transferencia mientras lo corrigen.
+    if (subservicio === 'efectivo' && /character varying\(10\)|value too long/i.test(String(result.error || ''))) {
+      return res.status(502).json({
+        error: 'La modalidad Efectivo aún no está disponible en el proveedor de pagos (error del proveedor). Por favor usa Transferencia bancaria por ahora.',
+        provider_error: result.error,
+        upstream_status: result.upstream_status,
+      });
+    }
     // Si ENTANGLED devolvió un 4xx (validación / clave no encontrada), reenviar como 4xx
     // para que el frontend muestre el mensaje real al usuario. 5xx → 502 con mensaje genérico.
     const upstream = result.upstream_status;

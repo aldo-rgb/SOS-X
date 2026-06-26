@@ -4964,7 +4964,8 @@ app.delete('/api/payment/voucher/:voucherId', authenticateToken, deleteVoucher);
 app.get('/api/payment/wallet/service', authenticateToken, getServiceWalletBalances);
 // Admin voucher conciliation
 app.get('/api/admin/vouchers/pending', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAdminPendingVouchers);
-app.get('/api/admin/vouchers/order/:orderId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAdminOrderVouchers);
+// Contador (accountant) necesita ver el comprobante del cliente para timbrar el CFDI.
+app.get('/api/admin/vouchers/order/:orderId', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), getAdminOrderVouchers);
 app.get('/api/admin/vouchers/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getVoucherStats);
 app.post('/api/admin/voucher/approve/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), approveVoucher);
 app.post('/api/admin/voucher/reject/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), rejectVoucher);
