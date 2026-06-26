@@ -976,7 +976,7 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
           ${REVENUE_EXPR}::numeric AS revenue
         FROM packages p
         JOIN users client ON p.user_id = client.id
-        LEFT JOIN users advisor ON client.referred_by_id = advisor.id
+        LEFT JOIN users advisor ON advisor.id = COALESCE(client.advisor_id, client.referred_by_id)
         LEFT JOIN users leader ON advisor.team_leader_id = leader.id
         ${whereClause}
       )
@@ -1004,7 +1004,7 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
         COUNT(DISTINCT advisor.id)::int AS advisors
       FROM packages p
       JOIN users client ON p.user_id = client.id
-      LEFT JOIN users advisor ON client.referred_by_id = advisor.id
+      LEFT JOIN users advisor ON advisor.id = COALESCE(client.advisor_id, client.referred_by_id)
       LEFT JOIN users leader ON advisor.team_leader_id = leader.id
       ${whereClause}
     `;
@@ -1017,7 +1017,7 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
              COALESCE(SUM(${REVENUE_EXPR}), 0)::numeric AS revenue
       FROM packages p
       JOIN users client ON p.user_id = client.id
-      LEFT JOIN users advisor ON client.referred_by_id = advisor.id
+      LEFT JOIN users advisor ON advisor.id = COALESCE(client.advisor_id, client.referred_by_id)
       LEFT JOIN users leader ON advisor.team_leader_id = leader.id
       ${whereClause}
       GROUP BY p.service_type
@@ -1128,7 +1128,7 @@ export const getCRMDashboard = async (_req: Request, res: Response): Promise<any
         SUM(COALESCE(p.assigned_cost_mxn, 0)) as revenue
       FROM packages p
       JOIN users client ON p.user_id = client.id
-      JOIN users advisor ON client.referred_by_id = advisor.id
+      JOIN users advisor ON advisor.id = COALESCE(client.advisor_id, client.referred_by_id)
       WHERE p.created_at >= DATE_TRUNC('month', NOW())
       GROUP BY advisor.id, advisor.full_name
       ORDER BY revenue DESC

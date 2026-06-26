@@ -2010,6 +2010,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     // 🧾 Orden de pago registrada que contiene esta guía (RO-/PP-).
                     paymentOrderRef,
                     description: pkg.description, weight: pkg.weight ? parseFloat(pkg.weight) : null,
+                    length: pkg.pkg_length != null ? parseFloat(pkg.pkg_length) : null,
+                    width: pkg.pkg_width != null ? parseFloat(pkg.pkg_width) : null,
+                    height: pkg.pkg_height != null ? parseFloat(pkg.pkg_height) : null,
                     declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
                     isMaster: pkg.is_master, totalBoxes: pkg.total_boxes || 1,
                     status: pkg.status, statusLabel: getStatusLabel(pkg.status, pkg.national_carrier),

@@ -247,12 +247,12 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
         </Paper>
       )}
 
-      {/* Descripción + peso */}
-      {(m.description || m.weight) && (
+      {/* Descripción + peso + medidas */}
+      {(m.description || m.weight || m.length || m.width || m.height) && (
         <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
             {m.description && (
-              <Box flex={1}>
+              <Box flex={1} minWidth={120}>
                 <Typography variant="caption" color="text.secondary" fontWeight={600}>CONTENIDO</Typography>
                 <Typography variant="body2">{m.description}</Typography>
               </Box>
@@ -261,6 +261,14 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
               <Box>
                 <Typography variant="caption" color="text.secondary" fontWeight={600}>PESO</Typography>
                 <Typography variant="body2">{Number(m.weight).toFixed(2)} kg</Typography>
+              </Box>
+            )}
+            {(m.length || m.width || m.height) && (
+              <Box>
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>MEDIDAS</Typography>
+                <Typography variant="body2">
+                  {Number(m.length || 0).toFixed(0)}×{Number(m.width || 0).toFixed(0)}×{Number(m.height || 0).toFixed(0)} cm
+                </Typography>
               </Box>
             )}
           </Box>
