@@ -562,23 +562,20 @@ export default function CarteraVencidaPage() {
       </Box>
 
       {/* Tabs */}
-      <Paper sx={{ mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, pr: 2 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ flex: 1 }}>
+      <Paper sx={{ mb: 3 }}>
+        <Tabs
+          value={tab}
+          onChange={(_, v) => { if (v === 5) { setSaldoDialog(true); } else { setTab(v); } }}
+          variant="scrollable"
+          scrollButtons="auto"
+        >
           <Tab icon={<ReceiptLongIcon />} label="Dashboard" />
           <Tab icon={<SearchIcon />} label="Buscar Guías" />
           <Tab icon={<GavelIcon />} label="Abandono" />
           <Tab icon={<ReportProblemIcon />} label="Perdidas" />
           <Tab icon={<UndoIcon />} label="Revertir Instrucciones" />
+          <Tab icon={<AccountBalanceWalletIcon />} label="Saldo a Favor" sx={{ color: 'success.main', '&:hover': { color: 'success.dark' } }} />
         </Tabs>
-        <Button
-          variant="contained"
-          color="success"
-          startIcon={<AccountBalanceWalletIcon />}
-          onClick={() => setSaldoDialog(true)}
-          sx={{ flexShrink: 0 }}
-        >
-          Saldo a favor
-        </Button>
       </Paper>
 
       {/* Dashboard Tab */}
