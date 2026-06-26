@@ -503,7 +503,8 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
            ),
            updated_at = NOW()
        WHERE user_id = $1
-         AND estatus_global IN ('pendiente', 'en_proceso', 'error_envio')
+         AND estatus_global IN ('pendiente', 'esperando_comprobante', 'error_envio')
+         AND comprobante_subido_at IS NULL
          AND created_at <= (NOW() - INTERVAL '24 hours')`,
       [userId]
     );
@@ -612,7 +613,8 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
              )::numeric)
            ),
            updated_at = NOW()
-       WHERE estatus_global IN ('pendiente', 'en_proceso', 'error_envio')
+       WHERE estatus_global IN ('pendiente', 'esperando_comprobante', 'error_envio')
+         AND comprobante_subido_at IS NULL
          AND created_at <= (NOW() - INTERVAL '24 hours')`
     );
 

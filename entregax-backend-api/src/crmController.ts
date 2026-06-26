@@ -972,7 +972,7 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
         COUNT(pkg.advisor_id) FILTER (WHERE pkg.consolidation_id IS NOT NULL)::int AS consolidation_shipments,
         COUNT(pkg.advisor_id) FILTER (WHERE pkg.status = 'delivered')::int AS completed_shipments,
         (SELECT COUNT(*)::int FROM warranties w WHERE w.advisor_id = a.id AND w.created_at BETWEEN $1 AND $2) AS gex_shipments,
-        (SELECT COUNT(*)::int FROM entangled_payment_requests epr WHERE epr.advisor_id = a.id AND epr.created_at BETWEEN $1 AND $2) AS xpay_count,
+        (SELECT COUNT(*)::int FROM entangled_payment_requests epr WHERE epr.advisor_id = a.id AND epr.created_at BETWEEN $1 AND $2 AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')) AS xpay_count,
         COALESCE(COALESCE(SUM(pkg.revenue), 0) / NULLIF(COUNT(pkg.advisor_id), 0), 0)::numeric AS avg_revenue_per_shipment
       FROM users a
       LEFT JOIN users leader ON a.team_leader_id = leader.id
@@ -998,7 +998,7 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
           COUNT(*) FILTER (WHERE consolidation_id IS NOT NULL)::int AS consolidation_shipments,
           COUNT(*) FILTER (WHERE status = 'delivered')::int AS completed_shipments,
           (SELECT COUNT(*)::int FROM warranties w WHERE w.advisor_id IS NULL AND w.created_at BETWEEN $1 AND $2) AS gex_shipments,
-          (SELECT COUNT(*)::int FROM entangled_payment_requests epr WHERE epr.advisor_id IS NULL AND epr.created_at BETWEEN $1 AND $2) AS xpay_count,
+          (SELECT COUNT(*)::int FROM entangled_payment_requests epr WHERE epr.advisor_id IS NULL AND epr.created_at BETWEEN $1 AND $2 AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')) AS xpay_count,
           COALESCE(SUM(revenue), 0) / NULLIF(COUNT(*), 0) AS avg_revenue_per_shipment
         FROM pkg WHERE advisor_id IS NULL
       `, params);
@@ -1102,16 +1102,21 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
     `, params);
     if (Number(gex.rows[0].count) > 0) services.push({ service_type: 'GEX (Garantía)', ...gex.rows[0] });
 
-    // X-Pay (pago a proveedor): ingreso = comisión a la empresa; costo = comisión al asesor.
+    // X-Pay: las columnas de comisión en pesos no se guardan (siempre 0); se
+    // calcula del monto (USD) × TC × porcentaje. Ingreso = comisión cobrada al
+    // cliente final; costo = comisión que retiene ENTANGLED; ganancia = la
+    // diferencia (lo que gana la empresa). Excluye operaciones canceladas.
     const xpayFilter = isSinAsesor ? 'epr.advisor_id IS NULL' : 'epr.advisor_id = $3';
+    const XPAY_BASE = `COALESCE(epr.op_monto, 0) * COALESCE(epr.tc_aplicado_usd, epr.tc_cliente_final, 0)`;
     const xpay = await pool.query(`
       SELECT COUNT(*)::int AS count,
              COUNT(*) FILTER (WHERE epr.estatus_global = 'completado')::int AS completed,
-             COALESCE(SUM(epr.comision_entregax), 0)::numeric AS revenue,
-             COALESCE(SUM(epr.comision_asesor), 0)::numeric AS provider_cost,
-             COALESCE(SUM(epr.comision_entregax) - SUM(epr.comision_asesor), 0)::numeric AS margin
+             COALESCE(SUM(${XPAY_BASE} * COALESCE(epr.comision_cliente_final_porcentaje, 0) / 100), 0)::numeric AS revenue,
+             COALESCE(SUM(${XPAY_BASE} * COALESCE(epr.comision_cobrada_porcentaje, 0) / 100), 0)::numeric AS provider_cost,
+             COALESCE(SUM(${XPAY_BASE} * (COALESCE(epr.comision_cliente_final_porcentaje, 0) - COALESCE(epr.comision_cobrada_porcentaje, 0)) / 100), 0)::numeric AS margin
       FROM entangled_payment_requests epr
       WHERE ${xpayFilter} AND epr.created_at BETWEEN $1 AND $2
+        AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')
     `, params);
     if (Number(xpay.rows[0].count) > 0) services.push({ service_type: 'X-Pay', ...xpay.rows[0] });
 
