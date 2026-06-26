@@ -13909,23 +13909,25 @@ export default function DashboardClient() {
                       disabled={fiscalData?.hasCompleteData}
                       helperText={fiscalData?.hasCompleteData ? t('cd.payment.fromFiscalProfile') : ""}
                     >
-                      <MenuItem value="601">General de Ley Personas Morales</MenuItem>
-                      <MenuItem value="603">Personas Morales con Fines no Lucrativos</MenuItem>
-                      <MenuItem value="605">Sueldos y Salarios e Ingresos Asimilados a Salarios</MenuItem>
-                      <MenuItem value="606">Arrendamiento</MenuItem>
-                      <MenuItem value="608">Demás ingresos</MenuItem>
-                      <MenuItem value="610">Residentes en el Extranjero sin Establecimiento Permanente en México</MenuItem>
-                      <MenuItem value="611">Ingresos por Dividendos (socios y accionistas)</MenuItem>
-                      <MenuItem value="612">Personas Físicas con Actividades Empresariales y Profesionales</MenuItem>
-                      <MenuItem value="614">Ingresos por intereses</MenuItem>
-                      <MenuItem value="616">Sin obligaciones fiscales</MenuItem>
-                      <MenuItem value="621">Incorporación Fiscal</MenuItem>
-                      <MenuItem value="622">Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras</MenuItem>
-                      <MenuItem value="623">Opcional para Grupos de Sociedades</MenuItem>
-                      <MenuItem value="624">Coordinados</MenuItem>
-                      <MenuItem value="628">Hidrocarburos</MenuItem>
-                      <MenuItem value="629">De los Regímenes Fiscales Preferentes y de las Empresas Multinacionales</MenuItem>
-                      <MenuItem value="630">Enajenación de acciones en bolsa de valores</MenuItem>
+                      <MenuItem value="601">601 - General de Ley Personas Morales</MenuItem>
+                      <MenuItem value="603">603 - Personas Morales con Fines no Lucrativos</MenuItem>
+                      <MenuItem value="605">605 - Sueldos y Salarios e Ingresos Asimilados a Salarios</MenuItem>
+                      <MenuItem value="606">606 - Arrendamiento</MenuItem>
+                      <MenuItem value="607">607 - Régimen de Enajenación o Adquisición de Bienes</MenuItem>
+                      <MenuItem value="608">608 - Demás ingresos</MenuItem>
+                      <MenuItem value="610">610 - Residentes en el Extranjero sin Establecimiento Permanente en México</MenuItem>
+                      <MenuItem value="611">611 - Ingresos por Dividendos (socios y accionistas)</MenuItem>
+                      <MenuItem value="612">612 - Personas Físicas con Actividades Empresariales y Profesionales</MenuItem>
+                      <MenuItem value="614">614 - Ingresos por intereses</MenuItem>
+                      <MenuItem value="615">615 - Régimen de los ingresos por obtención de premios</MenuItem>
+                      <MenuItem value="616">616 - Sin obligaciones fiscales</MenuItem>
+                      <MenuItem value="620">620 - Sociedades Cooperativas de Producción que difieren sus ingresos</MenuItem>
+                      <MenuItem value="621">621 - Incorporación Fiscal</MenuItem>
+                      <MenuItem value="622">622 - Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras</MenuItem>
+                      <MenuItem value="623">623 - Opcional para Grupos de Sociedades</MenuItem>
+                      <MenuItem value="624">624 - Coordinados</MenuItem>
+                      <MenuItem value="625">625 - Actividades Empresariales con ingresos a través de Plataformas Tecnológicas</MenuItem>
+                      <MenuItem value="626">626 - Régimen Simplificado de Confianza (RESICO)</MenuItem>
                     </TextField>
                   </Grid>
                   <Grid size={6}>
