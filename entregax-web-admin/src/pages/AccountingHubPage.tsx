@@ -2905,18 +2905,21 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
             </Box>
           )}
 
-          {/* Re-autenticar / conectar (abre el widget seguro de Syncfy) */}
-          <SyncfyRefreshButton
-            emitterId={emitter.id}
-            label={links.length > 0 ? 'Re-autenticar / Conectar Banco' : 'Conectar Banco'}
-            sx={{ width: '100%', bgcolor: '#1e88e5', '&:hover': { bgcolor: '#1565c0' }, py: 1.5 }}
-            onSuccess={async ({ new_count, credential_warning }) => {
-              if (credential_warning) setError(`⚠️ ${credential_warning}`);
-              else if (new_count === 0) setError('✅ Re-autenticación completada. La descarga automática está programada (~10 min).');
-              else setError(null);
-              await load();
-            }}
-          />
+          {/* Solo "Conectar Banco" para la primera conexión. La re-autenticación
+              de un banco ya conectado se hace desde "Sincronizar todo". */}
+          {links.length === 0 && (
+            <SyncfyRefreshButton
+              emitterId={emitter.id}
+              label="Conectar Banco"
+              sx={{ width: '100%', bgcolor: '#1e88e5', '&:hover': { bgcolor: '#1565c0' }, py: 1.5 }}
+              onSuccess={async ({ new_count, credential_warning }) => {
+                if (credential_warning) setError(`⚠️ ${credential_warning}`);
+                else if (new_count === 0) setError('✅ Conexión completada. La descarga automática está programada (~10 min).');
+                else setError(null);
+                await load();
+              }}
+            />
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setSyncfyModalOpen(false)}>Cerrar</Button>
