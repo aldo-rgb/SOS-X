@@ -3861,24 +3861,26 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
     // 4. Obtener facturas recientes (si la tabla existe)
     let invoicesRows: any[] = [];
     try {
+      // Los CFDI timbrados viven en facturas_emitidas (no en "facturas", que no
+      // existe). Mostramos los del cliente, más recientes primero.
       const invoicesQuery = await pool.query(`
-        SELECT 
+        SELECT
           id,
-          folio_fiscal as folio,
-          fecha_emision as fecha,
+          COALESCE(folio, LEFT(uuid_sat, 8)) AS folio,
+          created_at AS fecha,
           total,
           status,
           pdf_url,
           xml_url
-        FROM facturas
+        FROM facturas_emitidas
         WHERE user_id = $1
-        ORDER BY fecha_emision DESC
-        LIMIT 10
+        ORDER BY created_at DESC
+        LIMIT 20
       `, [userId]);
       invoicesRows = invoicesQuery.rows;
     } catch (err) {
-      // Tabla facturas no existe, continuar sin facturas
-      console.log('Tabla facturas no disponible');
+      // Si la tabla no está disponible, continuar sin facturas
+      console.log('Facturas no disponibles:', (err as Error).message);
     }
 
     // Contar contenedores activos para stats

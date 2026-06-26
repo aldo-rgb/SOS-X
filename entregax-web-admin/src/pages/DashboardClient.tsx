@@ -8277,23 +8277,32 @@ export default function DashboardClient() {
                             <Typography fontWeight="bold">{formatCurrency(inv.total)}</Typography>
                           </TableCell>
                           <TableCell>
-                            <Chip 
-                              label={inv.status === 'pagada' ? t('cd.invoicesTab.paid') : t('cd.invoicesTab.pending')} 
-                              color={inv.status === 'pagada' ? 'success' : 'warning'}
-                              size="small"
-                            />
+                            {(() => {
+                              const canceled = inv.status === 'canceled' || inv.status === 'cancelada' || inv.status === 'cancelado';
+                              return (
+                                <Chip
+                                  label={canceled ? 'Cancelada' : 'Vigente'}
+                                  color={canceled ? 'error' : 'success'}
+                                  size="small"
+                                />
+                              );
+                            })()}
                           </TableCell>
                           <TableCell align="center">
                             <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
                               <Tooltip title={t('cd.invoicesTab.downloadPdf')}>
-                                <IconButton size="small" color="error">
-                                  <DownloadIcon fontSize="small" />
-                                </IconButton>
+                                <span>
+                                  <IconButton size="small" color="error" disabled={!inv.pdf_url} onClick={() => inv.pdf_url && window.open(inv.pdf_url, '_blank')}>
+                                    <DownloadIcon fontSize="small" />
+                                  </IconButton>
+                                </span>
                               </Tooltip>
                               <Tooltip title={t('cd.invoicesTab.downloadXml')}>
-                                <IconButton size="small" color="primary">
-                                  <DownloadIcon fontSize="small" />
-                                </IconButton>
+                                <span>
+                                  <IconButton size="small" color="primary" disabled={!inv.xml_url} onClick={() => inv.xml_url && window.open(inv.xml_url, '_blank')}>
+                                    <DownloadIcon fontSize="small" />
+                                  </IconButton>
+                                </span>
                               </Tooltip>
                             </Box>
                           </TableCell>
