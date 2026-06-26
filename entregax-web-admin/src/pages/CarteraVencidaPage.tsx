@@ -552,34 +552,33 @@ export default function CarteraVencidaPage() {
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ mb: 4, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
-        <Box>
-          <Typography variant="h5" fontWeight={700}>
-             Ajustes Financieros
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Gestión de cargos extra, descuentos, cobranza y abandono de mercancía
-          </Typography>
-        </Box>
-        <Button
-          variant="contained"
-          color="success"
-          startIcon={<AccountBalanceWalletIcon />}
-          onClick={() => setSaldoDialog(true)}
-        >
-          Saldo a favor
-        </Button>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h5" fontWeight={700}>
+           Ajustes Financieros
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Gestión de cargos extra, descuentos, cobranza y abandono de mercancía
+        </Typography>
       </Box>
 
       {/* Tabs */}
-      <Paper sx={{ mb: 3 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)}>
+      <Paper sx={{ mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, pr: 2 }}>
+        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ flex: 1 }}>
           <Tab icon={<ReceiptLongIcon />} label="Dashboard" />
           <Tab icon={<SearchIcon />} label="Buscar Guías" />
           <Tab icon={<GavelIcon />} label="Abandono" />
           <Tab icon={<ReportProblemIcon />} label="Perdidas" />
           <Tab icon={<UndoIcon />} label="Revertir Instrucciones" />
         </Tabs>
+        <Button
+          variant="contained"
+          color="success"
+          startIcon={<AccountBalanceWalletIcon />}
+          onClick={() => setSaldoDialog(true)}
+          sx={{ flexShrink: 0 }}
+        >
+          Saldo a favor
+        </Button>
       </Paper>
 
       {/* Dashboard Tab */}
