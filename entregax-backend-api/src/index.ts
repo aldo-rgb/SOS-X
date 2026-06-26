@@ -4568,9 +4568,13 @@ app.get('/api/cs/instructions/lookup', authenticateToken, requireMinLevel(ROLES.
 // etiqueta, devolvemos error para evitar inconsistencia con la paquetería.
 app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), async (req: AuthRequest, res: Response) => {
   try {
-    const { packageId, reason } = req.body || {};
+    const { packageId, reason, force } = req.body || {};
     const id = parseInt(String(packageId), 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'packageId inválido' });
+    // force = el agente confirmó que ya notificó a CEDIS. Permite revertir las
+    // instrucciones aunque la guía ya tenga etiqueta impresa. NO se cancela ni
+    // se borra la etiqueta (CEDIS la cancela por su lado).
+    const forceRevert = force === true || force === 'true';
 
     const cur = await pool.query(
       `SELECT id, tracking_internal, assigned_address_id,
@@ -4586,11 +4590,14 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
     // paquete está comprometido con la paquetería. Revertir aquí dejaría
     // la etiqueta inconsistente y el chofer entregando a una dirección
     // que ya no existe en el sistema.
-    if (pkg.national_label_url || pkg.national_tracking) {
+    if ((pkg.national_label_url || pkg.national_tracking) && !forceRevert) {
       return res.status(409).json({
         error: 'No se puede revertir: la guía ya tiene etiqueta impresa. Cancela primero la etiqueta de paquetería.',
         hasLabel: true,
       });
+    }
+    if ((pkg.national_label_url || pkg.national_tracking) && forceRevert) {
+      console.warn(`[CS-INSTRUCTIONS-REVERT] Forzado con etiqueta impresa (CEDIS notificado) pkg=${id} carrier=${pkg.national_carrier || '?'} por user=${req.user?.userId}`);
     }
     if (['delivered', 'out_for_delivery', 'returned_to_warehouse'].includes(String(pkg.status))) {
       return res.status(409).json({

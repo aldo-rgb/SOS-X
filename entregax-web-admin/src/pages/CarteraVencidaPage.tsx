@@ -33,6 +33,8 @@ import {
   ToggleButtonGroup,
   ToggleButton,
   Snackbar,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import SearchIcon from '@mui/icons-material/Search';
@@ -237,6 +239,9 @@ export default function CarteraVencidaPage() {
   const [revertConfirmPkg, setRevertConfirmPkg] = useState<any | null>(null);
   const [revertReason, setRevertReason] = useState('');
   const [revertingId, setRevertingId] = useState<number | null>(null);
+  // Por paquete: confirma que ya se notificó a CEDIS para forzar la reversión
+  // de instrucciones aunque haya etiqueta impresa (sin tocar la etiqueta).
+  const [cedisAck, setCedisAck] = useState<Record<number, boolean>>({});
 
   const handleRevertSearch = async () => {
     const tracking = revertSearchTracking.trim();
@@ -269,6 +274,10 @@ export default function CarteraVencidaPage() {
       await api.post('/cs/instructions/revert', {
         packageId: revertConfirmPkg.id,
         reason: revertReason.trim() || undefined,
+        // Forzar aunque haya etiqueta impresa: el agente confirmó que ya notificó
+        // a CEDIS. Revierte instrucciones SIN cancelar la etiqueta (revertLabel:false).
+        force: !!cedisAck[revertConfirmPkg.id],
+        revertLabel: false,
       });
       setSnackbar({ open: true, message: '✅ Instrucciones revertidas. El cliente puede asignarlas de nuevo.', severity: 'success' });
       setRevertConfirmPkg(null);
@@ -1171,10 +1180,17 @@ export default function CarteraVencidaPage() {
                       )}
 
                       {hasLabel && (
-                        <Alert severity="warning" sx={{ mt: 2 }}>
-                          ⚠ La guía ya tiene etiqueta de paquetería impresa ({p.national_carrier || 'paquetería'}).
-                          No se puede revertir hasta cancelar la etiqueta.
-                        </Alert>
+                        <>
+                          <Alert severity="warning" sx={{ mt: 2 }}>
+                            ⚠ La guía ya tiene etiqueta de paquetería impresa ({p.national_carrier || 'paquetería'}).
+                            La etiqueta debe cancelarse en CEDIS por separado; al revertir aquí NO se toca la etiqueta.
+                          </Alert>
+                          <FormControlLabel
+                            sx={{ mt: 1, alignItems: 'flex-start' }}
+                            control={<Checkbox size="small" checked={!!cedisAck[p.id]} onChange={(e) => setCedisAck(prev => ({ ...prev, [p.id]: e.target.checked }))} />}
+                            label={<Typography variant="body2">Ya notifiqué a CEDIS, proceder con la cancelación de instrucciones</Typography>}
+                          />
+                        </>
                       )}
                       {blockedByStatus && (
                         <Alert severity="error" sx={{ mt: 2 }}>
@@ -1187,7 +1203,7 @@ export default function CarteraVencidaPage() {
                           variant="contained"
                           color="warning"
                           startIcon={<UndoIcon />}
-                          disabled={!hasInstr || hasLabel || blockedByStatus || revertingId === p.id}
+                          disabled={!hasInstr || (hasLabel && !cedisAck[p.id]) || blockedByStatus || revertingId === p.id}
                           onClick={() => { setRevertConfirmPkg(p); setRevertReason(''); }}
                         >
                           {revertingId === p.id ? 'Revirtiendo...' : 'Revertir instrucciones'}
