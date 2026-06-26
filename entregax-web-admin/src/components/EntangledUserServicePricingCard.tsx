@@ -27,6 +27,7 @@ interface UserOpt {
   id: number;
   full_name?: string | null;
   email?: string | null;
+  box_id?: string | null;
 }
 
 interface OverrideRow {
@@ -159,8 +160,13 @@ export default function EntangledUserServicePricingCard() {
               value={user}
               onChange={(_, v) => setUser(v)}
               onInputChange={(_, v) => setUserQuery(v)}
-              getOptionLabel={(o) => `${o.full_name || ''} · ${o.email || ''} (#${o.id})`}
+              // El backend ya filtra por nombre/email/box/teléfono. Desactivamos el
+              // filtro cliente de MUI (filtraba contra el label, que no incluye box,
+              // por eso "No options" al buscar por casillero).
+              filterOptions={(x) => x}
+              getOptionLabel={(o) => `${o.full_name || ''}${o.box_id ? ` · ${o.box_id}` : ''} · ${o.email || ''} (#${o.id})`}
               isOptionEqualToValue={(a, b) => a.id === b.id}
+              noOptionsText={userQuery.trim().length < 2 ? 'Escribe al menos 2 caracteres' : 'Sin resultados'}
               renderInput={(params) => (
                 <TextField {...params} label="Cliente" placeholder="Buscar nombre, email o box" />
               )}
