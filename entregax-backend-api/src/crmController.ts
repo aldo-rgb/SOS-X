@@ -950,7 +950,7 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
     const pkgCte = `
       WITH pkg AS (
         SELECT COALESCE(client.advisor_id, client.referred_by_id) AS advisor_id,
-               p.service_type, p.status, p.consolidation_id, p.has_gex,
+               p.service_type, p.status, p.consolidation_id,
                ${REVENUE_EXPR}::numeric AS revenue
         FROM packages p
         JOIN users client ON p.user_id = client.id
@@ -969,9 +969,9 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
         COUNT(pkg.advisor_id) FILTER (WHERE pkg.service_type IN ('AIR_CHN_MX','china_air','aereo'))::int AS air_shipments,
         COUNT(pkg.advisor_id) FILTER (WHERE pkg.service_type IN ('china_sea','SEA_CHN_MX','maritime','fcl'))::int AS sea_shipments,
         COUNT(pkg.advisor_id) FILTER (WHERE pkg.service_type = 'POBOX_USA')::int AS pobox_shipments,
-        COUNT(pkg.advisor_id) FILTER (WHERE pkg.has_gex IS TRUE)::int AS gex_shipments,
         COUNT(pkg.advisor_id) FILTER (WHERE pkg.consolidation_id IS NOT NULL)::int AS consolidation_shipments,
         COUNT(pkg.advisor_id) FILTER (WHERE pkg.status = 'delivered')::int AS completed_shipments,
+        (SELECT COUNT(*)::int FROM warranties w WHERE w.advisor_id = a.id AND w.created_at BETWEEN $1 AND $2) AS gex_shipments,
         (SELECT COUNT(*)::int FROM entangled_payment_requests epr WHERE epr.advisor_id = a.id AND epr.created_at BETWEEN $1 AND $2) AS xpay_count,
         COALESCE(COALESCE(SUM(pkg.revenue), 0) / NULLIF(COUNT(pkg.advisor_id), 0), 0)::numeric AS avg_revenue_per_shipment
       FROM users a
@@ -995,9 +995,9 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
           COUNT(*) FILTER (WHERE service_type IN ('AIR_CHN_MX','china_air','aereo'))::int AS air_shipments,
           COUNT(*) FILTER (WHERE service_type IN ('china_sea','SEA_CHN_MX','maritime','fcl'))::int AS sea_shipments,
           COUNT(*) FILTER (WHERE service_type = 'POBOX_USA')::int AS pobox_shipments,
-          COUNT(*) FILTER (WHERE has_gex IS TRUE)::int AS gex_shipments,
           COUNT(*) FILTER (WHERE consolidation_id IS NOT NULL)::int AS consolidation_shipments,
           COUNT(*) FILTER (WHERE status = 'delivered')::int AS completed_shipments,
+          (SELECT COUNT(*)::int FROM warranties w WHERE w.advisor_id IS NULL AND w.created_at BETWEEN $1 AND $2) AS gex_shipments,
           (SELECT COUNT(*)::int FROM entangled_payment_requests epr WHERE epr.advisor_id IS NULL AND epr.created_at BETWEEN $1 AND $2) AS xpay_count,
           COALESCE(SUM(revenue), 0) / NULLIF(COUNT(*), 0) AS avg_revenue_per_shipment
         FROM pkg WHERE advisor_id IS NULL
