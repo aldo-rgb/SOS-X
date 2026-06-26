@@ -175,6 +175,17 @@ export const createPaymentRequestV2 = async (
       .json({ error: 'servicio inválido. Debe ser pago_con_factura o pago_sin_factura' });
   }
 
+  // Subservicio SOLO para pago_sin_factura: 'transfer' (default) | 'efectivo'.
+  // Cada modalidad usa una cuenta distinta. pago_con_factura siempre es transfer
+  // (no se manda subservicio).
+  const subservicio: 'transfer' | 'efectivo' | undefined =
+    servicio === 'pago_sin_factura'
+      ? (String(body.subservicio || 'transfer').trim() as 'transfer' | 'efectivo')
+      : undefined;
+  if (subservicio && !['transfer', 'efectivo'].includes(subservicio)) {
+    return res.status(400).json({ error: 'subservicio inválido. Debe ser transfer o efectivo' });
+  }
+
   const monto = Number(body.monto_usd ?? body.monto);
   if (!Number.isFinite(monto) || monto <= 0) {
     return res.status(400).json({ error: 'monto_usd debe ser > 0' });
@@ -257,7 +268,8 @@ export const createPaymentRequestV2 = async (
          ADD COLUMN IF NOT EXISTS tc_cliente_final NUMERIC(14,6),
          ADD COLUMN IF NOT EXISTS instructions_snapshot JSONB,
          ADD COLUMN IF NOT EXISTS op_beneficiario_nombre VARCHAR(200),
-         ADD COLUMN IF NOT EXISTS payment_deadline_at TIMESTAMPTZ`
+         ADD COLUMN IF NOT EXISTS payment_deadline_at TIMESTAMPTZ,
+         ADD COLUMN IF NOT EXISTS subservicio VARCHAR(20)`
     ).catch(() => {});
     // Nombre del beneficiario (proveedor final al que se le envía
     // el dinero) — se persiste para mostrarlo en Últimos envíos.
@@ -312,6 +324,10 @@ export const createPaymentRequestV2 = async (
       ]
     );
     requestId = ins.rows[0].id;
+    // Guardar el subservicio (transfer/efectivo) elegido para pago_sin_factura.
+    if (subservicio) {
+      await pool.query(`UPDATE entangled_payment_requests SET subservicio = $1 WHERE id = $2`, [subservicio, requestId]).catch(() => {});
+    }
     // Guardar histórico de claves SAT del usuario (autocomplete)
     if (servicio === 'pago_con_factura' && Array.isArray(conceptos)) {
       for (const c of conceptos) {
@@ -361,6 +377,9 @@ export const createPaymentRequestV2 = async (
   };
   if (servicio === 'pago_con_factura') {
     payload.conceptos = conceptos as any[];
+  }
+  if (servicio === 'pago_sin_factura' && subservicio) {
+    payload.subservicio = subservicio;
   }
   if (body.notas) {
     payload.notas = String(body.notas);
@@ -1130,6 +1149,12 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
   if (!servicio || !cliente_final?.razon_social) {
     return res.status(400).json({ error: 'servicio y cliente_final.razon_social son requeridos' });
   }
+  // Subservicio (transfer/efectivo) solo aplica a pago_sin_factura; define la
+  // cuenta de depósito que devolverá ENTANGLED.
+  const subservicio: 'transfer' | 'efectivo' | undefined =
+    servicio === 'pago_sin_factura'
+      ? (String(req.body?.subservicio || 'transfer').trim() as 'transfer' | 'efectivo')
+      : undefined;
   if (servicio === 'pago_con_factura' && !concepto) {
     return res.status(400).json({ error: 'concepto es requerido para pago_con_factura' });
   }
@@ -1162,6 +1187,7 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
 
   const payloadAsignacion = {
     servicio,
+    ...(subservicio ? { subservicio } : {}),
     ...(concepto ? { concepto } : {}),
     cliente_final: clienteFinalSanitizado,
     monto_destino: montoNum,

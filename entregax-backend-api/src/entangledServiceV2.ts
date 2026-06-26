@@ -75,6 +75,10 @@ export interface EntangledConceptoV2 {
 
 export interface EntangledSolicitudPayloadV2 {
   servicio: EntangledServicio;
+  // Subservicio SOLO para pago_sin_factura: 'transfer' (default) | 'efectivo'.
+  // Cada modalidad usa una cuenta de depósito distinta. pago_con_factura NO
+  // manda subservicio (siempre es transfer).
+  subservicio?: 'transfer' | 'efectivo' | undefined;
   comision_cliente_final_porcentaje: number;
   // TC que XPAY le cobra al cliente (ENTANGLED lo exige)
   tc_cliente_final?: number | undefined;
@@ -110,6 +114,8 @@ export interface EntangledSolicitudResponseV2 {
   // vencimiento (vence_en) y puede devolver la cuenta de depósito directa.
   vence_en?: string | undefined;
   cuenta_deposito?: any;
+  // Carril confirmado por ENTANGLED (transfer/efectivo) — nuevo contrato.
+  servicio_codigo?: string | undefined;
   status?: number | undefined; // HTTP status del upstream (para mapear 409, etc.)
   raw?: any;
   error?: string | undefined;
@@ -204,6 +210,7 @@ export const sendSolicitudPago = async (
       vence_en: data.vence_en || data.venceEn || data.deadline || undefined,
       cuenta_deposito:
         data.cuenta_deposito || data.cuenta_bancaria || undefined,
+      servicio_codigo: data.servicio_codigo || undefined,
       raw: data,
     };
   } catch (err) {
@@ -546,6 +553,8 @@ export const searchConceptos = async (
 // ---------------------------------------------------------------------------
 export interface EntangledAsignacionPayload {
   servicio: 'pago_con_factura' | 'pago_sin_factura';
+  // Subservicio para pago_sin_factura: 'transfer' (default) | 'efectivo'.
+  subservicio?: 'transfer' | 'efectivo' | undefined;
   concepto?: string;
   // Datos requeridos por ENTANGLED v1 /asignacion: monto + divisa + tipo de
   // cambio que XPAY le cobra al cliente + % de comisión XPAY → Cliente final.
@@ -581,6 +590,8 @@ export interface EntangledAsignacionResult {
     concepto_facturacion?: string;
     sustitucion?: boolean;
   };
+  // Carril confirmado por ENTANGLED (transfer/efectivo) — nuevo contrato.
+  servicio_codigo?: string | undefined;
   error?: string;
   upstream_status?: number | undefined;
   raw?: any;
@@ -624,6 +635,7 @@ export const callAsignacion = async (
         empresa: d.empresa || d.empresas_asignadas?.[0]?.empresa || d.empresas_asignadas?.[0] || null,
         cuenta_bancaria: cuentaBancaria,
         facturacion: d.facturacion,
+        servicio_codigo: d.servicio_codigo || undefined,
         raw: d,
       };
     } catch (err) {

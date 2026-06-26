@@ -395,6 +395,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
   // ----- Wizard / flujo v2 -----
   const [requiereFactura, setRequiereFactura] = useState(true);
+  // Subservicio para "Pago sin factura": transferencia (default) o efectivo.
+  // Cada modalidad usa una cuenta de depósito distinta en ENTANGLED.
+  const [subservicio, setSubservicio] = useState<'transfer' | 'efectivo'>('transfer');
   const [saveFiscalProfile, setSaveFiscalProfile] = useState(true);
   const [editingFiscalData, setEditingFiscalData] = useState(false);
   const [editingSupplierData, setEditingSupplierData] = useState(false);
@@ -551,6 +554,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     const token = localStorage.getItem('token');
     axios.post(`${API_URL}/api/entangled/asignacion`, {
       servicio: 'pago_sin_factura',
+      subservicio,
       cliente_final: { razon_social: 'SIN' },
       monto_destino: Number(form.monto),
       divisa_destino: form.divisa_destino,
@@ -574,7 +578,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       })
       .catch(() => setAsignacion(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wizardStep, requiereFactura, selectedProviderId]);
+  }, [wizardStep, requiereFactura, selectedProviderId, subservicio]);
 
   // El token activo de búsqueda es el contenido del input
   const activeToken = conceptoSearchInput.trim();
@@ -680,6 +684,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           : { razon_social: form.razon_social || 'Público en General' },
       };
       if (requiereFactura) body.concepto = opt.clave_prodserv;
+      else body.subservicio = subservicio;
       // Reintenta una vez si el primer intento falla con 502/503/504 (transitorios)
       let r;
       try {
@@ -1791,6 +1796,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       // sólo se crea la solicitud en estado "pendiente" hasta que se suba el comprobante.
       const fd = new FormData();
       fd.append('servicio', requiereFactura ? 'pago_con_factura' : 'pago_sin_factura');
+      if (!requiereFactura) fd.append('subservicio', subservicio);
       fd.append('monto_usd', String(Number(form.monto)));
       fd.append('divisa', form.divisa_destino);
       if (supplierForm.nombre_beneficiario) {
@@ -2881,7 +2887,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   const cM = sel ? C.textMuted : 'rgba(255,255,255,0.6)';
                   return (
                   <Card
-                    onClick={() => { setRequiereFactura(false); setWizardStep(1); }}
+                    onClick={() => { setRequiereFactura(false); }}
                     sx={{
                       cursor: 'pointer',
                       bgcolor: !requiereFactura ? 'rgba(240,90,40,0.12)' : '#0f0f10',
@@ -2914,6 +2920,50 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   ); })()}
                 </Grid>
               </Grid>
+
+              {/* Modalidad de pago sin factura: transferencia o efectivo (cuentas distintas) */}
+              {!requiereFactura && (
+                <Box sx={{ mt: 2.5, p: 2, bgcolor: C.surface, borderRadius: 1, border: `1px solid ${ORANGE}` }}>
+                  <Typography variant="subtitle2" fontWeight={800} sx={{ color: C.textPrimary, mb: 0.5 }}>
+                    ¿Cómo vas a depositar?
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mb: 1.5 }}>
+                    La cuenta de depósito cambia según la modalidad.
+                  </Typography>
+                  <Grid container spacing={1.5}>
+                    {([
+                      { key: 'transfer' as const, label: 'Transferencia bancaria', desc: 'SPEI / depósito a CLABE', icon: <AccountBalanceWalletOutlinedIcon sx={{ fontSize: 22 }} /> },
+                      { key: 'efectivo' as const, label: 'Efectivo', desc: 'Depósito en efectivo', icon: <ReceiptLongIcon sx={{ fontSize: 22 }} /> },
+                    ]).map(opt => {
+                      const active = subservicio === opt.key;
+                      return (
+                        <Grid size={{ xs: 6 }} key={opt.key}>
+                          <Card
+                            onClick={() => { setSubservicio(opt.key); setAsignacion(null); setWizardStep(1); }}
+                            sx={{
+                              cursor: 'pointer',
+                              bgcolor: active ? 'rgba(240,90,40,0.14)' : '#0f0f10',
+                              border: `2px solid ${active ? ORANGE : C.border}`,
+                              transition: 'all 0.18s ease',
+                              '&:hover': { borderColor: ORANGE },
+                            }}
+                          >
+                            <CardContent sx={{ py: 1.5 }}>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Box sx={{ color: ORANGE }}>{opt.icon}</Box>
+                                <Box>
+                                  <Typography variant="body2" fontWeight={800} sx={{ color: active ? C.textPrimary : '#fff' }}>{opt.label}</Typography>
+                                  <Typography variant="caption" sx={{ color: active ? C.textMuted : 'rgba(255,255,255,0.6)' }}>{opt.desc}</Typography>
+                                </Box>
+                              </Stack>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      );
+                    })}
+                  </Grid>
+                </Box>
+              )}
 
               <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 2.5, p: 1.5, bgcolor: C.surface, borderRadius: 1, border: `1px dashed ${C.border}` }}>
                 <ShieldOutlinedIcon sx={{ color: ORANGE }} />

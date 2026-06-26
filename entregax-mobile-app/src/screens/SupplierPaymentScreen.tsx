@@ -164,6 +164,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [requiereFactura, setRequiereFactura] = useState(false);
+  // Subservicio para "Pago sin factura": transferencia (default) o efectivo.
+  // Cada modalidad usa una cuenta de depósito distinta en ENTANGLED.
+  const [subservicio, setSubservicio] = useState<'transfer' | 'efectivo'>('transfer');
   const [rfc, setRfc] = useState('');
   const [razon, setRazon] = useState('');
   const [regimen, setRegimen] = useState('612');
@@ -617,6 +620,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               : { razon_social: razon || benefName || 'Público en General' },
           };
           if (requiereFactura) body.concepto = clave;
+          else body.subservicio = subservicio;
           const r = await fetch(`${API_URL}/api/entangled/asignacion`, {
             method: 'POST',
             headers: { ...authHeaders, 'Content-Type': 'application/json' },
@@ -658,6 +662,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       headers: { ...authHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         servicio: 'pago_sin_factura',
+        subservicio,
         cliente_final: { razon_social: 'SIN' },
         monto_destino: Number(monto),
         divisa_destino: divisa,
@@ -690,7 +695,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setSinFacturaCuenta(null);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wizardStep, requiereFactura, selectedProviderId]);
+  }, [wizardStep, requiereFactura, selectedProviderId, subservicio]);
 
   const defaultProvider = providers.find(x => x.is_default) || providers[0] || null;
 
@@ -861,6 +866,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
       const fd = new FormData();
       fd.append('servicio', servicio);
+      if (servicio === 'pago_sin_factura') fd.append('subservicio', subservicio);
       fd.append('monto_usd', String(parseFloat(monto)));
       fd.append('divisa', divisa);
       // Nombre del beneficiario final — se guarda en la tabla para
@@ -1904,10 +1910,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
             <TouchableOpacity
               activeOpacity={0.85}
-              onPress={() => { setRequiereFactura(false); setWizardStep(1); }}
+              onPress={() => { setRequiereFactura(false); }}
               style={{
                 borderWidth: 2,
-                borderColor: !requiereFactura && wizardStep > 0 ? ORANGE : BORDER,
+                borderColor: !requiereFactura ? ORANGE : BORDER,
                 borderRadius: 12,
                 padding: 14,
                 marginBottom: 12,
@@ -1930,6 +1936,34 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 </View>
               </View>
             </TouchableOpacity>
+
+            {/* Modalidad de pago sin factura: transferencia o efectivo (cuentas distintas) */}
+            {!requiereFactura && (
+              <View style={{ borderWidth: 1, borderColor: ORANGE, borderRadius: 12, padding: 12, marginBottom: 12, backgroundColor: 'rgba(240,90,40,0.06)' }}>
+                <Text style={{ color: TEXT, fontWeight: '700', fontSize: 13 }}>¿Cómo vas a depositar?</Text>
+                <Text style={{ color: TEXT_DIM, fontSize: 11, marginTop: 2, marginBottom: 10 }}>La cuenta de depósito cambia según la modalidad.</Text>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  {([
+                    { key: 'transfer' as const, label: 'Transferencia', desc: 'SPEI / CLABE', icon: 'card-outline' as const },
+                    { key: 'efectivo' as const, label: 'Efectivo', desc: 'Depósito en efectivo', icon: 'cash-outline' as const },
+                  ]).map(opt => {
+                    const active = subservicio === opt.key;
+                    return (
+                      <TouchableOpacity
+                        key={opt.key}
+                        activeOpacity={0.85}
+                        onPress={() => { setSubservicio(opt.key); setSinFacturaCuenta(null); setSinFacturaCuentaError(null); setWizardStep(1); }}
+                        style={{ flex: 1, borderWidth: 2, borderColor: active ? ORANGE : BORDER, borderRadius: 10, padding: 12, backgroundColor: active ? 'rgba(240,90,40,0.14)' : SURFACE_2 }}
+                      >
+                        <Ionicons name={opt.icon} size={20} color={ORANGE} />
+                        <Text style={{ color: TEXT, fontWeight: '700', fontSize: 13, marginTop: 6 }}>{opt.label}</Text>
+                        <Text style={{ color: TEXT_DIM, fontSize: 11 }}>{opt.desc}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
           </View>
         )}
 
