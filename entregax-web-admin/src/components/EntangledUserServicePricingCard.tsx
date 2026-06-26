@@ -141,8 +141,8 @@ export default function EntangledUserServicePricingCard() {
           </Typography>
         </Stack>
         <Typography variant="caption" color="text.secondary">
-          Sobrescribe la comisión XPAY por servicio para clientes específicos. Si existe override
-          para un cliente, se usa en lugar del % global.
+          El % que captures es exactamente lo que se le cobra a ese cliente en ese servicio
+          (reemplaza el % global). Ejemplo: si pones 6%, a ese cliente se le cobra 6%.
         </Typography>
 
         {feedback && (
@@ -182,11 +182,12 @@ export default function EntangledUserServicePricingCard() {
               <MenuItem value="pago_sin_factura">Sin factura</MenuItem>
             </TextField>
             <TextField
-              label="Comisión %"
+              label="% que se cobra"
               type="number"
               value={pct}
               onChange={(e) => setPct(e.target.value)}
-              sx={{ width: 140 }}
+              sx={{ width: 170 }}
+              helperText="Lo que se le cobra a este cliente"
               InputProps={{ inputProps: { min: 0, max: 100, step: 0.01 } }}
             />
             <TextField
@@ -214,7 +215,7 @@ export default function EntangledUserServicePricingCard() {
                 <TableCell>Cliente</TableCell>
                 <TableCell>Email</TableCell>
                 <TableCell>Servicio</TableCell>
-                <TableCell align="right">% Override</TableCell>
+                <TableCell align="right">% que cobra</TableCell>
                 <TableCell>Notas</TableCell>
                 <TableCell>Actualizado</TableCell>
                 <TableCell align="right">Acciones</TableCell>
