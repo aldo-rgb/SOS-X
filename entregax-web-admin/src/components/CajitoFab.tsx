@@ -198,8 +198,16 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
         {m.tracking && m.tracking.toUpperCase() !== tracking.toUpperCase() && (
           <Typography variant="caption" color="text.secondary">Buscado: {tracking}</Typography>
         )}
+        {(m.trackingCourier || m.trackingProvider) && (m.trackingCourier || m.trackingProvider) !== m.tracking && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-all' }}>
+            📦 Guía origen: {m.originCarrier ? `${m.originCarrier} · ` : ''}{m.trackingCourier || m.trackingProvider}
+          </Typography>
+        )}
         <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75, flexWrap: 'wrap' }}>
           <Chip label={displayStatusLabel} size="small" color={statusColor(status)} />
+          {m.paymentOrderRef && (
+            <Chip label={`🧾 Orden ${m.paymentOrderRef}`} size="small" color="primary" variant="outlined" />
+          )}
           {m.eta && (
             <Chip
               label={`🚢 ETA ${fmtDate(m.eta)}${m.containerWeek ? ` · Sem ${m.containerWeek}` : ''}`}

@@ -1753,6 +1753,32 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
 
         let children: any[] = [];
 
+        // 🧾 Orden de pago registrada que contiene esta guía (o su master). Se muestra
+        // en el rastreo para saber a qué orden pertenece. package_ids (pobox) son
+        // numéricos; package_uids (advisor) vienen como 'PKG-<id>'.
+        let paymentOrderRef: string | null = null;
+        try {
+            const ordRes = await pool.query(
+                `SELECT payment_reference FROM (
+                    SELECT payment_reference, created_at, package_ids AS ids
+                      FROM pobox_payments WHERE COALESCE(status,'') <> 'cancelled'
+                    UNION ALL
+                    SELECT payment_reference, created_at, package_uids AS ids
+                      FROM advisor_payment_orders
+                 ) o
+                 WHERE o.payment_reference IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM jsonb_array_elements_text(COALESCE(o.ids,'[]'::jsonb)) e
+                    WHERE e = $1::text OR e = 'PKG-'||$1::text
+                       OR ($2::int IS NOT NULL AND (e = $2::text OR e = 'PKG-'||$2::text))
+                 )
+                 ORDER BY created_at DESC LIMIT 1`,
+                [pkg.id, pkg.master_id || null]
+            );
+            paymentOrderRef = ordRes.rows[0]?.payment_reference || null;
+        } catch (e) {
+            console.warn('[getShipmentByTracking] lookup orden de pago:', (e as Error).message);
+        }
+
         // Documentos subidos por cliente en el flujo "por cobrar"
         // (factura, constancia, guía externa). Si escanean una hija,
         // tomamos los documentos del master.
@@ -1979,6 +2005,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 master: { id: pkg.id, tracking: pkg.tracking_internal, trackingProvider: pkg.tracking_provider,
                     originCarrier: pkg.origin_carrier || null,
                     trackingCourier: pkg.tracking_provider, // Para PO Box, tracking del courier está en tracking_provider
+                    // 🧾 Orden de pago registrada que contiene esta guía (RO-/PP-).
+                    paymentOrderRef,
                     description: pkg.description, weight: pkg.weight ? parseFloat(pkg.weight) : null,
                     declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
                     isMaster: pkg.is_master, totalBoxes: pkg.total_boxes || 1,
