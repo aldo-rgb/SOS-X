@@ -56,6 +56,9 @@ interface SalesData {
   total_revenue: string;
   air_shipments: number;
   sea_shipments: number;
+  pobox_shipments: number;
+  gex_shipments: number;
+  xpay_count: number;
   consolidation_shipments: number;
   completed_shipments: number;
   avg_revenue_per_shipment: string;
@@ -227,7 +230,9 @@ export default function SalesReportPage() {
       'Envíos Totales': s.total_shipments,
       'Aéreos': s.air_shipments,
       'Marítimos': s.sea_shipments,
-      'Consolidaciones': s.consolidation_shipments,
+      'PO Box': s.pobox_shipments,
+      'GEX': s.gex_shipments,
+      'X-Pay': s.xpay_count,
       'Completados': s.completed_shipments,
       'Ingresos Totales': `$${parseFloat(s.total_revenue || '0').toFixed(2)}`,
       'Promedio por Envío': `$${parseFloat(s.avg_revenue_per_shipment || '0').toFixed(2)}`,
@@ -468,7 +473,9 @@ export default function SalesReportPage() {
                             <TableCell align="center"><strong>{t('salesReport.shipments')}</strong></TableCell>
                             <TableCell align="center"><strong>{t('salesReport.air')}</strong></TableCell>
                             <TableCell align="center"><strong>{t('salesReport.sea')}</strong></TableCell>
-                            <TableCell align="center"><strong>{t('salesReport.consolidations')}</strong></TableCell>
+                            <TableCell align="center"><strong>PO Box</strong></TableCell>
+                            <TableCell align="center"><strong>GEX</strong></TableCell>
+                            <TableCell align="center"><strong>X-Pay</strong></TableCell>
                             <TableCell align="center"><strong>{t('salesReport.completed')}</strong></TableCell>
                             <TableCell align="right"><strong>{t('salesReport.revenue')}</strong></TableCell>
                             <TableCell align="right"><strong>{t('salesReport.avgPerShipment')}</strong></TableCell>
@@ -483,10 +490,12 @@ export default function SalesReportPage() {
                               </TableCell>
                               <TableCell align="center">{advisor.air_shipments}</TableCell>
                               <TableCell align="center">{advisor.sea_shipments}</TableCell>
-                              <TableCell align="center">{advisor.consolidation_shipments}</TableCell>
+                              <TableCell align="center">{advisor.pobox_shipments}</TableCell>
+                              <TableCell align="center">{advisor.gex_shipments}</TableCell>
+                              <TableCell align="center">{advisor.xpay_count}</TableCell>
                               <TableCell align="center">
-                                <Chip 
-                                  label={advisor.completed_shipments} 
+                                <Chip
+                                  label={advisor.completed_shipments}
                                   size="small" 
                                   color="success" 
                                   variant="outlined"
