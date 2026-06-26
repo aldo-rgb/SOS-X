@@ -1564,7 +1564,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           const banco = cb.banco || cb.bank;
           // `emp.empresa` puede venir como objeto { rfc, razon_social }.
           const empresaName = typeof emp.empresa === 'string' ? emp.empresa : ((emp.empresa as any)?.razon_social || (emp.empresa as any)?.nombre || '');
-          const titular = cb.titular || cb.holder || empresaName;
+          const titularRaw = cb.titular || cb.holder || empresaName;
+          const titular = typeof titularRaw === 'string' ? titularRaw : ((titularRaw as any)?.razon_social || (titularRaw as any)?.nombre || (titularRaw as any)?.rfc || '');
           const cuenta = cb.cuenta || cb.account || cb.numero_cuenta;
           const clabe = cb.clabe || cb.CLABE;
           const sucursal = cb.sucursal || cb.branch;

@@ -1128,14 +1128,24 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
       // Para pago sin factura: usar sinFacturaCuentaSnap del snapshot
       const sinFacturaCb = snap?.sinFacturaCuentaSnap;
+      // emp.empresa y algunos campos de cuenta pueden venir como objeto
+      // ({ rfc, razon_social }); normalizamos a string para no imprimir
+      // "[object Object]" en el PDF.
+      const toStr = (v: any): string => {
+        if (v == null) return '';
+        if (typeof v === 'string') return v;
+        if (typeof v === 'number') return String(v);
+        if (typeof v === 'object') return String(v.razon_social || v.nombre || v.empresa || v.titular || v.rfc || '');
+        return '';
+      };
       const depositarRows = empresas.length > 0 ? empresas.map((emp) => {
         const cb: any = emp.cuenta_bancaria || {};
-        const banco = cb.banco || cb.bank || '';
-        const titular = cb.titular || cb.holder || emp.empresa || '';
-        const cuenta = cb.cuenta || cb.account || cb.numero_cuenta || '';
-        const clabe = cb.clabe || cb.CLABE || '';
-        const sucursal = cb.sucursal || cb.branch || '';
-        const moneda = cb.moneda || cb.currency || '';
+        const banco = toStr(cb.banco || cb.bank);
+        const titular = toStr(cb.titular || cb.holder) || toStr(emp.empresa);
+        const cuenta = toStr(cb.cuenta || cb.account || cb.numero_cuenta);
+        const clabe = toStr(cb.clabe || cb.CLABE);
+        const sucursal = toStr(cb.sucursal || cb.branch);
+        const moneda = toStr(cb.moneda || cb.currency);
         const rows: string[] = [];
         if (titular) rows.push(`<tr><td class="lbl">Empresa receptora</td><td><b>${esc(titular)}</b></td></tr>`);
         if (banco) rows.push(`<tr><td class="lbl">Banco</td><td>${esc(banco)}${moneda ? ` (${esc(moneda)})` : ''}</td></tr>`);
