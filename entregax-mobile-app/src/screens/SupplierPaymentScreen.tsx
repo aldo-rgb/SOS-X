@@ -203,6 +203,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [selectedProviderId, setSelectedProviderId] = useState<number | null>(null);
   const authHeaders = { Authorization: `Bearer ${token}` };
   const [editingFiscalData, setEditingFiscalData] = useState(false);
+  // Constancia de Situación Fiscal (CSF) — estado + subida (como en web)
+  const [csfStatus, setCsfStatus] = useState<{ exists: boolean; is_valid?: boolean; valid_until?: string | null; issued_at?: string | null } | null>(null);
+  const [csfLoading, setCsfLoading] = useState(false);
+  const [csfUploading, setCsfUploading] = useState(false);
+  const [csfPendingFile, setCsfPendingFile] = useState<{ uri: string; name: string; type: string } | null>(null);
+  const [csfNeedsDate, setCsfNeedsDate] = useState(false);
+  const [csfManualDate, setCsfManualDate] = useState('');
   const [editingSupplierData, setEditingSupplierData] = useState(false);
   const [showNewSupplierForm, setShowNewSupplierForm] = useState(false);
   // Wizard ahora arranca en step 0 (selección de servicio: con/sin factura)
@@ -736,6 +743,65 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'No se pudo abrir el selector de archivos');
       return null;
+    }
+  };
+
+  // URL de la constancia: cliente (propia) o asesor (en nombre del cliente).
+  const csfUrl = isAdvisorMode && advisorClientId
+    ? `${API_URL}/api/advisor/clients/${advisorClientId}/constancia`
+    : `${API_URL}/api/fiscal/constancia`;
+
+  // Cargar el estado de la constancia al entrar al paso "Factura".
+  useEffect(() => {
+    if (wizardStep !== 3 || !requiereFactura) return;
+    let active = true;
+    (async () => {
+      setCsfLoading(true);
+      try {
+        const res = await fetch(csfUrl, { headers: authHeaders });
+        const data = await res.json();
+        if (active) setCsfStatus(data || { exists: false });
+      } catch { if (active) setCsfStatus({ exists: false }); }
+      finally { if (active) setCsfLoading(false); }
+    })();
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wizardStep, requiereFactura, advisorClientId]);
+
+  // Subir/actualizar la constancia. Si el backend no pudo leer la fecha del
+  // archivo (422 needs_manual_date), pide la fecha y reintenta con issued_at.
+  const uploadCsf = async (issuedAtOverride?: string) => {
+    try {
+      let file = csfPendingFile;
+      if (!file) {
+        const r = await DocumentPicker.getDocumentAsync({ type: ['image/*', 'application/pdf'], copyToCacheDirectory: true, multiple: false });
+        if (r.canceled || !r.assets?.length) return;
+        const a = r.assets[0];
+        file = { uri: a.uri, name: a.name || `constancia-${Date.now()}`, type: a.mimeType || 'application/octet-stream' };
+        setCsfPendingFile(file);
+      }
+      setCsfUploading(true);
+      const fd = new FormData();
+      fd.append('constancia', { uri: file.uri, name: file.name, type: file.type } as any);
+      if (issuedAtOverride) fd.append('issued_at', issuedAtOverride);
+      const res = await fetch(csfUrl, { method: 'POST', headers: { ...authHeaders }, body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 422 && data?.needs_manual_date) {
+        setCsfNeedsDate(true);
+        Alert.alert('Fecha de emisión', 'No pudimos leer la fecha del archivo. Ingrésala (AAAA-MM-DD) y vuelve a subir.');
+        return;
+      }
+      if (!res.ok) {
+        Alert.alert('Constancia', data?.message || data?.error || 'No se pudo subir la constancia');
+        return;
+      }
+      setCsfPendingFile(null); setCsfNeedsDate(false); setCsfManualDate('');
+      setCsfStatus({ exists: true, is_valid: true, valid_until: data.valid_until, issued_at: data.issued_at });
+      Alert.alert('Listo', 'Constancia actualizada correctamente.');
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'No se pudo subir la constancia');
+    } finally {
+      setCsfUploading(false);
     }
   };
 
@@ -2048,6 +2114,49 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
             {requiereFactura && (
               <>
+                {/* Constancia de Situación Fiscal (CSF) — subir/actualizar si expiró o no existe */}
+                <View style={{ borderWidth: 1, borderColor: ORANGE, borderRadius: 12, padding: 14, marginBottom: 12, backgroundColor: 'rgba(240,90,40,0.06)' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: TEXT, fontWeight: '700', fontSize: 14 }}>Constancia de Situación Fiscal (CSF)</Text>
+                      <Text style={{ color: TEXT_DIM, fontSize: 11, marginTop: 2 }}>Necesaria para facturar. Vigencia: 3 meses desde su emisión.</Text>
+                    </View>
+                    {csfLoading ? <ActivityIndicator color={ORANGE} /> : csfStatus?.exists && csfStatus?.is_valid ? (
+                      <View style={{ backgroundColor: '#1B5E20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}><Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>Vigente</Text></View>
+                    ) : csfStatus?.exists ? (
+                      <View style={{ backgroundColor: ORANGE, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}><Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>Expirada</Text></View>
+                    ) : (
+                      <View style={{ backgroundColor: '#9E9E9E', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}><Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>Sin constancia</Text></View>
+                    )}
+                  </View>
+                  <TouchableOpacity onPress={() => uploadCsf()} disabled={csfUploading} style={{ marginTop: 12, backgroundColor: ORANGE, borderRadius: 10, paddingVertical: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, opacity: csfUploading ? 0.6 : 1 }}>
+                    {csfUploading ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="cloud-upload-outline" size={16} color="#fff" />}
+                    <Text style={{ color: '#fff', fontWeight: '700' }}>{csfStatus?.exists ? 'Actualizar constancia' : 'Subir constancia'}</Text>
+                  </TouchableOpacity>
+                  {csfNeedsDate && (
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={{ color: TEXT_DIM, fontSize: 11, marginBottom: 4 }}>No se pudo leer la fecha. Ingrésala (AAAA-MM-DD):</Text>
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TextInput style={[styles.input, { flex: 1, marginBottom: 0 }]} value={csfManualDate} onChangeText={setCsfManualDate} placeholder="2026-06-01" placeholderTextColor={TEXT_MUTED} autoCapitalize="none" />
+                        <TouchableOpacity onPress={() => { if (/^\d{4}-\d{2}-\d{2}$/.test(csfManualDate)) uploadCsf(csfManualDate); else Alert.alert('Fecha inválida', 'Usa el formato AAAA-MM-DD'); }} disabled={csfUploading} style={{ backgroundColor: ORANGE, borderRadius: 10, paddingHorizontal: 16, justifyContent: 'center' }}>
+                          <Text style={{ color: '#fff', fontWeight: '700' }}>Subir</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+                </View>
+
+                {/* Aviso si la constancia no está vigente (no bloquea, pero deja la factura pendiente) */}
+                {csfStatus && !(csfStatus.exists && csfStatus.is_valid) && (
+                  <View style={{ marginBottom: 12, padding: 12, borderRadius: 8, backgroundColor: '#FFF8E7', borderWidth: 1, borderColor: '#ED6C02' }}>
+                    <Text style={{ color: '#B65E0B', fontSize: 12 }}>
+                      {csfStatus.exists
+                        ? 'Tu constancia ya expiró. Actualízala (no mayor a 3 meses) para que podamos generar tu factura. Puedes continuar, pero la factura quedará pendiente hasta que la subas.'
+                        : 'Aún no has subido tu Constancia de Situación Fiscal. Súbela para que podamos generar tu factura. Puedes continuar, pero la factura quedará pendiente hasta que la subas.'}
+                    </Text>
+                  </View>
+                )}
+
                 {rfc && razon && !editingFiscalData ? (
                   <View style={styles.infoCardSuccess}>
                     <Text style={styles.infoCardTitleSuccess}>✓ {t('xpay.fiscalLoaded', 'Datos fiscales cargados')}</Text>
