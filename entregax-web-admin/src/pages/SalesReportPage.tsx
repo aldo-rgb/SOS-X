@@ -27,6 +27,10 @@ import {
   Card,
   CardContent,
   Collapse,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   type SelectChangeEvent,
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
@@ -91,6 +95,8 @@ export default function SalesReportPage() {
   const [totals, setTotals] = useState({ shipments: 0, revenue: '0', advisors: 0 });
   const [teamLeaders, setTeamLeaders] = useState<TeamLeader[]>([]);
   const [expandedTeams, setExpandedTeams] = useState<number[]>([]);
+  // Modal de detalle por asesor (desglose por servicio + ingreso a la empresa)
+  const [advisorDetail, setAdvisorDetail] = useState<{ open: boolean; loading: boolean; name: string; services: any[]; totals: any } | null>(null);
   
   // Churn Report State
   const [churnData, setChurnData] = useState<ChurnData[]>([]);
@@ -143,6 +149,22 @@ export default function SalesReportPage() {
       setLoading(false);
     }
   }, [startDate, endDate, teamLeaderFilter, serviceFilter]);
+
+  // Abrir detalle de un asesor (desglose por servicio)
+  const openAdvisorDetail = async (advisor: SalesData) => {
+    const id = advisor.advisor_id ?? 'sin-asesor';
+    setAdvisorDetail({ open: true, loading: true, name: advisor.advisor_name || 'Sin Asesor', services: [], totals: null });
+    try {
+      const params = new URLSearchParams({ startDate, endDate });
+      const res = await axios.get(`${API_URL}/admin/crm/reports/sales/advisor/${id}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setAdvisorDetail({ open: true, loading: false, name: res.data.advisor?.name || advisor.advisor_name, services: res.data.services || [], totals: res.data.totals || null });
+    } catch (err) {
+      console.error('Error fetching advisor detail:', err);
+      setAdvisorDetail({ open: true, loading: false, name: advisor.advisor_name || 'Sin Asesor', services: [], totals: null });
+    }
+  };
 
   // Fetch Churn Report
   const fetchChurnReport = useCallback(async () => {
@@ -454,7 +476,7 @@ export default function SalesReportPage() {
                         </TableHead>
                         <TableBody>
                           {team.advisors.map(advisor => (
-                            <TableRow key={advisor.advisor_id} hover>
+                            <TableRow key={advisor.advisor_id} hover sx={{ cursor: 'pointer' }} onClick={() => openAdvisorDetail(advisor)}>
                               <TableCell>{advisor.advisor_name}</TableCell>
                               <TableCell align="center">
                                 <Chip label={advisor.total_shipments} size="small" color="primary" />
@@ -628,6 +650,68 @@ export default function SalesReportPage() {
           </Paper>
         </>
       )}
+
+      {/* Modal: detalle de ventas por servicio del asesor */}
+      <Dialog open={!!advisorDetail?.open} onClose={() => setAdvisorDetail(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'primary.contrastText' }}>
+          {advisorDetail?.name} — Ventas por servicio
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2, mt: 1 }}>
+          {advisorDetail?.loading ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress /></Box>
+          ) : (advisorDetail?.services || []).length === 0 ? (
+            <Typography color="text.secondary" sx={{ py: 2 }}>Sin ventas en el periodo seleccionado.</Typography>
+          ) : (
+            <>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell><strong>Servicio</strong></TableCell>
+                    <TableCell align="center"><strong>Envíos</strong></TableCell>
+                    <TableCell align="right"><strong>Ingreso</strong></TableCell>
+                    <TableCell align="right"><strong>Costo prov.</strong></TableCell>
+                    <TableCell align="right"><strong>Ganancia</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {advisorDetail!.services.map((s: any) => (
+                    <TableRow key={s.service_type}>
+                      <TableCell>{s.service_type}</TableCell>
+                      <TableCell align="center">{s.count}</TableCell>
+                      <TableCell align="right">{formatCurrency(s.revenue)}</TableCell>
+                      <TableCell align="right" sx={{ color: 'text.secondary' }}>{formatCurrency(s.provider_cost)}</TableCell>
+                      <TableCell align="right" sx={{ color: 'success.main', fontWeight: 600 }}>{formatCurrency(s.margin)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {advisorDetail?.totals && (
+                <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(0,0,0,0.03)', borderRadius: 2, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2">Envíos totales</Typography>
+                    <Typography variant="body2" fontWeight={700}>{advisorDetail.totals.shipments}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2">Ingreso total</Typography>
+                    <Typography variant="body2" fontWeight={700}>{formatCurrency(advisorDetail.totals.revenue)}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2">Costo proveedor</Typography>
+                    <Typography variant="body2" color="text.secondary">{formatCurrency(advisorDetail.totals.provider_cost)}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(0,0,0,0.1)', pt: 0.5, mt: 0.5 }}>
+                    <Typography variant="body2" fontWeight={700}>Ganancia a la empresa</Typography>
+                    <Typography variant="body2" fontWeight={700} color="success.main">{formatCurrency(advisorDetail.totals.margin)}</Typography>
+                  </Box>
+                </Box>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setAdvisorDetail(null)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

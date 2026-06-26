@@ -1032,6 +1032,72 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
 };
 
 /**
+ * Detalle de ventas de UN asesor, desglosado por servicio (para el modal al dar
+ * click en un asesor del reporte). Muestra envíos, completados, ingreso (venta),
+ * costo proveedor y margen (ingreso económico a la empresa) por servicio.
+ * GET /api/admin/crm/reports/sales/advisor/:advisorId
+ */
+export const getSalesReportByAdvisor = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { advisorId } = req.params;
+    const { startDate, endDate } = req.query;
+    const isSinAsesor = advisorId === 'null' || advisorId === 'sin-asesor';
+
+    const params: any[] = [startDate || '2020-01-01', endDate || new Date().toISOString()];
+    let advFilter = `COALESCE(client.advisor_id, client.referred_by_id) IS NULL`;
+    if (!isSinAsesor) {
+      params.push(Number(advisorId));
+      advFilter = `COALESCE(client.advisor_id, client.referred_by_id) = $3`;
+    }
+
+    const REVENUE_EXPR = `COALESCE(NULLIF(p.assigned_cost_mxn, 0), p.pobox_service_cost, 0)`;
+    const COST_EXPR = `COALESCE(p.pobox_provider_cost_mxn, 0)`;
+
+    const q = `
+      WITH pkg AS (
+        SELECT p.service_type, p.status,
+               ${REVENUE_EXPR}::numeric AS revenue,
+               ${COST_EXPR}::numeric AS provider_cost
+        FROM packages p
+        JOIN users client ON p.user_id = client.id
+        WHERE p.created_at BETWEEN $1 AND $2 AND ${advFilter}
+      )
+      SELECT
+        service_type,
+        COUNT(*)::int AS count,
+        COUNT(*) FILTER (WHERE status = 'delivered')::int AS completed,
+        COALESCE(SUM(revenue), 0)::numeric AS revenue,
+        COALESCE(SUM(provider_cost), 0)::numeric AS provider_cost,
+        COALESCE(SUM(revenue) - SUM(provider_cost), 0)::numeric AS margin
+      FROM pkg
+      GROUP BY service_type
+      ORDER BY count DESC
+    `;
+    const result = await pool.query(q, params);
+
+    let advisorName = 'Sin Asesor';
+    if (!isSinAsesor) {
+      const a = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [Number(advisorId)]);
+      advisorName = a.rows[0]?.full_name || `Asesor #${advisorId}`;
+    }
+
+    const services = result.rows;
+    const totals = {
+      shipments: services.reduce((s, r) => s + Number(r.count || 0), 0),
+      completed: services.reduce((s, r) => s + Number(r.completed || 0), 0),
+      revenue: services.reduce((s, r) => s + parseFloat(r.revenue || '0'), 0).toFixed(2),
+      provider_cost: services.reduce((s, r) => s + parseFloat(r.provider_cost || '0'), 0).toFixed(2),
+      margin: services.reduce((s, r) => s + parseFloat(r.margin || '0'), 0).toFixed(2),
+    };
+
+    res.json({ success: true, advisor: { id: isSinAsesor ? null : Number(advisorId), name: advisorName }, services, totals });
+  } catch (error: any) {
+    console.error('Error getSalesReportByAdvisor:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
  * Reporte de clientes perdidos (churn)
  * GET /api/admin/crm/reports/churn
  */
