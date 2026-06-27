@@ -93,6 +93,7 @@ interface BranchStats {
     maritimo: number;
     contenedores: number;
     contenedores_sin_referencia?: number;
+    guias_air_sin_awb?: number;
   };
 }
 
@@ -1381,6 +1382,31 @@ export default function DashboardBranchManager() {
                   {(stats.totales_historicos.contenedores_sin_referencia || 0).toLocaleString()}
                 </Typography>
                 <Typography variant="caption" sx={{ color: '#94A3B8' }}>contenedores pendientes</Typography>
+              </Paper>
+            </Grid>
+
+            {/* Guías AIR pendientes de AWB (guía aérea) */}
+            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+              <Paper elevation={0} sx={{
+                p: 2, borderRadius: 2,
+                bgcolor: (stats.totales_historicos.guias_air_sin_awb || 0) > 0 ? '#FFFBEB' : '#fff',
+                border: (stats.totales_historicos.guias_air_sin_awb || 0) > 0 ? '1px solid #FCD34D' : '1px solid #E5E7EB',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                borderTop: '3px solid #D97706',
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <FlightTakeoffIcon sx={{ fontSize: 16, color: '#D97706' }} />
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.3, fontSize: '0.68rem' }}>
+                    AIR sin AWB
+                  </Typography>
+                </Box>
+                <Typography sx={{
+                  fontWeight: 700, fontSize: '1.6rem', lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+                  color: (stats.totales_historicos.guias_air_sin_awb || 0) > 0 ? '#D97706' : '#0F172A',
+                }}>
+                  {(stats.totales_historicos.guias_air_sin_awb || 0).toLocaleString()}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8' }}>guías pdtes. de guía aérea</Typography>
               </Paper>
             </Grid>
           </Grid>

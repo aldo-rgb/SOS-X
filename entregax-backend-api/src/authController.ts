@@ -1190,7 +1190,15 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
               (${BASE_MARITIMO}     + (SELECT COUNT(*)::int FROM maritime_shipments)) as maritimo,
               (${BASE_CONTENEDORES} + (SELECT COUNT(*)::int FROM containers)) as contenedores,
               (SELECT COUNT(*)::int FROM containers
-                WHERE reference_code IS NULL OR TRIM(reference_code) = '') as contenedores_sin_referencia
+                WHERE reference_code IS NULL OR TRIM(reference_code) = '') as contenedores_sin_referencia,
+              (SELECT COUNT(*)::int FROM china_receipts cr
+                WHERE COALESCE(
+                  NULLIF(cr.international_tracking, ''),
+                  (SELECT p.international_tracking FROM packages p
+                    WHERE p.china_receipt_id = cr.id
+                      AND p.international_tracking IS NOT NULL
+                      AND p.international_tracking <> '' LIMIT 1)
+                ) IS NULL) as guias_air_sin_awb
         `);
         const tot = totalesResult.rows[0] || {};
 
@@ -1273,6 +1281,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 maritimo: parseInt(tot.maritimo || 0) || 0,
                 contenedores: parseInt(tot.contenedores || 0) || 0,
                 contenedores_sin_referencia: parseInt(tot.contenedores_sin_referencia || 0) || 0,
+                guias_air_sin_awb: parseInt(tot.guias_air_sin_awb || 0) || 0,
             },
         });
     } catch (error) {
@@ -1317,6 +1326,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 maritimo: 0,
                 contenedores: 0,
                 contenedores_sin_referencia: 0,
+                guias_air_sin_awb: 0,
             },
             warning: 'dashboard_fallback',
         });
