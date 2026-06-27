@@ -149,19 +149,20 @@ export async function generateCommissionForShipment(
       return; // No hay datos o el monto es 0
     }
 
-    // 2. Buscar el asesor que refirió al cliente
+    // 2. Buscar el asesor del cliente: asignación moderna (advisor_id) o, si no,
+    //    el asesor que lo refirió (referred_by_id).
     const userRes = await pool.query(`
-      SELECT u.id, u.full_name, u.referred_by_id 
+      SELECT u.id, u.full_name, COALESCE(u.advisor_id, u.referred_by_id) AS advisor_id
       FROM users u WHERE u.id = $1
     `, [shipmentData.userId]);
 
-    if (userRes.rows.length === 0 || !userRes.rows[0].referred_by_id) {
-      return; // Cliente no tiene asesor referidor
+    if (userRes.rows.length === 0 || !userRes.rows[0].advisor_id) {
+      return; // Cliente sin asesor asignado
     }
 
     const clientId = userRes.rows[0].id;
     const clientName = userRes.rows[0].full_name || '';
-    const advisorId = userRes.rows[0].referred_by_id;
+    const advisorId = userRes.rows[0].advisor_id;
 
     // 3. Obtener datos del asesor y su líder
     const advisorRes = await pool.query(`
@@ -262,7 +263,7 @@ export async function backfillCommissions(limitRows = 500): Promise<{ generated:
       SELECT p.id
       FROM packages p
       JOIN users u ON p.user_id = u.id
-      WHERE u.referred_by_id IS NOT NULL
+      WHERE COALESCE(u.advisor_id, u.referred_by_id) IS NOT NULL
         AND u.role = 'client'
         AND (COALESCE(p.saldo_pendiente, 0) <= 0.01 OR p.payment_status = 'paid' OR p.client_paid = true)
         AND COALESCE(p.monto_pagado, p.assigned_cost_mxn, 0) > 0
@@ -286,7 +287,7 @@ export async function backfillCommissions(limitRows = 500): Promise<{ generated:
       SELECT mo.id
       FROM maritime_orders mo
       JOIN users u ON mo.user_id = u.id
-      WHERE u.referred_by_id IS NOT NULL
+      WHERE COALESCE(u.advisor_id, u.referred_by_id) IS NOT NULL
         AND u.role = 'client'
         AND (COALESCE(mo.saldo_pendiente, 0) <= 0.01 OR mo.payment_status = 'paid')
         AND COALESCE(mo.monto_pagado, mo.assigned_cost_mxn, 0) > 0
@@ -310,7 +311,7 @@ export async function backfillCommissions(limitRows = 500): Promise<{ generated:
       SELECT ds.id
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
-      WHERE u.referred_by_id IS NOT NULL
+      WHERE COALESCE(u.advisor_id, u.referred_by_id) IS NOT NULL
         AND u.role = 'client'
         AND COALESCE(ds.saldo_pendiente, 0) <= 0.01
         AND COALESCE(ds.monto_pagado, ds.total_cost_mxn, 0) > 0
