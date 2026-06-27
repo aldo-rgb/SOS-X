@@ -865,6 +865,7 @@ import {
   getAudit as cajitoGetAudit,
   getHealth as cajitoGetHealth,
   clientLookup as cajitoClientLookup,
+  ticketLookup as cajitoTicketLookup,
 } from './cajitoController';
 import {
   listAwbCosts,
@@ -14398,6 +14399,7 @@ app.get('/api/cajito/conversations', authenticateToken, cajitoGetMyConversations
 app.get('/api/cajito/conversations/:id', authenticateToken, cajitoGetConversation);
 app.get('/api/cajito/health', authenticateToken, cajitoGetHealth);
 app.get('/api/cajito/client-lookup', authenticateToken, cajitoClientLookup);
+app.get('/api/cajito/ticket-lookup', authenticateToken, cajitoTicketLookup);
 app.get('/api/admin/cajito/audit', authenticateToken, requireRole('super_admin'), cajitoGetAudit);
 
 // ============================================================

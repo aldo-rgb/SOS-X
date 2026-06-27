@@ -1029,3 +1029,78 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
     res.status(500).json({ error: err?.message || 'Error en lookup de cliente' });
   }
 };
+
+// ============================================================
+// GET /api/cajito/ticket-lookup?q=<TKT-folio>
+// Rastreo de un ticket de soporte por folio. Devuelve la ficha del
+// ticket (asunto, estado, cliente, número de cliente capturado por el
+// asesor) y sus últimos mensajes. Solo lectura. Para el panel "Rastrear".
+// Los asesores solo ven sus propios tickets (creados o asignados).
+// ============================================================
+export const ticketLookup = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const q = String((req.query.q ?? req.query.query ?? '') as string).trim();
+    if (!q || q.length < 3) {
+      res.status(400).json({ error: 'query muy corto (mín 3)' });
+      return;
+    }
+
+    const reqRole = String((req.user as any)?.role || '').toLowerCase();
+    const reqUserId = (req.user as any)?.userId || (req.user as any)?.id;
+    const isAdvisorReq = ['advisor', 'sub_advisor'].includes(reqRole);
+
+    // Buscar por folio exacto (TKT-…); si no, por folio parcial.
+    const tRes = await pool.query(
+      `SELECT t.id, t.ticket_folio, t.category, t.subject, t.status, t.priority,
+              t.created_at, t.updated_at, t.user_id, t.assigned_to, t.assigned_agent_id,
+              u.full_name AS client_name, u.box_id AS client_box_id,
+              u.email AS client_email, u.phone AS client_phone,
+              adv.full_name AS advisor_name,
+              d.name AS department_name, d.color AS department_color,
+              NULLIF(TRIM(BOTH E' \t\r\n•-' FROM (
+                SELECT substring(tm.message FROM 'N.mero de cliente:[[:space:]]*([^' || chr(10) || chr(13) || ']+)')
+                FROM ticket_messages tm WHERE tm.ticket_id = t.id ORDER BY tm.created_at ASC LIMIT 1
+              )), '') AS client_number
+         FROM support_tickets t
+         LEFT JOIN users u ON u.id = t.user_id
+         LEFT JOIN users adv ON adv.id = COALESCE(t.assigned_to, t.assigned_agent_id)
+         LEFT JOIN support_departments d ON d.id = t.department_id
+        WHERE UPPER(TRIM(t.ticket_folio)) = UPPER(TRIM($1))
+           OR UPPER(t.ticket_folio) LIKE UPPER('%' || $1 || '%')
+        ORDER BY (UPPER(TRIM(t.ticket_folio)) = UPPER(TRIM($1))) DESC, t.created_at DESC
+        LIMIT 1`,
+      [q]
+    );
+
+    const ticket = tRes.rows[0];
+    if (!ticket) {
+      res.status(404).json({ success: false, error: 'No se encontró un ticket con ese folio' });
+      return;
+    }
+
+    // Acceso de asesor: solo sus tickets (creados o asignados).
+    if (isAdvisorReq) {
+      const owns = Number(ticket.user_id) === Number(reqUserId)
+        || Number(ticket.assigned_to) === Number(reqUserId)
+        || Number(ticket.assigned_agent_id) === Number(reqUserId);
+      if (!owns) {
+        res.status(404).json({ success: false, error: 'No se encontró un ticket con ese folio' });
+        return;
+      }
+    }
+
+    const msgs = await pool.query(
+      `SELECT sender_type, message, created_at
+         FROM ticket_messages
+        WHERE ticket_id = $1 AND COALESCE(is_internal, FALSE) = FALSE
+        ORDER BY created_at ASC
+        LIMIT 50`,
+      [ticket.id]
+    );
+
+    res.json({ success: true, ticket: { ...ticket, messages: msgs.rows } });
+  } catch (err: any) {
+    console.error('[cajito/ticket-lookup] error:', err);
+    res.status(500).json({ error: err?.message || 'Error en lookup de ticket' });
+  }
+};

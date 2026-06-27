@@ -114,6 +114,68 @@ interface MovementEvent {
   notes?: string;
 }
 
+// Tarjeta de resultado de un ticket de soporte (rastreo por folio TKT-…)
+function TicketLookupResult({ data }: { data: any }) {
+  const statusMap: Record<string, { label: string; color: 'success' | 'warning' | 'info' | 'error' | 'default' }> = {
+    resolved: { label: 'Resuelto', color: 'success' },
+    closed: { label: 'Cerrado', color: 'default' },
+    waiting_agent: { label: 'Con agente', color: 'warning' },
+    escalated_human: { label: 'Con agente', color: 'warning' },
+    in_progress: { label: 'En proceso', color: 'info' },
+    open: { label: 'Abierto', color: 'info' },
+    pending: { label: 'Pendiente', color: 'warning' },
+  };
+  const st = statusMap[String(data.status || '').toLowerCase()] || { label: data.status || '—', color: 'default' as const };
+  const msgs: any[] = Array.isArray(data.messages) ? data.messages : [];
+  const fmt = (d: string) => { try { return new Date(d).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return d; } };
+
+  return (
+    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+      <Box sx={{ px: 1.5, py: 1, bgcolor: 'rgba(240,90,40,0.06)', display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography sx={{ fontSize: 16 }}>🎫</Typography>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: 0.3 }}>TICKET</Typography>
+          <Typography variant="body2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>{data.ticket_folio}</Typography>
+        </Box>
+        <Chip size="small" label={st.label} color={st.color} variant={st.color === 'success' ? 'filled' : 'outlined'} />
+      </Box>
+      <Box sx={{ p: 1.5 }}>
+        {data.subject && (
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.75 }}>{String(data.subject).replace(/\n+/g, ' ').slice(0, 120)}</Typography>
+        )}
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 0.75 }}>
+          {data.client_number && <Chip size="small" variant="outlined" label={`👤 Cliente: ${data.client_number}`} sx={{ fontWeight: 700, color: '#F05A28', borderColor: '#F05A28' }} />}
+          {data.client_name && <Chip size="small" variant="outlined" label={data.client_box_id ? `${data.client_name} · ${data.client_box_id}` : data.client_name} />}
+          {data.advisor_name && <Chip size="small" variant="outlined" label={`Asesor: ${data.advisor_name}`} />}
+          {data.department_name && <Chip size="small" variant="outlined" label={data.department_name} />}
+        </Box>
+        <Typography variant="caption" color="text.secondary">Creado: {fmt(data.created_at)}</Typography>
+
+        {msgs.length > 0 && (
+          <>
+            <Divider sx={{ my: 1 }} />
+            <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>Conversación</Typography>
+            <Box sx={{ mt: 0.5, display: 'flex', flexDirection: 'column', gap: 0.75, maxHeight: 240, overflowY: 'auto' }}>
+              {msgs.map((mm, i) => {
+                const mine = mm.sender_type === 'agent' || mm.sender_type === 'ai';
+                return (
+                  <Box key={i} sx={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '85%', px: 1, py: 0.75, borderRadius: 1.5, bgcolor: mine ? 'rgba(240,90,40,0.12)' : 'action.hover' }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', color: 'text.secondary' }}>
+                      {mm.sender_type === 'agent' ? 'Agente' : mm.sender_type === 'ai' ? 'Cajito IA' : 'Cliente/Asesor'}
+                    </Typography>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{mm.message}</Typography>
+                    <Typography variant="caption" color="text.secondary">{fmt(mm.created_at)}</Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+          </>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
 // Tarjeta de resultado del escáner dentro del panel de Cajito
 function TrackResult({ data, tracking }: { data: PackageData; tracking: string }) {
   const m = data.shipment?.master || data.package || data;
@@ -700,6 +762,7 @@ export default function CajitoFab() {
   const [trackLoading, setTrackLoading] = useState(false);
   const [trackResult, setTrackResult] = useState<PackageData | null>(null);
   const [clientResult, setClientResult] = useState<PackageData | null>(null);
+  const [ticketResult, setTicketResult] = useState<any | null>(null);
   const [trackError, setTrackError] = useState('');
   const [lastTracked, setLastTracked] = useState('');
 
@@ -787,7 +850,26 @@ export default function CajitoFab() {
     setTrackError('');
     setTrackResult(null);
     setClientResult(null);
+    setTicketResult(null);
     setLastTracked(raw);
+
+    // Ticket de soporte: TKT-2026-1234 → ficha del ticket.
+    const isTicket = /^TKT[-\s]?\d/i.test(raw);
+    if (isTicket) {
+      try {
+        const res = await api.get(`/cajito/ticket-lookup`, { params: { q: raw } });
+        if (res.data?.success && res.data.ticket) {
+          setTicketResult(res.data.ticket);
+        } else {
+          setTrackError('No se encontró un ticket con ese folio');
+        }
+      } catch (e: any) {
+        setTrackError(e.response?.data?.error || 'No se encontró un ticket con ese folio');
+      } finally {
+        setTrackLoading(false);
+      }
+      return;
+    }
 
     // Heurística: input de cliente vs. tracking de guía.
     // Casillero: S1, S2907, ETX-1234, S4008, etc. (letra(s) + dígito(s), con o sin guion).
@@ -1036,12 +1118,25 @@ export default function CajitoFab() {
                     <Typography variant="caption" color="text.secondary">Buscado: {lastTracked}</Typography>
                   </Box>
                 )}
-                {!trackResult && !clientResult && !trackError && !trackLoading && (
+                {!trackResult && !clientResult && !ticketResult && !trackError && !trackLoading && (
                   <Box sx={{ textAlign: 'center', pt: 4, color: 'text.secondary' }}>
                     <SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.3 }} />
-                    <Typography variant="body2">Busca por guía o por cliente</Typography>
-                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>Ej: US-1234..., TDX-001, S2907, ETX-1228, correo@…</Typography>
+                    <Typography variant="body2">Busca por guía, cliente o ticket</Typography>
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>Ej: US-1234..., TDX-001, S2907, ETX-1228, TKT-2026-1396, correo@…</Typography>
                   </Box>
+                )}
+                {ticketResult && (
+                  <>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 0.75 }}>
+                      <Box
+                        onClick={handleTrack}
+                        sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 1, border: `1px solid ${CAJITO_RING}`, color: CAJITO_RING, cursor: 'pointer', fontSize: 12 }}
+                      >
+                        🔄 Actualizar
+                      </Box>
+                    </Box>
+                    <TicketLookupResult data={ticketResult} />
+                  </>
                 )}
                 {clientResult && (
                   <>
