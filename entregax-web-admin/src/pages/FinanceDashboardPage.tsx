@@ -149,6 +149,7 @@ interface Transaccion {
   id: number;
   fecha_hora: string;
   cliente: string;
+  cliente_box_id?: string | null;
   monto_bruto: number;
   monto_neto: number;
   comision: number;
@@ -1479,6 +1480,11 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                           <Typography variant="body2" fontWeight="medium">
                             {tx.cliente}
                           </Typography>
+                          {tx.cliente_box_id && (
+                            <Typography variant="caption" color="text.secondary">
+                              {tx.cliente_box_id}
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" fontWeight="bold" color="success.main">
@@ -1718,7 +1724,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                         {tx.cliente}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {tx.origen}
+                        {[tx.cliente_box_id, tx.origen].filter(Boolean).join(' · ')}
                       </Typography>
                     </TableCell>
                     <TableCell>
