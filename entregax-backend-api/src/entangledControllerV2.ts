@@ -564,6 +564,18 @@ export const createPaymentRequestV2 = async (
       ? new Date(Math.min(entangledDeadline.getTime(), nuestroDeadline.getTime()))
       : nuestroDeadline;
 
+  // Desglose de la comisión cobrada al cliente (se persiste al cerrar la operación,
+  // una vez que ENTANGLED devolvió su % cobrado):
+  //  - Cliente paga   = commission.porcentaje (p.ej. 6%)
+  //  - Entangled cobra= remote.comision_cobrada_porcentaje (p.ej. 3.5%)
+  //  - Entregax gana  = 1% fijo (de lo que queda tras Entangled)
+  //  - Asesor gana    = lo que sobra (cliente − entangled − entregax)
+  const ENTREGAX_PCT_FIJO = 1.0;
+  const pctCliente = Number(commission.porcentaje) || 0;
+  const pctEntangled = Number(remote.comision_cobrada_porcentaje ?? 0) || 0;
+  const pctEntregax = Math.min(ENTREGAX_PCT_FIJO, Math.max(0, pctCliente - pctEntangled));
+  const pctAsesor = Math.max(0, pctCliente - pctEntangled - pctEntregax);
+
   let updated = (await pool.query(
     `UPDATE entangled_payment_requests
         SET entangled_transaccion_id = $1,
@@ -573,6 +585,8 @@ export const createPaymentRequestV2 = async (
             empresas_asignadas = $5::jsonb,
             raw_response = $6::jsonb,
             payment_deadline_at = $8,
+            comision_entregax = $9,
+            comision_asesor = $10,
             updated_at = NOW()
       WHERE id = $7
       RETURNING *`,
@@ -585,6 +599,8 @@ export const createPaymentRequestV2 = async (
       JSON.stringify(remote.raw || {}),
       requestId,
       paymentDeadline.toISOString(),
+      pctEntregax,
+      pctAsesor,
     ]
   )).rows[0];
 
@@ -926,6 +942,14 @@ export async function sendPendingRequestToEntangled(
     };
   }
 
+  // Desglose de la comisión (Entregax 1% fijo, asesor lo que sobra) — se persiste
+  // ahora que ENTANGLED devolvió su % cobrado.
+  const ENTREGAX_PCT_FIJO = 1.0;
+  const pctClienteP = Number(reqRow.comision_cliente_final_porcentaje) || 0;
+  const pctEntangledP = Number(remote.comision_cobrada_porcentaje ?? 0) || 0;
+  const pctEntregaxP = Math.min(ENTREGAX_PCT_FIJO, Math.max(0, pctClienteP - pctEntangledP));
+  const pctAsesorP = Math.max(0, pctClienteP - pctEntangledP - pctEntregaxP);
+
   const upd = await pool.query(
     `UPDATE entangled_payment_requests
         SET entangled_transaccion_id = $1,
@@ -936,6 +960,8 @@ export async function sendPendingRequestToEntangled(
             url_comprobante_cliente = COALESCE($5, url_comprobante_cliente),
             comprobante_subido_at = NOW(),
             raw_response = $6::jsonb,
+            comision_entregax = $8,
+            comision_asesor = $9,
             updated_at = NOW()
       WHERE id = $7
       RETURNING *`,
@@ -947,6 +973,8 @@ export async function sendPendingRequestToEntangled(
       remote.url_comprobante_cliente || reqRow.op_comprobante_cliente_url || null,
       JSON.stringify(remote.raw || {}),
       requestId,
+      pctEntregaxP,
+      pctAsesorP,
     ]
   );
 

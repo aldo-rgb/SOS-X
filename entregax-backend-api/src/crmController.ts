@@ -1108,8 +1108,9 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
     //  - GANANCIA = INGRESO − COSTO. NO incluye el monto al proveedor ni el margen de TC.
     // Las comisiones en pesos no se guardan; se calculan del monto y los %.
     const xpayFilter = isSinAsesor ? 'epr.advisor_id IS NULL' : 'epr.advisor_id = $3';
-    const XPAY_REVENUE = `COALESCE(epr.op_monto, 0) * COALESCE(epr.tc_cliente_final, epr.tc_aplicado_usd, 0) * COALESCE(epr.comision_cliente_final_porcentaje, 0) / 100`;
-    const XPAY_COST = `COALESCE(epr.op_monto, 0) * COALESCE(epr.tc_aplicado_usd, epr.tc_cliente_final, 0) * COALESCE(epr.comision_cobrada_porcentaje, 0) / 100`;
+    const XPAY_BASE_C = `COALESCE(epr.op_monto, 0) * COALESCE(epr.tc_cliente_final, epr.tc_aplicado_usd, 0)`;
+    const XPAY_REVENUE = `${XPAY_BASE_C} * COALESCE(epr.comision_cliente_final_porcentaje, 0) / 100`;
+    const XPAY_COST = `${XPAY_BASE_C} * COALESCE(epr.comision_cobrada_porcentaje, 0) / 100`;
     const xpay = await pool.query(`
       SELECT COUNT(*)::int AS count,
              COUNT(*) FILTER (WHERE epr.estatus_global = 'completado')::int AS completed,
@@ -1173,17 +1174,30 @@ export const getSalesReportServiceItems = async (req: Request, res: Response): P
       const p: any[] = [start, end];
       let f = 'epr.advisor_id IS NULL';
       if (!isSinAsesor) { p.push(Number(advisorId)); f = 'epr.advisor_id = $3'; }
-      // Solo comisión: ingreso = comisión al cliente (TC cliente), costo = comisión que nos cobra ENTANGLED (TC compra)
-      const XREV = `COALESCE(epr.op_monto,0) * COALESCE(epr.tc_cliente_final, epr.tc_aplicado_usd, 0) * COALESCE(epr.comision_cliente_final_porcentaje,0)/100`;
-      const XCOST = `COALESCE(epr.op_monto,0) * COALESCE(epr.tc_aplicado_usd, epr.tc_cliente_final, 0) * COALESCE(epr.comision_cobrada_porcentaje,0)/100`;
+      // Desglose de la comisión cobrada al cliente (todo sobre la misma base = monto × TC cliente):
+      //  - Cliente paga   = comision_cliente_final_porcentaje (p.ej. 6%)
+      //  - Entangled cobra= comision_cobrada_porcentaje (p.ej. 3.5%)
+      //  - Entregax gana  = 1% fijo (de lo que queda tras Entangled)
+      //  - Asesor gana    = lo que sobra (cliente − entangled − entregax)
+      const BASE_C = `COALESCE(epr.op_monto,0) * COALESCE(epr.tc_cliente_final, epr.tc_aplicado_usd, 0)`;
+      const PCT_CLI = `COALESCE(epr.comision_cliente_final_porcentaje,0)`;
+      const PCT_ENT = `COALESCE(epr.comision_cobrada_porcentaje,0)`;
+      const PCT_EGX = `LEAST(1.0, GREATEST(0, ${PCT_CLI} - ${PCT_ENT}))`;
+      const PCT_ASE = `GREATEST(0, ${PCT_CLI} - ${PCT_ENT} - ${PCT_EGX})`;
       const r = await pool.query(`
         SELECT COALESCE(epr.referencia_pago, 'XP'||LPAD(epr.id::text,6,'0')) AS referencia,
                epr.op_beneficiario_nombre AS beneficiario,
                epr.op_monto, epr.op_divisa_destino AS divisa,
                epr.estatus_global AS status, epr.created_at,
-               (${XREV})::numeric AS revenue,
-               (${XCOST})::numeric AS provider_cost,
-               (${XREV} - ${XCOST})::numeric AS margin
+               ${PCT_CLI}::numeric AS pct_cliente,
+               ${PCT_ENT}::numeric AS pct_entangled,
+               ${PCT_EGX}::numeric AS pct_entregax,
+               ${PCT_ASE}::numeric AS pct_asesor,
+               (${BASE_C} * ${PCT_CLI}/100)::numeric AS revenue,
+               (${BASE_C} * ${PCT_ENT}/100)::numeric AS provider_cost,
+               (${BASE_C} * ${PCT_EGX}/100)::numeric AS entregax_amount,
+               (${BASE_C} * ${PCT_ASE}/100)::numeric AS asesor_amount,
+               (${BASE_C} * (${PCT_CLI} - ${PCT_ENT})/100)::numeric AS margin
         FROM entangled_payment_requests epr
         WHERE ${f} AND epr.created_at BETWEEN $1 AND $2
           AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')

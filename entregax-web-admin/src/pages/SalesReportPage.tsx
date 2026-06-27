@@ -782,20 +782,37 @@ export default function SalesReportPage() {
                   <TableCell><strong>Referencia</strong></TableCell>
                   <TableCell><strong>Beneficiario</strong></TableCell>
                   <TableCell align="right"><strong>Monto</strong></TableCell>
-                  <TableCell><strong>Estatus</strong></TableCell>
-                  <TableCell align="right"><strong>Ingreso</strong></TableCell>
-                  <TableCell align="right"><strong>Ganancia</strong></TableCell>
+                  <TableCell align="right"><strong>Cliente</strong></TableCell>
+                  <TableCell align="right"><strong>Entangled</strong></TableCell>
+                  <TableCell align="right"><strong>Entregax</strong></TableCell>
+                  <TableCell align="right"><strong>Asesor</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {serviceDetail!.items.map((it: any, i: number) => (
                   <TableRow key={i}>
-                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{it.referencia}</TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                      {it.referencia}
+                      <Chip size="small" label={it.status} variant="outlined" sx={{ display: 'block', mt: 0.5, width: 'fit-content' }} />
+                    </TableCell>
                     <TableCell>{it.beneficiario || '—'}</TableCell>
                     <TableCell align="right">{Number(it.op_monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {it.divisa || 'USD'}</TableCell>
-                    <TableCell><Chip size="small" label={it.status} variant="outlined" /></TableCell>
-                    <TableCell align="right">{formatCurrency(it.revenue)}</TableCell>
-                    <TableCell align="right" sx={{ color: 'success.main', fontWeight: 600 }}>{formatCurrency(it.margin)}</TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" fontWeight={600}>{formatCurrency(it.revenue)}</Typography>
+                      <Typography variant="caption" color="text.secondary">{Number(it.pct_cliente || 0)}%</Typography>
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                      <Typography variant="body2">{formatCurrency(it.provider_cost)}</Typography>
+                      <Typography variant="caption">{Number(it.pct_entangled || 0)}%</Typography>
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: 'primary.main' }}>
+                      <Typography variant="body2" fontWeight={600}>{formatCurrency(it.entregax_amount)}</Typography>
+                      <Typography variant="caption">{Number(it.pct_entregax || 0)}%</Typography>
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: 'success.main' }}>
+                      <Typography variant="body2" fontWeight={600}>{formatCurrency(it.asesor_amount)}</Typography>
+                      <Typography variant="caption">{Number(it.pct_asesor || 0)}%</Typography>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
