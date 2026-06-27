@@ -1067,7 +1067,10 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
       WITH pkg AS (
         SELECT p.service_type, p.status,
                ${REVENUE_EXPR}::numeric AS revenue,
-               ${COST_EXPR}::numeric AS provider_cost
+               ${COST_EXPR}::numeric AS provider_cost,
+               COALESCE((SELECT ac.commission_amount_mxn FROM advisor_commissions ac
+                          WHERE ac.shipment_type = 'PKG' AND ac.shipment_id = p.id
+                          ORDER BY ac.id DESC LIMIT 1), 0)::numeric AS commission
         FROM packages p
         JOIN users client ON p.user_id = client.id
         WHERE p.created_at BETWEEN $1 AND $2 AND ${advFilter}
@@ -1079,6 +1082,7 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
         COUNT(*) FILTER (WHERE status = 'delivered')::int AS completed,
         COALESCE(SUM(revenue), 0)::numeric AS revenue,
         COALESCE(SUM(provider_cost), 0)::numeric AS provider_cost,
+        COALESCE(SUM(commission), 0)::numeric AS commission,
         COALESCE(SUM(revenue) - SUM(provider_cost), 0)::numeric AS margin
       FROM pkg
       GROUP BY service_type
@@ -1101,6 +1105,7 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
              COUNT(*) FILTER (WHERE w.status = 'active')::int AS completed,
              COALESCE(SUM(w.total_cost_mxn), 0)::numeric AS revenue,
              COALESCE(SUM(w.advisor_commission), 0)::numeric AS provider_cost,
+             COALESCE(SUM(w.advisor_commission), 0)::numeric AS commission,
              COALESCE(SUM(w.total_cost_mxn) - SUM(w.advisor_commission), 0)::numeric AS margin
       FROM warranties w
       WHERE ${gexFilter} AND w.created_at BETWEEN $1 AND $2
@@ -1116,11 +1121,16 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
     const XPAY_BASE_C = `COALESCE(epr.op_monto, 0) * COALESCE(epr.tc_cliente_final, epr.tc_aplicado_usd, 0)`;
     const XPAY_REVENUE = `${XPAY_BASE_C} * COALESCE(epr.comision_cliente_final_porcentaje, 0) / 100`;
     const XPAY_COST = `${XPAY_BASE_C} * COALESCE(epr.comision_cobrada_porcentaje, 0) / 100`;
+    // Comisión del asesor en X-Pay = parte del asesor (cliente − entangled − entregax).
+    const XPAY_DEFAULT_EGX = `(SELECT COALESCE(override_porcentaje_compra,0) FROM entangled_providers WHERE is_active=true AND is_default=true ORDER BY id ASC LIMIT 1)`;
+    const XPAY_PCT_EGX = `LEAST(COALESCE(NULLIF(epr.comision_entregax,0), ${XPAY_DEFAULT_EGX}, 0), GREATEST(0, COALESCE(epr.comision_cliente_final_porcentaje,0) - COALESCE(epr.comision_cobrada_porcentaje,0)))`;
+    const XPAY_ASESOR = `${XPAY_BASE_C} * GREATEST(0, COALESCE(epr.comision_cliente_final_porcentaje,0) - COALESCE(epr.comision_cobrada_porcentaje,0) - ${XPAY_PCT_EGX}) / 100`;
     const xpay = await pool.query(`
       SELECT COUNT(*)::int AS count,
              COUNT(*) FILTER (WHERE epr.estatus_global = 'completado')::int AS completed,
              COALESCE(SUM(${XPAY_REVENUE}), 0)::numeric AS revenue,
              COALESCE(SUM(${XPAY_COST}), 0)::numeric AS provider_cost,
+             COALESCE(SUM(${XPAY_ASESOR}), 0)::numeric AS commission,
              COALESCE(SUM(${XPAY_REVENUE} - ${XPAY_COST}), 0)::numeric AS margin
       FROM entangled_payment_requests epr
       WHERE ${xpayFilter} AND epr.created_at BETWEEN $1 AND $2
@@ -1134,6 +1144,7 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
       completed: result.rows.reduce((s, r) => s + Number(r.completed || 0), 0),
       revenue: services.reduce((s, r) => s + parseFloat(r.revenue || '0'), 0).toFixed(2),
       provider_cost: services.reduce((s, r) => s + parseFloat(r.provider_cost || '0'), 0).toFixed(2),
+      commission: services.reduce((s, r) => s + parseFloat(r.commission || '0'), 0).toFixed(2),
       margin: services.reduce((s, r) => s + parseFloat(r.margin || '0'), 0).toFixed(2),
     };
 
@@ -1225,7 +1236,13 @@ export const getSalesReportServiceItems = async (req: Request, res: Response): P
              ${REVENUE_EXPR}::numeric AS revenue,
              po.payment_reference AS payment_ref,
              po.pay_status AS payment_status,
-             po.paid_with_credit AS paid_with_credit
+             po.paid_with_credit AS paid_with_credit,
+             COALESCE((SELECT ac.commission_amount_mxn FROM advisor_commissions ac
+                        WHERE ac.shipment_type = 'PKG' AND ac.shipment_id = p.id
+                        ORDER BY ac.id DESC LIMIT 1), 0)::numeric AS commission,
+             (SELECT ac.commission_rate_pct FROM advisor_commissions ac
+                WHERE ac.shipment_type = 'PKG' AND ac.shipment_id = p.id
+                ORDER BY ac.id DESC LIMIT 1) AS commission_rate
       FROM packages p
       JOIN users client ON p.user_id = client.id
       LEFT JOIN LATERAL (

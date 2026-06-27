@@ -702,6 +702,7 @@ export default function SalesReportPage() {
                     <TableCell align="center"><strong>Envíos</strong></TableCell>
                     <TableCell align="right"><strong>Ingreso</strong></TableCell>
                     <TableCell align="right"><strong>Costo prov.</strong></TableCell>
+                    <TableCell align="right"><strong>Comisión</strong></TableCell>
                     <TableCell align="right"><strong>Ganancia</strong></TableCell>
                   </TableRow>
                 </TableHead>
@@ -712,6 +713,7 @@ export default function SalesReportPage() {
                       <TableCell align="center">{s.count}</TableCell>
                       <TableCell align="right">{formatCurrency(s.revenue)}</TableCell>
                       <TableCell align="right" sx={{ color: 'text.secondary' }}>{formatCurrency(s.provider_cost)}</TableCell>
+                      <TableCell align="right" sx={{ color: 'warning.main', fontWeight: 600 }}>{formatCurrency(s.commission)}</TableCell>
                       <TableCell align="right" sx={{ color: 'success.main', fontWeight: 600 }}>{formatCurrency(s.margin)}</TableCell>
                     </TableRow>
                   ))}
@@ -730,6 +732,10 @@ export default function SalesReportPage() {
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography variant="body2">Costo proveedor</Typography>
                     <Typography variant="body2" color="text.secondary">{formatCurrency(advisorDetail.totals.provider_cost)}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2">Comisión asesor</Typography>
+                    <Typography variant="body2" fontWeight={600} color="warning.main">{formatCurrency(advisorDetail.totals.commission)}</Typography>
                   </Box>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(0,0,0,0.1)', pt: 0.5, mt: 0.5 }}>
                     <Typography variant="body2" fontWeight={700}>Ganancia a la empresa</Typography>
@@ -830,6 +836,7 @@ export default function SalesReportPage() {
                   <TableCell><strong>Pago</strong></TableCell>
                   <TableCell align="center"><strong>Guías</strong></TableCell>
                   <TableCell align="right"><strong>Ingreso</strong></TableCell>
+                  <TableCell align="right"><strong>Comisión</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -860,11 +867,12 @@ export default function SalesReportPage() {
                   for (const it of serviceDetail!.items) {
                     const key = it.payment_ref || '__none__';
                     if (!groups[key]) {
-                      groups[key] = { key, ref: it.payment_ref, payment_status: it.payment_status, paid_with_credit: it.paid_with_credit, items: [], total: 0 };
+                      groups[key] = { key, ref: it.payment_ref, payment_status: it.payment_status, paid_with_credit: it.paid_with_credit, items: [], total: 0, commission: 0 };
                       orderKeys.push(key);
                     }
                     groups[key].items.push(it);
                     groups[key].total += Number(it.revenue || 0);
+                    groups[key].commission += Number(it.commission || 0);
                   }
                   return orderKeys.map((key) => {
                     const g = groups[key];
@@ -888,9 +896,10 @@ export default function SalesReportPage() {
                           </TableCell>
                           <TableCell align="center">{g.items.length}</TableCell>
                           <TableCell align="right"><strong>{formatCurrency(g.total)}</strong></TableCell>
+                          <TableCell align="right" sx={{ color: 'warning.main', fontWeight: 700 }}>{formatCurrency(g.commission)}</TableCell>
                         </TableRow>
                         <TableRow>
-                          <TableCell colSpan={4} sx={{ p: 0, border: 0 }}>
+                          <TableCell colSpan={5} sx={{ p: 0, border: 0 }}>
                             <Collapse in={isOpen} timeout="auto" unmountOnExit>
                               <Table size="small" sx={{ bgcolor: 'grey.50' }}>
                                 <TableHead>
@@ -898,6 +907,7 @@ export default function SalesReportPage() {
                                     <TableCell sx={{ pl: 5 }}><strong>Guía</strong></TableCell>
                                     <TableCell><strong>Estatus</strong></TableCell>
                                     <TableCell align="right"><strong>Ingreso</strong></TableCell>
+                                    <TableCell align="right"><strong>Comisión</strong></TableCell>
                                   </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -909,6 +919,10 @@ export default function SalesReportPage() {
                                       </TableCell>
                                       <TableCell><Chip size="small" label={it.status} variant="outlined" /></TableCell>
                                       <TableCell align="right">{formatCurrency(it.revenue)}</TableCell>
+                                      <TableCell align="right" sx={{ color: 'warning.main' }}>
+                                        {formatCurrency(it.commission || 0)}
+                                        {it.commission_rate ? <Typography variant="caption" color="text.secondary" display="block">{Number(it.commission_rate)}%</Typography> : null}
+                                      </TableCell>
                                     </TableRow>
                                   ))}
                                 </TableBody>
