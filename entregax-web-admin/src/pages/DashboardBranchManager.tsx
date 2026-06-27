@@ -27,7 +27,6 @@ import {
   Badge,
 } from '@mui/material';
 import {
-  Inventory2Outlined as InventoryIcon,
   WarningAmberOutlined as WarningIcon,
   CheckCircleOutlineOutlined as CheckCircleIcon,
   DirectionsBoatOutlined as DirectionsBoatIcon,
@@ -878,16 +877,6 @@ export default function DashboardBranchManager() {
       </Stack>
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
-          <KpiCard
-            icon={<InventoryIcon sx={{ fontSize: 22 }} />}
-            label={`En Bodega · ${stats?.sucursal.nombre || 'Mi sucursal'}`}
-            value={stats?.paquetes.en_bodega ?? 0}
-            sub="paquetes asignados a tu sucursal"
-            tone="info"
-          />
-        </Grid>
-
         <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
           <KpiCard
             icon={<CheckCircleIcon sx={{ fontSize: 22 }} />}
