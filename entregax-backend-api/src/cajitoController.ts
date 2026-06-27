@@ -870,8 +870,10 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
               p.box_id, p.created_at, p.received_at, p.delivered_at,
               p.assigned_cost_mxn, p.saldo_pendiente, p.client_paid,
               p.master_id, p.is_master,
-              p.national_carrier, p.national_tracking, p.national_label_url
+              p.national_carrier, p.national_tracking, p.national_label_url,
+              cr.fno AS air_guide
          FROM packages p
+         LEFT JOIN china_receipts cr ON cr.id = p.china_receipt_id
         WHERE (($1::int IS NOT NULL AND p.user_id = $1::int)
                OR ($2::text IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM($2::text))))
           AND (p.is_master = true OR p.master_id IS NULL)

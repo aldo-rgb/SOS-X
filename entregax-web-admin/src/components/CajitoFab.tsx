@@ -531,11 +531,11 @@ function ClientLookupResult({ data }: { data: PackageData }) {
       onClick={() => setTab(key)}
       sx={{
         cursor: 'pointer', px: 1.25, py: 0.5, borderRadius: 999, fontSize: 12, fontWeight: 600,
-        bgcolor: tab === key ? CAJITO_GRADIENT : 'transparent',
+        background: tab === key ? CAJITO_GRADIENT : 'transparent',
         color: tab === key ? 'white' : 'text.secondary',
         border: tab === key ? 'none' : '1px solid #FFD7B5',
         display: 'inline-flex', alignItems: 'center', gap: 0.5,
-        '&:hover': { bgcolor: tab === key ? CAJITO_GRADIENT : '#FFF3E0' },
+        '&:hover': { background: tab === key ? CAJITO_GRADIENT : '#FFF3E0' },
       }}
     >
       {label}{typeof count === 'number' ? ` · ${count}` : ''}
@@ -607,9 +607,12 @@ function ClientLookupResult({ data }: { data: PackageData }) {
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Typography variant="body2" fontWeight={700} fontFamily="monospace" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {p.tracking_internal || p.tracking_provider || `#${p.id}`}
+                    {p.air_guide || p.tracking_internal || p.tracking_provider || `#${p.id}`}
                   </Typography>
-                  {p.tracking_provider && p.tracking_provider !== p.tracking_internal && (
+                  {p.air_guide && p.tracking_internal && (
+                    <Typography variant="caption" color="text.secondary" fontFamily="monospace">Guía corta: {p.tracking_internal}</Typography>
+                  )}
+                  {!p.air_guide && p.tracking_provider && p.tracking_provider !== p.tracking_internal && (
                     <Typography variant="caption" color="text.secondary" fontFamily="monospace">{p.tracking_provider}</Typography>
                   )}
                 </Box>
@@ -645,9 +648,14 @@ function ClientLookupResult({ data }: { data: PackageData }) {
           {deliveredPackages.map(p => (
             <Paper key={p.id} elevation={0} sx={{ p: 1, borderRadius: 2, border: '1px solid #eee', bgcolor: 'white' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                <Typography variant="body2" fontWeight={700} fontFamily="monospace">
-                  {p.tracking_internal || `#${p.id}`}
-                </Typography>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography variant="body2" fontWeight={700} fontFamily="monospace" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.air_guide || p.tracking_internal || `#${p.id}`}
+                  </Typography>
+                  {p.air_guide && p.tracking_internal && (
+                    <Typography variant="caption" color="text.secondary" fontFamily="monospace">Guía corta: {p.tracking_internal}</Typography>
+                  )}
+                </Box>
                 <Chip size="small" label={statusLabel(p.status)} color={statusColor(p.status)} />
               </Box>
               <Box sx={{ display: 'flex', gap: 1.5, mt: 0.5, color: 'text.secondary', flexWrap: 'wrap' }}>
