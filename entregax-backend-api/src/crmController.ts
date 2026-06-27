@@ -1068,11 +1068,17 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
         SELECT p.service_type, p.status,
                ${REVENUE_EXPR}::numeric AS revenue,
                ${COST_EXPR}::numeric AS provider_cost,
-               COALESCE((SELECT ac.commission_amount_mxn FROM advisor_commissions ac
-                          WHERE ac.shipment_type = 'PKG' AND ac.shipment_id = p.id
-                          ORDER BY ac.id DESC LIMIT 1), 0)::numeric AS commission
+               (CASE WHEN ${isSinAsesor ? 'TRUE' : 'FALSE'} THEN 0
+                     ELSE ${REVENUE_EXPR} * COALESCE(cr.percentage, 0) / 100 END)::numeric AS commission
         FROM packages p
         JOIN users client ON p.user_id = client.id
+        LEFT JOIN commission_rates cr ON cr.service_type = (CASE
+          WHEN UPPER(p.service_type) IN ('POBOX_USA','USA','POBOX') THEN 'pobox_usa_mx'
+          WHEN UPPER(p.service_type) IN ('AIR_CHN_MX','AIR_CHINA','AEREO') THEN 'aereo_china_mx'
+          WHEN UPPER(p.service_type) IN ('SEA_CHN_MX','SEA_CHINA','MARITIME','FCL') THEN 'maritimo_china_mx'
+          WHEN UPPER(p.service_type) IN ('AA_DHL','DHL') THEN 'liberacion_aa_dhl'
+          WHEN UPPER(p.service_type) IN ('NACIONAL') THEN 'nacional_mx'
+          ELSE 'pobox_usa_mx' END)
         WHERE p.created_at BETWEEN $1 AND $2 AND ${advFilter}
           AND p.master_id IS NULL
       )
@@ -1237,14 +1243,20 @@ export const getSalesReportServiceItems = async (req: Request, res: Response): P
              po.payment_reference AS payment_ref,
              po.pay_status AS payment_status,
              po.paid_with_credit AS paid_with_credit,
-             COALESCE((SELECT ac.commission_amount_mxn FROM advisor_commissions ac
-                        WHERE ac.shipment_type = 'PKG' AND ac.shipment_id = p.id
-                        ORDER BY ac.id DESC LIMIT 1), 0)::numeric AS commission,
-             (SELECT ac.commission_rate_pct FROM advisor_commissions ac
-                WHERE ac.shipment_type = 'PKG' AND ac.shipment_id = p.id
-                ORDER BY ac.id DESC LIMIT 1) AS commission_rate
+             -- Comisión del asesor = ingreso por guía × tasa del servicio
+             -- (consistente con el ingreso mostrado). 0 si la guía no tiene asesor.
+             (CASE WHEN ${isSinAsesor ? 'TRUE' : 'FALSE'} THEN 0
+                   ELSE ${REVENUE_EXPR} * COALESCE(cr.percentage, 0) / 100 END)::numeric AS commission,
+             cr.percentage AS commission_rate
       FROM packages p
       JOIN users client ON p.user_id = client.id
+      LEFT JOIN commission_rates cr ON cr.service_type = (CASE
+        WHEN UPPER(p.service_type) IN ('POBOX_USA','USA','POBOX') THEN 'pobox_usa_mx'
+        WHEN UPPER(p.service_type) IN ('AIR_CHN_MX','AIR_CHINA','AEREO') THEN 'aereo_china_mx'
+        WHEN UPPER(p.service_type) IN ('SEA_CHN_MX','SEA_CHINA','MARITIME','FCL') THEN 'maritimo_china_mx'
+        WHEN UPPER(p.service_type) IN ('AA_DHL','DHL') THEN 'liberacion_aa_dhl'
+        WHEN UPPER(p.service_type) IN ('NACIONAL') THEN 'nacional_mx'
+        ELSE 'pobox_usa_mx' END)
       LEFT JOIN LATERAL (
         SELECT o.payment_reference, o.pay_status, o.paid_with_credit
         FROM (

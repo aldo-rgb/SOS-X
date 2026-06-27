@@ -71,12 +71,15 @@ export async function generateCommissionForShipment(
     } | null = null;
 
     if (shipmentType === 'PKG') {
+      // Base de comisión = costo POR GUÍA (igual que el ingreso del reporte).
+      // NO usar monto_pagado: en órdenes consolidadas trae el total de la orden
+      // (sobre-cuenta) y en otras viene en 0 (no generaría comisión).
       const res = await pool.query(`
-        SELECT p.user_id, p.tracking_internal, 
-               COALESCE(p.monto_pagado, p.assigned_cost_mxn, 0) as payment_amount,
+        SELECT p.user_id, p.tracking_internal,
+               COALESCE(NULLIF(p.assigned_cost_mxn, 0), p.pobox_service_cost, p.monto_pagado, 0) as payment_amount,
                p.service_type
         FROM packages p
-        WHERE p.id = $1 
+        WHERE p.id = $1
           AND (COALESCE(p.saldo_pendiente, 0) <= 0.01 OR p.payment_status = 'paid' OR p.client_paid = true)
       `, [shipmentId]);
 
@@ -266,7 +269,7 @@ export async function backfillCommissions(limitRows = 500): Promise<{ generated:
       WHERE COALESCE(u.advisor_id, u.referred_by_id) IS NOT NULL
         AND u.role = 'client'
         AND (COALESCE(p.saldo_pendiente, 0) <= 0.01 OR p.payment_status = 'paid' OR p.client_paid = true)
-        AND COALESCE(p.monto_pagado, p.assigned_cost_mxn, 0) > 0
+        AND COALESCE(NULLIF(p.assigned_cost_mxn, 0), p.pobox_service_cost, p.monto_pagado, 0) > 0
         AND NOT EXISTS (
           SELECT 1 FROM advisor_commissions ac 
           WHERE ac.shipment_type = 'PKG' AND ac.shipment_id = p.id
