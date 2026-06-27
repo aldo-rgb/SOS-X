@@ -1177,12 +1177,14 @@ export const getSalesReportServiceItems = async (req: Request, res: Response): P
       // Desglose de la comisión cobrada al cliente (todo sobre la misma base = monto × TC cliente):
       //  - Cliente paga   = comision_cliente_final_porcentaje (p.ej. 6%)
       //  - Entangled cobra= comision_cobrada_porcentaje (p.ej. 3.5%)
-      //  - Entregax gana  = 1% fijo (de lo que queda tras Entangled)
+      //  - Entregax gana  = comision_entregax (incremento configurado del proveedor, p.ej. 1%);
+      //                     para operaciones viejas sin el dato, cae al override del proveedor default.
       //  - Asesor gana    = lo que sobra (cliente − entangled − entregax)
+      const DEFAULT_EGX = `(SELECT COALESCE(override_porcentaje_compra,0) FROM entangled_providers WHERE is_active=true AND is_default=true ORDER BY id ASC LIMIT 1)`;
       const BASE_C = `COALESCE(epr.op_monto,0) * COALESCE(epr.tc_cliente_final, epr.tc_aplicado_usd, 0)`;
       const PCT_CLI = `COALESCE(epr.comision_cliente_final_porcentaje,0)`;
       const PCT_ENT = `COALESCE(epr.comision_cobrada_porcentaje,0)`;
-      const PCT_EGX = `LEAST(1.0, GREATEST(0, ${PCT_CLI} - ${PCT_ENT}))`;
+      const PCT_EGX = `LEAST(COALESCE(NULLIF(epr.comision_entregax,0), ${DEFAULT_EGX}, 0), GREATEST(0, ${PCT_CLI} - ${PCT_ENT}))`;
       const PCT_ASE = `GREATEST(0, ${PCT_CLI} - ${PCT_ENT} - ${PCT_EGX})`;
       const r = await pool.query(`
         SELECT COALESCE(epr.referencia_pago, 'XP'||LPAD(epr.id::text,6,'0')) AS referencia,

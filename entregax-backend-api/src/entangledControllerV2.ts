@@ -242,6 +242,32 @@ export const createPaymentRequestV2 = async (
   // Comisión que XPAY le cobra al cliente
   const commission = await resolveClientFinalCommission(userId, servicio);
 
+  // Desglose de la comisión cobrada al cliente — se conoce desde la config del
+  // proveedor default (p.ej. TRÉBOL) y se guarda desde la creación:
+  //   - Cliente  = commission.porcentaje (lo que XPAY cobra al cliente, p.ej. 6%)
+  //   - Entangled= porcentaje_compra del proveedor (lo que cobra ENTANGLED, p.ej. 3.5%)
+  //   - Entregax = override_porcentaje_compra del proveedor (el "Incremento %
+  //                de compra / Comisión EntregaX" configurable, p.ej. 1%)
+  //   - Asesor   = lo que sobra (cliente − entangled − entregax)
+  let proveedorPctEntangled = 0; // porcentaje_compra (API) — lo que cobra ENTANGLED
+  let proveedorPctEntregax = 0;  // override_porcentaje_compra — incremento configurado de EntregaX
+  try {
+    const pr = await pool.query(
+      `SELECT COALESCE(porcentaje_compra, 0) AS base,
+              COALESCE(override_porcentaje_compra, 0) AS override_pct
+         FROM entangled_providers
+        WHERE is_active = true AND is_default = true
+        ORDER BY id ASC LIMIT 1`
+    );
+    proveedorPctEntangled = Number(pr.rows[0]?.base ?? 0) || 0;
+    proveedorPctEntregax = Number(pr.rows[0]?.override_pct ?? 0) || 0;
+  } catch (e) {
+    console.warn('[ENTANGLED v2] No se pudo resolver % de compra del proveedor default:', e);
+  }
+  const pctClienteIns = Number(commission.porcentaje) || 0;
+  const pctEntregaxIns = Math.min(proveedorPctEntregax, Math.max(0, pctClienteIns - proveedorPctEntangled));
+  const pctAsesorIns = Math.max(0, pctClienteIns - proveedorPctEntangled - pctEntregaxIns);
+
   // Asesor: si la operación la crea un asesor a nombre del cliente, se usa ese
   // asesor; si no, se resuelve del asesor asignado del cliente (informativo).
   let advisorId: number | null = opts?.advisorId ?? null;
@@ -287,6 +313,7 @@ export const createPaymentRequestV2 = async (
          cf_rfc, cf_razon_social, cf_regimen_fiscal, cf_cp, cf_uso_cfdi, cf_email,
          op_monto, op_divisa_destino, op_conceptos,
          comision_cliente_final_porcentaje, tc_cliente_final,
+         comision_cobrada_porcentaje, comision_entregax, comision_asesor,
          instructions_snapshot,
          op_beneficiario_nombre,
          estatus_global, estatus_factura, estatus_proveedor
@@ -297,6 +324,7 @@ export const createPaymentRequestV2 = async (
          $6, $7, $8, $9, $10, $11,
          $12, $13, $14::jsonb,
          $15, $16,
+         $20, $21, $22,
          $17::jsonb,
          $18,
          'pendiente', $19, 'pendiente'
@@ -321,6 +349,9 @@ export const createPaymentRequestV2 = async (
         instructionsSnapshot ? JSON.stringify(instructionsSnapshot) : null,
         beneficiarioNombre,
         servicio === 'pago_con_factura' ? 'pendiente' : 'no_aplica',
+        proveedorPctEntangled,
+        pctEntregaxIns,
+        pctAsesorIns,
       ]
     );
     requestId = ins.rows[0].id;
@@ -564,17 +595,16 @@ export const createPaymentRequestV2 = async (
       ? new Date(Math.min(entangledDeadline.getTime(), nuestroDeadline.getTime()))
       : nuestroDeadline;
 
-  // Desglose de la comisión cobrada al cliente (se persiste al cerrar la operación,
-  // una vez que ENTANGLED devolvió su % cobrado):
+  // Desglose de la comisión cobrada al cliente. Ya se calculó en la creación con
+  // el % de compra del proveedor default; aquí se reafina con el % real que
+  // devolvió ENTANGLED (si vino), cayendo al de la config si no.
   //  - Cliente paga   = commission.porcentaje (p.ej. 6%)
-  //  - Entangled cobra= remote.comision_cobrada_porcentaje (p.ej. 3.5%)
-  //  - Entregax gana  = 1% fijo (de lo que queda tras Entangled)
+  //  - Entangled cobra= remote.comision_cobrada_porcentaje ?? porcentaje_compra (3.5%)
+  //  - Entregax gana  = override_porcentaje_compra del proveedor (incremento configurado, p.ej. 1%)
   //  - Asesor gana    = lo que sobra (cliente − entangled − entregax)
-  const ENTREGAX_PCT_FIJO = 1.0;
-  const pctCliente = Number(commission.porcentaje) || 0;
-  const pctEntangled = Number(remote.comision_cobrada_porcentaje ?? 0) || 0;
-  const pctEntregax = Math.min(ENTREGAX_PCT_FIJO, Math.max(0, pctCliente - pctEntangled));
-  const pctAsesor = Math.max(0, pctCliente - pctEntangled - pctEntregax);
+  const pctEntangled = Number(remote.comision_cobrada_porcentaje ?? proveedorPctEntangled) || 0;
+  const pctEntregax = Math.min(proveedorPctEntregax, Math.max(0, pctClienteIns - pctEntangled));
+  const pctAsesor = Math.max(0, pctClienteIns - pctEntangled - pctEntregax);
 
   let updated = (await pool.query(
     `UPDATE entangled_payment_requests
@@ -593,7 +623,7 @@ export const createPaymentRequestV2 = async (
     [
       remote.transaccion_id,
       estatusTrasFase1,
-      remote.comision_cobrada_porcentaje ?? null,
+      remote.comision_cobrada_porcentaje ?? (proveedorPctEntangled || null),
       remote.tc_aplicado_usd ?? null,
       JSON.stringify(empresasFinales),
       JSON.stringify(remote.raw || {}),
@@ -942,12 +972,14 @@ export async function sendPendingRequestToEntangled(
     };
   }
 
-  // Desglose de la comisión (Entregax 1% fijo, asesor lo que sobra) — se persiste
-  // ahora que ENTANGLED devolvió su % cobrado.
-  const ENTREGAX_PCT_FIJO = 1.0;
+  // Desglose de la comisión — se reafirma ahora que ENTANGLED respondió.
+  // Entregax = el incremento configurado del proveedor (ya guardado en creación
+  // como comision_entregax); asesor = lo que sobra.
   const pctClienteP = Number(reqRow.comision_cliente_final_porcentaje) || 0;
-  const pctEntangledP = Number(remote.comision_cobrada_porcentaje ?? 0) || 0;
-  const pctEntregaxP = Math.min(ENTREGAX_PCT_FIJO, Math.max(0, pctClienteP - pctEntangledP));
+  // % de Entangled: el que devolvió la API o, si no, el ya guardado en creación.
+  const pctEntangledP = Number(remote.comision_cobrada_porcentaje ?? reqRow.comision_cobrada_porcentaje ?? 0) || 0;
+  const pctEntregaxBaseP = Number(reqRow.comision_entregax) || 0;
+  const pctEntregaxP = Math.min(pctEntregaxBaseP, Math.max(0, pctClienteP - pctEntangledP));
   const pctAsesorP = Math.max(0, pctClienteP - pctEntangledP - pctEntregaxP);
 
   const upd = await pool.query(
@@ -967,7 +999,7 @@ export async function sendPendingRequestToEntangled(
       RETURNING *`,
     [
       remote.transaccion_id,
-      remote.comision_cobrada_porcentaje ?? null,
+      remote.comision_cobrada_porcentaje ?? reqRow.comision_cobrada_porcentaje ?? null,
       remote.tc_aplicado_usd ?? null,
       JSON.stringify(remote.empresas_asignadas || []),
       remote.url_comprobante_cliente || reqRow.op_comprobante_cliente_url || null,
@@ -2121,9 +2153,21 @@ export const syncEntangledForCron = async (): Promise<{ ok: boolean; updated: nu
     const provTcUsd = remoteUsd != null ? remoteUsd : tcUsd;
     const provTcRmb = remoteRmb != null ? remoteRmb : tcRmb;
     if (existing.rows.length > 0) {
+      // Mantener sincronizados estado activo y conteo de empresas con el remoto,
+      // no solo los tipos de cambio. Antes el cron solo refrescaba TCs, así que
+      // si el equipo de ENTANGLED reactivaba un proveedor inactivo, aquí nunca
+      // se reflejaba hasta que alguien presionara "Sincronizar desde API".
       await pool.query(
-        `UPDATE entangled_providers SET tipo_cambio_usd=$1, tipo_cambio_rmb=$2, last_synced_at=NOW(), updated_at=NOW() WHERE external_id=$3`,
-        [provTcUsd, provTcRmb, p.id]
+        `UPDATE entangled_providers
+            SET tipo_cambio_usd        = $1,
+                tipo_cambio_rmb        = $2,
+                remote_activo          = $4,
+                is_active              = $4,
+                total_empresas_activas = $5,
+                last_synced_at         = NOW(),
+                updated_at             = NOW()
+          WHERE external_id = $3`,
+        [provTcUsd, provTcRmb, p.id, p.activo !== false, Number(p.total_empresas_activas ?? 0) || 0]
       );
       updated++;
     } else {
