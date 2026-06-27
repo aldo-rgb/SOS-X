@@ -2152,22 +2152,73 @@ export const syncEntangledForCron = async (): Promise<{ ok: boolean; updated: nu
     const remoteRmb = extractTC(p.tipos_cambio?.RMB);
     const provTcUsd = remoteUsd != null ? remoteUsd : tcUsd;
     const provTcRmb = remoteRmb != null ? remoteRmb : tcRmb;
+
+    // Extracción de campos compuestos (misma lógica que syncProveedoresFromRemote).
+    // El API expone:
+    //  - tarifas[]: con servicio_codigo (pago_con_factura, pago_sin_factura,
+    //    pago_sin_factura_efectivo, ...). Se guardan TODAS.
+    //  - costo_operacion.{USD,RMB}.{porcentaje, monto_fijo, moneda}
+    //  - monto_minimo por tarifa (USD/RMB)
+    const pctConFactura = (() => {
+      const t = (p.tarifas || []).find((x: any) => x.servicio_codigo === 'pago_con_factura');
+      return t && t.comision_cliente_porcentaje != null ? Number(t.comision_cliente_porcentaje) : 0;
+    })();
+    const co: any = p.costo_operacion || {};
+    const coUsd: any = co.USD || (String(co.moneda || 'USD').toUpperCase() === 'USD' ? co : null) || {};
+    const coRmb: any = co.RMB || (String(co.moneda || '').toUpperCase() === 'RMB' ? co : null) || {};
+    const costoOpFijoUsd = coUsd.monto_fijo != null ? Number(coUsd.monto_fijo) : 0;
+    const costoOpPctUsd = coUsd.porcentaje != null ? Number(coUsd.porcentaje) : 0;
+    const costoOpFijoRmb = coRmb.monto_fijo != null ? Number(coRmb.monto_fijo) : 0;
+    const costoOpPctRmb = coRmb.porcentaje != null ? Number(coRmb.porcentaje) : 0;
+    const costoOpMoneda = (co.moneda || 'USD').toString().slice(0, 8);
+    const tarifaRef = (p.tarifas || []).find((x: any) => x.servicio_codigo === 'pago_con_factura') || (p.tarifas || [])[0];
+    const minUsd = tarifaRef?.monto_minimo?.USD != null ? Number(tarifaRef.monto_minimo.USD) : 0;
+    const minRmb = tarifaRef?.monto_minimo?.RMB != null ? Number(tarifaRef.monto_minimo.RMB) : 0;
+
     if (existing.rows.length > 0) {
-      // Mantener sincronizados estado activo y conteo de empresas con el remoto,
-      // no solo los tipos de cambio. Antes el cron solo refrescaba TCs, así que
-      // si el equipo de ENTANGLED reactivaba un proveedor inactivo, aquí nunca
-      // se reflejaba hasta que alguien presionara "Sincronizar desde API".
+      // El cron horario refresca TODOS los campos que vienen del API (no solo
+      // TC) para que cambios remotos en tarifas, costos, mínimos o estado activo
+      // se reflejen sin necesidad de presionar manualmente "Sincronizar desde
+      // API". Antes solo se actualizaban los tipos de cambio.
       await pool.query(
         `UPDATE entangled_providers
-            SET tipo_cambio_usd        = $1,
-                tipo_cambio_rmb        = $2,
-                remote_activo          = $4,
-                is_active              = $4,
-                total_empresas_activas = $5,
-                last_synced_at         = NOW(),
-                updated_at             = NOW()
-          WHERE external_id = $3`,
-        [provTcUsd, provTcRmb, p.id, p.activo !== false, Number(p.total_empresas_activas ?? 0) || 0]
+            SET name                            = $1,
+                descripcion                     = $2,
+                tarifas                         = $3::jsonb,
+                tipo_cambio_usd                 = $5,
+                tipo_cambio_rmb                 = $6,
+                porcentaje_compra               = $7,
+                total_empresas_activas          = $8,
+                remote_activo                   = $9,
+                is_active                       = $9,
+                costo_operacion_usd             = $10,
+                costo_operacion_porcentaje      = $11,
+                costo_operacion_moneda          = $12,
+                min_operacion_usd               = $13,
+                min_operacion_rmb               = $14,
+                costo_operacion_rmb             = $15,
+                costo_operacion_porcentaje_rmb  = $16,
+                last_synced_at                  = NOW(),
+                updated_at                      = NOW()
+          WHERE external_id = $4`,
+        [
+          p.nombre,
+          p.descripcion ?? null,
+          JSON.stringify(p.tarifas || []),
+          p.id,
+          provTcUsd,
+          provTcRmb,
+          pctConFactura,
+          Number(p.total_empresas_activas ?? 0) || 0,
+          p.activo !== false,
+          costoOpFijoUsd,
+          costoOpPctUsd,
+          costoOpMoneda,
+          minUsd,
+          minRmb,
+          costoOpFijoRmb,
+          costoOpPctRmb,
+        ]
       );
       updated++;
     } else {
