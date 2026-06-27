@@ -601,6 +601,12 @@ export const getMyTickets = async (req: Request, res: Response): Promise<any> =>
               u.full_name AS client_name, u.box_id AS client_box_id,
               u.email AS client_email, u.phone AS client_phone,
               d.name AS department_name, d.color AS department_color,
+              -- Número de cliente capturado por el asesor (va en el primer mensaje
+              -- como "• Número de cliente: XXX"); se extrae para mostrarlo limpio.
+              NULLIF(TRIM(BOTH E' \t\r\n•-' FROM (
+                SELECT substring(tm.message FROM 'N.mero de cliente:[[:space:]]*([^' || chr(10) || chr(13) || ']+)')
+                FROM ticket_messages tm WHERE tm.ticket_id = t.id ORDER BY tm.created_at ASC LIMIT 1
+              )), '') AS client_number,
               CASE WHEN t.user_id = $1 THEN 'own' ELSE 'assigned' END AS source
        FROM support_tickets t
        LEFT JOIN users u ON u.id = t.user_id

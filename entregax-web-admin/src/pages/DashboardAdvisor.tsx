@@ -5540,6 +5540,11 @@ export default function DashboardAdvisor() {
                                 ? `${ticket.client_name}${ticket.client_box_id ? ` · Box ${ticket.client_box_id}` : ''}`
                                 : ticket.ticket_folio}
                             </Typography>
+                            {ticket.client_number && (
+                              <Typography variant="caption" sx={{ display: 'block', color: '#F05A28', fontWeight: 700 }}>
+                                👤 Cliente: {ticket.client_number}
+                              </Typography>
+                            )}
                             <Typography variant="caption" color="text.secondary">
                               {ticket.ticket_folio} · {formatDate(ticket.created_at)}
                             </Typography>
@@ -7669,11 +7674,16 @@ export default function DashboardAdvisor() {
             <DialogTitle sx={{ bgcolor: '#F05A28', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Box>
                 <Typography variant="subtitle1" fontWeight={700}>{selectedAdvisorTicket.subject || 'Ticket'}</Typography>
-                <Typography variant="caption" sx={{ opacity: 0.85 }}>
+                <Typography variant="caption" sx={{ opacity: 0.85, display: 'block' }}>
                   {selectedAdvisorTicket.ticket_folio}
                   {selectedAdvisorTicket.client_name ? ` · ${selectedAdvisorTicket.client_name}` : ''}
                   {selectedAdvisorTicket.client_box_id ? ` · Box ${selectedAdvisorTicket.client_box_id}` : ''}
                 </Typography>
+                {selectedAdvisorTicket.client_number && (
+                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>
+                    👤 Cliente: {selectedAdvisorTicket.client_number}
+                  </Typography>
+                )}
               </Box>
               <IconButton onClick={() => { setSelectedAdvisorTicket(null); setTicketMessages([]); }} sx={{ color: '#fff' }}>
                 <CloseIcon />
