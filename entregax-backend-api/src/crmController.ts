@@ -1218,18 +1218,23 @@ export const getSalesReportServiceItems = async (req: Request, res: Response): P
       SELECT p.tracking_internal AS tracking, p.tracking_provider AS origin_tracking,
              p.status, p.created_at,
              ${REVENUE_EXPR}::numeric AS revenue,
-             (SELECT payment_reference FROM (
-                SELECT payment_reference, created_at, package_ids AS ids FROM pobox_payments WHERE COALESCE(status,'') <> 'cancelled'
-                UNION ALL
-                SELECT payment_reference, created_at, package_uids AS ids FROM advisor_payment_orders
-              ) o
-              WHERE o.payment_reference IS NOT NULL AND EXISTS (
-                SELECT 1 FROM jsonb_array_elements_text(COALESCE(o.ids,'[]'::jsonb)) e
-                WHERE e = p.id::text OR e = 'PKG-'||p.id::text
-              )
-              ORDER BY o.created_at DESC LIMIT 1) AS payment_ref
+             po.payment_reference AS payment_ref,
+             po.pay_status AS payment_status
       FROM packages p
       JOIN users client ON p.user_id = client.id
+      LEFT JOIN LATERAL (
+        SELECT o.payment_reference, o.pay_status
+        FROM (
+           SELECT payment_reference, status AS pay_status, created_at, package_ids AS ids FROM pobox_payments WHERE COALESCE(status,'') <> 'cancelled'
+           UNION ALL
+           SELECT payment_reference, status AS pay_status, created_at, package_uids AS ids FROM advisor_payment_orders
+        ) o
+        WHERE o.payment_reference IS NOT NULL AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(COALESCE(o.ids,'[]'::jsonb)) e
+          WHERE e = p.id::text OR e = 'PKG-'||p.id::text
+        )
+        ORDER BY o.created_at DESC LIMIT 1
+      ) po ON true
       WHERE p.created_at BETWEEN $1 AND $2 AND ${advCond} AND p.service_type = $${svcIdx}
       ORDER BY p.created_at DESC
       LIMIT 1000`, p);

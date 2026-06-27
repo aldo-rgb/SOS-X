@@ -823,22 +823,44 @@ export default function SalesReportPage() {
                 <TableRow>
                   <TableCell><strong>Guía</strong></TableCell>
                   <TableCell><strong>Orden de pago</strong></TableCell>
+                  <TableCell><strong>Pago</strong></TableCell>
                   <TableCell><strong>Estatus</strong></TableCell>
                   <TableCell align="right"><strong>Ingreso</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {serviceDetail!.items.map((it: any, i: number) => (
+                {serviceDetail!.items.map((it: any, i: number) => {
+                  const ps = String(it.payment_status || '').toLowerCase();
+                  const payMap: Record<string, { label: string; color: 'success' | 'warning' | 'info' | 'error' | 'default' }> = {
+                    paid: { label: 'Pagado', color: 'success' },
+                    pagado: { label: 'Pagado', color: 'success' },
+                    completed: { label: 'Pagado', color: 'success' },
+                    pending: { label: 'Pendiente', color: 'warning' },
+                    pendiente: { label: 'Pendiente', color: 'warning' },
+                    pending_payment: { label: 'Pendiente', color: 'warning' },
+                    vouchers_submitted: { label: 'Comprobante enviado', color: 'info' },
+                    vouchers_partial: { label: 'Pago parcial', color: 'info' },
+                    cancelled: { label: 'Cancelado', color: 'error' },
+                    cancelado: { label: 'Cancelado', color: 'error' },
+                  };
+                  const pay = payMap[ps];
+                  return (
                   <TableRow key={i}>
                     <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
                       {it.tracking}
                       {it.origin_tracking && <Typography variant="caption" color="text.secondary" display="block">{it.origin_tracking}</Typography>}
                     </TableCell>
                     <TableCell sx={{ fontFamily: 'monospace', color: it.payment_ref ? 'primary.main' : 'text.disabled' }}>{it.payment_ref || 'Sin orden'}</TableCell>
+                    <TableCell>
+                      {pay
+                        ? <Chip size="small" label={pay.label} color={pay.color} variant={pay.color === 'success' ? 'filled' : 'outlined'} />
+                        : <Typography variant="caption" color="text.disabled">—</Typography>}
+                    </TableCell>
                     <TableCell><Chip size="small" label={it.status} variant="outlined" /></TableCell>
                     <TableCell align="right">{formatCurrency(it.revenue)}</TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
