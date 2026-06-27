@@ -1188,7 +1188,9 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
               (${BASE_DHL}          + (SELECT COUNT(*)::int FROM packages WHERE service_type = 'AA_DHL')) as dhl,
               (${BASE_TDI_EXPRESS}  + (SELECT COUNT(*)::int FROM packages WHERE air_source = 'tdi_express' AND is_master = true)) as tdi_express,
               (${BASE_MARITIMO}     + (SELECT COUNT(*)::int FROM maritime_shipments)) as maritimo,
-              (${BASE_CONTENEDORES} + (SELECT COUNT(*)::int FROM containers)) as contenedores
+              (${BASE_CONTENEDORES} + (SELECT COUNT(*)::int FROM containers)) as contenedores,
+              (SELECT COUNT(*)::int FROM containers
+                WHERE reference_code IS NULL OR TRIM(reference_code) = '') as contenedores_sin_referencia
         `);
         const tot = totalesResult.rows[0] || {};
 
@@ -1270,6 +1272,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 tdi_express: parseInt(tot.tdi_express || 0) || 0,
                 maritimo: parseInt(tot.maritimo || 0) || 0,
                 contenedores: parseInt(tot.contenedores || 0) || 0,
+                contenedores_sin_referencia: parseInt(tot.contenedores_sin_referencia || 0) || 0,
             },
         });
     } catch (error) {
@@ -1313,6 +1316,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 tdi_express: 0,
                 maritimo: 0,
                 contenedores: 0,
+                contenedores_sin_referencia: 0,
             },
             warning: 'dashboard_fallback',
         });

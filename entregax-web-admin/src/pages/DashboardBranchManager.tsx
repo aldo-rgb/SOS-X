@@ -92,6 +92,7 @@ interface BranchStats {
     tdi_express: number;
     maritimo: number;
     contenedores: number;
+    contenedores_sin_referencia?: number;
   };
 }
 
@@ -1355,6 +1356,31 @@ export default function DashboardBranchManager() {
                   {(stats.totales_historicos.contenedores || 0).toLocaleString()}
                 </Typography>
                 <Typography variant="caption" sx={{ color: '#94A3B8' }}>FCL / LCL</Typography>
+              </Paper>
+            </Grid>
+
+            {/* Contenedores pendientes de referencia */}
+            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+              <Paper elevation={0} sx={{
+                p: 2, borderRadius: 2,
+                bgcolor: (stats.totales_historicos.contenedores_sin_referencia || 0) > 0 ? '#FEF2F2' : '#fff',
+                border: (stats.totales_historicos.contenedores_sin_referencia || 0) > 0 ? '1px solid #FCA5A5' : '1px solid #E5E7EB',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                borderTop: '3px solid #DC2626',
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <WarningIcon sx={{ fontSize: 16, color: '#DC2626' }} />
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.3, fontSize: '0.68rem' }}>
+                    Sin referencia
+                  </Typography>
+                </Box>
+                <Typography sx={{
+                  fontWeight: 700, fontSize: '1.6rem', lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+                  color: (stats.totales_historicos.contenedores_sin_referencia || 0) > 0 ? '#DC2626' : '#0F172A',
+                }}>
+                  {(stats.totales_historicos.contenedores_sin_referencia || 0).toLocaleString()}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8' }}>contenedores pendientes</Typography>
               </Paper>
             </Grid>
           </Grid>
