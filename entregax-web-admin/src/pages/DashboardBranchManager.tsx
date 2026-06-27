@@ -242,6 +242,11 @@ export default function DashboardBranchManager() {
   // Widget "Verificaciones Pendientes" solo para Director / Admin / Super Admin
   const canSeeVerifications = ['super_admin', 'admin', 'director', 'customer_service', 'soporte_tecnico'].includes(userRole);
 
+  // Alertas globales (contenedores sin referencia / guías AIR sin AWB) solo para Director / Admin / Super Admin
+  const showGlobalOpsAlerts = !!stats?.totales_historicos && ['director', 'admin', 'super_admin'].includes(userRole);
+  const contenedoresSinRef = stats?.totales_historicos?.contenedores_sin_referencia || 0;
+  const guiasAirSinAwb = stats?.totales_historicos?.guias_air_sin_awb || 0;
+
   const loadDelayedCount = async () => {
     try {
       const [resPobox, resAir, resSea, resPartial] = await Promise.all([
@@ -954,7 +959,7 @@ export default function DashboardBranchManager() {
       </Grid>
 
       {/* === Sección: Alertas (retrasos / parciales) === */}
-      {(showPoboxWidget || showAirWidget || showSeaWidget || abandonoCount > 0 || (canSeePartialReceptions && partialReceptions.total > 0)) && (        <>
+      {(showPoboxWidget || showAirWidget || showSeaWidget || abandonoCount > 0 || (canSeePartialReceptions && partialReceptions.total > 0) || showGlobalOpsAlerts) && (        <>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
             <Box sx={{ width: 4, height: 18, bgcolor: '#F05A28', borderRadius: 1 }} />
             <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.9rem', letterSpacing: 0.2, textTransform: 'uppercase' }}>
@@ -964,6 +969,35 @@ export default function DashboardBranchManager() {
           </Stack>
 
           <Grid container spacing={2} sx={{ mb: 4 }}>
+            {showGlobalOpsAlerts && (
+              <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+                <KpiCard
+                  icon={<WarningIcon sx={{ fontSize: 22 }} />}
+                  label="Contenedores sin referencia"
+                  value={contenedoresSinRef}
+                  sub={contenedoresSinRef === 0 ? 'sin pendientes' : contenedoresSinRef === 1 ? 'contenedor pendiente' : 'contenedores pendientes'}
+                  tone={contenedoresSinRef > 0 ? 'danger' : 'neutral'}
+                  category="alert"
+                  badge={contenedoresSinRef > 0 ? contenedoresSinRef : undefined}
+                />
+              </Grid>
+            )}
+
+            {showGlobalOpsAlerts && (
+              <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+                <KpiCard
+                  icon={<FlightTakeoffIcon sx={{ fontSize: 22 }} />}
+                  label="AIR sin AWB"
+                  value={guiasAirSinAwb}
+                  sub={guiasAirSinAwb === 0 ? 'sin pendientes' : guiasAirSinAwb === 1 ? 'guía pdte. de guía aérea' : 'guías pdtes. de guía aérea'}
+                  tone={guiasAirSinAwb > 0 ? 'warning' : 'neutral'}
+                  category="alert"
+                  badge={guiasAirSinAwb > 0 ? guiasAirSinAwb : undefined}
+                  accentBar="#D97706"
+                />
+              </Grid>
+            )}
+
             {showPoboxWidget && (
               <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
                 <KpiCard
@@ -1346,56 +1380,6 @@ export default function DashboardBranchManager() {
                   {(stats.totales_historicos.contenedores || 0).toLocaleString()}
                 </Typography>
                 <Typography variant="caption" sx={{ color: '#94A3B8' }}>FCL / LCL</Typography>
-              </Paper>
-            </Grid>
-
-            {/* Contenedores pendientes de referencia */}
-            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-              <Paper elevation={0} sx={{
-                p: 2, borderRadius: 2,
-                bgcolor: (stats.totales_historicos.contenedores_sin_referencia || 0) > 0 ? '#FEF2F2' : '#fff',
-                border: (stats.totales_historicos.contenedores_sin_referencia || 0) > 0 ? '1px solid #FCA5A5' : '1px solid #E5E7EB',
-                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
-                borderTop: '3px solid #DC2626',
-              }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                  <WarningIcon sx={{ fontSize: 16, color: '#DC2626' }} />
-                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.3, fontSize: '0.68rem' }}>
-                    Sin referencia
-                  </Typography>
-                </Box>
-                <Typography sx={{
-                  fontWeight: 700, fontSize: '1.6rem', lineHeight: 1, fontVariantNumeric: 'tabular-nums',
-                  color: (stats.totales_historicos.contenedores_sin_referencia || 0) > 0 ? '#DC2626' : '#0F172A',
-                }}>
-                  {(stats.totales_historicos.contenedores_sin_referencia || 0).toLocaleString()}
-                </Typography>
-                <Typography variant="caption" sx={{ color: '#94A3B8' }}>contenedores pendientes</Typography>
-              </Paper>
-            </Grid>
-
-            {/* Guías AIR pendientes de AWB (guía aérea) */}
-            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-              <Paper elevation={0} sx={{
-                p: 2, borderRadius: 2,
-                bgcolor: (stats.totales_historicos.guias_air_sin_awb || 0) > 0 ? '#FFFBEB' : '#fff',
-                border: (stats.totales_historicos.guias_air_sin_awb || 0) > 0 ? '1px solid #FCD34D' : '1px solid #E5E7EB',
-                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
-                borderTop: '3px solid #D97706',
-              }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                  <FlightTakeoffIcon sx={{ fontSize: 16, color: '#D97706' }} />
-                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.3, fontSize: '0.68rem' }}>
-                    AIR sin AWB
-                  </Typography>
-                </Box>
-                <Typography sx={{
-                  fontWeight: 700, fontSize: '1.6rem', lineHeight: 1, fontVariantNumeric: 'tabular-nums',
-                  color: (stats.totales_historicos.guias_air_sin_awb || 0) > 0 ? '#D97706' : '#0F172A',
-                }}>
-                  {(stats.totales_historicos.guias_air_sin_awb || 0).toLocaleString()}
-                </Typography>
-                <Typography variant="caption" sx={{ color: '#94A3B8' }}>guías pdtes. de guía aérea</Typography>
               </Paper>
             </Grid>
           </Grid>
