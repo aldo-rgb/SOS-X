@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
 import { useTranslation } from 'react-i18next';
@@ -102,6 +102,8 @@ export default function SalesReportPage() {
   const [advisorDetail, setAdvisorDetail] = useState<{ open: boolean; loading: boolean; advisorId: number | string; name: string; services: any[]; totals: any } | null>(null);
   // Drill-down: lista de items (guías/GEX/X-Pay) de un servicio
   const [serviceDetail, setServiceDetail] = useState<{ open: boolean; loading: boolean; title: string; kind: string; items: any[] } | null>(null);
+  // Órdenes de pago expandidas en el detalle de paquetes
+  const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
   
   // Churn Report State
   const [churnData, setChurnData] = useState<ChurnData[]>([]);
@@ -174,6 +176,7 @@ export default function SalesReportPage() {
   // Drill-down de un servicio: lista de guías / GEX / X-Pay
   const openServiceDetail = async (serviceType: string) => {
     if (!advisorDetail) return;
+    setExpandedOrders({});
     setServiceDetail({ open: true, loading: true, title: serviceType, kind: '', items: [] });
     try {
       const params = new URLSearchParams({ startDate, endDate, service: serviceType });
@@ -821,52 +824,106 @@ export default function SalesReportPage() {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Guía</strong></TableCell>
                   <TableCell><strong>Orden de pago</strong></TableCell>
                   <TableCell><strong>Pago</strong></TableCell>
-                  <TableCell><strong>Estatus</strong></TableCell>
+                  <TableCell align="center"><strong>Guías</strong></TableCell>
                   <TableCell align="right"><strong>Ingreso</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {serviceDetail!.items.map((it: any, i: number) => {
-                  const ps = String(it.payment_status || '').toLowerCase();
-                  const payMap: Record<string, { label: string; color: 'success' | 'warning' | 'info' | 'error' | 'default' }> = {
-                    paid: { label: 'Pagado', color: 'success' },
-                    pagado: { label: 'Pagado', color: 'success' },
-                    completed: { label: 'Pagado', color: 'success' },
-                    pending: { label: 'Pendiente', color: 'warning' },
-                    pendiente: { label: 'Pendiente', color: 'warning' },
-                    pending_payment: { label: 'Pendiente', color: 'warning' },
-                    vouchers_submitted: { label: 'Comprobante enviado', color: 'info' },
-                    vouchers_partial: { label: 'Pago parcial', color: 'info' },
-                    cancelled: { label: 'Cancelado', color: 'error' },
-                    cancelado: { label: 'Cancelado', color: 'error' },
+                {(() => {
+                  const payInfo = (status: any, credit: any) => {
+                    const ps = String(status || '').toLowerCase();
+                    const payMap: Record<string, { label: string; color: 'success' | 'warning' | 'info' | 'error' | 'default' }> = {
+                      paid: { label: 'Pagado', color: 'success' },
+                      pagado: { label: 'Pagado', color: 'success' },
+                      completed: { label: 'Pagado', color: 'success' },
+                      pending: { label: 'Pendiente', color: 'warning' },
+                      pendiente: { label: 'Pendiente', color: 'warning' },
+                      pending_payment: { label: 'Pendiente', color: 'warning' },
+                      vouchers_submitted: { label: 'Comprobante enviado', color: 'info' },
+                      vouchers_partial: { label: 'Pago parcial', color: 'info' },
+                      cancelled: { label: 'Cancelado', color: 'error' },
+                      cancelado: { label: 'Cancelado', color: 'error' },
+                    };
+                    // Pago con crédito: la orden se liquidó con la línea de crédito
+                    // del cliente → cuenta como pagada (igual que en Cajito).
+                    return credit
+                      ? { label: 'Pagado con crédito', color: 'secondary' as const }
+                      : payMap[ps];
                   };
-                  const pay = payMap[ps];
-                  return (
-                  <TableRow key={i}>
-                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-                      {it.tracking}
-                      {it.origin_tracking && <Typography variant="caption" color="text.secondary" display="block">{it.origin_tracking}</Typography>}
-                    </TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace', color: it.payment_ref ? 'primary.main' : 'text.disabled' }}>{it.payment_ref || 'Sin orden'}</TableCell>
-                    <TableCell>
-                      {pay
-                        ? <Chip size="small" label={pay.label} color={pay.color} variant={pay.color === 'success' ? 'filled' : 'outlined'} />
-                        : <Typography variant="caption" color="text.disabled">—</Typography>}
-                    </TableCell>
-                    <TableCell><Chip size="small" label={it.status} variant="outlined" /></TableCell>
-                    <TableCell align="right">{formatCurrency(it.revenue)}</TableCell>
-                  </TableRow>
-                  );
-                })}
+                  // Agrupar las guías por orden de pago (preservando el orden de aparición).
+                  const orderKeys: string[] = [];
+                  const groups: Record<string, any> = {};
+                  for (const it of serviceDetail!.items) {
+                    const key = it.payment_ref || '__none__';
+                    if (!groups[key]) {
+                      groups[key] = { key, ref: it.payment_ref, payment_status: it.payment_status, paid_with_credit: it.paid_with_credit, items: [], total: 0 };
+                      orderKeys.push(key);
+                    }
+                    groups[key].items.push(it);
+                    groups[key].total += Number(it.revenue || 0);
+                  }
+                  return orderKeys.map((key) => {
+                    const g = groups[key];
+                    const isOpen = !!expandedOrders[key];
+                    const pay = key === '__none__' ? null : payInfo(g.payment_status, g.paid_with_credit);
+                    return (
+                      <Fragment key={key}>
+                        <TableRow hover sx={{ cursor: 'pointer', bgcolor: 'action.hover' }} onClick={() => setExpandedOrders(prev => ({ ...prev, [key]: !prev[key] }))}>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              {isOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                              <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, color: g.ref ? 'primary.main' : 'text.disabled' }}>
+                                {g.ref || 'Sin orden'}
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell>
+                            {pay
+                              ? <Chip size="small" label={pay.label} color={pay.color} variant={(pay.color === 'success' || pay.color === 'secondary') ? 'filled' : 'outlined'} />
+                              : <Typography variant="caption" color="text.disabled">—</Typography>}
+                          </TableCell>
+                          <TableCell align="center">{g.items.length}</TableCell>
+                          <TableCell align="right"><strong>{formatCurrency(g.total)}</strong></TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={4} sx={{ p: 0, border: 0 }}>
+                            <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                              <Table size="small" sx={{ bgcolor: 'grey.50' }}>
+                                <TableHead>
+                                  <TableRow>
+                                    <TableCell sx={{ pl: 5 }}><strong>Guía</strong></TableCell>
+                                    <TableCell><strong>Estatus</strong></TableCell>
+                                    <TableCell align="right"><strong>Ingreso</strong></TableCell>
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {g.items.map((it: any, i: number) => (
+                                    <TableRow key={i}>
+                                      <TableCell sx={{ pl: 5, fontFamily: 'monospace', fontWeight: 600 }}>
+                                        {it.tracking}
+                                        {it.origin_tracking && <Typography variant="caption" color="text.secondary" display="block">{it.origin_tracking}</Typography>}
+                                      </TableCell>
+                                      <TableCell><Chip size="small" label={it.status} variant="outlined" /></TableCell>
+                                      <TableCell align="right">{formatCurrency(it.revenue)}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                      </Fragment>
+                    );
+                  });
+                })()}
               </TableBody>
             </Table>
           )}
           {!serviceDetail?.loading && (serviceDetail?.items || []).length > 0 && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
-              {serviceDetail!.items.length} registro(s)
+              {serviceDetail!.items.length} guía(s)
             </Typography>
           )}
         </DialogContent>

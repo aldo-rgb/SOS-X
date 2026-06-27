@@ -930,7 +930,9 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
     // Filtros a nivel PAQUETE (fecha siempre; servicio/estatus opcionales).
     const params: any[] = [startDate || '2020-01-01', endDate || new Date().toISOString()];
     let i = 3;
-    const pkgConds = ['p.created_at BETWEEN $1 AND $2'];
+    // Solo guías master/individuales (master_id IS NULL): las hijas de una
+    // consolidación duplican el ingreso (el master ya suma el total).
+    const pkgConds = ['p.created_at BETWEEN $1 AND $2', 'p.master_id IS NULL'];
     if (serviceType) { pkgConds.push(`p.service_type = $${i++}`); params.push(serviceType); }
     if (status) { pkgConds.push(`p.status = $${i++}`); params.push(status); }
     const pkgWhere = `WHERE ${pkgConds.join(' AND ')}`;
@@ -1067,6 +1069,7 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
         FROM packages p
         JOIN users client ON p.user_id = client.id
         WHERE p.created_at BETWEEN $1 AND $2 AND ${advFilter}
+          AND p.master_id IS NULL
       )
       SELECT
         service_type,
@@ -1219,23 +1222,38 @@ export const getSalesReportServiceItems = async (req: Request, res: Response): P
              p.status, p.created_at,
              ${REVENUE_EXPR}::numeric AS revenue,
              po.payment_reference AS payment_ref,
-             po.pay_status AS payment_status
+             po.pay_status AS payment_status,
+             po.paid_with_credit AS paid_with_credit
       FROM packages p
       JOIN users client ON p.user_id = client.id
       LEFT JOIN LATERAL (
-        SELECT o.payment_reference, o.pay_status
+        SELECT o.payment_reference, o.pay_status, o.paid_with_credit
         FROM (
-           SELECT payment_reference, status AS pay_status, created_at, package_ids AS ids FROM pobox_payments WHERE COALESCE(status,'') <> 'cancelled'
+           SELECT payment_reference, status AS pay_status, created_at, package_ids AS ids,
+                  (LOWER(COALESCE(payment_method,'')) = 'credit' OR COALESCE(credit_applied,0) > 0) AS paid_with_credit
+             FROM pobox_payments WHERE COALESCE(status,'') <> 'cancelled'
            UNION ALL
-           SELECT payment_reference, status AS pay_status, created_at, package_uids AS ids FROM advisor_payment_orders
+           SELECT payment_reference, status AS pay_status, created_at, package_uids AS ids,
+                  false AS paid_with_credit FROM advisor_payment_orders
         ) o
         WHERE o.payment_reference IS NOT NULL AND EXISTS (
           SELECT 1 FROM jsonb_array_elements_text(COALESCE(o.ids,'[]'::jsonb)) e
           WHERE e = p.id::text OR e = 'PKG-'||p.id::text
         )
-        ORDER BY o.created_at DESC LIMIT 1
+        -- Una misma referencia puede existir en ambas tablas (la solicitud del
+        -- asesor 'pendiente' y el pago real en pobox 'completed'). Preferimos el
+        -- estado más pagado para que un pago con crédito no se vea pendiente.
+        ORDER BY (CASE LOWER(COALESCE(o.pay_status,''))
+                    WHEN 'paid' THEN 0 WHEN 'completed' THEN 0 WHEN 'pagado' THEN 0
+                    WHEN 'vouchers_submitted' THEN 1 WHEN 'vouchers_partial' THEN 1
+                    WHEN 'pending' THEN 2 WHEN 'pendiente' THEN 2 WHEN 'pending_payment' THEN 2
+                    ELSE 3 END) ASC,
+                 o.paid_with_credit DESC,
+                 o.created_at DESC
+        LIMIT 1
       ) po ON true
       WHERE p.created_at BETWEEN $1 AND $2 AND ${advCond} AND p.service_type = $${svcIdx}
+        AND p.master_id IS NULL
       ORDER BY p.created_at DESC
       LIMIT 1000`, p);
     return res.json({ success: true, kind: 'package', items: r.rows });
