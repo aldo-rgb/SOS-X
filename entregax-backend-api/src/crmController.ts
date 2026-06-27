@@ -1102,18 +1102,20 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
     `, params);
     if (Number(gex.rows[0].count) > 0) services.push({ service_type: 'GEX (Garantía)', ...gex.rows[0] });
 
-    // X-Pay: las columnas de comisión en pesos no se guardan (siempre 0); se
-    // calcula del monto (USD) × TC × porcentaje. Ingreso = comisión cobrada al
-    // cliente final; costo = comisión que retiene ENTANGLED; ganancia = la
-    // diferencia (lo que gana la empresa). Excluye operaciones canceladas.
+    // X-Pay (modelo "solo comisión"): todo en pesos.
+    //  - INGRESO = comisión cobrada al cliente = monto(USD) × TC_cliente × comisión_cliente%
+    //  - COSTO PROVEEDOR = comisión que nos cobra ENTANGLED = monto(USD) × TC_compra × comisión_ENTANGLED%
+    //  - GANANCIA = INGRESO − COSTO. NO incluye el monto al proveedor ni el margen de TC.
+    // Las comisiones en pesos no se guardan; se calculan del monto y los %.
     const xpayFilter = isSinAsesor ? 'epr.advisor_id IS NULL' : 'epr.advisor_id = $3';
-    const XPAY_BASE = `COALESCE(epr.op_monto, 0) * COALESCE(epr.tc_aplicado_usd, epr.tc_cliente_final, 0)`;
+    const XPAY_REVENUE = `COALESCE(epr.op_monto, 0) * COALESCE(epr.tc_cliente_final, epr.tc_aplicado_usd, 0) * COALESCE(epr.comision_cliente_final_porcentaje, 0) / 100`;
+    const XPAY_COST = `COALESCE(epr.op_monto, 0) * COALESCE(epr.tc_aplicado_usd, epr.tc_cliente_final, 0) * COALESCE(epr.comision_cobrada_porcentaje, 0) / 100`;
     const xpay = await pool.query(`
       SELECT COUNT(*)::int AS count,
              COUNT(*) FILTER (WHERE epr.estatus_global = 'completado')::int AS completed,
-             COALESCE(SUM(${XPAY_BASE} * COALESCE(epr.comision_cliente_final_porcentaje, 0) / 100), 0)::numeric AS revenue,
-             COALESCE(SUM(${XPAY_BASE} * COALESCE(epr.comision_cobrada_porcentaje, 0) / 100), 0)::numeric AS provider_cost,
-             COALESCE(SUM(${XPAY_BASE} * (COALESCE(epr.comision_cliente_final_porcentaje, 0) - COALESCE(epr.comision_cobrada_porcentaje, 0)) / 100), 0)::numeric AS margin
+             COALESCE(SUM(${XPAY_REVENUE}), 0)::numeric AS revenue,
+             COALESCE(SUM(${XPAY_COST}), 0)::numeric AS provider_cost,
+             COALESCE(SUM(${XPAY_REVENUE} - ${XPAY_COST}), 0)::numeric AS margin
       FROM entangled_payment_requests epr
       WHERE ${xpayFilter} AND epr.created_at BETWEEN $1 AND $2
         AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')
@@ -1171,14 +1173,17 @@ export const getSalesReportServiceItems = async (req: Request, res: Response): P
       const p: any[] = [start, end];
       let f = 'epr.advisor_id IS NULL';
       if (!isSinAsesor) { p.push(Number(advisorId)); f = 'epr.advisor_id = $3'; }
-      const BASE = `COALESCE(epr.op_monto,0) * COALESCE(epr.tc_aplicado_usd, epr.tc_cliente_final, 0)`;
+      // Solo comisión: ingreso = comisión al cliente (TC cliente), costo = comisión que nos cobra ENTANGLED (TC compra)
+      const XREV = `COALESCE(epr.op_monto,0) * COALESCE(epr.tc_cliente_final, epr.tc_aplicado_usd, 0) * COALESCE(epr.comision_cliente_final_porcentaje,0)/100`;
+      const XCOST = `COALESCE(epr.op_monto,0) * COALESCE(epr.tc_aplicado_usd, epr.tc_cliente_final, 0) * COALESCE(epr.comision_cobrada_porcentaje,0)/100`;
       const r = await pool.query(`
         SELECT COALESCE(epr.referencia_pago, 'XP'||LPAD(epr.id::text,6,'0')) AS referencia,
                epr.op_beneficiario_nombre AS beneficiario,
                epr.op_monto, epr.op_divisa_destino AS divisa,
                epr.estatus_global AS status, epr.created_at,
-               (${BASE} * COALESCE(epr.comision_cliente_final_porcentaje,0)/100)::numeric AS revenue,
-               (${BASE} * (COALESCE(epr.comision_cliente_final_porcentaje,0) - COALESCE(epr.comision_cobrada_porcentaje,0))/100)::numeric AS margin
+               (${XREV})::numeric AS revenue,
+               (${XCOST})::numeric AS provider_cost,
+               (${XREV} - ${XCOST})::numeric AS margin
         FROM entangled_payment_requests epr
         WHERE ${f} AND epr.created_at BETWEEN $1 AND $2
           AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')
