@@ -502,7 +502,6 @@ export default function SalesReportPage() {
                             <TableCell align="center"><strong>{t('salesReport.completed')}</strong></TableCell>
                             <TableCell align="right"><strong>{t('salesReport.revenue')}</strong></TableCell>
                             <TableCell align="right"><strong>Crédito por cobrar</strong></TableCell>
-                            <TableCell align="right"><strong>{t('salesReport.avgPerShipment')}</strong></TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -533,11 +532,6 @@ export default function SalesReportPage() {
                               <TableCell align="right">
                                 <Typography variant="body2" fontWeight={500} color={Number(advisor.credit_outstanding || 0) > 0 ? 'warning.main' : 'text.disabled'}>
                                   {formatCurrency(advisor.credit_outstanding || 0)}
-                                </Typography>
-                              </TableCell>
-                              <TableCell align="right">
-                                <Typography variant="body2" color="text.secondary">
-                                  {formatCurrency(advisor.avg_revenue_per_shipment)}
                                 </Typography>
                               </TableCell>
                             </TableRow>
