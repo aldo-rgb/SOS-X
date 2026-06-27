@@ -62,6 +62,7 @@ interface SalesData {
   consolidation_shipments: number;
   completed_shipments: number;
   avg_revenue_per_shipment: string;
+  credit_outstanding?: string;
 }
 
 interface ChurnData {
@@ -256,6 +257,7 @@ export default function SalesReportPage() {
       'X-Pay': s.xpay_count,
       'Completados': s.completed_shipments,
       'Ingresos Totales': `$${parseFloat(s.total_revenue || '0').toFixed(2)}`,
+      'Crédito por cobrar': `$${parseFloat(s.credit_outstanding || '0').toFixed(2)}`,
       'Promedio por Envío': `$${parseFloat(s.avg_revenue_per_shipment || '0').toFixed(2)}`,
     }));
 
@@ -499,6 +501,7 @@ export default function SalesReportPage() {
                             <TableCell align="center"><strong>X-Pay</strong></TableCell>
                             <TableCell align="center"><strong>{t('salesReport.completed')}</strong></TableCell>
                             <TableCell align="right"><strong>{t('salesReport.revenue')}</strong></TableCell>
+                            <TableCell align="right"><strong>Crédito por cobrar</strong></TableCell>
                             <TableCell align="right"><strong>{t('salesReport.avgPerShipment')}</strong></TableCell>
                           </TableRow>
                         </TableHead>
@@ -525,6 +528,11 @@ export default function SalesReportPage() {
                               <TableCell align="right">
                                 <Typography variant="body2" fontWeight={500} color="success.main">
                                   {formatCurrency(advisor.total_revenue)}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" fontWeight={500} color={Number(advisor.credit_outstanding || 0) > 0 ? 'warning.main' : 'text.disabled'}>
+                                  {formatCurrency(advisor.credit_outstanding || 0)}
                                 </Typography>
                               </TableCell>
                               <TableCell align="right">

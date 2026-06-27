@@ -975,6 +975,7 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
         COUNT(pkg.advisor_id) FILTER (WHERE pkg.status = 'delivered')::int AS completed_shipments,
         (SELECT COUNT(*)::int FROM warranties w WHERE w.advisor_id = a.id AND w.created_at BETWEEN $1 AND $2) AS gex_shipments,
         (SELECT COUNT(*)::int FROM entangled_payment_requests epr WHERE epr.advisor_id = a.id AND epr.created_at BETWEEN $1 AND $2 AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')) AS xpay_count,
+        (SELECT COALESCE(SUM(usc.used_credit), 0)::numeric FROM user_service_credits usc JOIN users c ON c.id = usc.user_id WHERE COALESCE(c.advisor_id, c.referred_by_id) = a.id) AS credit_outstanding,
         COALESCE(COALESCE(SUM(pkg.revenue), 0) / NULLIF(COUNT(pkg.advisor_id), 0), 0)::numeric AS avg_revenue_per_shipment
       FROM users a
       LEFT JOIN users leader ON a.team_leader_id = leader.id
@@ -1001,6 +1002,7 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
           COUNT(*) FILTER (WHERE status = 'delivered')::int AS completed_shipments,
           (SELECT COUNT(*)::int FROM warranties w WHERE w.advisor_id IS NULL AND w.created_at BETWEEN $1 AND $2) AS gex_shipments,
           (SELECT COUNT(*)::int FROM entangled_payment_requests epr WHERE epr.advisor_id IS NULL AND epr.created_at BETWEEN $1 AND $2 AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')) AS xpay_count,
+          (SELECT COALESCE(SUM(usc.used_credit), 0)::numeric FROM user_service_credits usc JOIN users c ON c.id = usc.user_id WHERE COALESCE(c.advisor_id, c.referred_by_id) IS NULL) AS credit_outstanding,
           COALESCE(SUM(revenue), 0) / NULLIF(COUNT(*), 0) AS avg_revenue_per_shipment
         FROM pkg WHERE advisor_id IS NULL
       `, params);
