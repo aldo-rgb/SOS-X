@@ -1083,7 +1083,7 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
         COALESCE(SUM(revenue), 0)::numeric AS revenue,
         COALESCE(SUM(provider_cost), 0)::numeric AS provider_cost,
         COALESCE(SUM(commission), 0)::numeric AS commission,
-        COALESCE(SUM(revenue) - SUM(provider_cost), 0)::numeric AS margin
+        COALESCE(SUM(revenue) - SUM(provider_cost) - SUM(commission), 0)::numeric AS margin
       FROM pkg
       GROUP BY service_type
       ORDER BY count DESC
@@ -1104,7 +1104,7 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
       SELECT COUNT(*)::int AS count,
              COUNT(*) FILTER (WHERE w.status = 'active')::int AS completed,
              COALESCE(SUM(w.total_cost_mxn), 0)::numeric AS revenue,
-             COALESCE(SUM(w.advisor_commission), 0)::numeric AS provider_cost,
+             0::numeric AS provider_cost,
              COALESCE(SUM(w.advisor_commission), 0)::numeric AS commission,
              COALESCE(SUM(w.total_cost_mxn) - SUM(w.advisor_commission), 0)::numeric AS margin
       FROM warranties w
@@ -1131,7 +1131,7 @@ export const getSalesReportByAdvisor = async (req: Request, res: Response): Prom
              COALESCE(SUM(${XPAY_REVENUE}), 0)::numeric AS revenue,
              COALESCE(SUM(${XPAY_COST}), 0)::numeric AS provider_cost,
              COALESCE(SUM(${XPAY_ASESOR}), 0)::numeric AS commission,
-             COALESCE(SUM(${XPAY_REVENUE} - ${XPAY_COST}), 0)::numeric AS margin
+             COALESCE(SUM(${XPAY_REVENUE} - ${XPAY_COST} - ${XPAY_ASESOR}), 0)::numeric AS margin
       FROM entangled_payment_requests epr
       WHERE ${xpayFilter} AND epr.created_at BETWEEN $1 AND $2
         AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')

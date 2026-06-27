@@ -684,18 +684,18 @@ export default function SalesReportPage() {
       )}
 
       {/* Modal: detalle de ventas por servicio del asesor */}
-      <Dialog open={!!advisorDetail?.open} onClose={() => setAdvisorDetail(null)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'primary.contrastText' }}>
+      <Dialog open={!!advisorDetail?.open} onClose={() => setAdvisorDetail(null)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', py: 1.25, fontSize: '1rem' }}>
           {advisorDetail?.name} — Ventas por servicio
         </DialogTitle>
-        <DialogContent sx={{ pt: 2, mt: 1 }}>
+        <DialogContent sx={{ pt: 1.5, pb: 1.5 }}>
           {advisorDetail?.loading ? (
             <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress /></Box>
           ) : (advisorDetail?.services || []).length === 0 ? (
             <Typography color="text.secondary" sx={{ py: 2 }}>Sin ventas en el periodo seleccionado.</Typography>
           ) : (
             <>
-              <Table size="small">
+              <Table size="small" sx={{ '& td, & th': { py: 0.6 } }}>
                 <TableHead>
                   <TableRow>
                     <TableCell><strong>Servicio</strong></TableCell>
@@ -709,7 +709,7 @@ export default function SalesReportPage() {
                 <TableBody>
                   {advisorDetail!.services.map((s: any) => (
                     <TableRow key={s.service_type} hover sx={{ cursor: 'pointer' }} onClick={() => openServiceDetail(s.service_type)}>
-                      <TableCell sx={{ color: 'primary.main', fontWeight: 600 }}>{s.service_type} ›</TableCell>
+                      <TableCell sx={{ color: 'primary.main', fontWeight: 600, whiteSpace: 'nowrap' }}>{s.service_type} ›</TableCell>
                       <TableCell align="center">{s.count}</TableCell>
                       <TableCell align="right">{formatCurrency(s.revenue)}</TableCell>
                       <TableCell align="right" sx={{ color: 'text.secondary' }}>{formatCurrency(s.provider_cost)}</TableCell>
@@ -720,24 +720,24 @@ export default function SalesReportPage() {
                 </TableBody>
               </Table>
               {advisorDetail?.totals && (
-                <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(0,0,0,0.03)', borderRadius: 2, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2">Envíos totales</Typography>
-                    <Typography variant="body2" fontWeight={700}>{advisorDetail.totals.shipments}</Typography>
+                <Box sx={{ mt: 1.25, p: 1.25, bgcolor: 'rgba(0,0,0,0.03)', borderRadius: 2, display: 'flex', flexWrap: 'wrap', columnGap: 3, rowGap: 0.25 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flex: '1 1 220px' }}>
+                    <Typography variant="caption" color="text.secondary">Envíos</Typography>
+                    <Typography variant="caption" fontWeight={700}>{advisorDetail.totals.shipments}</Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2">Ingreso total</Typography>
-                    <Typography variant="body2" fontWeight={700}>{formatCurrency(advisorDetail.totals.revenue)}</Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flex: '1 1 220px' }}>
+                    <Typography variant="caption" color="text.secondary">Ingreso total</Typography>
+                    <Typography variant="caption" fontWeight={700}>{formatCurrency(advisorDetail.totals.revenue)}</Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2">Costo proveedor</Typography>
-                    <Typography variant="body2" color="text.secondary">{formatCurrency(advisorDetail.totals.provider_cost)}</Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flex: '1 1 220px' }}>
+                    <Typography variant="caption" color="text.secondary">Costo proveedor</Typography>
+                    <Typography variant="caption" color="text.secondary">{formatCurrency(advisorDetail.totals.provider_cost)}</Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2">Comisión asesor</Typography>
-                    <Typography variant="body2" fontWeight={600} color="warning.main">{formatCurrency(advisorDetail.totals.commission)}</Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flex: '1 1 220px' }}>
+                    <Typography variant="caption" color="text.secondary">Comisión asesor</Typography>
+                    <Typography variant="caption" fontWeight={600} color="warning.main">{formatCurrency(advisorDetail.totals.commission)}</Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(0,0,0,0.1)', pt: 0.5, mt: 0.5 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flex: '1 1 100%', borderTop: '1px solid rgba(0,0,0,0.1)', pt: 0.5, mt: 0.25 }}>
                     <Typography variant="body2" fontWeight={700}>Ganancia a la empresa</Typography>
                     <Typography variant="body2" fontWeight={700} color="success.main">{formatCurrency(advisorDetail.totals.margin)}</Typography>
                   </Box>
