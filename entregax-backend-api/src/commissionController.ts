@@ -509,12 +509,16 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
             SELECT 
                 ac.id, ac.advisor_id, ac.advisor_name, ac.leader_id, ac.leader_name,
                 ac.shipment_type, ac.shipment_id, ac.service_type, ac.tracking,
-                ac.client_id, ac.client_name,
+                ac.client_id, ac.client_name, cu.box_id AS client_box,
                 ac.payment_amount_mxn, ac.commission_rate_pct, ac.commission_amount_mxn,
                 ac.leader_override_pct, ac.leader_override_amount,
                 ac.gex_commission_mxn, ac.status, ac.paid_to_advisor_at,
+                COALESCE(ac.awaiting_client_payment, FALSE) AS awaiting_client_payment,
+                COALESCE(ac.client_collected_amount, 0) AS client_collected_amount,
+                ac.client_paid_at,
                 ac.paid_by_admin_id, ac.payment_notes, ac.created_at
             FROM advisor_commissions ac
+            LEFT JOIN users cu ON cu.id = ac.client_id
             ${whereClause}
             ORDER BY ac.created_at DESC
             LIMIT $${paramIdx++} OFFSET $${paramIdx++}
@@ -525,8 +529,9 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
             SELECT 
                 COUNT(*) as total_count,
                 COALESCE(SUM(ac.commission_amount_mxn), 0) as total_commission,
-                COALESCE(SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'pending'), 0) as pending_total,
+                COALESCE(SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'pending' AND COALESCE(ac.awaiting_client_payment, FALSE) = FALSE), 0) as pending_total,
                 COALESCE(SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'paid'), 0) as paid_total,
+                COALESCE(SUM(ac.commission_amount_mxn) FILTER (WHERE COALESCE(ac.awaiting_client_payment, FALSE) = TRUE), 0) as credit_hold_total,
                 COALESCE(SUM(ac.leader_override_amount), 0) as total_leader_override,
                 COUNT(DISTINCT ac.advisor_id) as advisor_count
             FROM advisor_commissions ac
@@ -548,6 +553,7 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                 tracking: r.tracking,
                 clientId: r.client_id,
                 clientName: r.client_name,
+                clientBox: r.client_box || null,
                 paymentAmount: parseFloat(r.payment_amount_mxn) || 0,
                 commissionRate: parseFloat(r.commission_rate_pct) || 0,
                 commissionAmount: parseFloat(r.commission_amount_mxn) || 0,
@@ -555,6 +561,9 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                 leaderOverrideAmount: parseFloat(r.leader_override_amount) || 0,
                 gexCommission: parseFloat(r.gex_commission_mxn) || 0,
                 status: r.status,
+                awaitingClientPayment: r.awaiting_client_payment === true,
+                clientCollectedAmount: parseFloat(r.client_collected_amount) || 0,
+                clientPaidAt: r.client_paid_at,
                 paidAt: r.paid_to_advisor_at,
                 paidByAdminId: r.paid_by_admin_id,
                 paymentNotes: r.payment_notes,
@@ -565,6 +574,7 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                 totalCommission: parseFloat(summary.total_commission) || 0,
                 pendingTotal: parseFloat(summary.pending_total) || 0,
                 paidTotal: parseFloat(summary.paid_total) || 0,
+                creditHoldTotal: parseFloat(summary.credit_hold_total) || 0,
                 totalLeaderOverride: parseFloat(summary.total_leader_override) || 0,
                 advisorCount: parseInt(summary.advisor_count) || 0,
             },
@@ -596,6 +606,7 @@ export const markCommissionsAsPaid = async (req: Request, res: Response): Promis
                 payment_notes = COALESCE($2, payment_notes),
                 updated_at = NOW()
             WHERE id = ANY($3) AND status = 'pending'
+              AND COALESCE(awaiting_client_payment, FALSE) = FALSE
             RETURNING id, advisor_name, commission_amount_mxn
         `, [adminId, notes || null, commission_ids]);
 

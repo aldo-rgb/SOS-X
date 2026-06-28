@@ -6,6 +6,26 @@
 
 import { pool } from './db';
 
+// ── Esquema: columnas para comisiones "en crédito" (retenidas hasta que el cliente cobre) ──
+// awaiting_client_payment = TRUE  → la orden se pagó con crédito y el cliente aún no abona;
+//   la comisión NO es pagable al asesor todavía.
+// client_collected_amount = cuánto del costo de la guía ya cubrió el cliente vía abonos (FIFO).
+let creditHoldSchemaReady: Promise<void> | null = null;
+export function ensureCreditHoldSchema(): Promise<void> {
+  if (!creditHoldSchemaReady) {
+    creditHoldSchemaReady = pool.query(`
+      ALTER TABLE advisor_commissions
+        ADD COLUMN IF NOT EXISTS awaiting_client_payment BOOLEAN DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS client_collected_amount NUMERIC(12,2) DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS client_paid_at TIMESTAMP
+    `).then(() => {}).catch((e) => {
+      console.error('[CommissionService] No pude asegurar columnas de crédito:', e);
+      creditHoldSchemaReady = null; // permitir reintento
+    });
+  }
+  return creditHoldSchemaReady;
+}
+
 // Mapeo de service_type de packages → commission_rates
 const SERVICE_TYPE_MAP: Record<string, string> = {
   'POBOX_USA': 'pobox_usa_mx',
@@ -40,12 +60,15 @@ function mapServiceType(raw: string | null | undefined, shipmentType: string): s
  * Genera comisiones para una lista de paquetes que acaban de ser pagados.
  * Usa ON CONFLICT DO NOTHING para evitar duplicados.
  */
-export async function generateCommissionsForPackages(packageIds: number[]): Promise<void> {
+export async function generateCommissionsForPackages(
+  packageIds: number[],
+  opts?: { creditHold?: boolean }
+): Promise<void> {
   if (!packageIds || packageIds.length === 0) return;
 
   try {
     for (const pkgId of packageIds) {
-      await generateCommissionForShipment('PKG', pkgId);
+      await generateCommissionForShipment('PKG', pkgId, undefined, opts);
     }
   } catch (error) {
     console.error('[CommissionService] Error generating commissions for packages:', error);
@@ -59,9 +82,11 @@ export async function generateCommissionsForPackages(packageIds: number[]): Prom
 export async function generateCommissionForShipment(
   shipmentType: 'PKG' | 'MAR' | 'DHL' | 'GEX',
   shipmentId: number,
-  overridePaymentAmount?: number
+  overridePaymentAmount?: number,
+  opts?: { creditHold?: boolean }
 ): Promise<void> {
   try {
+    await ensureCreditHoldSchema();
     // 1. Obtener datos del embarque según tipo
     let shipmentData: {
       userId: number;
@@ -225,6 +250,7 @@ export async function generateCommissionForShipment(
     }
 
     // 6. Insertar registro de comisión (ON CONFLICT DO NOTHING para evitar duplicados)
+    const creditHold = !!opts?.creditHold;
     await pool.query(`
       INSERT INTO advisor_commissions (
         advisor_id, advisor_name, leader_id, leader_name,
@@ -232,8 +258,9 @@ export async function generateCommissionForShipment(
         client_id, client_name,
         payment_amount_mxn, commission_rate_pct, commission_amount_mxn,
         leader_override_pct, leader_override_amount,
-        gex_commission_mxn, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending')
+        gex_commission_mxn, status,
+        awaiting_client_payment, client_collected_amount
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, 0)
       ON CONFLICT (advisor_id, shipment_type, shipment_id) DO NOTHING
     `, [
       advisorId, advisor.full_name, leaderId, leaderName,
@@ -241,15 +268,99 @@ export async function generateCommissionForShipment(
       clientId, clientName,
       shipmentData.paymentAmount, percentage, commissionAmount,
       appliedLeaderOverridePct, leaderOverrideAmount,
-      gexCommission
+      gexCommission, creditHold
     ]);
 
-    console.log(`[CommissionService] ✅ Comisión generada: asesor=${advisor.full_name} | tipo=${commissionServiceType} | monto=${shipmentData.paymentAmount} | comisión=$${commissionAmount.toFixed(2)} | shipment=${shipmentType}-${shipmentId}`);
+    console.log(`[CommissionService] ✅ Comisión generada${creditHold ? ' (EN CRÉDITO, retenida)' : ''}: asesor=${advisor.full_name} | tipo=${commissionServiceType} | monto=${shipmentData.paymentAmount} | comisión=$${commissionAmount.toFixed(2)} | shipment=${shipmentType}-${shipmentId}`);
 
   } catch (error) {
     // No lanzar error para no afectar el flujo de pago
     console.error(`[CommissionService] Error generating commission for ${shipmentType}-${shipmentId}:`, error);
   }
+}
+
+/**
+ * Libera comisiones "en crédito" de un cliente conforme abona su línea de crédito.
+ *
+ * Regla (acordada con el usuario): liberación POR ORDEN COMPLETA, FIFO.
+ * El abono se aplica a las guías en crédito de la más antigua a la más nueva;
+ * la comisión de una guía se libera SOLO cuando esa guía queda totalmente cobrada
+ * (client_collected_amount >= payment_amount_mxn). Abonos parciales se acumulan
+ * sin liberar hasta cubrir la guía. Pagó más → libera más guías; pagó menos → menos.
+ *
+ * `db` puede ser el pool o un cliente de transacción (para correr dentro del abono).
+ * Devuelve el total de comisión liberada (MXN) y cuántas guías se liberaron.
+ */
+export async function releaseCreditHeldCommissions(
+  db: { query: (text: string, params?: any[]) => Promise<any> },
+  userId: number,
+  amount: number
+): Promise<{ releasedAmount: number; releasedCount: number }> {
+  await ensureCreditHoldSchema();
+  let releasedAmount = 0;
+  let releasedCount = 0;
+  if (!userId || !amount || amount <= 0) return { releasedAmount, releasedCount };
+
+  try {
+    const rows = await db.query(`
+      SELECT id, payment_amount_mxn, client_collected_amount, commission_amount_mxn
+      FROM advisor_commissions
+      WHERE client_id = $1 AND awaiting_client_payment = TRUE
+      ORDER BY created_at ASC, id ASC
+      FOR UPDATE
+    `, [userId]);
+
+    let remaining = amount;
+    for (const r of rows.rows) {
+      if (remaining <= 0.01) break;
+      const base = parseFloat(r.payment_amount_mxn) || 0;
+      const collected = parseFloat(r.client_collected_amount) || 0;
+      const pending = Math.max(0, base - collected);
+
+      // Guía ya cubierta pero aún marcada como retenida → liberar sin consumir abono.
+      if (pending <= 0.01) {
+        await db.query(
+          `UPDATE advisor_commissions
+             SET awaiting_client_payment = FALSE, client_paid_at = NOW()
+           WHERE id = $1`, [r.id]
+        );
+        releasedAmount += parseFloat(r.commission_amount_mxn) || 0;
+        releasedCount++;
+        continue;
+      }
+
+      const toApply = Math.min(remaining, pending);
+      const newCollected = collected + toApply;
+
+      if (newCollected >= base - 0.01) {
+        // Guía totalmente cobrada → liberar comisión.
+        await db.query(
+          `UPDATE advisor_commissions
+             SET client_collected_amount = $2,
+                 awaiting_client_payment = FALSE,
+                 client_paid_at = NOW()
+           WHERE id = $1`, [r.id, base]
+        );
+        releasedAmount += parseFloat(r.commission_amount_mxn) || 0;
+        releasedCount++;
+      } else {
+        // Cobro parcial: acumular, sin liberar todavía (regla por orden completa).
+        await db.query(
+          `UPDATE advisor_commissions SET client_collected_amount = $2 WHERE id = $1`,
+          [r.id, newCollected]
+        );
+      }
+      remaining -= toApply;
+    }
+
+    if (releasedCount > 0) {
+      console.log(`[CommissionService] 💧 Liberadas ${releasedCount} comisión(es) en crédito del cliente ${userId} por abono de $${amount.toFixed(2)} → $${releasedAmount.toFixed(2)} ahora pagables.`);
+    }
+  } catch (error) {
+    console.error(`[CommissionService] Error liberando comisiones en crédito (cliente ${userId}):`, error);
+  }
+
+  return { releasedAmount, releasedCount };
 }
 
 /**

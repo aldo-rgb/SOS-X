@@ -2383,8 +2383,9 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
 
         await client.query('COMMIT');
 
-        // Generar comisiones
-        generateCommissionsForPackages(packageIds).catch(err =>
+        // Generar comisiones. Si se pagó con CRÉDITO, nacen retenidas (no pagables al
+        // asesor) hasta que el cliente abone su línea de crédito (liberación FIFO).
+        generateCommissionsForPackages(packageIds, { creditHold: method === 'credit' }).catch(err =>
             console.error('Error generando comisiones (pago interno):', err)
         );
 
@@ -2579,7 +2580,8 @@ export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): 
             completed = true;
             await client.query('COMMIT');
             if (Array.isArray(packageIds)) {
-                generateCommissionsForPackages(packageIds).catch(err =>
+                // Orden liquidada con crédito → comisiones retenidas hasta el abono del cliente.
+                generateCommissionsForPackages(packageIds, { creditHold: true }).catch(err =>
                     console.error('Error comisiones (crédito total):', err)
                 );
             }

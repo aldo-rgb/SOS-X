@@ -53,6 +53,7 @@ interface CommissionRecord {
   tracking: string;
   clientId: number;
   clientName: string;
+  clientBox: string | null;
   paymentAmount: number;
   commissionRate: number;
   commissionAmount: number;
@@ -60,6 +61,9 @@ interface CommissionRecord {
   leaderOverrideAmount: number;
   gexCommission: number;
   status: string;
+  awaitingClientPayment: boolean;
+  clientCollectedAmount: number;
+  clientPaidAt: string | null;
   paidAt: string | null;
   createdAt: string;
 }
@@ -69,6 +73,7 @@ interface Summary {
   totalCommission: number;
   pendingTotal: number;
   paidTotal: number;
+  creditHoldTotal: number;
   totalLeaderOverride: number;
   advisorCount: number;
 }
@@ -85,6 +90,9 @@ export default function AdvisorCommissionsLedgerPage() {
   const [payNotes, setPayNotes] = useState('');
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+
+  // Lista de asesores para el filtro
+  const [advisorsList, setAdvisorsList] = useState<{ id: number; full_name: string }[]>([]);
 
   // Filters
   const [filterAdvisor, setFilterAdvisor] = useState('');
@@ -119,6 +127,13 @@ export default function AdvisorCommissionsLedgerPage() {
     fetchLedger();
   }, [fetchLedger]);
 
+  // Cargar lista de asesores (una vez) para el filtro
+  useEffect(() => {
+    api.get('/admin/advisors')
+      .then(res => setAdvisorsList(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setAdvisorsList([]));
+  }, []);
+
   // ─── Actions ───
   const handleMarkAsPaid = async () => {
     if (selectedIds.length === 0) return;
@@ -151,7 +166,7 @@ export default function AdvisorCommissionsLedgerPage() {
   };
 
   const toggleSelectAll = () => {
-    const pendingIds = records.filter(r => r.status === 'pending').map(r => r.id);
+    const pendingIds = records.filter(r => r.status === 'pending' && !r.awaitingClientPayment).map(r => r.id);
     if (selectedIds.length === pendingIds.length) {
       setSelectedIds([]);
     } else {
@@ -201,6 +216,17 @@ export default function AdvisorCommissionsLedgerPage() {
           </Card>
           <Card sx={{ flex: 1, minWidth: 180 }}>
             <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Avatar sx={{ bgcolor: '#eceff1', color: '#607d8b' }}><PendingIcon /></Avatar>
+              <Box>
+                <Tooltip title="Comisiones de órdenes pagadas con crédito. Se liberan (pasan a Pendiente) conforme el cliente abona su línea de crédito.">
+                  <Typography variant="caption" color="text.secondary">En crédito (por cobrar)</Typography>
+                </Tooltip>
+                <Typography variant="h6" fontWeight={700} sx={{ color: '#607d8b' }}>{formatMXN(summary.creditHoldTotal ?? 0)}</Typography>
+              </Box>
+            </CardContent>
+          </Card>
+          <Card sx={{ flex: 1, minWidth: 180 }}>
+            <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, '&:last-child': { pb: 1.5 } }}>
               <Avatar sx={{ bgcolor: '#e3f2fd', color: '#2196f3' }}><MoneyIcon /></Avatar>
               <Box>
                 <Typography variant="caption" color="text.secondary">Total</Typography>
@@ -224,6 +250,15 @@ export default function AdvisorCommissionsLedgerPage() {
       <>
           {/* Filters */}
           <Paper sx={{ p: 2, mb: 2, borderRadius: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel>Asesor</InputLabel>
+              <Select value={filterAdvisor} label="Asesor" onChange={e => { setFilterAdvisor(e.target.value); setPage(0); }}>
+                <MenuItem value="">Todos</MenuItem>
+                {advisorsList.map(a => (
+                  <MenuItem key={a.id} value={String(a.id)}>{a.full_name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <FormControl size="small" sx={{ minWidth: 140 }}>
               <InputLabel>Servicio</InputLabel>
               <Select value={filterService} label="Servicio" onChange={e => { setFilterService(e.target.value); setPage(0); }}>
@@ -282,8 +317,8 @@ export default function AdvisorCommissionsLedgerPage() {
                       <TableRow sx={{ bgcolor: '#f5f5f5' }}>
                         <TableCell padding="checkbox">
                           <Checkbox
-                            indeterminate={selectedIds.length > 0 && selectedIds.length < records.filter(r => r.status === 'pending').length}
-                            checked={records.filter(r => r.status === 'pending').length > 0 && selectedIds.length === records.filter(r => r.status === 'pending').length}
+                            indeterminate={selectedIds.length > 0 && selectedIds.length < records.filter(r => r.status === 'pending' && !r.awaitingClientPayment).length}
+                            checked={records.filter(r => r.status === 'pending' && !r.awaitingClientPayment).length > 0 && selectedIds.length === records.filter(r => r.status === 'pending' && !r.awaitingClientPayment).length}
                             onChange={toggleSelectAll}
                             size="small"
                           />
@@ -312,7 +347,7 @@ export default function AdvisorCommissionsLedgerPage() {
                         records.map(r => (
                           <TableRow key={r.id} hover selected={selectedIds.includes(r.id)}>
                             <TableCell padding="checkbox">
-                              {r.status === 'pending' && (
+                              {r.status === 'pending' && !r.awaitingClientPayment && (
                                 <Checkbox
                                   checked={selectedIds.includes(r.id)}
                                   onChange={() => toggleSelect(r.id)}
@@ -337,7 +372,7 @@ export default function AdvisorCommissionsLedgerPage() {
                               <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{r.tracking || '—'}</Typography>
                             </TableCell>
                             <TableCell>
-                              <Typography variant="body2" noWrap sx={{ maxWidth: 100 }}>{r.clientName || '—'}</Typography>
+                              <Typography variant="body2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>{r.clientBox || '—'}</Typography>
                             </TableCell>
                             <TableCell align="right">{formatMXN(r.paymentAmount)}</TableCell>
                             <TableCell align="right">
@@ -352,6 +387,10 @@ export default function AdvisorCommissionsLedgerPage() {
                               {r.status === 'paid' ? (
                                 <Tooltip title={`Pagado ${formatDate(r.paidAt)}`}>
                                   <Chip label="Pagado" size="small" color="success" variant="filled" sx={{ fontSize: '0.7rem' }} />
+                                </Tooltip>
+                              ) : r.awaitingClientPayment ? (
+                                <Tooltip title={`Orden pagada con crédito. La comisión se libera cuando el cliente abone${r.clientCollectedAmount > 0 ? ` (cobrado ${formatMXN(r.clientCollectedAmount)} de ${formatMXN(r.paymentAmount)})` : ''}.`}>
+                                  <Chip label="En crédito" size="small" color="default" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                 </Tooltip>
                               ) : (
                                 <Chip label="Pendiente" size="small" color="warning" variant="filled" sx={{ fontSize: '0.7rem' }} />

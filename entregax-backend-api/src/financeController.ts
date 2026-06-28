@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { releaseCreditHeldCommissions } from './commissionService';
 
 // ============================================
 // INTERFACES
@@ -233,6 +234,9 @@ export const handleOpenpayWebhook = async (req: Request, res: Response): Promise
             SET status = 'paid', paid_at = NOW(), amount_paid = amount
             WHERE user_id = $1 AND status != 'paid'
           `, [userId]);
+
+          // 💧 Liberar comisiones "en crédito" cubiertas por este abono (FIFO).
+          await releaseCreditHeldCommissions(pool, userId, paymentAmount);
 
           console.log(`✅ Deuda liquidada y cuenta desbloqueada para usuario ${userId}`);
           
@@ -490,6 +494,9 @@ export const payCredit = async (req: AuthRequest, res: Response): Promise<any> =
         remaining -= toPay;
       }
     }
+
+    // 💧 Liberar comisiones "en crédito" cubiertas por este abono (FIFO), dentro de la txn.
+    await releaseCreditHeldCommissions(client, userId as number, amount);
 
     await client.query('COMMIT');
 
