@@ -464,10 +464,10 @@ export const calculateCommissions = async (
 // 11. ADMIN: Listar comisiones generadas (con filtros)
 export const getAdvisorCommissionsList = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { 
-            advisor_id, service_type, status, 
-            from_date, to_date, 
-            page = '1', limit = '50' 
+        const {
+            advisor_id, service_type, status,
+            from_date, to_date, client_box, tracking,
+            page = '1', limit = '50'
         } = req.query;
 
         const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
@@ -494,6 +494,15 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
         if (to_date) {
             conditions.push(`ac.created_at <= $${paramIdx++}::date + interval '1 day'`);
             params.push(to_date);
+        }
+        if (client_box) {
+            // Filtro por número de cliente (box_id), sin necesidad del JOIN en count/summary.
+            conditions.push(`ac.client_id IN (SELECT id FROM users WHERE box_id ILIKE $${paramIdx++})`);
+            params.push(`%${(client_box as string).trim()}%`);
+        }
+        if (tracking) {
+            conditions.push(`ac.tracking ILIKE $${paramIdx++}`);
+            params.push(`%${(tracking as string).trim()}%`);
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

@@ -101,6 +101,8 @@ export default function AdvisorCommissionsLedgerPage() {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
+  const [filterClientBox, setFilterClientBox] = useState('');
+  const [filterTracking, setFilterTracking] = useState('');
 
   // ─── Fetch data ───
   const fetchLedger = useCallback(async () => {
@@ -112,6 +114,8 @@ export default function AdvisorCommissionsLedgerPage() {
       if (filterStatus) params.status = filterStatus;
       if (filterFrom) params.from_date = filterFrom;
       if (filterTo) params.to_date = filterTo;
+      if (filterClientBox) params.client_box = filterClientBox.trim();
+      if (filterTracking) params.tracking = filterTracking.trim();
 
       const res = await api.get('/admin/commissions/ledger', { params });
       setRecords(res.data.data);
@@ -122,7 +126,7 @@ export default function AdvisorCommissionsLedgerPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, filterAdvisor, filterService, filterStatus, filterFrom, filterTo]);
+  }, [page, filterAdvisor, filterService, filterStatus, filterFrom, filterTo, filterClientBox, filterTracking]);
 
   useEffect(() => {
     fetchLedger();
@@ -277,13 +281,19 @@ export default function AdvisorCommissionsLedgerPage() {
                 <MenuItem value="paid">Pagado</MenuItem>
               </Select>
             </FormControl>
+            <TextField size="small" label="N° Cliente" placeholder="Ej. S889" value={filterClientBox}
+              onChange={e => { setFilterClientBox(e.target.value); setPage(0); }}
+              sx={{ width: 130 }} />
+            <TextField size="small" label="Tracking" placeholder="Ej. US-9122945797" value={filterTracking}
+              onChange={e => { setFilterTracking(e.target.value); setPage(0); }}
+              sx={{ width: 170 }} />
             <TextField size="small" label="Desde" type="date" value={filterFrom}
               onChange={e => { setFilterFrom(e.target.value); setPage(0); }}
               slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 150 }} />
             <TextField size="small" label="Hasta" type="date" value={filterTo}
               onChange={e => { setFilterTo(e.target.value); setPage(0); }}
               slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 150 }} />
-            <Button size="small" onClick={() => { setFilterAdvisor(''); setFilterService(''); setFilterStatus(''); setFilterFrom(''); setFilterTo(''); setPage(0); }}>
+            <Button size="small" onClick={() => { setFilterAdvisor(''); setFilterService(''); setFilterStatus(''); setFilterFrom(''); setFilterTo(''); setFilterClientBox(''); setFilterTracking(''); setPage(0); }}>
               Limpiar
             </Button>
           </Paper>
