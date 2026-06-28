@@ -313,6 +313,13 @@ export const getMyReferralCode = async (req: Request, res: Response): Promise<an
 // 8. ADMIN: Obtener lista de asesores con jerarquía
 export const getAdvisors = async (req: Request, res: Response): Promise<any> => {
     try {
+        // ?only_active_with_clients=true → solo asesores activos (no bloqueados) y con al menos un cliente.
+        const onlyActiveWithClients = req.query.only_active_with_clients === 'true';
+        const extraConds = onlyActiveWithClients
+            ? `AND COALESCE(u.is_active, true) = true
+               AND COALESCE(u.is_blocked, false) = false
+               AND (SELECT COUNT(*) FROM users r WHERE r.advisor_id = u.id) > 0`
+            : '';
         const result = await pool.query(`
             SELECT
                 u.id,
@@ -332,11 +339,12 @@ export const getAdvisors = async (req: Request, res: Response): Promise<any> => 
             FROM users u
             LEFT JOIN users l ON u.referred_by_id = l.id
             WHERE u.role IN ('asesor', 'asesor_lider', 'advisor', 'sub_advisor')
-            ORDER BY 
+            ${extraConds}
+            ORDER BY
                 CASE WHEN u.role IN ('asesor_lider', 'sub_advisor') THEN 0 ELSE 1 END,
                 u.created_at DESC
         `);
-        
+
         res.json(result.rows);
     } catch (error) {
         console.error('Error getting advisors:', error);

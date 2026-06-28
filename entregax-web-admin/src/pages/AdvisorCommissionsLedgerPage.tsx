@@ -135,7 +135,7 @@ export default function AdvisorCommissionsLedgerPage() {
 
   // Cargar lista de asesores (una vez) para el filtro
   useEffect(() => {
-    api.get('/admin/advisors')
+    api.get('/admin/advisors', { params: { only_active_with_clients: 'true' } })
       .then(res => setAdvisorsList(Array.isArray(res.data) ? res.data : []))
       .catch(() => setAdvisorsList([]));
   }, []);
