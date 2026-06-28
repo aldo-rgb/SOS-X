@@ -85,6 +85,7 @@ export default function AdvisorCommissionsLedgerPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [paying, setPaying] = useState(false);
@@ -108,7 +109,7 @@ export default function AdvisorCommissionsLedgerPage() {
   const fetchLedger = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(page + 1), limit: '50' };
+      const params: Record<string, string> = { page: String(page + 1), limit: String(rowsPerPage) };
       if (filterAdvisor) params.advisor_id = filterAdvisor;
       if (filterService) params.service_type = filterService;
       if (filterStatus) params.status = filterStatus;
@@ -126,7 +127,7 @@ export default function AdvisorCommissionsLedgerPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, filterAdvisor, filterService, filterStatus, filterFrom, filterTo, filterClientBox, filterTracking]);
+  }, [page, rowsPerPage, filterAdvisor, filterService, filterStatus, filterFrom, filterTo, filterClientBox, filterTracking]);
 
   useEffect(() => {
     fetchLedger();
@@ -418,8 +419,10 @@ export default function AdvisorCommissionsLedgerPage() {
                   count={total}
                   page={page}
                   onPageChange={(_, p) => setPage(p)}
-                  rowsPerPage={50}
-                  rowsPerPageOptions={[50]}
+                  rowsPerPage={rowsPerPage}
+                  rowsPerPageOptions={[50, 100]}
+                  onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+                  labelRowsPerPage="Por página"
                   labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
                 />
               </>
