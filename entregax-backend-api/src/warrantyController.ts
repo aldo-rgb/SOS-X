@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { generateGexCommissionFromWarranty } from './commissionService';
 
 interface AuthRequest extends Request {
     user?: { userId: number; role: string };
@@ -319,10 +320,15 @@ export const activateWarranty = async (req: Request, res: Response): Promise<voi
             res.status(404).json({ error: 'Póliza no encontrada' });
             return;
         }
-        
-        res.json({ 
-            message: '¡Póliza Activada!', 
-            policy: result.rows[0] 
+
+        // Generar comisión GEX del asesor (idempotente).
+        generateGexCommissionFromWarranty(Number(id)).catch(err =>
+            console.error('Error comisión GEX al activar póliza:', err)
+        );
+
+        res.json({
+            message: '¡Póliza Activada!',
+            policy: result.rows[0]
         });
     } catch (error) {
         console.error('Error activating warranty:', error);

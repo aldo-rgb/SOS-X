@@ -280,6 +280,75 @@ export async function generateCommissionForShipment(
 }
 
 /**
+ * Genera la comisión GEX de una garantía (usa warranties.advisor_id + advisor_commission,
+ * consistente con el Reporte de Ventas). Idempotente.
+ */
+export async function generateGexCommissionFromWarranty(warrantyId: number): Promise<void> {
+  try {
+    await ensureCreditHoldSchema();
+    const r = await pool.query(`
+      INSERT INTO advisor_commissions
+        (advisor_id, advisor_name, leader_id, leader_name, shipment_type, shipment_id, service_type, tracking,
+         client_id, client_name, payment_amount_mxn, commission_rate_pct, commission_amount_mxn,
+         leader_override_pct, leader_override_amount, gex_commission_mxn, status)
+      SELECT w.advisor_id, a.full_name, NULL, NULL, 'GEX', w.id, 'gex_warranty', w.gex_folio,
+             w.user_id, c.full_name, COALESCE(w.total_cost_mxn,0), 0, COALESCE(w.advisor_commission,0),
+             0, 0, COALESCE(w.advisor_commission,0), 'pending'
+      FROM warranties w
+      JOIN users a ON a.id = w.advisor_id
+      LEFT JOIN users c ON c.id = w.user_id
+      WHERE w.id = $1 AND w.advisor_id IS NOT NULL AND COALESCE(w.advisor_commission,0) > 0
+        AND COALESCE(w.status,'') <> 'rejected'
+      ON CONFLICT (advisor_id, shipment_type, shipment_id) DO NOTHING
+    `, [warrantyId]);
+    if (r.rowCount) console.log(`[CommissionService] ✅ Comisión GEX generada: warranty=${warrantyId}`);
+  } catch (e) {
+    console.error(`[CommissionService] Error generando comisión GEX warranty=${warrantyId}:`, e);
+  }
+}
+
+/**
+ * Genera la comisión XPAY de una operación Entangled (fórmula del asesor del Reporte:
+ * base = monto × TC; asesor% = cliente% − entangled% − entregax%). Idempotente.
+ */
+export async function generateXpayCommission(eprId: number): Promise<void> {
+  try {
+    await ensureCreditHoldSchema();
+    const r = await pool.query(`
+      WITH x AS (
+        SELECT epr.id, epr.advisor_id, epr.user_id, epr.referencia_pago,
+          (COALESCE(epr.op_monto,0) * COALESCE(epr.tc_cliente_final, epr.tc_aplicado_usd, 0)) AS base_c,
+          COALESCE(epr.comision_cliente_final_porcentaje,0) AS ccf,
+          COALESCE(epr.comision_cobrada_porcentaje,0) AS cco,
+          LEAST(
+            COALESCE(NULLIF(epr.comision_entregax,0),
+                     (SELECT COALESCE(override_porcentaje_compra,0) FROM entangled_providers WHERE is_active=true AND is_default=true ORDER BY id ASC LIMIT 1), 0),
+            GREATEST(0, COALESCE(epr.comision_cliente_final_porcentaje,0) - COALESCE(epr.comision_cobrada_porcentaje,0))
+          ) AS pct_egx
+        FROM entangled_payment_requests epr
+        WHERE epr.id = $1 AND epr.advisor_id IS NOT NULL
+          AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')
+      )
+      INSERT INTO advisor_commissions
+        (advisor_id, advisor_name, shipment_type, shipment_id, service_type, tracking,
+         client_id, client_name, payment_amount_mxn, commission_rate_pct, commission_amount_mxn, status)
+      SELECT x.advisor_id, a.full_name, 'XPAY', x.id, 'xpay', x.referencia_pago,
+             x.user_id, c.full_name, ROUND(x.base_c,2),
+             GREATEST(0, x.ccf - x.cco - x.pct_egx),
+             ROUND(x.base_c * GREATEST(0, x.ccf - x.cco - x.pct_egx)/100, 2), 'pending'
+      FROM x
+      JOIN users a ON a.id = x.advisor_id
+      LEFT JOIN users c ON c.id = x.user_id
+      WHERE x.base_c * GREATEST(0, x.ccf - x.cco - x.pct_egx)/100 > 0.01
+      ON CONFLICT (advisor_id, shipment_type, shipment_id) DO NOTHING
+    `, [eprId]);
+    if (r.rowCount) console.log(`[CommissionService] ✅ Comisión XPAY generada: epr=${eprId}`);
+  } catch (e) {
+    console.error(`[CommissionService] Error generando comisión XPAY epr=${eprId}:`, e);
+  }
+}
+
+/**
  * Libera comisiones "en crédito" de un cliente conforme abona su línea de crédito.
  *
  * Regla (acordada con el usuario): liberación POR ORDEN COMPLETA, FIFO.

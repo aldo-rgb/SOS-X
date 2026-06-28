@@ -43,7 +43,7 @@ if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEBUG_LOGS !== '
 }
 
 import { pool } from './db';
-import { generateCommissionsForPackages } from './commissionService';
+import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
 import { 
   registerUser, 
   loginUser, 
@@ -1337,14 +1337,20 @@ async function activateGexForPaidPackages(packageIds: number[]): Promise<void> {
     
     // Activate warranties that are still pending
     const updated = await pool.query(`
-      UPDATE warranties 
+      UPDATE warranties
       SET status = 'active', activated_at = NOW(), paid_at = COALESCE(paid_at, NOW())
       WHERE gex_folio = ANY($1) AND status IN ('generated', 'pending_payment')
-      RETURNING gex_folio
+      RETURNING gex_folio, id
     `, [folios]);
-    
+
     if (updated.rowCount && updated.rowCount > 0) {
       console.log(`🛡️ GEX auto-activadas: ${updated.rows.map((r: any) => r.gex_folio).join(', ')}`);
+      // Generar comisiones GEX del asesor (idempotente).
+      for (const r of updated.rows) {
+        generateGexCommissionFromWarranty(Number(r.id)).catch((err: any) =>
+          console.error('Error comisión GEX auto-activación:', err)
+        );
+      }
     }
   } catch (err: any) {
     console.error('Error activando GEX automáticamente:', err.message);

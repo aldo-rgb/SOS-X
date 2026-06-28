@@ -40,6 +40,7 @@ const serviceLabels: Record<string, string> = {
   'nacional_mx': '🚚 Nacional',
   'liberacion_aa_dhl': '📮 DHL',
   'gex_warranty': '🛡️ GEX',
+  'xpay': '💱 X-Pay',
 };
 
 interface CommissionRecord {

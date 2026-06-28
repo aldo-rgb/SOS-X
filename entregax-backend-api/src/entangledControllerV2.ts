@@ -47,6 +47,7 @@ import {
   listProveedoresRemote,
   callAsignacion,
 } from './entangledServiceV2';
+import { generateXpayCommission } from './commissionService';
 
 const SERVICIOS_VALIDOS: EntangledServicio[] = ['pago_con_factura', 'pago_sin_factura'];
 
@@ -794,6 +795,7 @@ export async function sendPendingRequestToEntangled(
         RETURNING *`,
       [up.url_comprobante_cliente || null, requestId]
     );
+    generateXpayCommission(Number(requestId)).catch((e: any) => console.error('Error comisión XPAY:', e));
     return {
       ok: true,
       status: 200,
@@ -1009,6 +1011,8 @@ export async function sendPendingRequestToEntangled(
       pctAsesorP,
     ]
   );
+
+  generateXpayCommission(Number(requestId)).catch((e: any) => console.error('Error comisión XPAY:', e));
 
   return {
     ok: true,
