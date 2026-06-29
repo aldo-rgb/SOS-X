@@ -147,9 +147,15 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         END AS status,
         pp.payment_reference,
         pp.id AS pobox_payment_id,
-        NULL AS bank_clabe,
-        NULL AS bank_name,
-        NULL AS beneficiario,
+        -- Antes devolvíamos NULL aquí para órdenes creadas por el cliente.
+        -- Como resultado, el PDF de instrucciones de pago salía con
+        -- "Cuenta: -" y "CLABE: -". Ahora inferimos el service_type del
+        -- primer paquete relacionado y traemos la cuenta bancaria real
+        -- desde service_company_config + fiscal_emitters (igual que la
+        -- rama de órdenes creadas por asesor).
+        pp_bank.bank_clabe,
+        pp_bank.bank_name,
+        pp_bank.beneficiario,
         pp.paid_at,
         pp.facturada,
         pp.requiere_factura,
@@ -158,6 +164,21 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         pp.created_at
       FROM pobox_payments pp
       JOIN users u ON u.id = pp.user_id
+      LEFT JOIN LATERAL (
+        SELECT fe.bank_clabe, fe.bank_name, fe.business_name AS beneficiario
+          FROM (
+            SELECT COALESCE(p.service_type, 'POBOX_USA') AS svc_type
+              FROM packages p
+             WHERE p.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
+             ORDER BY p.id ASC
+             LIMIT 1
+          ) inferred
+          JOIN service_company_config scc
+            ON scc.service_type = COALESCE(inferred.svc_type, 'POBOX_USA')
+           AND scc.is_active = TRUE
+          JOIN fiscal_emitters fe ON fe.id = scc.emitter_id
+         LIMIT 1
+      ) pp_bank ON TRUE
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
         AND pp.status NOT IN ('expired')
         AND pp.id NOT IN (

@@ -1927,10 +1927,16 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             }
 
             const enriched: any = { ...row, packages, cost_breakdown };
-            if (row.payment_method === 'cash') {
-                enriched.bank_info = bankInfo;
-                enriched.branch_info = branchInfo;
-            }
+            // Antes solo se enviaba bank_info cuando payment_method === 'cash'.
+            // Eso dejaba sin datos al PDF de instrucciones de pago cuando el
+            // cliente cambiaba su método a transferencia/spei después de crear
+            // la orden (el campo payment_method en BD puede seguir siendo
+            // 'paypal' u otro) y el PDF salía con "Cuenta: -" y "CLABE: -".
+            // Ahora siempre adjuntamos la cuenta bancaria del servicio para
+            // que el frontend pueda mostrarla cuando el usuario elija
+            // transferir manualmente.
+            enriched.bank_info = bankInfo;
+            enriched.branch_info = branchInfo;
             payments.push(enriched);
         }
 
