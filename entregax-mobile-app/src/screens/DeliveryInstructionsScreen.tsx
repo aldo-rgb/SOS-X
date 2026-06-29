@@ -266,7 +266,9 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   // Además se respeta la disponibilidad por shipment_type:
   //  - Marítimo: solo CDMX disponible
   //  - Aéreo China: CDMX y MTY disponibles
-  //  - USA / PO Box / DHL / otros: solo MTY disponible
+  //  - USA / PO Box / DHL / otros: CDMX y MTY disponibles
+  //    (se ofrece EntregaX Local en cualquiera de las dos zonas;
+  //     la filtración por CP destino decide cuál mostrar).
   const localEntregaxOptions: CarrierOption[] = (() => {
     const cdmx: CarrierOption = {
       id: 'entregax_local_cdmx',
@@ -287,7 +289,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     let available: CarrierOption[];
     if (shipmentType === 'maritime') available = [cdmx];
     else if (shipmentType === 'china_air') available = [cdmx, mty];
-    else available = [mty];
+    else available = [cdmx, mty];
 
     // Si aún no hay ZIP seleccionado, mostramos todas las disponibles del tipo
     if (!selectedZip) return available;
