@@ -9640,6 +9640,74 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
 });
 
 // ============================================
+// CARTERA PENDIENTE / GUÍAS PENDIENTES — detalle para los KPIs del dashboard
+// Mismo universo que el KPI de cartera vencida del dashboard:
+// guías con saldo pendiente > 0. Devuelve resumen por cliente y lista de guías.
+// ============================================
+app.get('/api/admin/finance/cartera-pendiente', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        p.id,
+        p.tracking_internal AS tracking_interno,
+        p.description AS descripcion,
+        p.service_type,
+        p.payment_status,
+        p.received_at,
+        COALESCE(p.assigned_cost_mxn, 0) AS costo,
+        COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) AS saldo,
+        p.user_id,
+        COALESCE(u.box_id, p.box_id) AS box_id,
+        u.full_name AS cliente
+      FROM packages p
+      LEFT JOIN users u ON u.id = p.user_id
+      WHERE (p.payment_status IN ('pending', 'partial') OR p.payment_status IS NULL)
+        AND p.assigned_cost_mxn > 0
+        AND COALESCE(p.saldo_pendiente, p.assigned_cost_mxn) > 0
+      ORDER BY saldo DESC
+    `);
+
+    const guias = result.rows.map((g: any) => ({
+      id: g.id,
+      tracking_interno: g.tracking_interno,
+      descripcion: g.descripcion || 'Sin descripción',
+      service_type: g.service_type,
+      payment_status: g.payment_status || 'pending',
+      received_at: g.received_at,
+      costo: parseFloat(g.costo) || 0,
+      saldo: parseFloat(g.saldo) || 0,
+      user_id: g.user_id,
+      box_id: g.box_id,
+      cliente: g.cliente || 'Cliente',
+    }));
+
+    // Resumen por cliente
+    const byClient = new Map<string, any>();
+    for (const g of guias) {
+      const key = g.user_id != null ? `u${g.user_id}` : `b${g.box_id || g.id}`;
+      if (!byClient.has(key)) {
+        byClient.set(key, { user_id: g.user_id, box_id: g.box_id, cliente: g.cliente, total_saldo: 0, guias_count: 0 });
+      }
+      const c = byClient.get(key);
+      c.total_saldo += g.saldo;
+      c.guias_count += 1;
+    }
+    const por_cliente = Array.from(byClient.values()).sort((a, b) => b.total_saldo - a.total_saldo);
+
+    res.json({
+      success: true,
+      total_cartera: guias.reduce((s, g) => s + g.saldo, 0),
+      total_guias: guias.length,
+      por_cliente,
+      guias,
+    });
+  } catch (error: any) {
+    console.error('Error getting cartera pendiente:', error);
+    res.status(500).json({ error: 'Error obteniendo cartera pendiente', details: error.message });
+  }
+});
+
+// ============================================
 // ÚLTIMO MOVIMIENTO GUARDADO — para verificar continuidad antes de nuevo upload
 app.get('/api/admin/finance/bank-entries/last', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
   try {

@@ -94,6 +94,7 @@ import CobranzaDashboardScreen from './src/screens/CobranzaDashboardScreen';
 import CobranzaPendingScreen from './src/screens/CobranzaPendingScreen';
 import CobranzaPaymentDetailScreen from './src/screens/CobranzaPaymentDetailScreen';
 import CobranzaBankEntriesScreen from './src/screens/CobranzaBankEntriesScreen';
+import CobranzaCarteraScreen from './src/screens/CobranzaCarteraScreen';
 import ChinaSeaReceptionScreen from './src/screens/ChinaSeaReceptionScreen';
 import ChinaSeaInventoryScreen from './src/screens/ChinaSeaInventoryScreen';
 import RelabelingScreen from './src/screens/RelabelingScreen';
@@ -218,6 +219,7 @@ export type RootStackParamList = {
   CobranzaPending: { user: any; token: string; serviceType: string; serviceLabel: string };
   CobranzaPaymentDetail: { user: any; token: string; referencia: string; orderId?: number | null; payment?: any };
   CobranzaBankEntries: { user: any; token: string; empresaId: number; empresaAlias: string; banco?: string | null };
+  CobranzaCartera: { user: any; token: string; mode: 'cartera' | 'guias' };
   // Advisor Screens
   AdvisorDashboard: { user: any; token: string };
   AdvisorClients: { user: any; token: string };
@@ -491,6 +493,7 @@ function App() {
           <Stack.Screen name="CobranzaPending" component={CobranzaPendingScreen} />
           <Stack.Screen name="CobranzaPaymentDetail" component={CobranzaPaymentDetailScreen} />
           <Stack.Screen name="CobranzaBankEntries" component={CobranzaBankEntriesScreen} />
+          <Stack.Screen name="CobranzaCartera" component={CobranzaCarteraScreen} />
           <Stack.Screen name="ChinaSeaReception" component={ChinaSeaReceptionScreen} />
           <Stack.Screen name="ChinaSeaInventory" component={ChinaSeaInventoryScreen} />
           <Stack.Screen name="Relabeling" component={RelabelingScreen} />

@@ -207,8 +207,10 @@ export default function CobranzaDashboardScreen({ navigation, route }: Props) {
         {/* Cartera */}
         <SectionTitle icon="alert-circle" text="Cartera" />
         <View style={styles.kpiRow}>
-          <Kpi label="Cartera vencida" value={money(kpis.cartera_vencida)} color={RED} icon="warning-outline" />
-          <Kpi label="Guías pendientes" value={String(kpis.guias_pendientes)} color="#EF6C00" icon="cube-outline" />
+          <Kpi label="Cartera vencida" value={money(kpis.cartera_vencida)} color={RED} icon="warning-outline"
+            onPress={() => navigation.navigate('CobranzaCartera', { user, token, mode: 'cartera' })} />
+          <Kpi label="Guías pendientes" value={String(kpis.guias_pendientes)} color="#EF6C00" icon="cube-outline"
+            onPress={() => navigation.navigate('CobranzaCartera', { user, token, mode: 'guias' })} />
         </View>
 
         {/* Distribución de métodos */}
@@ -331,14 +333,25 @@ function BigKpi({ label, value, sub, color, icon }: { label: string; value: stri
   );
 }
 
-function Kpi({ label, value, color, icon }: { label: string; value: string; color: string; icon: any }) {
-  return (
-    <View style={[styles.kpiBox, { borderLeftColor: color }]}>
-      <Ionicons name={icon} size={14} color={color} />
+function Kpi({ label, value, color, icon, onPress }: { label: string; value: string; color: string; icon: any; onPress?: () => void }) {
+  const inner = (
+    <>
+      <View style={styles.kpiTop}>
+        <Ionicons name={icon} size={14} color={color} />
+        {onPress && <Ionicons name="chevron-forward" size={14} color="#bbb" />}
+      </View>
       <Text style={styles.kpiVal}>{value}</Text>
       <Text style={styles.kpiLbl}>{label}</Text>
-    </View>
+    </>
   );
+  if (onPress) {
+    return (
+      <TouchableOpacity style={[styles.kpiBox, { borderLeftColor: color }]} activeOpacity={0.7} onPress={onPress}>
+        {inner}
+      </TouchableOpacity>
+    );
+  }
+  return <View style={[styles.kpiBox, { borderLeftColor: color }]}>{inner}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -383,6 +396,7 @@ const styles = StyleSheet.create({
 
   kpiRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   kpiBox: { flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 10, borderLeftWidth: 3 },
+  kpiTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   kpiVal: { fontSize: 13, fontWeight: '700', color: '#222', marginTop: 2 },
   kpiLbl: { fontSize: 10, color: '#666' },
 
