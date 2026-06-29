@@ -41,6 +41,10 @@ interface FinanceData {
   };
   distribucion_metodos: { efectivo: number; spei: number; paypal: number };
   porcentajes: { efectivo: string; spei: string; paypal: string };
+  empresas?: Array<{
+    id: number; alias: string; rfc: string; bank_name: string | null;
+    servicio_asignado: string; service_name: string | null;
+  }>;
   ingresos_por_empresa: Array<{
     empresa_id: number; empresa_nombre: string; rfc: string;
     total_bruto: number; total_neto: number; comisiones: number; transacciones: number;
@@ -57,6 +61,13 @@ const SERVICE_LABEL: Record<string, string> = {
   AIR_CHN_MX: 'Aéreo China', china_air: 'Aéreo China', aereo: 'Aéreo China',
   SEA_CHN_MX: 'Marítimo China', china_sea: 'Marítimo China', maritime: 'Marítimo',
   AA_DHL: 'Nacional DHL', mx_cedis: 'Nacional DHL', dhl: 'DHL',
+};
+const SERVICE_CHIP_COLOR: Record<string, string> = {
+  POBOX_USA: PURPLE, usa_pobox: PURPLE, pobox: PURPLE,
+  AIR_CHN_MX: ORANGE, china_air: ORANGE, aereo: ORANGE,
+  SEA_CHN_MX: BLUE, china_sea: BLUE, maritime: BLUE,
+  AA_DHL: '#C9A227', mx_cedis: '#C9A227', dhl: '#C9A227',
+  general: '#6B7280',
 };
 const METHOD_LABEL: Record<string, string> = { efectivo: 'Efectivo', cash: 'Efectivo', spei: 'SPEI', paypal: 'PayPal' };
 const METHOD_COLOR: Record<string, string> = { efectivo: GREEN, cash: GREEN, spei: BLUE, paypal: '#0070BA' };
@@ -105,6 +116,7 @@ export default function CobranzaDashboardScreen({ navigation, route }: Props) {
   }
 
   const { kpis, distribucion_metodos, porcentajes, ingresos_por_empresa, ingresos_por_servicio, transacciones } = data;
+  const empresas = data.empresas || [];
   const totalMes = distribucion_metodos.efectivo + distribucion_metodos.spei + distribucion_metodos.paypal;
 
   return (
@@ -134,6 +146,38 @@ export default function CobranzaDashboardScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* MOVIMIENTOS DE ESTADO DE CUENTA — por empresa */}
+        {empresas.length > 0 && (
+          <>
+            <SectionTitle icon="card" text="Estado de cuenta" />
+            <View style={styles.cobrarGrid}>
+              {empresas.map(e => {
+                const chip = SERVICE_CHIP_COLOR[e.servicio_asignado] || '#6B7280';
+                const chipLabel = e.service_name || SERVICE_LABEL[e.servicio_asignado] || e.servicio_asignado;
+                return (
+                  <TouchableOpacity
+                    key={e.id}
+                    style={styles.bankCard}
+                    activeOpacity={0.8}
+                    onPress={() => navigation.navigate('CobranzaBankEntries', { user, token, empresaId: e.id, empresaAlias: e.alias, banco: e.bank_name })}
+                  >
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.bankAlias} numberOfLines={1}>{e.alias}</Text>
+                      <View style={[styles.bankChip, { backgroundColor: chip + '1A' }]}>
+                        <Text style={[styles.bankChipTxt, { color: chip }]} numberOfLines={1}>{chipLabel}</Text>
+                      </View>
+                      {!!e.bank_name && (
+                        <Text style={styles.bankName} numberOfLines={1}>🏦 {e.bank_name}</Text>
+                      )}
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="#bbb" />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
 
         {/* HOY */}
         <SectionTitle icon="today" text="Hoy" />
@@ -314,6 +358,16 @@ const styles = StyleSheet.create({
   },
   cobrarIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   cobrarLabel: { flex: 1, fontSize: 13, fontWeight: '700', color: '#222' },
+
+  bankCard: {
+    width: '48.5%', backgroundColor: '#fff', borderRadius: 12, padding: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 1,
+  },
+  bankAlias: { fontSize: 13, fontWeight: '800', color: '#222' },
+  bankChip: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginTop: 5 },
+  bankChipTxt: { fontSize: 10, fontWeight: '700' },
+  bankName: { fontSize: 11, color: '#888', marginTop: 5 },
 
   bigKpiRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   bigKpiBox: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 12, borderLeftWidth: 4, gap: 4 },
