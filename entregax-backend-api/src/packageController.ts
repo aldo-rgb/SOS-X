@@ -3126,6 +3126,52 @@ const getChinaAirStatusLabel = (status: string): string => {
 };
 
 // ============ MIS PAQUETES (APP MÓVIL) ============
+// Asegura la columna de etiqueta personalizada (idempotente, una sola vez).
+let packageLabelColReady: Promise<void> | null = null;
+const ensurePackageLabelCol = (): Promise<void> => {
+    if (!packageLabelColReady) {
+        packageLabelColReady = pool.query(
+            `ALTER TABLE packages ADD COLUMN IF NOT EXISTS custom_label TEXT`
+        ).then(() => {}).catch((e) => { console.error('No pude asegurar packages.custom_label:', e); packageLabelColReady = null; });
+    }
+    return packageLabelColReady;
+};
+
+// Crear/editar la ETIQUETA personalizada de un envío (alias que el cliente le pone
+// para reconocerlo). NO modifica la descripción original; se muestra en su lugar.
+export const setPackageLabel = async (req: Request, res: Response): Promise<void> => {
+    try {
+        await ensurePackageLabelCol();
+        const authUser = (req as any).user;
+        const authUserId = Number(authUser?.userId || 0);
+        const authRole = String(authUser?.role || '').toLowerCase();
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
+        const packageId = Number(req.params.id);
+        if (!authUserId) { res.status(401).json({ error: 'No autenticado' }); return; }
+        if (!packageId) { res.status(400).json({ error: 'ID inválido' }); return; }
+
+        const raw = (req.body?.label ?? '').toString().trim();
+        const label = raw.length > 0 ? raw.slice(0, 120) : null; // vacío → quitar etiqueta
+
+        // Dueño del paquete (cliente solo puede etiquetar los suyos; staff cualquiera).
+        const owner = await pool.query(`SELECT user_id FROM packages WHERE id = $1`, [packageId]);
+        if (owner.rows.length === 0) { res.status(404).json({ error: 'Paquete no encontrado' }); return; }
+        if (isClient && Number(owner.rows[0].user_id) !== authUserId) {
+            res.status(403).json({ error: 'No autorizado' }); return;
+        }
+
+        // Aplicar a la guía y, si es master, a sus hijas para que todas muestren la etiqueta.
+        const upd = await pool.query(
+            `UPDATE packages SET custom_label = $1 WHERE id = $2 OR master_id = $2 RETURNING id`,
+            [label, packageId]
+        );
+        res.json({ ok: true, id: packageId, custom_label: label, affected: upd.rowCount });
+    } catch (error) {
+        console.error('Error setPackageLabel:', error);
+        res.status(500).json({ error: 'Error al guardar la etiqueta' });
+    }
+};
+
 export const getMyPackages = async (req: Request, res: Response): Promise<void> => {
     try {
         const authUser = (req as any).user;
@@ -3273,6 +3319,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 tracking_internal: displayTracking,
                 tracking_provider: pkg.tracking_provider,
                 description: pkg.description || null,
+                custom_label: pkg.custom_label || null,
                 weight: pkg.weight ? parseFloat(pkg.weight) : null,
                 dimensions: pkg.pkg_length && pkg.pkg_width && pkg.pkg_height 
                     ? `${pkg.pkg_length}×${pkg.pkg_width}×${pkg.pkg_height} cm` 

@@ -31,7 +31,7 @@ import {
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
-import { getMyPackagesApi, Package, getCarouselSlidesApi, API_URL } from '../services/api';
+import { getMyPackagesApi, setPackageLabelApi, Package, getCarouselSlidesApi, API_URL } from '../services/api';
 import {
   getFollowedTrackings,
   addFollowedTracking,
@@ -135,6 +135,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   // � Estado para modal de rastreo
   const [showTrackingModal, setShowTrackingModal] = useState(false);
+  // ✏️ Etiqueta personalizada de un envío
+  const [labelPkg, setLabelPkg] = useState<Package | null>(null);
+  const [labelText, setLabelText] = useState('');
+  const [savingLabel, setSavingLabel] = useState(false);
   const [trackingSearch, setTrackingSearch] = useState('');
   const [trackedPackage, setTrackedPackage] = useState<Package | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
@@ -487,6 +491,33 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       if (isMounted.current) { setLoading(false); setRefreshing(false); }
     }
   }, [user.id, token]);
+
+  const openLabelEditor = useCallback((pkg: Package) => {
+    setLabelPkg(pkg);
+    setLabelText(pkg.custom_label || '');
+  }, []);
+
+  const handleSaveLabel = useCallback(async () => {
+    if (!labelPkg) return;
+    const value = labelText.trim();
+    setSavingLabel(true);
+    try {
+      await setPackageLabelApi(labelPkg.id, value, token);
+      const newLabel = value.length > 0 ? value : null;
+      // Actualiza la guía y, si era master, todas las que compartan su id como master.
+      setPackages(prev => prev.map(p =>
+        (p.id === labelPkg.id || (p as any).master_id === labelPkg.id)
+          ? { ...p, custom_label: newLabel }
+          : p
+      ));
+      setLabelPkg(null);
+      setLabelText('');
+    } catch (e) {
+      console.error('Error guardando etiqueta:', e);
+    } finally {
+      setSavingLabel(false);
+    }
+  }, [labelPkg, labelText, token]);
 
   // 🎠 Cargar slides del carrusel desde el backend
   const fetchCarouselSlides = useCallback(async () => {
@@ -1020,10 +1051,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 {/* Header del paquete */}
                 <View style={styles.cardHeader}>
                   <View style={styles.trackingContainer}>
-                    {/* Solo mostrar descripción si existe */}
-                    {item.description ? (
+                    {/* Título: etiqueta personalizada (si existe) o descripción.
+                        El lápiz permite crear/editar la etiqueta que se muestra aquí. */}
+                    <View style={styles.titleRow}>
                       <Text style={styles.description} numberOfLines={1}>
                         {(() => {
+                          if (item.custom_label) return item.custom_label;
+                          if (!item.description) return 'Sin descripción';
                           // Remapeo de descripciones MTY/DHL legacy → nuevos nombres
                           if (isDHL) {
                             const pt = (item as any).product_type;
@@ -1042,7 +1076,14 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                           return item.description;
                         })()}
                       </Text>
-                    ) : null}
+                      <TouchableOpacity
+                        onPress={() => openLabelEditor(item)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.labelEditBtn}
+                      >
+                        <Ionicons name="pencil" size={14} color="#E87722" />
+                      </TouchableOpacity>
+                    </View>
                     <View style={styles.trackingRow}>
                       <Text style={styles.trackingNumber}>TRN: {item.tracking_internal}</Text>
                       {item.tracking_internal ? (
@@ -2268,6 +2309,43 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 </Text>
               </View>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ✏️ Modal: etiqueta personalizada del envío */}
+      <Modal visible={!!labelPkg} animationType="fade" transparent onRequestClose={() => setLabelPkg(null)}>
+        <View style={styles.labelModalOverlay}>
+          <View style={styles.labelModalCard}>
+            <Text style={styles.labelModalTitle}>Etiqueta del envío</Text>
+            <Text style={styles.labelModalSubtitle}>
+              Ponle un nombre para reconocerlo fácilmente. Se mostrará en lugar de la descripción.
+            </Text>
+            <TextInput
+              style={styles.labelModalInput}
+              value={labelText}
+              onChangeText={setLabelText}
+              placeholder="Ej. Refacciones del coche"
+              placeholderTextColor="#999"
+              maxLength={120}
+              autoFocus
+            />
+            <View style={styles.labelModalActions}>
+              <TouchableOpacity
+                style={[styles.labelModalBtn, styles.labelModalBtnCancel]}
+                onPress={() => { setLabelPkg(null); setLabelText(''); }}
+                disabled={savingLabel}
+              >
+                <Text style={styles.labelModalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.labelModalBtn, styles.labelModalBtnSave]}
+                onPress={handleSaveLabel}
+                disabled={savingLabel}
+              >
+                <Text style={styles.labelModalBtnSaveText}>{savingLabel ? 'Guardando…' : 'Guardar'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -3850,11 +3928,78 @@ const styles = StyleSheet.create({
   packageCheckboxSelected: {
     // Se puede agregar efecto visual adicional si se desea
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
   description: {
     fontSize: 15,
     fontWeight: '600',
     color: BLACK,
-    marginBottom: 2,
+    flexShrink: 1,
+  },
+  labelEditBtn: {
+    marginLeft: 6,
+    padding: 2,
+  },
+  labelModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  labelModalCard: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+  },
+  labelModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: BLACK,
+    marginBottom: 6,
+  },
+  labelModalSubtitle: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 16,
+  },
+  labelModalInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: BLACK,
+    marginBottom: 18,
+  },
+  labelModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  labelModalBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  labelModalBtnCancel: {
+    backgroundColor: '#f0f0f0',
+  },
+  labelModalBtnCancelText: {
+    color: '#444',
+    fontWeight: '600',
+  },
+  labelModalBtnSave: {
+    backgroundColor: '#E87722',
+  },
+  labelModalBtnSaveText: {
+    color: '#fff',
+    fontWeight: '700',
   },
   trackingNumber: {
     fontSize: 12,

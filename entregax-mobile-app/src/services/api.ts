@@ -70,6 +70,7 @@ export interface Package {
   tracking_internal: string;
   tracking_provider?: string;
   description: string;
+  custom_label?: string | null;
   weight: number | null;
   dimensions: string | null;
   declared_value: number | null;
@@ -147,6 +148,26 @@ export const getMyPackagesApi = async (userId: number, token: string): Promise<P
     throw new Error('Error al obtener paquetes');
   }
 
+  return response.json();
+};
+
+// Crear/editar la etiqueta personalizada de un envío (alias para reconocerlo).
+export const setPackageLabelApi = async (
+  packageId: number,
+  label: string,
+  token: string
+): Promise<{ ok: boolean; custom_label: string | null }> => {
+  const response = await fetch(`${API_URL}/api/packages/${packageId}/label`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ label }),
+  });
+  if (!response.ok) {
+    throw new Error('Error al guardar la etiqueta');
+  }
   return response.json();
 };
 

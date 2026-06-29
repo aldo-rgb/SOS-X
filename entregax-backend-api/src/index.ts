@@ -121,6 +121,7 @@ import {
   getPackageStats,
   getPackageLabels,
   getMyPackages,
+  setPackageLabel,
   createConsolidation,
   getAdminConsolidations,
   dispatchConsolidation,
@@ -4851,6 +4852,7 @@ app.get('/api/packages/track/:tracking', authenticateToken, async (req: Request,
 // --- RUTAS PARA APP MÓVIL (CLIENTES) ---
 // Mis paquetes (requiere autenticación básica)
 app.get('/api/client/packages/:userId', authenticateToken, getMyPackages);
+app.patch('/api/packages/:id/label', authenticateToken, setPackageLabel);
 
 // Crear consolidación (solicitud de envío)
 app.post('/api/consolidations', authenticateToken, createConsolidation);
