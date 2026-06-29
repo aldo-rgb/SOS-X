@@ -88,6 +88,7 @@ interface Advisor {
   referral_count: number;
   created_at: string;
   can_recovery: boolean;
+  is_active?: boolean;
 }
 
 const getServiceIcon = (serviceType: string) => {

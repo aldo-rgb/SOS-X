@@ -502,7 +502,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const value = labelText.trim();
     setSavingLabel(true);
     try {
-      await setPackageLabelApi(labelPkg.id, value, token);
+      // El id real puede venir con offset en marítimo/aéreo china → usar payment_source_id.
+      const realId = (labelPkg as any).payment_source_id || labelPkg.id;
+      const source = labelPkg.shipment_type || 'air';
+      await setPackageLabelApi(realId, value, token, source);
       const newLabel = value.length > 0 ? value : null;
       // Actualiza la guía y, si era master, todas las que compartan su id como master.
       setPackages(prev => prev.map(p =>

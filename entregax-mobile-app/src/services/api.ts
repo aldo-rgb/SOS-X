@@ -100,6 +100,9 @@ export interface Package {
   gex_folio?: string;
   // ✈️🇨🇳 Shipment type for differentiation
   shipment_type?: 'air' | 'maritime' | 'china_air' | 'dhl' | 'fcl' | 'tdi_express';
+  // Id real en la tabla origen (packages/maritime_orders/china_receipts); el id del item
+  // puede venir con offset (+100000 marítimo, +200000 china_air).
+  payment_source_id?: number;
   // 💰 Costos
   assigned_cost_mxn?: number;
   saldo_pendiente?: number;
@@ -155,7 +158,8 @@ export const getMyPackagesApi = async (userId: number, token: string): Promise<P
 export const setPackageLabelApi = async (
   packageId: number,
   label: string,
-  token: string
+  token: string,
+  source: string = 'air'
 ): Promise<{ ok: boolean; custom_label: string | null }> => {
   const response = await fetch(`${API_URL}/api/packages/${packageId}/label`, {
     method: 'PATCH',
@@ -163,7 +167,7 @@ export const setPackageLabelApi = async (
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ label }),
+    body: JSON.stringify({ label, source }),
   });
   if (!response.ok) {
     throw new Error('Error al guardar la etiqueta');

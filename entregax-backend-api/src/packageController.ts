@@ -3126,19 +3126,23 @@ const getChinaAirStatusLabel = (status: string): string => {
 };
 
 // ============ MIS PAQUETES (APP MÓVIL) ============
-// Asegura la columna de etiqueta personalizada (idempotente, una sola vez).
+// Asegura la columna de etiqueta personalizada en las 3 tablas (idempotente).
 let packageLabelColReady: Promise<void> | null = null;
 const ensurePackageLabelCol = (): Promise<void> => {
     if (!packageLabelColReady) {
-        packageLabelColReady = pool.query(
-            `ALTER TABLE packages ADD COLUMN IF NOT EXISTS custom_label TEXT`
-        ).then(() => {}).catch((e) => { console.error('No pude asegurar packages.custom_label:', e); packageLabelColReady = null; });
+        packageLabelColReady = Promise.all([
+            pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS custom_label TEXT`),
+            pool.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS custom_label TEXT`),
+            pool.query(`ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS custom_label TEXT`),
+        ]).then(() => {}).catch((e) => { console.error('No pude asegurar custom_label:', e); packageLabelColReady = null; });
     }
     return packageLabelColReady;
 };
 
 // Crear/editar la ETIQUETA personalizada de un envío (alias que el cliente le pone
 // para reconocerlo). NO modifica la descripción original; se muestra en su lugar.
+// Soporta los 3 orígenes del Home: packages ('air'), maritime_orders ('maritime')
+// y china_receipts ('china_air'). El `:id` es el id REAL de la tabla origen.
 export const setPackageLabel = async (req: Request, res: Response): Promise<void> => {
     try {
         await ensurePackageLabelCol();
@@ -3146,26 +3150,32 @@ export const setPackageLabel = async (req: Request, res: Response): Promise<void
         const authUserId = Number(authUser?.userId || 0);
         const authRole = String(authUser?.role || '').toLowerCase();
         const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
-        const packageId = Number(req.params.id);
+        const realId = Number(req.params.id);
         if (!authUserId) { res.status(401).json({ error: 'No autenticado' }); return; }
-        if (!packageId) { res.status(400).json({ error: 'ID inválido' }); return; }
+        if (!realId) { res.status(400).json({ error: 'ID inválido' }); return; }
 
         const raw = (req.body?.label ?? '').toString().trim();
         const label = raw.length > 0 ? raw.slice(0, 120) : null; // vacío → quitar etiqueta
+        const source = String(req.body?.source || 'air').toLowerCase();
 
-        // Dueño del paquete (cliente solo puede etiquetar los suyos; staff cualquiera).
-        const owner = await pool.query(`SELECT user_id FROM packages WHERE id = $1`, [packageId]);
-        if (owner.rows.length === 0) { res.status(404).json({ error: 'Paquete no encontrado' }); return; }
+        // Tabla + cómo aplicar según el origen del envío.
+        const table = source === 'maritime' ? 'maritime_orders'
+                    : source === 'china_air' ? 'china_receipts'
+                    : 'packages';
+
+        const owner = await pool.query(`SELECT user_id FROM ${table} WHERE id = $1`, [realId]);
+        if (owner.rows.length === 0) { res.status(404).json({ error: 'Envío no encontrado' }); return; }
         if (isClient && Number(owner.rows[0].user_id) !== authUserId) {
             res.status(403).json({ error: 'No autorizado' }); return;
         }
 
-        // Aplicar a la guía y, si es master, a sus hijas para que todas muestren la etiqueta.
+        // En packages, si es master, propagar a las hijas para que todas muestren la etiqueta.
+        const where = table === 'packages' ? 'id = $2 OR master_id = $2' : 'id = $2';
         const upd = await pool.query(
-            `UPDATE packages SET custom_label = $1 WHERE id = $2 OR master_id = $2 RETURNING id`,
-            [label, packageId]
+            `UPDATE ${table} SET custom_label = $1 WHERE ${where} RETURNING id`,
+            [label, realId]
         );
-        res.json({ ok: true, id: packageId, custom_label: label, affected: upd.rowCount });
+        res.json({ ok: true, id: realId, source, custom_label: label, affected: upd.rowCount });
     } catch (error) {
         console.error('Error setPackageLabel:', error);
         res.status(500).json({ error: 'Error al guardar la etiqueta' });
@@ -3430,6 +3440,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             tracking_internal: pkg.ordersn,
             tracking_provider: pkg.ship_number || pkg.bl_number || null,
             description: pkg.goods_name || 'Envío Marítimo',
+            custom_label: pkg.custom_label || null,
             weight: pkg.weight ? parseFloat(pkg.weight) : null,
             volume: pkg.volume ? parseFloat(pkg.volume) : null,
             dimensions: null, // Marítimo no usa dimensiones, usa volumen
@@ -3620,6 +3631,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             tracking_internal: pkg.fno,
             tracking_provider: pkg.international_tracking || null,
             description: `Aéreo China - ${pkg.total_qty || 1} cajas`,
+            custom_label: pkg.custom_label || null,
             weight: pkg.total_weight ? parseFloat(pkg.total_weight) : null,
             volume: pkg.total_cbm ? parseFloat(pkg.total_cbm) : null,
             dimensions: null,
