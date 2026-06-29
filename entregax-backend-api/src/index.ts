@@ -44,6 +44,7 @@ if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEBUG_LOGS !== '
 
 import { pool } from './db';
 import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
+import { translateTexts } from './translationController';
 import { 
   registerUser, 
   loginUser, 
@@ -4853,6 +4854,7 @@ app.get('/api/packages/track/:tracking', authenticateToken, async (req: Request,
 // Mis paquetes (requiere autenticación básica)
 app.get('/api/client/packages/:userId', authenticateToken, getMyPackages);
 app.patch('/api/packages/:id/label', authenticateToken, setPackageLabel);
+app.post('/api/translate', authenticateToken, translateTexts);
 
 // Crear consolidación (solicitud de envío)
 app.post('/api/consolidations', authenticateToken, createConsolidation);

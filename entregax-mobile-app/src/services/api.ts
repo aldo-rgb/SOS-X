@@ -154,6 +154,30 @@ export const getMyPackagesApi = async (userId: number, token: string): Promise<P
   return response.json();
 };
 
+// Traduce una lista de textos (nombres en chino) al idioma dado. Devuelve un mapa
+// { textoOriginal: traducción }. Solo traduce los que tienen caracteres chinos.
+export const translateTextsApi = async (
+  texts: string[],
+  lang: string,
+  token: string
+): Promise<Record<string, string>> => {
+  try {
+    const response = await fetch(`${API_URL}/api/translate`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ texts, lang }),
+    });
+    if (!response.ok) return {};
+    const data = await response.json();
+    return data.translations || {};
+  } catch {
+    return {};
+  }
+};
+
 // Crear/editar la etiqueta personalizada de un envío (alias para reconocerlo).
 export const setPackageLabelApi = async (
   packageId: number,

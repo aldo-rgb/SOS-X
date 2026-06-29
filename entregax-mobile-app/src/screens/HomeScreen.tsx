@@ -31,7 +31,10 @@ import {
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
-import { getMyPackagesApi, setPackageLabelApi, Package, getCarouselSlidesApi, API_URL } from '../services/api';
+import { getMyPackagesApi, setPackageLabelApi, translateTextsApi, Package, getCarouselSlidesApi, API_URL } from '../services/api';
+
+// Detecta si un texto contiene caracteres chinos.
+const hasChinese = (s?: string | null): boolean => /[一-鿿]/.test(s || '');
 import {
   getFollowedTrackings,
   addFollowedTracking,
@@ -139,6 +142,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const [labelPkg, setLabelPkg] = useState<Package | null>(null);
   const [labelText, setLabelText] = useState('');
   const [savingLabel, setSavingLabel] = useState(false);
+  // 🈯 Traducciones de descripciones en chino { textoChino: traducción }
+  const [descTranslations, setDescTranslations] = useState<Record<string, string>>({});
   const [trackingSearch, setTrackingSearch] = useState('');
   const [trackedPackage, setTrackedPackage] = useState<Package | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
@@ -485,12 +490,24 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     try {
       const data = await getMyPackagesApi(user.id, token);
       if (isMounted.current) setPackages(data);
+
+      // 🈯 Traducir descripciones en chino (sin etiqueta) al idioma del usuario.
+      if (uiLang !== 'zh') {
+        const chineseDescs = [...new Set(
+          data.filter(p => !p.custom_label && hasChinese(p.description)).map(p => p.description)
+        )];
+        if (chineseDescs.length > 0) {
+          translateTextsApi(chineseDescs, uiLang, token)
+            .then(map => { if (isMounted.current && map && Object.keys(map).length) setDescTranslations(prev => ({ ...prev, ...map })); })
+            .catch(() => {});
+        }
+      }
     } catch (error) {
       console.error('Error fetching packages:', error);
     } finally {
       if (isMounted.current) { setLoading(false); setRefreshing(false); }
     }
-  }, [user.id, token]);
+  }, [user.id, token, uiLang]);
 
   const openLabelEditor = useCallback((pkg: Package) => {
     setLabelPkg(pkg);
@@ -1079,6 +1096,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                           return item.description;
                         })()}
                       </Text>
+                      {/* Traducción pequeña del nombre en chino (si no hay etiqueta y el
+                          idioma no es chino). Al ponerle etiqueta, esto desaparece. */}
+                      {!item.custom_label && uiLang !== 'zh' && hasChinese(item.description) && descTranslations[item.description] ? (
+                        <Text style={styles.descTranslation} numberOfLines={1}>
+                          ({descTranslations[item.description]})
+                        </Text>
+                      ) : null}
                       <TouchableOpacity
                         onPress={() => openLabelEditor(item)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -3940,6 +3964,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: BLACK,
+    flexShrink: 1,
+  },
+  descTranslation: {
+    fontSize: 12,
+    color: '#888',
+    fontStyle: 'italic',
+    marginLeft: 6,
     flexShrink: 1,
   },
   labelEditBtn: {
