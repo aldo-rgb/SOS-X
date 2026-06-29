@@ -1024,6 +1024,13 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     `, [advisorId]);
 
     // ─── Últimas 20 comisiones (detalle) ───
+    // Filtros opcionales del historial: por tipo de servicio y/o estado.
+    const svcFilter = String((req.query.service_type as string) || '').trim();
+    const statusFilter = String((req.query.status as string) || '').trim();
+    const recentParams: any[] = [advisorId];
+    let recentWhere = 'WHERE ac.advisor_id = $1';
+    if (svcFilter) { recentParams.push(svcFilter); recentWhere += ` AND ac.service_type = $${recentParams.length}`; }
+    if (statusFilter === 'pending' || statusFilter === 'paid') { recentParams.push(statusFilter); recentWhere += ` AND ac.status = $${recentParams.length}`; }
     const recentRes = await pool.query(`
       SELECT
         ac.id, ac.shipment_type, ac.service_type, ac.tracking,
@@ -1032,10 +1039,10 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         ac.status, ac.paid_to_advisor_at, ac.created_at
       FROM advisor_commissions ac
       LEFT JOIN users cu ON cu.id = ac.client_id
-      WHERE ac.advisor_id = $1
+      ${recentWhere}
       ORDER BY ac.created_at DESC
-      LIMIT 20
-    `, [advisorId]);
+      LIMIT ${svcFilter || statusFilter ? 200 : 50}
+    `, recentParams);
 
     // ─── Tasa de conversión ───
     const conversionRes = await pool.query(`

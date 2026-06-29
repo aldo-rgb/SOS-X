@@ -51,7 +51,7 @@ const fmt = (n: number) =>
   `$${(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function CommissionsSummaryScreen({ navigation, route }: any) {
-  const { token } = route.params;
+  const { user, token } = route.params;
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -135,14 +135,18 @@ export default function CommissionsSummaryScreen({ navigation, route }: any) {
               const meta = SERVICE_META[s.serviceType] || { label: s.serviceType, icon: '📦' };
               const pct = totals?.totalCommission ? (s.totalCommission / totals.totalCommission) * 100 : 0;
               return (
-                <View key={s.serviceType} style={styles.serviceCard}>
+                <TouchableOpacity
+                  key={s.serviceType}
+                  style={styles.serviceCard}
+                  activeOpacity={0.7}
+                  onPress={() => navigation.navigate('AdvisorCommissions', { user, token, serviceFilter: s.serviceType })}
+                >
                   <View style={styles.serviceRow}>
                     <View style={styles.serviceIcon}>
                       <Text style={{ fontSize: 20 }}>{meta.icon}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.serviceName}>{meta.label}</Text>
-                      <Text style={styles.serviceCount}>{s.totalCount} {s.totalCount === 1 ? 'comisión' : 'comisiones'}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
                       <Text style={styles.serviceAmount}>{fmt(s.totalCommission)}</Text>
@@ -164,7 +168,7 @@ export default function CommissionsSummaryScreen({ navigation, route }: any) {
                       <Text style={styles.footerText}>Pagado {fmt(s.paidCommission)}</Text>
                     </View>
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             })
           )}

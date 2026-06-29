@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   FlatList,
+  ScrollView,
   StyleSheet,
   RefreshControl,
   TouchableOpacity,
@@ -55,6 +56,7 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
   const [summary, setSummary] = useState<CommissionSummary | null>(null);
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [filter, setFilter] = useState<string>('all');
+  const [serviceFilter, setServiceFilter] = useState<string>(route.params?.serviceFilter || 'all');
   const [page, setPage] = useState(1);
 
   const loadCommissions = useCallback(async (reset = false) => {
@@ -62,6 +64,7 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
       const currentPage = reset ? 1 : page;
       let url = `${API_URL}/api/advisor/commissions?page=${currentPage}&limit=20`;
       if (filter !== 'all') url += `&status=${filter}`;
+      if (serviceFilter !== 'all') url += `&service_type=${encodeURIComponent(serviceFilter)}`;
       
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
@@ -100,6 +103,7 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
 
       let list: Commission[] = (data.recent || data.commissions || []).map(normalize);
       if (filter !== 'all') list = list.filter(c => c.status === filter);
+      if (serviceFilter !== 'all') list = list.filter(c => c.service_type === serviceFilter);
 
       if (reset) {
         setCommissions(list);
@@ -114,12 +118,12 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token, filter, page]);
+  }, [token, filter, serviceFilter, page]);
 
   useEffect(() => {
     setLoading(true);
     loadCommissions(true);
-  }, [filter]);
+  }, [filter, serviceFilter]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -219,6 +223,17 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
     { key: 'paid', label: 'Pagadas' },
   ];
 
+  const serviceFilters = [
+    { key: 'all', label: '🗂️ Todos' },
+    { key: 'pobox_usa_mx', label: '📦 PO Box' },
+    { key: 'aereo_china_mx', label: '✈️ Aéreo' },
+    { key: 'maritimo_china_mx', label: '🚢 Marítimo' },
+    { key: 'liberacion_aa_dhl', label: '📮 DHL' },
+    { key: 'gex_warranty', label: '🛡️ GEX' },
+    { key: 'xpay', label: '💱 X-Pay' },
+    { key: 'nacional_mx', label: '🚚 Nacional' },
+  ];
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -257,7 +272,7 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
         </View>
       )}
 
-      {/* Filters */}
+      {/* Filtros por estado */}
       <View style={styles.filtersContainer}>
         {filters.map(f => (
           <TouchableOpacity
@@ -271,6 +286,25 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* Filtros por tipo de servicio */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.serviceFiltersRow}
+      >
+        {serviceFilters.map(f => (
+          <TouchableOpacity
+            key={f.key}
+            style={[styles.serviceChip, serviceFilter === f.key && styles.serviceChipActive]}
+            onPress={() => setServiceFilter(f.key)}
+          >
+            <Text style={[styles.serviceChipText, serviceFilter === f.key && styles.serviceChipTextActive]}>
+              {f.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
       {/* List */}
       {loading && commissions.length === 0 ? (
@@ -361,9 +395,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 12,
+    paddingBottom: 8,
     gap: 8,
     justifyContent: 'center',
+  },
+  serviceFiltersRow: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
+    alignItems: 'center',
+  },
+  serviceChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  serviceChipActive: {
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
+  },
+  serviceChipText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+  },
+  serviceChipTextActive: {
+    color: '#fff',
   },
   filterChip: {
     paddingHorizontal: 16,
