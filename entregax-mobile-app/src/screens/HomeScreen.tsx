@@ -2806,7 +2806,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             {/* 🎯 Filtros de Servicio — Aéreo, Marítimo y PO Box
                 siempre visibles. MTY (DHL) solo aparece si el cliente
                 tiene paquetes DHL en ruta. */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.serviceFiltersScroll} contentContainerStyle={styles.serviceFilters}>
+            <View style={styles.serviceFilters}>
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'air' && styles.filterChipActive]}
                 onPress={() => {
@@ -2849,7 +2849,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>{t('home.filterCustoms')}</Text>
                 </Pressable>
               )}
-            </ScrollView>
+            </View>
           </>
         }
         ListEmptyComponent={renderEmptyList}
@@ -3096,14 +3096,18 @@ const styles = StyleSheet.create({
   },
   serviceFilters: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    paddingHorizontal: 10,
     paddingVertical: 8,
-    gap: 8,
+    gap: 6,
   },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 20,
     backgroundColor: 'white',
