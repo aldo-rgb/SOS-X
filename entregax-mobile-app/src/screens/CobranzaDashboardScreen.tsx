@@ -64,8 +64,15 @@ const METHOD_COLOR: Record<string, string> = { efectivo: GREEN, cash: GREEN, spe
 const money = (n: number) => `$${(n ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatDateTime = (iso: string) => { try { return new Date(iso).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
 
+const COBRAR_SERVICES = [
+  { key: 'POBOX_USA', label: 'PO Box USA', icon: 'cube-outline' as const, color: GREEN },
+  { key: 'AIR_CHN_MX', label: 'Aéreo China', icon: 'airplane-outline' as const, color: BLUE },
+  { key: 'SEA_CHN_MX', label: 'Marítimo China', icon: 'boat-outline' as const, color: TEAL },
+  { key: 'AA_DHL', label: 'Nacional DHL', icon: 'car-outline' as const, color: '#B26A00' },
+];
+
 export default function CobranzaDashboardScreen({ navigation, route }: Props) {
-  const { token } = route.params;
+  const { user, token } = route.params;
   const [data, setData] = useState<FinanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -109,10 +116,23 @@ export default function CobranzaDashboardScreen({ navigation, route }: Props) {
         contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={ORANGE} />}
       >
-        {/* Banner */}
-        <View style={styles.banner}>
-          <Ionicons name="eye-outline" size={16} color="#B26A00" />
-          <Text style={styles.bannerTxt}>Vista informativa · La gestión se realiza desde el Panel Web</Text>
+        {/* COBRAR PAGOS — selecciona servicio para ver pendientes y confirmar */}
+        <SectionTitle icon="card" text="Cobrar pagos" />
+        <View style={styles.cobrarGrid}>
+          {COBRAR_SERVICES.map(s => (
+            <TouchableOpacity
+              key={s.key}
+              style={styles.cobrarBtn}
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate('CobranzaPending', { user, token, serviceType: s.key, serviceLabel: s.label })}
+            >
+              <View style={[styles.cobrarIcon, { backgroundColor: s.color + '18' }]}>
+                <Ionicons name={s.icon} size={22} color={s.color} />
+              </View>
+              <Text style={styles.cobrarLabel}>{s.label}</Text>
+              <Ionicons name="chevron-forward" size={16} color="#bbb" />
+            </TouchableOpacity>
+          ))}
         </View>
 
         {/* HOY */}
@@ -286,6 +306,14 @@ const styles = StyleSheet.create({
 
   sectionTitle: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, marginBottom: 8 },
   sectionTitleTxt: { fontSize: 12, fontWeight: '700', color: '#444', textTransform: 'uppercase', letterSpacing: 0.4 },
+  cobrarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  cobrarBtn: {
+    width: '48.5%', backgroundColor: '#fff', borderRadius: 12, padding: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 1,
+  },
+  cobrarIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  cobrarLabel: { flex: 1, fontSize: 13, fontWeight: '700', color: '#222' },
 
   bigKpiRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   bigKpiBox: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 12, borderLeftWidth: 4, gap: 4 },
