@@ -291,8 +291,9 @@ export async function generateGexCommissionFromWarranty(warrantyId: number): Pro
         (advisor_id, advisor_name, leader_id, leader_name, shipment_type, shipment_id, service_type, tracking,
          client_id, client_name, payment_amount_mxn, commission_rate_pct, commission_amount_mxn,
          leader_override_pct, leader_override_amount, gex_commission_mxn, status)
+      -- Monto base GEX = costo de la póliza (cuota fija), NO el total con el variable del seguro.
       SELECT w.advisor_id, a.full_name, NULL, NULL, 'GEX', w.id, 'gex_warranty', w.gex_folio,
-             w.user_id, c.full_name, COALESCE(w.total_cost_mxn,0), 0, COALESCE(w.advisor_commission,0),
+             w.user_id, c.full_name, COALESCE(NULLIF(w.fixed_fee_mxn,0), w.total_cost_mxn, 0), 0, COALESCE(w.advisor_commission,0),
              0, 0, COALESCE(w.advisor_commission,0), 'pending'
       FROM warranties w
       JOIN users a ON a.id = w.advisor_id
