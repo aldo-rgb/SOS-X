@@ -92,6 +92,79 @@ export const getMyEmitters = async (req: AuthRequest, res: Response): Promise<an
 };
 
 /**
+ * GET /api/accounting/pending-stamp-summary
+ * Para el widget del contador: por cada empresa a la que tiene acceso, cuántos
+ * pagos están pendientes por timbrar (CFDI). El pendiente de PO Box se atribuye
+ * a la empresa que tenga configurado el servicio POBOX_USA.
+ */
+export const getPendingStampSummary = async (req: AuthRequest, res: Response): Promise<any> => {
+    try {
+        const userId = req.user?.userId || (req.user as any)?.id;
+        const role = req.user?.role;
+        if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+        // Empresas a las que el usuario tiene acceso.
+        let emitters: Array<{ id: number; alias: string; rfc: string; business_name: string }>;
+        if (role === 'admin' || role === 'super_admin' || role === 'director') {
+            const r = await pool.query(
+                `SELECT id, alias, rfc, business_name FROM fiscal_emitters WHERE is_active = TRUE ORDER BY alias ASC`
+            );
+            emitters = r.rows;
+        } else if (role === 'accountant') {
+            const r = await pool.query(
+                `SELECT fe.id, fe.alias, fe.rfc, fe.business_name
+                   FROM fiscal_emitters fe
+                   INNER JOIN accountant_emitter_permissions p ON p.fiscal_emitter_id = fe.id
+                  WHERE p.user_id = $1 AND fe.is_active = TRUE AND COALESCE(p.can_view, FALSE) = TRUE
+                  ORDER BY fe.alias ASC`,
+                [userId]
+            );
+            emitters = r.rows;
+        } else {
+            return res.status(403).json({ error: 'Rol sin acceso al portal contable' });
+        }
+
+        // Conteo global de pagos PO Box pendientes por timbrar (mismo criterio que el portal).
+        const pendRes = await pool.query(`
+            SELECT COUNT(*)::int AS pendientes
+            FROM pobox_payments pp
+            WHERE pp.requiere_factura = TRUE
+              AND COALESCE(pp.facturada, FALSE) = FALSE
+              AND COALESCE(pp.factura_archivada, FALSE) = FALSE
+              AND pp.status IN ('completed','paid')
+        `).catch(() => ({ rows: [{ pendientes: 0 }] }));
+        const globalPoboxPending = pendRes.rows[0]?.pendientes || 0;
+
+        // ¿Qué empresa tiene el servicio POBOX_USA? (service_company_config o service_fiscal_config)
+        const result: Array<{ id: number; alias: string; rfc: string; business_name: string; pending: number }> = [];
+        for (const e of emitters) {
+            let owns = false;
+            const a = await pool.query(
+                `SELECT 1 FROM service_company_config
+                  WHERE service_type = 'POBOX_USA' AND emitter_id = $1 AND COALESCE(is_active, TRUE) = TRUE LIMIT 1`,
+                [e.id]
+            ).catch(() => ({ rows: [] as any[] }));
+            owns = a.rows.length > 0;
+            if (!owns) {
+                const b = await pool.query(
+                    `SELECT 1 FROM service_fiscal_config
+                      WHERE service_type = 'POBOX_USA' AND fiscal_emitter_id = $1 LIMIT 1`,
+                    [e.id]
+                ).catch(() => ({ rows: [] as any[] }));
+                owns = b.rows.length > 0;
+            }
+            result.push({ id: e.id, alias: e.alias, rfc: e.rfc, business_name: e.business_name, pending: owns ? globalPoboxPending : 0 });
+        }
+
+        const totalPending = result.reduce((s, r) => s + r.pending, 0);
+        return res.json({ success: true, emitters: result, total_pending: totalPending });
+    } catch (e: any) {
+        console.error('getPendingStampSummary:', e);
+        res.status(500).json({ error: 'Error obteniendo pendientes por timbrar', message: e.message });
+    }
+};
+
+/**
  * GET /api/accounting/:emitterId/summary
  * Resumen de la empresa: facturas emitidas, canceladas, pendientes por timbrar.
  */

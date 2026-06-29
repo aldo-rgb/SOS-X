@@ -103,6 +103,7 @@ import DashboardCounterStaff from './pages/DashboardCounterStaff';
 import DashboardOperations from './pages/DashboardOperations';
 import DashboardClient from './pages/DashboardClient';
 import DashboardAdvisor from './pages/DashboardAdvisor';
+import DashboardAccountant from './pages/DashboardAccountant';
 import ExternalProviderPage from './pages/ExternalProviderPage';
 import ProfileClient from './pages/ProfileClient';
 import ClientTicketsPage from './pages/ClientTicketsPage';
@@ -807,6 +808,16 @@ function App() {
         setTimeout(() => {
           window.dispatchEvent(new Event('open-admin-verifications'));
         }, 120);
+      }
+
+      if (action === 'accounting') {
+        // Navega al Portal Contable. El emitter a preseleccionar va por localStorage
+        // (AccountingHubPage lo lee al cargar sus empresas).
+        const accountingSubIndex = subItems.findIndex((s) => s.key === 'accounting');
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(accountingSubIndex >= 0 ? accountingSubIndex : null);
+        return;
       }
 
       if (action === 'open_hr') {
@@ -1691,6 +1702,9 @@ function App() {
           case 'advisor':
           case 'sub_advisor':
             return <DashboardAdvisor />;
+          case 'accountant':
+          case 'contador':
+            return <DashboardAccountant />;
           // super_admin, admin, director, finanzas ven el dashboard general
           default:
             return <DashboardBranchManager />; // Mostrar DashboardOperations por defecto

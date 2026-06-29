@@ -99,7 +99,15 @@ export default function AccountingHubPage() {
       setLoading(true);
       try {
         const res = await api.get('/accounting/my-emitters');
-        setEmitters(res.data.emitters || []);
+        const list: Emitter[] = res.data.emitters || [];
+        setEmitters(list);
+        // Preselección desde el widget del dashboard (deep-link por empresa).
+        const preId = localStorage.getItem('accounting_preselect_emitter');
+        if (preId) {
+          localStorage.removeItem('accounting_preselect_emitter');
+          const match = list.find(e => String(e.id) === String(preId));
+          if (match) setSelectedEmitter(match);
+        }
       } catch (e: any) {
         console.error('load emitters:', e?.response?.data || e.message);
       } finally {

@@ -1254,6 +1254,7 @@ import {
 } from './poboxPaymentController';
 import {
   getMyEmitters,
+  getPendingStampSummary,
   getEmitterSummary,
   listEmitterInvoices,
   downloadEmittedInvoiceFile,
@@ -4923,6 +4924,7 @@ app.post('/api/pobox/payment/order/:id/revert-wallet', authenticateToken, paymen
 
 // ========== PORTAL CONTABLE (Multi-Empresa) ==========
 app.get('/api/accounting/my-emitters', authenticateToken, getMyEmitters);
+app.get('/api/accounting/pending-stamp-summary', authenticateToken, getPendingStampSummary);
 app.get('/api/accounting/:emitterId/summary', authenticateToken, getEmitterSummary);
 app.get('/api/accounting/:emitterId/invoices', authenticateToken, listEmitterInvoices);
 app.get('/api/accounting/:emitterId/invoices/:invoiceId/file', authenticateToken, downloadEmittedInvoiceFile);
