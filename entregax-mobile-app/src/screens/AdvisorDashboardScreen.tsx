@@ -761,12 +761,12 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         </View>
         <View style={s.commCard}>
           <View style={s.commRow}>
-            <View>
+            <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('AdvisorCommissionsSummary', { user, token })}>
               <Text style={s.commSubLabel}>Total generado</Text>
               <Text style={s.commAmount}>
                 {hideCommission ? '• • • • •' : `$${(data.commissions.monthCommissionMxn || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`}
               </Text>
-            </View>
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => setHideCommission(h => !h)} style={s.commEyeBtn}>
               <Ionicons name={hideCommission ? 'eye-off' : 'eye'} size={20} color="#888" />
             </TouchableOpacity>

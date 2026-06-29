@@ -98,6 +98,7 @@ import RelabelingScreen from './src/screens/RelabelingScreen';
 import AdvisorDashboardScreen from './src/screens/AdvisorDashboardScreen';
 import AdvisorClientsScreen from './src/screens/AdvisorClientsScreen';
 import AdvisorCommissionsScreen from './src/screens/AdvisorCommissionsScreen';
+import CommissionsSummaryScreen from './src/screens/CommissionsSummaryScreen';
 import AdvisorReferralScreen from './src/screens/AdvisorReferralScreen';
 import AdvisorTeamScreen from './src/screens/AdvisorTeamScreen';
 import AdvisorClientTicketsScreen from './src/screens/AdvisorClientTicketsScreen';
@@ -215,6 +216,7 @@ export type RootStackParamList = {
   AdvisorDashboard: { user: any; token: string };
   AdvisorClients: { user: any; token: string };
   AdvisorCommissions: { user: any; token: string };
+  AdvisorCommissionsSummary: { user: any; token: string };
   AdvisorReferral: { user: any; token: string };
   AdvisorTeam: { user: any; token: string };
   AdvisorClientTickets: { user: any; token: string };
@@ -499,6 +501,11 @@ function App() {
           <Stack.Screen
             name="AdvisorCommissions"
             component={AdvisorCommissionsScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="AdvisorCommissionsSummary"
+            component={CommissionsSummaryScreen}
             options={{ headerShown: false }}
           />
           <Stack.Screen 
