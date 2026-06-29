@@ -7877,6 +7877,27 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         ${serviceFilter ? "AND service_type = ANY($3)" : ""}
     `, serviceFilter ? [startOfMonth, today, serviceFilter] : [startOfMonth, today]);
 
+    // Crédito y Tarjeta — procesados (mes y hoy)
+    const credCardMesRes = await pool.query(`
+      SELECT
+        COALESCE(SUM(CASE WHEN COALESCE(payment_method, tipo_pago) = 'credit' THEN monto_neto ELSE 0 END), 0) as credito_mes,
+        COALESCE(SUM(CASE WHEN COALESCE(payment_method, tipo_pago) = 'card'   THEN monto_neto ELSE 0 END), 0) as tarjeta_mes
+      FROM openpay_webhook_logs
+      WHERE fecha_pago >= $1 AND fecha_pago <= $2
+        AND estatus_procesamiento = 'procesado'
+        ${serviceFilter ? "AND service_type = ANY($3)" : ""}
+    `, serviceFilter ? [startOfMonth, today, serviceFilter] : [startOfMonth, today]);
+
+    const credCardHoyRes = await pool.query(`
+      SELECT
+        COALESCE(SUM(CASE WHEN COALESCE(payment_method, tipo_pago) = 'credit' THEN monto_neto ELSE 0 END), 0) as credito_hoy,
+        COALESCE(SUM(CASE WHEN COALESCE(payment_method, tipo_pago) = 'card'   THEN monto_neto ELSE 0 END), 0) as tarjeta_hoy
+      FROM openpay_webhook_logs
+      WHERE DATE(fecha_pago) = CURRENT_DATE
+        AND estatus_procesamiento = 'procesado'
+        ${serviceFilter ? "AND service_type = ANY($1)" : ""}
+    `, serviceFilter ? [serviceFilter] : []);
+
     // 3. Cartera Vencida Total (filtrada por servicio si aplica)
     const carteraRes = await pool.query(`
       SELECT 
@@ -7999,7 +8020,11 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     const brutoMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.total_bruto || 0), 0);
     const netoMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.total_neto || 0), 0);
     const comisionesMes = brutoMesTotal - netoMesTotal;
-    const totalMes = efectivoMes + speiMesTotal + paypalMes;
+    const creditoMes = parseFloat(credCardMesRes.rows[0]?.credito_mes || 0);
+    const tarjetaMes = parseFloat(credCardMesRes.rows[0]?.tarjeta_mes || 0);
+    const creditoHoy = parseFloat(credCardHoyRes.rows[0]?.credito_hoy || 0);
+    const tarjetaHoy = parseFloat(credCardHoyRes.rows[0]?.tarjeta_hoy || 0);
+    const totalMes = efectivoMes + speiMesTotal + paypalMes + creditoMes + tarjetaMes;
 
     // Saldo final por empresa:
     // - Si tiene saldo almacenado (estado de cuenta manual): usa el último saldo real.
@@ -8025,6 +8050,11 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       GROUP BY empresa_id
     `);
 
+    // Saldo en caja chica (CC) y saldo general (caja CC + saldos bancarios).
+    const saldoCajaCC = parseFloat(saldoCajaRes.rows[0].saldo_caja) || 0;
+    const saldoBancos = saldosPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + (parseFloat(r.saldo) || 0), 0);
+    const saldoGeneral = saldoCajaCC + saldoBancos;
+
     res.json({
       success: true,
       fecha_consulta: new Date(),
@@ -8044,19 +8074,26 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       kpis: {
         ingresos_hoy: efectivoHoy + speiHoyTotal + paypalHoy,
         ingresos_hoy_neto: efectivoHoy + speiNetoHoyTotal + paypalNetoHoy,
-        ingresos_mes: efectivoMes + speiMesTotal + paypalMes,
-        ingresos_mes_neto: efectivoMes + speiNetoMesTotal + paypalNetoMes,
+        ingresos_mes: efectivoMes + speiMesTotal + paypalMes + creditoMes + tarjetaMes,
+        ingresos_mes_neto: efectivoMes + speiNetoMesTotal + paypalNetoMes + creditoMes + tarjetaMes,
         spei_hoy: speiHoyTotal,
         spei_hoy_neto: speiNetoHoyTotal,
         spei_mes: speiMesTotal,
         spei_mes_neto: speiNetoMesTotal,
         paypal_hoy: paypalHoy,
         paypal_mes: paypalMes,
+        credito_hoy: creditoHoy,
+        credito_mes: creditoMes,
+        tarjeta_hoy: tarjetaHoy,
+        tarjeta_mes: tarjetaMes,
         efectivo_hoy: efectivoHoy,
         efectivo_mes: efectivoMes,
         cartera_vencida: parseFloat(carteraRes.rows[0].cartera_total) || 0,
         guias_pendientes: parseInt(carteraRes.rows[0].guias_pendientes) || 0,
-        saldo_caja: parseFloat(saldoCajaRes.rows[0].saldo_caja) || 0,
+        saldo_caja: saldoCajaCC,
+        saldo_caja_cc: saldoCajaCC,
+        saldo_general: saldoGeneral,
+        saldo_bancos: saldoBancos,
         comisiones_mes: comisionesMes
       },
       
@@ -8078,18 +8115,16 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       distribucion_metodos: {
         efectivo: efectivoMes,
         spei: speiMesTotal,
-        paypal: paypalMes
+        paypal: paypalMes,
+        credito: creditoMes,
+        tarjeta: tarjetaMes
       },
       porcentajes: {
-        efectivo: totalMes > 0 
-          ? ((efectivoMes / totalMes) * 100).toFixed(1)
-          : '0',
-        spei: totalMes > 0 
-          ? ((speiMesTotal / totalMes) * 100).toFixed(1)
-          : '0',
-        paypal: totalMes > 0 
-          ? ((paypalMes / totalMes) * 100).toFixed(1)
-          : '0'
+        efectivo: totalMes > 0 ? ((efectivoMes / totalMes) * 100).toFixed(1) : '0',
+        spei: totalMes > 0 ? ((speiMesTotal / totalMes) * 100).toFixed(1) : '0',
+        paypal: totalMes > 0 ? ((paypalMes / totalMes) * 100).toFixed(1) : '0',
+        credito: totalMes > 0 ? ((creditoMes / totalMes) * 100).toFixed(1) : '0',
+        tarjeta: totalMes > 0 ? ((tarjetaMes / totalMes) * 100).toFixed(1) : '0'
       },
       
       // Ingresos por servicio

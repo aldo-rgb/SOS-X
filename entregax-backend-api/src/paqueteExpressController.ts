@@ -1618,9 +1618,16 @@ export async function generateOnePqtxGuide(params: {
   }
 
   try {
+    // Guardamos el JSON completo del request (token redactado) para que la
+    // evidencia de certificación / auditoría reproduzca exactamente lo que
+    // se envió a Paquete Express, incluyendo la normalización defensiva de
+    // city/colonia que ya se aplicó arriba.
+    const bodyForLog = JSON.parse(JSON.stringify(body));
+    if (bodyForLog?.header?.security) bodyForLog.header.security.token = '***';
+
     await pool.query(
-      `INSERT INTO pqtx_shipments (tracking_number, folio_porte, service_type, origin_name, origin_zip_code, origin_city, dest_name, dest_zip_code, dest_city, weight, pieces, subtotal, total, status, created_by, raw_response)
-       VALUES ($1,$2,'STD-T',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'generated',$13,$14)`,
+      `INSERT INTO pqtx_shipments (tracking_number, folio_porte, service_type, origin_name, origin_zip_code, origin_city, dest_name, dest_zip_code, dest_city, weight, pieces, subtotal, total, status, created_by, raw_request, raw_response)
+       VALUES ($1,$2,'STD-T',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'generated',$13,$14,$15)`,
       [
         guiaNo, folioPorte,
         PQTX_ORIGIN_NAME, PQTX_ORIGIN_ZIP, PQTX_ORIGIN_CITY,
@@ -1631,6 +1638,7 @@ export async function generateOnePqtxGuide(params: {
         addData?.subTotlAmnt || null,
         addData?.totalAmnt || null,
         params.createdBy,
+        JSON.stringify(bodyForLog),
         JSON.stringify(response.data),
       ]
     );

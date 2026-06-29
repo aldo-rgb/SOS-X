@@ -33,14 +33,19 @@ interface FinanceData {
     spei_hoy: number; spei_hoy_neto: number;
     spei_mes: number; spei_mes_neto: number;
     paypal_hoy: number; paypal_mes: number;
+    credito_hoy: number; credito_mes: number;
+    tarjeta_hoy: number; tarjeta_mes: number;
     efectivo_hoy: number; efectivo_mes: number;
     cartera_vencida: number;
     guias_pendientes: number;
     saldo_caja: number;
+    saldo_caja_cc: number;
+    saldo_general: number;
+    saldo_bancos: number;
     comisiones_mes: number;
   };
-  distribucion_metodos: { efectivo: number; spei: number; paypal: number };
-  porcentajes: { efectivo: string; spei: string; paypal: string };
+  distribucion_metodos: { efectivo: number; spei: number; paypal: number; credito: number; tarjeta: number };
+  porcentajes: { efectivo: string; spei: string; paypal: string; credito: string; tarjeta: string };
   empresas?: Array<{
     id: number; alias: string; rfc: string; bank_name: string | null;
     servicio_asignado: string; service_name: string | null;
@@ -69,8 +74,8 @@ const SERVICE_CHIP_COLOR: Record<string, string> = {
   AA_DHL: '#C9A227', mx_cedis: '#C9A227', dhl: '#C9A227',
   general: '#6B7280',
 };
-const METHOD_LABEL: Record<string, string> = { efectivo: 'Efectivo', cash: 'Efectivo', spei: 'SPEI', paypal: 'PayPal' };
-const METHOD_COLOR: Record<string, string> = { efectivo: GREEN, cash: GREEN, spei: BLUE, paypal: '#0070BA' };
+const METHOD_LABEL: Record<string, string> = { efectivo: 'Efectivo', cash: 'Efectivo', spei: 'SPEI', paypal: 'PayPal', credito: 'Crédito', credit: 'Crédito', tarjeta: 'Tarjeta', card: 'Tarjeta' };
+const METHOD_COLOR: Record<string, string> = { efectivo: GREEN, cash: GREEN, spei: BLUE, paypal: '#0070BA', credito: PURPLE, credit: PURPLE, tarjeta: '#EF6C00', card: '#EF6C00' };
 
 const money = (n: number) => `$${(n ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatDateTime = (iso: string) => { try { return new Date(iso).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
@@ -184,7 +189,17 @@ export default function CobranzaDashboardScreen({ navigation, route }: Props) {
         <SectionTitle icon="today" text="Hoy" />
         <View style={styles.bigKpiRow}>
           <BigKpi label="Ingresos brutos" value={money(kpis.ingresos_hoy)} sub={`Neto ${money(kpis.ingresos_hoy_neto)}`} color={GREEN} icon="cash-outline" />
-          <BigKpi label="Saldo en caja" value={money(kpis.saldo_caja)} color={kpis.saldo_caja >= 0 ? BLUE : RED} icon="wallet-outline" />
+          <BigKpi label="Saldo general" value={money(kpis.saldo_general ?? kpis.saldo_caja)} color={(kpis.saldo_general ?? kpis.saldo_caja) >= 0 ? BLUE : RED} icon="wallet-outline" />
+        </View>
+        <View style={styles.bigKpiRow}>
+          <BigKpi
+            label="Saldo caja CC"
+            value={money(kpis.saldo_caja_cc ?? kpis.saldo_caja)}
+            sub="Ver caja chica"
+            color={TEAL}
+            icon="cash-outline"
+            onPress={() => navigation.navigate('CajaCC', { user, token })}
+          />
         </View>
         <View style={styles.kpiRow}>
           <Kpi label="Efectivo hoy" value={money(kpis.efectivo_hoy)} color={GREEN} icon="cash" />
@@ -216,8 +231,8 @@ export default function CobranzaDashboardScreen({ navigation, route }: Props) {
         {/* Distribución de métodos */}
         <SectionTitle icon="pie-chart" text="Distribución de métodos (mes)" />
         <View style={styles.distCard}>
-          {(['efectivo', 'spei', 'paypal'] as const).map(m => {
-            const val = distribucion_metodos[m];
+          {(['efectivo', 'spei', 'paypal', 'credito', 'tarjeta'] as const).map(m => {
+            const val = distribucion_metodos[m] || 0;
             const pct = parseFloat(porcentajes[m] || '0');
             return (
               <View key={m} style={{ marginBottom: 10 }}>
@@ -322,15 +337,22 @@ function SectionTitle({ icon, text }: { icon: any; text: string }) {
   );
 }
 
-function BigKpi({ label, value, sub, color, icon }: { label: string; value: string; sub?: string; color: string; icon: any }) {
-  return (
-    <View style={[styles.bigKpiBox, { borderLeftColor: color }]}>
-      <Ionicons name={icon} size={18} color={color} />
+function BigKpi({ label, value, sub, color, icon, onPress }: { label: string; value: string; sub?: string; color: string; icon: any; onPress?: () => void }) {
+  const inner = (
+    <>
+      <View style={styles.bigKpiTop}>
+        <Ionicons name={icon} size={18} color={color} />
+        {onPress && <Ionicons name="chevron-forward" size={16} color="#bbb" />}
+      </View>
       <Text style={styles.bigKpiLbl}>{label}</Text>
       <Text style={styles.bigKpiVal}>{value}</Text>
       {!!sub && <Text style={styles.bigKpiSub}>{sub}</Text>}
-    </View>
+    </>
   );
+  if (onPress) {
+    return <TouchableOpacity style={[styles.bigKpiBox, { borderLeftColor: color }]} activeOpacity={0.7} onPress={onPress}>{inner}</TouchableOpacity>;
+  }
+  return <View style={[styles.bigKpiBox, { borderLeftColor: color }]}>{inner}</View>;
 }
 
 function Kpi({ label, value, color, icon, onPress }: { label: string; value: string; color: string; icon: any; onPress?: () => void }) {
@@ -390,6 +412,7 @@ const styles = StyleSheet.create({
 
   bigKpiRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   bigKpiBox: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 12, borderLeftWidth: 4, gap: 4 },
+  bigKpiTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   bigKpiLbl: { fontSize: 11, color: '#666', marginTop: 2 },
   bigKpiVal: { fontSize: 17, fontWeight: '700', color: '#222' },
   bigKpiSub: { fontSize: 10, color: '#888' },
