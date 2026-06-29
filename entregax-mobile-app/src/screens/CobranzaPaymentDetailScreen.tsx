@@ -29,6 +29,12 @@ interface Voucher {
   id: number; file_url: string; file_type: string;
   declared_amount: number | null; detected_amount: number | null; status: string;
 }
+interface BankEntry {
+  id: number; fecha: string; concepto: string; referencia: string;
+  abono: number | null; cargo: number | null; saldo: number | null;
+  banco: string | null; empresa: string | null;
+  match: boolean; match_cliente: boolean; match_monto: boolean;
+}
 
 export default function CobranzaPaymentDetailScreen({ navigation, route }: any) {
   const { token, referencia, orderId, payment } = route.params;
@@ -37,6 +43,7 @@ export default function CobranzaPaymentDetailScreen({ navigation, route }: any) 
   const [detail, setDetail] = useState<any>(null);
   const [guias, setGuias] = useState<Guia[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
+  const [bankEntries, setBankEntries] = useState<BankEntry[]>([]);
   const [zoomUrl, setZoomUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -54,6 +61,15 @@ export default function CobranzaPaymentDetailScreen({ navigation, route }: any) 
         const vData = await vRes.json();
         setVouchers(vData.vouchers || []);
       }
+
+      // Movimientos del estado de cuenta bancario cercanos a la fecha del pago.
+      try {
+        const bRes = await fetch(`${API_URL}/api/admin/finance/payment-bank-matches/${encodeURIComponent(referencia)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const bData = await bRes.json();
+        if (bData.success) setBankEntries(bData.entries || []);
+      } catch { /* el estado de cuenta es opcional */ }
     } catch (e) {
       console.error('Error detalle cobranza:', e);
     } finally {
@@ -156,20 +172,58 @@ export default function CobranzaPaymentDetailScreen({ navigation, route }: any) 
             ))
           )}
 
-          {/* Estado de cuenta (guías) */}
-          <Text style={styles.section}>Estado de cuenta · {guias.length} {guias.length === 1 ? 'guía' : 'guías'}</Text>
-          {guias.map(g => (
-            <View key={g.id} style={styles.guiaRow}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.guiaTrack} numberOfLines={1}>{g.tracking_interno}</Text>
-                <Text style={styles.guiaDesc} numberOfLines={1}>{g.descripcion}</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={styles.guiaCosto}>{money(g.costo)}</Text>
-                <Text style={[styles.guiaEstado, { color: g.pagado ? GREEN : '#B26A00' }]}>{g.pagado ? 'Pagada' : 'Pendiente'}</Text>
-              </View>
+          {/* Estado de cuenta (movimientos bancarios de la fecha del pago) */}
+          <Text style={styles.section}>Estado de cuenta</Text>
+          {bankEntries.length === 0 ? (
+            <View style={styles.noVoucher}>
+              <Ionicons name="card-outline" size={22} color="#aaa" />
+              <Text style={styles.noVoucherTxt}>Sin movimientos en la fecha del pago</Text>
             </View>
-          ))}
+          ) : (
+            bankEntries.map(b => (
+              <View key={b.id} style={[styles.bankRow, b.match && styles.bankRowMatch]}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={styles.bankTopRow}>
+                    <Text style={styles.bankDate}>{b.fecha}</Text>
+                    {b.match && (
+                      <View style={styles.matchChip}>
+                        <Ionicons name="checkmark-circle" size={11} color={GREEN} />
+                        <Text style={styles.matchTxt}>
+                          {b.match_cliente ? 'Cliente' : b.match_monto ? 'Monto' : 'Coincide'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.bankRef} numberOfLines={1}>{b.referencia || b.concepto}</Text>
+                  {!!(b.banco || b.empresa) && (
+                    <Text style={styles.bankBank} numberOfLines={1}>
+                      {[b.empresa, b.banco].filter(Boolean).join(' · ')}
+                    </Text>
+                  )}
+                </View>
+                <Text style={[styles.bankAbono, b.match && { color: GREEN }]}>{money(b.abono || 0)}</Text>
+              </View>
+            ))
+          )}
+
+          {/* Guías del pago */}
+          {guias.length > 0 && (
+            <>
+              <Text style={styles.section}>Guías · {guias.length}</Text>
+              {guias.map(g => (
+                <View key={g.id} style={styles.guiaRow}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.guiaTrack} numberOfLines={1}>{g.tracking_interno}</Text>
+                    <Text style={styles.guiaDesc} numberOfLines={1}>{g.descripcion}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.guiaCosto}>{money(g.costo)}</Text>
+                    <Text style={[styles.guiaEstado, { color: g.pagado ? GREEN : '#B26A00' }]}>{g.pagado ? 'Pagada' : 'Pendiente'}</Text>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
         </ScrollView>
       )}
 
@@ -221,6 +275,15 @@ const styles = StyleSheet.create({
   voucherMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingHorizontal: 4 },
   voucherAmount: { fontSize: 15, fontWeight: '800', color: '#222' },
   voucherStatus: { fontSize: 12, color: '#888', fontWeight: '600', textTransform: 'capitalize' },
+  bankRow: { backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: 'transparent' },
+  bankRowMatch: { borderColor: GREEN, backgroundColor: '#F1F8F2' },
+  bankTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  bankDate: { fontSize: 12, fontWeight: '700', color: '#555' },
+  matchChip: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#E8F5E9', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8 },
+  matchTxt: { fontSize: 10, fontWeight: '800', color: GREEN },
+  bankRef: { fontSize: 12, color: '#333', marginTop: 3, fontFamily: 'monospace' },
+  bankBank: { fontSize: 11, color: '#999', marginTop: 2 },
+  bankAbono: { fontSize: 14, fontWeight: '800', color: '#222' },
   guiaRow: { backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
   guiaTrack: { fontSize: 13, fontWeight: '700', color: '#222', fontFamily: 'monospace' },
   guiaDesc: { fontSize: 12, color: '#777', marginTop: 2 },

@@ -9552,6 +9552,94 @@ app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, req
 });
 
 // ============================================
+// MOVIMIENTOS DEL ESTADO DE CUENTA QUE CORRESPONDEN A UN PAGO
+// Busca en bank_statement_entries los abonos cercanos a la fecha del pago,
+// marcando los que coinciden por número de cliente (box_id), monto o referencia.
+// ============================================
+app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { referencia } = req.params;
+
+    const payRes = await pool.query(`
+      SELECT pp.amount, pp.created_at, u.box_id
+      FROM pobox_payments pp
+      LEFT JOIN users u ON pp.user_id = u.id
+      WHERE pp.payment_reference = $1
+      LIMIT 1
+    `, [referencia]);
+
+    if (payRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Pago no encontrado' });
+    }
+
+    const pay = payRes.rows[0];
+    const boxId: string | null = pay.box_id ? String(pay.box_id).trim() : null;
+    const monto = parseFloat(pay.amount) || 0;
+    // Token de la referencia (RO-7419F736 -> 7419F736) para cruzar contra el concepto bancario.
+    const refToken = String(referencia).replace(/^(RO|PP)-/i, '').replace(/[^A-Za-z0-9]/g, '');
+
+    // Ventana de fechas: el SPEI puede liquidar el mismo día o 1-2 días después.
+    const fecha = new Date(pay.created_at);
+
+    // Regex que evita que "S88" haga match con "S889": el box_id no debe ir seguido de otro dígito.
+    const boxRegex = boxId ? `${boxId}([^0-9]|$)` : null;
+
+    const result = await pool.query(`
+      SELECT b.id, b.fecha, b.concepto, b.referencia, b.cargo, b.abono, b.saldo, b.banco,
+             fe.alias AS empresa,
+             (
+               ($1::text IS NOT NULL AND (b.referencia ~* $1 OR b.concepto ~* $1))
+               OR (b.abono IS NOT NULL AND ABS(CAST(b.abono AS numeric) - $2::numeric) <= 1)
+               OR (LENGTH($3) >= 5 AND (b.referencia ILIKE '%'||$3||'%' OR b.concepto ILIKE '%'||$3||'%'))
+             ) AS match,
+             ($1::text IS NOT NULL AND (b.referencia ~* $1 OR b.concepto ~* $1)) AS match_cliente,
+             (b.abono IS NOT NULL AND ABS(CAST(b.abono AS numeric) - $2::numeric) <= 1) AS match_monto
+      FROM bank_statement_entries b
+      LEFT JOIN fiscal_emitters fe ON fe.id = b.empresa_id
+      WHERE b.abono IS NOT NULL
+        AND b.fecha BETWEEN ($4::date - INTERVAL '2 days') AND ($4::date + INTERVAL '3 days')
+      ORDER BY (
+               ($1::text IS NOT NULL AND (b.referencia ~* $1 OR b.concepto ~* $1))
+               OR (b.abono IS NOT NULL AND ABS(CAST(b.abono AS numeric) - $2::numeric) <= 1)
+               OR (LENGTH($3) >= 5 AND (b.referencia ILIKE '%'||$3||'%' OR b.concepto ILIKE '%'||$3||'%'))
+             ) DESC,
+             b.fecha DESC, b.id DESC
+      LIMIT 60
+    `, [boxRegex, monto, refToken, fecha]);
+
+    const entries = result.rows.map((r: any) => {
+      const iso = r.fecha ? new Date(r.fecha).toISOString().substring(0, 10) : null;
+      const [yyyy, mm, dd] = (iso || '--').split('-');
+      return {
+        id: r.id,
+        fecha: iso ? `${dd}-${mm}-${yyyy}` : '',
+        concepto: r.concepto,
+        referencia: r.referencia,
+        abono: r.abono != null ? parseFloat(r.abono) : null,
+        cargo: r.cargo != null ? parseFloat(r.cargo) : null,
+        saldo: r.saldo != null ? parseFloat(r.saldo) : null,
+        banco: r.banco,
+        empresa: r.empresa,
+        match: !!r.match,
+        match_cliente: !!r.match_cliente,
+        match_monto: !!r.match_monto,
+      };
+    });
+
+    res.json({
+      success: true,
+      box_id: boxId,
+      monto,
+      entries,
+      matches: entries.filter((e: any) => e.match).length,
+    });
+  } catch (error: any) {
+    console.error('Error getting payment bank matches:', error);
+    res.status(500).json({ error: 'Error obteniendo movimientos del pago', details: error.message });
+  }
+});
+
+// ============================================
 // ÚLTIMO MOVIMIENTO GUARDADO — para verificar continuidad antes de nuevo upload
 app.get('/api/admin/finance/bank-entries/last', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
