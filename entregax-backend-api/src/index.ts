@@ -5031,6 +5031,26 @@ app.get('/api/zipcode/:cp', async (req: Request, res: Response) => {
             return;
         }
 
+        // Normaliza nombres oficiales obsoletos del estado (Zippopotam y SAT
+        // todavía exponen "Distrito Federal"; el SAT cambió oficialmente a
+        // "Ciudad de México" desde la reforma de 2016).
+        const normalizeState = (s: string): string => {
+            const v = String(s || '').trim();
+            if (/^(distrito federal|d\.?\s*f\.?|dif)$/i.test(v)) return 'Ciudad de México';
+            return v;
+        };
+
+        // Respuesta estándar — incluimos `neighborhoods` como alias de
+        // `colonies` para compatibilidad con frontends que leen cualquiera
+        // de los dos nombres.
+        const buildResponse = (city: string, state: string, colonies: string[]) => ({
+            city,
+            state: normalizeState(state),
+            colonies,
+            neighborhoods: colonies,
+            country: 'México',
+        });
+
         // Opción 1: API pública de SEPOMEX México (sin token)
         try {
             const sepomexRes = await axios.get(
@@ -5041,12 +5061,11 @@ app.get('/api/zipcode/:cp', async (req: Request, res: Response) => {
                 const items = sepomexRes.data.zip_codes;
                 const first = items[0];
                 const colonies: string[] = items.map((item: any) => item.d_asenta).filter(Boolean);
-                res.json({
-                    city: first.d_mnpio || first.D_mnpio || '',
-                    state: first.d_estado || first.D_estado || '',
-                    colonies: [...new Set(colonies)].sort(),
-                    country: 'México'
-                });
+                res.json(buildResponse(
+                    first.d_mnpio || first.D_mnpio || '',
+                    first.d_estado || first.D_estado || '',
+                    [...new Set(colonies)].sort()
+                ));
                 return;
             }
         } catch (sepomexErr: any) {
@@ -5054,19 +5073,17 @@ app.get('/api/zipcode/:cp', async (req: Request, res: Response) => {
         }
 
         // Opción 2: zippopotam.us (confiable, gratuita)
+        // ⚠️ Zippopotam expone la COLONIA en `place name` (no la ciudad/municipio).
+        // Antes guardábamos `place name` como `city`, lo que hacía que en la UI
+        // apareciera la colonia en el campo Ciudad. Ahora el `city` se deja
+        // vacío y `place name` se trata solo como una colonia más.
         try {
             const zipRes = await axios.get(`https://api.zippopotam.us/MX/${cp}`, { timeout: 5000 });
             if (zipRes.data && zipRes.data.places && zipRes.data.places.length > 0) {
                 const places = zipRes.data.places;
                 const state = places[0]?.state || '';
                 const colonies = places.map((p: any) => p['place name']).filter(Boolean);
-                // zippopotam retorna colonias como place names
-                res.json({
-                    city: places[0]?.['place name'] || '',
-                    state,
-                    colonies: [...new Set(colonies)].sort(),
-                    country: 'México'
-                });
+                res.json(buildResponse('', state, [...new Set(colonies)].sort()));
                 return;
             }
         } catch (zipErr: any) {
@@ -5086,12 +5103,11 @@ app.get('/api/zipcode/:cp', async (req: Request, res: Response) => {
                     const items = Array.isArray(data) ? data : [data];
                     const first = items[0];
                     const colonies: string[] = items.map((item: any) => item.asentamiento).filter(Boolean);
-                    res.json({
-                        city: first.municipio || first.ciudad || '',
-                        state: first.estado || '',
-                        colonies: [...new Set(colonies)].sort(),
-                        country: 'México'
-                    });
+                    res.json(buildResponse(
+                        first.municipio || first.ciudad || '',
+                        first.estado || '',
+                        [...new Set(colonies)].sort()
+                    ));
                     return;
                 }
             } catch (copomexErr) {

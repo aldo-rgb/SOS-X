@@ -5,7 +5,7 @@
 // ============================================
 
 import { useState, useEffect } from 'react';
-import { Box, Typography, Paper, Grid, Stack, CircularProgress, Button } from '@mui/material';
+import { Box, Typography, Paper, Stack, CircularProgress, Button } from '@mui/material';
 import {
   ReceiptLongOutlined as ReceiptIcon,
   ArrowForwardRounded as ArrowForwardIcon,
@@ -80,36 +80,36 @@ export default function DashboardAccountant() {
           </Button>
         </Paper>
       ) : (
-        <Grid container spacing={2}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
           {pending.map((emp) => (
-            <Grid item xs={12} sm={6} md={4} key={emp.id}>
-              <Paper
-                onClick={() => goToAccounting(emp.id)}
-                elevation={0}
-                sx={{
-                  p: 2, borderRadius: 2, cursor: 'pointer', height: '100%',
-                  border: '1px solid #FDBA74', bgcolor: '#FFF7ED',
-                  display: 'flex', alignItems: 'center', gap: 1.5,
-                  transition: 'box-shadow .18s ease, transform .18s ease',
-                  '&:hover': { boxShadow: '0 6px 18px rgba(234,88,12,0.18)', transform: 'translateY(-1px)' },
-                }}
-              >
-                <Box sx={{ width: 44, height: 44, borderRadius: 1.5, bgcolor: '#FB923C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <ReceiptIcon />
+            <Paper
+              key={emp.id}
+              onClick={() => goToAccounting(emp.id)}
+              elevation={0}
+              sx={{
+                width: { xs: '100%', sm: 'calc(50% - 8px)', md: 'calc(33.333% - 11px)' },
+                p: 2, borderRadius: 2, cursor: 'pointer',
+                border: '1px solid #FDBA74', bgcolor: '#FFF7ED',
+                display: 'flex', alignItems: 'center', gap: 1.5,
+                transition: 'box-shadow .18s ease, transform .18s ease',
+                '&:hover': { boxShadow: '0 6px 18px rgba(234,88,12,0.18)', transform: 'translateY(-1px)' },
+              }}
+            >
+              <Box sx={{ width: 44, height: 44, borderRadius: 1.5, bgcolor: '#FB923C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <ReceiptIcon />
+              </Box>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.95rem' }} noWrap>{emp.alias}</Typography>
+                <Typography variant="caption" sx={{ color: '#9A3412' }} noWrap>{emp.rfc}</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, mt: 0.25 }}>
+                  <Typography sx={{ fontSize: '1.5rem', fontWeight: 800, color: '#C2410C', lineHeight: 1 }}>{emp.pending}</Typography>
+                  <Typography variant="caption" sx={{ color: '#9A3412' }}>{emp.pending === 1 ? 'pendiente' : 'pendientes'}</Typography>
                 </Box>
-                <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.95rem' }} noWrap>{emp.alias}</Typography>
-                  <Typography variant="caption" sx={{ color: '#9A3412' }} noWrap>{emp.rfc}</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, mt: 0.25 }}>
-                    <Typography sx={{ fontSize: '1.5rem', fontWeight: 800, color: '#C2410C', lineHeight: 1 }}>{emp.pending}</Typography>
-                    <Typography variant="caption" sx={{ color: '#9A3412' }}>{emp.pending === 1 ? 'pendiente' : 'pendientes'}</Typography>
-                  </Box>
-                </Box>
-                <ArrowForwardIcon sx={{ color: '#EA580C', flexShrink: 0 }} />
-              </Paper>
-            </Grid>
+              </Box>
+              <ArrowForwardIcon sx={{ color: '#EA580C', flexShrink: 0 }} />
+            </Paper>
           ))}
-        </Grid>
+        </Box>
       )}
     </Box>
   );

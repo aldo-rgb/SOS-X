@@ -989,12 +989,15 @@ export default function DashboardAdvisor() {
       try {
         const r = await api.get(`/zipcode/${zip}`);
         const d = r.data;
-        if (d?.city || d?.state) {
+        // El backend devuelve `colonies` (campo principal) y `neighborhoods`
+        // (alias). Aceptamos cualquiera por compatibilidad.
+        const colonies: string[] = d?.colonies || d?.neighborhoods || [];
+        if (d?.city || d?.state || colonies.length > 0) {
           setNewAddrForm(p => ({
             ...p,
             city: d.city || p.city,
             state: d.state || p.state,
-            neighborhood: p.neighborhood || (d.neighborhoods?.[0] || ''),
+            neighborhood: p.neighborhood || colonies[0] || '',
           }));
         }
       } catch {}
