@@ -87,6 +87,7 @@ export default function CobranzaDashboardScreen({ navigation, route }: Props) {
   const [data, setData] = useState<FinanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showTx, setShowTx] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -268,9 +269,13 @@ export default function CobranzaDashboardScreen({ navigation, route }: Props) {
           </>
         )}
 
-        {/* Transacciones recientes */}
-        <SectionTitle icon="time" text={`Últimas transacciones (${Math.min(transacciones.length, 20)})`} />
-        {transacciones.slice(0, 20).map(t => (
+        {/* Transacciones recientes (colapsable) */}
+        <TouchableOpacity style={styles.sectionToggle} activeOpacity={0.7} onPress={() => setShowTx(v => !v)}>
+          <Ionicons name="time" size={14} color="#444" />
+          <Text style={[styles.sectionTitleTxt, { flex: 1 }]}>Últimas transacciones ({Math.min(transacciones.length, 20)})</Text>
+          <Ionicons name={showTx ? 'chevron-up' : 'chevron-down'} size={18} color="#888" />
+        </TouchableOpacity>
+        {showTx && transacciones.slice(0, 20).map(t => (
           <View key={`${t.origen}-${t.id}`} style={styles.txRow}>
             <View style={[styles.txIcon, { backgroundColor: (METHOD_COLOR[t.metodo] || TEAL) + '22' }]}>
               <Ionicons name="arrow-up" size={14} color={METHOD_COLOR[t.metodo] || TEAL} />
@@ -284,7 +289,7 @@ export default function CobranzaDashboardScreen({ navigation, route }: Props) {
             <Text style={[styles.txMonto, { color: GREEN }]}>+{money(t.monto_bruto)}</Text>
           </View>
         ))}
-        {transacciones.length === 0 && (
+        {showTx && transacciones.length === 0 && (
           <View style={styles.emptyBox}><Text style={styles.muted}>Sin transacciones en el periodo</Text></View>
         )}
       </ScrollView>
@@ -349,6 +354,7 @@ const styles = StyleSheet.create({
   bannerTxt: { color: '#B26A00', fontSize: 12, flex: 1 },
 
   sectionTitle: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, marginBottom: 8 },
+  sectionToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, marginBottom: 8 },
   sectionTitleTxt: { fontSize: 12, fontWeight: '700', color: '#444', textTransform: 'uppercase', letterSpacing: 0.4 },
   cobrarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   cobrarBtn: {
