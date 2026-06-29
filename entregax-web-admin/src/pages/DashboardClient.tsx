@@ -736,8 +736,13 @@ export default function DashboardClient() {
   
   // Determinar el tipo de servicio de los paquetes seleccionados
   // Helper: friendly carrier name from carrier code
-  const getCarrierDisplayName = (code: string | undefined | null): string => {
+  const getCarrierDisplayName = (code: string | undefined | null, pkg?: { servicio?: string; shipment_type?: string }): string => {
     if (!code) return '';
+    // PO Box llega a Monterrey: su entrega local SIEMPRE es MTY, nunca CDMX.
+    const isPobox = !!pkg && String(pkg.servicio || pkg.shipment_type || '').toUpperCase() === 'POBOX_USA';
+    if (isPobox && String(code).toLowerCase() === 'entregax_local_cdmx') {
+      return 'EntregaX Local MTY';
+    }
     const map: Record<string, string> = {
       'paquete_express': 'Paquete Express', 'local': 'EntregaX Local MTY', 'pickup': 'Pick Up Hidalgo TX',
       'pqtx_cod': 'Paquete Express Por Cobrar', 'paquete_express_pc': 'Paquete Express Por Cobrar',
@@ -4827,7 +4832,7 @@ export default function DashboardClient() {
                                 </TableCell>
                                 <TableCell sx={{ py: 0.5 }}>
                                   {pkg.national_carrier && (
-                                    <Typography variant="caption">🚚 {getCarrierDisplayName(pkg.national_carrier)}</Typography>
+                                    <Typography variant="caption">🚚 {getCarrierDisplayName(pkg.national_carrier, pkg)}</Typography>
                                   )}
                                 </TableCell>
                                 <TableCell align="right" sx={{ py: 0.5 }}>
@@ -6332,7 +6337,7 @@ export default function DashboardClient() {
                           // Paquete entregado/enviado: mostrar quien recibió
                           pkg.national_carrier ? (
                             <Chip
-                              label={`📦 Enviado vía ${getCarrierDisplayName(pkg.national_carrier)}`}
+                              label={`📦 Enviado vía ${getCarrierDisplayName(pkg.national_carrier, pkg)}`}
                               size="small"
                               sx={{ bgcolor: isEntregaXLocalCarrier ? ORANGE : '#1565C0', color: 'white', fontSize: '0.65rem', fontWeight: 'bold', height: 22, '& .MuiChip-label': { px: 0.5 } }}
                             />
@@ -6348,7 +6353,7 @@ export default function DashboardClient() {
                             icon={<CheckCircleIcon sx={{ fontSize: 14 }} />}
                             label={
                               pkg.national_carrier
-                                ? `🚚 ${getCarrierDisplayName(pkg.national_carrier)}`
+                                ? `🚚 ${getCarrierDisplayName(pkg.national_carrier, pkg)}`
                                 : `Con Instrucciones`
                             }
                             size="small"
@@ -11268,6 +11273,15 @@ export default function DashboardClient() {
                   else if (isDhlSvc) { serviceLabel = selectedPackage.servicio === 'DHL_MTY' ? 'DHL Monterrey' : 'AA DHL'; serviceIcon = '📮'; }
                   else if (isPoboxSvc) { serviceLabel = 'PO Box USA'; serviceIcon = '📬'; }
 
+                  // PO Box llega a Monterrey: su entrega local SIEMPRE es MTY, nunca CDMX.
+                  // Corregimos asignaciones/etiquetas heredadas de "EntregaX Local CDMX".
+                  const rawCarrierId = selectedPackage.national_carrier || selectedPackage.carrier;
+                  const isLocalCdmxAssigned = String(rawCarrierId || '').toLowerCase() === 'entregax_local_cdmx';
+                  const effectiveCarrierId = (isPoboxSvc && isLocalCdmxAssigned) ? 'entregax_local_mty' : rawCarrierId;
+                  const nationalCarrierName =
+                    carrierServices.find(s => s.id === effectiveCarrierId)?.name
+                    || (isPoboxSvc && isLocalCdmxAssigned ? 'EntregaX Local MTY' : (rawCarrierId || ''));
+
                   return (
                     <Box sx={{ mb: 2 }}>
                       <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
@@ -11299,7 +11313,7 @@ export default function DashboardClient() {
                               <Box sx={{ fontSize: '1.5rem' }}>🚚</Box>
                               <Box>
                                 <Typography variant="body1" fontWeight="bold" sx={{ color: ((selectedPackage.national_carrier || selectedPackage.carrier || '').toLowerCase().includes('local') ? ORANGE : 'inherit') }}>
-                                  {carrierServices.find(s => s.id === (selectedPackage.national_carrier || selectedPackage.carrier))?.name || selectedPackage.national_carrier || selectedPackage.carrier}
+                                  {nationalCarrierName}
                                 </Typography>
                                 {selectedPackage.national_tracking && (
                                   <Typography variant="caption" color="text.secondary">
@@ -13644,7 +13658,7 @@ export default function DashboardClient() {
                   {(pkg.national_carrier || (pkg.carrier && !['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(pkg.carrier?.toUpperCase?.()))) && (
                     <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#e3f2fd', borderRadius: 1, px: 1, py: 0.5 }}>
                       <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        🚚 {getCarrierDisplayName(pkg.national_carrier || pkg.carrier)}
+                        🚚 {getCarrierDisplayName(pkg.national_carrier || pkg.carrier, pkg)}
                         {pkg.national_tracking && <span style={{ color: '#666' }}> · {pkg.national_tracking}</span>}
                       </Typography>
                       <Typography variant="caption" fontWeight="bold" color={getNationalShippingMXN(pkg) > 0 ? 'primary.main' : 'text.secondary'}>
