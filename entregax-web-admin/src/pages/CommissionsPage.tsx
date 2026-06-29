@@ -199,6 +199,20 @@ export default function CommissionsPage() {
     }
   };
 
+  const handleToggleActive = async (advisorId: number, value: boolean) => {
+    setAdvisors(prev => prev.map(a => a.id === advisorId ? { ...a, is_active: value } : a));
+    try {
+      await axios.patch(
+        `${API_URL}/admin/advisors/${advisorId}/active`,
+        { is_active: value },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+    } catch {
+      setAdvisors(prev => prev.map(a => a.id === advisorId ? { ...a, is_active: !value } : a));
+      setSnackbar({ open: true, message: 'Error al actualizar estado', severity: 'error' });
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -452,6 +466,7 @@ export default function CommissionsPage() {
                     <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Líder' : 'Leader'}</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Código' : 'Code'}</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Referidos' : 'Referrals'}</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Activo' : 'Active'}</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 'bold' }}>Recovery</TableCell>
                   </TableRow>
                 </TableHead>
@@ -497,6 +512,16 @@ export default function CommissionsPage() {
                         <Chip label={advisor.referral_count} color="primary" size="small" />
                       </TableCell>
                       <TableCell align="center">
+                        <Tooltip title={advisor.is_active ? 'Desactivar asesor' : 'Activar asesor'}>
+                          <Switch
+                            checked={advisor.is_active !== false}
+                            onChange={(e) => handleToggleActive(advisor.id, e.target.checked)}
+                            size="small"
+                            color="success"
+                          />
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell align="center">
                         <Tooltip title={advisor.can_recovery ? 'Quitar acceso a Reactivación' : 'Dar acceso a Reactivación'}>
                           <Switch
                             checked={!!advisor.can_recovery}
@@ -509,7 +534,7 @@ export default function CommissionsPage() {
                     </TableRow>
                   )) : (
                     <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                         <PeopleIcon sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
                         <Typography color="text.secondary">
                           {i18n.language === 'es' ? 'No hay asesores registrados. Usa "Alta de Asesores" para crear uno.' : 'No advisors yet. Use "Add Advisor" to create one.'}

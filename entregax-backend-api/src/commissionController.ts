@@ -332,6 +332,7 @@ export const getAdvisors = async (req: Request, res: Response): Promise<any> => 
                 l.full_name as leader_name,
                 u.created_at,
                 u.can_recovery,
+                COALESCE(u.is_active, true) as is_active,
                 COALESCE(
                     (SELECT COUNT(*) FROM users r WHERE r.advisor_id = u.id),
                     0
@@ -719,5 +720,29 @@ export const toggleAdvisorRecovery = async (req: Request, res: Response): Promis
     } catch (error) {
         console.error('Error toggling advisor recovery:', error);
         res.status(500).json({ error: 'Error al actualizar permiso' });
+    }
+};
+
+// Activar / desactivar un asesor (is_active)
+export const toggleAdvisorActive = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { id } = req.params;
+        const { is_active } = req.body;
+        if (typeof is_active !== 'boolean') {
+            return res.status(400).json({ error: 'is_active debe ser boolean' });
+        }
+        const result = await pool.query(
+            `UPDATE users SET is_active = $1
+             WHERE id = $2 AND role IN ('asesor', 'asesor_lider', 'advisor', 'sub_advisor')
+             RETURNING id, full_name, is_active`,
+            [is_active, id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Asesor no encontrado' });
+        }
+        res.json({ ok: true, advisor: result.rows[0] });
+    } catch (error) {
+        console.error('Error toggling advisor active:', error);
+        res.status(500).json({ error: 'Error al actualizar estado' });
     }
 };

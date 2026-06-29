@@ -211,6 +211,7 @@ import {
   getCommissionsByAdvisor,
   runCommissionBackfill,
   toggleAdvisorRecovery,
+  toggleAdvisorActive,
 } from './commissionController';
 import {
   getFiscalEmitters,
@@ -5142,6 +5143,7 @@ app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(
 app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.ADMIN), getAdvisors);
 app.post('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createAdvisor);
 app.patch('/api/admin/advisors/:id/recovery', authenticateToken, requireMinLevel(ROLES.ADMIN), toggleAdvisorRecovery);
+app.patch('/api/admin/advisors/:id/active', authenticateToken, requireMinLevel(ROLES.ADMIN), toggleAdvisorActive);
 
 // --- RUTAS DE VERIFICACIÓN (Usuario) ---
 app.get('/api/verification/status', authenticateToken, getVerificationStatus);
