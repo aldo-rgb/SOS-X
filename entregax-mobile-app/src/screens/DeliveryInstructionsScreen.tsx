@@ -332,9 +332,17 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   // 🔁 Si el carrier seleccionado deja de estar disponible (p.ej. al cambiar el ZIP), elegir el primero válido
   useEffect(() => {
     const inMetro = inMtyMetro || inCdmxMetro;
+    // 🛡️ Sólo ocultamos Paquete Express dentro de zona metro CUANDO el cliente
+    // YA tiene una opción local de EntregaX disponible (porque es más barata
+    // y rápida). Si no hay local disponible (caso típico: shipment USA → CDMX,
+    // donde EntregaX Local CDMX no aplica para USA y EntregaX Local MTY no
+    // cubre CDMX), debemos dejar Paquete Express activo. Antes el filtro era
+    // agresivo y dejaba sólo "Pick Up: Sucursal Hidalgo TX", forzando ese
+    // valor por defecto cuando el cliente seleccionaba una dirección CDMX.
+    const hasLocalEntregax = localEntregaxOptions.length > 0;
     const validIds = new Set(
       CARRIER_OPTIONS
-        .filter(c => !(inMetro && (c.id === 'paquete_express' || c.id === 'paquete_express_pc')))
+        .filter(c => !(inMetro && hasLocalEntregax && (c.id === 'paquete_express' || c.id === 'paquete_express_pc')))
         .map(c => c.id)
     );
     if (!validIds.has(selectedCarrier)) {
@@ -479,8 +487,12 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
         setCarrierRates(CARRIER_OPTIONS);
       }
       // Check PQTX coverage for non-metro ZIPs (where Paquete Express applies)
+      // O cuando no hay opción local de EntregaX para esa zona (por ejemplo
+      // envío USA hacia CDMX metro: el local CDMX no aplica a USA, así que
+      // SÍ necesitamos cotizar Paquete Express aunque el ZIP esté en metro).
       const zip = selectedAddress.zip_code;
-      if (zip && !isMtyMetroZip(zip) && !isCdmxMetroZip(zip)) {
+      const hasLocalForZone = localEntregaxOptions.length > 0;
+      if (zip && (!hasLocalForZone || (!isMtyMetroZip(zip) && !isCdmxMetroZip(zip)))) {
         try {
           const totalWeight = allPackages.reduce((sum: number, p: any) => sum + (p.weight || 1), 0);
           const packageCount = allPackages.length || 1;
@@ -1442,10 +1454,18 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                     return false;
                   }
                   // 🗺️ Si el CP destino es MTY metro o CDMX metro, ocultar Paquete Express
-                  //    (la entrega local cubre la zona, no se requiere paquetería externa).
+                  //    SOLO cuando ya existe una opción local de EntregaX para esa zona+tipo
+                  //    de envío. Por ejemplo: en envío USA hacia CP CDMX no hay
+                  //    EntregaX Local CDMX disponible (esa cobertura local sólo
+                  //    aplica a marítimo/aéreo China), así que sí debemos mostrar
+                  //    Paquete Express; ocultarlo dejaría únicamente "Pick Up:
+                  //    Sucursal Hidalgo TX" como opción, lo cual no tiene sentido
+                  //    para un destinatario en CDMX.
                   // 🛫 TDI Express SIEMPRE ofrece Paquete Express y Por Cobrar.
+                  const hasLocalEntregax = localEntregaxOptions.length > 0;
                   if (
                     shipmentType !== 'tdi_express' &&
+                    hasLocalEntregax &&
                     (inMtyMetro || inCdmxMetro) &&
                     (carrier.id === 'paquete_express' || carrier.id === 'paquete_express_pc')
                   ) {
