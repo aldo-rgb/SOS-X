@@ -26,7 +26,51 @@ const jstr = (v) => esc(typeof v === 'string' ? v : JSON.stringify(v, null, 2));
 // Reconstruye el request de generación EXACTO que se envió a Paquete Express
 // (para guías creadas antes de activar el logging del request). Usa los mismos
 // datos de la operación: origen (config) + dirección destino + bultos.
-function reconstructGenRequest(s, dest) {
+// Aplica la MISMA normalización defensiva del backend para que el JSON
+// reconstruido coincida con lo que realmente llegó a PQTX (city/colonia/etc.).
+async function normalizeDestForPqtx(dest) {
+  let cityVal = (dest.city || '').toString().trim();
+  let neighVal = (dest.neighborhood || '').toString().trim();
+  let stateVal = (dest.state || '').toString().trim();
+  const zip = (dest.zip_code || '').toString().trim();
+
+  if (/^(distrito federal|d\.?\s*f\.?|dif)$/i.test(stateVal)) stateVal = 'Ciudad de México';
+
+  const COLONY_KEYWORDS = ['centro', 'norte', 'sur', 'este', 'oeste', 'poniente', 'oriente', 'centro historico', 'centro histórico'];
+  const isColonyKeyword = (s) => COLONY_KEYWORDS.includes(s.toLowerCase().trim());
+
+  // CASO B (offline)
+  if (cityVal && neighVal && cityVal !== neighVal && neighVal.toLowerCase().includes(cityVal.toLowerCase())) {
+    const muni = neighVal.replace(new RegExp(cityVal, 'i'), '').replace(/\s{2,}/g, ' ').trim();
+    if (muni) { neighVal = cityVal; cityVal = muni; }
+  }
+
+  if (zip && /^\d{5}$/.test(zip)) {
+    try {
+      const port = process.env.PORT || 3001;
+      const cpRes = await axios.get(`http://localhost:${port}/api/zipcode/${zip}`, { timeout: 6000 });
+      const apiCity = (cpRes.data?.city || '').toString().trim();
+      const apiState = (cpRes.data?.state || '').toString().trim();
+      const apiColonies = (cpRes.data?.colonies || cpRes.data?.neighborhoods || []).map((c) => String(c).trim());
+      if (apiState && !stateVal) stateVal = apiState;
+      const cityInColonies = apiColonies.some((c) => c.localeCompare(cityVal, 'es', { sensitivity: 'base' }) === 0);
+      const neighInColonies = apiColonies.some((c) => c.localeCompare(neighVal, 'es', { sensitivity: 'base' }) === 0);
+      const neighMatchesApi = apiCity && neighVal && apiCity.localeCompare(neighVal, 'es', { sensitivity: 'base' }) === 0;
+      if ((cityInColonies && neighMatchesApi) || (cityInColonies && !neighInColonies && neighVal && apiCity)) {
+        [cityVal, neighVal] = [neighVal, cityVal];
+      }
+      if (!cityVal && apiCity) cityVal = apiCity;
+      if (!neighVal && cityInColonies && apiCity) { neighVal = cityVal; cityVal = apiCity; }
+    } catch { /* silencioso */ }
+  }
+
+  if (cityVal && neighVal && isColonyKeyword(cityVal) && !isColonyKeyword(neighVal)) {
+    [cityVal, neighVal] = [neighVal, cityVal];
+  }
+  return { state: stateVal, city: cityVal, neighborhood: neighVal };
+}
+
+async function reconstructGenRequest(s, dest) {
   const ORIG = {
     zip: s.origin_zip_code || '64410', state: process.env.PQTX_ORIGIN_STATE || 'NUEVO LEON',
     mun: process.env.PQTX_ORIGIN_MUN || 'MONTERREY', city: process.env.PQTX_ORIGIN_CITY || 'MONTERREY',
@@ -36,13 +80,14 @@ function reconstructGenRequest(s, dest) {
   };
   const pieces = Number(s.pieces) || 1;
   const perPeso = (Number(s.weight) || pieces) / pieces;
+  const norm = await normalizeDestForPqtx(dest);
   return {
     header: { security: { user: USER, type: 0, token: '***' }, device: { appName: null, type: null, ip: 'entregax', idDevice: null }, target: null, output: null, language: null },
     body: { request: { data: [{
       billRad: 'REQUEST', billClntId: BILL, pymtMode: 'PAID', pymtType: 'C', comt: `Paquete ${dest.tracking_internal || ''}${pieces > 1 ? ` (${pieces} cajas)` : ''}`,
       radGuiaAddrDTOList: [
         { addrLin1: 'MEXICO', addrLin3: ORIG.state, addrLin4: ORIG.mun, addrLin5: ORIG.city, addrLin6: ORIG.col, zipCode: ORIG.zip, strtName: ORIG.street, drnr: ORIG.num, phno1: ORIG.phone, phno2: ORIG.phone, clntName: ORIG.name, email: ORIG.email, contacto: ORIG.name, addrType: 'ORIGIN' },
-        { addrLin1: 'MEXICO', addrLin3: (dest.state || ' ').toUpperCase(), addrLin4: (dest.city || ' ').toUpperCase(), addrLin5: (dest.city || ' ').toUpperCase(), addrLin6: (dest.neighborhood || ' ').toUpperCase(), zipCode: dest.zip_code || s.dest_zip_code, strtName: (dest.street || ' ').toUpperCase(), drnr: (dest.exterior_number || 'S/N').toString().toUpperCase(), phno1: String(dest.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0'), phno2: String(dest.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0'), clntName: (dest.recipient_name || 'CLIENTE').toUpperCase(), email: '', contacto: (dest.recipient_name || 'CLIENTE').toUpperCase(), addrType: 'DESTINATION' },
+        { addrLin1: 'MEXICO', addrLin3: (norm.state || ' ').toUpperCase(), addrLin4: (norm.city || ' ').toUpperCase(), addrLin5: (norm.city || ' ').toUpperCase(), addrLin6: (norm.neighborhood || ' ').toUpperCase(), zipCode: dest.zip_code || s.dest_zip_code, strtName: (dest.street || ' ').toUpperCase(), drnr: (dest.exterior_number || 'S/N').toString().toUpperCase(), phno1: String(dest.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0'), phno2: String(dest.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0'), clntName: (dest.recipient_name || 'CLIENTE').toUpperCase(), email: '', contacto: (dest.recipient_name || 'CLIENTE').toUpperCase(), addrType: 'DESTINATION' },
       ],
       radSrvcItemDTOList: [{ srvcId: 'PACKETS', productIdSAT: '01010101', weight: perPeso.toFixed(2), volL: String(Math.round(Number(dest.pkg_length) || 30)), volW: String(Math.round(Number(dest.pkg_width) || 30)), volH: String(Math.round(Number(dest.pkg_height) || 30)), cont: dest.description || 'PAQUETE', qunt: String(pieces) }],
       listSrvcItemDTO: [{ srvcId: 'EAD', value1: '' }, { srvcId: 'RAD', value1: '' }],
@@ -144,7 +189,7 @@ function buildHtml(rows, labels) {
           WHERE p.national_tracking = $1
           ORDER BY p.id ASC LIMIT 1`, [s.tracking_number]);
       const dest = d.rows[0] || {};
-      s.raw_request = reconstructGenRequest(s, dest);
+      s.raw_request = await reconstructGenRequest(s, dest);
       s._reconstructed = true;
     }
   }
