@@ -184,7 +184,9 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
           <Ionicons name={getServiceIcon(item.service_type) as any} size={20} color={ORANGE} />
         </View>
         <View style={styles.commissionInfo}>
-          <Text style={styles.clientName}>{item.client_name}</Text>
+          <Text style={styles.clientName}>
+            {item.client_box_id ? `${item.client_box_id} · ` : ''}{item.client_name}
+          </Text>
           <Text style={styles.tracking}>{item.package_tracking || 'Sin tracking'}</Text>
         </View>
         <View style={styles.commissionAmount}>

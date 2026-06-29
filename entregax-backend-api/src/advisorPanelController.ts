@@ -1025,12 +1025,13 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
 
     // ─── Últimas 20 comisiones (detalle) ───
     const recentRes = await pool.query(`
-      SELECT 
+      SELECT
         ac.id, ac.shipment_type, ac.service_type, ac.tracking,
-        ac.client_name, ac.payment_amount_mxn, ac.commission_rate_pct,
+        ac.client_name, cu.box_id AS client_box_id, ac.payment_amount_mxn, ac.commission_rate_pct,
         ac.commission_amount_mxn, ac.gex_commission_mxn,
         ac.status, ac.paid_to_advisor_at, ac.created_at
       FROM advisor_commissions ac
+      LEFT JOIN users cu ON cu.id = ac.client_id
       WHERE ac.advisor_id = $1
       ORDER BY ac.created_at DESC
       LIMIT 20
@@ -1094,6 +1095,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         serviceType: r.service_type,
         tracking: r.tracking,
         clientName: r.client_name,
+        clientBoxId: r.client_box_id || null,
         paymentAmount: parseFloat(r.payment_amount_mxn) || 0,
         commissionRate: parseFloat(r.commission_rate_pct) || 0,
         commissionAmount: parseFloat(r.commission_amount_mxn) || 0,
