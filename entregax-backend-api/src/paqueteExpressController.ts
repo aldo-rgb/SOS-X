@@ -1438,10 +1438,40 @@ export async function generateOnePqtxGuide(params: {
             },
             {
               addrLin1: 'MEXICO',
-              addrLin3: (params.addr.state || ' ').toUpperCase(),
-              addrLin4: (params.addr.city || ' ').toUpperCase(),
-              addrLin5: (params.addr.city || ' ').toUpperCase(),
-              addrLin6: (params.addr.neighborhood || ' ').toUpperCase(),
+              // Defensiva: el JSON enviado a Paquete Express debe llevar
+              //   addrLin3 = ESTADO
+              //   addrLin4 = MUNICIPIO
+              //   addrLin5 = CIUDAD
+              //   addrLin6 = COLONIA
+              // Algunas direcciones legacy se capturaron mal (la colonia
+              // quedó en `city` y la ciudad se concatenó al `neighborhood`,
+              // por ej. city="CENTRO", neighborhood="GUADALAJARA CENTRO").
+              // Si detectamos que el `neighborhood` ya contiene al `city`,
+              // separamos: city queda como el resto del neighborhood y la
+              // colonia queda con el valor original de `city`.
+              ...(() => {
+                let cityVal = (params.addr.city || '').toString().trim();
+                let neighVal = (params.addr.neighborhood || '').toString().trim();
+                const cityLower = cityVal.toLowerCase();
+                const neighLower = neighVal.toLowerCase();
+                if (cityVal && neighVal && cityVal !== neighVal && neighLower.includes(cityLower)) {
+                  // neighborhood contiene a city → ciudad real = neighborhood − city
+                  const muni = neighVal
+                    .replace(new RegExp(cityVal, 'i'), '')
+                    .replace(/\s{2,}/g, ' ')
+                    .trim();
+                  if (muni) {
+                    neighVal = cityVal; // la colonia real era lo que estaba en city
+                    cityVal = muni;     // y la ciudad era el residuo
+                  }
+                }
+                return {
+                  addrLin3: (params.addr.state || ' ').toUpperCase(),
+                  addrLin4: (cityVal || ' ').toUpperCase(),
+                  addrLin5: (cityVal || ' ').toUpperCase(),
+                  addrLin6: (neighVal || ' ').toUpperCase(),
+                };
+              })(),
               zipCode: params.addr.zip_code || '',
               strtName: (params.addr.street || ' ').toUpperCase(),
               drnr: (() => {

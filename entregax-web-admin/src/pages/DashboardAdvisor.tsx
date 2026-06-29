@@ -992,10 +992,16 @@ export default function DashboardAdvisor() {
         // El backend devuelve `colonies` (campo principal) y `neighborhoods`
         // (alias). Aceptamos cualquiera por compatibilidad.
         const colonies: string[] = d?.colonies || d?.neighborhoods || [];
+        // Heurística: cuando solo tenemos Zippopotam como fuente, lo que viene
+        // en `city` es realmente la COLONIA (no la ciudad/municipio). Lo
+        // detectamos cuando ese valor también aparece en la lista de colonias.
+        // En ese caso NO autorrellenamos `city` — el asesor escribe el
+        // municipio/alcaldía a mano.
+        const cityIsActuallyColony = !!d?.city && colonies.includes(d.city);
         if (d?.city || d?.state || colonies.length > 0) {
           setNewAddrForm(p => ({
             ...p,
-            city: d.city || p.city,
+            city: cityIsActuallyColony ? p.city : (d.city || p.city),
             state: d.state || p.state,
             neighborhood: p.neighborhood || colonies[0] || '',
           }));

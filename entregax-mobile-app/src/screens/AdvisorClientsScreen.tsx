@@ -344,9 +344,21 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
     try {
       const res = await fetch(`${API_URL}/api/zipcode/${cp}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
-      if (data.city) {
-        setNewAddr(prev => ({ ...prev, city: data.city, state: data.state || prev.state, neighborhood: data.colonies?.[0] || prev.neighborhood }));
-        setColonyOptions(data.colonies || []);
+      // El backend devuelve `colonies` (principal) y `neighborhoods` (alias).
+      const colonies: string[] = data?.colonies || data?.neighborhoods || [];
+      // Heurística: cuando Zippopotam es la fuente, lo que viene en `city`
+      // suele ser la COLONIA (no la ciudad/municipio). Lo detectamos cuando
+      // ese valor también aparece en la lista de colonias. En ese caso
+      // dejamos que el asesor escriba el municipio a mano.
+      const cityIsActuallyColony = !!data?.city && colonies.includes(data.city);
+      if (data?.city || data?.state || colonies.length > 0) {
+        setNewAddr(prev => ({
+          ...prev,
+          city: cityIsActuallyColony ? prev.city : (data.city || prev.city),
+          state: data.state || prev.state,
+          neighborhood: prev.neighborhood || colonies[0] || '',
+        }));
+        setColonyOptions(colonies);
       }
     } catch { /* silent */ } finally {
       setZipLoading(false);

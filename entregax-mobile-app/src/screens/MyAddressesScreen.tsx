@@ -156,6 +156,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
   const [showModal, setShowModal] = useState(false);
   const [editingAddress, setEditingAddress] = useState<Address | null>(null);
   const [saving, setSaving] = useState(false);
+  const [zipLoading, setZipLoading] = useState(false);
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [selectedAddressForService, setSelectedAddressForService] = useState<Address | null>(null);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
@@ -228,6 +229,35 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
   const openAddModal = () => {
     resetForm();
     setShowModal(true);
+  };
+
+  // Auto-relleno por Código Postal. Usa el endpoint /api/zipcode/:cp del
+  // backend (mismo que web y asesor) que ya normaliza el estado y aplica el
+  // fallback Zippopotam sin meter la colonia en `city`.
+  const handleZipCodeChange = async (cp: string) => {
+    setForm(prev => ({ ...prev, zip_code: cp }));
+    if (cp.length !== 5) return;
+    setZipLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/zipcode/${cp}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const colonies: string[] = data?.colonies || data?.neighborhoods || [];
+      // Heurística: cuando lo que vino en `city` aparece también entre las
+      // colonias (caso fallback Zippopotam), realmente es la COLONIA y NO
+      // debemos pisarle el campo Ciudad/Municipio al usuario.
+      const cityIsActuallyColony = !!data?.city && colonies.includes(data.city);
+      if (data?.city || data?.state || colonies.length > 0) {
+        setForm(prev => ({
+          ...prev,
+          city: cityIsActuallyColony ? prev.city : (data.city || prev.city),
+          state: data.state || prev.state,
+          colony: prev.colony || colonies[0] || '',
+        }));
+      }
+    } catch { /* silencioso */ }
+    finally { setZipLoading(false); }
   };
 
   const openEditModal = (address: Address) => {
@@ -689,9 +719,11 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                     style={styles.input}
                     placeholder="00000"
                     keyboardType="numeric"
+                    maxLength={5}
                     value={form.zip_code}
-                    onChangeText={(text) => setForm({ ...form, zip_code: text })}
+                    onChangeText={handleZipCodeChange}
                   />
+                  {zipLoading && <Text style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Buscando datos del CP…</Text>}
                 </View>
                 <View style={styles.halfInput}>
                   <Text style={styles.inputLabel}>{t('addresses.country')}</Text>
