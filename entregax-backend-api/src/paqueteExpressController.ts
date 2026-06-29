@@ -1379,6 +1379,84 @@ export async function generateOnePqtxGuide(params: {
   const totalPieces = piecesArr.length;
   const totalWeight = piecesArr.reduce((acc, p) => acc + (Number(p.weight) || 0), 0) || 1;
 
+  // ─── Normalización de City/Colonia/Estado para Paquete Express ───────────
+  // Paquete Express requiere el JSON con campos diferenciados:
+  //   addrLin3 = ESTADO     · addrLin4 = MUNICIPIO
+  //   addrLin5 = CIUDAD     · addrLin6 = COLONIA
+  // En la BD legacy existen direcciones mal capturadas donde:
+  //   - colonia y ciudad están intercambiadas (ej. city="CENTRO",
+  //     neighborhood="GUADALAJARA"), o
+  //   - el neighborhood concatena ciudad + colonia (ej. "GUADALAJARA CENTRO").
+  // Para que la guía salga con la información correcta consultamos nuestro
+  // endpoint público /api/zipcode/:cp (SEPOMEX/Zippopotam) y comparamos con
+  // los catálogos reales del CP destino. Si city no aparece como municipio
+  // y sí como colonia, hacemos swap. Si neighborhood contiene al city,
+  // separamos.
+  const cleanAddr: { state: string; city: string; neighborhood: string } = await (async () => {
+    let cityVal = (params.addr.city || '').toString().trim();
+    let neighVal = (params.addr.neighborhood || '').toString().trim();
+    let stateVal = (params.addr.state || '').toString().trim();
+    const zip = (params.addr.zip_code || '').toString().trim();
+
+    // Normalizar "Distrito Federal" → "Ciudad de México"
+    if (/^(distrito federal|d\.?\s*f\.?|dif)$/i.test(stateVal)) stateVal = 'Ciudad de México';
+
+    // Heurística: palabras que casi siempre son nombre de COLONIA, no de
+    // municipio. Si el campo `city` contiene una de éstas y el `neighborhood`
+    // contiene un nombre propio diferente, asumimos que están intercambiados.
+    const COLONY_KEYWORDS = ['centro', 'norte', 'sur', 'este', 'oeste', 'poniente', 'oriente', 'centro historico', 'centro histórico'];
+    const isColonyKeyword = (s: string) =>
+      COLONY_KEYWORDS.includes(s.toLowerCase().trim());
+
+    // CASO B (offline): neighborhood ya CONTIENE al city
+    //   ej. city="CENTRO" + neighborhood="GUADALAJARA CENTRO"
+    if (cityVal && neighVal && cityVal !== neighVal && neighVal.toLowerCase().includes(cityVal.toLowerCase())) {
+      const muni = neighVal.replace(new RegExp(cityVal, 'i'), '').replace(/\s{2,}/g, ' ').trim();
+      if (muni) { neighVal = cityVal; cityVal = muni; }
+    }
+
+    if (zip && /^\d{5}$/.test(zip)) {
+      try {
+        // Llamada interna al endpoint /api/zipcode/:cp del mismo servicio
+        const port = process.env.PORT || 3001;
+        const cpRes = await axios.get(`http://localhost:${port}/api/zipcode/${zip}`, { timeout: 6000 });
+        const apiCity: string = (cpRes.data?.city || '').toString().trim();
+        const apiState: string = (cpRes.data?.state || '').toString().trim();
+        const apiColonies: string[] = (cpRes.data?.colonies || cpRes.data?.neighborhoods || []).map((c: any) => String(c).trim());
+        if (apiState && !stateVal) stateVal = apiState;
+
+        const cityInColonies = apiColonies.some((c) => c.localeCompare(cityVal, 'es', { sensitivity: 'base' }) === 0);
+        const neighInColonies = apiColonies.some((c) => c.localeCompare(neighVal, 'es', { sensitivity: 'base' }) === 0);
+        const neighMatchesApi = apiCity && neighVal && apiCity.localeCompare(neighVal, 'es', { sensitivity: 'base' }) === 0;
+
+        // CASO A: están INTERCAMBIADOS (ej. city="Centro", neighborhood="Guadalajara")
+        //         city aparece como colonia + neighborhood coincide con la ciudad real
+        if ((cityInColonies && neighMatchesApi) || (cityInColonies && !neighInColonies && neighVal && apiCity)) {
+          [cityVal, neighVal] = [neighVal, cityVal];
+        }
+        // CASO C: city está vacío pero tenemos el municipio del API → usarlo
+        if (!cityVal && apiCity) cityVal = apiCity;
+        // CASO D: neighborhood está vacío y city es realmente una colonia del CP → swap
+        if (!neighVal && cityInColonies && apiCity) {
+          neighVal = cityVal;
+          cityVal = apiCity;
+        }
+      } catch (e: any) {
+        console.warn(`[PQTX-NORM] /api/zipcode/${zip} no disponible: ${e?.message || e}`);
+      }
+    }
+
+    // CASO E (último recurso): si city sigue siendo una palabra genérica de
+    // colonia (ej. "Centro") y neighborhood es algo distinto (ej. nombre
+    // propio del municipio), los intercambiamos. Esto rescata datos legacy
+    // capturados al revés cuando el endpoint de CP no pudo desambiguar.
+    if (cityVal && neighVal && isColonyKeyword(cityVal) && !isColonyKeyword(neighVal)) {
+      [cityVal, neighVal] = [neighVal, cityVal];
+    }
+
+    return { state: stateVal, city: cityVal, neighborhood: neighVal };
+  })();
+
   // PQTX espera UN item con qunt = N (número de bultos) para guías multipieza,
   // donde `weight` representa el peso POR PIEZA. PQTX multiplica internamente
   // weight × qunt para obtener el peso total cobrable. Por eso enviamos el
@@ -1438,40 +1516,13 @@ export async function generateOnePqtxGuide(params: {
             },
             {
               addrLin1: 'MEXICO',
-              // Defensiva: el JSON enviado a Paquete Express debe llevar
-              //   addrLin3 = ESTADO
-              //   addrLin4 = MUNICIPIO
-              //   addrLin5 = CIUDAD
-              //   addrLin6 = COLONIA
-              // Algunas direcciones legacy se capturaron mal (la colonia
-              // quedó en `city` y la ciudad se concatenó al `neighborhood`,
-              // por ej. city="CENTRO", neighborhood="GUADALAJARA CENTRO").
-              // Si detectamos que el `neighborhood` ya contiene al `city`,
-              // separamos: city queda como el resto del neighborhood y la
-              // colonia queda con el valor original de `city`.
-              ...(() => {
-                let cityVal = (params.addr.city || '').toString().trim();
-                let neighVal = (params.addr.neighborhood || '').toString().trim();
-                const cityLower = cityVal.toLowerCase();
-                const neighLower = neighVal.toLowerCase();
-                if (cityVal && neighVal && cityVal !== neighVal && neighLower.includes(cityLower)) {
-                  // neighborhood contiene a city → ciudad real = neighborhood − city
-                  const muni = neighVal
-                    .replace(new RegExp(cityVal, 'i'), '')
-                    .replace(/\s{2,}/g, ' ')
-                    .trim();
-                  if (muni) {
-                    neighVal = cityVal; // la colonia real era lo que estaba en city
-                    cityVal = muni;     // y la ciudad era el residuo
-                  }
-                }
-                return {
-                  addrLin3: (params.addr.state || ' ').toUpperCase(),
-                  addrLin4: (cityVal || ' ').toUpperCase(),
-                  addrLin5: (cityVal || ' ').toUpperCase(),
-                  addrLin6: (neighVal || ' ').toUpperCase(),
-                };
-              })(),
+              // El destino se construye a partir de `cleanAddr`, que ya fue
+              // normalizado contra SEPOMEX/Zippopotam para garantizar el
+              // orden municipio/ciudad/colonia que Paquete Express requiere.
+              addrLin3: (cleanAddr.state || ' ').toUpperCase(),
+              addrLin4: (cleanAddr.city || ' ').toUpperCase(),
+              addrLin5: (cleanAddr.city || ' ').toUpperCase(),
+              addrLin6: (cleanAddr.neighborhood || ' ').toUpperCase(),
               zipCode: params.addr.zip_code || '',
               strtName: (params.addr.street || ' ').toUpperCase(),
               drnr: (() => {
