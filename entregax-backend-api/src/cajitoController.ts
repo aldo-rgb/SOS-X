@@ -650,6 +650,23 @@ export const getAudit = async (req: AuthRequest, res: Response): Promise<void> =
 };
 
 // GET /api/cajito/health — diagnóstico simple (super_admin/admin)
+// GET /api/cajito/my-access
+// Indica si el usuario actual tiene acceso a Cajito (capacidad cajito.access),
+// para que el frontend decida si mostrar el botón flotante — independientemente
+// del rol. super_admin siempre tiene acceso.
+export const getMyAccess = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    const role = req.user?.role;
+    if (!userId || !role) { res.status(401).json({ error: 'No autenticado' }); return; }
+    const caps = await getUserCapabilities(userId, role);
+    res.json({ access: hasCap(caps, 'cajito.access'), capabilities: Array.from(caps) });
+  } catch (e: any) {
+    console.error('getMyAccess:', e);
+    res.json({ access: false, capabilities: [] });
+  }
+};
+
 export const getHealth = async (req: AuthRequest, res: Response): Promise<void> => {
   const role = req.user?.role;
   if (role !== 'super_admin' && role !== 'admin') { res.status(403).json({ error: 'No autorizado' }); return; }

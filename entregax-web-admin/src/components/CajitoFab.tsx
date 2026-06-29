@@ -753,6 +753,9 @@ export default function CajitoFab() {
     return ['advisor', 'sub_advisor', 'customer_service'].includes(String(u?.role || '').toLowerCase()) ? 'track' : 'chat';
   });
   const [imgError, setImgError] = useState(false);
+  // Acceso por CAPACIDAD (cajito.access), no solo por rol: un admin con el permiso
+  // concedido en Permisos > Cajito también debe ver el botón.
+  const [hasCapAccess, setHasCapAccess] = useState(false);
 
   // Chat state
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -817,8 +820,18 @@ export default function CajitoFab() {
     }
   }, [open, mode]);
 
+  // Consultar si el usuario tiene la capacidad cajito.access concedida.
+  useEffect(() => {
+    if (!cajitoEnabled || isSuperAdmin || isTrackOnly) return;
+    let alive = true;
+    api.get('/cajito/my-access')
+      .then(r => { if (alive) setHasCapAccess(r.data?.access === true); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [cajitoEnabled, isSuperAdmin, isTrackOnly]);
+
   if (loading || !cajitoEnabled) return null;
-  if (!isSuperAdmin && !isTrackOnly) return null;
+  if (!isSuperAdmin && !isTrackOnly && !hasCapAccess) return null;
 
   const avatar = imgError ? null : resolveUrl(cajitoAvatarUrl);
 

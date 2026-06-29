@@ -5083,7 +5083,7 @@ app.get('/api/zipcode/:cp', async (req: Request, res: Response) => {
             if (zipRes.data && zipRes.data.places && zipRes.data.places.length > 0) {
                 const places = zipRes.data.places;
                 const state = places[0]?.state || '';
-                const colonies = places.map((p: any) => p['place name']).filter(Boolean);
+                const colonies: string[] = places.map((p: any) => p['place name']).filter(Boolean);
                 res.json(buildResponse('', state, [...new Set(colonies)].sort()));
                 return;
             }
