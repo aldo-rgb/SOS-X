@@ -7794,12 +7794,16 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     // KPIs PRINCIPALES - CONSOLIDADOS Y POR EMPRESA
     // ============================================
 
-    // 1. Ingresos totales del día (Efectivo + SPEI) - CONSOLIDADO
+    // 1. Efectivo del día — SOLO pagos procesados en nuestro sistema (no caja chica).
+    // caja_chica_transacciones incluye depósitos/retornos/movimientos internos que NO
+    // son cobranza procesada; usamos los webhooks procesados con método efectivo.
     const ingresosHoyRes = await pool.query(`
-      SELECT 
-        COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as efectivo_hoy
-      FROM caja_chica_transacciones
-      WHERE DATE(created_at) = CURRENT_DATE
+      SELECT
+        COALESCE(SUM(monto_neto), 0) as efectivo_hoy
+      FROM openpay_webhook_logs
+      WHERE DATE(fecha_pago) = CURRENT_DATE
+        AND estatus_procesamiento = 'procesado'
+        AND COALESCE(payment_method, tipo_pago) = 'cash'
         ${serviceFilter ? "AND service_type = ANY($1)" : ""}
     `, serviceFilter ? [serviceFilter] : []);
     
@@ -7862,12 +7866,14 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         ${serviceFilter ? "AND service_type = ANY($3)" : ""}
     `, serviceFilter ? [startOfMonth, today, serviceFilter] : [startOfMonth, today]);
 
-    // Efectivo del mes
+    // Efectivo del mes — SOLO pagos procesados en nuestro sistema (no caja chica).
     const ingresosMesRes = await pool.query(`
-      SELECT 
-        COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as efectivo_mes
-      FROM caja_chica_transacciones
-      WHERE created_at >= $1 AND created_at <= $2
+      SELECT
+        COALESCE(SUM(monto_neto), 0) as efectivo_mes
+      FROM openpay_webhook_logs
+      WHERE fecha_pago >= $1 AND fecha_pago <= $2
+        AND estatus_procesamiento = 'procesado'
+        AND COALESCE(payment_method, tipo_pago) = 'cash'
         ${serviceFilter ? "AND service_type = ANY($3)" : ""}
     `, serviceFilter ? [startOfMonth, today, serviceFilter] : [startOfMonth, today]);
 
@@ -7988,7 +7994,11 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     const speiNetoMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_neto || 0), 0);
     const paypalMes = parseFloat(paypalMesRes.rows[0]?.paypal_bruto || 0);
     const paypalNetoMes = parseFloat(paypalMesRes.rows[0]?.paypal_neto || 0);
-    const comisionesMes = (speiMesTotal - speiNetoMesTotal) + (paypalMes - paypalNetoMes);
+    // Comisiones del mes = bruto recibido − neto liquidado, sobre TODOS los pagos
+    // procesados (no solo SPEI). Antes restaba spei_neto de sí mismo (siempre 0).
+    const brutoMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.total_bruto || 0), 0);
+    const netoMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.total_neto || 0), 0);
+    const comisionesMes = brutoMesTotal - netoMesTotal;
     const totalMes = efectivoMes + speiMesTotal + paypalMes;
 
     // Saldo final por empresa:
