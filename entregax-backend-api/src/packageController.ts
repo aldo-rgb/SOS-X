@@ -1646,6 +1646,37 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 receivedAt: fallbackRow.created_at,
             };
 
+            // === DHL: cajas hijas, monto total a cobrar e impuestos del envío ===
+            let dhlChildren: any[] = [];
+            let dhlTotalCost: number | null = null;
+            let dhlTaxTotal: number | null = null;
+            let dhlMontoPagado: number | null = null;
+            let dhlSaldoPendiente: number | null = null;
+            if (fallbackKind === 'dhl') {
+                const masterTk = fallbackRow.master_tracking || fallbackRow.tracking_number || null;
+                let boxes: any[] = [fallbackRow];
+                if (masterTk) {
+                    const sib = await pool.query(`
+                        SELECT id, inbound_tracking, weight_kg, status,
+                               total_cost_mxn, import_tax_mxn, saldo_pendiente, monto_pagado
+                        FROM dhl_shipments WHERE secondary_tracking = $1 ORDER BY id
+                    `, [masterTk]);
+                    if (sib.rows.length > 1) boxes = sib.rows;
+                }
+                dhlChildren = boxes.length > 1 ? boxes.map((b: any) => ({
+                    id: b.id,
+                    tracking: b.inbound_tracking || null,
+                    status: b.status,
+                    weight: b.weight_kg != null ? Number(b.weight_kg) : null,
+                    totalCost: b.total_cost_mxn != null ? Number(b.total_cost_mxn) : null,
+                    importTaxMxn: b.import_tax_mxn != null ? Number(b.import_tax_mxn) : null,
+                })) : [];
+                dhlTotalCost = boxes.reduce((s, b) => s + (Number(b.total_cost_mxn) || 0), 0);
+                dhlTaxTotal = boxes.reduce((s, b) => s + (Number(b.import_tax_mxn) || 0), 0);
+                dhlMontoPagado = boxes.reduce((s, b) => s + (Number(b.monto_pagado) || 0), 0);
+                dhlSaldoPendiente = boxes.reduce((s, b) => s + (Number(b.saldo_pendiente) || 0), 0);
+            }
+
             res.json({
                 success: true,
                 shipment: {
@@ -1690,7 +1721,10 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         paymentStatus: (fallbackKind === 'dhl' && fallbackRow.paid_at) ? 'paid' : null,
                         clientPaid: fallbackKind === 'dhl' ? !!fallbackRow.paid_at : false,
                         clientPaidAt: (fallbackKind === 'dhl' ? fallbackRow.paid_at : null) || null,
-                        totalCost: null,
+                        totalCost: fallbackKind === 'dhl' ? dhlTotalCost : null,
+                        importTaxMxn: fallbackKind === 'dhl' ? dhlTaxTotal : null,
+                        montoPagado: fallbackKind === 'dhl' ? dhlMontoPagado : null,
+                        saldoPendiente: fallbackKind === 'dhl' ? dhlSaldoPendiente : null,
                         poboxCostUsd: null,
                         assignedAddress: fallbackRow.delivery_address_id ? {
                             id: fallbackRow.delivery_address_id,
@@ -1708,7 +1742,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                             carrierConfig: fallbackRow.addr_carrier_config,
                         } : null,
                     },
-                    children: [],
+                    children: dhlChildren,
                     labels: [label],
                     client: {
                         id: fallbackRow.user_id || 0,
@@ -3040,7 +3074,32 @@ export const getPackageMovementsByTracking = async (req: Request, res: Response)
 
             // Fallback: china_receipts (Aéreo China — fno)
             const chinaReceipt = await getChinaReceiptBaseByTracking(tracking);
-            if (!chinaReceipt) return res.status(404).json({ success: false, error: 'Paquete no encontrado' });
+            if (!chinaReceipt) {
+                // Fallback DHL: construir historial desde dhl_shipments.
+                const tkUpper = tracking.toUpperCase();
+                const tkCompact = tkUpper.replace(/[^A-Z0-9]/g, '');
+                const dhl = await pool.query(`
+                    SELECT id, status, created_at, inspected_at, dispatched_at, paid_at, user_id, box_id
+                    FROM dhl_shipments
+                    WHERE UPPER(COALESCE(inbound_tracking,'')) = $1
+                       OR UPPER(COALESCE(secondary_tracking,'')) = $1
+                       OR UPPER(COALESCE(national_tracking,'')) = $1
+                       OR REGEXP_REPLACE(UPPER(COALESCE(inbound_tracking,'')), '[^A-Z0-9]', '', 'g') = $2
+                       OR REGEXP_REPLACE(UPPER(COALESCE(secondary_tracking,'')), '[^A-Z0-9]', '', 'g') = $2
+                    ORDER BY id LIMIT 1
+                `, [tkUpper, tkCompact]);
+                if (dhl.rows.length === 0) return res.status(404).json({ success: false, error: 'Paquete no encontrado' });
+                const d = dhl.rows[0];
+                if (!(await checkClientPermission(user, d))) {
+                    return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });
+                }
+                const events: any[] = [];
+                events.push({ id: 'recv', status: 'received_mty', statusLabel: 'Recibido en Monterrey', createdAt: d.inspected_at || d.created_at });
+                if (d.paid_at) events.push({ id: 'paid', status: 'paid', statusLabel: 'Pagado', createdAt: d.paid_at });
+                if (d.dispatched_at || d.status === 'dispatched') events.push({ id: 'disp', status: 'dispatched', statusLabel: 'Despachado', createdAt: d.dispatched_at || null });
+                events.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+                return res.json({ success: true, movements: events });
+            }
 
             if (!(await checkClientPermission(user, chinaReceipt))) {
                 return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });

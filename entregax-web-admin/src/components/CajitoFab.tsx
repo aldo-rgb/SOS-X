@@ -242,9 +242,10 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const providerCostUsd = isTrackOnly ? null : (m.poboxProviderCostUsd ?? m.poboxCostUsd ?? null);
   const ventaUsd = m.poboxVentaUsd != null ? Number(m.poboxVentaUsd) : null;
   const totalCost = m.totalCost != null ? Number(m.totalCost) : null;
+  const importTax = (m as any).importTaxMxn != null ? Number((m as any).importTaxMxn) : null;
   const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
   const saldoPendiente = m.saldoPendiente ?? m.saldo_pendiente ?? null;
-  const hasCosts = lastMileCost != null || providerCostMxn != null || ventaUsd != null || totalCost != null;
+  const hasCosts = lastMileCost != null || providerCostMxn != null || ventaUsd != null || totalCost != null || (importTax != null && importTax > 0);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -471,6 +472,12 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Typography variant="caption" color="text.secondary">Venta al cliente</Typography>
                 <Typography variant="caption" fontWeight={600} color="success.main">{fmtMoney(ventaUsd, 'USD')}</Typography>
+              </Box>
+            )}
+            {importTax != null && importTax > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Impuestos DHL</Typography>
+                <Typography variant="caption" fontWeight={600}>{fmtMoney(importTax)}</Typography>
               </Box>
             )}
             {totalCost != null && (
