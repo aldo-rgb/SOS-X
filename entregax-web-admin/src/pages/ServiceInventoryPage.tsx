@@ -328,7 +328,12 @@ export default function ServiceInventoryPage() {
   const mapExStatusToInternal = (ex: EntregaxRow): string | undefined => {
     const ls = (ex.lastStatus || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     if (ls.includes('entregado') || ls.includes('delivered')) return 'delivered';
-    if (ls.includes('en ruta') || ls.includes('en camino') || ls.includes('reparto') || ls.includes('out_for_delivery')) return 'out_for_delivery';
+    if (ls.includes('en ruta') || ls.includes('en camino') || ls.includes('reparto') || ls.includes('out_for_delivery')) {
+      // Marítimo: "En reparto" se interpreta como ENTREGADO (es el último estado
+      // que reporta EntregaX para la entrega local marítima; no llega un
+      // "Entregado" posterior).
+      return service === 'maritimo' ? 'delivered' : 'out_for_delivery';
+    }
     const pak = (ex.paqueteria || '').toLowerCase();
     const isLocalDelivery = pak.includes('local') || pak.includes('nacional') || pak.startsWith('entregax');
     const isSent = ls.includes('enviado') || ls.includes('shipped') || ls.includes('sent');
