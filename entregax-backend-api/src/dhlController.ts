@@ -819,8 +819,9 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
         exchange_rate, import_cost_usd, import_cost_mxn, import_tax_mxn,
         assigned_cost_usd, cost_rate_type, cost_assigned_at, cost_assigned_by,
         cost_payment_status,
+        total_cost_mxn,
         status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $20, $17, $18, NOW(), $19, 'pending', 'received_mty')
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $20, $17, $18, NOW(), $19, 'pending', (COALESCE($16,0) + COALESCE($20,0)), 'received_mty')
       RETURNING *
     `, [
       inbound_tracking, secondary_tracking || null,

@@ -90,6 +90,7 @@ interface DhlShipment {
   height_cm: number;
   import_cost_usd: number;
   import_cost_mxn: number;
+  import_tax_mxn: number;
   national_cost_mxn: number;
   total_cost_mxn: number;
   status: string;
@@ -679,6 +680,7 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
                 <TableCell>Cliente</TableCell>
                 <TableCell>Tipo</TableCell>
                 <TableCell align="center">Peso</TableCell>
+                <TableCell align="right">Impuestos</TableCell>
                 <TableCell align="right">Total MXN</TableCell>
                 <TableCell align="center">Estado</TableCell>
                 <TableCell>Fecha</TableCell>
@@ -688,7 +690,7 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
             <TableBody>
               {getFilteredShipments().length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">No hay envíos</Typography>
                   </TableCell>
                 </TableRow>
@@ -764,11 +766,26 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
                       {shipment.weight_kg} kg
                     </TableCell>
                     <TableCell align="right">
-                      {shipment.total_cost_mxn > 0 ? (
-                        <Typography fontWeight="bold" color={DHL_COLOR}>
-                          ${shipment.total_cost_mxn.toLocaleString()}
+                      {Number(shipment.import_tax_mxn) > 0 ? (
+                        <Typography variant="body2" color="text.secondary">
+                          ${Number(shipment.import_tax_mxn).toLocaleString()}
                         </Typography>
                       ) : '-'}
+                    </TableCell>
+                    <TableCell align="right">
+                      {(() => {
+                        // total_cost_mxn puede venir null en paquetes recién recibidos
+                        // (antes de cotizar el nacional); en ese caso mostramos
+                        // importación + impuestos como total provisional.
+                        const total = Number(shipment.total_cost_mxn) > 0
+                          ? Number(shipment.total_cost_mxn)
+                          : (Number(shipment.import_cost_mxn) || 0) + (Number(shipment.import_tax_mxn) || 0) + (Number(shipment.national_cost_mxn) || 0);
+                        return total > 0 ? (
+                          <Typography fontWeight="bold" color={DHL_COLOR}>
+                            ${total.toLocaleString()}
+                          </Typography>
+                        ) : '-';
+                      })()}
                     </TableCell>
                     <TableCell align="center">
                       <Chip 
