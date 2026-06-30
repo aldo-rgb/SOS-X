@@ -7,6 +7,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import * as skydropx from './services/skydropxService';
 import { createNotification } from './notificationController';
+import { signS3UrlIfNeeded } from './s3Service';
 
 // =========================================
 // TARIFAS DHL
@@ -1619,6 +1620,59 @@ export const getDhlImportTaxMxn = async (): Promise<number> => {
     return row.rows.length > 0 ? parseFloat(row.rows[0].value) : DHL_TAX_DEFAULT;
   } catch {
     return DHL_TAX_DEFAULT;
+  }
+};
+
+// GET /api/admin/dhl/import-tax/expenses
+// Lista los gastos de "Impuestos DHL" registrados por el operador de caja chica
+// (petty_cash_movements categoría 'impuestos_dhl'): guía (concept), monto, fecha,
+// estado, foto del comprobante (evidence_url firmada) y sucursal.
+export const getDhlImportTaxExpenses = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { search, limit = 500 } = req.query;
+    const params: any[] = [];
+    let where = `WHERE m.category = 'impuestos_dhl' AND m.movement_type = 'expense'`;
+    if (search) {
+      params.push(`%${search}%`);
+      where += ` AND (m.concept ILIKE $${params.length} OR b.name ILIKE $${params.length})`;
+    }
+    params.push(Number(limit) || 200);
+    const result = await pool.query(`
+      SELECT
+        m.id,
+        m.concept           AS guia,
+        m.amount_mxn        AS monto,
+        m.currency,
+        m.status,
+        m.evidence_url,
+        m.created_at        AS fecha,
+        b.name              AS sucursal,
+        u.full_name         AS registrado_por
+      FROM petty_cash_movements m
+      LEFT JOIN branches b ON b.id = m.branch_id
+      LEFT JOIN users u ON u.id = m.created_by
+      ${where}
+      ORDER BY m.created_at DESC
+      LIMIT $${params.length}
+    `, params);
+
+    const expenses = await Promise.all(result.rows.map(async (r: any) => ({
+      id: r.id,
+      guia: r.guia || '',
+      monto: parseFloat(r.monto) || 0,
+      currency: r.currency || 'MXN',
+      status: r.status,
+      fecha: r.fecha,
+      sucursal: r.sucursal || '—',
+      registrado_por: r.registrado_por || '—',
+      evidence_url: await signS3UrlIfNeeded(r.evidence_url),
+    })));
+
+    const total = expenses.reduce((s, e) => s + (e.monto || 0), 0);
+    res.json({ success: true, expenses, count: expenses.length, total });
+  } catch (e: any) {
+    console.error('Error obteniendo gastos de impuestos DHL:', e);
+    res.status(500).json({ error: e.message });
   }
 };
 

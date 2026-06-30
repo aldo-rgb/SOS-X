@@ -133,6 +133,8 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
   const [shipments, setShipments] = useState<DhlShipment[]>([]);
   const [stats, setStats] = useState<DhlStats | null>(null);
   const [loading, setLoading] = useState(false);
+  // Impuesto por default cuando un paquete no tiene impuesto registrado.
+  const [defaultTax, setDefaultTax] = useState<number>(390);
   const [filters, setFilters] = useState({ status: '', search: '' });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
@@ -253,6 +255,14 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
   useEffect(() => {
     fetchStats();
     fetchShipments();
+    // Cargar el impuesto default configurado ($390 por default).
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const r = await axios.get(`${API_URL}/api/admin/dhl/settings/import-tax`, { headers: { Authorization: `Bearer ${token}` } });
+        if (r.data?.value != null) setDefaultTax(Number(r.data.value) || 390);
+      } catch { /* usa 390 por default */ }
+    })();
   }, [fetchStats, fetchShipments]);
 
   // ===== VALIDACIÓN SUPERVISOR =====
@@ -766,20 +776,28 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
                       {shipment.weight_kg} kg
                     </TableCell>
                     <TableCell align="right">
-                      {Number(shipment.import_tax_mxn) > 0 ? (
-                        <Typography variant="body2" color="text.secondary">
-                          ${Number(shipment.import_tax_mxn).toLocaleString()}
-                        </Typography>
-                      ) : '-'}
+                      {(() => {
+                        // Regla: si el paquete no tiene impuesto registrado, usar el default ($390).
+                        const tax = Number(shipment.import_tax_mxn) > 0 ? Number(shipment.import_tax_mxn) : defaultTax;
+                        const isDefault = !(Number(shipment.import_tax_mxn) > 0);
+                        return (
+                          <Tooltip title={isDefault ? 'Impuesto por default (sin nota registrada)' : ''}>
+                            <Typography variant="body2" color={isDefault ? 'text.disabled' : 'text.secondary'}>
+                              ${tax.toLocaleString()}
+                            </Typography>
+                          </Tooltip>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell align="right">
                       {(() => {
                         // total_cost_mxn puede venir null en paquetes recién recibidos
                         // (antes de cotizar el nacional); en ese caso mostramos
-                        // importación + impuestos como total provisional.
+                        // importación + impuestos (o el default) como total provisional.
+                        const tax = Number(shipment.import_tax_mxn) > 0 ? Number(shipment.import_tax_mxn) : defaultTax;
                         const total = Number(shipment.total_cost_mxn) > 0
                           ? Number(shipment.total_cost_mxn)
-                          : (Number(shipment.import_cost_mxn) || 0) + (Number(shipment.import_tax_mxn) || 0) + (Number(shipment.national_cost_mxn) || 0);
+                          : (Number(shipment.import_cost_mxn) || 0) + tax + (Number(shipment.national_cost_mxn) || 0);
                         return total > 0 ? (
                           <Typography fontWeight="bold" color={DHL_COLOR}>
                             ${total.toLocaleString()}
