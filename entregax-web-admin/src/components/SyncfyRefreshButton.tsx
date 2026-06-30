@@ -112,9 +112,15 @@ export default function SyncfyRefreshButton({
             },
           });
 
-          if (typeof widget.setEntrypointUpdateCredential === 'function') {
-            widget.setEntrypointUpdateCredential(idCredential);
-          }
+          // ❌ NO usar setEntrypointUpdateCredential(idCredential): en BBVA Empresas
+          // el modo "actualizar credencial" muestra "Credenciales encontradas",
+          // marca como autenticado y SALE sin volver a pedir el QR/2FA, por lo que
+          // la credencial nunca se re-autentica y no se descargan movimientos.
+          // En su lugar abrimos el widget en modo CREACIÓN (igual que la conexión
+          // nueva en FiscalPage): el usuario selecciona su banco, escanea el QR y
+          // se crea una credencial fresca → el cron descarga a los ~10 min. Esto
+          // replica el flujo manual "borrar + conectar de cero" que sí funciona.
+          void idCredential;
           if (typeof widget.open === 'function') { try { widget.open(); } catch { /* noop */ } }
 
           if (typeof widget.on === 'function') {
