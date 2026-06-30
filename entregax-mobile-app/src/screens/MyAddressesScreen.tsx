@@ -606,7 +606,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                   >
                     <Ionicons name="settings-outline" size={16} color={ORANGE} />
                     <Text style={styles.setServiceText}>
-                      {address.default_for_service ? 'Cambiar servicio' : 'Asignar a servicio'}
+                      {address.default_for_service ? 'Automatizar servicio' : 'Asignar a servicio'}
                     </Text>
                   </TouchableOpacity>
                 </View>
