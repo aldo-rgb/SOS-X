@@ -306,7 +306,7 @@ export const deleteAddress = async (req: Request, res: Response): Promise<void> 
 
         // Antes de eliminar, reasignar/limpiar paquetes que dependen de esta
         // dirección para evitar referencias huérfanas que rompen otros módulos.
-        await cascadeReassignPackagesBeforeDelete(id);
+        await cascadeReassignPackagesBeforeDelete(String(id));
 
         // IDOR guard
         const result = isClient
@@ -748,7 +748,7 @@ export const deleteMyAddress = async (req: Request, res: Response): Promise<void
         }
 
         // Reasignar paquetes asociados ANTES de borrar (evita huérfanos).
-        await cascadeReassignPackagesBeforeDelete(addressId);
+        await cascadeReassignPackagesBeforeDelete(String(addressId));
 
         await pool.query(
             'DELETE FROM addresses WHERE id = $1 AND user_id = $2',
@@ -1187,7 +1187,7 @@ export const deleteAdvisorClientAddress = async (req: Request, res: Response): P
         }
 
         // Reasignar paquetes asociados ANTES de borrar (evita huérfanos).
-        await cascadeReassignPackagesBeforeDelete(addressId);
+        await cascadeReassignPackagesBeforeDelete(String(addressId));
 
         await pool.query('DELETE FROM addresses WHERE id = $1', [addressId]);
         res.json({ message: 'Dirección eliminada' });
