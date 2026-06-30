@@ -1243,6 +1243,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
 
         const result = await pool.query(`
             SELECT p.*, u.full_name, u.email, u.box_id as user_box_id,
+                   u.is_verified AS user_is_verified,
+                   u.verification_status AS user_verification_status,
                    lc.full_name as legacy_name, lc.box_id as legacy_box_id,
                    adv.id as advisor_id, adv.full_name as advisor_name,
                    a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
@@ -2314,11 +2316,17 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '',
                         boxId: pkg.user_box_id || 'N/A',
                         shippingMark: pkg.box_id || childBoxId || null,
+                        // Estado de verificación KYC del cliente
+                        isVerified: pkg.user_is_verified === true
+                            || ['verified', 'approved'].includes(String(pkg.user_verification_status || '').toLowerCase()),
+                        verificationStatus: pkg.user_verification_status || null,
                         advisor: pkg.advisor_name ? { id: pkg.advisor_id, name: pkg.advisor_name } : null,
                       }
                     : {
                         id: 0, name: resolvedName, email: '', boxId: resolvedBoxId,
                         shippingMark: pkg.box_id || childBoxId || null,
+                        isVerified: false,
+                        verificationStatus: null,
                         advisor: null,
                       }
             }

@@ -324,6 +324,21 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
             <PersonIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
             <Typography variant="caption" color="text.secondary" fontWeight={600}>CLIENTE</Typography>
+            {client.id ? (
+              client.isVerified ? (
+                <Chip
+                  label="✅ Verificado"
+                  size="small"
+                  sx={{ height: 18, fontSize: 10, ml: 'auto', bgcolor: 'rgba(46,125,50,0.12)', color: '#2E7D32', fontWeight: 700, border: '1px solid rgba(46,125,50,0.3)' }}
+                />
+              ) : (
+                <Chip
+                  label="⚠️ Sin verificar"
+                  size="small"
+                  sx={{ height: 18, fontSize: 10, ml: 'auto', bgcolor: 'rgba(230,81,0,0.10)', color: '#E65100', fontWeight: 700, border: '1px solid rgba(230,81,0,0.3)' }}
+                />
+              )
+            ) : null}
           </Box>
           <Typography variant="body2" fontWeight={600}>{client.name || '—'}</Typography>
           {client.boxId && <Typography variant="caption" color="text.secondary">{client.boxId}</Typography>}
