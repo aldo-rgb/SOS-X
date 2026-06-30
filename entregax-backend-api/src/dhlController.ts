@@ -807,8 +807,9 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
     );
     const internalCost = costRateResult.rows.length > 0 ? parseFloat(costRateResult.rows[0].cost_usd) : null;
 
-    // Obtener impuesto DHL configurado
-    const importTaxMxn = await getDhlImportTaxMxn();
+    // Impuesto DHL: si ya hay una nota de impuestos registrada para esta guía
+    // (caja chica) y su monto es >= al default, se aplica ese monto; si no, el default.
+    const importTaxMxn = await resolveDhlEffectiveTax([inbound_tracking, secondary_tracking]);
     const totalWithTax = importCostMxn !== null ? importCostMxn + importTaxMxn : importTaxMxn;
 
     // Insertar registro con costo interno auto-asignado
@@ -1621,6 +1622,51 @@ export const getDhlImportTaxMxn = async (): Promise<number> => {
   } catch {
     return DHL_TAX_DEFAULT;
   }
+};
+
+// Monto de impuesto de la nota de caja chica (impuestos_dhl) aprobada más reciente
+// que corresponda a alguno de los trackings dados; null si no existe.
+export const getDhlTaxNoteAmount = async (trackings: (string | null | undefined)[]): Promise<number | null> => {
+  const keys = Array.from(new Set(trackings.filter(Boolean).map(t => String(t).trim()))).filter(k => k.length > 0);
+  if (keys.length === 0) return null;
+  const r = await pool.query(`
+    SELECT amount_mxn FROM petty_cash_movements
+    WHERE category = 'impuestos_dhl' AND movement_type = 'expense' AND status = 'approved'
+      AND concept = ANY($1)
+    ORDER BY created_at DESC LIMIT 1
+  `, [keys]);
+  return r.rows.length ? parseFloat(r.rows[0].amount_mxn) : null;
+};
+
+// Resuelve el impuesto efectivo para una guía según la regla:
+//  - si hay nota de impuestos y su monto >= default → usa el monto de la nota
+//  - si no hay nota, o la nota es menor al default → usa el default
+export const resolveDhlEffectiveTax = async (trackings: (string | null | undefined)[]): Promise<number> => {
+  const def = await getDhlImportTaxMxn();
+  const note = await getDhlTaxNoteAmount(trackings);
+  return (note != null && note >= def) ? note : def;
+};
+
+// Cruza una nota de impuestos hacia la(s) guía(s) correspondiente(s):
+//  - solo a guías NO pagadas por el cliente (paid_at IS NULL y status previo a pago)
+//  - si el monto de la nota es >= default, aplica ese monto; si es menor, deja el default
+//  - si la guía ya está pagada, no se toca.
+// Devuelve cuántas guías se actualizaron.
+export const crossDhlTaxNote = async (tracking: string | null | undefined, noteAmount: number): Promise<number> => {
+  const tk = tracking ? String(tracking).trim() : '';
+  if (!tk) return 0;
+  const def = await getDhlImportTaxMxn();
+  const effective = noteAmount >= def ? noteAmount : def;
+  const r = await pool.query(`
+    UPDATE dhl_shipments
+       SET import_tax_mxn = $1,
+           total_cost_mxn = COALESCE(import_cost_mxn, 0) + $1 + COALESCE(national_cost_mxn, 0),
+           updated_at = NOW()
+     WHERE (inbound_tracking = $2 OR secondary_tracking = $2)
+       AND paid_at IS NULL
+       AND status NOT IN ('paid', 'dispatched', 'in_transit', 'delivered')
+  `, [effective, tk]);
+  return r.rowCount || 0;
 };
 
 // GET /api/admin/dhl/import-tax/expenses

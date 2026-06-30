@@ -18,6 +18,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import crypto from 'crypto';
 import { signS3UrlIfNeeded } from './s3Service';
+import { crossDhlTaxNote } from './dhlController';
 
 /**
  * Firma las URLs de evidencia de un movimiento para que el navegador pueda
@@ -972,6 +973,14 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
     }
 
     await client.query('COMMIT');
+
+    // Regla de cruce: si es una nota de Impuestos DHL ya aprobada y tiene guía,
+    // cruzar el monto a la guía correspondiente (si no está pagada).
+    if (autoApprove && category === 'impuestos_dhl' && concept) {
+      crossDhlTaxNote(String(concept), amount).catch(e =>
+        console.warn('[registerBranchExpense] crossDhlTaxNote:', e?.message || e));
+    }
+
     return res.json({
       success: true,
       movement_id: m.rows[0].id,
@@ -1104,6 +1113,14 @@ export const approveExpense = async (req: Request, res: Response): Promise<any> 
       WHERE id = $1
     `, [m.wallet_id, Number(m.amount_mxn)]);
     await client.query('COMMIT');
+
+    // Regla de cruce: al aprobar una nota de Impuestos DHL con guía, cruzar el
+    // monto a la guía correspondiente (si no está pagada).
+    if (m.category === 'impuestos_dhl' && m.concept) {
+      crossDhlTaxNote(String(m.concept), Number(m.amount_mxn)).catch(e =>
+        console.warn('[approveExpense] crossDhlTaxNote:', e?.message || e));
+    }
+
     return res.json({ success: true });
   } catch (err: any) {
     await client.query('ROLLBACK');
