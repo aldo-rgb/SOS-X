@@ -1121,8 +1121,11 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
       let inferredUso = rfcUpper === 'XAXX010101000' ? 'S01' : (pr.uso_cfdi || 'G03');
       let hasIncompatibility = false;
       // Regímenes de personas físicas con restricciones: usar S01 si el uso guardado es G03
-      const regimenesRestringidos = ['605', '606', '607', '608', '612', '615', '621', '625'];
-      if (regimenesRestringidos.includes(regimen) && inferredUso === 'G03') {
+      // Solo cambiar a S01 si el régimen realmente NO admite G03 según el catálogo
+      // del SAT (USO_CFDI_BY_REGIMEN). NO inventar restricciones: 612/606/608/621/625
+      // SÍ permiten G03.
+      const usosDelRegimen = USO_CFDI_BY_REGIMEN[regimen];
+      if (inferredUso === 'G03' && usosDelRegimen && !usosDelRegimen.includes('G03')) {
         inferredUso = 'S01'; // Sin efectos fiscales (más seguro)
         hasIncompatibility = true;
       }
@@ -1191,8 +1194,11 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
       let inferredUso = rfcUpper === 'XAXX010101000' ? 'S01' : 'G03';
       let hasIncompatibility = false;
       // Regímenes de personas físicas: usar S01 en lugar de G03
-      const regimenesRestringidos = ['605', '606', '607', '608', '612', '615', '621', '625'];
-      if (regimenesRestringidos.includes(regimen) && inferredUso === 'G03') {
+      // Solo cambiar a S01 si el régimen realmente NO admite G03 según el catálogo
+      // del SAT (USO_CFDI_BY_REGIMEN). NO inventar restricciones: 612/606/608/621/625
+      // SÍ permiten G03.
+      const usosDelRegimen = USO_CFDI_BY_REGIMEN[regimen];
+      if (inferredUso === 'G03' && usosDelRegimen && !usosDelRegimen.includes('G03')) {
         inferredUso = 'S01';
         hasIncompatibility = true;
       }
