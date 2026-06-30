@@ -2001,6 +2001,37 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 carrier: pkg.carrier, receivedAt: pkg.received_at });
         }
 
+        // Resolver foto del paquete. Prioridad:
+        //  1. packages.image_url (foto subida directo al paquete: PO Box US,
+        //     marítimo, etc.)
+        //  2. Foto del primer hijo (caso master USA con varias cajas).
+        //  3. china_receipts.evidence_urls[0] cuando el paquete viene del flujo
+        //     China (AIR/SEA) y la foto la subió MoJie. Se busca por fno o por
+        //     el prefijo del tracking_internal (FNO-001 → FNO).
+        let resolvedImageUrl: string | null = pkg.image_url || null;
+        if (!resolvedImageUrl && pkg.is_master && children.length > 0) {
+            const childWithPhoto = children.find((c: any) => c.image_url);
+            if (childWithPhoto) resolvedImageUrl = childWithPhoto.image_url;
+        }
+        if (!resolvedImageUrl) {
+            try {
+                const fnoCandidate = String(pkg.fno || pkg.tracking_internal || '').replace(/-\d{1,4}$/, '');
+                if (fnoCandidate) {
+                    const imgRes = await pool.query(
+                        `SELECT evidence_urls FROM china_receipts
+                          WHERE UPPER(fno) = UPPER($1)
+                            AND evidence_urls IS NOT NULL
+                            AND array_length(evidence_urls, 1) > 0
+                          LIMIT 1`,
+                        [fnoCandidate]
+                    );
+                    if (imgRes.rows[0]?.evidence_urls?.length > 0) {
+                        resolvedImageUrl = imgRes.rows[0].evidence_urls[0];
+                    }
+                }
+            } catch { /* silencioso — sin tabla o sin foto */ }
+        }
+
         res.json({
             success: true,
             shipment: {
@@ -2043,6 +2074,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         height: pkg.pkg_height != null ? parseFloat(pkg.pkg_height) : null,
                         captured: !!(pkg.weight && pkg.pkg_length && pkg.pkg_width && pkg.pkg_height),
                     } : null,
+                    // Foto del paquete (PO Box scan o foto MoJie del flujo China)
+                    imageUrl: resolvedImageUrl,
                     paymentStatus: pkg.payment_status || null,
                     clientPaid: pkg.client_paid === true,
                     clientPaidAt: pkg.client_paid_at || null,

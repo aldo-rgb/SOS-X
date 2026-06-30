@@ -342,6 +342,55 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
         </Paper>
       )}
 
+      {/* Foto del paquete (PO Box / MoJie China) */}
+      {m.imageUrl && (
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, borderColor: '#FFB74D' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
+            <InventoryIcon sx={{ fontSize: 15, color: CAJITO_RING }} />
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>FOTO DEL PRODUCTO</Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Box
+              component="img"
+              src={resolveUrl(m.imageUrl) || m.imageUrl}
+              alt="Foto del paquete"
+              sx={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 1, border: '1px solid #FFE0B2', cursor: 'pointer' }}
+              onClick={() => window.open(resolveUrl(m.imageUrl) || m.imageUrl, '_blank', 'noopener')}
+              onError={(e) => {
+                // Si la URL es http://api.mojiegrupo.com/... el navegador puede
+                // bloquearla por mixed content; el botón de abajo aún sirve.
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
+            />
+            <Box
+              component="button"
+              type="button"
+              onClick={() => window.open(resolveUrl(m.imageUrl) || m.imageUrl, '_blank', 'noopener')}
+              sx={{
+                flex: 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 0.5,
+                px: 1.5,
+                py: 0.75,
+                border: `1px solid ${CAJITO_RING}`,
+                color: CAJITO_RING,
+                background: 'transparent',
+                borderRadius: 1.5,
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '0.03em',
+                cursor: 'pointer',
+                '&:hover': { background: 'rgba(255,111,0,0.08)' },
+              }}
+            >
+              📷 VER FOTO
+            </Box>
+          </Box>
+        </Paper>
+      )}
+
       {/* Dirección de entrega */}
       {destAddress && (
         <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, borderColor: '#A5D6A7' }}>
