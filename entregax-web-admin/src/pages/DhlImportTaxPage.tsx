@@ -17,7 +17,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 const token = () => localStorage.getItem('token') || '';
 
-export default function DhlImportTaxPage() {
+export default function DhlImportTaxPage({ expensesOnly = false }: { expensesOnly?: boolean } = {}) {
   const [value, setValue] = useState<string>('');
   const [original, setOriginal] = useState<number>(390);
   const [loading, setLoading] = useState(true);
@@ -95,6 +95,7 @@ export default function DhlImportTaxPage() {
 
   return (
     <Box sx={{ maxWidth: 1100 }}>
+      {!expensesOnly && (
       <Box sx={{ maxWidth: 520 }}>
       <Typography variant="h6" fontWeight={700} mb={1}>
         Cargo de Impuestos DHL
@@ -143,9 +144,10 @@ export default function DhlImportTaxPage() {
         </Typography>
       </Paper>
       </Box>
+      )}
 
       {/* ===== Gastos de Impuestos DHL (notas de caja chica CEDIS MTY) ===== */}
-      <Box sx={{ mt: 4 }}>
+      <Box sx={{ mt: expensesOnly ? 0 : 4 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 1 }}>
           <Typography variant="h6" fontWeight={700}>Gastos de Impuestos DHL</Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

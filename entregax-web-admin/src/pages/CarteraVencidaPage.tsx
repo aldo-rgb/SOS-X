@@ -56,7 +56,9 @@ import LocationOnIcon from '@mui/icons-material/LocationOn';
 import CloseIcon from '@mui/icons-material/Close';
 import InfoIcon from '@mui/icons-material/Info';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import ReceiptIcon from '@mui/icons-material/Receipt';
 import api from '../services/api';
+import DhlImportTaxPage from './DhlImportTaxPage';
 
 // Interfaces
 interface Ajuste {
@@ -565,7 +567,7 @@ export default function CarteraVencidaPage() {
       <Paper sx={{ mb: 3 }}>
         <Tabs
           value={tab}
-          onChange={(_, v) => { if (v === 5) { setSaldoDialog(true); } else { setTab(v); } }}
+          onChange={(_, v) => { if (v === 6) { setSaldoDialog(true); } else { setTab(v); } }}
           variant="scrollable"
           scrollButtons="auto"
         >
@@ -574,6 +576,7 @@ export default function CarteraVencidaPage() {
           <Tab icon={<GavelIcon />} label="Abandono" />
           <Tab icon={<ReportProblemIcon />} label="Perdidas" />
           <Tab icon={<UndoIcon />} label="Revertir Instrucciones" />
+          <Tab icon={<ReceiptIcon />} label="Impuestos DHL" />
           <Tab icon={<AccountBalanceWalletIcon />} label="Saldo a Favor" sx={{ color: 'success.main', '&:hover': { color: 'success.dark' } }} />
         </Tabs>
       </Paper>
@@ -1281,6 +1284,13 @@ export default function CarteraVencidaPage() {
               })}
             </Stack>
           )}
+        </Box>
+      )}
+
+      {/* Tab 5: Impuestos DHL — lista de gastos con foto */}
+      {tab === 5 && (
+        <Box sx={{ mt: 1 }}>
+          <DhlImportTaxPage expensesOnly />
         </Box>
       )}
 
