@@ -6462,10 +6462,11 @@ app.post('/api/advisor/formal-quotes', authenticateToken, createAdvisorFormalQuo
 app.get('/api/advisor/formal-quotes/:id/pdf', authenticateToken, getAdvisorFormalQuotePdfUrl);
 app.post('/api/advisor/quote-requests', authenticateToken, uploadAdvisorQuoteFiles, createAdvisorQuoteRequest);
 
-import { listAdvisorPaymentOrders, createAdvisorPaymentOrder, updateAdvisorPaymentOrderStatus, deleteAdvisorPaymentOrder, getAdvisorPaymentOrderDetail, getAdvisorOrderInvoiceInfo, requestAdvisorOrderInvoice, listClientFiscalProfiles, addClientFiscalProfile, deleteClientFiscalProfile } from './advisorPaymentOrderController';
+import { listAdvisorPaymentOrders, createAdvisorPaymentOrder, updateAdvisorPaymentOrderStatus, deleteAdvisorPaymentOrder, getAdvisorPaymentOrderDetail, getAdvisorOrderInvoiceInfo, getAdvisorOrderInvoiceFile, requestAdvisorOrderInvoice, listClientFiscalProfiles, addClientFiscalProfile, deleteClientFiscalProfile } from './advisorPaymentOrderController';
 app.get('/api/advisor/payment-orders', authenticateToken, listAdvisorPaymentOrders);
 app.get('/api/advisor/payment-orders/:id/detail', authenticateToken, getAdvisorPaymentOrderDetail);
 app.get('/api/advisor/payment-orders/:id/invoice-info', authenticateToken, getAdvisorOrderInvoiceInfo);
+app.get('/api/advisor/payment-orders/:id/invoice-file', authenticateToken, getAdvisorOrderInvoiceFile);
 app.post('/api/advisor/payment-orders/:id/request-invoice', authenticateToken, requestAdvisorOrderInvoice);
 app.get('/api/advisor/clients/:clientId/fiscal-profiles', authenticateToken, listClientFiscalProfiles);
 app.post('/api/advisor/clients/:clientId/fiscal-profiles', authenticateToken, addClientFiscalProfile);

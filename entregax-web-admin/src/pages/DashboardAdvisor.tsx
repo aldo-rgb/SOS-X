@@ -526,6 +526,30 @@ export default function DashboardAdvisor() {
     }
   };
 
+  // Descarga la factura (PDF/XML) vía el backend para evitar el prompt de
+  // autenticación Basic de api.facturama.mx (el navegador no tiene credenciales).
+  const downloadFactura = async (op: any, type: 'pdf' | 'xml') => {
+    try {
+      const resp = await api.get(`/advisor/payment-orders/${op.id}/invoice-file`, {
+        params: { type, source: op.created_by },
+        responseType: 'blob',
+      });
+      const mime = type === 'pdf' ? 'application/pdf' : 'application/xml';
+      const blob = new Blob([resp.data], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `factura-${op.payment_reference || op.id}.${type}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e: any) {
+      const msg = e?.response?.data?.error || e?.message || 'No se pudo descargar la factura';
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    }
+  };
+
   const selectInvoiceProfile = (p: any) => {
     setInvoiceProfileId(p.id);
     setInvoiceFiscal({ razon_social: p.razon_social, rfc: p.rfc, codigo_postal: p.codigo_postal, regimen_fiscal: p.regimen_fiscal, uso_cfdi: p.uso_cfdi || 'G03' });
@@ -3706,16 +3730,16 @@ export default function DashboardAdvisor() {
                               </IconButton>
                             </Tooltip>
                           )}
-                          {yaFacturada && op.factura_pdf && (
+                          {yaFacturada && (
                             <Tooltip title="Descargar factura (PDF)">
-                              <IconButton size="small" sx={{ color: '#C62828' }} onClick={() => window.open(op.factura_pdf, '_blank')}>
+                              <IconButton size="small" sx={{ color: '#C62828' }} onClick={() => downloadFactura(op, 'pdf')}>
                                 <InvoiceIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           )}
-                          {yaFacturada && op.factura_xml && (
+                          {yaFacturada && (
                             <Tooltip title="Descargar factura (XML)">
-                              <IconButton size="small" sx={{ color: '#2E7D32' }} onClick={() => window.open(op.factura_xml, '_blank')}>
+                              <IconButton size="small" sx={{ color: '#2E7D32' }} onClick={() => downloadFactura(op, 'xml')}>
                                 <DownloadIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>

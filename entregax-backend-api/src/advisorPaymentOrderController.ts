@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import * as crypto from 'crypto';
 import { pool } from './db';
 import { createInvoice, isAutoFacturaEnabled } from './fiscalController';
+import { FacturamaClient } from './facturamaClient';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 const genRef = (prefix = 'EX'): string => {
@@ -858,6 +859,55 @@ export const getAdvisorOrderInvoiceInfo = async (req: Request, res: Response): P
   } catch (e: any) {
     console.error('[payment-orders] invoice-info:', e);
     return res.status(500).json({ error: 'Error al obtener datos de facturación' });
+  }
+};
+
+// GET — descarga el PDF/XML de la factura emitida proxy-ando a Facturama.
+// Evita exponer la URL directa (que pediría auth Basic en el navegador).
+export const getAdvisorOrderInvoiceFile = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const aid = advisorId(req);
+    if (!aid) return res.status(401).json({ error: 'No autenticado' });
+    const { id } = req.params;
+    const source = req.query.source === 'client' || req.query.source === 'advisor'
+      ? String(req.query.source) : null;
+    const type = String(req.query.type || 'pdf').toLowerCase();
+    if (type !== 'pdf' && type !== 'xml') {
+      return res.status(400).json({ error: 'type debe ser pdf o xml' });
+    }
+
+    const order = await loadOrderForAdvisor(id, aid, source);
+    if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+
+    const facRes = await pool.query(
+      `SELECT id, facturama_id, fiscal_emitter_id, uuid_sat
+         FROM facturas_emitidas
+        WHERE payment_id = $1 AND status = 'valid'
+        ORDER BY created_at DESC LIMIT 1`,
+      [paymentIdOf(order)]
+    );
+    const invoice = facRes.rows[0];
+    if (!invoice) return res.status(404).json({ error: 'Esta orden aún no tiene factura emitida' });
+    if (!invoice.facturama_id) {
+      return res.status(400).json({ error: 'La factura no se emitió por Facturama' });
+    }
+
+    const facturama = await FacturamaClient.fromEmitterId(invoice.fiscal_emitter_id);
+    const fileName = `${invoice.uuid_sat || invoice.facturama_id}.${type}`;
+    if (type === 'pdf') {
+      const buf = await facturama.invoices.downloadPdf(invoice.facturama_id);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+      return res.send(buf);
+    } else {
+      const xml = await facturama.invoices.downloadXml(invoice.facturama_id);
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      return res.send(xml);
+    }
+  } catch (e: any) {
+    console.error('[advisor-orders] invoice-file:', e);
+    return res.status(500).json({ error: 'Error descargando factura', message: e?.message || String(e) });
   }
 };
 
