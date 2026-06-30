@@ -1251,7 +1251,9 @@ export const handleOpenpayPaymentCallback = async (req: Request, res: Response):
               client_paid = TRUE,
               costing_paid_at = CURRENT_TIMESTAMP,
               payment_reference = $2
-            WHERE id = ANY($3) AND user_id = $4
+            WHERE (id = ANY($3) OR master_id = ANY($3)
+                   OR id IN (SELECT master_id FROM packages WHERE id = ANY($3) AND master_id IS NOT NULL))
+              AND user_id = $4
           `, [parsedAmount, paymentRef, pkgIds, parsedUserId]);
 
           // Registrar en logs de cobranza
@@ -1562,7 +1564,9 @@ export const handleOpenpayPaymentWebhook = async (req: Request, res: Response): 
                   client_paid = TRUE,
                   costing_paid_at = CURRENT_TIMESTAMP,
                   payment_reference = $2
-                WHERE id = ANY($3) AND user_id = $4
+                WHERE (id = ANY($3) OR master_id = ANY($3)
+                       OR id IN (SELECT master_id FROM packages WHERE id = ANY($3) AND master_id IS NOT NULL))
+                  AND user_id = $4
               `, [amount, orderId, packageIds, userId]);
 
               // Registrar en logs de cobranza
@@ -1858,7 +1862,9 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
             client_paid = TRUE,
             costing_paid_at = CURRENT_TIMESTAMP,
             payment_reference = $2
-          WHERE id = ANY($3) AND user_id = $4
+          WHERE (id = ANY($3) OR master_id = ANY($3)
+                 OR id IN (SELECT master_id FROM packages WHERE id = ANY($3) AND master_id IS NOT NULL))
+            AND user_id = $4
             AND COALESCE(payment_status, '') <> 'paid'
         `, [intentAmount, paymentRef, pkgIds, parsedUserId]);
 
@@ -1871,7 +1877,7 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
               fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method,
               empresa_id, service_type, payload_json
             ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'paypal', $5, $6, $7)
-            ON CONFLICT (transaction_id) DO UPDATE SET
+            ON CONFLICT (transaction_id) WHERE (transaction_id IS NOT NULL AND transaction_id <> '') DO UPDATE SET
               estatus_procesamiento = 'procesado',
               payment_method = 'paypal',
               tipo_pago = 'paypal',
@@ -1881,7 +1887,7 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
               empresa_id = COALESCE(openpay_webhook_logs.empresa_id, EXCLUDED.empresa_id),
               service_type = COALESCE(openpay_webhook_logs.service_type, EXCLUDED.service_type)
           `, [
-            captureDetails?.id || paypalOrderId,
+            captureDetails?.id || paypalOrderId || refForLog,
             intentAmount,
             `Pago PayPal - ${pkgIds.length} paquete(s)`,
             parsedUserId,

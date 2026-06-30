@@ -261,7 +261,7 @@ export const handlePayPalWebhook = async (req: Request, res: Response): Promise<
                                 fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method,
                                 empresa_id, service_type, payload_json
                               ) VALUES ($1, $2, $2, $3, COALESCE($7::timestamptz, CURRENT_TIMESTAMP), 'procesado', $4, 'paypal', 'paypal', $5, $6, $8)
-                              ON CONFLICT (transaction_id) DO UPDATE SET
+                              ON CONFLICT (transaction_id) WHERE (transaction_id IS NOT NULL AND transaction_id <> '') DO UPDATE SET
                                 estatus_procesamiento = 'procesado',
                                 payment_method = 'paypal',
                                 tipo_pago = 'paypal',

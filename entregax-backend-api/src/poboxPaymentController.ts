@@ -486,7 +486,7 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                         transaction_id, monto_recibido, monto_neto, concepto,
                         fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type, payment_method
                     ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'POBOX_USA', 'paypal')
-                    ON CONFLICT (transaction_id) DO NOTHING
+                    ON CONFLICT (transaction_id) WHERE (transaction_id IS NOT NULL AND transaction_id <> '') DO NOTHING
                 `, [
                     captureDetails?.id,
                     payment.amount,
