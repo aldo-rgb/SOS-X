@@ -278,8 +278,8 @@ export const completeVoucherPayment = async (req: AuthRequest, res: Response) =>
 
     // Update order status
     await client.query(
-      `UPDATE pobox_payments 
-       SET status = 'vouchers_submitted', surplus_amount = $1, updated_at = NOW()
+      `UPDATE pobox_payments
+       SET status = 'vouchers_submitted', surplus_amount = $1
        WHERE id = $2`,
       [surplus, payment_order_id]
     );
@@ -331,7 +331,7 @@ export const completeVoucherPayment = async (req: AuthRequest, res: Response) =>
   } catch (error: any) {
     await client.query('ROLLBACK');
     console.error('[VOUCHER] Complete error:', error);
-    return res.status(500).json({ error: 'Error al completar pago' });
+    return res.status(500).json({ error: 'Error al completar pago', details: error?.message });
   } finally {
     client.release();
   }

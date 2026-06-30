@@ -1,37 +1,55 @@
+// Diagnóstico orden US-9180166640: fechas, dirección, RO de pago
 const { Pool } = require('pg');
-require('dotenv').config();
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
-
+const pool = new Pool({
+  connectionString: 'postgresql://postgres:ApwbUFYQLQuDMihfDKxAJGNquMRfJsgj@switchyard.proxy.rlwy.net:47527/railway',
+  ssl: { rejectUnauthorized: false },
+});
 (async () => {
-  // Consolidación 78
-  const c = await pool.query(
-    `SELECT * FROM consolidations WHERE id = 78`
+  console.log('=== PAQUETES (master + hijos) ===');
+  const pkgs = await pool.query(
+    `SELECT p.id, p.tracking_internal, p.is_master, p.master_id, p.user_id,
+            p.weight, p.pkg_length, p.pkg_width, p.pkg_height,
+            p.assigned_address_id, p.national_carrier, p.national_shipping_cost,
+            p.national_tracking, p.pobox_service_cost, p.assigned_cost_mxn,
+            p.status, p.created_at, p.received_at, p.updated_at
+       FROM packages p
+      WHERE p.tracking_internal IN ('US-9180166640','US-2885632633')
+         OR p.master_id IN (SELECT id FROM packages WHERE tracking_internal IN ('US-9180166640','US-2885632633'))
+      ORDER BY COALESCE(p.master_id, p.id), p.id`
   );
-  console.log('CONSOLIDATION 78:', JSON.stringify(c.rows, null, 2));
+  console.table(pkgs.rows.map((p) => ({
+    id: p.id, tracking: p.tracking_internal, is_master: p.is_master,
+    addr: p.assigned_address_id, peso: p.weight,
+    dims: `${p.pkg_length}×${p.pkg_width}×${p.pkg_height}`,
+    carrier: p.national_carrier, ship_cost: p.national_shipping_cost,
+    nat_track: p.national_tracking, created: String(p.created_at).slice(0, 19),
+  })));
 
-  // Paquetes de la consolidación
-  const p = await pool.query(
-    `SELECT id, tracking_internal, status, received_at, dispatched_at,
-            missing_on_arrival, missing_reported_at, current_branch_id, created_at, updated_at
-       FROM packages WHERE consolidation_id = 78
-       ORDER BY id`
+  console.log('\n=== DIRECCIÓN ===');
+  const addrIds = [...new Set(pkgs.rows.map((p) => p.assigned_address_id).filter(Boolean))];
+  if (addrIds.length > 0) {
+    const a = await pool.query(
+      `SELECT id, alias, recipient_name, street, exterior_number, neighborhood,
+              city, state, zip_code, phone
+         FROM addresses WHERE id = ANY($1::int[])`,
+      [addrIds]
+    );
+    console.table(a.rows);
+  }
+
+  console.log('\n=== ORDEN DE PAGO ===');
+  const apo = await pool.query(
+    `SELECT id, folio, payment_reference, status, total_mxn, package_uids,
+            service_type_cfg, created_at
+       FROM advisor_payment_orders
+      WHERE package_uids::text ILIKE ANY(
+        SELECT '%' || id::text || '%'
+          FROM packages
+         WHERE tracking_internal IN ('US-9180166640','US-2885632633')
+      )
+      ORDER BY created_at DESC LIMIT 5`
   );
-  console.log('PACKAGES:', JSON.stringify(p.rows, null, 2));
-
-  // Historial COMPLETO de esos paquetes
-  const ids = p.rows.map(r => r.id);
-  const h = await pool.query(
-    `SELECT package_id, status, branch_id, created_at, notes, created_by
-       FROM package_history
-      WHERE package_id IN (5673, 5674, 5675)
-      ORDER BY package_id, created_at ASC`
-  );
-  console.log('HISTORY:', JSON.stringify(h.rows, null, 2));
-
-  // Branches involucradas
-  const b = await pool.query(`SELECT id, code, name FROM branches WHERE id = ANY($1::int[])`,
-    [Array.from(new Set(h.rows.map(x => x.branch_id).filter(Boolean)))]);
-  console.log('BRANCHES:', JSON.stringify(b.rows, null, 2));
+  console.table(apo.rows);
 
   await pool.end();
-})().catch(e => { console.error(e); process.exit(1); });
+})().catch((e) => { console.error(e); process.exit(1); });
