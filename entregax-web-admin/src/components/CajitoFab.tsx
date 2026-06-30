@@ -271,6 +271,27 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
           {m.paymentOrderRef && (
             <Chip label={`🧾 Orden ${m.paymentOrderRef}`} size="small" color="primary" variant="outlined" />
           )}
+          {m.paymentMethod && (
+            <Chip
+              label={(() => {
+                const map: Record<string, string> = {
+                  cash: '💵 Efectivo',
+                  card: '💳 Tarjeta',
+                  spei: '🏦 SPEI',
+                  transferencia: '🏦 Transferencia',
+                  transfer: '🏦 Transferencia',
+                  paypal: '🅿️ PayPal',
+                  credit: '🪪 Crédito',
+                  wallet: '👛 Saldo a favor',
+                };
+                const k = String(m.paymentMethod).toLowerCase();
+                return map[k] || `💰 ${m.paymentMethod}`;
+              })()}
+              size="small"
+              variant="outlined"
+              sx={{ borderColor: '#0288D1', color: '#01579B' }}
+            />
+          )}
           {m.eta && (
             <Chip
               label={`🚢 ETA ${fmtDate(m.eta)}${m.containerWeek ? ` · Sem ${m.containerWeek}` : ''}`}

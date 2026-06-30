@@ -1791,13 +1791,14 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         // en el rastreo para saber a qué orden pertenece. package_ids (pobox) son
         // numéricos; package_uids (advisor) vienen como 'PKG-<id>'.
         let paymentOrderRef: string | null = null;
+        let paymentMethodRef: string | null = null;
         try {
             const ordRes = await pool.query(
-                `SELECT payment_reference FROM (
-                    SELECT payment_reference, created_at, package_ids AS ids
+                `SELECT payment_reference, payment_method FROM (
+                    SELECT payment_reference, payment_method, created_at, package_ids AS ids
                       FROM pobox_payments WHERE COALESCE(status,'') <> 'cancelled'
                     UNION ALL
-                    SELECT payment_reference, created_at, package_uids AS ids
+                    SELECT payment_reference, NULL::text AS payment_method, created_at, package_uids AS ids
                       FROM advisor_payment_orders
                  ) o
                  WHERE o.payment_reference IS NOT NULL AND EXISTS (
@@ -1809,6 +1810,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 [pkg.id, pkg.master_id || null]
             );
             paymentOrderRef = ordRes.rows[0]?.payment_reference || null;
+            paymentMethodRef = ordRes.rows[0]?.payment_method || null;
         } catch (e) {
             console.warn('[getShipmentByTracking] lookup orden de pago:', (e as Error).message);
         }
@@ -2077,6 +2079,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     trackingCourier: pkg.tracking_provider, // Para PO Box, tracking del courier está en tracking_provider
                     // 🧾 Orden de pago registrada que contiene esta guía (RO-/PP-).
                     paymentOrderRef,
+                    // Método de pago elegido por el cliente en la orden
+                    // (cash, transferencia, paypal, card, credit, wallet…)
+                    paymentMethod: paymentMethodRef,
                     description: pkg.description, weight: pkg.weight ? parseFloat(pkg.weight) : null,
                     length: pkg.pkg_length != null ? parseFloat(pkg.pkg_length) : null,
                     width: pkg.pkg_width != null ? parseFloat(pkg.pkg_width) : null,
