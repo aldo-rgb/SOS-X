@@ -2438,7 +2438,16 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
             {rows.map(r => (
               <TableRow key={r.id} hover>
                 <TableCell sx={{ fontFamily: 'monospace', fontWeight: 'bold', color: ORANGE }}>{r.payment_reference}</TableCell>
-                <TableCell>{r.full_name || r.email || '—'}</TableCell>
+                <TableCell>
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{r.full_name || r.email || '—'}</Typography>
+                    {r.box_id && (
+                      <Typography variant="caption" sx={{ color: '#64748B' }}>
+                        {r.box_id}
+                      </Typography>
+                    )}
+                  </Box>
+                </TableCell>
                 <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{r.rfc || '—'}</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 'bold' }}>{fmt(parseFloat(r.amount))}</TableCell>
                 <TableCell><Chip label={r.payment_method || '—'} size="small" variant="outlined" /></TableCell>
