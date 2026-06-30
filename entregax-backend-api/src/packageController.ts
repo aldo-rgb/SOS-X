@@ -5922,9 +5922,9 @@ const deliveryUpload = multer({
     cb(null, extOk || mimeOk);
   }
 }).fields([
-  { name: 'factura', maxCount: 1 },
+  { name: 'factura', maxCount: 15 },
   { name: 'constancia', maxCount: 1 },
-  { name: 'guiaExterna', maxCount: 1 },
+  { name: 'guiaExterna', maxCount: 15 },
 ]);
 
 export const uploadDeliveryDocs = (req: Request, res: Response, next: Function) => {
@@ -5936,6 +5936,19 @@ export const uploadDeliveryDocs = (req: Request, res: Response, next: Function) 
     // Subir cada archivo a S3 y guardar la URL en file.location
     const files = req.files as Record<string, Express.Multer.File[]> | undefined;
     if (files) {
+      // Factura y guía externa: si vienen varios archivos (fotos/PDFs), unirlos
+      // en un solo PDF antes de subir (igual que las guías nacionales).
+      for (const field of ['factura', 'guiaExterna']) {
+        const arr = files[field];
+        if (arr && arr.length > 1) {
+          const mergedBuf = await mergeUploadedFilesToPdf(
+            arr.map((f: any) => ({ buffer: f.buffer, mimetype: f.mimetype, originalname: f.originalname }))
+          );
+          if (mergedBuf) {
+            files[field] = [{ buffer: mergedBuf, mimetype: 'application/pdf', originalname: `${field}.pdf` } as any];
+          }
+        }
+      }
       const { uploadToS3 } = await import('./s3Service');
       const baseUrl = process.env.BASE_URL || 'https://api.entregax.app';
       for (const [_field, fileArr] of Object.entries(files)) {

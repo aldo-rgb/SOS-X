@@ -205,8 +205,8 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [instrPriceLoading, setInstrPriceLoading] = useState(false);
   const [instrOcurreInfo, setInstrOcurreInfo] = useState<{ usedZip: string; nearestBranch: boolean } | null>(null);
   const [instrIsCollect, setInstrIsCollect] = useState(false);
-  const [instrFacturaFile, setInstrFacturaFile] = useState<{ uri: string; name: string; mimeType?: string } | null>(null);
-  const [instrGuiaFile, setInstrGuiaFile] = useState<{ uri: string; name: string; mimeType?: string } | null>(null);
+  const [instrFacturaFiles, setInstrFacturaFiles] = useState<{ uri: string; name: string; mimeType?: string }[]>([]);
+  const [instrGuiaFiles, setInstrGuiaFiles] = useState<{ uri: string; name: string; mimeType?: string }[]>([]);
   const [instrWantsFactura, setInstrWantsFactura] = useState(false);
 
   const activeFilterCount = [serviceFilter, paymentFilter, instructionsFilter].filter(v => v !== 'all').length + (unidentifiedFilter ? 1 : 0);
@@ -385,11 +385,16 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     finally { setInstrPriceLoading(false); }
   };
 
-  const pickDocument = async (setter: (f: { uri: string; name: string; mimeType?: string } | null) => void) => {
+  // Selecciona uno o varios archivos (fotos/PDFs) y los acumula. El backend los
+  // une en un solo PDF.
+  const pickDocuments = async (
+    setter: (updater: (prev: { uri: string; name: string; mimeType?: string }[]) => { uri: string; name: string; mimeType?: string }[]) => void
+  ) => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'image/*'], copyToCacheDirectory: true });
-      if (!result.canceled && result.assets?.[0]) {
-        setter({ uri: result.assets[0].uri, name: result.assets[0].name, mimeType: result.assets[0].mimeType ?? undefined });
+      const result = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'image/*'], multiple: true, copyToCacheDirectory: true });
+      if (!result.canceled && result.assets?.length) {
+        const add = (result.assets || []).map((a: any) => ({ uri: a.uri, name: a.name || 'archivo', mimeType: a.mimeType ?? undefined }));
+        setter(prev => [...prev, ...add]);
       }
     } catch { /* user cancelled */ }
   };
@@ -466,8 +471,8 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     setInstrCarrierKey('');
     setInstrCarriers([]);
     setInstrIsCollect(false);
-    setInstrFacturaFile(null);
-    setInstrGuiaFile(null);
+    setInstrFacturaFiles([]);
+    setInstrGuiaFiles([]);
     setInstrWantsFactura(false);
     setInstrPriceEstimate(null);
     setInstrOcurreInfo(null);
@@ -533,7 +538,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     const targets = instrBulkShipments.length > 1 ? instrBulkShipments : [instrShipment];
     try {
       const serviceKey = SHIPMENT_TYPE_TO_CARRIER[instrShipment.service_type];
-      const hasFiles = instrFacturaFile || instrGuiaFile;
+      const hasFiles = instrFacturaFiles.length > 0 || instrGuiaFiles.length > 0;
 
       const buildRequest = (uid: string): Promise<Response> => {
         if (hasFiles || instrIsCollect) {
@@ -550,12 +555,12 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
           }
           formData.append('isCollect', String(instrIsCollect));
           formData.append('wantsFacturaPaqueteria', String(instrWantsFactura));
-          if (instrFacturaFile) {
-            formData.append('factura', { uri: instrFacturaFile.uri, name: instrFacturaFile.name, type: instrFacturaFile.mimeType || 'application/octet-stream' } as any);
-          }
-          if (instrGuiaFile) {
-            formData.append('guiaExterna', { uri: instrGuiaFile.uri, name: instrGuiaFile.name, type: instrGuiaFile.mimeType || 'application/octet-stream' } as any);
-          }
+          instrFacturaFiles.forEach((f, i) => {
+            formData.append('factura', { uri: f.uri, name: f.name || `factura-${i + 1}`, type: f.mimeType || 'application/octet-stream' } as any);
+          });
+          instrGuiaFiles.forEach((f, i) => {
+            formData.append('guiaExterna', { uri: f.uri, name: f.name || `guia-${i + 1}`, type: f.mimeType || 'application/octet-stream' } as any);
+          });
           return fetch(`${API_URL}/api/advisor/shipments/${uid}/instructions`, {
             method: 'PUT',
             headers: { Authorization: `Bearer ${token}` },
@@ -1283,16 +1288,21 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                       <View style={{ marginTop: 14, padding: 14, borderRadius: 10, backgroundColor: '#FFFDE7', borderWidth: 1, borderColor: '#FFB74D' }}>
                         <Text style={{ fontWeight: '700', fontSize: 13, color: ORANGE, marginBottom: 12 }}>📄 Documentos requeridos</Text>
 
-                        {/* Factura */}
+                        {/* Factura (varias fotos/PDFs → 1 PDF) */}
                         <Text style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Factura del embarque</Text>
                         <TouchableOpacity
-                          style={[styles.docPickerBtn, instrFacturaFile && styles.docPickerBtnDone]}
-                          onPress={() => pickDocument(setInstrFacturaFile)}
+                          style={[styles.docPickerBtn, instrFacturaFiles.length > 0 && styles.docPickerBtnDone]}
+                          onPress={() => pickDocuments(setInstrFacturaFiles)}
                         >
-                          <Ionicons name="attach-outline" size={16} color={instrFacturaFile ? '#2E7D32' : '#888'} />
-                          <Text style={{ fontSize: 12, color: instrFacturaFile ? '#2E7D32' : '#888', flex: 1 }} numberOfLines={1}>
-                            {instrFacturaFile ? `✓ ${instrFacturaFile.name}` : 'Subir factura (PDF o imagen)'}
+                          <Ionicons name="attach-outline" size={16} color={instrFacturaFiles.length > 0 ? '#2E7D32' : '#888'} />
+                          <Text style={{ fontSize: 12, color: instrFacturaFiles.length > 0 ? '#2E7D32' : '#888', flex: 1 }} numberOfLines={1}>
+                            {instrFacturaFiles.length > 0 ? `✓ ${instrFacturaFiles.length} archivo(s) — toca para agregar` : 'Subir factura (1 o más, PDF/imagen)'}
                           </Text>
+                          {instrFacturaFiles.length > 0 && (
+                            <TouchableOpacity onPress={() => setInstrFacturaFiles([])} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Ionicons name="close-circle" size={16} color="#C62828" />
+                            </TouchableOpacity>
+                          )}
                         </TouchableOpacity>
 
                         {/* ¿Requiere factura de paquetería? */}
@@ -1306,16 +1316,21 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                           </TouchableOpacity>
                         </View>
 
-                        {/* Guía externa */}
+                        {/* Guía externa (varias fotos/PDFs → 1 PDF) */}
                         <Text style={{ fontSize: 12, color: '#666', marginTop: 12, marginBottom: 6 }}>Guía de paquetería (opcional)</Text>
                         <TouchableOpacity
-                          style={[styles.docPickerBtn, instrGuiaFile && styles.docPickerBtnDone]}
-                          onPress={() => pickDocument(setInstrGuiaFile)}
+                          style={[styles.docPickerBtn, instrGuiaFiles.length > 0 && styles.docPickerBtnDone]}
+                          onPress={() => pickDocuments(setInstrGuiaFiles)}
                         >
-                          <Ionicons name="attach-outline" size={16} color={instrGuiaFile ? '#2E7D32' : '#888'} />
-                          <Text style={{ fontSize: 12, color: instrGuiaFile ? '#2E7D32' : '#888', flex: 1 }} numberOfLines={1}>
-                            {instrGuiaFile ? `✓ ${instrGuiaFile.name}` : 'Subir guía (PDF o imagen)'}
+                          <Ionicons name="attach-outline" size={16} color={instrGuiaFiles.length > 0 ? '#2E7D32' : '#888'} />
+                          <Text style={{ fontSize: 12, color: instrGuiaFiles.length > 0 ? '#2E7D32' : '#888', flex: 1 }} numberOfLines={1}>
+                            {instrGuiaFiles.length > 0 ? `✓ ${instrGuiaFiles.length} archivo(s) — toca para agregar` : 'Subir guía (1 o más, PDF/imagen)'}
                           </Text>
+                          {instrGuiaFiles.length > 0 && (
+                            <TouchableOpacity onPress={() => setInstrGuiaFiles([])} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Ionicons name="close-circle" size={16} color="#C62828" />
+                            </TouchableOpacity>
+                          )}
                         </TouchableOpacity>
                       </View>
                     )}
