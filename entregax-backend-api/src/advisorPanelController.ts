@@ -1942,7 +1942,9 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           collect_carrier = $4,
           wants_factura_paqueteria = $5,
           national_delivery_zip = COALESCE($8, national_delivery_zip),
-          national_shipping_cost = CASE WHEN $9::numeric > 0 THEN $9::numeric * COALESCE(total_boxes, 1) ELSE national_shipping_cost END,
+          -- Paquetería "por cobrar" (collect): el cliente paga al transportista al
+          -- recibir → nuestro flete nacional debe ser 0 (no cobrarlo en la orden).
+          national_shipping_cost = CASE WHEN $10::boolean THEN 0 WHEN $9::numeric > 0 THEN $9::numeric * COALESCE(total_boxes, 1) ELSE national_shipping_cost END,
           -- Si el paquete aún no tiene sucursal, derivarla de su status
           -- (received_mty → CEDIS MTY, received_cdmx → CDMX), para que aparezca
           -- en las Salidas de Paquetería del repartidor de ese CEDIS.
@@ -1952,7 +1954,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           )),
           instructions_assigned_by_id = $7
          WHERE id = $6`,
-        [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId, ocurreZip, pqtxPerBox]
+        [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId, ocurreZip, pqtxPerBox, isCollectBool]
       );
 
       // Propagar instrucciones a cajas hijas del mismo master (multipieza)
@@ -1970,7 +1972,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
               collect_carrier = $4,
               wants_factura_paqueteria = $5,
               national_delivery_zip = COALESCE($8, national_delivery_zip),
-              national_shipping_cost = CASE WHEN $9::numeric > 0 THEN $9::numeric * COALESCE(total_boxes, 1) ELSE national_shipping_cost END,
+              national_shipping_cost = CASE WHEN $10::boolean THEN 0 WHEN $9::numeric > 0 THEN $9::numeric * COALESCE(total_boxes, 1) ELSE national_shipping_cost END,
               current_branch_id = COALESCE(current_branch_id, (
                 SELECT b.id FROM branches b
                  WHERE LOWER(b.code) = REPLACE(LOWER(status::text), 'received_', '') LIMIT 1
@@ -1978,7 +1980,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
               instructions_assigned_by_id = $6
              WHERE tracking_internal ~ ('^' || $7 || '-\\d{1,4}$')
                AND assigned_address_id IS NULL`,
-            [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, advisorId, masterTracking, ocurreZip, pqtxPerBox]
+            [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, advisorId, masterTracking, ocurreZip, pqtxPerBox, isCollectBool]
           );
         }
       }
