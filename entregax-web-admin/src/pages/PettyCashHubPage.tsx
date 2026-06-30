@@ -231,6 +231,7 @@ export default function PettyCashHubPage() {
   const [gastoCategory, setGastoCategory] = useState<string>('combustible');
   const [gastoAmount, setGastoAmount] = useState('');
   const [gastoConcept, setGastoConcept] = useState('');
+  const [gastoPieces, setGastoPieces] = useState('1');
   const [gastoPhoto, setGastoPhoto] = useState<File | null>(null);
   const [gastoPhotoPreview, setGastoPhotoPreview] = useState<string | null>(null);
   const [gastoBusy, setGastoBusy] = useState(false);
@@ -429,6 +430,7 @@ export default function PettyCashHubPage() {
     setGastoCategory('combustible');
     setGastoAmount('');
     setGastoConcept('');
+    setGastoPieces('1');
     setGastoPhoto(null);
     setGastoPhotoPreview(null);
     setGastoOpen(true);
@@ -461,6 +463,7 @@ export default function PettyCashHubPage() {
       form.append('category', gastoCategory);
       form.append('amount_mxn', String(amount));
       if (gastoConcept) form.append('concept', gastoConcept);
+      if (gastoCategory === 'impuestos_dhl') form.append('pieces', String(Math.max(1, parseInt(gastoPieces) || 1)));
       form.append('evidence', gastoPhoto);
       const r = await fetch(`${API_URL}/api/petty-cash/branch-expenses`, {
         method: 'POST',
@@ -1410,6 +1413,15 @@ export default function PettyCashHubPage() {
               }
             }}
           />
+          {gastoCategory === 'impuestos_dhl' && (
+            <TextField
+              fullWidth margin="normal" label="Cantidad de piezas (cajas)" type="number"
+              value={gastoPieces}
+              onChange={e => setGastoPieces(e.target.value)}
+              helperText="El impuesto se reparte entre el número de cajas (ej. 2 cajas → monto ÷ 2 por caja)."
+              inputProps={{ min: 1, step: 1 }}
+            />
+          )}
           <Box sx={{ mt: 2 }}>
             <Button
               variant="outlined"

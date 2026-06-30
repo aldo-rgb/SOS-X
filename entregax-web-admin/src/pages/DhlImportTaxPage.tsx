@@ -8,7 +8,8 @@ import { Image as ImageIcon, Refresh as RefreshIcon, Close as CloseIcon } from '
 import axios from 'axios';
 
 interface TaxExpense {
-  id: number; guia: string; monto: number; currency: string; status: string;
+  id: number; guia: string; monto: number; pieces: number; per_caja: number;
+  currency: string; status: string;
   fecha: string; sucursal: string; registrado_por: string; evidence_url: string | null;
 }
 
@@ -173,16 +174,16 @@ export default function DhlImportTaxPage() {
           <Table size="small">
             <TableHead sx={{ bgcolor: '#1a1a1a' }}>
               <TableRow>
-                {['Foto', 'Guía', 'Fecha', 'Monto', 'Estado', 'Sucursal', 'Registró'].map(h => (
+                {['Foto', 'Guía', 'Fecha', 'Monto', 'Piezas', '$/caja', 'Estado', 'Sucursal', 'Registró'].map(h => (
                   <TableCell key={h} sx={{ color: 'white', fontWeight: 700 }}>{h}</TableCell>
                 ))}
               </TableRow>
             </TableHead>
             <TableBody>
               {loadingExp ? (
-                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4 }}><CircularProgress size={24} /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} align="center" sx={{ py: 4 }}><CircularProgress size={24} /></TableCell></TableRow>
               ) : expenses.length === 0 ? (
-                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>Sin gastos de impuestos registrados</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} align="center" sx={{ py: 4, color: 'text.secondary' }}>Sin gastos de impuestos registrados</TableCell></TableRow>
               ) : expenses.map(e => (
                 <TableRow key={e.id} hover>
                   <TableCell>
@@ -199,6 +200,8 @@ export default function DhlImportTaxPage() {
                   <TableCell><Typography variant="body2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>{e.guia || '—'}</Typography></TableCell>
                   <TableCell><Typography variant="caption">{fmtDate(e.fecha)}</Typography></TableCell>
                   <TableCell><Typography variant="body2" fontWeight={700} color="error">{fmtMoney(e.monto)}</Typography></TableCell>
+                  <TableCell><Typography variant="body2">{e.pieces || 1}</Typography></TableCell>
+                  <TableCell><Typography variant="body2" fontWeight={600}>{fmtMoney(e.per_caja ?? e.monto)}</Typography></TableCell>
                   <TableCell>{statusChip(e.status)}</TableCell>
                   <TableCell><Typography variant="caption">{e.sucursal}</Typography></TableCell>
                   <TableCell><Typography variant="caption" color="text.secondary">{e.registrado_por}</Typography></TableCell>

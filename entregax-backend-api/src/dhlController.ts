@@ -1624,39 +1624,45 @@ export const getDhlImportTaxMxn = async (): Promise<number> => {
   }
 };
 
-// Monto de impuesto de la nota de caja chica (impuestos_dhl) aprobada más reciente
-// que corresponda a alguno de los trackings dados; null si no existe.
-export const getDhlTaxNoteAmount = async (trackings: (string | null | undefined)[]): Promise<number | null> => {
+// Nota de impuestos (impuestos_dhl) aprobada más reciente que corresponda a
+// alguno de los trackings dados: { amount, pieces } o null si no existe.
+// pieces = número de cajas que cubre la nota (el impuesto se reparte entre ellas).
+export const getDhlTaxNote = async (trackings: (string | null | undefined)[]): Promise<{ amount: number; pieces: number } | null> => {
   const keys = Array.from(new Set(trackings.filter(Boolean).map(t => String(t).trim()))).filter(k => k.length > 0);
   if (keys.length === 0) return null;
   const r = await pool.query(`
-    SELECT amount_mxn FROM petty_cash_movements
+    SELECT amount_mxn, COALESCE(pieces, 1) AS pieces FROM petty_cash_movements
     WHERE category = 'impuestos_dhl' AND movement_type = 'expense' AND status = 'approved'
       AND concept = ANY($1)
     ORDER BY created_at DESC LIMIT 1
   `, [keys]);
-  return r.rows.length ? parseFloat(r.rows[0].amount_mxn) : null;
+  if (!r.rows.length) return null;
+  return { amount: parseFloat(r.rows[0].amount_mxn) || 0, pieces: Math.max(1, parseInt(r.rows[0].pieces) || 1) };
 };
 
-// Resuelve el impuesto efectivo para una guía según la regla:
-//  - si hay nota de impuestos y su monto >= default → usa el monto de la nota
-//  - si no hay nota, o la nota es menor al default → usa el default
+// Impuesto efectivo POR CAJA según la regla:
+//  - per-caja = monto de la nota / número de cajas (piezas)
+//  - si per-caja >= default → usa per-caja; si no (o no hay nota) → usa default
 export const resolveDhlEffectiveTax = async (trackings: (string | null | undefined)[]): Promise<number> => {
   const def = await getDhlImportTaxMxn();
-  const note = await getDhlTaxNoteAmount(trackings);
-  return (note != null && note >= def) ? note : def;
+  const note = await getDhlTaxNote(trackings);
+  if (!note) return def;
+  const perBox = note.amount / note.pieces;
+  return perBox >= def ? Math.round(perBox * 100) / 100 : def;
 };
 
 // Cruza una nota de impuestos hacia la(s) guía(s) correspondiente(s):
+//  - el monto de la nota se reparte entre el número de cajas (pieces)
 //  - solo a guías NO pagadas por el cliente (paid_at IS NULL y status previo a pago)
-//  - si el monto de la nota es >= default, aplica ese monto; si es menor, deja el default
+//  - si el per-caja es >= default aplica ese monto; si es menor, deja el default
 //  - si la guía ya está pagada, no se toca.
 // Devuelve cuántas guías se actualizaron.
-export const crossDhlTaxNote = async (tracking: string | null | undefined, noteAmount: number): Promise<number> => {
+export const crossDhlTaxNote = async (tracking: string | null | undefined, noteAmount: number, pieces = 1): Promise<number> => {
   const tk = tracking ? String(tracking).trim() : '';
   if (!tk) return 0;
   const def = await getDhlImportTaxMxn();
-  const effective = noteAmount >= def ? noteAmount : def;
+  const perBox = noteAmount / Math.max(1, pieces);
+  const effective = perBox >= def ? Math.round(perBox * 100) / 100 : def;
   const r = await pool.query(`
     UPDATE dhl_shipments
        SET import_tax_mxn = $1,
@@ -1688,6 +1694,7 @@ export const getDhlImportTaxExpenses = async (req: Request, res: Response): Prom
         m.id,
         m.concept           AS guia,
         m.amount_mxn        AS monto,
+        COALESCE(m.pieces, 1) AS pieces,
         m.currency,
         m.status,
         m.evidence_url,
@@ -1702,17 +1709,23 @@ export const getDhlImportTaxExpenses = async (req: Request, res: Response): Prom
       LIMIT $${params.length}
     `, params);
 
-    const expenses = await Promise.all(result.rows.map(async (r: any) => ({
-      id: r.id,
-      guia: r.guia || '',
-      monto: parseFloat(r.monto) || 0,
-      currency: r.currency || 'MXN',
-      status: r.status,
-      fecha: r.fecha,
-      sucursal: r.sucursal || '—',
-      registrado_por: r.registrado_por || '—',
-      evidence_url: await signS3UrlIfNeeded(r.evidence_url),
-    })));
+    const expenses = await Promise.all(result.rows.map(async (r: any) => {
+      const monto = parseFloat(r.monto) || 0;
+      const pieces = Math.max(1, parseInt(r.pieces) || 1);
+      return {
+        id: r.id,
+        guia: r.guia || '',
+        monto,
+        pieces,
+        per_caja: Math.round((monto / pieces) * 100) / 100,
+        currency: r.currency || 'MXN',
+        status: r.status,
+        fecha: r.fecha,
+        sucursal: r.sucursal || '—',
+        registrado_por: r.registrado_por || '—',
+        evidence_url: await signS3UrlIfNeeded(r.evidence_url),
+      };
+    }));
 
     const total = expenses.reduce((s, e) => s + (e.monto || 0), 0);
     res.json({ success: true, expenses, count: expenses.length, total });

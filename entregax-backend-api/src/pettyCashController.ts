@@ -892,6 +892,7 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
     category,
     amount_mxn,
     concept,
+    pieces,
     gps_lat,
     gps_lng,
     gps_accuracy_m,
@@ -900,6 +901,8 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
   } = req.body || {};
 
   const amount = Number(amount_mxn);
+  // Número de cajas que cubre la nota (impuestos se reparten entre ellas). Default 1.
+  const piecesNum = Math.max(1, parseInt(String(pieces ?? '1'), 10) || 1);
   if (!category || typeof category !== 'string') {
     return res.status(400).json({ error: 'category requerida' });
   }
@@ -942,14 +945,15 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
       }
     }
 
+    await client.query(`ALTER TABLE petty_cash_movements ADD COLUMN IF NOT EXISTS pieces INTEGER DEFAULT 1`).catch(() => {});
     const m = await client.query(`
       INSERT INTO petty_cash_movements (
         wallet_id, movement_type, category, amount_mxn, status, concept,
         evidence_url, xml_url,
         gps_lat, gps_lng, gps_accuracy_m, vehicle_id,
         branch_id, created_by,
-        reviewed_by, reviewed_at, route_block_id
-      ) VALUES ($1, 'expense', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        reviewed_by, reviewed_at, route_block_id, pieces
+      ) VALUES ($1, 'expense', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING id, created_at
     `, [
       walletId, category, amount, autoApprove ? 'approved' : 'pending', concept || null,
@@ -961,7 +965,7 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
       branchId, userId,
       autoApprove ? userId : null,
       autoApprove ? new Date() : null,
-      blockId,
+      blockId, piecesNum,
     ]);
 
     if (autoApprove) {
@@ -977,7 +981,7 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
     // Regla de cruce: si es una nota de Impuestos DHL ya aprobada y tiene guía,
     // cruzar el monto a la guía correspondiente (si no está pagada).
     if (autoApprove && category === 'impuestos_dhl' && concept) {
-      crossDhlTaxNote(String(concept), amount).catch(e =>
+      crossDhlTaxNote(String(concept), amount, piecesNum).catch(e =>
         console.warn('[registerBranchExpense] crossDhlTaxNote:', e?.message || e));
     }
 
@@ -1117,7 +1121,7 @@ export const approveExpense = async (req: Request, res: Response): Promise<any> 
     // Regla de cruce: al aprobar una nota de Impuestos DHL con guía, cruzar el
     // monto a la guía correspondiente (si no está pagada).
     if (m.category === 'impuestos_dhl' && m.concept) {
-      crossDhlTaxNote(String(m.concept), Number(m.amount_mxn)).catch(e =>
+      crossDhlTaxNote(String(m.concept), Number(m.amount_mxn), Math.max(1, parseInt(m.pieces) || 1)).catch(e =>
         console.warn('[approveExpense] crossDhlTaxNote:', e?.message || e));
     }
 
