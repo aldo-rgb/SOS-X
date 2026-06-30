@@ -4298,7 +4298,12 @@ app.get('/api/packages/track/:tracking/photos', authenticateToken, async (req: R
       );
       photos = r.rows[0]?.evidence_urls || [];
     }
-    res.json({ success: true, photos: Array.isArray(photos) ? photos : [] });
+    // Las fotos viven en un bucket S3 privado → firmar cada URL para evitar AccessDenied.
+    const { signS3UrlIfNeeded } = await import('./s3Service');
+    const signedPhotos = Array.isArray(photos)
+      ? (await Promise.all(photos.map((u) => signS3UrlIfNeeded(u, 3600)))).filter(Boolean)
+      : [];
+    res.json({ success: true, photos: signedPhotos });
   } catch (err: any) {
     console.error('[photos] error:', err?.message);
     res.status(500).json({ success: false, error: 'Error al cargar fotos' });

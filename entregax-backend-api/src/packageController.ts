@@ -2065,6 +2065,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 }
             } catch { /* silencioso — sin tabla o sin foto */ }
         }
+        // El bucket S3 es privado → firmar la URL de la foto para evitar AccessDenied.
+        const { signS3UrlIfNeeded: signImg } = await import('./s3Service');
+        resolvedImageUrl = await signImg(resolvedImageUrl);
 
         res.json({
             success: true,
