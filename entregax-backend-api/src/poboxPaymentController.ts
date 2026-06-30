@@ -183,7 +183,8 @@ const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: numb
 // ============================================
 export const createPoboxPaypalPayment = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { packageIds, userId, totalAmount, currency = 'USD', requireInvoice, fiscalData } = req.body;
+        // Los costos PO Box están en MXN; el default de moneda debe ser MXN (no USD).
+        const { packageIds, userId, totalAmount, currency = 'MXN', requireInvoice, fiscalData } = req.body;
 
         if (!packageIds || !Array.isArray(packageIds) || packageIds.length === 0) {
             return res.status(400).json({ error: 'packageIds es requerido y debe ser un array' });
@@ -284,8 +285,9 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
                 intent: 'CAPTURE',
                 purchase_units: [{
                     reference_id: paymentRef,
-                    amount: { 
-                        currency_code: currency, 
+                    amount: {
+                        // PO Box se cobra en MXN; forzamos MXN para no cobrar en USD (~18x).
+                        currency_code: 'MXN',
                         value: totalAmount.toFixed(2)
                     },
                     description: `PO Box USA - ${packageIds.length} paquete(s)`
@@ -508,7 +510,7 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                             paymentType: 'paypal',
                             userId: payment.user_id,
                             amount: parseFloat(payment.amount),
-                            currency: 'USD',
+                            currency: 'MXN',
                             paymentMethod: 'paypal',
                             description: `Servicio PO Box USA - ${packageIds.length} paquete(s)`,
                             packageIds: packageIds,
@@ -1927,6 +1929,10 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             }
 
             const enriched: any = { ...row, packages, cost_breakdown };
+            // El monto de las órdenes PO Box siempre está en MXN; normalizamos la
+            // moneda para corregir filas heredadas marcadas como 'USD' (evita que la
+            // app las muestre/cobre como dólares).
+            enriched.currency = 'MXN';
             // Antes solo se enviaba bank_info cuando payment_method === 'cash'.
             // Eso dejaba sin datos al PDF de instrucciones de pago cuando el
             // cliente cambiaba su método a transferencia/spei después de crear

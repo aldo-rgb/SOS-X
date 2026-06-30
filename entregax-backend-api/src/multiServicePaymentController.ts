@@ -960,8 +960,10 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
         intent: 'CAPTURE',
         purchase_units: [{
           reference_id: paymentRef,
-          amount: { 
-            currency_code: currency || 'MXN', 
+          amount: {
+            // El monto (total) SIEMPRE está en MXN (costos PO Box en pesos).
+            // Forzamos MXN para evitar que un 'currency=USD' heredado cobre ~18x.
+            currency_code: 'MXN',
             value: total.toFixed(2)
           },
           description: `EntregaX - ${packageIds.length} paquete(s)`
@@ -1011,7 +1013,7 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
           userId,
           JSON.stringify(packageIds),
           total,
-          currency || 'MXN',
+          'MXN',
           svcType,
           credentials.emitterId,
           !!invoiceRequired,
