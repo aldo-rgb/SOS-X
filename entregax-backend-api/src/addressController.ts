@@ -2,6 +2,84 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { AuthRequest } from './authController';
 
+// ============================================================================
+// HELPER: Reasigna paquetes que dependen de una dirección antes de eliminarla
+// ----------------------------------------------------------------------------
+// Históricamente al borrar una `addresses`, las filas en `packages` que la
+// referenciaban en `assigned_address_id` quedaban huérfanas (apuntando a un
+// id que ya no existe). Eso rompe el cálculo de cotización PQTX, el dashboard
+// de cobranza y dispara errores silenciosos en otros módulos.
+// Esta función:
+//   1. Para los HIJOS (master_id IS NOT NULL): los reasigna a la dirección del
+//      master, si el master tiene una distinta. Así una multi-pieza se cura
+//      sola conservando el destino físico.
+//   2. Para MASTERS (sin master_id) o packages individuales: los pone a NULL
+//      y los marca como "necesitan instrucciones" (`needs_instructions=TRUE`)
+//      para que el operador/cliente vuelva a capturar la dirección antes de
+//      generar etiqueta de paquetería nacional.
+//   3. Devuelve un summary para loggear (cuántos quedaron huérfanos).
+// ============================================================================
+export const cascadeReassignPackagesBeforeDelete = async (
+    addressId: number | string
+): Promise<{ reassignedChildren: number; orphanedMasters: number }> => {
+    const id = Number(addressId);
+    if (!Number.isFinite(id) || id <= 0) {
+        return { reassignedChildren: 0, orphanedMasters: 0 };
+    }
+    // 1. Hijos: heredar la dirección del master si difiere.
+    const reChildren = await pool.query(
+        `UPDATE packages SET assigned_address_id = (
+             SELECT m.assigned_address_id FROM packages m WHERE m.id = packages.master_id
+         )
+         WHERE assigned_address_id = $1
+           AND master_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM packages m
+              WHERE m.id = packages.master_id
+                AND m.assigned_address_id IS NOT NULL
+                AND m.assigned_address_id <> $1
+           )
+         RETURNING id`,
+        [id]
+    );
+
+    // 2. Lo demás (masters o individuales): a NULL + needs_instructions = TRUE.
+    //    needs_instructions es opcional: si la columna no existe, se omite.
+    let orphanedRes;
+    try {
+        orphanedRes = await pool.query(
+            `UPDATE packages
+                SET assigned_address_id = NULL,
+                    needs_instructions = TRUE,
+                    updated_at = NOW()
+              WHERE assigned_address_id = $1
+              RETURNING id`,
+            [id]
+        );
+    } catch {
+        // Fallback si needs_instructions no existe en este entorno.
+        orphanedRes = await pool.query(
+            `UPDATE packages
+                SET assigned_address_id = NULL,
+                    updated_at = NOW()
+              WHERE assigned_address_id = $1
+              RETURNING id`,
+            [id]
+        );
+    }
+
+    const out = {
+        reassignedChildren: reChildren.rowCount || 0,
+        orphanedMasters: orphanedRes.rowCount || 0,
+    };
+    if (out.reassignedChildren > 0 || out.orphanedMasters > 0) {
+        console.warn(
+            `[addresses] Delete address ${id} → ${out.reassignedChildren} hijos reasignados, ${out.orphanedMasters} paquetes con dirección NULL`
+        );
+    }
+    return out;
+};
+
 // Valida longitudes de los campos de dirección contra los límites de columna y
 // devuelve el MOTIVO REAL (qué campo y por qué) o null si todo cabe.
 const ADDRESS_FIELD_LIMITS: Array<{ key: string; label: string; max: number }> = [
@@ -225,6 +303,10 @@ export const deleteAddress = async (req: Request, res: Response): Promise<void> 
             res.status(401).json({ error: 'No autenticado' });
             return;
         }
+
+        // Antes de eliminar, reasignar/limpiar paquetes que dependen de esta
+        // dirección para evitar referencias huérfanas que rompen otros módulos.
+        await cascadeReassignPackagesBeforeDelete(id);
 
         // IDOR guard
         const result = isClient
@@ -665,6 +747,9 @@ export const deleteMyAddress = async (req: Request, res: Response): Promise<void
             return;
         }
 
+        // Reasignar paquetes asociados ANTES de borrar (evita huérfanos).
+        await cascadeReassignPackagesBeforeDelete(addressId);
+
         await pool.query(
             'DELETE FROM addresses WHERE id = $1 AND user_id = $2',
             [addressId, userId]
@@ -1100,6 +1185,9 @@ export const deleteAdvisorClientAddress = async (req: Request, res: Response): P
             res.status(403).json({ error: 'Solo puedes eliminar direcciones que hayas creado tú' });
             return;
         }
+
+        // Reasignar paquetes asociados ANTES de borrar (evita huérfanos).
+        await cascadeReassignPackagesBeforeDelete(addressId);
 
         await pool.query('DELETE FROM addresses WHERE id = $1', [addressId]);
         res.json({ message: 'Dirección eliminada' });
