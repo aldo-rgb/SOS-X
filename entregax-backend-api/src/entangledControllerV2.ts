@@ -48,6 +48,7 @@ import {
   callAsignacion,
 } from './entangledServiceV2';
 import { generateXpayCommission } from './commissionService';
+import { signRowFileUrls } from './entangledController';
 
 const SERVICIOS_VALIDOS: EntangledServicio[] = ['pago_con_factura', 'pago_sin_factura'];
 
@@ -2359,6 +2360,10 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
               r.payment_deadline_at,
               r.tc_cliente_final,
               r.error_message,
+              r.factura_url, r.factura_emitida_at,
+              (r.raw_response->>'factura_xml_url') AS factura_xml_url,
+              r.comprobante_proveedor_url, r.proveedor_pagado_at,
+              r.instructions_snapshot,
               u.full_name AS client_name, u.box_id AS client_box_id
          FROM entangled_payment_requests r
          LEFT JOIN users u ON u.id = r.user_id
@@ -2367,7 +2372,8 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
         LIMIT 200`,
       params
     );
-    return res.json({ success: true, requests: r.rows });
+    const signed = await Promise.all(r.rows.map(signRowFileUrls));
+    return res.json({ success: true, requests: signed });
   } catch (err: any) {
     console.error('[XPAY-ASESOR] getAdvisorXpayRequests:', err.message);
     return res.status(500).json({ error: 'Error al listar operaciones' });

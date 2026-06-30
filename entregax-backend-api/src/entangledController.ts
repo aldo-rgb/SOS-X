@@ -23,7 +23,7 @@ const signS3UrlIfPossible = async (url: string | null | undefined): Promise<stri
   }
 };
 
-const signRowFileUrls = async <T extends Record<string, any>>(row: T): Promise<T> => {
+export const signRowFileUrls = async <T extends Record<string, any>>(row: T): Promise<T> => {
   const next: any = { ...row };
   if (next.op_comprobante_cliente_url) next.op_comprobante_cliente_url = await signS3UrlIfPossible(next.op_comprobante_cliente_url);
   if (next.comprobante_proveedor_url) next.comprobante_proveedor_url = await signS3UrlIfPossible(next.comprobante_proveedor_url);
