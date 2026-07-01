@@ -13669,9 +13669,11 @@ export default function DashboardClient() {
                       <Typography variant="caption" fontWeight="bold" color={getNationalShippingMXN(pkg) > 0 ? 'primary.main' : 'text.secondary'}>
                         {(pkg.national_carrier || pkg.carrier || '').toLowerCase().includes('local')
                           ? 'Gratis'
-                          : getNationalShippingMXN(pkg) > 0
-                            ? formatCurrency(getNationalShippingMXN(pkg))
-                            : 'Costo según cotización'}
+                          : ((pkg as any).is_collect === true || (pkg as any).collect_carrier)
+                            ? 'Por cobrar'
+                            : getNationalShippingMXN(pkg) > 0
+                              ? formatCurrency(getNationalShippingMXN(pkg))
+                              : 'Costo según cotización'}
                       </Typography>
                     </Box>
                   )}
