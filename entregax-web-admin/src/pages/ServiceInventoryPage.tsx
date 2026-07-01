@@ -211,19 +211,23 @@ export default function ServiceInventoryPage() {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'success' });
   const isSuperAdmin = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; } catch { return false; } })();
 
+  // Filas sin pkg_id (DHL/marítimo viven en otras tablas) → usar sync-from-entregax
+  // que enruta por servicio, en vez de /admin/packages/:id.
+  const matchRow = (row: PackageRow, r: PackageRow) => r.pkg_id ? row.pkg_id === r.pkg_id : row.guia === r.guia;
+
   const handleMarkPaid = async (r: PackageRow) => {
-    if (!r.pkg_id) { setSnackbar({ open: true, message: 'Sin ID de paquete en esta fila', severity: 'error' }); return; }
     try {
-      await api.patch(`/admin/packages/${r.pkg_id}/mark-paid-manual`);
-      setRows(prev => prev.map(row => row.pkg_id === r.pkg_id ? { ...row, costing_paid: true } : row));
-      setSnackbar({ open: true, message: `✅ Paquete ${r.guia} marcado como pagado`, severity: 'success' });
+      if (r.pkg_id) await api.patch(`/admin/packages/${r.pkg_id}/mark-paid-manual`);
+      else await api.post('/packages/sync-from-entregax', { guia: r.guia, service, hasPago: true, hasInstrucciones: false });
+      setRows(prev => prev.map(row => matchRow(row, r) ? { ...row, costing_paid: true } : row));
+      setSnackbar({ open: true, message: `✅ ${r.guia} marcado como pagado`, severity: 'success' });
     } catch (e: any) {
       setSnackbar({ open: true, message: e.response?.data?.error || 'Error al marcar como pagado', severity: 'error' });
     }
   };
 
   const handleUnmarkPaid = async (r: PackageRow) => {
-    if (!r.pkg_id) { setSnackbar({ open: true, message: 'Sin ID de paquete en esta fila', severity: 'error' }); return; }
+    if (!r.pkg_id) { setSnackbar({ open: true, message: 'Desmarcar pago no está disponible para este servicio', severity: 'info' }); return; }
     try {
       await api.patch(`/admin/packages/${r.pkg_id}/unmark-paid-manual`);
       setRows(prev => prev.map(row => row.pkg_id === r.pkg_id ? { ...row, costing_paid: false } : row));
@@ -234,11 +238,11 @@ export default function ServiceInventoryPage() {
   };
 
   const handleMarkInstruccion = async (r: PackageRow) => {
-    if (!r.pkg_id) { setSnackbar({ open: true, message: 'Sin ID de paquete en esta fila', severity: 'error' }); return; }
     try {
-      await api.patch(`/admin/packages/${r.pkg_id}/mark-instructions-manual`);
-      setRows(prev => prev.map(row => row.pkg_id === r.pkg_id ? { ...row, has_instructions: true } : row));
-      setSnackbar({ open: true, message: `✅ Paquete ${r.guia} marcado con instrucción`, severity: 'success' });
+      if (r.pkg_id) await api.patch(`/admin/packages/${r.pkg_id}/mark-instructions-manual`);
+      else await api.post('/packages/sync-from-entregax', { guia: r.guia, service, hasPago: false, hasInstrucciones: true });
+      setRows(prev => prev.map(row => matchRow(row, r) ? { ...row, has_instructions: true } : row));
+      setSnackbar({ open: true, message: `✅ ${r.guia} marcado con instrucción`, severity: 'success' });
     } catch (e: any) {
       setSnackbar({ open: true, message: e.response?.data?.error || 'Error al marcar instrucción', severity: 'error' });
     }

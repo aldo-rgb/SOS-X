@@ -14310,6 +14310,29 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
           params
         );
       }
+    } else if (service === 'dhl') {
+      // DHL Monterrey vive en dhl_shipments (no en packages).
+      const updates: string[] = [];
+      const params: any[] = [];
+      if (hasPago) { updates.push(`cost_payment_status = 'paid'`); updates.push(`paid_at = COALESCE(paid_at, NOW())`); syncedFields.push('pago'); }
+      if (guia_salida) {
+        params.push(paqueteria || null); updates.push(`national_carrier = $${params.length}`);
+        params.push(guia_salida);        updates.push(`national_tracking = $${params.length}`);
+        syncedFields.push('guia_salida');
+      }
+      if (hasInstrucciones) {
+        updates.push(`national_label_url = COALESCE(national_label_url, 'manual-printed')`);
+        syncedFields.push('instrucciones');
+      }
+      if (safeNewStatus) { params.push(safeNewStatus); updates.push(`status = $${params.length}`); syncedFields.push('status'); }
+      if (updates.length > 0) {
+        params.push(guia);
+        await pool.query(
+          `UPDATE dhl_shipments SET ${updates.join(', ')}, updated_at = NOW()
+            WHERE inbound_tracking = $${params.length} OR secondary_tracking = $${params.length}`,
+          params
+        );
+      }
     } else {
       const updates: string[] = [];
       const params: any[] = [];
