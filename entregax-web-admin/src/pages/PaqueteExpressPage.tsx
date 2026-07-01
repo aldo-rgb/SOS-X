@@ -55,6 +55,24 @@ const PQTX_COLOR = '#E65100'; // Naranja Paquete Express
 export default function PaqueteExpressPage() {
   const [activeTab, setActiveTab] = useState(0);
   const token = localStorage.getItem('token');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [config, setConfig] = useState<any>(null);
+
+  const fetchConfig = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/paquete-express/config`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) setConfig(data.config);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [token]);
+
+  useEffect(() => { fetchConfig(); }, [fetchConfig]);
+
+  const isProd = !!config && !String(config.environment || '').toLowerCase().includes('qa');
 
   return (
     <Box sx={{ p: 3 }}>
@@ -70,7 +88,12 @@ export default function PaqueteExpressPage() {
             </Typography>
           </Box>
         </Box>
-        <Chip label="QA (Testing)" color="warning" variant="outlined" size="small" />
+        <Chip
+          label={config ? (config.environment || (isProd ? 'Producción' : 'QA (Testing)')) : 'Cargando…'}
+          color={isProd ? 'success' : 'warning'}
+          variant="outlined"
+          size="small"
+        />
       </Box>
 
       {/* Tabs */}
@@ -92,7 +115,7 @@ export default function PaqueteExpressPage() {
         <Tab icon={<TimelineIcon />} label="Trazabilidad" iconPosition="start" />
       </Tabs>
 
-      {activeTab === 0 && <ConfigTab token={token} />}
+      {activeTab === 0 && <ConfigTab token={token} config={config} isProd={isProd} onRefresh={fetchConfig} />}
       {activeTab === 1 && <QuoteTab token={token} />}
       {activeTab === 2 && <ShipmentTab token={token} />}
       {activeTab === 3 && <LabelTab token={token} />}
@@ -105,9 +128,13 @@ export default function PaqueteExpressPage() {
 // ============================================
 // TAB 0: CONFIGURACIÓN
 // ============================================
-function ConfigTab({ token }: { token: string | null }) {
+function ConfigTab({ token, config, isProd, onRefresh }: {
+  token: string | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [config, setConfig] = useState<any>(null);
+  config: any;
+  isProd: boolean;
+  onRefresh: () => Promise<void> | void;
+}) {
   const [loading, setLoading] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [loginResult, setLoginResult] = useState<any>(null);
@@ -115,17 +142,11 @@ function ConfigTab({ token }: { token: string | null }) {
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/paquete-express/config`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) setConfig(data.config);
-    } catch (err) {
-      console.error(err);
+      await onRefresh();
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [onRefresh]);
 
   const testLogin = async () => {
     setLoading(true);
@@ -157,8 +178,8 @@ function ConfigTab({ token }: { token: string | null }) {
             <Divider sx={{ my: 1 }} />
             <Box sx={{ display: 'grid', gap: 1, mt: 2 }}>
               {[
-                ['Usuario:', 'WSQURBANWOD'],
-                ['Password:', '1234'],
+                ['Usuario:', config?.quoteUser || '—'],
+                ['Password:', '••••••'],
                 ['Type:', '1'],
               ].map(([label, val]) => (
                 <Box key={label} sx={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -169,7 +190,7 @@ function ConfigTab({ token }: { token: string | null }) {
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="body2" color="text.secondary">Token:</Typography>
                 <Typography variant="body2" fontWeight="bold" fontFamily="monospace" sx={{ fontSize: 11 }}>
-                  4DB7391907B749C5E063350AA8C0215D
+                  ••••••••
                 </Typography>
               </Box>
             </Box>
@@ -183,9 +204,9 @@ function ConfigTab({ token }: { token: string | null }) {
             <Divider sx={{ my: 1 }} />
             <Box sx={{ display: 'grid', gap: 1, mt: 2 }}>
               {[
-                ['Usuario:', 'WSQURBANWOD'],
-                ['Password (B64):', 'UWEyNzczNjI1MCQ='],
-                ['Bill Client ID:', '27736250'],
+                ['Usuario:', config?.user || '—'],
+                ['Password (B64):', '••••••'],
+                ['Bill Client ID:', config?.billClientId || '—'],
               ].map(([label, val]) => (
                 <Box key={label} sx={{ display: 'flex', justifyContent: 'space-between' }}>
                   <Typography variant="body2" color="text.secondary">{label}</Typography>
@@ -194,7 +215,7 @@ function ConfigTab({ token }: { token: string | null }) {
               ))}
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Typography variant="body2" color="text.secondary">Ambiente:</Typography>
-                <Chip label="QA" size="small" color="warning" />
+                <Chip label={config ? (isProd ? 'Producción' : 'QA') : '…'} size="small" color={isProd ? 'success' : 'warning'} />
               </Box>
             </Box>
           </CardContent>
