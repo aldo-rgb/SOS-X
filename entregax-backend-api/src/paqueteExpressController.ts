@@ -23,6 +23,35 @@ const PQTX_ENV: 'qa' | 'production' = PQTX_BASE_URL.toLowerCase().includes('qa')
 // cc.paquetexpress.com.mx:8082. Configurable con PQTX_LABEL_BASE_URL.
 const PQTX_LABEL_BASE_URL = process.env.PQTX_LABEL_BASE_URL || PQTX_BASE_URL;
 
+// PQTX limita el campo `drnr` (número del destinatario) a 15 caracteres y rechaza
+// la guía si se excede. A veces exterior_number viene contaminado con texto de la
+// calle/colonia (ej. "NA RESIDENCIAL ALTABRISA") y el número real está en el
+// interior. Estos helpers extraen el número útil y garantizan <= 15 caracteres.
+const extractStreetNumber = (s: string | null | undefined): string => {
+  const m = String(s || '').match(/\d+[A-Za-z]?/);
+  return m ? m[0] : '';
+};
+const buildDrnr = (extRaw: string | null | undefined, intrRaw: string | null | undefined): string => {
+  const ext = String(extRaw || '').trim();
+  const intr = String(intrRaw || '').trim();
+  const en = extractStreetNumber(ext);
+  const inn = extractStreetNumber(intr);
+  let v: string;
+  if (en && inn) v = `${en} INT ${inn}`;
+  else if (en) v = en;
+  else if (inn) v = inn;                 // exterior sin dígitos → usar el número interior
+  else v = ext || intr || 'S/N';         // sin dígitos en ninguno → texto tal cual (se recorta abajo)
+  v = v.toUpperCase().trim().slice(0, 15).trim();
+  return v || 'S/N';
+};
+const capDrnr = (raw: string | null | undefined): string => {
+  const s = String(raw || '').trim();
+  if (!s) return 'S/N';
+  if (s.length <= 15) return s.toUpperCase();
+  const n = extractStreetNumber(s);
+  return ((n || s).toUpperCase().slice(0, 15).trim()) || 'S/N';
+};
+
 // Credenciales para cotización (auth diferente)
 const PQTX_QUOTE_USER = process.env.PQTX_QUOTE_USER || 'WSQURBANWOD';
 const PQTX_QUOTE_PASSWORD = process.env.PQTX_QUOTE_PASSWORD || '1234';
@@ -484,7 +513,7 @@ export async function pqtxCreateShipment(req: Request, res: Response) {
                   addrLin6: destColony || ' ',
                   zipCode: destZipCode,
                   strtName: destStreet || ' ',
-                  drnr: destNumber || 'S/N',
+                  drnr: capDrnr(destNumber),
                   phno1: destPhone || '0000000000',
                   phno2: destPhone || '0000000000',
                   clntName: destName || 'CLIENTE',
@@ -1551,14 +1580,7 @@ export async function generateOnePqtxGuide(params: {
               addrLin6: (cleanAddr.neighborhood || ' ').toUpperCase(),
               zipCode: params.addr.zip_code || '',
               strtName: (params.addr.street || ' ').toUpperCase(),
-              drnr: (() => {
-                const ext = (params.addr.exterior_number || '').toString().trim();
-                const intr = (params.addr.interior_number || '').toString().trim();
-                if (ext && intr) return `${ext} INT ${intr}`.toUpperCase();
-                if (ext) return ext.toUpperCase();
-                if (intr) return `S/N INT ${intr}`.toUpperCase();
-                return 'S/N';
-              })(),
+              drnr: buildDrnr(params.addr.exterior_number, params.addr.interior_number),
               phno1: (params.addr.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0') || '0000000000',
               phno2: (params.addr.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0') || '0000000000',
               clntName: (params.addr.recipient_name || params.userName || 'CLIENTE').toUpperCase(),
