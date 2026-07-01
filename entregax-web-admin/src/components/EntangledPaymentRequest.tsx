@@ -3592,7 +3592,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     )}
                     {suppliers.find((s) => s.id === selectedSupplierId)?.numero_cuenta && (
                       <Typography variant="body2" sx={{ color: C.textPrimary }}>
-                        <strong>Cuenta:</strong> ...{suppliers.find((s) => s.id === selectedSupplierId)?.numero_cuenta.slice(-4)}
+                        <strong>Cuenta:</strong>{' '}
+                        <span style={{ fontFamily: 'monospace' }}>{suppliers.find((s) => s.id === selectedSupplierId)?.numero_cuenta}</span>
                       </Typography>
                     )}
                     <Button
