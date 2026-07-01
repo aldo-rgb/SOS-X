@@ -298,6 +298,7 @@ export default function ServiceInventoryPage() {
   // ── Acciones masivas sobre la selección ──
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkStatusVal, setBulkStatusVal] = useState('');
+  const [bulkPaidOpen, setBulkPaidOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
 
   const getSelectedRows = () => rows.filter((r: any) => selectedGuias.has(r.guia));
@@ -326,11 +327,9 @@ export default function ServiceInventoryPage() {
     if (!bulkStatusVal) return;
     applyBulkChange({ newStatus: bulkStatusVal }, (ok, t) => `Status actualizado en ${ok}/${t} guías`);
   };
-  const applyBulkPaid = () => {
-    const sel = getSelectedRows();
-    if (sel.length === 0) return;
-    if (!confirm(`¿Marcar ${sel.length} guía(s) como pagada(s)?`)) return;
-    applyBulkChange({ hasPago: true }, (ok, t) => `${ok}/${t} guía(s) marcadas como pagadas`);
+  const confirmBulkPaid = async () => {
+    setBulkPaidOpen(false);
+    await applyBulkChange({ hasPago: true }, (ok, t) => `${ok}/${t} guía(s) marcadas como pagadas`);
   };
 
   // Restaurar datos EntregaX desde caché cuando llegan nuevas filas
@@ -1122,7 +1121,7 @@ export default function ServiceInventoryPage() {
                 Cambiar status ({selectedGuias.size})
               </Button>
               <Button variant="contained" size="small"
-                onClick={applyBulkPaid}
+                onClick={() => setBulkPaidOpen(true)}
                 disabled={bulkBusy}
                 startIcon={<MonetizationOnIcon fontSize="small" />}
                 sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' }, whiteSpace: 'nowrap' }}
@@ -1237,11 +1236,38 @@ export default function ServiceInventoryPage() {
           />
         )}
       </Paper>
+      {/* Marcar como pagado (confirmación) */}
+      <Dialog open={bulkPaidOpen} onClose={() => !bulkBusy && setBulkPaidOpen(false)} maxWidth="xs" fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#2E7D32', color: '#fff', py: 2 }}>
+          <MonetizationOnIcon /> Marcar como pagado
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Typography variant="body1">
+            ¿Marcar <strong>{selectedGuias.size}</strong> guía(s) como <strong>pagada(s)</strong>?
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            Se registrará el pago del costeo en las guías seleccionadas.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setBulkPaidOpen(false)} disabled={bulkBusy} sx={{ color: '#555' }}>Cancelar</Button>
+          <Button variant="contained" onClick={confirmBulkPaid} disabled={bulkBusy}
+            startIcon={bulkBusy ? <CircularProgress size={16} color="inherit" /> : <MonetizationOnIcon fontSize="small" />}
+            sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' } }}>
+            {bulkBusy ? 'Marcando…' : 'Sí, marcar pagado'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Cambiar status de la selección */}
-      <Dialog open={bulkStatusOpen} onClose={() => !bulkBusy && setBulkStatusOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Cambiar status de {selectedGuias.size} guía(s)</DialogTitle>
+      <Dialog open={bulkStatusOpen} onClose={() => !bulkBusy && setBulkStatusOpen(false)} maxWidth="xs" fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#5E35B1', color: '#fff', py: 2 }}>
+          <SyncIcon /> Cambiar status · {selectedGuias.size} guía(s)
+        </DialogTitle>
         <DialogContent>
-          <FormControl fullWidth size="small" sx={{ mt: 1 }}>
+          <FormControl fullWidth size="small" sx={{ mt: 3 }}>
             <InputLabel>Nuevo status</InputLabel>
             <Select label="Nuevo status" value={bulkStatusVal} onChange={(e) => setBulkStatusVal(String(e.target.value))}>
               {Object.entries(activeStatusLabels).map(([key, meta]: [string, any]) => (
