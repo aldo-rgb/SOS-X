@@ -2139,7 +2139,7 @@
       "boxOf": "Caja {{n}} de {{total}}",
       "originGuide": "Guía origen",
       "clientNumber": "Número de cliente",
-      "grossWeight": "Peso GW (kg)",
+      "grossWeight": "Peso VW (kg)",
       "chargeableWeight": "Peso CW (kg)",
       "length": "Largo (cm)",
       "width": "Ancho (cm)",

@@ -1926,7 +1926,7 @@
       "boxOf": "Box {{n}} of {{total}}",
       "originGuide": "Origin guide",
       "clientNumber": "Client number",
-      "grossWeight": "Gross weight GW (kg)",
+      "grossWeight": "Weight VW (kg)",
       "chargeableWeight": "Chargeable weight CW (kg)",
       "length": "Length (cm)",
       "width": "Width (cm)",

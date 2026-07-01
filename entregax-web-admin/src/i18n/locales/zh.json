@@ -1786,7 +1786,7 @@
       "boxOf": "第 {{n}} 箱，共 {{total}} 箱",
       "originGuide": "原始单号",
       "clientNumber": "客户编号",
-      "grossWeight": "毛重 GW (公斤)",
+      "grossWeight": "毛重 VW (公斤)",
       "chargeableWeight": "计费重 CW (公斤)",
       "length": "长 (厘米)",
       "width": "宽 (厘米)",
