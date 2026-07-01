@@ -534,7 +534,21 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                 COALESCE(ac.awaiting_client_payment, FALSE) AS awaiting_client_payment,
                 COALESCE(ac.client_collected_amount, 0) AS client_collected_amount,
                 ac.client_paid_at,
-                ac.paid_by_admin_id, ac.payment_notes, ac.created_at
+                ac.paid_by_admin_id, ac.payment_notes, ac.created_at,
+                -- Orden de pago con la que se cobró la guía (RO-/PP-...). Se busca en la
+                -- referencia del paquete y, si no, en la orden PO Box vinculada (por id o
+                -- por su arreglo package_ids). Para DHL, en su propia payment_reference.
+                (CASE ac.shipment_type
+                    WHEN 'PKG' THEN COALESCE(
+                        NULLIF((SELECT p.payment_reference FROM packages p WHERE p.id = ac.shipment_id), ''),
+                        (SELECT pp.payment_reference FROM pobox_payments pp
+                           WHERE pp.id = (SELECT p2.pobox_payment_id FROM packages p2 WHERE p2.id = ac.shipment_id)),
+                        (SELECT pp2.payment_reference FROM pobox_payments pp2
+                           WHERE pp2.package_ids @> to_jsonb(ac.shipment_id) ORDER BY pp2.id DESC LIMIT 1)
+                    )
+                    WHEN 'DHL' THEN (SELECT d.payment_reference FROM dhl_shipments d WHERE d.id = ac.shipment_id)
+                    ELSE NULL
+                END) AS payment_order
             FROM advisor_commissions ac
             LEFT JOIN users cu ON cu.id = ac.client_id
             ${whereClause}
@@ -586,6 +600,7 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                 paidByAdminId: r.paid_by_admin_id,
                 paymentNotes: r.payment_notes,
                 createdAt: r.created_at,
+                paymentOrder: r.payment_order || null,
             })),
             summary: {
                 totalCount: parseInt(summary.total_count) || 0,

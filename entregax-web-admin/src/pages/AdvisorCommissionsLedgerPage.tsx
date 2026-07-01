@@ -67,6 +67,7 @@ interface CommissionRecord {
   clientPaidAt: string | null;
   paidAt: string | null;
   createdAt: string;
+  paymentOrder: string | null;
 }
 
 interface Summary {
@@ -339,6 +340,7 @@ export default function AdvisorCommissionsLedgerPage() {
                         <TableCell><strong>Asesor</strong></TableCell>
                         <TableCell><strong>Servicio</strong></TableCell>
                         <TableCell><strong>Tracking</strong></TableCell>
+                        <TableCell><strong>Orden de Pago</strong></TableCell>
                         <TableCell><strong>Cliente</strong></TableCell>
                         <TableCell align="right"><strong>Monto Base</strong></TableCell>
                         <TableCell align="right"><strong>Tasa</strong></TableCell>
@@ -349,7 +351,7 @@ export default function AdvisorCommissionsLedgerPage() {
                     <TableBody>
                       {records.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={10} align="center">
+                          <TableCell colSpan={11} align="center">
                             <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
                               Sin comisiones en este período
                             </Typography>
@@ -382,6 +384,14 @@ export default function AdvisorCommissionsLedgerPage() {
                             </TableCell>
                             <TableCell>
                               <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{r.tracking || '—'}</Typography>
+                            </TableCell>
+                            <TableCell>
+                              {r.paymentOrder ? (
+                                <Chip label={r.paymentOrder} size="small" variant="outlined"
+                                  sx={{ fontFamily: 'monospace', fontSize: '0.7rem', fontWeight: 600, borderColor: ORANGE, color: ORANGE }} />
+                              ) : (
+                                <Typography variant="caption" color="text.secondary">—</Typography>
+                              )}
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>{r.clientBox || '—'}</Typography>
