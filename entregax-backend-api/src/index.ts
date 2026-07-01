@@ -3133,7 +3133,10 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         u.box_id AS box_id, u.full_name AS cliente_nombre,
                         d.national_carrier AS paqueteria, d.national_tracking AS guia_salida,
                         (d.cost_payment_status = 'paid') AS costing_paid,
-                        (d.national_tracking IS NOT NULL) AS has_instructions
+                        -- Instrucciones asignadas: dirección de entrega O paquetería
+                        -- nacional (ej. EntregaX Local MTY no tiene guía nacional) O
+                        -- guía de salida.
+                        (d.delivery_address_id IS NOT NULL OR d.national_carrier IS NOT NULL OR d.national_tracking IS NOT NULL) AS has_instructions
                    FROM dhl_shipments d LEFT JOIN users u ON d.user_id = u.id
                   WHERE ${where} ORDER BY d.inspected_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
