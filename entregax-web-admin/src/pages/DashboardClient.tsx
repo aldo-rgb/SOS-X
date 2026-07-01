@@ -748,6 +748,7 @@ export default function DashboardClient() {
       'pqtx_cod': 'Paquete Express Por Cobrar', 'paquete_express_pc': 'Paquete Express Por Cobrar',
       'entregax_local_cdmx': 'EntregaX CDMX', 'evisa': 'EVISA', 'tresguerras': 'Tres Guerras',
       'fedex': 'FedEx', 'estafeta': 'Estafeta', 'dhl': 'DHL', 'nacional': 'Nacional',
+      'pitc': 'Pitic', 'pitic': 'Pitic',
     };
     return map[code] || code.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   };
