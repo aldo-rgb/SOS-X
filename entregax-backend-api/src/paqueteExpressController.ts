@@ -13,6 +13,11 @@ import { pool } from './db';
 // ============================================
 const PQTX_BASE_URL = process.env.PQTX_BASE_URL || 'https://qaglp.paquetexpress.com.mx';
 
+// Ambiente PQTX actual, derivado de la URL base. Las guías se etiquetan con este
+// valor para poder ocultar las de prueba (QA) del listado y sus totales al pasar
+// a producción. 'qa' = testing, 'production' = real.
+const PQTX_ENV: 'qa' | 'production' = PQTX_BASE_URL.toLowerCase().includes('qa') ? 'qa' : 'production';
+
 // Credenciales para cotización (auth diferente)
 const PQTX_QUOTE_USER = process.env.PQTX_QUOTE_USER || 'WSQURBANWOD';
 const PQTX_QUOTE_PASSWORD = process.env.PQTX_QUOTE_PASSWORD || '1234';
@@ -530,9 +535,12 @@ export async function pqtxCreateShipment(req: Request, res: Response) {
           `ALTER TABLE pqtx_shipments ADD COLUMN IF NOT EXISTS raw_request JSONB`
         ).catch(() => {});
         await pool.query(
-          `INSERT INTO pqtx_shipments (tracking_number, folio_porte, service_type, origin_name, origin_zip_code, origin_city, dest_name, dest_zip_code, dest_city, weight, pieces, subtotal, total, status, created_by, raw_request, raw_response)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'generated',$14,$15,$16)`,
-          [guiaNo, folioPorte, serviceType, originName || 'ENTREGAX', originZipCode, originCity || originMunicipality || '', destName || 'CLIENTE', destZipCode, destCity || destMunicipality || '', totalWeight, totalPieces, addData?.subTotlAmnt || null, addData?.totalAmnt || null, userId, JSON.stringify(reqLog), JSON.stringify(response.data)]
+          `ALTER TABLE pqtx_shipments ADD COLUMN IF NOT EXISTS environment TEXT`
+        ).catch(() => {});
+        await pool.query(
+          `INSERT INTO pqtx_shipments (tracking_number, folio_porte, service_type, origin_name, origin_zip_code, origin_city, dest_name, dest_zip_code, dest_city, weight, pieces, subtotal, total, status, created_by, raw_request, raw_response, environment)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'generated',$14,$15,$16,$17)`,
+          [guiaNo, folioPorte, serviceType, originName || 'ENTREGAX', originZipCode, originCity || originMunicipality || '', destName || 'CLIENTE', destZipCode, destCity || destMunicipality || '', totalWeight, totalPieces, addData?.subTotlAmnt || null, addData?.totalAmnt || null, userId, JSON.stringify(reqLog), JSON.stringify(response.data), PQTX_ENV]
         );
       } catch (dbErr: any) {
         console.error('Error guardando guía PQTX en DB:', dbErr.message);
@@ -986,10 +994,17 @@ export async function pqtxLabelZpl(req: Request, res: Response) {
 // ============================================
 export async function pqtxListShipments(req: Request, res: Response) {
   try {
-    const { search, status, limit = '50', offset = '0', date_from, date_to } = req.query;
+    const { search, status, limit = '50', offset = '0', date_from, date_to, includeTest } = req.query;
     let where = 'WHERE 1=1';
     const params: any[] = [];
     let idx = 1;
+
+    // Por defecto ocultamos las guías de prueba (ambiente QA) y sus montos.
+    // Al pasar a producción, el listado y sus totales (costo/cobrado/utilidad)
+    // arrancan en 0 hasta que se generen guías reales. ?includeTest=true las muestra.
+    if (String(includeTest) !== 'true') {
+      where += ` AND COALESCE(s.environment, 'production') <> 'qa'`;
+    }
 
     if (search) {
       where += ` AND (s.tracking_number ILIKE $${idx} OR s.dest_name ILIKE $${idx} OR s.origin_name ILIKE $${idx} OR s.folio_porte ILIKE $${idx})`;
@@ -1632,8 +1647,8 @@ export async function generateOnePqtxGuide(params: {
     if (bodyForLog?.header?.security) bodyForLog.header.security.token = '***';
 
     await pool.query(
-      `INSERT INTO pqtx_shipments (tracking_number, folio_porte, service_type, origin_name, origin_zip_code, origin_city, dest_name, dest_zip_code, dest_city, weight, pieces, subtotal, total, status, created_by, raw_request, raw_response)
-       VALUES ($1,$2,'STD-T',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'generated',$13,$14,$15)`,
+      `INSERT INTO pqtx_shipments (tracking_number, folio_porte, service_type, origin_name, origin_zip_code, origin_city, dest_name, dest_zip_code, dest_city, weight, pieces, subtotal, total, status, created_by, raw_request, raw_response, environment)
+       VALUES ($1,$2,'STD-T',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'generated',$13,$14,$15,$16)`,
       [
         guiaNo, folioPorte,
         PQTX_ORIGIN_NAME, PQTX_ORIGIN_ZIP, PQTX_ORIGIN_CITY,
@@ -1646,6 +1661,7 @@ export async function generateOnePqtxGuide(params: {
         params.createdBy,
         JSON.stringify(bodyForLog),
         JSON.stringify(response.data),
+        PQTX_ENV,
       ]
     );
   } catch (e: any) {
