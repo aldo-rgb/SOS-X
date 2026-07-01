@@ -13,7 +13,10 @@ import {
     Card,
     CardActionArea,
     CardContent,
+    CircularProgress,
+    Alert,
 } from '@mui/material';
+import useModulePermissions from '../hooks/useModulePermissions';
 import {
     ArrowBack as ArrowBackIcon,
     Flight as FlightIcon,
@@ -83,8 +86,14 @@ const OPTIONS = [
     },
 ];
 
+// Los module_key coinciden EXACTAMENTE con OPTIONS[].key y con el catálogo
+// admin_panel_modules del panel 'ops_china_air'.
+const AIR_HUB_MODULES = OPTIONS.map((o) => o.key);
+
 export default function ChinaAirHubPage({ onBack }: Props) {
     const [panel, setPanel] = useState<Panel>('menu');
+    const { allowedModules, loading: permLoading } = useModulePermissions('ops_china_air', AIR_HUB_MODULES);
+    const visibleOptions = OPTIONS.filter((opt) => allowedModules.includes(opt.key));
 
     if (panel === 'reception') {
         return <ChinaAirReceptionWizard onBack={() => setPanel('menu')} />;
@@ -150,6 +159,15 @@ export default function ChinaAirHubPage({ onBack }: Props) {
             </Paper>
 
             {/* Cards */}
+            {permLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+                    <CircularProgress sx={{ color: ORANGE }} />
+                </Box>
+            ) : visibleOptions.length === 0 ? (
+                <Alert severity="info">
+                    No tienes permisos para ningún módulo de Aéreo China. Contacta a tu supervisor.
+                </Alert>
+            ) : (
             <Box
                 sx={{
                     display: 'grid',
@@ -157,7 +175,7 @@ export default function ChinaAirHubPage({ onBack }: Props) {
                     gap: 3,
                 }}
             >
-                {OPTIONS.map((opt) => (
+                {visibleOptions.map((opt) => (
                     <Card
                         key={opt.key}
                         elevation={3}
@@ -201,6 +219,7 @@ export default function ChinaAirHubPage({ onBack }: Props) {
                     </Card>
                 ))}
             </Box>
+            )}
         </Box>
     );
 }
