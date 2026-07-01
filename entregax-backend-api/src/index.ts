@@ -7984,9 +7984,18 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
           0 as wallet_applied
         FROM caja_chica_transacciones t
         LEFT JOIN users u ON t.cliente_id = u.id
-        WHERE t.tipo = 'ingreso' 
+        WHERE t.tipo = 'ingreso'
           AND t.created_at >= $1 AND t.created_at <= $2
           AND t.concepto NOT LIKE 'Pago autorizado edo. cuenta%'
+          -- Evitar DUPLICADOS: si esta nota de caja referencia una orden (Ref: RO-/PP-)
+          -- que ya está registrada como pago procesado en openpay_webhook_logs
+          -- (ej. "Auto-autorizado sync bancario" vs "Orden asesor"), no la listamos
+          -- otra vez — se muestra la de openpay.
+          AND NOT EXISTS (
+            SELECT 1 FROM openpay_webhook_logs owl_dup
+            WHERE owl_dup.estatus_procesamiento = 'procesado'
+              AND owl_dup.transaction_id = substring(t.concepto from 'Ref: ([A-Za-z0-9-]+)')
+          )
           ${serviceFilter ? "AND t.service_type = ANY($3)" : ""}
         ORDER BY t.created_at DESC
         LIMIT 50
