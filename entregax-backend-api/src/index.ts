@@ -3414,6 +3414,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         national_carrier,
         national_shipping_cost,
         national_tracking,
+        is_collect,
+        collect_carrier,
         ${hasPqtxShipmentsTable ? `(
           SELECT UPPER(
             REGEXP_REPLACE(
