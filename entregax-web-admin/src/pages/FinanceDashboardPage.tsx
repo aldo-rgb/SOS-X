@@ -103,7 +103,7 @@ const PAYMENT_METHOD_LABELS: Record<string, { label: string; color: string; icon
   efectivo: { label: 'Efectivo', color: '#27ae60', icon: '💵' },
   spei: { label: 'SPEI', color: '#1565C0', icon: '🏦' },
   transfer: { label: 'SPEI', color: '#1565C0', icon: '🏦' },
-  transferencia: { label: 'Transferencia', color: '#00897B', icon: '🏦' },
+  transferencia: { label: 'SPEI', color: '#1565C0', icon: '🏦' },
   card: { label: 'Tarjeta', color: '#6A1B9A', icon: '💳' },
   tarjeta: { label: 'Tarjeta', color: '#6A1B9A', icon: '💳' },
   openpay: { label: 'Tarjeta', color: '#6A1B9A', icon: '💳' },
@@ -1001,8 +1001,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     const key = String(method || '').toLowerCase().trim();
     if (['efectivo', 'cash'].includes(key)) return 'cash';
     if (['card', 'tarjeta', 'openpay'].includes(key)) return 'card';
-    if (key === 'transferencia') return 'transferencia'; // categoría propia
-    if (['spei', 'transfer'].includes(key)) return 'spei';
+    // SPEI y transferencia son lo mismo → se cuentan juntas como 'spei'
+    // (antes 'transferencia' era categoría aparte y dejaba SPEI en $0).
+    if (['spei', 'transfer', 'transferencia'].includes(key)) return 'spei';
     return key;
   };
 
