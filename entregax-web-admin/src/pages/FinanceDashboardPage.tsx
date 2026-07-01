@@ -1007,7 +1007,11 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   };
 
   const filteredTransacciones = data?.transacciones.filter((t) => {
-    const matchCliente = !filterCliente || t.cliente?.toLowerCase().includes(filterCliente.toLowerCase());
+    const q = (filterCliente || '').toLowerCase().trim();
+    const matchCliente = !q
+      || (t.cliente || '').toLowerCase().includes(q)
+      || (t.cliente_box_id || '').toLowerCase().includes(q)
+      || (t.referencia || '').toLowerCase().includes(q);
     const methods = getTransactionMethods(t).map(normalizeMethod);
     const selectedMethod = normalizeMethod(filterMetodo);
     const matchMetodo = filterMetodo === 'all' || methods.includes(selectedMethod);
@@ -1458,6 +1462,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                   <TableRow>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Fecha/Hora</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Cliente</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Orden de pago</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Monto Neto</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Método</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Concepto</TableCell>
@@ -1485,6 +1490,11 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                               {tx.cliente_box_id}
                             </Typography>
                           )}
+                        </TableCell>
+                        <TableCell>
+                          {tx.referencia
+                            ? <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{tx.referencia}</Typography>
+                            : <Typography variant="caption" color="text.disabled">—</Typography>}
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" fontWeight="bold" color="success.main">
@@ -1538,7 +1548,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                         <Receipt sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
                         <Typography color="text.secondary">
                           No hay transacciones de {SERVICE_LABELS[filterServicio]?.label || filterServicio} en el período seleccionado
