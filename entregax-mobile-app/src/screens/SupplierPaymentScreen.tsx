@@ -4,6 +4,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as Clipboard from 'expo-clipboard';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, Alert,
   StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform, Modal, Image, ImageBackground, Dimensions,
@@ -141,7 +142,9 @@ interface PaymentRequest {
   estatus_global: string;
   estatus_factura: string;
   estatus_proveedor: string;
+  entangled_transaccion_id?: string | null;
   factura_url?: string;
+  factura_xml_url?: string | null;
   comprobante_proveedor_url?: string;
   op_comprobante_cliente_url?: string | null;
   comprobante_subido_at?: string | null;
@@ -1060,6 +1063,47 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   // solicitud recién creada (lastReferencia + lastEmpresas) pero se
   // puede pasar override para descargar el PDF de cualquier solicitud
   // existente — usado desde la lista "Últimos envíos".
+  const [downloadingDoc, setDownloadingDoc] = useState<{ id: number; tipo: string } | null>(null);
+
+  // Descarga documento (factura PDF/XML o comprobante proveedor) usando el
+  // proxy backend contra ENTANGLED. Este endpoint valida al asesor vía
+  // advisorOwnsClient() para poder acceder a docs de sus clientes.
+  const downloadEntangledDoc = async (
+    requestId: number,
+    tipo: 'factura_pdf' | 'factura_xml' | 'comprobante_proveedor' | 'comprobante_cliente'
+  ) => {
+    setDownloadingDoc({ id: requestId, tipo });
+    try {
+      const url = `${API_URL}/api/entangled/payment-requests/${requestId}/documento/${tipo}`;
+      const ext = tipo === 'factura_xml' ? 'xml' : 'pdf';
+      const dest = `${FileSystem.cacheDirectory}XP${requestId}_${tipo}.${ext}`;
+      const dl = await FileSystem.downloadAsync(url, dest, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (dl.status < 200 || dl.status >= 300) {
+        let errMsg = 'No se pudo descargar el documento';
+        try {
+          const body = await FileSystem.readAsStringAsync(dl.uri);
+          const parsed = JSON.parse(body);
+          errMsg = parsed.error || parsed.message || errMsg;
+        } catch { /* keep default */ }
+        Alert.alert('Error', errMsg);
+        return;
+      }
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        const mimeType = tipo === 'factura_xml' ? 'application/xml' : 'application/pdf';
+        await Sharing.shareAsync(dl.uri, { mimeType, dialogTitle: `XP${requestId}-${tipo}`, UTI: tipo === 'factura_xml' ? 'public.xml' : 'com.adobe.pdf' });
+      } else {
+        Alert.alert('Documento descargado', `Archivo guardado en: ${dl.uri}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'No se pudo descargar el documento');
+    } finally {
+      setDownloadingDoc(null);
+    }
+  };
+
   const downloadInstructionsPDF = async (override?: { referencia: string; empresas: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }> }) => {
     try {
       const referencia = override?.referencia || lastReferencia;
@@ -1794,20 +1838,42 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   );
                 })()}
 
-                {(r.factura_url || r.comprobante_proveedor_url) && (
-                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                    {r.factura_url && (
-                      <TouchableOpacity style={styles.linkBtn} onPress={() => Linking.openURL(r.factura_url!)}>
-                        <Ionicons name="receipt-outline" size={13} color="#60A5FA" />
-                        <Text style={styles.linkText}>Factura</Text>
+                {(r.entangled_transaccion_id) && (
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                    {r.cf_rfc && (
+                      <TouchableOpacity
+                        style={styles.linkBtn}
+                        disabled={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_pdf'}
+                        onPress={() => downloadEntangledDoc(r.id, 'factura_pdf')}
+                      >
+                        {downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_pdf'
+                          ? <ActivityIndicator size="small" color="#60A5FA" />
+                          : <Ionicons name="receipt-outline" size={13} color="#60A5FA" />}
+                        <Text style={styles.linkText}>Factura PDF</Text>
                       </TouchableOpacity>
                     )}
-                    {r.comprobante_proveedor_url && (
-                      <TouchableOpacity style={styles.linkBtn} onPress={() => Linking.openURL(r.comprobante_proveedor_url!)}>
-                        <Ionicons name="checkmark-done-outline" size={13} color={ORANGE} />
-                        <Text style={[styles.linkText, { color: ORANGE }]}>Comprobante</Text>
+                    {r.cf_rfc && (
+                      <TouchableOpacity
+                        style={styles.linkBtn}
+                        disabled={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_xml'}
+                        onPress={() => downloadEntangledDoc(r.id, 'factura_xml')}
+                      >
+                        {downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_xml'
+                          ? <ActivityIndicator size="small" color="#60A5FA" />
+                          : <Ionicons name="code-slash-outline" size={13} color="#60A5FA" />}
+                        <Text style={styles.linkText}>Factura XML</Text>
                       </TouchableOpacity>
                     )}
+                    <TouchableOpacity
+                      style={styles.linkBtn}
+                      disabled={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'comprobante_proveedor'}
+                      onPress={() => downloadEntangledDoc(r.id, 'comprobante_proveedor')}
+                    >
+                      {downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'comprobante_proveedor'
+                        ? <ActivityIndicator size="small" color={ORANGE} />
+                        : <Ionicons name="checkmark-done-outline" size={13} color={ORANGE} />}
+                      <Text style={[styles.linkText, { color: ORANGE }]}>Comprobante</Text>
+                    </TouchableOpacity>
                   </View>
                 )}
               </View>
