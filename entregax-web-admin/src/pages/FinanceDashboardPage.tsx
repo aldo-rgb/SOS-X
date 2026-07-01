@@ -242,6 +242,8 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const [searchRef, setSearchRef] = useState('');
   const [searchingPayment, setSearchingPayment] = useState(false);
   const [foundPayment, setFoundPayment] = useState<any>(null);
+  // Comprobantes del cliente para el modal "Confirmar Pago en Sucursal"
+  const [confirmVouchers, setConfirmVouchers] = useState<{ loading: boolean; vouchers: any[]; fetched: boolean }>({ loading: false, vouchers: [], fetched: false });
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
   const [loadingPending, setLoadingPending] = useState(false);
@@ -894,6 +896,31 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       setSearchingPayment(false);
     }
   };
+
+  // Al abrir el modal de confirmación, cargar el comprobante que subió el cliente.
+  useEffect(() => {
+    if (!foundPayment) {
+      setConfirmVouchers({ loading: false, vouchers: [], fetched: false });
+      return;
+    }
+    const p = foundPayment.payment || foundPayment;
+    const orderId = p.pobox_payment_id || p.payment_order_id || p.id;
+    if (!orderId) {
+      setConfirmVouchers({ loading: false, vouchers: [], fetched: true });
+      return;
+    }
+    let cancelled = false;
+    setConfirmVouchers({ loading: true, vouchers: [], fetched: false });
+    (async () => {
+      try {
+        const res = await api.get(`/admin/vouchers/order/${orderId}`);
+        if (!cancelled) setConfirmVouchers({ loading: false, vouchers: res.data.vouchers || [], fetched: true });
+      } catch {
+        if (!cancelled) setConfirmVouchers({ loading: false, vouchers: [], fetched: true });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [foundPayment]);
 
   // Confirmar pago en efectivo
   const handleConfirmPayment = async () => {
@@ -2800,6 +2827,47 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                           : '—';
                       })()}
                     </Typography>
+                  </Box>
+
+                  {/* Comprobante de pago que subió el cliente */}
+                  <Box sx={{ pt: 1, borderTop: '1px solid #eee' }}>
+                    <Typography color="text.secondary" gutterBottom>Comprobante de pago:</Typography>
+                    {confirmVouchers.loading ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+                        <CircularProgress size={18} />
+                        <Typography variant="body2" color="text.secondary">Cargando comprobante…</Typography>
+                      </Box>
+                    ) : confirmVouchers.vouchers.length === 0 ? (
+                      <Alert severity="warning" icon={false} sx={{ py: 0.5 }}>
+                        <strong>Sin comprobante.</strong> El cliente no subió comprobante de pago.
+                      </Alert>
+                    ) : (
+                      <Grid container spacing={1.5}>
+                        {confirmVouchers.vouchers.map((v: any, idx: number) => (
+                          <Grid size={{ xs: 12, sm: 6 }} key={v.id}>
+                            <Paper sx={{ borderRadius: 2, overflow: 'hidden', border: '1px solid #e0e0e0' }}>
+                              <Box
+                                component="img"
+                                src={v.file_url}
+                                alt={`Comprobante ${idx + 1}`}
+                                sx={{ width: '100%', maxHeight: 220, objectFit: 'contain', bgcolor: '#f5f5f5', cursor: 'pointer' }}
+                                onClick={() => window.open(v.file_url, '_blank')}
+                              />
+                              <Box sx={{ p: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Typography variant="caption" color="success.main" fontWeight="bold">
+                                  ${Number(v.declared_amount || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                </Typography>
+                                <Chip
+                                  size="small"
+                                  label={v.status === 'pending_review' ? '⏳ Por revisar' : v.status === 'approved' ? '✅ Aprobado' : v.status === 'rejected' ? '❌ Rechazado' : v.status}
+                                  sx={{ fontSize: '0.65rem', fontWeight: 'bold', bgcolor: v.status === 'approved' ? '#E8F5E9' : v.status === 'rejected' ? '#FFEBEE' : '#FFF3E0', color: v.status === 'approved' ? '#2E7D32' : v.status === 'rejected' ? '#C62828' : '#E65100' }}
+                                />
+                              </Box>
+                            </Paper>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    )}
                   </Box>
                 </Box>
               </Box>
