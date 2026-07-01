@@ -18,6 +18,11 @@ const PQTX_BASE_URL = process.env.PQTX_BASE_URL || 'https://qaglp.paquetexpress.
 // a producción. 'qa' = testing, 'production' = real.
 const PQTX_ENV: 'qa' | 'production' = PQTX_BASE_URL.toLowerCase().includes('qa') ? 'qa' : 'production';
 
+// El servicio de impresión de etiquetas (GenCartaPorte) vive en otro host/puerto
+// que el resto de la API. En QA es la misma base; en producción PQTX lo expone en
+// cc.paquetexpress.com.mx:8082. Configurable con PQTX_LABEL_BASE_URL.
+const PQTX_LABEL_BASE_URL = process.env.PQTX_LABEL_BASE_URL || PQTX_BASE_URL;
+
 // Credenciales para cotización (auth diferente)
 const PQTX_QUOTE_USER = process.env.PQTX_QUOTE_USER || 'WSQURBANWOD';
 const PQTX_QUOTE_PASSWORD = process.env.PQTX_QUOTE_PASSWORD || '1234';
@@ -854,7 +859,7 @@ export async function pqtxLabelPdf(req: Request, res: Response) {
       });
     }
 
-    let url = `${PQTX_BASE_URL}/wsReportPaquetexpress/GenCartaPorte?trackingNoGen=${trackingNumber}`;
+    let url = `${PQTX_LABEL_BASE_URL}/wsReportPaquetexpress/GenCartaPorte?trackingNoGen=${trackingNumber}`;
     if (format === '4x6') {
       url += '&measure=4x6';
     }
