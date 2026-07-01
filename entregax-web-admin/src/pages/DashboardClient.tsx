@@ -857,6 +857,10 @@ export default function DashboardClient() {
   // todavía SIN cotización, aplica un FALLBACK mínimo de $400.
   const PQT_FALLBACK_MXN = 400;
   const getNationalShippingMXN = (pkg: PackageTracking): number => {
+    // Paquetería "por cobrar" (collect, ej. Pitic/Estafeta por cobrar): el cliente
+    // paga al transportista al recibir → nuestro flete nacional es 0 (no se cobra
+    // en la orden). Se evalúa PRIMERO para ignorar cualquier costo/fallback.
+    if ((pkg as any).is_collect === true || (pkg as any).collect_carrier) return 0;
     const direct = Number(pkg.national_shipping_cost) || 0;
     if (direct > 0) return direct;
     const fromChildren = (pkg.included_guides || []).reduce(

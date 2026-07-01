@@ -4064,6 +4064,8 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
         national_tracking,
         national_label_url,
         national_shipping_cost,
+        is_collect,
+        collect_carrier,
         carrier,
         destination_address,
         destination_city,
