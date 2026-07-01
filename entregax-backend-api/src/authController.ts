@@ -839,6 +839,10 @@ export const getAllUsers = async (_req: Request, res: Response): Promise<void> =
     try {
         const result = await pool.query(`
             SELECT u.id, u.full_name, u.email, u.box_id, u.role, u.phone, u.created_at, u.advisor_id,
+                   COALESCE(u.wallet_balance, 0)::numeric AS wallet_balance,
+                   COALESCE(u.has_credit, false)          AS has_credit,
+                   COALESCE(u.credit_limit, 0)::numeric   AS credit_limit,
+                   COALESCE(u.used_credit, 0)::numeric    AS used_credit,
                    a.full_name as advisor_name
             FROM users u
             LEFT JOIN users a ON u.advisor_id = a.id

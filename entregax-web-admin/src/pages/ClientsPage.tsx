@@ -49,6 +49,8 @@ import BadgeIcon from '@mui/icons-material/Badge';
 import DrawIcon from '@mui/icons-material/Draw';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import VerifiedIcon from '@mui/icons-material/Verified';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import CreditScoreIcon from '@mui/icons-material/CreditScore';
 
 // Tipo para datos de verificación cargados bajo demanda
 interface VerificationDetail {
@@ -96,6 +98,10 @@ interface User {
   created_at?: string;
   advisor_id?: number | null;
   advisor_name?: string;
+  wallet_balance?: number | string;
+  has_credit?: boolean;
+  credit_limit?: number | string;
+  used_credit?: number | string;
 }
 
 interface Advisor {
@@ -858,6 +864,70 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                   )}
                 </Box>
               )}
+
+              {/* ============ SALDO A FAVOR / CRÉDITO ============ */}
+              {selectedUser.role === 'client' && (() => {
+                const saldo = Number(selectedUser.wallet_balance || 0);
+                const tieneCredito = !!selectedUser.has_credit;
+                const limiteCredito = Number(selectedUser.credit_limit || 0);
+                const creditoUsado = Number(selectedUser.used_credit || 0);
+                const creditoDisponible = Math.max(0, limiteCredito - creditoUsado);
+                const mostrar = saldo > 0 || tieneCredito;
+                if (!mostrar) return null;
+                const fmt = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                return (
+                  <>
+                    <Divider sx={{ my: 3 }} />
+                    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 2 }}>
+                      Saldo y Crédito
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                      {saldo > 0 && (
+                        <Paper
+                          sx={{
+                            p: 2, flex: 1, minWidth: 200, borderRadius: 2,
+                            bgcolor: 'rgba(16, 185, 129, 0.08)',
+                            border: '1.5px solid rgba(16, 185, 129, 0.35)',
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            <AccountBalanceWalletIcon sx={{ color: '#10B981', fontSize: 20 }} />
+                            <Typography variant="caption" sx={{ color: '#065F46', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              Saldo a Favor
+                            </Typography>
+                          </Box>
+                          <Typography variant="h5" fontWeight={800} sx={{ color: '#065F46' }}>
+                            {fmt(saldo)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">MXN disponible en billetera</Typography>
+                        </Paper>
+                      )}
+                      {tieneCredito && limiteCredito > 0 && (
+                        <Paper
+                          sx={{
+                            p: 2, flex: 1, minWidth: 200, borderRadius: 2,
+                            bgcolor: 'rgba(59, 130, 246, 0.06)',
+                            border: '1.5px solid rgba(59, 130, 246, 0.30)',
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            <CreditScoreIcon sx={{ color: '#2563EB', fontSize: 20 }} />
+                            <Typography variant="caption" sx={{ color: '#1E3A8A', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              Línea de Crédito
+                            </Typography>
+                          </Box>
+                          <Typography variant="h5" fontWeight={800} sx={{ color: '#1E3A8A' }}>
+                            {fmt(creditoDisponible)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Usado {fmt(creditoUsado)} de {fmt(limiteCredito)}
+                          </Typography>
+                        </Paper>
+                      )}
+                    </Box>
+                  </>
+                );
+              })()}
 
               {/* ============ VERIFICACIÓN DE IDENTIDAD ============ */}
               <Divider sx={{ my: 3 }} />
