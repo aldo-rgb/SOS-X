@@ -256,8 +256,11 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
           <Typography variant="caption" color="text.secondary" fontWeight={600}>GUÍA</Typography>
         </Box>
         <Typography variant="subtitle1" fontWeight={700} fontFamily="monospace" sx={{ wordBreak: 'break-all', fontSize: 13 }}>
-          {m.tracking || tracking}
+          {(m as any).airTracking || m.tracking || tracking}
         </Typography>
+        {(m as any).airTracking && m.tracking && (m as any).airTracking !== m.tracking && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Interna: {m.tracking}</Typography>
+        )}
         {m.tracking && m.tracking.toUpperCase() !== tracking.toUpperCase() && (
           <Typography variant="caption" color="text.secondary">Buscado: {tracking}</Typography>
         )}

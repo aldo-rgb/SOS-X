@@ -2053,20 +2053,35 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             const childWithPhoto = children.find((c: any) => c.image_url);
             if (childWithPhoto) resolvedImageUrl = childWithPhoto.image_url;
         }
-        if (!resolvedImageUrl) {
+        // AIR completo (fno) del china_receipt vinculado — para mostrarlo en Cajito.
+        let airFno: string | null = null;
+        {
             try {
                 const fnoCandidate = String(pkg.fno || pkg.tracking_internal || '').replace(/-\d{1,4}$/, '');
-                if (fnoCandidate) {
-                    const imgRes = await pool.query(
-                        `SELECT evidence_urls FROM china_receipts
-                          WHERE UPPER(fno) = UPPER($1)
-                            AND evidence_urls IS NOT NULL
-                            AND array_length(evidence_urls, 1) > 0
-                          LIMIT 1`,
-                        [fnoCandidate]
-                    );
-                    if (imgRes.rows[0]?.evidence_urls?.length > 0) {
-                        resolvedImageUrl = imgRes.rows[0].evidence_urls[0];
+                // Vínculo real: china_receipt_id; fallback por fno.
+                const crRes = await pool.query(
+                    `SELECT fno, evidence_urls FROM china_receipts
+                      WHERE ($1::int IS NOT NULL AND id = $1::int)
+                         OR ($2 <> '' AND UPPER(fno) = UPPER($2))
+                      ORDER BY (id = $1::int) DESC LIMIT 1`,
+                    [pkg.china_receipt_id || null, fnoCandidate || '']
+                );
+                if (crRes.rows[0]) {
+                    airFno = crRes.rows[0].fno || null;
+                    const imgRes = { rows: [{ evidence_urls: crRes.rows[0].evidence_urls }] };
+                    const evUrls: any[] = imgRes.rows[0]?.evidence_urls || [];
+                    if (!resolvedImageUrl && evUrls.length > 0) {
+                        // evidence_urls a veces guarda el elemento como JSON (["http://…png"]).
+                        // Desenvolvemos y pasamos a https (Mojie) para evitar mixed-content.
+                        let raw: any = evUrls[0];
+                        try {
+                            if (typeof raw === 'string' && raw.trim().startsWith('[')) {
+                                const arr = JSON.parse(raw);
+                                if (Array.isArray(arr) && arr.length) raw = arr[0];
+                            }
+                        } catch { /* dejar como está */ }
+                        if (typeof raw === 'string') raw = raw.replace(/^http:\/\//i, 'https://').replace(/^\[?"?|"?\]?$/g, '');
+                        resolvedImageUrl = raw || null;
                     }
                 }
             } catch { /* silencioso — sin tabla o sin foto */ }
@@ -2079,6 +2094,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             success: true,
             shipment: {
                 master: { id: pkg.id, tracking: pkg.tracking_internal, trackingProvider: pkg.tracking_provider,
+                    serviceType: pkg.service_type || null,
+                    airTracking: airFno,
                     originCarrier: pkg.origin_carrier || null,
                     trackingCourier: pkg.tracking_provider, // Para PO Box, tracking del courier está en tracking_provider
                     // 🧾 Orden de pago registrada que contiene esta guía (RO-/PP-).
