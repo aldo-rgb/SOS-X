@@ -437,6 +437,19 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
       return 'usa';
     };
 
+    // Marca la etiqueta como impresa en la tabla correcta según el servicio.
+    // DHL vive en dhl_shipments, no en packages (su tracking suele ser numérico y
+    // detectPackageType no lo reconoce por prefijo → usamos serviceType del master).
+    const markLabelPrinted = () => {
+      if (!shipment?.master?.id) return Promise.resolve();
+      const st = String((shipment.master as any).serviceType || '').toUpperCase();
+      const isDhl = st === 'AA_DHL' || st === 'DHL' || detectPackageType(shipment.master.tracking) === 'dhl';
+      const url = isDhl
+        ? `/admin/dhl/shipments/${shipment.master.id}/mark-label-printed`
+        : `/admin/packages/${shipment.master.id}/mark-label-printed`;
+      return api.patch(url);
+    };
+
     const openEditInstructions = async () => {
       if (!shipment) return;
       setEditInstrError(null);
@@ -977,7 +990,7 @@ ${labelsHtml}
         printWindow.document.close();
         // Marcar como etiquetado al imprimir etiqueta EntregaX Local/Nacional
         if (shipment?.master?.id) {
-            api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`)
+            markLabelPrinted()
                 .then(() => { setPqtxMsg('✅ Etiqueta impresa — paquete marcado como etiquetado'); handleSearch({ internal: true }); })
                 .catch(() => { /* silencioso */ });
         }
@@ -1318,7 +1331,7 @@ ${body}
             setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
             // Marcar como etiquetado al imprimir guía asignada
             if (shipment?.master?.id) {
-                api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`)
+                markLabelPrinted()
                     .then(() => { setPqtxMsg('✅ Guía impresa — etiquetado marcado'); handleSearch({ internal: true }); })
                     .catch(() => { /* silencioso */ });
             }
@@ -1456,7 +1469,7 @@ ${labelsHtml}
         printWindow.document.close();
         // Marcar como etiquetado al imprimir guía de paquetería
         if (shipment?.master?.id) {
-            api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`)
+            markLabelPrinted()
                 .then(() => { setPqtxMsg('✅ Guía de paquetería impresa — etiquetado marcado'); handleSearch({ internal: true }); })
                 .catch(() => { /* silencioso */ });
         }
@@ -2085,7 +2098,7 @@ ${labelsHtml}
                                             variant="outlined"
                                             sx={{ mb: 1, borderColor: '#FF6F00', color: '#FF6F00', fontSize: 11 }}
                                             onClick={() => {
-                                                api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`)
+                                                markLabelPrinted()
                                                     .then(() => { setPqtxMsg('✅ Etiqueta confirmada como impresa'); handleSearch({ internal: true }); })
                                                     .catch(() => { setPqtxMsg('❌ Error al confirmar etiqueta'); });
                                             }}
@@ -2155,7 +2168,7 @@ ${labelsHtml}
                                                         window.open(getUploadedExternalGuideUrl() as string, '_blank');
                                                         // Marcar como etiqueta impresa al descargar
                                                         try {
-                                                            await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
+                                                            await markLabelPrinted();
                                                             await handleSearch({ internal: true });
                                                         } catch { /* no crítico */ }
                                                     }}

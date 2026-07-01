@@ -3133,6 +3133,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         u.box_id AS box_id, u.full_name AS cliente_nombre,
                         d.national_carrier AS paqueteria, d.national_tracking AS guia_salida,
                         (d.cost_payment_status = 'paid') AS costing_paid,
+                        (d.national_label_url IS NOT NULL) AS has_label,
                         -- Instrucciones asignadas: dirección de entrega O paquetería
                         -- nacional (ej. EntregaX Local MTY no tiene guía nacional) O
                         -- guía de salida.
@@ -6246,6 +6247,21 @@ app.post('/api/admin/dhl/receive', authenticateToken, requireMinLevel(ROLES.WARE
 app.post('/api/admin/dhl/quote', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), quoteDhlShipment);
 app.post('/api/admin/dhl/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchDhlShipment);
 app.get('/api/admin/dhl/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDhlStats);
+// Marcar etiqueta nacional impresa (dhl_shipments) — equivalente a packages/mark-label-printed
+app.patch('/api/admin/dhl/shipments/:id/mark-label-printed', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) return res.status(400).json({ error: 'ID inválido' });
+    const r = await pool.query(
+      `UPDATE dhl_shipments SET national_label_url = COALESCE(NULLIF(national_label_url, ''), 'manual-printed'), updated_at = NOW() WHERE id = $1 RETURNING id, national_label_url`,
+      [id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'Guía DHL no encontrada' });
+    res.json({ success: true, national_label_url: r.rows[0].national_label_url });
+  } catch (e: any) {
+    res.status(500).json({ error: 'Error al marcar etiqueta', details: e.message });
+  }
+});
 // Cambio de tipo de producto (requiere PIN de supervisor dentro del handler)
 app.patch('/api/admin/dhl/shipments/:id/product-type', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateDhlShipmentProductType);
 app.patch('/api/admin/dhl/shipments/:id/status', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateDhlShipmentStatus);

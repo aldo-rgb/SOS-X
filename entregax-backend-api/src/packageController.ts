@@ -1723,6 +1723,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         paymentStatus: (fallbackKind === 'dhl' && fallbackRow.paid_at) ? 'paid' : null,
                         clientPaid: fallbackKind === 'dhl' ? !!fallbackRow.paid_at : false,
                         clientPaidAt: (fallbackKind === 'dhl' ? fallbackRow.paid_at : null) || null,
+                        serviceType: fallbackKind === 'dhl' ? 'AA_DHL' : (fallbackKind === 'national' ? 'NACIONAL' : 'SEA_CHN_MX'),
                         totalCost: fallbackKind === 'dhl' ? dhlTotalCost : null,
                         importTaxMxn: fallbackKind === 'dhl' ? dhlTaxTotal : null,
                         montoPagado: fallbackKind === 'dhl' ? dhlMontoPagado : null,
