@@ -1131,11 +1131,17 @@ export async function pqtxClientQuote(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'Se requiere CP destino' });
     }
 
-    console.log(`[PQTX-CLIENT] Params recibidos: ZIP=${destZipCode}, boxes=${packageCount}, weight=${weight}, dims=${length}x${width}x${height}`);
+    // PQTX rechaza cotizaciones con más de 6 líneas de captura
+    // ("NO SE PUEDEN ENVIAR MAS DE 6 LINEAS DE CAPTURA"). Como aquí la cotización
+    // solo sirve para verificar cobertura (el precio al cliente es fijo por caja),
+    // sondeamos con un máximo de 6 líneas y facturamos por el conteo real.
+    const linesToQuote = Math.min(Math.max(1, packageCount), 6);
+
+    console.log(`[PQTX-CLIENT] Params recibidos: ZIP=${destZipCode}, boxes=${packageCount}, lineas=${linesToQuote}, weight=${weight}, dims=${length}x${width}x${height}`);
 
     // Construir paquetes para la cotización
     const shipments = [];
-    for (let i = 0; i < packageCount; i++) {
+    for (let i = 0; i < linesToQuote; i++) {
       shipments.push({
         sequence: i + 1,
         quantity: 1,
@@ -1190,7 +1196,7 @@ export async function pqtxClientQuote(req: Request, res: Response) {
 
       // Intentar Ocurre en CP exacto y luego en CPs cercanos
       const ocurreShipments: Array<{ sequence: number; quantity: number; shpCode: string; weight: number; longShip: number; widthShip: number; highShip: number }> = [];
-      for (let i = 0; i < packageCount; i++) {
+      for (let i = 0; i < linesToQuote; i++) {
         ocurreShipments.push({ sequence: i + 1, quantity: 1, shpCode: '2', weight, longShip: length, widthShip: width, highShip: height });
       }
       const ocurreUrl = `${PQTX_BASE_URL}/WsQuotePaquetexpress/api/apiQuoter/v2/getQuotation`;
@@ -1229,7 +1235,7 @@ export async function pqtxClientQuote(req: Request, res: Response) {
             return parseFloat(q.amount?.totalAmnt || q.totalAmnt || '0') < parseFloat(mn.amount?.totalAmnt || mn.totalAmnt || '0') ? q : mn;
           }, exact.quotes![0]);
           const oTotal = parseFloat(cheapestO.amount?.totalAmnt || cheapestO.totalAmnt || '0');
-          const costPerBox = packageCount > 0 ? oTotal / packageCount : oTotal;
+          const costPerBox = linesToQuote > 0 ? oTotal / linesToQuote : oTotal;
           const pricePerBox = costPerBox < 300 ? 400 : Math.ceil(costPerBox) + 100;
           return res.json({ success: true, available: true, type: 'ocurre', nearestBranch: false, usedZip: destZipCode,
             branch: exact.destination, pricePerBox, clientPrice: pricePerBox * packageCount, pqtxQuote: oTotal,
@@ -1249,7 +1255,7 @@ export async function pqtxClientQuote(req: Request, res: Response) {
                 return parseFloat(q.amount?.totalAmnt || q.totalAmnt || '0') < parseFloat(mn.amount?.totalAmnt || mn.totalAmnt || '0') ? q : mn;
               }, r2.quotes![0]);
               const oTotal = parseFloat(cheapestO.amount?.totalAmnt || cheapestO.totalAmnt || '0');
-              const costPerBox2 = packageCount > 0 ? oTotal / packageCount : oTotal;
+              const costPerBox2 = linesToQuote > 0 ? oTotal / linesToQuote : oTotal;
               const pricePerBox = costPerBox2 < 300 ? 400 : Math.ceil(costPerBox2) + 100;
               return res.json({ success: true, available: true, type: 'ocurre', nearestBranch: true,
                 usedZip: candidateZip, originalZip: destZipCode, branch: r2.destination,
@@ -1274,8 +1280,8 @@ export async function pqtxClientQuote(req: Request, res: Response) {
 
     const pqtxTotal = parseFloat(cheapest.amount?.totalAmnt || cheapest.totalAmnt || cheapest.totalAmount || cheapest.total || '0');
 
-    // REGLA DE UTILIDAD (precio POR CAJA)
-    const pqtxPerBox = packageCount > 1 ? pqtxTotal / packageCount : pqtxTotal;
+    // REGLA DE UTILIDAD (precio POR CAJA) — pqtxTotal corresponde a linesToQuote líneas.
+    const pqtxPerBox = linesToQuote > 1 ? pqtxTotal / linesToQuote : pqtxTotal;
     let pricePerBox: number;
     let clientPrice: number;
     let rule: string;

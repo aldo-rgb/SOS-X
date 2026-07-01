@@ -1527,7 +1527,10 @@ export default function DashboardAdvisor() {
     setInstrPriceLoading(true);
     setInstrPriceEstimate(null);
     try {
-      const boxes = (shipment.isMaster && shipment.childrenCount > 0) ? shipment.childrenCount + 1 : 1;
+      // El master NO es una caja física: las cajas reales son sus hijas (children_count).
+      // Antes se mandaba childrenCount + 1, lo que para un master de 6 guías generaba
+      // 7 líneas y PQTX rechaza con "no se pueden enviar más de 6 líneas de captura".
+      const boxes = (shipment.isMaster && shipment.childrenCount > 0) ? shipment.childrenCount : 1;
       const res = await api.post('/shipping/pqtx-quote', {
         destZipCode: zipCode,
         packageCount: boxes,
