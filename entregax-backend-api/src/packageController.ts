@@ -1481,7 +1481,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                                ds.import_cost_mxn, ds.import_cost_usd, ds.import_tax_mxn,
                                ds.national_carrier, ds.national_tracking, ds.national_label_url,
                                ds.delivery_address_id,
-                               u.id as user_id, u.full_name, u.email, u.box_id as user_box_id,
+                               u.id as user_id, u.full_name, u.email, u.box_id as user_box_id, u.is_verified as user_is_verified,
                                a.alias as addr_alias, a.recipient_name as addr_recipient,
                                a.street as addr_street, a.exterior_number as addr_ext,
                                a.interior_number as addr_int, a.neighborhood as addr_neighborhood,
@@ -1752,6 +1752,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         name: resolvedName,
                         email: fallbackRow.email || '',
                         boxId: resolvedBoxId,
+                        isVerified: !!fallbackRow.user_is_verified,
                     },
                 },
             });
