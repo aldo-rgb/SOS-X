@@ -4,7 +4,9 @@ import {
   Chip, CircularProgress, TextField, Button, ToggleButtonGroup, ToggleButton,
   TablePagination, InputAdornment, Tooltip, IconButton, LinearProgress,
   Select, MenuItem, FormControl, InputLabel, Checkbox, Snackbar, Alert,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
+import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import SearchIcon from '@mui/icons-material/Search';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -292,6 +294,44 @@ export default function ServiceInventoryPage() {
 
   // Recargar cuando cambian los parámetros de carga
   useEffect(() => { load(); }, [load]);
+
+  // ── Acciones masivas sobre la selección ──
+  const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
+  const [bulkStatusVal, setBulkStatusVal] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const getSelectedRows = () => rows.filter((r: any) => selectedGuias.has(r.guia));
+
+  // Aplica un cambio (status o pago) a cada guía seleccionada vía sync-from-entregax,
+  // que enruta por servicio (marítimo → maritime_orders, resto → packages).
+  const applyBulkChange = async (payloadExtra: Record<string, any>, doneMsg: (ok: number, total: number) => string) => {
+    const sel = getSelectedRows();
+    if (sel.length === 0) return;
+    setBulkBusy(true);
+    let ok = 0;
+    for (const r of sel) {
+      try {
+        await api.post('/packages/sync-from-entregax', { guia: r.guia, service, hasPago: false, hasInstrucciones: false, ...payloadExtra });
+        ok++;
+      } catch { /* continuar con las demás */ }
+    }
+    setBulkBusy(false);
+    setBulkStatusOpen(false);
+    setSelectedGuias(new Set());
+    setSnackbar({ open: true, message: doneMsg(ok, sel.length), severity: ok === sel.length ? 'success' : 'error' });
+    await load();
+  };
+
+  const applyBulkStatus = () => {
+    if (!bulkStatusVal) return;
+    applyBulkChange({ newStatus: bulkStatusVal }, (ok, t) => `Status actualizado en ${ok}/${t} guías`);
+  };
+  const applyBulkPaid = () => {
+    const sel = getSelectedRows();
+    if (sel.length === 0) return;
+    if (!confirm(`¿Marcar ${sel.length} guía(s) como pagada(s)?`)) return;
+    applyBulkChange({ hasPago: true }, (ok, t) => `${ok}/${t} guía(s) marcadas como pagadas`);
+  };
 
   // Restaurar datos EntregaX desde caché cuando llegan nuevas filas
   useEffect(() => {
@@ -1071,6 +1111,27 @@ export default function ServiceInventoryPage() {
             );
           })()}
 
+          {selectedGuias.size > 0 && (
+            <>
+              <Button variant="contained" size="small"
+                onClick={() => { setBulkStatusVal(''); setBulkStatusOpen(true); }}
+                disabled={bulkBusy}
+                startIcon={bulkBusy ? <CircularProgress size={14} color="inherit" /> : <SyncIcon fontSize="small" />}
+                sx={{ bgcolor: '#5E35B1', '&:hover': { bgcolor: '#4527A0' }, whiteSpace: 'nowrap' }}
+              >
+                Cambiar status ({selectedGuias.size})
+              </Button>
+              <Button variant="contained" size="small"
+                onClick={applyBulkPaid}
+                disabled={bulkBusy}
+                startIcon={<MonetizationOnIcon fontSize="small" />}
+                sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' }, whiteSpace: 'nowrap' }}
+              >
+                Marcar pagado ({selectedGuias.size})
+              </Button>
+            </>
+          )}
+
           <Box sx={{ ml: 'auto', textAlign: 'right' }}>
             <Typography variant="caption" color="text.secondary" display="block">
               {loading ? 'Cargando…' : `${total.toLocaleString()} ${service === 'tdi_aereo' && !search ? 'envíos' : 'guías'}`}
@@ -1176,6 +1237,28 @@ export default function ServiceInventoryPage() {
           />
         )}
       </Paper>
+      {/* Cambiar status de la selección */}
+      <Dialog open={bulkStatusOpen} onClose={() => !bulkBusy && setBulkStatusOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Cambiar status de {selectedGuias.size} guía(s)</DialogTitle>
+        <DialogContent>
+          <FormControl fullWidth size="small" sx={{ mt: 1 }}>
+            <InputLabel>Nuevo status</InputLabel>
+            <Select label="Nuevo status" value={bulkStatusVal} onChange={(e) => setBulkStatusVal(String(e.target.value))}>
+              {Object.entries(activeStatusLabels).map(([key, meta]: [string, any]) => (
+                <MenuItem key={key} value={key}>{meta.label}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkStatusOpen(false)} disabled={bulkBusy}>Cancelar</Button>
+          <Button variant="contained" onClick={applyBulkStatus} disabled={bulkBusy || !bulkStatusVal}
+            sx={{ bgcolor: '#5E35B1', '&:hover': { bgcolor: '#4527A0' } }}>
+            {bulkBusy ? <CircularProgress size={18} color="inherit" /> : 'Aplicar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Snackbar open={snackbar.open} autoHideDuration={3500} onClose={() => setSnackbar(s => ({ ...s, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         <Alert severity={snackbar.severity} onClose={() => setSnackbar(s => ({ ...s, open: false }))} sx={{ width: '100%' }}>{snackbar.message}</Alert>
       </Snackbar>
