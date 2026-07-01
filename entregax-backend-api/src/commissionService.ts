@@ -105,7 +105,10 @@ export async function generateCommissionForShipment(
                p.service_type
         FROM packages p
         WHERE p.id = $1
-          AND (COALESCE(p.saldo_pendiente, 0) <= 0.01 OR p.payment_status = 'paid' OR p.client_paid = true)
+          -- Solo genera comisión si el paquete está REALMENTE pagado. saldo_pendiente=0
+          -- NO es señal de pago (una guía sin costear también trae saldo 0), por eso
+          -- se exige la bandera afirmativa de pago.
+          AND (p.payment_status = 'paid' OR p.client_paid = true)
       `, [shipmentId]);
 
       if (res.rows.length > 0) {
@@ -123,7 +126,7 @@ export async function generateCommissionForShipment(
                COALESCE(mo.monto_pagado, mo.assigned_cost_mxn, 0) as payment_amount
         FROM maritime_orders mo
         WHERE mo.id = $1
-          AND (COALESCE(mo.saldo_pendiente, 0) <= 0.01 OR mo.payment_status = 'paid')
+          AND (mo.payment_status = 'paid' OR COALESCE(mo.monto_pagado, 0) > 0)
       `, [shipmentId]);
 
       if (res.rows.length > 0) {
@@ -449,7 +452,7 @@ export async function backfillCommissions(limitRows = 500): Promise<{ generated:
       JOIN users u ON p.user_id = u.id
       WHERE COALESCE(u.advisor_id, u.referred_by_id) IS NOT NULL
         AND u.role = 'client'
-        AND (COALESCE(p.saldo_pendiente, 0) <= 0.01 OR p.payment_status = 'paid' OR p.client_paid = true)
+        AND (p.payment_status = 'paid' OR p.client_paid = true)
         AND COALESCE(NULLIF(p.assigned_cost_mxn, 0), p.pobox_service_cost, p.monto_pagado, 0) > 0
         AND NOT EXISTS (
           SELECT 1 FROM advisor_commissions ac 
@@ -473,7 +476,7 @@ export async function backfillCommissions(limitRows = 500): Promise<{ generated:
       JOIN users u ON mo.user_id = u.id
       WHERE COALESCE(u.advisor_id, u.referred_by_id) IS NOT NULL
         AND u.role = 'client'
-        AND (COALESCE(mo.saldo_pendiente, 0) <= 0.01 OR mo.payment_status = 'paid')
+        AND (mo.payment_status = 'paid' OR COALESCE(mo.monto_pagado, 0) > 0)
         AND COALESCE(mo.monto_pagado, mo.assigned_cost_mxn, 0) > 0
         AND NOT EXISTS (
           SELECT 1 FROM advisor_commissions ac 
