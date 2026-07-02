@@ -1743,6 +1743,19 @@
     "thisMonth": "本月",
     "subAdvisors": "子顾问"
   },
+  "maritimeConsolidations": {
+    "title": "海运拼柜",
+    "manageRoutes": "管理路线",
+    "refresh": "刷新",
+    "totalLogs": "LOG 总数",
+    "inContainer": "已装柜",
+    "unassigned": "未分配",
+    "withPackingList": "有装箱单",
+    "pendingPackingChina": "已在中国接收、待上传装箱单",
+    "tabAll": "所有 LOG",
+    "tabNoContainer": "未装柜",
+    "tabAssigned": "已分配"
+  },
   "labelingModule": {
     "title": "标签模块",
     "subtitle": "为系统中任何包裹重新打印标签（PO Box USA、中国空运、中国海运、DHL、国内）",

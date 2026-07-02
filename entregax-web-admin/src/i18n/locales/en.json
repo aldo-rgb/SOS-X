@@ -1883,6 +1883,19 @@
     "thisMonth": "This Month",
     "subAdvisors": "Sub-Advisors"
   },
+  "maritimeConsolidations": {
+    "title": "Maritime Consolidations",
+    "manageRoutes": "Manage Routes",
+    "refresh": "Refresh",
+    "totalLogs": "Total LOGs",
+    "inContainer": "In Container",
+    "unassigned": "Unassigned",
+    "withPackingList": "With Packing List",
+    "pendingPackingChina": "Received in China pending Packing List",
+    "tabAll": "All LOGs",
+    "tabNoContainer": "No Container",
+    "tabAssigned": "Assigned"
+  },
   "labelingModule": {
     "title": "Labeling module",
     "subtitle": "Reprint labels for any package in the system (PO Box USA, China Air, China Sea, DHL, National)",
