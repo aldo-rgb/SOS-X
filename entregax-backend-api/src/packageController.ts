@@ -2090,14 +2090,30 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         const { signS3UrlIfNeeded: signImg } = await import('./s3Service');
         resolvedImageUrl = await signImg(resolvedImageUrl);
 
+        // Para masters TDI Express (y en general multipieza aéreo) el tracking_provider
+        // vive en las CAJAS hijas, no en el master. Agregamos los distintos.
+        let aggregatedOriginGuides: string | null = null;
+        if (pkg.is_master && (!pkg.tracking_provider || pkg.tracking_provider === '')) {
+            const distinctOrigin = [
+                ...new Set(
+                    children
+                        .map((c: any) => (c.tracking_provider || '').toString().trim())
+                        .filter((v: string) => v.length > 0)
+                ),
+            ];
+            if (distinctOrigin.length > 0) {
+                aggregatedOriginGuides = distinctOrigin.join(', ');
+            }
+        }
+
         res.json({
             success: true,
             shipment: {
-                master: { id: pkg.id, tracking: pkg.tracking_internal, trackingProvider: pkg.tracking_provider,
+                master: { id: pkg.id, tracking: pkg.tracking_internal, trackingProvider: pkg.tracking_provider || aggregatedOriginGuides,
                     serviceType: pkg.service_type || null,
                     airTracking: airFno,
                     originCarrier: pkg.origin_carrier || null,
-                    trackingCourier: pkg.tracking_provider, // Para PO Box, tracking del courier está en tracking_provider
+                    trackingCourier: pkg.tracking_provider || aggregatedOriginGuides, // TDI Express: agregado de cajas hijas
                     // 🧾 Orden de pago registrada que contiene esta guía (RO-/PP-).
                     paymentOrderRef,
                     // Método de pago elegido por el cliente en la orden
