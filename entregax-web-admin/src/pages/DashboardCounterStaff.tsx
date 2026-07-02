@@ -182,7 +182,8 @@ export default function DashboardCounterStaff() {
 
   const quickActions = [
     { icon: <PrintIcon sx={{ fontSize: 48 }} />, title: 'Etiquetado', color: '#F05A28', action: 'relabeling' },
-    { icon: <ScannerIcon sx={{ fontSize: 48 }} />, title: 'Escáner Multi-Sucursal', color: '#2196F3', action: 'scanner_multi' },
+    // Escáner Multi-Sucursal: oculto para Bodega China (no aplica a su operación).
+    ...(!isBodegaChina ? [{ icon: <ScannerIcon sx={{ fontSize: 48 }} />, title: 'Escáner Multi-Sucursal', color: '#2196F3', action: 'scanner_multi' }] : []),
     // Accesos directos según permisos del usuario
     ...(canTdiExpress ? [{ icon: <ShippingIcon sx={{ fontSize: 48 }} />, title: 'DHL Express', color: '#FFCC00', iconColor: '#D40511', action: 'tdi_express' }] : []),
     ...(canMaritimeConsolidations ? [{ icon: <BoatIcon sx={{ fontSize: 48 }} />, title: 'Consolidaciones Marítimas', color: '#0277BD', action: 'maritime_consolidations' }] : []),
