@@ -3735,7 +3735,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           box_number, status::text as status,
           pobox_venta_usd, pobox_cost_usd, pobox_service_cost,
           pobox_tarifa_nivel, registered_exchange_rate,
-          national_shipping_cost, gex_total_cost,
+          national_shipping_cost, gex_total_cost, air_sale_price,
           assigned_cost_mxn, monto_pagado, saldo_pendiente
         FROM packages
         WHERE master_id = ANY($1)
@@ -3777,6 +3777,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
             registered_exchange_rate: child.registered_exchange_rate != null ? parseFloat(child.registered_exchange_rate) : null,
             national_shipping_cost: child.national_shipping_cost != null ? parseFloat(child.national_shipping_cost) : null,
             gex_total_cost: child.gex_total_cost != null ? parseFloat(child.gex_total_cost) : null,
+            air_sale_price: child.air_sale_price != null ? parseFloat(child.air_sale_price) : null,
             assigned_cost_mxn: child.assigned_cost_mxn != null ? parseFloat(child.assigned_cost_mxn) : null,
             monto_pagado: child.monto_pagado != null ? parseFloat(child.monto_pagado) : null,
             saldo_pendiente: child.saldo_pendiente != null ? parseFloat(child.saldo_pendiente) : null,
@@ -4128,7 +4129,7 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
           box_number, status::text as status,
           pobox_venta_usd, pobox_cost_usd, pobox_service_cost,
           pobox_tarifa_nivel, registered_exchange_rate,
-          national_shipping_cost, gex_total_cost,
+          national_shipping_cost, gex_total_cost, air_sale_price,
           assigned_cost_mxn, monto_pagado, saldo_pendiente
         FROM packages
         WHERE master_id = ANY($1)
@@ -4168,6 +4169,7 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
             registered_exchange_rate: child.registered_exchange_rate != null ? parseFloat(child.registered_exchange_rate) : null,
             national_shipping_cost: child.national_shipping_cost != null ? parseFloat(child.national_shipping_cost) : null,
             gex_total_cost: child.gex_total_cost != null ? parseFloat(child.gex_total_cost) : null,
+            air_sale_price: child.air_sale_price != null ? parseFloat(child.air_sale_price) : null,
             assigned_cost_mxn: child.assigned_cost_mxn != null ? parseFloat(child.assigned_cost_mxn) : null,
             monto_pagado: child.monto_pagado != null ? parseFloat(child.monto_pagado) : null,
             saldo_pendiente: child.saldo_pendiente != null ? parseFloat(child.saldo_pendiente) : null,

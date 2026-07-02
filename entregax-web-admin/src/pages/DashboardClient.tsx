@@ -249,6 +249,7 @@ interface IncludedGuide {
   assigned_cost_mxn?: number;
   national_shipping_cost?: number;
   gex_total_cost?: number;
+  air_sale_price?: number;
   extra_charges_total?: number;
   extra_charges?: Array<{ tipo: string; monto: number; concepto?: string; moneda?: string; monto_mxn?: number; tc?: number | null }>;
   pobox_venta_usd?: number;
@@ -9508,7 +9509,14 @@ export default function DashboardClient() {
                     )}
 
                     {/* Botón para desglosar cajas */}
-                    {((pkg.included_guides && pkg.included_guides.length > 0) || (pkg.total_boxes && pkg.total_boxes > 1)) && (
+                    {((pkg.included_guides && pkg.included_guides.length > 0) || (pkg.total_boxes && pkg.total_boxes > 1)) && (() => {
+                      // TDX: desglose sin CBM, con monto USD a cobrar y medidas compactas.
+                      const isTdxPkg = ['servicio', 'service_type', 'air_source']
+                        .some(k => String((pkg as any)[k] || '').toLowerCase() === 'tdi_express');
+                      const compactDims = (d?: string | null) =>
+                        String(d || '').replace(/\.00/g, '').replace(/—/g, '').replace(/\s+/g, ' ').trim() || '—';
+                      const gridCols = '40px 1fr 1.3fr 1fr';
+                      return (
                       <Box sx={{ mt: 1 }}>
                         <Button
                           size="small"
@@ -9521,20 +9529,20 @@ export default function DashboardClient() {
                         </Button>
                         <Collapse in={boxBreakdownOpen[pkg.id]} timeout="auto">
                           <Box sx={{ mt: 1, bgcolor: 'white', borderRadius: 1, border: '1px solid #e0e0e0', overflow: 'hidden' }}>
-                            <Box sx={{ display: 'grid', gridTemplateColumns: '50px 1fr 1fr 1fr', bgcolor: '#f5f5f5', px: 1, py: 0.5 }}>
+                            <Box sx={{ display: 'grid', gridTemplateColumns: gridCols, bgcolor: '#f5f5f5', px: 1, py: 0.5 }}>
                               <Typography variant="caption" fontWeight="bold">#</Typography>
                               <Typography variant="caption" fontWeight="bold">Peso</Typography>
                               <Typography variant="caption" fontWeight="bold">Medidas</Typography>
-                              <Typography variant="caption" fontWeight="bold">CBM</Typography>
+                              <Typography variant="caption" fontWeight="bold" sx={{ textAlign: 'right' }}>{isTdxPkg ? 'Monto USD' : 'CBM'}</Typography>
                             </Box>
                             {pkg.included_guides && pkg.included_guides.length > 0 ? (
                               pkg.included_guides.map((guide, idx) => (
-                                <Box 
-                                  key={guide.id} 
-                                  sx={{ 
-                                    display: 'grid', 
-                                    gridTemplateColumns: '50px 1fr 1fr 1fr', 
-                                    px: 1, 
+                                <Box
+                                  key={guide.id}
+                                  sx={{
+                                    display: 'grid',
+                                    gridTemplateColumns: gridCols,
+                                    px: 1,
                                     py: 0.5,
                                     borderTop: '1px solid #f0f0f0',
                                     bgcolor: idx % 2 === 0 ? 'white' : '#fafafa',
@@ -9546,11 +9554,13 @@ export default function DashboardClient() {
                                   <Typography variant="caption">
                                     {guide.weight ? `${Number(guide.weight).toFixed(2)} kg` : '—'}
                                   </Typography>
-                                  <Typography variant="caption">
-                                    {guide.dimensions || '—'}
+                                  <Typography variant="caption" noWrap sx={{ whiteSpace: 'nowrap' }}>
+                                    {isTdxPkg ? compactDims(guide.dimensions) : (guide.dimensions || '—')}
                                   </Typography>
-                                  <Typography variant="caption">
-                                    {guide.cbm ? `${Number(guide.cbm).toFixed(4)}` : '—'}
+                                  <Typography variant="caption" sx={{ textAlign: 'right', fontWeight: isTdxPkg ? 600 : 400, color: isTdxPkg ? ORANGE : 'inherit' }}>
+                                    {isTdxPkg
+                                      ? (guide.air_sale_price != null ? `$${Number(guide.air_sale_price).toFixed(2)}` : '—')
+                                      : (guide.cbm ? `${Number(guide.cbm).toFixed(4)}` : '—')}
                                   </Typography>
                                 </Box>
                               ))
@@ -9559,13 +9569,14 @@ export default function DashboardClient() {
                               Array.from({ length: pkg.total_boxes || 0 }, (_, idx) => {
                                 const avgWeight = pkg.weight ? Number(pkg.weight) / (pkg.total_boxes || 1) : null;
                                 const avgCbm = pkg.cbm ? Number(pkg.cbm) / (pkg.total_boxes || 1) : null;
+                                const avgUsd = isTdxPkg && (pkg as any).air_sale_price ? Number((pkg as any).air_sale_price) / (pkg.total_boxes || 1) : null;
                                 return (
-                                  <Box 
-                                    key={idx} 
-                                    sx={{ 
-                                      display: 'grid', 
-                                      gridTemplateColumns: '50px 1fr 1fr 1fr', 
-                                      px: 1, 
+                                  <Box
+                                    key={idx}
+                                    sx={{
+                                      display: 'grid',
+                                      gridTemplateColumns: gridCols,
+                                      px: 1,
                                       py: 0.5,
                                       borderTop: '1px solid #f0f0f0',
                                       bgcolor: idx % 2 === 0 ? 'white' : '#fafafa',
@@ -9577,11 +9588,13 @@ export default function DashboardClient() {
                                     <Typography variant="caption">
                                       {avgWeight ? `~${avgWeight.toFixed(2)} kg` : '—'}
                                     </Typography>
-                                    <Typography variant="caption">
-                                      {pkg.dimensions || '—'}
+                                    <Typography variant="caption" noWrap sx={{ whiteSpace: 'nowrap' }}>
+                                      {isTdxPkg ? compactDims(pkg.dimensions) : (pkg.dimensions || '—')}
                                     </Typography>
-                                    <Typography variant="caption">
-                                      {avgCbm ? `~${avgCbm.toFixed(4)}` : '—'}
+                                    <Typography variant="caption" sx={{ textAlign: 'right', fontWeight: isTdxPkg ? 600 : 400, color: isTdxPkg ? ORANGE : 'inherit' }}>
+                                      {isTdxPkg
+                                        ? (avgUsd != null ? `~$${avgUsd.toFixed(2)}` : '—')
+                                        : (avgCbm ? `~${avgCbm.toFixed(4)}` : '—')}
                                     </Typography>
                                   </Box>
                                 );
@@ -9595,7 +9608,8 @@ export default function DashboardClient() {
                           )}
                         </Collapse>
                       </Box>
-                    )}
+                      );
+                    })()}
                   </Box>
                 ))}
 
