@@ -3849,7 +3849,19 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
     // 3b. Enriquecer paquetes (tabla packages) con cargos extra registrados en
     //     guias_ajustes_financieros (cargo_extra suma, descuento resta). Se
     //     incluyen los cargos del master + sus guías hijas.
+    //     Los cargos en USD se convierten a MXN con el TC de TDI (único servicio
+    //     que registra USD por ahora); MXN se dejan tal cual.
     try {
+      // TC USD → MXN (fallback 1 si no hay config)
+      let tcUsdToMxn = 1;
+      try {
+        const tcRes = await pool.query(`
+          SELECT COALESCE(tipo_cambio_manual, ultimo_tc_api, 17.77) + COALESCE(sobreprecio, 0) AS tc
+          FROM exchange_rate_config WHERE servicio = 'tdi' AND estado = TRUE LIMIT 1
+        `);
+        if (tcRes.rows.length > 0) tcUsdToMxn = Number(tcRes.rows[0].tc) || 1;
+      } catch { /* fallback 1 */ }
+
       const idsForCharges = packagesWithChildren.flatMap((p: any) =>
         [p.id, ...((p.included_guides || []).map((c: any) => c.id))]
       ).filter((x: any) => x != null);
@@ -3871,12 +3883,22 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           for (const id of ids) {
             for (const c of (chargesByGuia[id] || [])) {
               const m = Number(c.monto) || 0;
-              total += c.tipo === 'descuento' ? -m : m;
-              list.push({ tipo: c.tipo, monto: m, concepto: c.concepto, moneda: c.moneda || 'MXN' });
+              const monedaUp = String(c.moneda || 'MXN').toUpperCase();
+              // Convertir a MXN sólo si la moneda es USD.
+              const mMxn = monedaUp === 'USD' ? m * tcUsdToMxn : m;
+              total += c.tipo === 'descuento' ? -mMxn : mMxn;
+              list.push({
+                tipo: c.tipo,
+                monto: m,
+                moneda: monedaUp,
+                monto_mxn: mMxn,
+                tc: monedaUp === 'USD' ? tcUsdToMxn : null,
+                concepto: c.concepto,
+              });
             }
           }
-          p.extra_charges_total = total;
-          p.extra_charges = list;
+          p.extra_charges_total = total;      // ya en MXN
+          p.extra_charges = list;             // incluye monto original y convertido
         }
       }
     } catch (e) {

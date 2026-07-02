@@ -4054,7 +4054,17 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
 
         // Enriquecer con cargos extra (guias_ajustes_financieros) — se matchea por
         // tracking para evitar colisiones de id entre tablas. cargo_extra suma, descuento resta.
+        // USD → MXN con TC de TDI (único servicio que registra USD por ahora).
         try {
+            let tcUsdToMxn = 1;
+            try {
+                const tcR = await pool.query(`
+                    SELECT COALESCE(tipo_cambio_manual, ultimo_tc_api, 17.77) + COALESCE(sobreprecio, 0) AS tc
+                    FROM exchange_rate_config WHERE servicio = 'tdi' AND estado = TRUE LIMIT 1
+                `);
+                if (tcR.rows.length > 0) tcUsdToMxn = Number(tcR.rows[0].tc) || 1;
+            } catch { /* fallback 1 */ }
+
             const trackingOf = (o: any): string[] => {
                 const arr: string[] = [];
                 if (o?.tracking_internal) arr.push(String(o.tracking_internal));
@@ -4069,7 +4079,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             }
             if (allTrackings.size > 0) {
                 const chRes = await pool.query(
-                    `SELECT guia_tracking, tipo, monto, concepto FROM guias_ajustes_financieros
+                    `SELECT guia_tracking, tipo, monto, moneda, concepto FROM guias_ajustes_financieros
                      WHERE activo = true AND guia_tracking = ANY($1::text[])`,
                     [Array.from(allTrackings)]
                 );
@@ -4077,7 +4087,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 for (const r of chRes.rows) {
                     const key = String(r.guia_tracking);
                     if (!byTracking[key]) byTracking[key] = { total: 0, descs: [] };
-                    byTracking[key].total += (r.tipo === 'descuento' ? -1 : 1) * (Number(r.monto) || 0);
+                    const monedaUp = String(r.moneda || 'MXN').toUpperCase();
+                    const m = Number(r.monto) || 0;
+                    const mMxn = monedaUp === 'USD' ? m * tcUsdToMxn : m;
+                    byTracking[key].total += (r.tipo === 'descuento' ? -1 : 1) * mMxn;
                     if (r.concepto) byTracking[key].descs.push(r.concepto);
                 }
                 for (const p of allPackages as any[]) {
