@@ -1928,6 +1928,25 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
                WHERE payment_reference = $2 AND user_id = $3`,
               [requiresInvoiceFlag, String(intent.payment_reference), parsedUserId]
             );
+          } else {
+            // 🧾 Pago DIRECTO por PayPal (el cliente pagó una o más guías sin
+            // generar orden antes). No existe registro en pobox_payments, así que
+            // NO aparecería en "Órdenes de Pago" ni se podría facturar. Creamos la
+            // orden con la referencia PayPal (PP-...) para que el asesor/cliente
+            // pueda solicitar su factura. Idempotente por el índice UNIQUE en
+            // payment_reference.
+            await pool.query(
+              `INSERT INTO pobox_payments
+                 (user_id, package_ids, amount, currency, payment_method, payment_reference,
+                  status, requiere_factura, paid_at, created_at)
+               VALUES ($1, $2::jsonb, $3, $4, 'paypal', $5, 'completed', $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+               ON CONFLICT (payment_reference) DO UPDATE SET
+                 status = 'completed',
+                 payment_method = 'paypal',
+                 paid_at = CURRENT_TIMESTAMP,
+                 requiere_factura = EXCLUDED.requiere_factura`,
+              [parsedUserId, JSON.stringify(pkgIds), intentAmount, intentCurrency, paymentRef, requiresInvoiceFlag]
+            );
           }
         } catch (ordErr: any) {
           console.error('⚠️ No se pudo actualizar pobox_payments (PayPal callback):', ordErr.message);
@@ -1974,7 +1993,8 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
                      WHERE id = $2 AND user_id = $3`,
                     [invoiceResult.uuid, Number(intent.payment_order_id), parsedUserId]
                   );
-                } else if (intent.payment_reference) {
+                } else {
+                  // Pago directo: la orden se creó con payment_reference = paymentRef.
                   await pool.query(
                     `UPDATE pobox_payments
                      SET facturada = TRUE,
@@ -1982,7 +2002,7 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
                          factura_created_at = CURRENT_TIMESTAMP,
                          factura_error = NULL
                      WHERE payment_reference = $2 AND user_id = $3`,
-                    [invoiceResult.uuid, String(intent.payment_reference), parsedUserId]
+                    [invoiceResult.uuid, String(intent.payment_reference || paymentRef), parsedUserId]
                   );
                 }
               } else {
@@ -1992,10 +2012,10 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
                     `UPDATE pobox_payments SET factura_error = $1 WHERE id = $2 AND user_id = $3`,
                     [invoiceResult.error || 'unknown', Number(intent.payment_order_id), parsedUserId]
                   );
-                } else if (intent.payment_reference) {
+                } else {
                   await pool.query(
                     `UPDATE pobox_payments SET factura_error = $1 WHERE payment_reference = $2 AND user_id = $3`,
-                    [invoiceResult.error || 'unknown', String(intent.payment_reference), parsedUserId]
+                    [invoiceResult.error || 'unknown', String(intent.payment_reference || paymentRef), parsedUserId]
                   );
                 }
               }
