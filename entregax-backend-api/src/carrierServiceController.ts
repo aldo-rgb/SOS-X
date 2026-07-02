@@ -11,7 +11,7 @@ import path from 'path';
 import fs from 'fs';
 
 // Tipos de servicio válidos
-const VALID_SERVICE_TYPES = ['china_air', 'china_sea', 'usa_pobox', 'dhl', 'mx_national'];
+const VALID_SERVICE_TYPES = ['china_air', 'china_sea', 'usa_pobox', 'dhl', 'mx_national', 'tdi_express'];
 
 // =========================================
 // MULTER CONFIG PARA ICONOS DE PAQUETERÍA
