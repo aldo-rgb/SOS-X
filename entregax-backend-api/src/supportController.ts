@@ -912,7 +912,7 @@ export const getSupportStats = async (req: Request, res: Response): Promise<any>
           COUNT(*) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours') as today_resolved,
           COUNT(*) FILTER (WHERE creator_type = 'employee' AND status != 'resolved') as employee_open,
           COUNT(*) FILTER (WHERE COALESCE(creator_type, 'client') != 'employee' AND status != 'resolved') as client_open,
-          COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/60) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours'))::int, 0) as avg_resolution_time_min
+          COALESCE(ROUND(AVG(business_minutes(created_at, resolved_at)) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours'))::int, 0) as avg_resolution_time_min
         FROM support_tickets
       `),
       pool.query(`
@@ -1168,6 +1168,23 @@ export const ensureDepartmentsSchema = async () => {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    // Función de tiempo hábil: minutos entre dos timestamps EXCLUYENDO fines de
+    // semana (sábado=6, domingo=0). Se usa para el "Tiempo Promedio" de resolución
+    // para no contar el tiempo que corre en fin de semana.
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION business_minutes(ts_start timestamp, ts_end timestamp)
+      RETURNS numeric AS $$
+        SELECT GREATEST(0,
+          EXTRACT(EPOCH FROM (ts_end - ts_start))/60
+          - COALESCE((
+              SELECT SUM(EXTRACT(EPOCH FROM (LEAST(ts_end, d + interval '1 day') - GREATEST(ts_start, d)))/60)
+              FROM generate_series(date_trunc('day', ts_start), date_trunc('day', ts_end), interval '1 day') AS d
+              WHERE EXTRACT(DOW FROM d) IN (0, 6)
+                AND LEAST(ts_end, d + interval '1 day') > GREATEST(ts_start, d)
+            ), 0)
+        );
+      $$ LANGUAGE sql IMMUTABLE;
+    `).catch((e: any) => console.warn('No se pudo crear business_minutes():', e.message));
     // Agregar columnas a support_tickets PRIMERO (necesarias para las queries siguientes)
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS department_id INT REFERENCES support_departments(id)`);
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS assigned_to INT REFERENCES users(id)`);
