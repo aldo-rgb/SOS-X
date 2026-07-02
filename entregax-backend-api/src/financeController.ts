@@ -230,10 +230,20 @@ export const handleOpenpayWebhook = async (req: Request, res: Response): Promise
 
           // Marcar facturas como pagadas
           await pool.query(`
-            UPDATE credit_invoices 
+            UPDATE credit_invoices
             SET status = 'paid', paid_at = NOW(), amount_paid = amount
             WHERE user_id = $1 AND status != 'paid'
           `, [userId]);
+
+          // 💳 Si la deuda quedó en 0, marcar las órdenes a crédito como liquidadas
+          // para que pasen de "Órdenes de Pago" a "Historial".
+          if (creditAfterPayment <= 0) {
+            await pool.query(
+              `UPDATE pobox_payments SET credit_settled = true, credit_settled_at = NOW()
+               WHERE user_id = $1 AND payment_method = 'credit' AND COALESCE(credit_settled, false) = false`,
+              [userId]
+            );
+          }
 
           // 💧 Liberar comisiones "en crédito" cubiertas por este abono (FIFO).
           await releaseCreditHeldCommissions(pool, userId, paymentAmount);
@@ -454,10 +464,20 @@ export const payCredit = async (req: AuthRequest, res: Response): Promise<any> =
 
     // Registrar transacción
     await client.query(`
-      INSERT INTO financial_transactions 
+      INSERT INTO financial_transactions
       (user_id, type, amount, balance_after, description, reference_type)
       VALUES ($1, 'credit_settlement', $2, $3, 'Pago de línea de crédito', 'credit_payment')
     `, [userId, -amount, newBalance]);
+
+    // 💳 Si la deuda quedó en 0, marcar las órdenes a crédito como liquidadas
+    // (pasan de "Órdenes de Pago" a "Historial").
+    if (newUsedCredit <= 0) {
+      await client.query(
+        `UPDATE pobox_payments SET credit_settled = true, credit_settled_at = NOW()
+         WHERE user_id = $1 AND payment_method = 'credit' AND COALESCE(credit_settled, false) = false`,
+        [userId]
+      );
+    }
 
     // Si se especificó una factura, marcarla como pagada
     if (invoice_id) {

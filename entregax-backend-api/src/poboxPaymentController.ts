@@ -1741,6 +1741,7 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                 p.credit_applied,
                 p.credit_service,
                 p.credit_applied_at,
+                COALESCE(p.credit_settled, false) AS credit_settled,
                 p.wallet_applied,
                 p.wallet_applied_at
             FROM pobox_payments p

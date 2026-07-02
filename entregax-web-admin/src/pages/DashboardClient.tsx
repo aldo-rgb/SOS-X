@@ -4762,8 +4762,12 @@ export default function DashboardClient() {
             <TableBody>
               {paymentOrders.filter((o: any) => {
                 const completedStatuses = ['completed', 'paid'];
-                if (paymentOrderTab === 'history') return completedStatuses.includes(o.status);
-                return !completedStatuses.includes(o.status);
+                const isCompleted = completedStatuses.includes(o.status);
+                // 💳 Crédito NO liquidado permanece en "Órdenes de Pago" (activas)
+                //    hasta que se pague; entonces pasa a Historial.
+                const isUnsettledCredit = String(o.payment_method || '').toLowerCase() === 'credit' && !o.credit_settled;
+                if (paymentOrderTab === 'history') return isCompleted && !isUnsettledCredit;
+                return !isCompleted || isUnsettledCredit;
               }).map((order: any) => {
                 const statusMap: Record<string, { color: string; label: string }> = {
                   pending_payment: { color: '#E65100', label: '⏳ Pendiente' },
@@ -4816,7 +4820,7 @@ export default function DashboardClient() {
                             onClick={() => downloadPaymentOrderPdf(order)}
                           ><DownloadIcon fontSize="small" /></IconButton>
                         </Tooltip>
-                        {paymentOrderTab === 'active' && (
+                        {paymentOrderTab === 'active' && !isCreditPay && (
                           <Tooltip title="Pagar" arrow>
                             <IconButton
                               size="small"
@@ -4835,7 +4839,7 @@ export default function DashboardClient() {
                             ><MoneyIcon fontSize="small" /></IconButton>
                           </Tooltip>
                         )}
-                        {paymentOrderTab === 'active' && (
+                        {paymentOrderTab === 'active' && !isCreditPay && (
                           <Tooltip title="Cancelar Orden" arrow>
                             <IconButton
                               size="small"
@@ -14739,8 +14743,12 @@ export default function DashboardClient() {
                   <TableBody>
                     {paymentOrders.filter((o: any) => {
                       const completedStatuses = ['completed', 'paid'];
-                      if (paymentOrderTab === 'history') return completedStatuses.includes(o.status);
-                      return !completedStatuses.includes(o.status);
+                      const isCompleted = completedStatuses.includes(o.status);
+                      // 💳 Crédito NO liquidado permanece en "Órdenes de Pago" (activas)
+                      //    hasta que se pague; entonces pasa a Historial.
+                      const isUnsettledCredit = String(o.payment_method || '').toLowerCase() === 'credit' && !o.credit_settled;
+                      if (paymentOrderTab === 'history') return isCompleted && !isUnsettledCredit;
+                      return !isCompleted || isUnsettledCredit;
                     }).map((order: any) => {
                       const statusMap: Record<string, { color: string; label: string }> = {
                         pending_payment: { color: '#E65100', label: '⏳ Pendiente' },
@@ -14787,7 +14795,7 @@ export default function DashboardClient() {
                           </TableCell>
                           <TableCell align="center" onClick={(e: any) => e.stopPropagation()}>
                               <Box sx={{ display: 'flex', gap: 0.25, justifyContent: 'center' }}>
-                                {paymentOrderTab === 'active' && (
+                                {paymentOrderTab === 'active' && !isCreditPay && (
                                   <Tooltip title="Pagar" arrow>
                                     <IconButton
                                       size="small"
@@ -14813,7 +14821,7 @@ export default function DashboardClient() {
                                     onClick={() => downloadPaymentOrderPdf(order)}
                                   ><DownloadIcon fontSize="small" /></IconButton>
                                 </Tooltip>
-                                {paymentOrderTab === 'active' && (
+                                {paymentOrderTab === 'active' && !isCreditPay && (
                                   <Tooltip title="Cancelar Orden" arrow>
                                     <IconButton
                                       size="small"
