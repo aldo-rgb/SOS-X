@@ -857,6 +857,17 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
 
     // Cargos extra (guias_ajustes_financieros): por guia_id (master/guía) y por
     // guia_tracking de las hijas (repack/consolidación). cargo_extra suma, descuento resta.
+    // Los cargos en USD se convierten a MXN con el TC del servicio TDI
+    // (único servicio que registra cargos en USD por ahora).
+    let tcUsdToMxn = 1;
+    try {
+      const tcRes = await pool.query(`
+        SELECT COALESCE(tipo_cambio_manual, ultimo_tc_api, 17.77) + COALESCE(sobreprecio, 0) AS tc
+        FROM exchange_rate_config WHERE servicio = 'tdi' AND estado = TRUE LIMIT 1
+      `);
+      if (tcRes.rows.length > 0) tcUsdToMxn = Number(tcRes.rows[0].tc) || 1;
+    } catch { /* fallback 1 */ }
+
     const extraChargesByShipment: Record<string, number> = {};
     const extraChargesDescByShipment: Record<string, string> = {};
     try {
@@ -867,7 +878,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
       }
       if (shipIds.length > 0 || childTrks.length > 0) {
         const chRes = await pool.query(
-          `SELECT guia_id, guia_tracking, tipo, monto, concepto FROM guias_ajustes_financieros
+          `SELECT guia_id, guia_tracking, tipo, monto, moneda, concepto FROM guias_ajustes_financieros
            WHERE activo = true AND (guia_id = ANY($1::int[]) OR guia_tracking = ANY($2::text[]))`,
           [shipIds, childTrks]
         );
@@ -876,7 +887,12 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         const descById: Record<number, string[]> = {};
         const descByTracking: Record<string, string[]> = {};
         for (const r of chRes.rows) {
-          const m = (r.tipo === 'descuento' ? -1 : 1) * (Number(r.monto) || 0);
+          // Convertir USD a MXN usando el TC de TDI. MXN o null se queda igual.
+          const monedaUp = String(r.moneda || 'MXN').toUpperCase();
+          const montoMxn = monedaUp === 'USD'
+            ? (Number(r.monto) || 0) * tcUsdToMxn
+            : (Number(r.monto) || 0);
+          const m = (r.tipo === 'descuento' ? -1 : 1) * montoMxn;
           if (r.guia_id != null) {
             byId[r.guia_id] = (byId[r.guia_id] || 0) + m;
             if (r.concepto) (descById[r.guia_id] = descById[r.guia_id] || []).push(r.concepto);
@@ -2272,18 +2288,31 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
         row.children = [];
       }
 
-      // Cargos extra (guias_ajustes_financieros) del master + hijas
+      // Cargos extra (guias_ajustes_financieros) del master + hijas.
+      // USD → MXN usando el TC del servicio TDI (único que registra USD por ahora).
       try {
         const allIds = [id, ...childIds];
+        let tcUsd = 1;
+        try {
+          const tcR = await pool.query(`
+            SELECT COALESCE(tipo_cambio_manual, ultimo_tc_api, 17.77) + COALESCE(sobreprecio, 0) AS tc
+            FROM exchange_rate_config WHERE servicio = 'tdi' AND estado = TRUE LIMIT 1
+          `);
+          if (tcR.rows.length > 0) tcUsd = Number(tcR.rows[0].tc) || 1;
+        } catch { /* fallback 1 */ }
         const ch = await pool.query(
-          `SELECT tipo, monto, concepto FROM guias_ajustes_financieros
+          `SELECT tipo, monto, moneda, concepto FROM guias_ajustes_financieros
            WHERE activo = true AND guia_id = ANY($1::int[])`,
           [allIds]
         );
         let extraTotal = 0;
         const descs: string[] = [];
         for (const r2 of ch.rows) {
-          extraTotal += (r2.tipo === 'descuento' ? -1 : 1) * (Number(r2.monto) || 0);
+          const monedaUp = String(r2.moneda || 'MXN').toUpperCase();
+          const montoMxn = monedaUp === 'USD'
+            ? (Number(r2.monto) || 0) * tcUsd
+            : (Number(r2.monto) || 0);
+          extraTotal += (r2.tipo === 'descuento' ? -1 : 1) * montoMxn;
           if (r2.concepto) descs.push(r2.concepto);
         }
         row.extra_charges_total = extraTotal;
