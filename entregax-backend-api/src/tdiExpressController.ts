@@ -162,7 +162,19 @@ export const listTdiShipments = async (req: Request, res: Response): Promise<any
             FROM packages c WHERE c.master_id = m.id) AS dim_variants,
          (SELECT c.pkg_length || '×' || c.pkg_width || '×' || c.pkg_height
             FROM packages c WHERE c.master_id = m.id AND c.pkg_length IS NOT NULL
-            ORDER BY c.box_number LIMIT 1) AS first_dims
+            ORDER BY c.box_number LIMIT 1) AS first_dims,
+         -- Guía origen: string_agg de tracking_provider distintos entre las cajas hijas.
+         (SELECT string_agg(DISTINCT c.tracking_provider, ', ')
+            FROM packages c WHERE c.master_id = m.id AND c.tracking_provider IS NOT NULL AND c.tracking_provider <> '') AS origin_guides,
+         -- Cargo extra USD: suma de cargos activos ligados al master o a sus cajas hijas.
+         (SELECT COALESCE(SUM(gaf.monto), 0)::numeric
+            FROM guias_ajustes_financieros gaf
+           WHERE gaf.servicio = 'tdi_express'
+             AND gaf.tipo = 'cargo_extra'
+             AND COALESCE(gaf.moneda, 'USD') = 'USD'
+             AND COALESCE(gaf.activo, TRUE) = TRUE
+             AND (gaf.guia_id = m.id
+               OR gaf.guia_id IN (SELECT id FROM packages WHERE master_id = m.id))) AS extra_charges_usd
        FROM packages m
        LEFT JOIN users u ON u.id = m.user_id
        WHERE ${where.join(' AND ')}

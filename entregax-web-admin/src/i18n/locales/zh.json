@@ -1806,6 +1806,7 @@
     },
     "table": {
       "tracking": "单号",
+      "originGuide": "原单号",
       "client": "客户",
       "boxes": "箱数",
       "weight": "重量 (公斤)",
@@ -1815,6 +1816,7 @@
       "actions": "操作",
       "dimensions": "尺寸",
       "productType": "类型",
+      "extraCharge": "额外费用",
       "mixed": "多种"
     },
     "wizard": {

@@ -1946,6 +1946,7 @@
     },
     "table": {
       "tracking": "Guide",
+      "originGuide": "Origin guide",
       "client": "Client",
       "boxes": "Boxes",
       "weight": "Weight (kg)",
@@ -1955,6 +1956,7 @@
       "actions": "Actions",
       "dimensions": "Dimensions",
       "productType": "Type",
+      "extraCharge": "Extra charge",
       "mixed": "Mixed"
     },
     "wizard": {

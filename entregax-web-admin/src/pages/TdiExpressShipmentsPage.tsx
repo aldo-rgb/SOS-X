@@ -54,6 +54,8 @@ interface Shipment {
   child_tariff_types?: string | null;
   dim_variants?: string | number | null;
   first_dims?: string | null;
+  origin_guides?: string | null;
+  extra_charges_usd?: string | number | null;
 }
 interface ProductType { key: string; tariffType: string; pricePerKg: number; }
 interface BoxRow {
@@ -489,27 +491,31 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: BLACK }}>
-              {['tracking', 'client', 'boxes', 'weight', 'dimensions', 'productType', 'status', 'received'].map((c) => (
+              {['tracking', 'originGuide', 'client', 'boxes', 'weight', 'dimensions', 'productType', 'extraCharge', 'status', 'received'].map((c) => (
                 <TableCell key={c} sx={{ color: '#FFF', fontWeight: 700 }}>{t(`tdiExpress.table.${c}`)}</TableCell>
               ))}
               <TableCell align="center" sx={{ color: '#FFF', fontWeight: 700 }}>{t('tdiExpress.table.actions')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={9} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={11} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
             {!loading && shipments.length === 0 && (
-              <TableRow><TableCell colSpan={9} align="center" sx={{ py: 4, color: '#999' }}>
+              <TableRow><TableCell colSpan={11} align="center" sx={{ py: 4, color: '#999' }}>
                 {t('tdiExpress.noShipments')}
               </TableCell></TableRow>
             )}
             {shipments.map((s) => (
               <TableRow key={s.id} hover>
                 <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE }}>{s.tracking_internal}</TableCell>
+                <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, color: '#555', maxWidth: 160, wordBreak: 'break-all' }}>{s.origin_guides || '—'}</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>{s.box_id || '—'}</TableCell>
                 <TableCell><Chip size="small" icon={<InventoryIcon />} label={`${s.captured_boxes}/${s.total_boxes ?? 1}`} /></TableCell>
                 <TableCell>{Number(s.weight || 0).toFixed(2)}</TableCell>
                 <TableCell>{shipmentDims(s)}</TableCell>
                 <TableCell>{shipmentTypes(s)}</TableCell>
+                <TableCell sx={{ fontWeight: 600, color: Number(s.extra_charges_usd || 0) > 0 ? '#C62828' : '#999' }}>
+                  {Number(s.extra_charges_usd || 0) > 0 ? `$${Number(s.extra_charges_usd).toFixed(2)}` : '—'}
+                </TableCell>
                 <TableCell>
                   <Chip size="small" label={t(`tdiExpress.statusLabels.${s.status}`)}
                     sx={{ bgcolor: STATUS_COLOR[s.status] || '#999', color: '#FFF', fontWeight: 600 }} />
