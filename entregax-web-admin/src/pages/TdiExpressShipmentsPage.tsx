@@ -112,8 +112,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string; productType: string; extraChargeUsd: string }>(
     { open: false, id: null, value: '', productType: '', extraChargeUsd: '' }
   );
-    { open: false, id: null, value: '', productType: '' }
-  );
 
   // Refs para navegación con Enter en el wizard
   const clientRef = useRef<HTMLInputElement>(null);
