@@ -269,6 +269,11 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
             📦 Guía origen: {m.originCarrier ? `${m.originCarrier} · ` : ''}{m.trackingCourier || m.trackingProvider}
           </Typography>
         )}
+        {(m as any).internationalTracking && (m as any).internationalTracking !== m.tracking && (
+          <Typography variant="caption" sx={{ display: 'block', wordBreak: 'break-all', color: '#F57C00', fontWeight: 700 }}>
+            ✈️ AWB DHL: {(m as any).internationalTracking}
+          </Typography>
+        )}
         <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75, flexWrap: 'wrap' }}>
           <Chip label={displayStatusLabel} size="small" color={statusColor(status)} />
           {m.paymentOrderRef && (
