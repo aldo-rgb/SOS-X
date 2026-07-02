@@ -73,6 +73,7 @@ const LT = {
     tabLogin:    'Iniciar Sesión',
     tabRegister: 'Registrarse',
     emailLabel:  'Correo, cliente, teléfono o código de asesor',
+    registerEmailLabel: 'Correo electrónico',
     emailHelper: 'Correo, Número de Cliente (S1234), teléfono verificado o código de asesor (DEMO-1234)',
     passwordLabel:'Contraseña',
     loginBtn:    'Ingresar al Panel',
@@ -101,6 +102,7 @@ const LT = {
     tabLogin:    'Sign In',
     tabRegister: 'Register',
     emailLabel:  'Email, customer #, phone or advisor code',
+    registerEmailLabel: 'Email address',
     emailHelper: 'Email, Customer Number (S1234), verified phone or advisor code (DEMO-1234)',
     passwordLabel:'Password',
     loginBtn:    'Sign In',
@@ -128,6 +130,7 @@ const LT = {
     tabLogin:    '登录',
     tabRegister: '注册',
     emailLabel:  '邮箱 / 客户号 / 电话 / 顾问代码',
+    registerEmailLabel: '邮箱',
     emailHelper: '邮箱、客户号 (S1234)、已验证的电话 或 顾问代码 (DEMO-1234)',
     passwordLabel:'密码',
     loginBtn:    '登录面板',
@@ -985,7 +988,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 />
                 <TextField
                   fullWidth
-                  label={lt.emailLabel}
+                  label={lt.registerEmailLabel}
                   type="email"
                   value={registerEmail}
                   onChange={(e) => setRegisterEmail(e.target.value)}
