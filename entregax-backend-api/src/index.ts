@@ -8598,6 +8598,22 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
             WHERE id = $1
           `, [poboxPay.id]);
 
+          // 1b. 💳 Orden a CRÉDITO: al confirmar el comprobante, marcar el crédito
+          //     como liquidado (pasa a Historial) y descontar la deuda del cliente.
+          if (String(poboxPay.payment_method || '').toLowerCase() === 'credit') {
+            await client.query(
+              `UPDATE pobox_payments SET credit_settled = TRUE, credit_settled_at = CURRENT_TIMESTAMP WHERE id = $1`,
+              [poboxPay.id]
+            );
+            await client.query(
+              `UPDATE users
+                  SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1),
+                      is_credit_blocked = CASE WHEN GREATEST(0, COALESCE(used_credit, 0) - $1) <= 0 THEN FALSE ELSE is_credit_blocked END
+                WHERE id = $2`,
+              [montoPago, poboxPay.user_id]
+            );
+          }
+
           // 2. Marcar paquetes como pagados
           if (packageIds.length > 0) {
             await client.query(`
@@ -9458,7 +9474,7 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
     // Servicio real desde openpay_webhook_logs (la tabla pobox_payments no lo
     // guarda). Aplica el mismo filtro de servicio que la fuente #1, para no
     // mostrar órdenes de otro servicio (p.ej. PO Box en el filtro Aéreo China).
-    let whereClause2 = "WHERE pp.status = 'vouchers_submitted' AND pp.payment_method = 'cash'";
+    let whereClause2 = "WHERE pp.status = 'vouchers_submitted' AND pp.payment_method IN ('cash', 'credit')";
     const params2: any[] = [];
     if (serviceList) {
       params2.push(serviceList);

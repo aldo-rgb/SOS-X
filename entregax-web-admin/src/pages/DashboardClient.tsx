@@ -2094,6 +2094,14 @@ export default function DashboardClient() {
   };
 
   // Abrir "Subir Comprobante" desde el diálogo de Instrucciones de Pago
+  // Abrir el diálogo de subir comprobante directamente para una orden (usado por
+  // las órdenes a crédito, que suben su pago para conciliarlo en Cobranza).
+  const openVoucherForOrder = (order: any) => {
+    if (!order) return;
+    setVoucherDialog({ open: true, order });
+    loadVoucherList(order.id);
+  };
+
   const openVoucherFromInstructions = () => {
     if (!paymentInstructionsDialog) return;
     const ref = paymentInstructionsDialog.reference;
@@ -4781,7 +4789,8 @@ export default function DashboardClient() {
                 };
                 let st = statusMap[order.status] || statusMap.pending_payment;
                 const isCreditPay = String(order.payment_method || '').toLowerCase() === 'credit';
-                if (isCreditPay && ['completed', 'paid'].includes(order.status)) {
+                const isUnsettledCredit = isCreditPay && !order.credit_settled;
+                if (isUnsettledCredit && ['completed', 'paid'].includes(order.status)) {
                   st = { color: '#6A1B9A', label: '💳 Crédito' };
                 }
                 return (
@@ -4806,8 +4815,8 @@ export default function DashboardClient() {
                         {new Date(order.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </Typography>
                       {order.paid_at && (
-                        <Typography variant="caption" display="block" sx={{ color: isCreditPay ? '#6A1B9A' : '#2E7D32' }}>
-                          {isCreditPay ? 'A crédito' : 'Pagado'}: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
+                        <Typography variant="caption" display="block" sx={{ color: isUnsettledCredit ? '#6A1B9A' : '#2E7D32' }}>
+                          {isUnsettledCredit ? 'A crédito' : 'Pagado'}: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
                         </Typography>
                       )}
                     </TableCell>
@@ -4820,6 +4829,15 @@ export default function DashboardClient() {
                             onClick={() => downloadPaymentOrderPdf(order)}
                           ><DownloadIcon fontSize="small" /></IconButton>
                         </Tooltip>
+                        {paymentOrderTab === 'active' && isUnsettledCredit && (
+                          <Tooltip title="Subir comprobante de pago" arrow>
+                            <IconButton
+                              size="small"
+                              sx={{ color: '#6A1B9A', '&:hover': { bgcolor: 'rgba(106,27,154,0.08)' } }}
+                              onClick={() => openVoucherForOrder(order)}
+                            ><AttachFileIcon fontSize="small" /></IconButton>
+                          </Tooltip>
+                        )}
                         {paymentOrderTab === 'active' && !isCreditPay && (
                           <Tooltip title="Pagar" arrow>
                             <IconButton
@@ -14763,7 +14781,8 @@ export default function DashboardClient() {
                       let st = statusMap[order.status] || statusMap.pending_payment;
                       // 💳 Pagado con crédito: mostrar "Crédito" en lugar de "Pagado".
                       const isCreditPay = String(order.payment_method || '').toLowerCase() === 'credit';
-                      if (isCreditPay && ['completed', 'paid'].includes(order.status)) {
+                      const isUnsettledCredit = isCreditPay && !order.credit_settled;
+                      if (isUnsettledCredit && ['completed', 'paid'].includes(order.status)) {
                         st = { color: '#6A1B9A', label: '💳 Crédito' };
                       }
                       return (
@@ -14788,13 +14807,22 @@ export default function DashboardClient() {
                               {new Date(order.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
                             </Typography>
                             {order.paid_at && (
-                              <Typography variant="caption" display="block" sx={{ color: isCreditPay ? '#6A1B9A' : '#2E7D32' }}>
-                                {isCreditPay ? 'A crédito' : 'Pagado'}: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
+                              <Typography variant="caption" display="block" sx={{ color: isUnsettledCredit ? '#6A1B9A' : '#2E7D32' }}>
+                                {isUnsettledCredit ? 'A crédito' : 'Pagado'}: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
                               </Typography>
                             )}
                           </TableCell>
                           <TableCell align="center" onClick={(e: any) => e.stopPropagation()}>
                               <Box sx={{ display: 'flex', gap: 0.25, justifyContent: 'center' }}>
+                                {paymentOrderTab === 'active' && isUnsettledCredit && (
+                                  <Tooltip title="Subir comprobante de pago" arrow>
+                                    <IconButton
+                                      size="small"
+                                      sx={{ color: '#6A1B9A', '&:hover': { bgcolor: 'rgba(106,27,154,0.08)' } }}
+                                      onClick={() => openVoucherForOrder(order)}
+                                    ><AttachFileIcon fontSize="small" /></IconButton>
+                                  </Tooltip>
+                                )}
                                 {paymentOrderTab === 'active' && !isCreditPay && (
                                   <Tooltip title="Pagar" arrow>
                                     <IconButton

@@ -37,7 +37,8 @@ export const uploadVoucher = async (req: AuthRequest, res: Response) => {
 
     // Validate the payment order belongs to the user and is still pending
     const orderCheck = await pool.query(
-      `SELECT id, user_id, amount, currency, status, voucher_total, payment_reference
+      `SELECT id, user_id, amount, currency, status, voucher_total, payment_reference,
+              payment_method, COALESCE(credit_settled, false) AS credit_settled
        FROM pobox_payments WHERE id = $1`,
       [payment_order_id]
     );
@@ -48,8 +49,20 @@ export const uploadVoucher = async (req: AuthRequest, res: Response) => {
     if (order.user_id !== userId) {
       return res.status(403).json({ error: 'No tienes acceso a esta orden' });
     }
-    if (order.status === 'completed') {
+    // 💳 Órdenes a CRÉDITO no liquidadas: aunque estén 'completed', el cliente
+    // sube su comprobante para pagar el crédito. Las reabrimos a 'pending_payment'
+    // para que sigan el mismo pipeline (subir → confirmar → conciliar en Cobranza).
+    const isUnsettledCredit = String(order.payment_method || '').toLowerCase() === 'credit'
+      && order.credit_settled !== true;
+    if (order.status === 'completed' && !isUnsettledCredit) {
       return res.status(400).json({ error: 'Esta orden ya fue pagada' });
+    }
+    if (isUnsettledCredit && order.status === 'completed') {
+      await pool.query(
+        `UPDATE pobox_payments SET status = 'pending_payment' WHERE id = $1`,
+        [payment_order_id]
+      );
+      order.status = 'pending_payment';
     }
 
     // Determine file type
@@ -630,6 +643,22 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
         await pool.query(
           `UPDATE pobox_payments SET surplus_credited = TRUE WHERE id = $1`,
           [voucher.payment_order_id]
+        );
+      }
+
+      // 💳 Orden a CRÉDITO: al aprobar todos los comprobantes, liquidar el crédito
+      // (pasa a Historial) y descontar la deuda del cliente.
+      if (String(o.payment_method || '').toLowerCase() === 'credit') {
+        await pool.query(
+          `UPDATE pobox_payments SET credit_settled = TRUE, credit_settled_at = NOW() WHERE id = $1`,
+          [voucher.payment_order_id]
+        );
+        await pool.query(
+          `UPDATE users
+              SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1),
+                  is_credit_blocked = CASE WHEN GREATEST(0, COALESCE(used_credit, 0) - $1) <= 0 THEN FALSE ELSE is_credit_blocked END
+            WHERE id = $2`,
+          [Number(o.amount) || 0, o.user_id]
         );
       }
     }
