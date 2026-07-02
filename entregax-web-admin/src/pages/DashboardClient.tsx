@@ -227,7 +227,7 @@ interface PackageTracking {
   carrier?: string;
   gex_total_cost?: number;
   extra_charges_total?: number;
-  extra_charges?: Array<{ tipo: string; monto: number; concepto?: string; moneda?: string }>;
+  extra_charges?: Array<{ tipo: string; monto: number; concepto?: string; moneda?: string; monto_mxn?: number; tc?: number | null }>;
   assigned_cost_mxn?: number;
   delivery_recipient_name?: string;
   instructions_assigned_by_name?: string | null;
@@ -250,7 +250,7 @@ interface IncludedGuide {
   national_shipping_cost?: number;
   gex_total_cost?: number;
   extra_charges_total?: number;
-  extra_charges?: Array<{ tipo: string; monto: number; concepto?: string; moneda?: string }>;
+  extra_charges?: Array<{ tipo: string; monto: number; concepto?: string; moneda?: string; monto_mxn?: number; tc?: number | null }>;
   pobox_venta_usd?: number;
   pobox_venta_mxn?: number;
   pobox_service_cost?: number;

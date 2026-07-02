@@ -182,9 +182,12 @@ export default function NacionalMexicoPage() {
             <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
                 <Tab label="Cotizaciones" />
                 <Tab label="Paqueterías de Entrega" />
+                <Tab label="Zona Metro MTY" />
             </Tabs>
 
             {tab === 0 && <QuotesPage />}
+
+            {tab === 2 && <MtyMetroPanel />}
 
             {tab === 1 && (
                 <Box sx={{ p: 2 }}>
@@ -355,6 +358,95 @@ export default function NacionalMexicoPage() {
                     </Button>
                 </DialogActions>
             </Dialog>
+        </Box>
+    );
+}
+
+// ============================================
+// Panel: Zona Metropolitana de MTY
+// Administra los CP que NO cuentan como zona metro (excepciones al rango base
+// 64000–67999). Para guías TDX en zona metro solo se ofrece EntregaX local.
+// ============================================
+function MtyMetroPanel() {
+    const [excluded, setExcluded] = useState<Array<{ zip: string; note: string | null; created_by_name?: string | null }>>([]);
+    const [range, setRange] = useState<{ min: number; max: number }>({ min: 64000, max: 67999 });
+    const [loading, setLoading] = useState(false);
+    const [zip, setZip] = useState('');
+    const [note, setNote] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [msg, setMsg] = useState<{ sev: 'success' | 'error'; text: string } | null>(null);
+
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+
+    const load = useCallback(async () => {
+        setLoading(true);
+        try {
+            const res = await fetch(`${API_URL}/api/admin/mty-metro/excluded-zips`, { headers });
+            const data = await res.json();
+            if (data.success) { setExcluded(data.excluded || []); if (data.range) setRange(data.range); }
+        } catch { /* silent */ } finally { setLoading(false); }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => { load(); }, [load]);
+
+    const addZip = async () => {
+        const z = zip.trim();
+        if (!/^\d{5}$/.test(z)) { setMsg({ sev: 'error', text: 'CP inválido (5 dígitos)' }); return; }
+        setSaving(true);
+        try {
+            const res = await fetch(`${API_URL}/api/admin/mty-metro/excluded-zips`, {
+                method: 'POST', headers, body: JSON.stringify({ zip: z, note: note.trim() || null }),
+            });
+            const data = await res.json();
+            if (data.success) { setZip(''); setNote(''); setMsg({ sev: 'success', text: `CP ${z} excluido de zona metro` }); load(); }
+            else setMsg({ sev: 'error', text: data.error || 'Error' });
+        } catch { setMsg({ sev: 'error', text: 'Error de red' }); } finally { setSaving(false); }
+    };
+
+    const removeZip = async (z: string) => {
+        try {
+            await fetch(`${API_URL}/api/admin/mty-metro/excluded-zips/${z}`, { method: 'DELETE', headers });
+            load();
+        } catch { /* silent */ }
+    };
+
+    return (
+        <Box sx={{ p: 2 }}>
+            <Typography variant="h6" fontWeight="bold">📍 Zona Metropolitana de MTY</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Para guías <strong>TDX</strong> con entrega en zona metro solo se ofrece <strong>EntregaX Local</strong> (se ocultan Paquete Express y las paqueterías "por cobrar").
+                Un CP es zona metro si está en el rango <strong>{range.min}–{range.max}</strong> y NO está en esta lista de excepciones.
+            </Typography>
+
+            {msg && <Alert severity={msg.sev} sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', mb: 3, flexWrap: 'wrap' }}>
+                <TextField label="CP a excluir" value={zip} onChange={(e) => setZip(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                    size="small" placeholder="65000" inputProps={{ inputMode: 'numeric' }} sx={{ width: 140 }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') addZip(); }} />
+                <TextField label="Nota (opcional)" value={note} onChange={(e) => setNote(e.target.value)} size="small" sx={{ width: 260 }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') addZip(); }} />
+                <Button variant="contained" onClick={addZip} disabled={saving} startIcon={<AddIcon />}
+                    sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D44E20' } }}>
+                    {saving ? <CircularProgress size={18} color="inherit" /> : 'Excluir CP'}
+                </Button>
+            </Box>
+
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>CP excluidos ({excluded.length})</Typography>
+            {loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}><CircularProgress /></Box>
+            ) : excluded.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">No hay CP excluidos — todo el rango {range.min}–{range.max} cuenta como zona metro.</Typography>
+            ) : (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {excluded.map((e) => (
+                        <Chip key={e.zip} label={e.note ? `${e.zip} · ${e.note}` : e.zip} onDelete={() => removeZip(e.zip)}
+                            color="warning" variant="outlined" deleteIcon={<DeleteIcon />} />
+                    ))}
+                </Box>
+            )}
         </Box>
     );
 }

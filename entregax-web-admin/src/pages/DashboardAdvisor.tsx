@@ -1567,6 +1567,14 @@ export default function DashboardAdvisor() {
     if (preselected === 'paquete_express' && instrShipment && addr.zip_code && !isPqtxIncludedService(instrShipment.serviceType)) {
       fetchPqtxEstimate(addr.zip_code, instrShipment);
     }
+    // TDX en zona metro MTY: re-cotizar carriers con el CP para ocultar Paquete
+    // Express y las "por cobrar" (backend deja solo EntregaX local).
+    if (serviceKey === 'tdi_express') {
+      const zip = String(addr.zip_code || '').trim();
+      api.get(`/carrier-options/by-service/tdi_express`, { params: { tdx: '1', ...(zip ? { zip } : {}) } })
+        .then(r => setInstrCarriers(r.data?.data || []))
+        .catch(() => {});
+    }
   };
 
   const handleSelectInstrCarrier = (carrier: any, addrZip?: string) => {
