@@ -1039,6 +1039,10 @@ export default function CostingPanelMaritimo() {
             // "otros" embarques bajo el título de este contenedor mientras carga.
             setProfitData(null);
             profitReqRef.current = null;
+            // Volver a la pestaña BL al abrir otro contenedor. Si quedaba activa la
+            // pestaña Utilidades (tab 6), abría directo mostrando el profitData viejo
+            // sin re-consultar (la carga solo dispara al CAMBIAR de pestaña).
+            setTabValue(0);
             setSelectedContainer(container);
             setCostDialogOpen(true);
             
