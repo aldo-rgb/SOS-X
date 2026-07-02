@@ -1094,6 +1094,7 @@ import {
   uploadCarrierIcon,
   carrierIconUpload
 } from './carrierServiceController';
+import { listExcludedZips, addExcludedZip, removeExcludedZip } from './mtyMetroController';
 import {
   getDhlRates,
   updateDhlRate,
@@ -5866,6 +5867,11 @@ app.delete('/api/admin/carrier-options/:id', authenticateToken, requireMinLevel(
 app.patch('/api/admin/carrier-options/:id/toggle', authenticateToken, requireMinLevel(ROLES.ADMIN), toggleCarrierOption);
 // Endpoint público (para clientes) - opciones por tipo de servicio
 app.get('/api/carrier-options/by-service/:serviceType', authenticateToken, getCarrierOptionsByService);
+
+// Zona metropolitana MTY: exclusiones de CP (Nacional México → Administración)
+app.get('/api/admin/mty-metro/excluded-zips', authenticateToken, requireMinLevel(ROLES.ADMIN), listExcludedZips);
+app.post('/api/admin/mty-metro/excluded-zips', authenticateToken, requireMinLevel(ROLES.ADMIN), addExcludedZip);
+app.delete('/api/admin/mty-metro/excluded-zips/:zip', authenticateToken, requireMinLevel(ROLES.ADMIN), removeExcludedZip);
 
 // Endpoint público para cotizar paquetería (app móvil)
 // Devuelve opciones locales + Skydropx (si está habilitado)

@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { isMtyMetroZip } from './mtyMetroController';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -96,6 +97,7 @@ export const getCarrierOptions = async (req: Request, res: Response) => {
 export const getCarrierOptionsByService = async (req: Request, res: Response) => {
   try {
     const { serviceType } = req.params;
+    const zip = (req.query.zip ? String(req.query.zip).trim() : '') || '';
 
     const result = await pool.query(`
       SELECT co.carrier_key, co.name, co.description, co.price_label, co.subtext, co.icon, co.priority, co.allows_collect
@@ -105,6 +107,20 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
         AND co.is_active = true
       ORDER BY co.priority ASC
     `, [serviceType]);
+
+    // 🚚 Regla TDX en zona metropolitana de MTY: solo aplica entrega local EntregaX.
+    // Se ocultan Paquete Express, Paquete Express Por Cobrar y todas las "por cobrar".
+    // TDX se identifica por el serviceType tdi_express O por la bandera ?tdx=1 (el
+    // flujo real usa el servicio 'dhl', compartido con AA_DHL, así que el front debe
+    // marcar explícitamente cuando el envío es TDX para no afectar a AA_DHL).
+    const isTdx = ['tdi_express', 'TDI_EXPRESS', 'tdx'].includes(String(serviceType))
+      || ['1', 'true'].includes(String(req.query.tdx || ''));
+    if (isTdx && zip && await isMtyMetroZip(zip)) {
+      result.rows = result.rows.filter((r: any) =>
+        r.allows_collect !== true &&
+        (r.carrier_key === 'local' || String(r.carrier_key || '').startsWith('entregax_'))
+      );
+    }
 
     // 🎨 Sobreescribir icon de paqueterías EntregaX con el brand asset activo
     // del slot 'entregax_x_only' (logo X configurado en Settings → Brand Assets).
