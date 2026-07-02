@@ -458,7 +458,7 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
     const tariffType = PRODUCT_TO_TARIFF[String(productType || 'generico').toLowerCase()] || 'G';
 
     const m = await client.query(
-      `SELECT id, total_boxes, box_id, user_id, air_route_id FROM packages
+      `SELECT id, tracking_internal, total_boxes, box_id, user_id, air_route_id FROM packages
        WHERE id = $1 AND air_source = 'tdi_express' AND is_master = true`,
       [masterId]
     );
@@ -504,7 +504,9 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
     // Cantidad: agrega N cajas idénticas en un solo bloque (mismas medidas).
     for (let i = 0; i < qty; i++) {
       boxNumber++;
-      const childTracking = await genTdiTracking(client);
+      // Las cajas hijas se numeran como MASTER-001, MASTER-002… (mismo tracking que
+      // el master + sufijo), para que master e hijas se identifiquen como un solo envío.
+      const childTracking = `${master.tracking_internal}-${String(boxNumber).padStart(3, '0')}`;
       const ins = await client.query(
         `INSERT INTO packages (
            tracking_internal, tracking_provider, is_master, master_id, box_number, child_no,
@@ -729,15 +731,24 @@ export const removeTdiBox = async (req: Request, res: Response): Promise<any> =>
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Caja no encontrada' });
     }
-    // Renumerar y recalcular
+    // Renumerar consecutivo y re-nombrar las hijas como MASTER-001, -002…
+    // Se hace en 2 fases para no chocar con el UNIQUE de tracking_internal
+    // (primero un valor temporal, luego el definitivo).
+    const mt = await client.query(`SELECT tracking_internal FROM packages WHERE id = $1`, [masterId]);
+    const masterTracking = mt.rows[0]?.tracking_internal || '';
+    await client.query(
+      `UPDATE packages SET tracking_internal = tracking_internal || '.tmp' WHERE master_id = $1`,
+      [masterId]
+    );
     await client.query(
       `WITH ordered AS (
          SELECT id, ROW_NUMBER() OVER (ORDER BY box_number) AS rn
          FROM packages WHERE master_id = $1
        )
-       UPDATE packages p SET box_number = o.rn, child_no = o.rn::text
+       UPDATE packages p SET box_number = o.rn, child_no = o.rn::text,
+         tracking_internal = $2 || '-' || LPAD(o.rn::text, 3, '0')
        FROM ordered o WHERE p.id = o.id`,
-      [masterId]
+      [masterId, masterTracking]
     );
     await client.query(
       `UPDATE packages SET
