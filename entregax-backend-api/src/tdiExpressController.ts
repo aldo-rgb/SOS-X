@@ -301,18 +301,21 @@ export const updateTdiShipment = async (req: Request, res: Response): Promise<an
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
-    const { boxId, productType } = (req.body || {}) as { boxId?: string; productType?: string };
+    const { boxId, productType, extraChargeUsd } = (req.body || {}) as { boxId?: string; productType?: string; extraChargeUsd?: number | string };
     const bid = boxId ? String(boxId).trim().toUpperCase() : '';
     const newTariff = productType
       ? (PRODUCT_TO_TARIFF[String(productType).toLowerCase()] || null)
       : null;
-    if (!bid && !newTariff) {
+    const extraUsd = Number(extraChargeUsd);
+    const hasExtra = Number.isFinite(extraUsd) && extraUsd > 0;
+    const autorizadoPor = (req as any).user?.userId ?? (req as any).user?.id ?? null;
+    if (!bid && !newTariff && !hasExtra) {
       return res.status(400).json({ error: 'Nada que actualizar' });
     }
 
     await client.query('BEGIN');
     const m = await client.query(
-      `SELECT id, air_route_id FROM packages WHERE id = $1 AND air_source = 'tdi_express'`,
+      `SELECT id, air_route_id, tracking_internal, user_id FROM packages WHERE id = $1 AND air_source = 'tdi_express'`,
       [id]
     );
     if (!m.rows[0]) {
@@ -353,6 +356,22 @@ export const updateTdiShipment = async (req: Request, res: Response): Promise<an
          WHERE id = $1`,
         [id]
       );
+    }
+
+    // Cargo extra en USD — se registra como cargo_extra en el master de la
+    // guía. Aparece en el saldo pendiente / cartera del cliente.
+    if (hasExtra) {
+      try {
+        await client.query(
+          `INSERT INTO guias_ajustes_financieros
+             (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, autorizado_por, cliente_id)
+           VALUES ($1, $2, 'tdi_express', 'cargo_extra', $3, 'USD', $4, $5, $6)`,
+          [m.rows[0].id, m.rows[0].tracking_internal, extraUsd,
+            'Cargo extra (edición manual)', autorizadoPor, m.rows[0].user_id]
+        );
+      } catch (extraErr: any) {
+        console.warn('[updateTdiShipment] no se pudo registrar cargo_extra:', extraErr.message);
+      }
     }
 
     await client.query('COMMIT');

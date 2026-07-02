@@ -109,7 +109,9 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     { open: false, id: null, busy: false }
   );
   // Editar número de cliente de un envío
-  const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string; productType: string }>(
+  const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string; productType: string; extraChargeUsd: string }>(
+    { open: false, id: null, value: '', productType: '', extraChargeUsd: '' }
+  );
     { open: false, id: null, value: '', productType: '' }
   );
 
@@ -407,17 +409,20 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
 
   const saveEdit = async () => {
     if (!editClient.id) return;
-    if (!editClient.value.trim() && !editClient.productType) return;
+    const extraNum = Number(editClient.extraChargeUsd);
+    const hasExtra = Number.isFinite(extraNum) && extraNum > 0;
+    if (!editClient.value.trim() && !editClient.productType && !hasExtra) return;
     try {
       await axios.patch(
         `${API_URL}/api/tdi-express/shipments/${editClient.id}`,
         {
           boxId: editClient.value.trim() || undefined,
           productType: editClient.productType || undefined,
+          extraChargeUsd: hasExtra ? extraNum : undefined,
         },
         { headers: authHeaders }
       );
-      setEditClient({ open: false, id: null, value: '', productType: '' });
+      setEditClient({ open: false, id: null, value: '', productType: '', extraChargeUsd: '' });
       loadAll();
     } catch (e: any) {
       window.alert(e?.response?.data?.error || 'Error');
@@ -522,6 +527,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                       open: true, id: s.id, value: s.box_id || '',
                       productType: (s.child_tariff_types || '').split(',').filter(Boolean).length === 1
                         ? (TARIFF_TO_PRODUCT[(s.child_tariff_types || '').split(',')[0]] || '') : '',
+                      extraChargeUsd: '',
                     })}
                     sx={{ color: '#1976D2' }}>
                     <EditIcon fontSize="small" />
@@ -748,7 +754,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       </Dialog>
 
       {/* ===== Editar envío: cliente y tipo de producto ===== */}
-      <Dialog open={editClient.open} onClose={() => setEditClient({ open: false, id: null, value: '', productType: '' })} maxWidth="xs" fullWidth>
+      <Dialog open={editClient.open} onClose={() => setEditClient({ open: false, id: null, value: '', productType: '', extraChargeUsd: '' })} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ bgcolor: BLACK, color: '#FFF' }}>{t('tdiExpress.editClient')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2.5} sx={{ mt: 3 }}>
@@ -766,14 +772,24 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                 <MenuItem key={p.key} value={p.key}>{t(`tdiExpress.productTypes.${p.key}`)}</MenuItem>
               ))}
             </TextField>
+            <TextField
+              fullWidth
+              type="number"
+              label={t('tdiExpress.wizard.extraChargeUsd')}
+              value={editClient.extraChargeUsd}
+              onChange={(e) => setEditClient({ ...editClient, extraChargeUsd: e.target.value })}
+              placeholder="0.00"
+              slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
+              helperText={t('tdiExpress.wizard.extraChargeHint')}
+            />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setEditClient({ open: false, id: null, value: '', productType: '' })}>
+          <Button onClick={() => setEditClient({ open: false, id: null, value: '', productType: '', extraChargeUsd: '' })}>
             {t('tdiExpress.wizard.cancel')}
           </Button>
           <Button variant="contained" onClick={saveEdit}
-            disabled={!editClient.value.trim() && !editClient.productType}
+            disabled={!editClient.value.trim() && !editClient.productType && !(Number(editClient.extraChargeUsd) > 0)}
             sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A28' } }}>
             {t('tdiExpress.save')}
           </Button>
