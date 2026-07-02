@@ -80,6 +80,7 @@ const SERVICE_TYPE_OPTIONS = [
   { value: 'china_sea', label: 'China Marítimo', color: '#0288D1' },
   { value: 'usa_pobox', label: 'PO Box USA', color: '#5E35B1' },
   { value: 'dhl', label: 'DHL / CEDIS', color: '#43A047' },
+  { value: 'tdi_express', label: 'TDI Express / TDX', color: '#7B1FA2' },
 ];
 
 const emptyForm: CarrierFormData = {
