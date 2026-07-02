@@ -255,8 +255,14 @@ const MyPaymentsScreen = () => {
   }, [fetchPaymentOrders]);
 
   const paidStatuses = new Set(['paid', 'completed']);
-  const pendingOrdersList = paymentOrders.filter((o: any) => !paidStatuses.has(String(o.status || '').toLowerCase()));
-  const historyOrdersList = paymentOrders.filter((o: any) => paidStatuses.has(String(o.status || '').toLowerCase()));
+  // 💳 Crédito NO liquidado permanece en "Pendientes" hasta pagarse; al liquidarse
+  //    (credit_settled) pasa a Historial.
+  const isUnsettledCreditOrder = (o: any) =>
+    String(o.payment_method || '').toLowerCase() === 'credit' && !o.credit_settled;
+  const pendingOrdersList = paymentOrders.filter((o: any) =>
+    !paidStatuses.has(String(o.status || '').toLowerCase()) || isUnsettledCreditOrder(o));
+  const historyOrdersList = paymentOrders.filter((o: any) =>
+    paidStatuses.has(String(o.status || '').toLowerCase()) && !isUnsettledCreditOrder(o));
   const visibleOrders = activeTab === 'history' ? historyOrdersList : pendingOrdersList;
 
   useEffect(() => {
@@ -1289,7 +1295,11 @@ const MyPaymentsScreen = () => {
               failed: { bg: '#FFEBEE', text: '#C62828', label: '❌ Fallido' },
               expired: { bg: '#F5F5F5', text: '#757575', label: '⏰ Expirado' },
             };
-            const st = statusColors[order.status] || statusColors.pending_payment;
+            // 💳 Orden a crédito no liquidada: chip "Crédito" mientras esté 'completed'.
+            const isUnsettledCredit = String(order.payment_method || '').toLowerCase() === 'credit' && !(order as any).credit_settled;
+            const st = (isUnsettledCredit && paidStatuses.has(String(order.status || '').toLowerCase()))
+              ? { bg: '#F3E5F5', text: '#6A1B9A', label: '💳 Crédito' }
+              : (statusColors[order.status] || statusColors.pending_payment);
             const methodLabels: Record<string, string> = {
               cash: '💵 Pago en Sucursal',
               paypal: '🅿️ PayPal',
@@ -1368,6 +1378,27 @@ const MyPaymentsScreen = () => {
                         accessibilityLabel="Eliminar"
                       >
                         <Ionicons name="trash-outline" size={22} color="#FF3B30" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {/* 💳 Crédito no liquidado: subir comprobante para pagar el crédito.
+                      Sigue el mismo flujo (voucher → Cobranza → conciliación). */}
+                  {isUnsettledCredit && (
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 10, justifyContent: 'flex-end' }}>
+                      <TouchableOpacity
+                        style={[styles.iconActionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, width: 'auto', minWidth: 160, height: 42, borderColor: '#6A1B9A' }]}
+                        onPress={() => openVoucherModal(order)}
+                        accessibilityLabel="Subir comprobante de pago"
+                      >
+                        <Ionicons name="cloud-upload-outline" size={22} color="#6A1B9A" />
+                        <Text style={{ color: '#6A1B9A', fontWeight: '700', fontSize: 13 }}>Subir Comprobante</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.iconActionBtn}
+                        onPress={() => downloadOrderReceipt(order)}
+                        accessibilityLabel="Descargar comprobante"
+                      >
+                        <Ionicons name="download-outline" size={22} color="#FF6B00" />
                       </TouchableOpacity>
                     </View>
                   )}
