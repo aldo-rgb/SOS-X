@@ -45,7 +45,10 @@ import {
   CreditCard as CardIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
+  FlightTakeoff as FlightTakeoffIcon,
+  DirectionsBoat as BoatIcon,
 } from '@mui/icons-material';
+import useModulePermissions from '../hooks/useModulePermissions';
 import api from '../services/api';
 
 // Importar componentes necesarios
@@ -85,6 +88,12 @@ interface PendingDelivery {
 }
 
 export default function DashboardCounterStaff() {
+  // Permisos por módulo para mostrar accesos directos según lo que el usuario puede ver.
+  const { allowedModules: airModules } = useModulePermissions('ops_china_air', ['tdi_express', 'tdi_outbound']);
+  const { allowedModules: seaAdminModules } = useModulePermissions('admin_china_sea', ['consolidations']);
+  const canTdiExpress = airModules.includes('tdi_express') || airModules.includes('tdi_outbound');
+  const canMaritimeConsolidations = seaAdminModules.includes('consolidations');
+
   const [loading, setLoading] = useState(true);
   const [, setStats] = useState<CounterStats | null>(null);
   const [pendingDeliveries, setPendingDeliveries] = useState<PendingDelivery[]>([]);
@@ -163,6 +172,9 @@ export default function DashboardCounterStaff() {
   const quickActions = [
     { icon: <PrintIcon sx={{ fontSize: 48 }} />, title: 'Etiquetado', color: '#F05A28', action: 'relabeling' },
     { icon: <ScannerIcon sx={{ fontSize: 48 }} />, title: 'Escáner Multi-Sucursal', color: '#2196F3', action: 'scanner_multi' },
+    // Accesos directos según permisos del usuario
+    ...(canTdiExpress ? [{ icon: <FlightTakeoffIcon sx={{ fontSize: 48 }} />, title: 'TDI Express', color: '#D40511', action: 'tdi_express' }] : []),
+    ...(canMaritimeConsolidations ? [{ icon: <BoatIcon sx={{ fontSize: 48 }} />, title: 'Consolidaciones Marítimas', color: '#0277BD', action: 'maritime_consolidations' }] : []),
   ];
 
   // Handler para acciones rápidas
@@ -173,6 +185,11 @@ export default function DashboardCounterStaff() {
         break;
       case 'scanner_multi':
         setActiveView('scanner_multi');
+        break;
+      // Accesos directos a paneles (navegación a nivel App vía evento global)
+      case 'tdi_express':
+      case 'maritime_consolidations':
+        window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action } }));
         break;
     }
   };

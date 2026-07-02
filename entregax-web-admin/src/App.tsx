@@ -793,6 +793,26 @@ function App() {
         return;
       }
 
+      // Acceso directo a TDI Express (hub Aéreo China dentro de Operaciones)
+      if (action === 'tdi_express') {
+        openOperations('china_air');
+        return;
+      }
+
+      // Acceso directo a Consolidaciones Marítimas LCL (Administración → Marítimo China)
+      if (action === 'maritime_consolidations') {
+        const adminSubIndex = subItems.findIndex((s) => s.key === 'panelsAdmin');
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(adminSubIndex >= 0 ? adminSubIndex : null);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('open-admin-panel', {
+            detail: { service: 'china_sea', module: 'consolidations' },
+          }));
+        }, 120);
+        return;
+      }
+
       if (action === 'service_tickets') {
         setCsHubPendingView('support');
         setPanelsExpanded(true);

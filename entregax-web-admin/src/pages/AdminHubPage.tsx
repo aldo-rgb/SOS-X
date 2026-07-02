@@ -301,7 +301,21 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         window.addEventListener('open-admin-hr', handler);
         return () => window.removeEventListener('open-admin-hr', handler);
     }, []);
-    
+
+    // Deep-link genérico a un servicio+módulo (ej. accesos directos del dashboard).
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent).detail || {};
+            if (!detail.service) return;
+            setShowVerifications(false);
+            setShowHR(false);
+            setSelectedService(detail.service);
+            setSelectedModule(detail.module || null);
+        };
+        window.addEventListener('open-admin-panel', handler);
+        return () => window.removeEventListener('open-admin-panel', handler);
+    }, []);
+
     // Estado para permisos de módulos del servicio seleccionado
     const [modulePermissions, setModulePermissions] = useState<Record<string, boolean>>({});
     const [modulePermissionsLoading, setModulePermissionsLoading] = useState(false);
