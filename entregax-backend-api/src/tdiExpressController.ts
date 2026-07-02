@@ -836,52 +836,80 @@ export const updateTdiBox = async (req: Request, res: Response): Promise<any> =>
 export const listTdiInTransit = async (req: Request, res: Response): Promise<any> => {
   try {
     const { search } = req.query as { search?: string };
+    // Se listan los MASTERS en tránsito con sus cajas hijas anidadas. El AWB se
+    // asigna al master y se propaga a todas sus hijas.
     const where: string[] = [
-      `c.air_source = 'tdi_express'`,
-      `COALESCE(c.is_master, false) = false`,
-      `c.status::text = 'in_transit'`,
+      `m.air_source = 'tdi_express'`,
+      `m.is_master = true`,
+      `(m.status::text = 'in_transit' OR EXISTS (SELECT 1 FROM packages c WHERE c.master_id = m.id AND c.status::text = 'in_transit'))`,
     ];
     const params: any[] = [];
     if (search && String(search).trim()) {
       params.push(`%${String(search).trim()}%`);
       const i = params.length;
-      where.push(`(c.tracking_internal ILIKE $${i} OR c.tracking_provider ILIKE $${i} OR c.international_tracking ILIKE $${i} OR COALESCE(c.box_id,'') ILIKE $${i} OR COALESCE(u.full_name,'') ILIKE $${i})`);
+      where.push(`(m.tracking_internal ILIKE $${i} OR m.international_tracking ILIKE $${i} OR COALESCE(m.box_id,'') ILIKE $${i} OR COALESCE(u.full_name,'') ILIKE $${i})`);
     }
     const r = await pool.query(
-      `SELECT c.id, c.tracking_internal, c.tracking_provider, c.box_id,
-              c.weight, c.air_chargeable_weight, c.dimensions, c.description,
-              c.international_tracking AS awb,
-              COALESCE(NULLIF(u.full_name,''), NULLIF(lc.full_name,'')) AS client_name
-       FROM packages c
-       LEFT JOIN users u ON u.id = c.user_id
-       LEFT JOIN legacy_clients lc ON c.user_id IS NULL AND UPPER(COALESCE(c.box_id,'')) = UPPER(lc.box_id)
+      `SELECT m.id, m.tracking_internal, m.box_id, m.total_boxes,
+              m.weight, m.air_chargeable_weight, m.description,
+              m.international_tracking AS awb,
+              COALESCE(NULLIF(u.full_name,''), NULLIF(lc.full_name,'')) AS client_name,
+              COALESCE((
+                SELECT json_agg(json_build_object(
+                  'id', c.id, 'tracking_internal', c.tracking_internal, 'box_number', c.box_number,
+                  'weight', c.weight, 'air_chargeable_weight', c.air_chargeable_weight,
+                  'dimensions', c.dimensions, 'awb', c.international_tracking
+                ) ORDER BY c.box_number)
+                FROM packages c WHERE c.master_id = m.id
+              ), '[]') AS children
+       FROM packages m
+       LEFT JOIN users u ON u.id = m.user_id
+       LEFT JOIN legacy_clients lc ON m.user_id IS NULL AND UPPER(COALESCE(m.box_id,'')) = UPPER(lc.box_id)
        WHERE ${where.join(' AND ')}
-       ORDER BY c.received_at DESC NULLS LAST, c.id DESC`,
+       ORDER BY m.received_at DESC NULLS LAST, m.id DESC`,
       params
     );
-    res.json({ success: true, boxes: r.rows });
+    res.json({ success: true, masters: r.rows });
   } catch (err: any) {
     console.error('listTdiInTransit error', err);
-    res.status(500).json({ error: 'Error al listar cajas en tránsito', details: err.message });
+    res.status(500).json({ error: 'Error al listar envíos en tránsito', details: err.message });
   }
 };
 
 // PATCH /api/tdi-express/:id/awb  { awb }
+// El AWB se asigna al master y se PROPAGA a todas sus cajas hijas (para que
+// aparezca en el Inventario TDX de cada caja).
 export const updateTdiAwb = async (req: Request, res: Response): Promise<any> => {
+  const client = await pool.connect();
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
     const awb = String(req.body?.awb ?? '').trim().toUpperCase();
-    const upd = await pool.query(
+    await client.query('BEGIN');
+    const upd = await client.query(
       `UPDATE packages SET international_tracking = NULLIF($1, ''), updated_at = NOW()
        WHERE id = $2 AND air_source = 'tdi_express'
-       RETURNING id, tracking_internal, international_tracking AS awb`,
+       RETURNING id, is_master, tracking_internal`,
       [awb, id]
     );
-    if (!upd.rows[0]) return res.status(404).json({ error: 'Caja TDX no encontrada' });
-    res.json({ success: true, box: upd.rows[0] });
+    if (!upd.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Envío TDX no encontrado' });
+    }
+    // Si es master, propagar el AWB a todas sus hijas.
+    if (upd.rows[0].is_master) {
+      await client.query(
+        `UPDATE packages SET international_tracking = NULLIF($1, ''), updated_at = NOW() WHERE master_id = $2`,
+        [awb, id]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ success: true, awb: awb || null });
   } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('updateTdiAwb error', err);
     res.status(500).json({ error: 'Error al actualizar AWB', details: err.message });
+  } finally {
+    client.release();
   }
 };
