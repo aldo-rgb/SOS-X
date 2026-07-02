@@ -973,6 +973,8 @@ export default function DashboardClient() {
       'SEA_CHN_MX': 'china_sea', 'china_sea': 'china_sea', 'maritime': 'china_sea', 'MAR_CHN_MX': 'china_sea', 'fcl': 'china_sea', 'FCL_CHN_MX': 'china_sea',
       'POBOX_USA': 'usa_pobox', 'usa_pobox': 'usa_pobox', 'air': 'usa_pobox',
       'NATIONAL': 'dhl', 'dhl': 'dhl', 'mx_cedis': 'dhl', 'AA_DHL': 'dhl', 'DHL_MTY': 'dhl',
+      // TDX / TDI Express usa su propio servicio de paqueterías (antes caía a china_air).
+      'TDI_EXPRESS': 'tdi_express', 'tdi_express': 'tdi_express', 'TDX': 'tdi_express',
     };
     return serviceMap[raw] || 'china_air';
   }, [packages, selectedPackageIds]);
@@ -1046,7 +1048,18 @@ export default function DashboardClient() {
     const fetchCarrierOptions = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch(`${API_URL}/api/carrier-options/by-service/${selectedServiceType}`, {
+        // Para TDX en zona metropolitana de MTY el backend oculta Paquete Express y
+        // las "por cobrar" (solo queda EntregaX). Se manda tdx=1 + el CP de la
+        // dirección seleccionada para que aplique la regla.
+        let qs = '';
+        if (selectedServiceType === 'tdi_express') {
+          const selAddr = deliveryAddresses.find(a => a.id === selectedDeliveryAddress);
+          const zip = String(selAddr?.zip_code || '').trim();
+          const params = new URLSearchParams({ tdx: '1' });
+          if (zip) params.set('zip', zip);
+          qs = `?${params.toString()}`;
+        }
+        const res = await fetch(`${API_URL}/api/carrier-options/by-service/${selectedServiceType}${qs}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
@@ -1082,7 +1095,7 @@ export default function DashboardClient() {
     };
     fetchCarrierOptions();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedServiceType]);
+  }, [selectedServiceType, selectedDeliveryAddress]);
 
   const getCarrierImageFallbackText = (carrierId: string, carrierName: string): string => {
     const id = String(carrierId || '').toLowerCase();
@@ -13660,6 +13673,27 @@ export default function DashboardClient() {
                       {formatCurrency(getPackageTotalMXN(pkg))}
                     </Typography>
                   </Box>
+
+                  {/* Desglose de kilos × costo/kg = USD × TC para servicios aéreos (TDI / China Air) */}
+                  {(() => {
+                    const isTdi = pkg.servicio === 'tdi_express' || String(pkg.shipment_type || '').toLowerCase().includes('tdi');
+                    const isChinaAir = pkg.servicio === 'AIR_CHN_MX' || pkg.shipment_type === 'china_air';
+                    const showAir = isTdi || isChinaAir;
+                    const ppk = Number((pkg as any).air_price_per_kg) || 0;
+                    const wKg = Number((pkg as any).air_chargeable_weight ?? pkg.weight ?? 0) || 0;
+                    const tc = getTipoCambio(pkg.servicio, pkg.shipment_type) || Number(pkg.exchange_rate) || 0;
+                    if (!showAir || !(ppk > 0) || !(wKg > 0) || !(tc > 0)) return null;
+                    const usd = wKg * ppk;
+                    const mxn = usd * tc;
+                    return (
+                      <Box sx={{ mt: 0.5, bgcolor: '#f5f7fa', borderRadius: 1, px: 1, py: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: '#334155', display: 'block', fontFamily: 'monospace', fontSize: 11 }}>
+                          {wKg.toFixed(2)} kg × ${ppk.toFixed(2)} USD/kg = <b>${usd.toFixed(2)} USD</b> × TC ${tc.toFixed(2)} = <b>${mxn.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN</b>
+                        </Typography>
+                      </Box>
+                    );
+                  })()}
+
                   {(pkg.national_carrier || (pkg.carrier && !['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(pkg.carrier?.toUpperCase?.()))) && (
                     <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#e3f2fd', borderRadius: 1, px: 1, py: 0.5 }}>
                       <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -13685,14 +13719,29 @@ export default function DashboardClient() {
                       </Typography>
                     </Box>
                   )}
-                  {Number(pkg.extra_charges_total) !== 0 && (
-                    <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#fff3e0', borderRadius: 1, px: 1, py: 0.5 }}>
-                      <Typography variant="caption">➕ Cargos extra{(pkg.extra_charges || []).map((c: any) => c.concepto).filter(Boolean).length > 0 ? ` (${(pkg.extra_charges || []).map((c: any) => c.concepto).filter(Boolean).join(', ')})` : ''}</Typography>
-                      <Typography variant="caption" fontWeight="bold" sx={{ color: '#C2410C' }}>
-                        {formatCurrency(Number(pkg.extra_charges_total))}
-                      </Typography>
-                    </Box>
-                  )}
+                  {Number(pkg.extra_charges_total) !== 0 && (() => {
+                    const conceptos = (pkg.extra_charges || []).map((c: any) => c.concepto).filter(Boolean).join(', ');
+                    // Si alguno viene en USD, mostrar la conversión (USD × TC = MXN).
+                    const usdItems = (pkg.extra_charges || []).filter((c: any) => String(c.moneda || 'MXN').toUpperCase() === 'USD');
+                    const totalUsd = usdItems.reduce((s: number, c: any) => s + (Number(c.monto) || 0) * (c.tipo === 'descuento' ? -1 : 1), 0);
+                    const tcUsed = Number(usdItems[0]?.tc) || 0;
+                    const showConversion = totalUsd !== 0 && tcUsed > 0;
+                    return (
+                      <Box sx={{ mt: 0.5, bgcolor: '#fff3e0', borderRadius: 1, px: 1, py: 0.5 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Typography variant="caption">➕ Cargos extra{conceptos ? ` (${conceptos})` : ''}</Typography>
+                          <Typography variant="caption" fontWeight="bold" sx={{ color: '#C2410C' }}>
+                            {formatCurrency(Number(pkg.extra_charges_total))}
+                          </Typography>
+                        </Box>
+                        {showConversion && (
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.25, color: '#7a3a12', fontFamily: 'monospace', fontSize: 10.5 }}>
+                            ${totalUsd.toFixed(2)} USD × TC ${tcUsed.toFixed(2)} = ${(totalUsd * tcUsed).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                          </Typography>
+                        )}
+                      </Box>
+                    );
+                  })()}
                 </Box>
               ))}
             </Box>
