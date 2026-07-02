@@ -281,7 +281,7 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     }
 
     // ── 2. Determine dominant service type from actual packages ────────────
-    const counts = { maritime: 0, dhl: 0, air: 0, pobox: 0 };
+    const counts = { maritime: 0, dhl: 0, air: 0, tdi: 0, pobox: 0 };
     counts.dhl = dhlIds.length;
     counts.maritime = marIds.length;
 
@@ -293,7 +293,8 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
         const st = String(p.service_type || '');
         if (st === 'SEA_CHN_MX') counts.maritime++;
         else if (st === 'AA_DHL') counts.dhl++;
-        else if (st === 'AIR_CHN_MX' || st.toLowerCase().includes('tdi')) counts.air++;
+        else if (st.toLowerCase().includes('tdi') || st.toLowerCase() === 'tdx') counts.tdi++;
+        else if (st === 'AIR_CHN_MX') counts.air++;
         else counts.pobox++;
       }
     }
@@ -301,6 +302,7 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     const dominant = (Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0]) || 'pobox';
     const serviceTypeForConfig =
       dominant === 'maritime' ? 'SEA_CHN_MX' :
+      dominant === 'tdi'      ? 'TDI_EXPRESS' :
       dominant === 'dhl'      ? 'AA_DHL'      :
       dominant === 'air'      ? 'AIR_CHN_MX'  :
                                 'POBOX_USA';
@@ -761,6 +763,7 @@ const SHORT_SERVICE: Record<string, string> = {
   SEA_CHN_MX: 'maritimo',
   AA_DHL: 'dhl',
   AIR_CHN_MX: 'aereo',
+  TDI_EXPRESS: 'tdi',
   NATIONAL: 'terrestre',
 };
 

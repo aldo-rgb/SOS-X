@@ -1442,6 +1442,7 @@ export default function FiscalPage() {
                         {service.service_type === 'AIR_CHN_MX' && '✈️'}
                         {service.service_type === 'SEA_CHN_MX' && '🚢'}
                         {service.service_type === 'AA_DHL' && '🚚'}
+                        {service.service_type === 'TDI_EXPRESS' && '🛫'}
                         <Typography fontWeight="medium">{service.service_name}</Typography>
                       </Box>
                     </TableCell>

@@ -873,10 +873,14 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         // así que una guía mal clasificada o un id colisionado entre tablas
         // arrastraba toda la orden al lado equivocado (caso real: 200 guías
         // AIR aparecían bajo "Marítimo China" en el dashboard de empresa).
-        const serviceCounts: Record<string, number> = { maritime: 0, dhl: 0, air: 0, pobox: 0 };
+        const serviceCounts: Record<string, number> = { maritime: 0, dhl: 0, air: 0, tdi: 0, pobox: 0 };
         for (const p of checkedRows) {
+            const st = String(p.service_type || '').toLowerCase();
             if (p.source === 'maritime' || p.service_type === 'maritime' || p.service_type === 'SEA_CHN_MX' || p.service_type === 'fcl') {
                 serviceCounts.maritime!++;
+            } else if (st.includes('tdi') || st === 'tdx') {
+                // TDI Express / TDX cobra con su propia empresa asignada (no PO Box).
+                serviceCounts.tdi!++;
             } else if (p.source === 'dhl' || p.service_type === 'AA_DHL' || p.service_type === 'dhl') {
                 serviceCounts.dhl!++;
             } else if (p.service_type === 'AIR_CHN_MX' || p.service_type === 'china_air' || p.service_type === 'aereo') {
@@ -888,6 +892,7 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         const dominantService = Object.entries(serviceCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'pobox';
         const serviceTypeForConfig =
             dominantService === 'maritime' ? 'SEA_CHN_MX' :
+            dominantService === 'tdi' ? 'TDI_EXPRESS' :
             dominantService === 'dhl' ? 'AA_DHL' :
             dominantService === 'air' ? 'AIR_CHN_MX' :
             'POBOX_USA';

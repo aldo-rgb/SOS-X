@@ -224,6 +224,7 @@ export const getFacturasUsuario = async (req: AuthRequest, res: Response): Promi
 const SERVICE_TYPE_MAP_FISCAL: Record<string, string> = {
   po_box: 'POBOX_USA',
   aereo: 'AIR_CHN_MX',
+  tdi: 'TDI_EXPRESS',
   maritimo: 'SEA_CHN_MX',
   terrestre: 'NATIONAL',
   dhl: 'AA_DHL'
@@ -234,6 +235,7 @@ const FACTURA_TOGGLE_KEY: Record<string, 'pobox' | 'maritimo' | 'aereo' | 'dhl'>
   po_box: 'pobox', pobox: 'pobox',
   maritimo: 'maritimo',
   aereo: 'aereo',
+  tdi: 'aereo',
   dhl: 'dhl',
 };
 
