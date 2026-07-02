@@ -47,6 +47,7 @@ import {
   Delete as DeleteIcon,
   FlightTakeoff as FlightTakeoffIcon,
   DirectionsBoat as BoatIcon,
+  Payments as PaymentsIcon,
 } from '@mui/icons-material';
 import useModulePermissions from '../hooks/useModulePermissions';
 import api from '../services/api';
@@ -93,6 +94,9 @@ export default function DashboardCounterStaff() {
   const { allowedModules: seaAdminModules } = useModulePermissions('admin_china_sea', ['consolidations']);
   const canTdiExpress = airModules.includes('tdi_express') || airModules.includes('tdi_outbound');
   const canMaritimeConsolidations = seaAdminModules.includes('consolidations');
+  // Sucursal del usuario: el botón "Pagos a Proveedor" es exclusivo de Bodega China (branch 8).
+  const [branchId, setBranchId] = useState<number | null>(null);
+  const isBodegaChina = branchId === 8;
 
   const [loading, setLoading] = useState(true);
   const [, setStats] = useState<CounterStats | null>(null);
@@ -137,7 +141,15 @@ export default function DashboardCounterStaff() {
     if (user) {
       const parsed = JSON.parse(user);
       setUserName(parsed.name?.split(' ')[0] || 'Usuario');
+      if (parsed.branch_id != null) setBranchId(Number(parsed.branch_id));
     }
+    // Confirmar sucursal desde el perfil (por si no está en localStorage).
+    api.get('/auth/profile')
+      .then(r => {
+        const bid = r.data?.user?.branch_id ?? r.data?.branch_id;
+        if (bid != null) setBranchId(Number(bid));
+      })
+      .catch(() => {});
   }, []);
 
   const loadData = async () => {
@@ -175,6 +187,8 @@ export default function DashboardCounterStaff() {
     // Accesos directos según permisos del usuario
     ...(canTdiExpress ? [{ icon: <FlightTakeoffIcon sx={{ fontSize: 48 }} />, title: 'TDI Express', color: '#D40511', action: 'tdi_express' }] : []),
     ...(canMaritimeConsolidations ? [{ icon: <BoatIcon sx={{ fontSize: 48 }} />, title: 'Consolidaciones Marítimas', color: '#0277BD', action: 'maritime_consolidations' }] : []),
+    // Exclusivo Bodega China: acceso a la plataforma de pagos a proveedor (tcmanual).
+    ...(isBodegaChina ? [{ icon: <PaymentsIcon sx={{ fontSize: 48 }} />, title: 'Pagos a Proveedor', color: '#2E7D32', action: 'proveedor_tcmanual' }] : []),
   ];
 
   // Handler para acciones rápidas
@@ -190,6 +204,9 @@ export default function DashboardCounterStaff() {
       case 'tdi_express':
       case 'maritime_consolidations':
         window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action } }));
+        break;
+      case 'proveedor_tcmanual':
+        window.open('https://wireusd.tcmanual.mx/loginchino', '_blank', 'noopener,noreferrer');
         break;
     }
   };
