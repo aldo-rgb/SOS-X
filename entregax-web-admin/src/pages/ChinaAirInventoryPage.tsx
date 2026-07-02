@@ -26,12 +26,15 @@ import {
     CircularProgress,
     Alert,
     Tooltip,
+    Collapse,
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
     Refresh as RefreshIcon,
     Inventory2 as InventoryIcon,
     Warning as WarningIcon,
+    KeyboardArrowDown as ArrowDownIcon,
+    KeyboardArrowUp as ArrowUpIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -49,6 +52,17 @@ interface InvPackage {
     missing_on_arrival: boolean;
     user_box_id: string | null;
     user_name: string | null;
+    // TDX: cajas hijas anidadas bajo el master.
+    children?: Array<{
+        id: number;
+        tracking_internal: string;
+        box_number: number;
+        weight: string | number | null;
+        dimensions: string | null;
+        status: string;
+        awb: string | null;
+        description: string | null;
+    }>;
 }
 
 interface Stats {
@@ -102,6 +116,7 @@ export default function ChinaAirInventoryPage({ onBack, source = 'air' }: Props)
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [awbFilter, setAwbFilter] = useState<string>('');
+    const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
     const [dayFilter, setDayFilter] = useState<string>('');
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(50);
@@ -279,12 +294,23 @@ export default function ChinaAirInventoryPage({ onBack, source = 'air' }: Props)
                                             <Typography color="text.secondary">Sin resultados</Typography>
                                         </TableCell>
                                     </TableRow>
-                                ) : packages.map((p) => {
+                                ) : packages.flatMap((p) => {
                                     const meta = statusLabels[p.status] || STATUS_LABELS[p.status] || { label: p.status, color: '#757575' };
-                                    return (
-                                        <TableRow key={p.id} hover>
+                                    const kids = p.children || [];
+                                    const isTdx = source === 'tdi';
+                                    const open = !!expandedRows[p.id];
+                                    const rows = [
+                                        <TableRow key={p.id} hover sx={{ '& td': { borderBottom: isTdx && open ? 'none' : undefined } }}>
                                             <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                                                {isTdx && kids.length > 0 && (
+                                                    <IconButton size="small" sx={{ mr: 0.5 }} onClick={() => setExpandedRows((e) => ({ ...e, [p.id]: !e[p.id] }))}>
+                                                        {open ? <ArrowUpIcon fontSize="small" /> : <ArrowDownIcon fontSize="small" />}
+                                                    </IconButton>
+                                                )}
                                                 {p.tracking_internal}
+                                                {isTdx && kids.length > 0 && (
+                                                    <Chip label={`${kids.length} caja(s)`} size="small" variant="outlined" sx={{ ml: 0.5, height: 18, fontSize: '0.65rem' }} />
+                                                )}
                                                 {p.missing_on_arrival && (
                                                     <Tooltip title="Marcado como faltante/retrasado en recepción">
                                                         <WarningIcon sx={{ color: RED, fontSize: 16, ml: 0.5, verticalAlign: 'middle' }} />
@@ -351,8 +377,47 @@ export default function ChinaAirInventoryPage({ onBack, source = 'air' }: Props)
                                                       })
                                                     : '—'}
                                             </TableCell>
-                                        </TableRow>
-                                    );
+                                        </TableRow>,
+                                    ];
+                                    if (isTdx && kids.length > 0) {
+                                        rows.push(
+                                            <TableRow key={`c-${p.id}`}>
+                                                <TableCell colSpan={6} sx={{ py: 0, borderBottom: open ? undefined : 'none' }}>
+                                                    <Collapse in={open} timeout="auto" unmountOnExit>
+                                                        <Box sx={{ py: 1, pl: 6, bgcolor: '#fafafa' }}>
+                                                            <Table size="small">
+                                                                <TableHead>
+                                                                    <TableRow>
+                                                                        <TableCell sx={{ fontWeight: 700 }}>Caja</TableCell>
+                                                                        <TableCell sx={{ fontWeight: 700 }}>Guía</TableCell>
+                                                                        <TableCell sx={{ fontWeight: 700 }}>Medidas</TableCell>
+                                                                        <TableCell sx={{ fontWeight: 700 }} align="right">Peso (kg)</TableCell>
+                                                                        <TableCell sx={{ fontWeight: 700 }}>AWB</TableCell>
+                                                                    </TableRow>
+                                                                </TableHead>
+                                                                <TableBody>
+                                                                    {kids.map((c) => (
+                                                                        <TableRow key={c.id}>
+                                                                            <TableCell>{c.box_number}</TableCell>
+                                                                            <TableCell sx={{ fontFamily: 'monospace', fontSize: 13 }}>{c.tracking_internal}</TableCell>
+                                                                            <TableCell>{c.dimensions ? String(c.dimensions).replace(/\.00/g, '').replace(/—/g, '').trim() : '—'}</TableCell>
+                                                                            <TableCell align="right">{Number(c.weight || 0).toFixed(2)}</TableCell>
+                                                                            <TableCell>
+                                                                                {c.awb
+                                                                                    ? <Chip label={c.awb} size="small" variant="outlined" color="success" sx={{ fontFamily: 'monospace' }} />
+                                                                                    : <Typography variant="caption" color="text.secondary">—</Typography>}
+                                                                            </TableCell>
+                                                                        </TableRow>
+                                                                    ))}
+                                                                </TableBody>
+                                                            </Table>
+                                                        </Box>
+                                                    </Collapse>
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    }
+                                    return rows;
                                 })}
                             </TableBody>
                         </Table>

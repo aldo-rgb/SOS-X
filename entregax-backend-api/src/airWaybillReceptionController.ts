@@ -476,6 +476,8 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
     const source = String(req.query.source || 'air').toLowerCase();
     const SERVICE_FILTER = source === 'tdi' ? IS_TDI_EXPRESS : IS_AIR_CHN;
     let where = `WHERE ${SERVICE_FILTER}`;
+    // TDX: el listado es por ENVÍO (master), con sus cajas hijas anidadas.
+    if (source === 'tdi') where += ` AND p.is_master = true`;
 
     if (status && status !== 'all') {
       const s = String(status);
@@ -562,7 +564,15 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
           COALESCE(NULLIF(u.full_name, ''), NULLIF(lc.full_name, '')) AS user_name,
           COALESCE(NULLIF(u.box_id, ''), NULLIF(lc.box_id, ''), NULLIF(p.box_id, '')) AS user_box_id,
           COALESCE(NULLIF(u.email, ''), NULLIF(lc.email, '')) AS user_email,
-          lc.id AS legacy_client_id
+          lc.id AS legacy_client_id,
+          COALESCE((
+            SELECT json_agg(json_build_object(
+              'id', ch.id, 'tracking_internal', ch.tracking_internal, 'box_number', ch.box_number,
+              'weight', ch.weight, 'dimensions', ch.dimensions, 'status', ch.status::text,
+              'awb', ch.international_tracking, 'description', ch.description
+            ) ORDER BY ch.box_number)
+            FROM packages ch WHERE ch.master_id = p.id
+          ), '[]') AS children
         ${baseFrom}
         ${where}
         ORDER BY
@@ -590,7 +600,7 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
           COUNT(*) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE)::int AS missing
         FROM packages p
         LEFT JOIN china_receipts cr ON cr.id = p.china_receipt_id
-        WHERE ${SERVICE_FILTER}
+        WHERE ${SERVICE_FILTER}${source === 'tdi' ? ` AND COALESCE(p.is_master, false) = false` : ''}
       `
     );
 
