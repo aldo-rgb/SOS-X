@@ -4519,12 +4519,15 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                                 );
                                 const d = dimsRes.rows[0] || {};
                                 const boxes = Number(d.boxes) || 1;
+                                // El peso guardado en un master es agregado (todas las cajas);
+                                // PQTX cotiza por línea/caja, así que usamos el peso POR caja.
+                                const perBoxWeight = Math.max(0.5, (Number(d.weight) || 1) / boxes);
                                 const zip = nationalDeliveryZipMobile || d.zip;
                                 let perBox = 400; // fallback estándar ($400/caja)
                                 if (zip) {
                                     const q = await quotePqtxClientPrice({
                                         destZipCode: String(zip), packageCount: boxes,
-                                        weight: Number(d.weight) || 1, length: Number(d.l) || 30,
+                                        weight: perBoxWeight, length: Number(d.l) || 30,
                                         width: Number(d.w) || 30, height: Number(d.h) || 30,
                                     });
                                     if (q && q.available && Number(q.pricePerBox) > 0) perBox = Number(q.pricePerBox);

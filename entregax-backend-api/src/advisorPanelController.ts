@@ -1918,11 +1918,13 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
                   (SELECT zip_code FROM addresses WHERE id = $2) AS zip
              FROM packages WHERE id = $1`, [pid, addressId]);
         const d = dimsRes.rows[0] || {};
+        const boxesA = Number(d.boxes) || 1;
+        const perBoxWeightA = Math.max(0.5, (Number(d.weight) || 1) / boxesA);
         const zip = nationalDeliveryZip || d.zip;
         if (zip) {
           const q = await quotePqtxClientPrice({
-            destZipCode: String(zip), packageCount: Number(d.boxes) || 1,
-            weight: Number(d.weight) || 1, length: Number(d.l) || 30,
+            destZipCode: String(zip), packageCount: boxesA,
+            weight: perBoxWeightA, length: Number(d.l) || 30,
             width: Number(d.w) || 30, height: Number(d.h) || 30,
           });
           pqtxPerBox = (q && q.available && Number(q.pricePerBox) > 0) ? Number(q.pricePerBox) : 400;
