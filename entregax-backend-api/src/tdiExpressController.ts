@@ -444,6 +444,20 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
 
     const countRes = await client.query('SELECT COUNT(*) AS c FROM packages WHERE master_id = $1', [masterId]);
     let boxNumber = Number(countRes.rows[0].c);
+
+    // Validar que no se exceda el total de cajas esperado. Antes se permitía
+    // agregar más cajas de las declaradas (ej. total_boxes=1 pero se
+    // capturaban 2) y la tabla mostraba "2/1". Si el asesor necesita más
+    // cajas, debe crear otra recepción o (a futuro) editar el master.
+    const totalEsperado = Number(master.total_boxes ?? 0);
+    if (totalEsperado > 0 && boxNumber + qty > totalEsperado) {
+      await client.query('ROLLBACK');
+      const disponibles = Math.max(0, totalEsperado - boxNumber);
+      return res.status(400).json({
+        error: `Excede el total de cajas esperado (${totalEsperado}). Ya capturadas: ${boxNumber}, disponibles: ${disponibles}, intentando agregar: ${qty}.`,
+      });
+    }
+
     const created: { id: number; tracking: string; boxNumber: number }[] = [];
 
     // Cantidad: agrega N cajas idénticas en un solo bloque (mismas medidas).
