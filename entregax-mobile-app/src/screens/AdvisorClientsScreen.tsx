@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, FlatList, StyleSheet, RefreshControl, TouchableOpacity,
-  TextInput, Linking, Modal, ScrollView, Alert, Clipboard,
+  TextInput, Linking, Modal, ScrollView, Alert, Clipboard, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, Avatar, Chip, ActivityIndicator } from 'react-native-paper';
@@ -18,11 +18,11 @@ const ORANGE = '#F05A28';
 const PURPLE = '#7B1FA2';
 
 const SERVICE_LIST = [
-  { value: 'air',         label: '✈️ Aéreo China',   color: '#2196F3' },
-  { value: 'maritime',   label: '🚢 Marítimo China', color: '#00897B' },
-  { value: 'tdi_express',label: '✈️ TDI Express',    color: '#7B1FA2' },
-  { value: 'dhl',        label: '📮 Liberación MTY', color: '#D32F2F' },
-  { value: 'usa',        label: '📦 PO Box USA',     color: '#F05A28' },
+  { value: 'air',         label: '✈️ Aéreo China',   color: '#2196F3', serviceType: 'china_air' },
+  { value: 'maritime',   label: '🚢 Marítimo China', color: '#00897B', serviceType: 'china_sea' },
+  { value: 'tdi_express',label: '✈️ TDI Express',    color: '#7B1FA2', serviceType: 'tdi_express' },
+  { value: 'dhl',        label: '📮 Liberación MTY', color: '#D32F2F', serviceType: 'dhl' },
+  { value: 'usa',        label: '📦 PO Box USA',     color: '#F05A28', serviceType: 'usa_pobox' },
 ];
 
 interface Client {
@@ -54,7 +54,15 @@ interface ClientAddress {
   zip_code: string;
   is_default: boolean;
   default_for_service: string | null;
+  carrier_config?: Record<string, string> | null;
   created_by_advisor_id?: number | null;
+}
+
+interface CarrierOption {
+  id?: number;
+  carrier_key?: string;
+  name: string;
+  icon?: string | null;
 }
 
 export default function AdvisorClientsScreen({ navigation, route }: any) {
@@ -77,6 +85,8 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   const [addrLoading, setAddrLoading] = useState(false);
   const [editingAddrId, setEditingAddrId] = useState<number | null>(null);
   const [editingServices, setEditingServices] = useState<string[]>([]);
+  const [editingCarrierConfig, setEditingCarrierConfig] = useState<Record<string, string>>({});
+  const [carriersCache, setCarriersCache] = useState<Record<string, CarrierOption[]>>({});
   const [addrSaving, setAddrSaving] = useState(false);
   const [deleteAddrConfirm, setDeleteAddrConfirm] = useState<number | null>(null);
 
@@ -478,12 +488,30 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
     }
   };
 
+  const fetchCarriers = async (serviceType: string): Promise<CarrierOption[]> => {
+    if (carriersCache[serviceType]) return carriersCache[serviceType];
+    try {
+      const res = await fetch(`${API_URL}/api/carrier-options/by-service/${serviceType}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const carriers: CarrierOption[] = data?.data || [];
+      setCarriersCache(prev => ({ ...prev, [serviceType]: carriers }));
+      return carriers;
+    } catch {
+      return [];
+    }
+  };
+
   const startEditAddress = (addr: ClientAddress) => {
     setEditingAddrId(addr.id);
     const services = addr.default_for_service
       ? addr.default_for_service.split(',').map(s => s.trim()).filter(Boolean)
       : [];
     setEditingServices(services);
+    setEditingCarrierConfig(addr.carrier_config || {});
+    // Precargar paqueterías disponibles por servicio para el selector.
+    SERVICE_LIST.forEach(svc => { fetchCarriers(svc.serviceType); });
   };
 
   const handleDeleteAddress = async (addrId: number) => {
@@ -503,9 +531,24 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   };
 
   const toggleService = (value: string) => {
-    setEditingServices(prev =>
-      prev.includes(value) ? prev.filter(s => s !== value) : [...prev, value]
-    );
+    setEditingServices(prev => {
+      const has = prev.includes(value);
+      if (has) {
+        // Al desmarcar el servicio, limpiar su paquetería asignada.
+        setEditingCarrierConfig(cc => { const next = { ...cc }; delete next[value]; return next; });
+        return prev.filter(s => s !== value);
+      }
+      return [...prev, value];
+    });
+  };
+
+  const setServiceCarrier = (serviceValue: string, carrierKey: string) => {
+    setEditingCarrierConfig(prev => {
+      const next = { ...prev };
+      if (!carrierKey) delete next[serviceValue];
+      else next[serviceValue] = carrierKey;
+      return next;
+    });
   };
 
   const saveAddressServices = async () => {
@@ -517,7 +560,7 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
         {
           method: 'PUT',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ services: editingServices }),
+          body: JSON.stringify({ services: editingServices, carrier_config: editingCarrierConfig }),
         }
       );
       if (!res.ok) throw new Error();
@@ -1073,19 +1116,52 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
                         <Text style={styles.editPanelTitle}>Servicios predeterminados:</Text>
                         {SERVICE_LIST.map(svc => {
                           const checked = editingServices.includes(svc.value);
+                          const carriers = carriersCache[svc.serviceType] || [];
+                          const selectedKey = editingCarrierConfig[svc.value] || '';
                           return (
-                            <TouchableOpacity
-                              key={svc.value}
-                              style={[styles.svcRow, checked && { backgroundColor: svc.color + '15' }]}
-                              onPress={() => toggleService(svc.value)}
-                            >
-                              <View style={[styles.checkbox, checked && { backgroundColor: svc.color, borderColor: svc.color }]}>
-                                {checked && <Ionicons name="checkmark" size={12} color="#fff" />}
-                              </View>
-                              <Text style={[styles.svcRowText, checked && { color: svc.color, fontWeight: '600' }]}>
-                                {svc.label}
-                              </Text>
-                            </TouchableOpacity>
+                            <View key={svc.value}>
+                              <TouchableOpacity
+                                style={[styles.svcRow, checked && { backgroundColor: svc.color + '15' }]}
+                                onPress={() => toggleService(svc.value)}
+                              >
+                                <View style={[styles.checkbox, checked && { backgroundColor: svc.color, borderColor: svc.color }]}>
+                                  {checked && <Ionicons name="checkmark" size={12} color="#fff" />}
+                                </View>
+                                <Text style={[styles.svcRowText, checked && { color: svc.color, fontWeight: '600' }]}>
+                                  {svc.label}
+                                </Text>
+                              </TouchableOpacity>
+                              {checked && carriers.length > 0 && (
+                                <View style={styles.carrierPickerWrap}>
+                                  <Text style={styles.carrierPickerLabel}>Paquetería:</Text>
+                                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 8 }}>
+                                    <TouchableOpacity
+                                      style={[styles.carrierChip, !selectedKey && { backgroundColor: svc.color, borderColor: svc.color }]}
+                                      onPress={() => setServiceCarrier(svc.value, '')}
+                                    >
+                                      <Text style={[styles.carrierChipText, !selectedKey && { color: '#fff' }]}>Sin default</Text>
+                                    </TouchableOpacity>
+                                    {carriers.map(c => {
+                                      const key = c.carrier_key || String(c.id);
+                                      const isSel = selectedKey === key;
+                                      const isUrl = !!c.icon && (c.icon.startsWith('/') || c.icon.startsWith('http'));
+                                      return (
+                                        <TouchableOpacity
+                                          key={key}
+                                          style={[styles.carrierChip, isSel && { backgroundColor: svc.color, borderColor: svc.color }]}
+                                          onPress={() => setServiceCarrier(svc.value, key)}
+                                        >
+                                          {isUrl
+                                            ? <Image source={{ uri: c.icon!.startsWith('http') ? c.icon! : `${API_URL}${c.icon}` }} style={styles.carrierChipIcon} />
+                                            : <Text style={{ fontSize: 13 }}>{c.icon || '🚛'}</Text>}
+                                          <Text style={[styles.carrierChipText, isSel && { color: '#fff' }]} numberOfLines={1}>{c.name}</Text>
+                                        </TouchableOpacity>
+                                      );
+                                    })}
+                                  </ScrollView>
+                                </View>
+                              )}
+                            </View>
                           );
                         })}
                         <TouchableOpacity
@@ -1428,6 +1504,11 @@ const styles = StyleSheet.create({
   svcRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6, borderRadius: 8, marginBottom: 4 },
   checkbox: { width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: '#ccc', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   svcRowText: { fontSize: 14, color: '#333' },
+  carrierPickerWrap: { marginLeft: 30, marginBottom: 8, marginTop: 2 },
+  carrierPickerLabel: { fontSize: 11, color: '#888', marginBottom: 4 },
+  carrierChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 16, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff' },
+  carrierChipText: { fontSize: 12, color: '#444', maxWidth: 130 },
+  carrierChipIcon: { width: 16, height: 16, resizeMode: 'contain' },
   saveBtn: { backgroundColor: PURPLE, borderRadius: 8, paddingVertical: 12, alignItems: 'center', marginTop: 8 },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });
