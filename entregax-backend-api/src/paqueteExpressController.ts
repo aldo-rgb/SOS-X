@@ -1165,21 +1165,37 @@ export async function pqtxGetConfig(req: Request, res: Response) {
 // ============================================
 const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64410'; // CEDIS MTY (origen para cotizar/generar guías PQTX)
 
-export async function pqtxClientQuote(req: Request, res: Response) {
+// Regla de precio de última milla al cliente (unificada domicilio / Ocurre / panel):
+//   costo PQTX por caja < $300  → $400
+//   costo PQTX por caja ≥ $300  → ceil(costo) + $100  (override)
+export const pqtxPricePerBox = (costPerBox: number): number =>
+  costPerBox < 300 ? 400 : Math.ceil(costPerBox) + 100;
+
+export interface PqtxQuoteInput {
+  destZipCode: string;
+  packageCount?: number;
+  weight?: number;
+  length?: number;
+  width?: number;
+  height?: number;
+}
+
+// Núcleo reutilizable de cotización de última milla. Devuelve un objeto (no HTTP)
+// para poder llamarlo tanto desde el endpoint como al asignar instrucciones.
+export async function quotePqtxClientPrice(input: PqtxQuoteInput): Promise<any> {
+  const {
+    destZipCode,
+    packageCount = 1,
+    weight = 1,
+    length = 30,
+    width = 30,
+    height = 30,
+  } = input;
+
+  if (!destZipCode) {
+    return { success: false, available: false, packageCount, error: 'Se requiere CP destino' };
+  }
   try {
-    const {
-      destZipCode,
-      packageCount = 1,
-      weight = 1,
-      length = 30,
-      width = 30,
-      height = 30,
-    } = req.body;
-
-    if (!destZipCode) {
-      return res.status(400).json({ success: false, error: 'Se requiere CP destino' });
-    }
-
     // PQTX rechaza cotizaciones con más de 6 líneas de captura
     // ("NO SE PUEDEN ENVIAR MAS DE 6 LINEAS DE CAPTURA"). Como aquí la cotización
     // solo sirve para verificar cobertura (el precio al cliente es fijo por caja),
@@ -1285,10 +1301,10 @@ export async function pqtxClientQuote(req: Request, res: Response) {
           }, exact.quotes![0]);
           const oTotal = parseFloat(cheapestO.amount?.totalAmnt || cheapestO.totalAmnt || '0');
           const costPerBox = linesToQuote > 0 ? oTotal / linesToQuote : oTotal;
-          const pricePerBox = costPerBox < 300 ? 400 : Math.ceil(costPerBox) + 100;
-          return res.json({ success: true, available: true, type: 'ocurre', nearestBranch: false, usedZip: destZipCode,
+          const pricePerBox = pqtxPricePerBox(costPerBox);
+          return { success: true, available: true, type: 'ocurre', nearestBranch: false, usedZip: destZipCode,
             branch: exact.destination, pricePerBox, clientPrice: pricePerBox * packageCount, pqtxQuote: oTotal,
-            estimatedDays: cheapestO.dlvyEstDate || '2-4 días hábiles', packageCount });
+            estimatedDays: cheapestO.dlvyEstDate || '2-4 días hábiles', packageCount };
         }
       } catch { /* continuar */ }
 
@@ -1305,11 +1321,11 @@ export async function pqtxClientQuote(req: Request, res: Response) {
               }, r2.quotes![0]);
               const oTotal = parseFloat(cheapestO.amount?.totalAmnt || cheapestO.totalAmnt || '0');
               const costPerBox2 = linesToQuote > 0 ? oTotal / linesToQuote : oTotal;
-              const pricePerBox = costPerBox2 < 300 ? 400 : Math.ceil(costPerBox2) + 100;
-              return res.json({ success: true, available: true, type: 'ocurre', nearestBranch: true,
+              const pricePerBox = pqtxPricePerBox(costPerBox2);
+              return { success: true, available: true, type: 'ocurre', nearestBranch: true,
                 usedZip: candidateZip, originalZip: destZipCode, branch: r2.destination,
                 pricePerBox, clientPrice: pricePerBox * packageCount, pqtxQuote: oTotal,
-                estimatedDays: cheapestO.dlvyEstDate || '2-4 días hábiles', packageCount });
+                estimatedDays: cheapestO.dlvyEstDate || '2-4 días hábiles', packageCount };
             }
           } catch { /* ignorar */ }
         }
@@ -1317,7 +1333,7 @@ export async function pqtxClientQuote(req: Request, res: Response) {
 
       // Sin cobertura en ningún CP cercano
       console.log(`[PQTX-CLIENT] Sin cobertura domicilio ni Ocurre para ZIP=${destZipCode}`);
-      return res.json({ success: true, available: false, noCoverage: true, carrier: 'paquete_express', destZipCode });
+      return { success: true, available: false, noCoverage: true, carrier: 'paquete_express', destZipCode, packageCount };
     }
 
     // Tomar la cotización más económica (terrestre normalmente)
@@ -1330,19 +1346,15 @@ export async function pqtxClientQuote(req: Request, res: Response) {
     const pqtxTotal = parseFloat(cheapest.amount?.totalAmnt || cheapest.totalAmnt || cheapest.totalAmount || cheapest.total || '0');
 
     // REGLA DE UTILIDAD (precio POR CAJA) — pqtxTotal corresponde a linesToQuote líneas.
+    // $400 hasta ~$300 de costo por caja; por encima, override = ceil(costo)+$100.
     const pqtxPerBox = linesToQuote > 1 ? pqtxTotal / linesToQuote : pqtxTotal;
-    let pricePerBox: number;
-    let clientPrice: number;
-    let rule: string;
-
-    // Precio fijo $400/caja independientemente de la cotización PQTX
-    pricePerBox = 400;
-    clientPrice = 400 * packageCount;
-    rule = pqtxPerBox < 300 ? 'min_400_per_box' : 'fixed_400_per_box';
+    const pricePerBox = pqtxPricePerBox(pqtxPerBox);
+    const clientPrice = pricePerBox * packageCount;
+    const rule = pqtxPerBox < 300 ? 'min_400_per_box' : 'override_cost_plus_100';
 
     console.log(`[PQTX-CLIENT] ZIP=${destZipCode}, boxes=${packageCount}, pqtxQuote=$${pqtxTotal}, pricePerBox=$${pricePerBox}, clientTotal=$${clientPrice}, rule=${rule}`);
 
-    res.json({
+    return {
       success: true,
       available: true,
       type: 'domicilio',
@@ -1356,26 +1368,32 @@ export async function pqtxClientQuote(req: Request, res: Response) {
       rule,
       estimatedDays: cheapest.dlvyEstDate || '2-4 días hábiles',
       serviceName: cheapest.zoneName || cheapest.serviceDescription || 'Terrestre',
-    });
+    };
 
   } catch (error: any) {
     console.error('[PQTX-CLIENT] Error en cotización:', error.message);
-    const fallbackCount = req.body?.packageCount || 1;
-    res.json({
-      success: true,
-      available: true,
-      type: 'domicilio',
-      carrier: 'paquete_express',
-      name: 'Paquete Express',
-      pqtxQuote: null,
-      clientPrice: 400 * fallbackCount,
-      pricePerBox: 400,
-      packageCount: fallbackCount,
-      currency: 'MXN',
-      rule: 'error_fallback',
-      estimatedDays: '2-4 días hábiles',
+    // Sin dato de cobertura → no inventamos precio: marcamos no disponible para que
+    // el llamador decida (el endpoint responde igual; la asignación usa fallback).
+    return { success: false, available: false, packageCount, error: error.message };
+  }
+}
+
+// Endpoint HTTP: envuelve el núcleo reutilizable.
+export async function pqtxClientQuote(req: Request, res: Response) {
+  const result = await quotePqtxClientPrice(req.body || {});
+  if (!result || result.success === false) {
+    // Falta CP → 400. Error transitorio de PQTX → fallback $400/caja (comportamiento previo).
+    if (result?.error === 'Se requiere CP destino') {
+      return res.status(400).json(result);
+    }
+    const fallbackCount = Number(req.body?.packageCount) || 1;
+    return res.json({
+      success: true, available: true, type: 'domicilio', carrier: 'paquete_express', name: 'Paquete Express',
+      pqtxQuote: null, clientPrice: 400 * fallbackCount, pricePerBox: 400, packageCount: fallbackCount,
+      currency: 'MXN', rule: 'error_fallback', estimatedDays: '2-4 días hábiles',
     });
   }
+  return res.json(result);
 }
 
 // ============================================

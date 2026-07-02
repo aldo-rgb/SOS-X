@@ -4495,8 +4495,48 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                         `, [deliveryAddressId, carrierName || carrier, shippingCostMxn, newTotalMxn, deliveryInstructions, packageId]);
                     } else {
                         // Asignación normal de dirección - guardar también carrier y costo de envío
-                        const shippingCostMxn = parseFloat(carrierCost) || 0;
-                        
+                        let shippingCostMxn = parseFloat(carrierCost) || 0;
+
+                        // 🚚 Última milla AUTORITATIVA: si el carrier es Paquete Express (no
+                        // "por cobrar") y el frontend no mandó costo, el backend precotiza
+                        // aquí mismo (regla $400 / override) y asigna el cargo al momento de
+                        // asignar instrucciones — sin depender de qué panel lo llame ni de
+                        // cuándo se genere la guía. Se cobra por caja del paquete.
+                        const carrierNorm = String(carrier || '').toLowerCase().replace(/[\s_]+/g, '');
+                        const isPqtxPaid = carrierNorm === 'paqueteexpress' || carrierNorm === 'pqtx' || carrierNorm === 'paquetexpress';
+                        if (isPqtxPaid && shippingCostMxn <= 0) {
+                            try {
+                                const { quotePqtxClientPrice } = require('./paqueteExpressController');
+                                const dimsRes = await pool.query(
+                                    `SELECT COALESCE(total_boxes, 1) AS boxes,
+                                            COALESCE(weight, 1) AS weight,
+                                            COALESCE(pkg_length, 30) AS l,
+                                            COALESCE(width_cm, pkg_width, 30) AS w,
+                                            COALESCE(height_cm, pkg_height, 30) AS h,
+                                            (SELECT zip_code FROM addresses WHERE id = $2) AS zip
+                                       FROM packages WHERE id = $1`,
+                                    [packageId, deliveryAddressId]
+                                );
+                                const d = dimsRes.rows[0] || {};
+                                const boxes = Number(d.boxes) || 1;
+                                const zip = nationalDeliveryZipMobile || d.zip;
+                                let perBox = 400; // fallback estándar ($400/caja)
+                                if (zip) {
+                                    const q = await quotePqtxClientPrice({
+                                        destZipCode: String(zip), packageCount: boxes,
+                                        weight: Number(d.weight) || 1, length: Number(d.l) || 30,
+                                        width: Number(d.w) || 30, height: Number(d.h) || 30,
+                                    });
+                                    if (q && q.available && Number(q.pricePerBox) > 0) perBox = Number(q.pricePerBox);
+                                }
+                                shippingCostMxn = perBox * boxes;
+                                console.log(`🚚 [Última milla PQTX] Paquete ${packageId}: ${boxes} caja(s) × $${perBox} = $${shippingCostMxn} MXN`);
+                            } catch (qErr: any) {
+                                console.warn(`[Última milla PQTX] No se pudo precotizar paquete ${packageId}, usando $400/caja:`, qErr?.message);
+                                shippingCostMxn = shippingCostMxn > 0 ? shippingCostMxn : 400;
+                            }
+                        }
+
                         // Recalcular total: PO Box + GEX + envío nacional
                         const currentPkgData = await pool.query(
                             'SELECT pobox_venta_usd, gex_total_cost, monto_pagado FROM packages WHERE id = $1',

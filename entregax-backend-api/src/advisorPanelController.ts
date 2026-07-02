@@ -1900,9 +1900,41 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
     // ya cotizó vía /api/shipping/pqtx-quote; lo persistimos en
     // national_shipping_cost (× cajas del paquete). Antes quedaba en 0 porque el
     // handler asignaba el carrier pero nunca el costo.
-    const pqtxPerBox = (carrierKey === 'paquete_express' && !isCollectBool)
+    let pqtxPerBox = (carrierKey === 'paquete_express' && !isCollectBool)
       ? (parseFloat(req.body.nationalShippingCostPerBox) || 0)
       : 0;
+    // Fallback autoritativo: si es Paquete Express (no collect) y el front no mandó
+    // el costo precotizado, el backend precotiza aquí (regla $400 / override) para
+    // no dejar la última milla en $0. Solo aplica a paquetes (PKG).
+    if (carrierKey === 'paquete_express' && !isCollectBool && pqtxPerBox <= 0
+        && String(uid).startsWith('PKG-')) {
+      try {
+        const { quotePqtxClientPrice } = require('./paqueteExpressController');
+        const pid = parseInt(String(uid).substring(String(uid).indexOf('-') + 1));
+        const dimsRes = await pool.query(
+          `SELECT COALESCE(total_boxes, 1) AS boxes, COALESCE(weight, 1) AS weight,
+                  COALESCE(pkg_length, 30) AS l, COALESCE(width_cm, pkg_width, 30) AS w,
+                  COALESCE(height_cm, pkg_height, 30) AS h,
+                  (SELECT zip_code FROM addresses WHERE id = $2) AS zip
+             FROM packages WHERE id = $1`, [pid, addressId]);
+        const d = dimsRes.rows[0] || {};
+        const zip = nationalDeliveryZip || d.zip;
+        if (zip) {
+          const q = await quotePqtxClientPrice({
+            destZipCode: String(zip), packageCount: Number(d.boxes) || 1,
+            weight: Number(d.weight) || 1, length: Number(d.l) || 30,
+            width: Number(d.w) || 30, height: Number(d.h) || 30,
+          });
+          pqtxPerBox = (q && q.available && Number(q.pricePerBox) > 0) ? Number(q.pricePerBox) : 400;
+        } else {
+          pqtxPerBox = 400;
+        }
+        console.log(`🚚 [Última milla PQTX asesor] ${uid}: $${pqtxPerBox}/caja`);
+      } catch (qErr: any) {
+        console.warn(`[Última milla PQTX asesor] fallback $400 para ${uid}:`, qErr?.message);
+        pqtxPerBox = 400;
+      }
+    }
 
     // Parse uid
     const uidStr = String(uid);
