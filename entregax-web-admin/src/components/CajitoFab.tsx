@@ -354,6 +354,60 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
         </Paper>
       )}
 
+      {/* Contenedor asignado (solo marítimo) */}
+      {(() => {
+        const svc = String((m as any).serviceType || '').toUpperCase();
+        const trk = String((m as any).tracking || tracking || '').toUpperCase();
+        const isMaritime = svc === 'SEA_CHN_MX' || !!m.eta || !!m.blNumber || !!m.containerWeek || trk.startsWith('LOG');
+        if (!isMaritime) return null;
+        const cont = m.containerNumber ? String(m.containerNumber).trim() : '';
+        const asignado = cont.length > 0;
+        return (
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 1.25,
+              borderRadius: 2,
+              borderColor: asignado ? '#00695C' : '#FB8C00',
+              bgcolor: asignado ? 'rgba(0,105,92,0.05)' : 'rgba(251,140,0,0.05)',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+              <Typography sx={{ fontSize: 15 }}>📦</Typography>
+              <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                CONTENEDOR ASIGNADO
+              </Typography>
+            </Box>
+            {asignado ? (
+              <>
+                <Typography variant="body2" fontWeight={700} fontFamily="monospace" sx={{ color: '#00695C', letterSpacing: 0.5 }}>
+                  {cont}
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
+                  {m.blNumber && (
+                    <Chip label={`BL ${m.blNumber}`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+                  )}
+                  {m.eta && (
+                    <Chip label={`ETA ${fmtDate(m.eta)}${m.containerWeek ? ` · Sem ${m.containerWeek}` : ''}`} size="small" color="info" variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+                  )}
+                </Box>
+              </>
+            ) : (
+              <Chip
+                label="Sin asignar"
+                size="small"
+                sx={{
+                  bgcolor: 'rgba(251,140,0,0.15)',
+                  color: '#E65100',
+                  fontWeight: 700,
+                  border: '1px solid rgba(251,140,0,0.4)',
+                }}
+              />
+            )}
+          </Paper>
+        );
+      })()}
+
       {/* Descripción + peso + medidas */}
       {(m.description || m.weight || m.length || m.width || m.height) && (
         <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
