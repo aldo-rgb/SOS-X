@@ -112,6 +112,13 @@ interface PackageDetails {
     city?: string;
     street?: string;
     neighborhood?: string;
+    exterior_number?: string;
+    interior_number?: string;
+    state?: string;
+    reference?: string;
+    recipient_name?: string;
+    alias?: string;
+    phone?: string;
   } | null;
   // Fechas
   created_at?: string;
@@ -652,15 +659,32 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                 <Text style={styles.infoValue}>CP {details.national_delivery_zip}</Text>
               </View>
             )}
-            {!details.national_delivery_zip && details.assigned_address?.city && (
-              <View style={styles.infoRow}>
-                <MaterialCommunityIcons name="map-marker" size={20} color="#666" />
-                <Text style={styles.infoLabel}>Entrega en:</Text>
-                <Text style={styles.infoValue}>
-                  {[details.assigned_address.city, details.assigned_address.zip ? `CP ${details.assigned_address.zip}` : null].filter(Boolean).join(' ')}
-                </Text>
-              </View>
-            )}
+            {!details.national_delivery_zip && details.assigned_address?.city && (() => {
+              const a = details.assigned_address!;
+              const line1 = [a.street, a.exterior_number, a.interior_number ? `Int. ${a.interior_number}` : null].filter(Boolean).join(' ');
+              const cityLine = [[a.city, a.state].filter(Boolean).join(', '), a.zip ? `CP ${a.zip}` : null].filter(Boolean).join(' ');
+              const addressLines = [line1, a.neighborhood || null, cityLine].filter(Boolean);
+              return (
+                <View style={[styles.infoRow, { alignItems: 'flex-start' }]}>
+                  <MaterialCommunityIcons name="map-marker" size={20} color="#666" style={{ marginTop: 1 }} />
+                  <Text style={styles.infoLabel}>Entrega en:</Text>
+                  <View style={{ flex: 1 }}>
+                    {a.recipient_name ? (
+                      <Text style={[styles.infoValue, { flex: undefined }]}>{a.recipient_name}</Text>
+                    ) : null}
+                    {addressLines.map((ln, i) => (
+                      <Text key={i} style={[styles.infoValue, { flex: undefined, fontWeight: a.recipient_name ? '400' : '600' }]}>{ln}</Text>
+                    ))}
+                    {a.reference ? (
+                      <Text style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Ref: {a.reference}</Text>
+                    ) : null}
+                    {a.phone ? (
+                      <Text style={{ fontSize: 12, color: '#888' }}>Tel: {a.phone}</Text>
+                    ) : null}
+                  </View>
+                </View>
+              );
+            })()}
 
             {/* Tracking nacional — muestra folio PQTX (MTY...) si existe, si no el número de rastreo */}
             {!!details.national_tracking && (

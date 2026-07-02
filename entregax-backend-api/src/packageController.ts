@@ -4924,6 +4924,13 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
                 a.city AS addr_city,
                 a.street AS addr_street,
                 a.neighborhood AS addr_neighborhood,
+                a.exterior_number AS addr_ext,
+                a.interior_number AS addr_int,
+                a.state AS addr_state,
+                a.reference AS addr_reference,
+                a.recipient_name AS addr_recipient,
+                a.alias AS addr_alias,
+                a.phone AS addr_phone,
                 (SELECT ps.folio_porte FROM pqtx_shipments ps WHERE ps.tracking_number = p.national_tracking LIMIT 1) AS national_folio_porte,
                 (SELECT CASE
                    WHEN ps.total IS NULL OR COALESCE(ps.pieces,1) <= 0 THEN NULL
@@ -5087,6 +5094,13 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
                 city: pkg.addr_city || null,
                 street: pkg.addr_street || null,
                 neighborhood: pkg.addr_neighborhood || null,
+                exterior_number: pkg.addr_ext || null,
+                interior_number: pkg.addr_int || null,
+                state: pkg.addr_state || null,
+                reference: pkg.addr_reference || null,
+                recipient_name: pkg.addr_recipient || null,
+                alias: pkg.addr_alias || null,
+                phone: pkg.addr_phone || null,
             } : null,
             client: {
                 id: pkg.user_id,
