@@ -966,6 +966,13 @@ export default function DashboardClient() {
   const selectedServiceType = useMemo(() => {
     const selected = packages.filter(p => selectedPackageIds.includes(p.id));
     if (selected.length === 0) return 'china_air';
+    const p0 = selected[0] as any;
+    // TDX se identifica por servicio/air_source/service_type aunque el backend
+    // exponga shipment_type='china_air' (TDX es un servicio aéreo). Debe usar su
+    // propio servicio de paqueterías 'tdi_express', no china_air.
+    const isTdx = ['servicio', 'air_source', 'service_type', 'shipment_type']
+      .some(k => String(p0?.[k] || '').toLowerCase() === 'tdi_express');
+    if (isTdx) return 'tdi_express';
     const raw = selected[0]?.shipment_type || selected[0]?.servicio || 'china_air';
     // Mapear los valores internos del DB a los identificadores del carrier system
     const serviceMap: Record<string, string> = {
