@@ -103,9 +103,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const [box, setBox] = useState({ ...emptyBox });
   const [quantity, setQuantity] = useState('1');
   const [busy, setBusy] = useState(false);
-  // Guías asignadas por caja en el paso 2 (Confirmar). Key = child id.
-  const [guidesDraft, setGuidesDraft] = useState<Record<number, { long: string; short: string }>>({});
-  const [savingGuides, setSavingGuides] = useState(false);
   // Editar número de cliente de un envío
   const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string; productType: string }>(
     { open: false, id: null, value: '', productType: '' }
@@ -295,42 +292,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     setWizardOpen(false);
     loadAll();
     setSnack({ sev: 'success', msg: t('tdiExpress.wizard.done') });
-  };
-
-  // Guarda en backend (PATCH por caja) las guías larga/corta capturadas
-  // en el paso 3. Solo envía cambios reales para no machacar valores existentes.
-  const saveGuides = async (): Promise<boolean> => {
-    if (!masterId) return false;
-    setSavingGuides(true);
-    try {
-      const ops: Promise<any>[] = [];
-      for (const b of captured) {
-        const draft = guidesDraft[b.id];
-        if (!draft) continue;
-        const longNew = (draft.long || '').trim().toUpperCase();
-        const shortNew = (draft.short || '').trim().toUpperCase();
-        const longCur = (b.tracking_provider || '').toUpperCase();
-        const shortCur = (b.notes || '').toUpperCase();
-        const body: any = {};
-        if (longNew !== longCur) body.originGuide = longNew || null;
-        if (shortNew !== shortCur) body.originGuide2 = shortNew || null;
-        if (Object.keys(body).length > 0) {
-          ops.push(axios.patch(
-            `${API_URL}/api/tdi-express/serial/${masterId}/child/${b.id}`,
-            body,
-            { headers: authHeaders }
-          ));
-        }
-      }
-      if (ops.length > 0) await Promise.all(ops);
-      await reloadBoxes(masterId);
-      return true;
-    } catch (e: any) {
-      setSnack({ sev: 'error', msg: e?.response?.data?.error || 'Error' });
-      return false;
-    } finally {
-      setSavingGuides(false);
-    }
   };
 
   // Cancelar el wizard. Si ya se creó un master vacío (sin cajas), lo elimina silenciosamente.
@@ -566,7 +527,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
           <Stepper activeStep={step} sx={{ mb: 3, mt: 1 }}>
             <Step><StepLabel>{t('tdiExpress.wizard.step1')}</StepLabel></Step>
             <Step><StepLabel>{t('tdiExpress.wizard.step2')}</StepLabel></Step>
-            <Step><StepLabel>{t('tdiExpress.wizard.step3')}</StepLabel></Step>
           </Stepper>
 
           {/* Paso 1 — cliente + total cajas */}
@@ -720,68 +680,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
             </Stack>
           )}
 
-          {/* Paso 3 — Asignar guías larga/corta + completar */}
-          {step === 2 && (
-            <Box>
-              <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
-                {t('tdiExpress.wizard.assignGuidesTitle')}
-              </Typography>
-              <Alert severity="info" sx={{ mb: 1.5 }}>
-                {t('tdiExpress.wizard.assignGuidesHint')}
-              </Alert>
-              <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 420 }}>
-                <Table size="small" stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 700, width: 60 }}>#</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>{t('tdiExpress.wizard.tracking')}</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>{t('tdiExpress.wizard.longGuide')}</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>{t('tdiExpress.wizard.shortGuide')}</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {captured.map((b) => {
-                      const draft = guidesDraft[b.id] || { long: b.tracking_provider || '', short: b.notes || '' };
-                      return (
-                        <TableRow key={b.id} hover>
-                          <TableCell sx={{ fontWeight: 700, color: ORANGE }}>{b.box_number}</TableCell>
-                          <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{b.tracking_internal}</TableCell>
-                          <TableCell>
-                            <TextField
-                              size="small" fullWidth
-                              value={draft.long}
-                              onChange={(e) => setGuidesDraft((g) => ({
-                                ...g,
-                                [b.id]: { long: e.target.value.toUpperCase(), short: (g[b.id]?.short ?? (b.notes || '')) }
-                              }))}
-                              placeholder="2LMX64000..."
-                              slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              size="small" fullWidth
-                              value={draft.short}
-                              onChange={(e) => setGuidesDraft((g) => ({
-                                ...g,
-                                [b.id]: { long: (g[b.id]?.long ?? (b.tracking_provider || '')), short: e.target.value.toUpperCase() }
-                              }))}
-                              placeholder="9650623485"
-                              slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                {t('tdiExpress.wizard.captured')}: {captured.length}/{totalBoxes}
-              </Typography>
-            </Box>
-          )}
-
           {snack && <Alert severity={snack.sev} sx={{ mt: 2 }} onClose={() => setSnack(null)}>{snack.msg}</Alert>}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
@@ -794,28 +692,10 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
             </Button>
           )}
           {step === 1 && (
-            <Button variant="contained" onClick={() => {
-              // Inicializa el draft de guías con valores actuales (por si reentra al paso)
-              const init: Record<number, { long: string; short: string }> = {};
-              captured.forEach((b) => {
-                init[b.id] = { long: b.tracking_provider || '', short: b.notes || '' };
-              });
-              setGuidesDraft(init);
-              setStep(2);
-            }} disabled={busy || captured.length === 0}
+            <Button variant="contained" onClick={finishWizard} disabled={busy || captured.length === 0}
               sx={{ bgcolor: remaining > 0 ? '#6B7280' : '#2E7D32', '&:hover': { opacity: 0.9 } }}>
-              {remaining > 0 ? t('tdiExpress.wizard.remaining', { n: remaining }) : t('tdiExpress.wizard.continue')}
+              {remaining > 0 ? t('tdiExpress.wizard.remaining', { n: remaining }) : t('tdiExpress.wizard.finish')}
             </Button>
-          )}
-          {step === 2 && (
-            <>
-              <Button onClick={() => setStep(1)} disabled={savingGuides}>{t('tdiExpress.wizard.back')}</Button>
-              <Button variant="contained" disabled={savingGuides}
-                onClick={async () => { const ok = await saveGuides(); if (ok) finishWizard(); }}
-                sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#256528' } }}>
-                {savingGuides ? <CircularProgress size={20} sx={{ color: '#FFF' }} /> : t('tdiExpress.wizard.finish')}
-              </Button>
-            </>
           )}
         </DialogActions>
       </Dialog>
