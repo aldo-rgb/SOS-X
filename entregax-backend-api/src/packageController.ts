@@ -6621,7 +6621,7 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
          pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
          registered_exchange_rate, pobox_cost_usd, national_shipping_cost, needs_instructions)
        VALUES ($1, $2, $3, $4, 0, NULL, $5,
-               'received', $7, $8, $9, 'BODEGA',
+               'received', $6, $7, $8, 'BODEGA',
                'México', 'En Bodega', 'Pendiente de asignar',
                'POBOX_USA', 'usa_pobox', false,
                0, 0, 0,
@@ -6634,7 +6634,6 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
         masterTracking,
         description,
         notesText,
-        total,
         anchorIsMaster,
         anchorBoxNumber,
         anchorTotalBoxes,
