@@ -110,6 +110,7 @@ const PAYMENT_METHOD_LABELS: Record<string, { label: string; color: string; icon
   paypal: { label: 'PayPal', color: '#0070BA', icon: '🅿️' },
   wallet: { label: 'Saldo a favor', color: '#00838F', icon: '👛' },
   credit: { label: 'Crédito', color: '#AD1457', icon: '📊' },
+  credito_pagado: { label: 'Crédito Pagado', color: '#2E7D32', icon: '💳' },
 };
 
 const getPaymentMethodInfo = (method?: string) => {

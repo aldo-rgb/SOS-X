@@ -8033,7 +8033,10 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
           AND NOT EXISTS (
             SELECT 1 FROM openpay_webhook_logs owl_dup
             WHERE owl_dup.estatus_procesamiento = 'procesado'
-              AND owl_dup.transaction_id = substring(t.concepto from 'Ref: ([A-Za-z0-9-]+)')
+              AND owl_dup.transaction_id IN (
+                substring(t.concepto from 'Ref: ([A-Za-z0-9-]+)'),
+                t.referencia
+              )
           )
           ${serviceFilter ? "AND t.service_type = ANY($3)" : ""}
         ORDER BY t.created_at DESC
@@ -8049,7 +8052,15 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
           owl.monto_recibido as monto_bruto,
           owl.monto_neto,
           owl.monto_recibido - owl.monto_neto as comision,
-          COALESCE(pp.payment_method, owl.payment_method, owl.tipo_pago, 'spei') as metodo,
+          -- 💳 Crédito ya liquidado (pagado después con dinero + comprobante):
+          --    se muestra como "credito_pagado" en la fila que conserva la referencia,
+          --    y la nota de caja de efectivo se deduplica arriba (por t.referencia).
+          CASE
+            WHEN COALESCE(pp.payment_method, owl.payment_method, owl.tipo_pago) = 'credit'
+                 AND COALESCE(pp.credit_settled, false) = true
+              THEN 'credito_pagado'
+            ELSE COALESCE(pp.payment_method, owl.payment_method, owl.tipo_pago, 'spei')
+          END as metodo,
           owl.concepto,
           COALESCE(fe.alias, 'Empresa') as origen,
           owl.estatus_procesamiento as estatus,
