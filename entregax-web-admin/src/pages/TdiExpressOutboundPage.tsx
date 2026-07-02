@@ -300,13 +300,13 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
             <IconButton onClick={onBack} sx={{ color: '#FFF' }}>
               <ArrowBackIcon />
             </IconButton>
-            <FlightTakeoffIcon sx={{ fontSize: 40, color: ORANGE }} />
+            <FlightTakeoffIcon sx={{ fontSize: 40, color: '#FFCC00' }} />
             <Box>
-              <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 2 }}>
-                TDI EXPRESS
+              <Typography variant="overline" sx={{ color: '#FFCC00', fontWeight: 700, letterSpacing: 2 }}>
+                DHL EXPRESS
               </Typography>
               <Typography variant="h4" sx={{ fontWeight: 800 }}>
-                Enviar TDI Express
+                Enviar DHL Express
               </Typography>
               <Typography variant="body2" sx={{ color: '#BDBDBD', mt: 0.5 }}>
                 Da salida a las cajas listas para salir de China. Solo se despachan las que tienen instrucciones de envío.
@@ -441,7 +441,7 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
                   <TableCell colSpan={5} align="center" sx={{ py: 8 }}>
                     <InboxIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
                     <Typography color="text.secondary">
-                      No hay cajas TDI Express listas para salida
+                      No hay cajas DHL Express listas para salida
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -463,7 +463,7 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
           <QrCodeScannerIcon sx={{ fontSize: 32 }} />
           <Box>
             <Typography variant="h6" fontWeight={700}>
-              Nueva Salida TDI Express
+              Nueva Salida DHL Express
             </Typography>
             <Typography variant="body2" sx={{ opacity: 0.9 }}>
               Escanea las guías de las cajas que salen de China

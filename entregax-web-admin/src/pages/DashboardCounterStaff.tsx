@@ -45,7 +45,6 @@ import {
   CreditCard as CardIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
-  FlightTakeoff as FlightTakeoffIcon,
   DirectionsBoat as BoatIcon,
   Payments as PaymentsIcon,
 } from '@mui/icons-material';
@@ -185,7 +184,7 @@ export default function DashboardCounterStaff() {
     { icon: <PrintIcon sx={{ fontSize: 48 }} />, title: 'Etiquetado', color: '#F05A28', action: 'relabeling' },
     { icon: <ScannerIcon sx={{ fontSize: 48 }} />, title: 'Escáner Multi-Sucursal', color: '#2196F3', action: 'scanner_multi' },
     // Accesos directos según permisos del usuario
-    ...(canTdiExpress ? [{ icon: <FlightTakeoffIcon sx={{ fontSize: 48 }} />, title: 'TDI Express', color: '#D40511', action: 'tdi_express' }] : []),
+    ...(canTdiExpress ? [{ icon: <ShippingIcon sx={{ fontSize: 48 }} />, title: 'DHL Express', color: '#FFCC00', iconColor: '#D40511', action: 'tdi_express' }] : []),
     ...(canMaritimeConsolidations ? [{ icon: <BoatIcon sx={{ fontSize: 48 }} />, title: 'Consolidaciones Marítimas', color: '#0277BD', action: 'maritime_consolidations' }] : []),
     // Exclusivo Bodega China: acceso a la plataforma de pagos a proveedor (tcmanual).
     ...(isBodegaChina ? [{ icon: <PaymentsIcon sx={{ fontSize: 48 }} />, title: 'Pagos a Proveedor', color: '#2E7D32', action: 'proveedor_tcmanual' }] : []),
@@ -580,12 +579,13 @@ export default function DashboardCounterStaff() {
                   sx={{ p: 3, textAlign: 'center' }}
                   onClick={() => handleQuickAction(action.action)}
                 >
-                  <Avatar 
-                    sx={{ 
-                      bgcolor: action.color, 
-                      width: 72, 
-                      height: 72, 
-                      mx: 'auto', 
+                  <Avatar
+                    sx={{
+                      bgcolor: action.color,
+                      color: (action as any).iconColor || undefined,
+                      width: 72,
+                      height: 72,
+                      mx: 'auto',
                       mb: 2,
                       boxShadow: 2,
                     }}
