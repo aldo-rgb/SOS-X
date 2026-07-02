@@ -103,6 +103,10 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const [box, setBox] = useState({ ...emptyBox });
   const [quantity, setQuantity] = useState('1');
   const [busy, setBusy] = useState(false);
+  // Confirmación de eliminación (diálogo con diseño, no confirm() nativo)
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: number | null; busy: boolean }>(
+    { open: false, id: null, busy: false }
+  );
   // Editar número de cliente de un envío
   const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string; productType: string }>(
     { open: false, id: null, value: '', productType: '' }
@@ -378,13 +382,21 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     }
   };
 
-  const deleteShipment = async (id: number) => {
-    if (!window.confirm(t('tdiExpress.confirmDelete'))) return;
+  // Abre el diálogo de confirmación (con diseño) en vez del confirm() nativo.
+  const deleteShipment = (id: number) => {
+    setDeleteConfirm({ open: true, id, busy: false });
+  };
+
+  const doDeleteShipment = async () => {
+    if (deleteConfirm.id == null) return;
+    setDeleteConfirm((s) => ({ ...s, busy: true }));
     try {
-      await axios.delete(`${API_URL}/api/tdi-express/shipments/${id}`, { headers: authHeaders });
+      await axios.delete(`${API_URL}/api/tdi-express/shipments/${deleteConfirm.id}`, { headers: authHeaders });
+      setDeleteConfirm({ open: false, id: null, busy: false });
       loadAll();
     } catch (e: any) {
-      window.alert(e?.response?.data?.error || 'Error');
+      setDeleteConfirm({ open: false, id: null, busy: false });
+      setSnack({ sev: 'error', msg: e?.response?.data?.error || 'Error' });
     }
   };
 
@@ -729,6 +741,25 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
             disabled={!editClient.value.trim() && !editClient.productType}
             sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A28' } }}>
             {t('tdiExpress.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirmación de eliminación con diseño (reemplaza confirm() nativo) */}
+      <Dialog open={deleteConfirm.open} onClose={() => !deleteConfirm.busy && setDeleteConfirm({ open: false, id: null, busy: false })} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#C62828', fontWeight: 700 }}>
+          <DeleteIcon /> {t('tdiExpress.confirmDeleteTitle')}
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mt: 1 }}>{t('tdiExpress.confirmDelete')}</Alert>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setDeleteConfirm({ open: false, id: null, busy: false })} disabled={deleteConfirm.busy}>
+            {t('tdiExpress.wizard.cancel')}
+          </Button>
+          <Button variant="contained" color="error" onClick={doDeleteShipment} disabled={deleteConfirm.busy}
+            startIcon={deleteConfirm.busy ? <CircularProgress size={16} sx={{ color: '#FFF' }} /> : <DeleteIcon />}>
+            {t('tdiExpress.deleteBtn')}
           </Button>
         </DialogActions>
       </Dialog>

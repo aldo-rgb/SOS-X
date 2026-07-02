@@ -2206,6 +2206,8 @@
       "delivered": "Entregado"
     },
     "confirmDelete": "¿Eliminar este envío y todas sus cajas? Esta acción no se puede deshacer.",
+    "confirmDeleteTitle": "Eliminar envío",
+    "deleteBtn": "Eliminar",
     "reprintLabels": "Reimprimir etiquetas",
     "editClient": "Editar número de cliente",
     "save": "Guardar"
