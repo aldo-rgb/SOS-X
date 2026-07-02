@@ -1883,6 +1883,20 @@
     "thisMonth": "This Month",
     "subAdvisors": "Sub-Advisors"
   },
+  "chinaAirHub": {
+    "overline": "TDI · ENTREGAX",
+    "title": "China Air",
+    "subtitle": "Reception and inventory control for the China → Mexico air service",
+    "noPermissions": "You don't have permission for any China Air module. Contact your supervisor.",
+    "options": {
+      "reception": { "title": "Receive AWB", "desc": "Scan the packages that arrived in an AWB and register the reception in MTY" },
+      "inventory": { "title": "Air Inventory", "desc": "Check air service (AIR) packages in the warehouse and their status" },
+      "tdx_inventory": { "title": "TDX Inventory", "desc": "Check DHL Express (TDX) packages in the warehouse and their status" },
+      "tdi_express": { "title": "Receive DHL Express", "desc": "Batch capture of shipments on the DHL Express China → Monterrey route" },
+      "tdi_outbound": { "title": "Send DHL Express", "desc": "Dispatch the boxes ready to leave China" },
+      "tdi_cedis_mty": { "title": "Receive at CEDIS MTY", "desc": "Scan TDX packages that arrived in Monterrey to mark them as Received MTY" }
+    }
+  },
   "tdiExpress": {
     "title": "Receive TDI Express",
     "subtitle": "Batch reception of shipments from the TDI Express air route (China → Monterrey)",

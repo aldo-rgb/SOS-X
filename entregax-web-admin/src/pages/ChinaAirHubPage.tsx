@@ -26,6 +26,7 @@ import {
     LocalShipping as ShippingIcon,
     FlightTakeoff as FlightTakeoffIcon,
 } from '@mui/icons-material';
+import { useTranslation } from 'react-i18next';
 import ChinaAirReceptionWizard from './ChinaAirReceptionWizard';
 import ChinaAirInventoryPage from './ChinaAirInventoryPage';
 import TdiExpressShipmentsPage from './TdiExpressShipmentsPage';
@@ -91,6 +92,7 @@ const OPTIONS = [
 const AIR_HUB_MODULES = OPTIONS.map((o) => o.key);
 
 export default function ChinaAirHubPage({ onBack }: Props) {
+    const { t } = useTranslation();
     const [panel, setPanel] = useState<Panel>('menu');
     const { allowedModules, loading: permLoading } = useModulePermissions('ops_china_air', AIR_HUB_MODULES);
     const visibleOptions = OPTIONS.filter((opt) => allowedModules.includes(opt.key));
@@ -146,13 +148,13 @@ export default function ChinaAirHubPage({ onBack }: Props) {
                     <FlightIcon sx={{ fontSize: 40, color: ORANGE }} />
                     <Box>
                         <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 2 }}>
-                            TDI · ENTREGAX
+                            {t('chinaAirHub.overline')}
                         </Typography>
                         <Typography variant="h4" sx={{ fontWeight: 800, color: '#FFF' }}>
-                            Aéreo China
+                            {t('chinaAirHub.title')}
                         </Typography>
                         <Typography variant="body2" sx={{ color: '#BDBDBD', mt: 0.5 }}>
-                            Recepción y control de inventario del servicio aéreo China → México
+                            {t('chinaAirHub.subtitle')}
                         </Typography>
                     </Box>
                 </Stack>
@@ -165,7 +167,7 @@ export default function ChinaAirHubPage({ onBack }: Props) {
                 </Box>
             ) : visibleOptions.length === 0 ? (
                 <Alert severity="info">
-                    No tienes permisos para ningún módulo de Aéreo China. Contacta a tu supervisor.
+                    {t('chinaAirHub.noPermissions')}
                 </Alert>
             ) : (
             <Box
@@ -206,10 +208,10 @@ export default function ChinaAirHubPage({ onBack }: Props) {
                                 <Stack direction="row" alignItems="center" justifyContent="space-between">
                                     <Box>
                                         <Typography variant="h5" sx={{ fontWeight: 700, color: BLACK }}>
-                                            {opt.title}
+                                            {t(`chinaAirHub.options.${opt.key}.title`)}
                                         </Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                            {opt.description}
+                                            {t(`chinaAirHub.options.${opt.key}.desc`)}
                                         </Typography>
                                     </Box>
                                     <ChevronRightIcon sx={{ color: ORANGE, fontSize: 32 }} />

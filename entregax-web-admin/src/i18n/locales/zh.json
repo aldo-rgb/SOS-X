@@ -1743,6 +1743,20 @@
     "thisMonth": "本月",
     "subAdvisors": "子顾问"
   },
+  "chinaAirHub": {
+    "overline": "TDI · ENTREGAX",
+    "title": "中国空运",
+    "subtitle": "中国 → 墨西哥 空运服务的接收与库存管理",
+    "noPermissions": "您没有任何中国空运模块的权限。请联系主管。",
+    "options": {
+      "reception": { "title": "接收 AWB", "desc": "扫描随 AWB 到达的包裹并在 MTY 登记接收" },
+      "inventory": { "title": "空运库存", "desc": "查看仓库中空运（AIR）包裹及其状态" },
+      "tdx_inventory": { "title": "TDX 库存", "desc": "查看仓库中 DHL Express（TDX）包裹及其状态" },
+      "tdi_express": { "title": "接收 DHL Express", "desc": "批量登记 DHL Express 中国 → 蒙特雷 线路的货件" },
+      "tdi_outbound": { "title": "发出 DHL Express", "desc": "发出已准备好离开中国的箱子" },
+      "tdi_cedis_mty": { "title": "在 CEDIS MTY 接收", "desc": "扫描到达蒙特雷的 TDX 包裹，标记为已在 MTY 接收" }
+    }
+  },
   "tdiExpress": {
     "title": "接收 TDI Express",
     "subtitle": "TDI Express 空运路线（中国 → 蒙特雷）的批量收货",
