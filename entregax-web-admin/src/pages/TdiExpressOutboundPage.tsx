@@ -377,7 +377,8 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {boxes.map((b) => (
+              {/* Solo se listan (y despachan) las cajas CON instrucciones de envío. */}
+              {boxes.filter((b) => b.has_instructions).map((b) => (
                 <TableRow key={b.id} hover>
                   <TableCell>
                     <Typography fontWeight={600} color="primary">
@@ -436,12 +437,14 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
                   </TableCell>
                 </TableRow>
               ))}
-              {boxes.length === 0 && (
+              {boxes.filter((b) => b.has_instructions).length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} align="center" sx={{ py: 8 }}>
                     <InboxIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
                     <Typography color="text.secondary">
-                      No hay cajas DHL Express listas para salida
+                      {blockedCount > 0
+                        ? `No hay cajas listas para salida. ${blockedCount} caja(s) esperan instrucciones de envío.`
+                        : 'No hay cajas DHL Express listas para salida'}
                     </Typography>
                   </TableCell>
                 </TableRow>
