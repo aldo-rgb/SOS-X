@@ -11490,11 +11490,15 @@ export default function DashboardClient() {
                       montoMXN = costoUSD * tcToShow;
                       if (selectedPackage.product_type) detailLine = dhlTypeLabel;
                     } else if (hasAirFrozenPrice) {
-                      // AÉREO CHINA: air_sale_price es USD
+                      // AÉREO CHINA / TDX: air_sale_price es USD.
                       costoUSD = Number(selectedPackage.air_sale_price);
                       montoMXN = costoUSD * tcConfig;
                       tcToShow = tcConfig;
-                      detailLine = `${Number(selectedPackage.weight || 0).toFixed(1)} kg × $${airPricePerKg.toFixed(2)} USD/kg (${tariffLabel})`;
+                      // TDX no guarda air_price_per_kg; se deriva del precio congelado / peso.
+                      const wKg = Number(selectedPackage.weight || 0);
+                      const effectivePpk = airPricePerKg > 0 ? airPricePerKg : (wKg > 0 ? costoUSD / wKg : 0);
+                      const tariffSuffix = tariffLabel ? ` (${tariffLabel})` : '';
+                      detailLine = `${wKg.toFixed(1)} kg × $${effectivePpk.toFixed(2)} USD/kg${tariffSuffix}`;
                     } else if (isAirChina && selectedPackage.weight && Number(selectedPackage.weight) > 0) {
                       // AÉREO CHINA estimado
                       costoUSD = Number(selectedPackage.weight) * 21;
