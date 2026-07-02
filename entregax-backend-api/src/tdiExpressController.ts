@@ -369,7 +369,10 @@ export const updateTdiShipment = async (req: Request, res: Response): Promise<an
 // =====================================================================
 // RECEPCIÓN EN SERIE — agregar caja al master
 // Body: { originGuide, boxId, grossWeight, chargeableWeight, length, width,
-//         height, productType, description, comments }
+//         height, productType, description, comments, quantity, extraChargeUsd }
+//   - originGuide  aplica a TODAS las N cajas del bloque
+//   - extraChargeUsd (opcional): se registra como cargo_extra por cada caja
+//     creada en guias_ajustes_financieros (servicio='tdi_express', moneda='USD')
 // =====================================================================
 export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
   const client = await pool.connect();
@@ -380,8 +383,12 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
     const {
       originGuide, boxId, grossWeight, chargeableWeight,
       length, width, height, productType, description, comments, quantity,
+      extraChargeUsd,
     } = req.body || {};
     const qty = Math.max(1, Math.min(99, parseInt(String(quantity ?? 1), 10) || 1));
+    const extraUsd = Number(extraChargeUsd);
+    const hasExtra = Number.isFinite(extraUsd) && extraUsd > 0;
+    const autorizadoPor = (req as any).user?.userId ?? (req as any).user?.id ?? null;
 
     const gw = Number(grossWeight) || 0;
     const cw = Number(chargeableWeight) || 0;
@@ -433,6 +440,24 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
         ]
       );
       created.push({ id: ins.rows[0].id, tracking: ins.rows[0].tracking_internal, boxNumber });
+
+      // Cargo extra opcional en USD — se agrega como ajuste financiero por caja
+      // (guias_ajustes_financieros). Se usa el mismo endpoint que usa el resto
+      // del sistema para cargos/descuentos de guas, para que aparezca en el
+      // saldo pendiente / cartera.
+      if (hasExtra) {
+        try {
+          await client.query(
+            `INSERT INTO guias_ajustes_financieros
+               (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, autorizado_por, cliente_id)
+             VALUES ($1, $2, 'tdi_express', 'cargo_extra', $3, 'USD', $4, $5, $6)`,
+            [ins.rows[0].id, ins.rows[0].tracking_internal, extraUsd,
+              'Cargo extra en recepción TDI Express', autorizadoPor, master.user_id]
+          );
+        } catch (extraErr: any) {
+          console.warn('[addTdiBox] no se pudo registrar cargo_extra:', extraErr.message);
+        }
+      }
     }
 
     // Recalcular totales del master
