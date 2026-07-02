@@ -469,6 +469,18 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
     const pricePerKg = await getTariffPerKg(client, routeId, tariffType);
     const salePrice = +(pricePerKg * billWeight).toFixed(2);
 
+    // TC USD→MXN de TDI, se GUARDA con la caja para que el flete quede fijo
+    // (no se recalcula en cada vista). Fallback 17.77 si no hay config.
+    let tdiTc = 17.77;
+    try {
+      const tcRes = await client.query(`
+        SELECT COALESCE(tipo_cambio_manual, ultimo_tc_api, 17.77) + COALESCE(sobreprecio, 0) AS tc
+        FROM exchange_rate_config WHERE servicio = 'tdi' AND estado = TRUE LIMIT 1`);
+      if (tcRes.rows[0]?.tc) tdiTc = Number(tcRes.rows[0].tc) || 17.77;
+    } catch { /* fallback */ }
+    // Flete en MXN de esta caja = precio de venta USD × TC.
+    const freightMxn = +(salePrice * tdiTc).toFixed(2);
+
     await client.query('BEGIN');
 
     const countRes = await client.query('SELECT COUNT(*) AS c FROM packages WHERE master_id = $1', [masterId]);
@@ -499,10 +511,12 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
            box_id, user_id, status, air_route_id, air_source, service_type,
            weight, air_chargeable_weight, pkg_length, pkg_width, pkg_height,
            air_tariff_type, air_price_per_kg, air_sale_price, air_is_custom_tariff,
+           registered_exchange_rate, assigned_cost_mxn, saldo_pendiente,
            description, notes, received_at, created_at, updated_at
          ) VALUES (
            $1, $2, false, $3, $4, $5, $6, $7, 'received_china', $8, 'tdi_express', 'tdi_express',
            $9, $10, $11, $12, $13, $14, $15, $16, false,
+           $19, $20, $20,
            $17, $18, NOW(), NOW(), NOW()
          ) RETURNING id, tracking_internal`,
         [
@@ -511,6 +525,7 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
           gw, cw || null, Number(length) || null, Number(width) || null, Number(height) || null,
           tariffType, pricePerKg > 0 ? pricePerKg : null, salePrice > 0 ? salePrice : null,
           description || null, comments || null,
+          tdiTc, freightMxn,
         ]
       );
       created.push({ id: ins.rows[0].id, tracking: ins.rows[0].tracking_internal, boxNumber });
@@ -534,15 +549,24 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
       }
     }
 
-    // Recalcular totales del master
+    // Recalcular totales del master. El flete (air_sale_price × TC) queda GUARDADO
+    // en assigned_cost_mxn/saldo_pendiente junto con el GEX, para que las vistas
+    // lean el total sin recalcular. Los cargos extra viven en guias_ajustes.
     await client.query(
       `UPDATE packages SET
          weight = COALESCE((SELECT SUM(weight) FROM packages WHERE master_id = $1), 0),
          air_chargeable_weight = COALESCE((SELECT SUM(COALESCE(air_chargeable_weight, weight)) FROM packages WHERE master_id = $1), 0),
          air_sale_price = COALESCE((SELECT SUM(air_sale_price) FROM packages WHERE master_id = $1), 0),
+         registered_exchange_rate = $2,
+         -- assigned_cost_mxn = FLETE en MXN (sin GEX ni cargos, para que las vistas
+         -- lo tomen como "envío" y sumen GEX/cargos aparte sin doble conteo).
+         assigned_cost_mxn = COALESCE((SELECT SUM(air_sale_price) FROM packages WHERE master_id = $1), 0) * $2,
+         saldo_pendiente = GREATEST(0,
+             COALESCE((SELECT SUM(air_sale_price) FROM packages WHERE master_id = $1), 0) * $2
+             + COALESCE(gex_total_cost, 0) - COALESCE(monto_pagado, 0)),
          updated_at = NOW()
        WHERE id = $1`,
-      [masterId]
+      [masterId, tdiTc]
     );
 
     await client.query('COMMIT');
