@@ -133,6 +133,22 @@ export const getTdiStats = async (_req: Request, res: Response): Promise<any> =>
 // =====================================================================
 export const listTdiShipments = async (req: Request, res: Response): Promise<any> => {
   try {
+    // Auto-cleanup: elimina masters TDI Express que quedaron vacíos (sin cajas
+    // hijas) por más de 10 minutos. Estos son creados al iniciar el wizard
+    // 'Recibir Paquete' pero el usuario nunca llegó a capturar cajas (cerró
+    // el navegador, recargó, etc.).
+    try {
+      await pool.query(`
+        DELETE FROM packages
+         WHERE air_source = 'tdi_express'
+           AND is_master = TRUE
+           AND created_at < NOW() - INTERVAL '10 minutes'
+           AND NOT EXISTS (SELECT 1 FROM packages c WHERE c.master_id = packages.id)
+      `);
+    } catch (cleanupErr: any) {
+      console.warn('[listTdiShipments] cleanup empty masters warning:', cleanupErr.message);
+    }
+
     const { search, status } = req.query as { search?: string; status?: string };
     const where: string[] = [
       `m.air_source = 'tdi_express'`,
@@ -424,7 +440,12 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
     const gw = Number(grossWeight) || 0;
     const cw = Number(chargeableWeight) || 0;
     const billWeight = cw > 0 ? cw : gw;
-    if (gw <= 0) return res.status(400).json({ error: 'Peso GW requerido' });
+    // Rechazar valores negativos en peso o medidas.
+    const dims = [Number(length) || 0, Number(width) || 0, Number(height) || 0];
+    if (gw < 0 || cw < 0 || dims.some((d) => d < 0)) {
+      return res.status(400).json({ error: 'Los valores negativos no están permitidos en peso ni medidas' });
+    }
+    if (gw <= 0) return res.status(400).json({ error: 'Peso VW debe ser mayor a 0' });
 
     const tariffType = PRODUCT_TO_TARIFF[String(productType || 'generico').toLowerCase()] || 'G';
 

@@ -226,8 +226,20 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
 
   const addBoxes = async () => {
     if (!masterId) return;
+    // Validar valores negativos primero (mensaje específico).
+    const nums = [
+      { v: box.grossWeight, label: 'grossWeight' },
+      { v: box.chargeableWeight, label: 'chargeableWeight' },
+      { v: box.length, label: 'length' },
+      { v: box.width, label: 'width' },
+      { v: box.height, label: 'height' },
+    ];
+    if (nums.some((n) => n.v !== '' && Number(n.v) < 0)) {
+      setSnack({ sev: 'error', msg: t('tdiExpress.wizard.negativeNotAllowed') });
+      return;
+    }
     if (!box.grossWeight || Number(box.grossWeight) <= 0) {
-      setSnack({ sev: 'error', msg: t('tdiExpress.wizard.required') });
+      setSnack({ sev: 'error', msg: t('tdiExpress.wizard.invalidWeight') });
       return;
     }
     setBusy(true);
@@ -647,26 +659,31 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                   <Grid size={{ xs: 6, sm: 2.4 }}>
                     <TextField label={t('tdiExpress.wizard.grossWeight')} type="number" value={box.grossWeight}
                       onChange={(e) => setBox({ ...box, grossWeight: e.target.value })} fullWidth size="small" required
+                      slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
                       inputRef={gwRef} onKeyDown={focusNext(cwRef)} />
                   </Grid>
                   <Grid size={{ xs: 6, sm: 2.4 }}>
                     <TextField label={t('tdiExpress.wizard.chargeableWeight')} type="number" value={box.chargeableWeight}
                       onChange={(e) => setBox({ ...box, chargeableWeight: e.target.value })} fullWidth size="small"
+                      slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
                       inputRef={cwRef} onKeyDown={focusNext(lengthRef)} />
                   </Grid>
                   <Grid size={{ xs: 4, sm: 2.4 }}>
                     <TextField label={t('tdiExpress.wizard.length')} type="number" value={box.length}
                       onChange={(e) => setBox({ ...box, length: e.target.value })} fullWidth size="small"
+                      slotProps={{ htmlInput: { min: 0, step: 0.1 } }}
                       inputRef={lengthRef} onKeyDown={focusNext(widthRef)} />
                   </Grid>
                   <Grid size={{ xs: 4, sm: 2.4 }}>
                     <TextField label={t('tdiExpress.wizard.width')} type="number" value={box.width}
                       onChange={(e) => setBox({ ...box, width: e.target.value })} fullWidth size="small"
+                      slotProps={{ htmlInput: { min: 0, step: 0.1 } }}
                       inputRef={widthRef} onKeyDown={focusNext(heightRef)} />
                   </Grid>
                   <Grid size={{ xs: 4, sm: 2.4 }}>
                     <TextField label={t('tdiExpress.wizard.height')} type="number" value={box.height}
                       onChange={(e) => setBox({ ...box, height: e.target.value })} fullWidth size="small"
+                      slotProps={{ htmlInput: { min: 0, step: 0.1 } }}
                       inputRef={heightRef} onKeyDown={focusNext(qtyRef)} />
                   </Grid>
                 </Grid>

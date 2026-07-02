@@ -2004,6 +2004,8 @@
       "extraChargeUsd": "Extra charge (USD)",
       "extraChargeHint": "Optional — will be added as an extra charge on the guide",
       "extraChargeBatchHint": "Will be applied to each of the {{n}} boxes",
+      "invalidWeight": "Check weight and measurements: Gross Weight must be greater than 0",
+      "negativeNotAllowed": "Negative values are not allowed in weight or measurements",
       "assignGuidesTitle": "Assign guides per box",
       "assignGuidesHint": "Enter the long and short guide for each box. They are optional — you can leave them empty and add them later.",
       "savingGuides": "Saving guides...",
