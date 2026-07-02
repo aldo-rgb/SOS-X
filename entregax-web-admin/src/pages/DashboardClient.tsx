@@ -4775,7 +4775,11 @@ export default function DashboardClient() {
                   expired: { color: '#757575', label: '⏰ Expirado' },
                   pending: { color: '#E65100', label: '⏳ Pendiente' },
                 };
-                const st = statusMap[order.status] || statusMap.pending_payment;
+                let st = statusMap[order.status] || statusMap.pending_payment;
+                const isCreditPay = String(order.payment_method || '').toLowerCase() === 'credit';
+                if (isCreditPay && ['completed', 'paid'].includes(order.status)) {
+                  st = { color: '#6A1B9A', label: '💳 Crédito' };
+                }
                 return (
                   <Fragment key={order.id}>
                   <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}>
@@ -4798,8 +4802,8 @@ export default function DashboardClient() {
                         {new Date(order.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </Typography>
                       {order.paid_at && (
-                        <Typography variant="caption" display="block" sx={{ color: '#2E7D32' }}>
-                          Pagado: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
+                        <Typography variant="caption" display="block" sx={{ color: isCreditPay ? '#6A1B9A' : '#2E7D32' }}>
+                          {isCreditPay ? 'A crédito' : 'Pagado'}: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
                         </Typography>
                       )}
                     </TableCell>
@@ -14748,7 +14752,12 @@ export default function DashboardClient() {
                         expired: { color: '#757575', label: '⏰ Expirado' },
                         pending: { color: '#E65100', label: '⏳ Pendiente' },
                       };
-                      const st = statusMap[order.status] || statusMap.pending_payment;
+                      let st = statusMap[order.status] || statusMap.pending_payment;
+                      // 💳 Pagado con crédito: mostrar "Crédito" en lugar de "Pagado".
+                      const isCreditPay = String(order.payment_method || '').toLowerCase() === 'credit';
+                      if (isCreditPay && ['completed', 'paid'].includes(order.status)) {
+                        st = { color: '#6A1B9A', label: '💳 Crédito' };
+                      }
                       return (
                         <Fragment key={order.id}>
                         <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}>
@@ -14771,8 +14780,8 @@ export default function DashboardClient() {
                               {new Date(order.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
                             </Typography>
                             {order.paid_at && (
-                              <Typography variant="caption" display="block" sx={{ color: '#2E7D32' }}>
-                                Pagado: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
+                              <Typography variant="caption" display="block" sx={{ color: isCreditPay ? '#6A1B9A' : '#2E7D32' }}>
+                                {isCreditPay ? 'A crédito' : 'Pagado'}: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
                               </Typography>
                             )}
                           </TableCell>
