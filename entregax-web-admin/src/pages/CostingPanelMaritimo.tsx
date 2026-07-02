@@ -334,6 +334,10 @@ export default function CostingPanelMaritimo() {
     // Estado para pestaña de Utilidades
     const [profitData, setProfitData] = useState<any>(null);
     const [loadingProfit, setLoadingProfit] = useState(false);
+    // Guard de carrera: id del contenedor cuya utilidad se está cargando. Evita que
+    // una respuesta lenta de un contenedor pise el desglose de otro (mostraba
+    // "aparecen otros" embarques bajo el título equivocado).
+    const profitReqRef = useRef<number | null>(null);
 
     // Estado para anticipos del contenedor (nuevo sistema dinámico)
     interface AnticipoReferencia {
@@ -1031,6 +1035,10 @@ export default function CostingPanelMaritimo() {
             setSelectedBolsas({ advance_1: null, advance_2: null, advance_3: null, advance_4: null });
             setOriginalBolsas({ advance_1: null, advance_2: null, advance_3: null, advance_4: null });
             setExtraCosts([]); // Reset gastos adicionales
+            // Limpiar desglose de utilidades del contenedor anterior para no mostrar
+            // "otros" embarques bajo el título de este contenedor mientras carga.
+            setProfitData(null);
+            profitReqRef.current = null;
             setSelectedContainer(container);
             setCostDialogOpen(true);
             
@@ -1044,17 +1052,27 @@ export default function CostingPanelMaritimo() {
 
     // Cargar desglose de utilidades de un contenedor
     const loadProfitBreakdown = async (containerId: number) => {
+        // Marcar este contenedor como el "vigente" y limpiar datos previos para no
+        // mostrar el desglose del contenedor anterior mientras carga el nuevo.
+        profitReqRef.current = containerId;
+        setProfitData(null);
         setLoadingProfit(true);
         try {
             const res = await axios.get(`${API_URL}/api/maritime/containers/${containerId}/profit`, {
                 headers: { Authorization: `Bearer ${getToken()}` }
             });
-            setProfitData(res.data);
+            // Solo aplicar si sigue siendo el contenedor vigente (evita que una
+            // respuesta lenta pise el desglose de otro contenedor).
+            if (profitReqRef.current === containerId) {
+                setProfitData(res.data);
+            }
         } catch (error) {
             console.error('Error loading profit breakdown:', error);
-            setSnackbar({ open: true, message: 'Error al cargar utilidades', severity: 'error' });
+            if (profitReqRef.current === containerId) {
+                setSnackbar({ open: true, message: 'Error al cargar utilidades', severity: 'error' });
+            }
         } finally {
-            setLoadingProfit(false);
+            if (profitReqRef.current === containerId) setLoadingProfit(false);
         }
     };
 
