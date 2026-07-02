@@ -2752,17 +2752,33 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
             
             return (
               <Box>
-                {foundPayment.ya_pagado ? (
-                  <Alert severity="success" sx={{ mb: 2 }}>
-                    <strong>✅ Ya pagado.</strong> Este paquete tiene el pago registrado{foundPayment.monto_pagado ? ` (${formatCurrency(foundPayment.monto_pagado)})` : ''}. No requiere cobro en sucursal.
-                  </Alert>
-                ) : (
-                  <Alert severity="warning" sx={{ mb: 2 }}>
-                    <strong>⚠️ Importante:</strong> Verifique que el cliente tenga el comprobante de pago antes de confirmar.
-                  </Alert>
-                )}
+                {(() => {
+                  const st = String(paymentData.status || '').toLowerCase();
+                  const cancelada = foundPayment.orden_cancelada || st === 'cancelled' || st === 'expired';
+                  if (cancelada) {
+                    return (
+                      <Alert severity="error" sx={{ mb: 2 }}>
+                        <strong>🚫 Orden de pago {st === 'expired' ? 'expirada' : 'cancelada'}.</strong> Esta orden ya no es válida y <strong>no se puede confirmar el pago</strong>. Si el cliente va a pagar, genera una nueva orden.
+                      </Alert>
+                    );
+                  }
+                  if (foundPayment.ya_pagado) {
+                    return (
+                      <Alert severity="success" sx={{ mb: 2 }}>
+                        <strong>✅ Ya pagado.</strong> Este paquete tiene el pago registrado{foundPayment.monto_pagado ? ` (${formatCurrency(foundPayment.monto_pagado)})` : ''}. No requiere cobro en sucursal.
+                      </Alert>
+                    );
+                  }
+                  return (
+                    <Alert severity="warning" sx={{ mb: 2 }}>
+                      <strong>⚠️ Importante:</strong> Verifique que el cliente tenga el comprobante de pago antes de confirmar.
+                    </Alert>
+                  );
+                })()}
 
-                {!foundPayment.ya_pagado && !foundPayment.puede_confirmar && isFromSearch && (
+                {!foundPayment.ya_pagado && !foundPayment.puede_confirmar && isFromSearch
+                  && !foundPayment.orden_cancelada
+                  && !['cancelled', 'expired'].includes(String(paymentData.status || '').toLowerCase()) && (
                   <Alert severity="info" sx={{ mb: 2 }}>
                     Este pago ya fue procesado anteriormente. Estado: <strong>{paymentData.status}</strong>
                   </Alert>

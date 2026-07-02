@@ -274,6 +274,26 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
             ✈️ AWB DHL: {(m as any).internationalTracking}
           </Typography>
         )}
+        {(m as any).searchedOrder?.cancelada && (
+          <Box sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: '#FDECEA', border: '1px solid #F5C6C2' }}>
+            <Typography variant="caption" sx={{ display: 'block', color: '#C62828', fontWeight: 800 }}>
+              🚫 Orden de pago {String((m as any).searchedOrder.status).toLowerCase() === 'expired' ? 'EXPIRADA' : 'CANCELADA'}
+            </Typography>
+            <Typography variant="caption" sx={{ display: 'block', color: '#C62828', fontFamily: 'monospace' }}>
+              {(m as any).searchedOrder.referencia}
+              {(m as any).searchedOrder.monto != null && ` · $${Number((m as any).searchedOrder.monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`}
+            </Typography>
+            {(m as any).searchedOrder.created_at && (
+              <Typography variant="caption" sx={{ display: 'block', color: '#8D6E63' }}>
+                Generada: {new Date((m as any).searchedOrder.created_at).toLocaleString('es-MX')}
+                {(m as any).searchedOrder.payment_method ? ` · ${(m as any).searchedOrder.payment_method}` : ''}
+              </Typography>
+            )}
+            <Typography variant="caption" sx={{ display: 'block', color: '#5D4037', mt: 0.25 }}>
+              Esta orden ya no es válida. {m.paymentOrderRef ? `Orden vigente: ${m.paymentOrderRef}` : 'Genera una nueva orden para cobrar.'}
+            </Typography>
+          </Box>
+        )}
         <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75, flexWrap: 'wrap' }}>
           <Chip label={displayStatusLabel} size="small" color={statusColor(status)} />
           {m.paymentOrderRef && (

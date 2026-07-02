@@ -8441,6 +8441,7 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
       return res.json({
         success: true,
         source: 'pobox_payments',
+        orden_cancelada: ['cancelled', 'expired'].includes(String(payment.status || '').toLowerCase()),
         payment: {
           id: payment.id,
           referencia: payment.referencia,
@@ -8464,10 +8465,10 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
     const payment = paymentLog.rows[0];
     let packageIds = [];
     let guias: any[] = [];
-    
+
     try {
-      const payload = typeof payment.payload_json === 'string' 
-        ? JSON.parse(payment.payload_json) 
+      const payload = typeof payment.payload_json === 'string'
+        ? JSON.parse(payment.payload_json)
         : payment.payload_json;
       packageIds = payload?.packageIds || [];
     } catch (e) {}
@@ -8480,15 +8481,27 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
       guias = guiasRes.rows;
     }
 
+    // Cruzar con la orden real: si pobox_payments está cancelada/expirada, NO se
+    // puede confirmar aunque el webhook log siga 'pending_payment'. Exponemos el
+    // estado real para que el modal muestre "orden cancelada".
+    const ordenRealRes = await pool.query(
+      `SELECT status FROM pobox_payments WHERE payment_reference = $1 ORDER BY created_at DESC LIMIT 1`,
+      [payment.referencia]
+    );
+    const ordenRealStatus = ordenRealRes.rows[0]?.status || null;
+    const ordenCancelada = ['cancelled', 'expired'].includes(String(ordenRealStatus || '').toLowerCase());
+
     res.json({
       success: true,
       source: 'openpay_webhook_logs',
+      orden_cancelada: ordenCancelada,
       payment: {
         id: payment.id,
         referencia: payment.referencia,
         monto: parseFloat(payment.monto) || 0,
         concepto: payment.concepto,
-        status: payment.status,
+        // Preferir el estado real de la orden si está cancelada/expirada.
+        status: ordenCancelada ? ordenRealStatus : payment.status,
         fecha_pago: payment.fecha_pago,
         service_type: payment.service_type,
         empresa: payment.empresa_alias
@@ -8500,7 +8513,7 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
         telefono: payment.cliente_telefono
       },
       guias: guias,
-      puede_confirmar: payment.status === 'pending_payment'
+      puede_confirmar: !ordenCancelada && payment.status === 'pending_payment'
     });
 
   } catch (error: any) {
@@ -8528,9 +8541,24 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
     const refStr = referencia.toUpperCase().trim();
     const currency = moneda_recibida === 'USD' ? 'USD' : 'MXN'; // Default MXN
 
+    // 🛡️ Guard: si la orden de pago está cancelada/expirada NO se puede confirmar,
+    // aunque quede colgado un webhook log 'pending_payment'. (Caso real: RO-4628ACA3
+    // cancelada pero con log pendiente → el dashboard permitía confirmar el cobro.)
+    const ordenEstadoRes = await pool.query(
+      `SELECT status FROM pobox_payments WHERE payment_reference = $1 ORDER BY created_at DESC LIMIT 1`,
+      [refStr]
+    );
+    const estadoOrden = String(ordenEstadoRes.rows[0]?.status || '').toLowerCase();
+    if (estadoOrden === 'cancelled' || estadoOrden === 'expired') {
+      return res.status(409).json({
+        error: 'orden_cancelada',
+        message: `La orden de pago ${refStr} está ${estadoOrden === 'expired' ? 'expirada' : 'cancelada'} y no puede confirmarse.`
+      });
+    }
+
     // Buscar el pago pendiente en openpay_webhook_logs
     const pendingPayment = await pool.query(`
-      SELECT * FROM openpay_webhook_logs 
+      SELECT * FROM openpay_webhook_logs
       WHERE transaction_id = $1 AND estatus_procesamiento = 'pending_payment'
     `, [refStr]);
 

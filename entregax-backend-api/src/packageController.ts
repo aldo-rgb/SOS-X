@@ -1192,15 +1192,33 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         // varias guías independientes (no un master con hijas), y el rastreo debe
         // mostrarlas todas, no solo una.
         let refPackageIds: number[] = [];
+        // Metadatos de la ORDEN buscada (si el input fue una referencia RO-/PP-).
+        // Permite avisar en el rastreo cuando esa orden está cancelada/expirada.
+        let searchedOrder: any = null;
         try {
             const refKey = trackingUpper.replace(/^CTZ:\s*/i, '').trim();
             const refRes = await pool.query(
-                `SELECT package_ids AS ids FROM pobox_payments WHERE UPPER(payment_reference) = $1
+                `SELECT package_ids AS ids, payment_reference, status, amount::text AS amount, created_at, payment_method, 'pobox' AS src
+                   FROM pobox_payments WHERE UPPER(payment_reference) = $1
                  UNION ALL
-                 SELECT package_uids AS ids FROM advisor_payment_orders WHERE UPPER(payment_reference) = $1
+                 SELECT package_uids AS ids, payment_reference, status, NULL::text AS amount, created_at, NULL::text AS payment_method, 'advisor' AS src
+                   FROM advisor_payment_orders WHERE UPPER(payment_reference) = $1
+                 ORDER BY created_at DESC
                  LIMIT 1`,
                 [refKey]
             );
+            if (refRes.rows[0]) {
+                const orow = refRes.rows[0];
+                const ost = String(orow.status || '').toLowerCase();
+                searchedOrder = {
+                    referencia: orow.payment_reference,
+                    status: orow.status,
+                    cancelada: ost === 'cancelled' || ost === 'expired',
+                    monto: orow.amount != null ? parseFloat(orow.amount) : null,
+                    created_at: orow.created_at,
+                    payment_method: orow.payment_method || null,
+                };
+            }
             if (refRes.rows[0]?.ids) {
                 const rawIds = typeof refRes.rows[0].ids === 'string' ? JSON.parse(refRes.rows[0].ids) : refRes.rows[0].ids;
                 const ids = (Array.isArray(rawIds) ? rawIds : [])
@@ -2116,6 +2134,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     trackingCourier: pkg.tracking_provider || aggregatedOriginGuides, // TDI Express: agregado de cajas hijas
                     // 🧾 Orden de pago registrada que contiene esta guía (RO-/PP-).
                     paymentOrderRef,
+                    // 🚫 Si el usuario rastreó una referencia de orden cancelada/expirada,
+                    //    exponemos sus datos para avisarlo en el rastreo.
+                    searchedOrder,
                     // Método de pago elegido por el cliente en la orden
                     // (cash, transferencia, paypal, card, credit, wallet…)
                     paymentMethod: paymentMethodRef,
