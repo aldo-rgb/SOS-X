@@ -1743,6 +1743,21 @@
     "thisMonth": "本月",
     "subAdvisors": "子顾问"
   },
+  "labelingModule": {
+    "title": "标签模块",
+    "subtitle": "为系统中任何包裹重新打印标签（PO Box USA、中国空运、中国海运、DHL、国内）",
+    "searchTitle": "按单号查询包裹",
+    "searchPlaceholder": "扫描或输入单号（例如 US-00YB3779、CN-1234、LOG-5678）...",
+    "searchBtn": "查询",
+    "searching": "查询中...",
+    "client": "客户",
+    "description": "描述",
+    "paid": "已付款",
+    "unpaid": "待付款",
+    "availableLabels": "可用标签",
+    "reprintRange": "重新打印范围 (1–{{n}})",
+    "printMasterOnly": "仅打印主单"
+  },
   "chinaAirHub": {
     "overline": "TDI · ENTREGAX",
     "title": "中国空运",

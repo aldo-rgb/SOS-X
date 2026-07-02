@@ -5,6 +5,7 @@
 // ============================================
 
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useScaleReader } from '../hooks/useScaleReader';
 import {
@@ -316,6 +317,7 @@ const with4x6Format = (url: string): string => {
 };
 
 export default function RelabelingModulePage({ onBack }: { onBack?: () => void } = {}) {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const [tracking, setTracking] = useState('');
     const [loading, setLoading] = useState(false);
@@ -1583,10 +1585,10 @@ ${labelsHtml}
                     </Box>
                     <Box>
                         <Typography variant="h4" fontWeight={700}>
-                            Módulo de etiquetado
+                            {t('labelingModule.title')}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                            Reimprime etiquetas de cualquier paquete en el sistema (PO Box USA, China Aéreo, China Marítimo, DHL, Nacional)
+                            {t('labelingModule.subtitle')}
                         </Typography>
                     </Box>
                 </Box>
@@ -1595,13 +1597,13 @@ ${labelsHtml}
             {/* Search */}
             <Paper sx={{ p: 3, mb: 3 }}>
                 <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
-                    🔍 Buscar paquete por tracking
+                    🔍 {t('labelingModule.searchTitle')}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 2 }}>
                     <TextField
                         fullWidth
                         autoFocus
-                        placeholder="Escanea o escribe el tracking (ej. US-00YB3779, CN-1234, LOG-5678)..."
+                        placeholder={t('labelingModule.searchPlaceholder')}
                         value={tracking}
                         onChange={(e) => setTracking(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
@@ -1628,7 +1630,7 @@ ${labelsHtml}
                         startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <SearchIcon />}
                         sx={{ minWidth: 140, bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
                     >
-                        {loading ? 'Buscando...' : 'Buscar'}
+                        {loading ? t('labelingModule.searching') : t('labelingModule.searchBtn')}
                     </Button>
                 </Box>
             </Paper>
@@ -1675,7 +1677,7 @@ ${labelsHtml}
                                     const paid = shipment.master.clientPaid || shipment.master.paymentStatus === 'paid';
                                     return (
                                         <Chip
-                                            label={paid ? '✅ PAGADO' : '⏳ POR PAGAR'}
+                                            label={paid ? `✅ ${t('labelingModule.paid')}` : `⏳ ${t('labelingModule.unpaid')}`}
                                             sx={{
                                                 bgcolor: paid ? '#2E7D32' : '#D32F2F',
                                                 color: 'white',
@@ -1719,14 +1721,14 @@ ${labelsHtml}
 
                     <Grid container spacing={2} sx={{ mb: 3 }}>
                         <Grid size={{ xs: 12, sm: 6 }}>
-                            <Typography variant="caption" color="text.secondary">Cliente</Typography>
+                            <Typography variant="caption" color="text.secondary">{t('labelingModule.client')}</Typography>
                             <Typography variant="body1" fontWeight={600}>{shipment.client.name}</Typography>
                             <Typography variant="caption" color="text.secondary">
                                 Box: {shipment.client.boxId} · {shipment.client.email || '—'}
                             </Typography>
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6 }}>
-                            <Typography variant="caption" color="text.secondary">Descripción</Typography>
+                            <Typography variant="caption" color="text.secondary">{t('labelingModule.description')}</Typography>
                             <Typography variant="body2">{shipment.master.description || '—'}</Typography>
                             {shipment.master.receivedAt && (
                                 <Typography variant="caption" color="text.secondary">
@@ -1832,7 +1834,7 @@ ${labelsHtml}
                             : shipment.labels;
                         return (
                             <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
-                                🏷️ Etiquetas disponibles ({visibleLabels.length})
+                                🏷️ {t('labelingModule.availableLabels')} ({visibleLabels.length})
                             </Typography>
                         );
                     })()}
@@ -1904,7 +1906,7 @@ ${labelsHtml}
                                                     onClick={() => openReprintModal(label)}
                                                     sx={{ borderColor: '#F05A28', color: '#F05A28' }}
                                                 >
-                                                    Reimprimir rango (1–{label.totalBoxes})
+                                                    {t('labelingModule.reprintRange', { n: label.totalBoxes })}
                                                 </Button>
                                             </Stack>
                                         )
@@ -1917,7 +1919,7 @@ ${labelsHtml}
                                                 onClick={() => openReprintModal(label)}
                                                 sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
                                             >
-                                                Reimprimir rango (1–{label.totalBoxes})
+                                                {t('labelingModule.reprintRange', { n: label.totalBoxes })}
                                             </Button>
                                             <Button
                                                 fullWidth
@@ -1926,7 +1928,7 @@ ${labelsHtml}
                                                 onClick={() => handlePrintLabel(label)}
                                                 sx={{ borderColor: '#F05A28', color: '#F05A28' }}
                                             >
-                                                Imprimir solo Master
+                                                {t('labelingModule.printMasterOnly')}
                                             </Button>
                                         </Stack>
                                     ) : (

@@ -75,6 +75,7 @@ interface BoxRow {
 const emptyBox = {
   originGuide: '', originGuide2: '', clientNumber: '', grossWeight: '', chargeableWeight: '',
   length: '', width: '', height: '',
+  extraChargeUsd: '',
 };
 
 interface Props { onBack: () => void; }
@@ -232,13 +233,17 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       const r = await axios.post(
         `${API_URL}/api/tdi-express/serial/${masterId}/box`,
         {
-          // Guías se asignan en el paso 3 (Confirmar), no aquí.
+          // Guía origen — se aplica a TODAS las cajas del bloque (quantity).
+          originGuide: box.originGuide.trim() || undefined,
           boxId: clientBoxId.trim() || undefined,
           grossWeight: Number(box.grossWeight),
           chargeableWeight: Number(box.chargeableWeight) || undefined,
           length: Number(box.length) || undefined,
           width: Number(box.width) || undefined,
           height: Number(box.height) || undefined,
+          // Cargo extra opcional en USD — se registra como cargo_extra por cada
+          // caja creada en guias_ajustes_financieros (backend).
+          extraChargeUsd: Number(box.extraChargeUsd) > 0 ? Number(box.extraChargeUsd) : undefined,
           // sin comments: se llenan en el paso 3
           quantity: Math.max(1, parseInt(quantity, 10) || 1),
         },
@@ -249,7 +254,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         ? `${box.length}×${box.width}×${box.height} cm` : '—';
       printLabels((r.data?.created || []).map((b: any) => ({
         tracking: b.tracking, boxNumber: b.boxNumber, total: totalBoxes,
-        clientNumber: clientBoxId, originGuide: '',
+        clientNumber: clientBoxId, originGuide: box.originGuide,
         originGuide2: '',
         gw: box.grossWeight, cw: box.chargeableWeight, dims: dims0,
       })));
@@ -597,6 +602,36 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                 <Alert severity="info" icon={<InventoryIcon />} sx={{ mb: 1.5 }}>
                   {t('tdiExpress.wizard.step2Hint')}
                 </Alert>
+
+                {/* Guía origen — misma para todas las cajas del bloque */}
+                <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700 }}>{t('tdiExpress.wizard.section1')}</Typography>
+                <Grid container spacing={1.5} sx={{ mt: 0.2, mb: 1 }}>
+                  <Grid size={{ xs: 12, sm: 8 }}>
+                    <TextField
+                      label={t('tdiExpress.wizard.originGuide')}
+                      value={box.originGuide}
+                      onChange={(e) => setBox({ ...box, originGuide: e.target.value.toUpperCase() })}
+                      fullWidth
+                      size="small"
+                      placeholder="Ej. JD01234567890123"
+                      helperText={qtyNum > 1 ? t('tdiExpress.wizard.originGuideBatchHint', { n: qtyNum }) : ''}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <TextField
+                      label={t('tdiExpress.wizard.extraChargeUsd')}
+                      type="number"
+                      value={box.extraChargeUsd}
+                      onChange={(e) => setBox({ ...box, extraChargeUsd: e.target.value })}
+                      fullWidth
+                      size="small"
+                      placeholder="0.00"
+                      slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
+                      helperText={qtyNum > 1 ? t('tdiExpress.wizard.extraChargeBatchHint', { n: qtyNum }) : t('tdiExpress.wizard.extraChargeHint')}
+                    />
+                  </Grid>
+                </Grid>
+
                 <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700 }}>{t('tdiExpress.wizard.section2')}</Typography>
                 <Grid container spacing={1.5} sx={{ mt: 0.2, mb: 1 }}>
                   <Grid size={{ xs: 6, sm: 2.4 }}>

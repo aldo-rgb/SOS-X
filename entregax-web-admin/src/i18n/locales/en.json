@@ -1883,6 +1883,21 @@
     "thisMonth": "This Month",
     "subAdvisors": "Sub-Advisors"
   },
+  "labelingModule": {
+    "title": "Labeling module",
+    "subtitle": "Reprint labels for any package in the system (PO Box USA, China Air, China Sea, DHL, National)",
+    "searchTitle": "Search package by tracking",
+    "searchPlaceholder": "Scan or type the tracking (e.g. US-00YB3779, CN-1234, LOG-5678)...",
+    "searchBtn": "Search",
+    "searching": "Searching...",
+    "client": "Client",
+    "description": "Description",
+    "paid": "PAID",
+    "unpaid": "UNPAID",
+    "availableLabels": "Available labels",
+    "reprintRange": "Reprint range (1–{{n}})",
+    "printMasterOnly": "Print Master only"
+  },
   "chinaAirHub": {
     "overline": "TDI · ENTREGAX",
     "title": "China Air",

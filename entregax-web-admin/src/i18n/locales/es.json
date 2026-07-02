@@ -2096,6 +2096,21 @@
     "thisMonth": "Este Mes",
     "subAdvisors": "Sub-Asesores"
   },
+  "labelingModule": {
+    "title": "Módulo de etiquetado",
+    "subtitle": "Reimprime etiquetas de cualquier paquete en el sistema (PO Box USA, China Aéreo, China Marítimo, DHL, Nacional)",
+    "searchTitle": "Buscar paquete por tracking",
+    "searchPlaceholder": "Escanea o escribe el tracking (ej. US-00YB3779, CN-1234, LOG-5678)...",
+    "searchBtn": "Buscar",
+    "searching": "Buscando...",
+    "client": "Cliente",
+    "description": "Descripción",
+    "paid": "PAGADO",
+    "unpaid": "POR PAGAR",
+    "availableLabels": "Etiquetas disponibles",
+    "reprintRange": "Reimprimir rango (1–{{n}})",
+    "printMasterOnly": "Imprimir solo Master"
+  },
   "chinaAirHub": {
     "overline": "TDI · ENTREGAX",
     "title": "Aéreo China",
