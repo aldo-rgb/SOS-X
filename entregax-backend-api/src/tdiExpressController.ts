@@ -816,3 +816,61 @@ export const updateTdiBox = async (req: Request, res: Response): Promise<any> =>
     client.release();
   }
 };
+
+// =====================================================================
+// ACTUALIZAR GUÍA AWB DHL — cajas TDX en tránsito para asignarles el AWB
+// El AWB se guarda en packages.international_tracking (que es lo que muestra
+// el Inventario TDX en la columna AWB).
+// =====================================================================
+export const listTdiInTransit = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { search } = req.query as { search?: string };
+    const where: string[] = [
+      `c.air_source = 'tdi_express'`,
+      `COALESCE(c.is_master, false) = false`,
+      `c.status::text = 'in_transit'`,
+    ];
+    const params: any[] = [];
+    if (search && String(search).trim()) {
+      params.push(`%${String(search).trim()}%`);
+      const i = params.length;
+      where.push(`(c.tracking_internal ILIKE $${i} OR c.tracking_provider ILIKE $${i} OR c.international_tracking ILIKE $${i} OR COALESCE(c.box_id,'') ILIKE $${i} OR COALESCE(u.full_name,'') ILIKE $${i})`);
+    }
+    const r = await pool.query(
+      `SELECT c.id, c.tracking_internal, c.tracking_provider, c.box_id,
+              c.weight, c.air_chargeable_weight, c.dimensions, c.description,
+              c.international_tracking AS awb,
+              COALESCE(NULLIF(u.full_name,''), NULLIF(lc.full_name,'')) AS client_name
+       FROM packages c
+       LEFT JOIN users u ON u.id = c.user_id
+       LEFT JOIN legacy_clients lc ON c.user_id IS NULL AND UPPER(COALESCE(c.box_id,'')) = UPPER(lc.box_id)
+       WHERE ${where.join(' AND ')}
+       ORDER BY c.received_at DESC NULLS LAST, c.id DESC`,
+      params
+    );
+    res.json({ success: true, boxes: r.rows });
+  } catch (err: any) {
+    console.error('listTdiInTransit error', err);
+    res.status(500).json({ error: 'Error al listar cajas en tránsito', details: err.message });
+  }
+};
+
+// PATCH /api/tdi-express/:id/awb  { awb }
+export const updateTdiAwb = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const awb = String(req.body?.awb ?? '').trim().toUpperCase();
+    const upd = await pool.query(
+      `UPDATE packages SET international_tracking = NULLIF($1, ''), updated_at = NOW()
+       WHERE id = $2 AND air_source = 'tdi_express'
+       RETURNING id, tracking_internal, international_tracking AS awb`,
+      [awb, id]
+    );
+    if (!upd.rows[0]) return res.status(404).json({ error: 'Caja TDX no encontrada' });
+    res.json({ success: true, box: upd.rows[0] });
+  } catch (err: any) {
+    console.error('updateTdiAwb error', err);
+    res.status(500).json({ error: 'Error al actualizar AWB', details: err.message });
+  }
+};

@@ -1782,7 +1782,8 @@
       "tdx_inventory": { "title": "TDX 库存", "desc": "查看仓库中 DHL Express（TDX）包裹及其状态" },
       "tdi_express": { "title": "接收 DHL Express", "desc": "批量登记 DHL Express 中国 → 蒙特雷 线路的货件" },
       "tdi_outbound": { "title": "发出 DHL Express", "desc": "发出已准备好离开中国的箱子" },
-      "tdi_cedis_mty": { "title": "在 CEDIS MTY 接收", "desc": "扫描到达蒙特雷的 TDX 包裹，标记为已在 MTY 接收" }
+      "tdi_cedis_mty": { "title": "在 CEDIS MTY 接收", "desc": "扫描到达蒙特雷的 TDX 包裹，标记为已在 MTY 接收" },
+      "awb_update": { "title": "更新 DHL AWB", "desc": "为在途 TDX 箱子分配 AWB，使其显示在库存中" }
     }
   },
   "tdiExpress": {

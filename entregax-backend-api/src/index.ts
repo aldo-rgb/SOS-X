@@ -844,6 +844,8 @@ import {
   updateTdiShipment,
   startTdiSerial,
   addTdiBox,
+  listTdiInTransit,
+  updateTdiAwb,
   removeTdiBox,
   updateTdiBox,
   listTdiOutboundReady,
@@ -10890,6 +10892,9 @@ app.delete('/api/tdi-express/serial/:masterId/child/:childId', authenticateToken
 app.patch('/api/tdi-express/serial/:masterId/child/:childId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateTdiBox);
 app.get('/api/tdi-express/outbound/ready', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listTdiOutboundReady);
 app.post('/api/tdi-express/outbound/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchTdiBoxes);
+// Actualizar Guía AWB DHL — cajas TDX en tránsito + asignar AWB
+app.get('/api/tdi-express/in-transit', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listTdiInTransit);
+app.patch('/api/tdi-express/:id/awb', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateTdiAwb);
 // Recepción en CEDIS MTY: cambia status de received_china → received_mty
 app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req: Request, res: Response) => {
   try {

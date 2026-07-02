@@ -1922,7 +1922,8 @@
       "tdx_inventory": { "title": "TDX Inventory", "desc": "Check DHL Express (TDX) packages in the warehouse and their status" },
       "tdi_express": { "title": "Receive DHL Express", "desc": "Batch capture of shipments on the DHL Express China → Monterrey route" },
       "tdi_outbound": { "title": "Send DHL Express", "desc": "Dispatch the boxes ready to leave China" },
-      "tdi_cedis_mty": { "title": "Receive at CEDIS MTY", "desc": "Scan TDX packages that arrived in Monterrey to mark them as Received MTY" }
+      "tdi_cedis_mty": { "title": "Receive at CEDIS MTY", "desc": "Scan TDX packages that arrived in Monterrey to mark them as Received MTY" },
+      "awb_update": { "title": "Update DHL AWB", "desc": "Assign the AWB to in-transit TDX boxes so they appear in inventory" }
     }
   },
   "tdiExpress": {

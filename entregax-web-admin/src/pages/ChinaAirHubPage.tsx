@@ -25,6 +25,7 @@ import {
     ChevronRight as ChevronRightIcon,
     LocalShipping as ShippingIcon,
     FlightTakeoff as FlightTakeoffIcon,
+    Description as DescriptionIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import ChinaAirReceptionWizard from './ChinaAirReceptionWizard';
@@ -32,12 +33,13 @@ import ChinaAirInventoryPage from './ChinaAirInventoryPage';
 import TdiExpressShipmentsPage from './TdiExpressShipmentsPage';
 import TdiExpressOutboundPage from './TdiExpressOutboundPage';
 import TdiCedisMtyPage from './TdiCedisMtyPage';
+import TdiAwbUpdatePage from './TdiAwbUpdatePage';
 
 interface Props {
     onBack: () => void;
 }
 
-type Panel = 'menu' | 'reception' | 'inventory' | 'tdx_inventory' | 'tdi_express' | 'tdi_outbound' | 'tdi_cedis_mty';
+type Panel = 'menu' | 'reception' | 'inventory' | 'tdx_inventory' | 'tdi_express' | 'tdi_outbound' | 'tdi_cedis_mty' | 'awb_update';
 
 const ORANGE = '#FF6B35';
 const BLACK = '#1A1A1A';
@@ -79,6 +81,13 @@ const OPTIONS = [
         bgGradient: 'linear-gradient(135deg, #FFCC00 0%, #FFD740 100%)',
     },
     {
+        key: 'awb_update' as const,
+        title: 'Actualizar Guía AWB DHL',
+        description: 'Asigna el AWB a las cajas TDX en tránsito para que aparezcan en inventario',
+        icon: <DescriptionIcon sx={{ fontSize: 56, color: '#D40511' }} />,
+        bgGradient: 'linear-gradient(135deg, #FFCC00 0%, #FFD740 100%)',
+    },
+    {
         key: 'tdi_cedis_mty' as const,
         title: 'Recibir en CEDIS MTY',
         description: 'Escanea guías TDX que llegaron a Monterrey para marcarlas como Recibido MTY',
@@ -114,6 +123,9 @@ export default function ChinaAirHubPage({ onBack }: Props) {
     }
     if (panel === 'tdi_cedis_mty') {
         return <TdiCedisMtyPage onBack={() => setPanel('menu')} />;
+    }
+    if (panel === 'awb_update') {
+        return <TdiAwbUpdatePage onBack={() => setPanel('menu')} />;
     }
 
     return (

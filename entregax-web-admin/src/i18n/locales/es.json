@@ -2135,7 +2135,8 @@
       "tdx_inventory": { "title": "Inventario TDX", "desc": "Consulta los paquetes DHL Express (TDX) en bodega y su estado" },
       "tdi_express": { "title": "Recibir DHL Express", "desc": "Captura en serie de envíos de la ruta DHL Express China → Monterrey" },
       "tdi_outbound": { "title": "Enviar DHL Express", "desc": "Da salida a las cajas DHL Express listas para salir de China" },
-      "tdi_cedis_mty": { "title": "Recibir en CEDIS MTY", "desc": "Escanea guías TDX que llegaron a Monterrey para marcarlas como Recibido MTY" }
+      "tdi_cedis_mty": { "title": "Recibir en CEDIS MTY", "desc": "Escanea guías TDX que llegaron a Monterrey para marcarlas como Recibido MTY" },
+      "awb_update": { "title": "Actualizar Guía AWB DHL", "desc": "Asigna el AWB a las cajas TDX en tránsito para que aparezcan en inventario" }
     }
   },
   "tdiExpress": {
