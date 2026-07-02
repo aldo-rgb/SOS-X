@@ -8,6 +8,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { uploadToS3, getSignedUrlForKey } from './s3Service';
 import { extractAmountFromReceipt, isOcrAvailable } from './ocrService';
+import { normalizeServiceForCredit, generateInvoiceForPoboxPaymentByRef } from './poboxPaymentController';
 
 interface AuthRequest extends Request {
   user?: { userId: number; email: string; role?: string; level?: number };
@@ -624,7 +625,20 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
         `SELECT * FROM pobox_payments WHERE id = $1`, [voucher.payment_order_id]
       );
       const o = order.rows[0];
-      if (Number(o.surplus_amount) > 0 && !o.surplus_credited) {
+      // 🔒 Recalcular el excedente REAL desde los comprobantes NO rechazados, en vez
+      // de confiar en surplus_amount (que puede quedar obsoleto si se subió un
+      // comprobante duplicado y luego se eliminó → excedente FALSO).
+      const vsumRes = await pool.query(
+        `SELECT COALESCE(SUM(declared_amount), 0) AS total
+           FROM payment_vouchers WHERE payment_order_id = $1 AND status <> 'rejected'`,
+        [voucher.payment_order_id]
+      );
+      const realSurplus = Math.max(0, Number(vsumRes.rows[0].total) - Number(o.amount));
+      if (Number(o.surplus_amount) !== realSurplus) {
+        await pool.query(`UPDATE pobox_payments SET surplus_amount = $1 WHERE id = $2`, [realSurplus, voucher.payment_order_id]);
+        o.surplus_amount = realSurplus;
+      }
+      if (realSurplus > 0 && !o.surplus_credited) {
         const serviceType = o.service_type || 'POBOX_USA';
         const walletRes = await pool.query(
           `INSERT INTO billetera_servicio (user_id, service_type, saldo, currency)
@@ -647,20 +661,56 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
       }
 
       // 💳 Orden a CRÉDITO: al aprobar todos los comprobantes, liquidar el crédito
-      // (pasa a Historial) y descontar la deuda del cliente.
+      // (pasa a Historial) y RESTAURAR el crédito del cliente. El crédito vive en
+      // user_service_credits (por servicio); si no hay fila, cae al global.
       if (String(o.payment_method || '').toLowerCase() === 'credit') {
         await pool.query(
           `UPDATE pobox_payments SET credit_settled = TRUE, credit_settled_at = NOW() WHERE id = $1`,
           [voucher.payment_order_id]
         );
-        await pool.query(
-          `UPDATE users
-              SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1),
-                  is_credit_blocked = CASE WHEN GREATEST(0, COALESCE(used_credit, 0) - $1) <= 0 THEN FALSE ELSE is_credit_blocked END
-            WHERE id = $2`,
-          [Number(o.amount) || 0, o.user_id]
-        );
+        const montoCredito = Number(o.amount) || 0;
+        let pkgIdsCredit: number[] = [];
+        try {
+          const raw = typeof o.package_ids === 'string' ? JSON.parse(o.package_ids) : o.package_ids;
+          pkgIdsCredit = (Array.isArray(raw) ? raw : []).map((n: any) => Number(n)).filter(Boolean);
+        } catch { pkgIdsCredit = []; }
+        let svcKeyCredit: string | null = null;
+        if (pkgIdsCredit.length > 0) {
+          const svcRes = await pool.query(
+            `SELECT service_type FROM packages WHERE id = ANY($1) AND service_type IS NOT NULL LIMIT 1`,
+            [pkgIdsCredit]
+          );
+          svcKeyCredit = normalizeServiceForCredit(svcRes.rows[0]?.service_type);
+        }
+        let restoredRows = 0;
+        if (svcKeyCredit) {
+          const r = await pool.query(
+            `UPDATE user_service_credits
+                SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1),
+                    is_blocked = CASE WHEN GREATEST(0, COALESCE(used_credit, 0) - $1) <= 0 THEN FALSE ELSE is_blocked END,
+                    updated_at = NOW()
+              WHERE user_id = $2 AND service = $3`,
+            [montoCredito, o.user_id, svcKeyCredit]
+          );
+          restoredRows = r.rowCount || 0;
+        }
+        if (restoredRows === 0) {
+          await pool.query(
+            `UPDATE users
+                SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1),
+                    is_credit_blocked = CASE WHEN GREATEST(0, COALESCE(used_credit, 0) - $1) <= 0 THEN FALSE ELSE is_credit_blocked END
+              WHERE id = $2`,
+            [montoCredito, o.user_id]
+          );
+        }
       }
+
+      // 🧾 Factura SOLO si el cliente la solicitó (requiere_factura). Para crédito
+      // se factura hasta que se paga con dinero, nunca antes. La función interna
+      // valida requiere_factura/facturada, así que es seguro llamarla siempre.
+      generateInvoiceForPoboxPaymentByRef(String(o.payment_reference || '')).catch((e: any) =>
+        console.error('[approveVoucher] factura:', e?.message || e)
+      );
     }
 
     return res.json({

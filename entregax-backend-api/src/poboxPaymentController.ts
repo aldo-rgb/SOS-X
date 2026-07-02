@@ -29,7 +29,7 @@ import { generateCommissionsForPackages } from './commissionService';
  * la tabla user_service_credits (aereo / maritimo / dhl_liberacion / po_box).
  * Devuelve null si no hay un mapeo válido.
  */
-function normalizeServiceForCredit(raw: any): string | null {
+export function normalizeServiceForCredit(raw: any): string | null {
   if (!raw) return null;
   const s = String(raw).trim().toLowerCase();
   const map: Record<string, string> = {
@@ -1383,7 +1383,9 @@ export const generateInvoiceForPoboxPaymentByRef = async (paymentReference: stri
         );
         const payment = r.rows[0];
         if (!payment) return;
-        if (payment.payment_method !== 'transferencia') return; // solo transferencia
+        // Transferencia, o crédito ya pagado con dinero (se factura hasta el pago,
+        // nunca antes). En ambos casos solo si el cliente pidió factura.
+        if (payment.payment_method !== 'transferencia' && payment.payment_method !== 'credit') return;
         if (!payment.requiere_factura || payment.facturada) return;
 
         const packageIds = typeof payment.package_ids === 'string'
