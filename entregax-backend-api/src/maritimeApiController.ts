@@ -207,6 +207,11 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
     
     // Buscar cliente por shipping_mark
     let userId: number | null = null;
+    // Datos resueltos del cliente (para poblar bl_client_code / bl_client_name
+    // en la UI de "Consolidaciones Marítimas"). Antes solo se llenaba user_id
+    // y la columna CLIENTE quedaba en "Sin asignar" aunque el MARK dijera S2770.
+    let resolvedClientCode: string | null = null;
+    let resolvedClientName: string | null = null;
     
     // El shipping_mark puede ser "S873" o "S96+EDMUNDO MEDINA" o "Carlos Osorio S1739"
     // Intentamos extraer el código S#### del shipping_mark
@@ -217,12 +222,14 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
     
     // Primero buscar en users
     const userResult = await pool.query(
-        `SELECT id, full_name FROM users WHERE UPPER(box_id) = $1 LIMIT 1`,
+        `SELECT id, full_name, box_id FROM users WHERE UPPER(box_id) = $1 LIMIT 1`,
         [boxId.toUpperCase()]
     );
     
     if (userResult.rows.length > 0) {
         userId = userResult.rows[0].id;
+        resolvedClientCode = userResult.rows[0].box_id || boxId;
+        resolvedClientName = userResult.rows[0].full_name || null;
         console.log(`    → Cliente encontrado (users): ${userResult.rows[0].full_name} (${boxId})`);
     } else {
         // Solo verificar si existe en legacy_clients para logging, pero NO crear usuario
@@ -233,6 +240,11 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
         );
         
         if (legacyResult.rows.length > 0) {
+            // Aunque no exista el user, sí conocemos el nombre desde legacy — llenamos
+            // bl_client_code / bl_client_name para que la UI muestre al cliente en vez de
+            // "Sin asignar" (el user_id se vinculará después cuando el cliente se registre).
+            resolvedClientCode = legacyResult.rows[0].box_id || boxId;
+            resolvedClientName = legacyResult.rows[0].full_name || null;
             console.log(`    → Cliente en legacy_clients: ${legacyResult.rows[0].full_name} (${boxId}) - pendiente de registro`);
         } else {
             console.log(`    → Cliente no registrado: ${shippingMark} (boxId extraído: ${boxId})`);
@@ -259,11 +271,12 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
     // Insertar o actualizar la orden
     await pool.query(`
         INSERT INTO maritime_orders 
-        (ordersn, user_id, shipping_mark, goods_type, goods_name, goods_num, 
+        (ordersn, user_id, shipping_mark, bl_client_code, bl_client_name,
+         goods_type, goods_name, goods_num, 
          weight, volume, api_raw_data, sync_source, synced_at,
          delivery_address_id, instructions_assigned_at,
          brand_type, merchandise_type)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'api', NOW(), $10, $11,
+        VALUES ($1, $2, $3, $12, $13, $4, $5, $6, $7, $8, $9, 'api', NOW(), $10, $11,
                 'pending', 'pending')
         ON CONFLICT (ordersn) DO UPDATE SET
             goods_type = EXCLUDED.goods_type,
@@ -276,7 +289,11 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
             updated_at = NOW(),
             -- Solo actualizar dirección si no tiene una asignada manualmente
             delivery_address_id = COALESCE(maritime_orders.delivery_address_id, EXCLUDED.delivery_address_id),
-            instructions_assigned_at = COALESCE(maritime_orders.instructions_assigned_at, EXCLUDED.instructions_assigned_at)
+            instructions_assigned_at = COALESCE(maritime_orders.instructions_assigned_at, EXCLUDED.instructions_assigned_at),
+            -- Rellenar user_id y datos del cliente si están vacíos y ahora los conocemos
+            user_id = COALESCE(maritime_orders.user_id, EXCLUDED.user_id),
+            bl_client_code = COALESCE(NULLIF(maritime_orders.bl_client_code, ''), EXCLUDED.bl_client_code),
+            bl_client_name = COALESCE(NULLIF(maritime_orders.bl_client_name, ''), EXCLUDED.bl_client_name)
             -- ⚠️ NO sobrescribir brand_type / merchandise_type si ya fue clasificado
     `, [
         order.ordersn,
@@ -289,7 +306,9 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
         parseFloat(order.volume) || 0,
         JSON.stringify(order),
         defaultAddressId,
-        defaultAddressId ? new Date() : null
+        defaultAddressId ? new Date() : null,
+        resolvedClientCode,
+        resolvedClientName
     ]);
 
     // Si encontramos el cliente y la orden es nueva, notificarlo
