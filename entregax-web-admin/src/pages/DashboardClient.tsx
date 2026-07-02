@@ -9502,13 +9502,18 @@ export default function DashboardClient() {
                             <Typography variant="body2" fontWeight="bold">{Number(pkg.weight).toFixed(2)} kg</Typography>
                           </Box>
                         )}
-                        {/* TDX: total a pagar en USD (suma de todas las cajas) */}
+                        {/* TDX: total a pagar en USD (suma de todas las cajas) + tarifa por kg */}
                         {isTdxPkg && tdxUsd > 0 && (
                           <Box sx={{ textAlign: 'right' }}>
                             <Typography variant="caption" color="text.secondary">
                               Total USD
                             </Typography>
                             <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>${tdxUsd.toFixed(2)}</Typography>
+                            {Number(pkg.weight) > 0 && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
+                                ${(tdxUsd / Number(pkg.weight)).toFixed(2)} USD/kg
+                              </Typography>
+                            )}
                           </Box>
                         )}
                         {!isTdxPkg && pkg.cbm && (
@@ -9572,11 +9577,22 @@ export default function DashboardClient() {
                                   <Typography variant="caption" noWrap sx={{ whiteSpace: 'nowrap' }}>
                                     {isTdxPkg ? compactDims(guide.dimensions) : (guide.dimensions || '—')}
                                   </Typography>
-                                  <Typography variant="caption" sx={{ textAlign: 'right', fontWeight: isTdxPkg ? 600 : 400, color: isTdxPkg ? ORANGE : 'inherit' }}>
-                                    {isTdxPkg
-                                      ? (guide.air_sale_price != null ? `$${Number(guide.air_sale_price).toFixed(2)}` : '—')
-                                      : (guide.cbm ? `${Number(guide.cbm).toFixed(4)}` : '—')}
-                                  </Typography>
+                                  {isTdxPkg ? (
+                                    <Box sx={{ textAlign: 'right', lineHeight: 1.1 }}>
+                                      <Typography variant="caption" sx={{ fontWeight: 600, color: ORANGE, display: 'block' }}>
+                                        {guide.air_sale_price != null ? `$${Number(guide.air_sale_price).toFixed(2)}` : '—'}
+                                      </Typography>
+                                      {guide.air_sale_price != null && Number(guide.weight) > 0 && (
+                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                                          ${(Number(guide.air_sale_price) / Number(guide.weight)).toFixed(2)}/kg
+                                        </Typography>
+                                      )}
+                                    </Box>
+                                  ) : (
+                                    <Typography variant="caption" sx={{ textAlign: 'right' }}>
+                                      {guide.cbm ? `${Number(guide.cbm).toFixed(4)}` : '—'}
+                                    </Typography>
+                                  )}
                                 </Box>
                               ))
                             ) : (
