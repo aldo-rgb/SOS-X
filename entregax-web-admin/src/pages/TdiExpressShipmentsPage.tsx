@@ -78,6 +78,7 @@ const emptyBox = {
   originGuide: '', originGuide2: '', clientNumber: '', grossWeight: '', chargeableWeight: '',
   length: '', width: '', height: '',
   extraChargeUsd: '',
+  extraChargeReason: '',
 };
 
 interface Props { onBack: () => void; }
@@ -111,8 +112,8 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     { open: false, id: null, busy: false }
   );
   // Editar número de cliente de un envío
-  const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string; productType: string; extraChargeUsd: string }>(
-    { open: false, id: null, value: '', productType: '', extraChargeUsd: '' }
+  const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string; productType: string; extraChargeUsd: string; extraChargeReason: string }>(
+    { open: false, id: null, value: '', productType: '', extraChargeUsd: '', extraChargeReason: '' }
   );
 
   // Refs para navegación con Enter en el wizard
@@ -242,6 +243,13 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       setSnack({ sev: 'error', msg: t('tdiExpress.wizard.invalidWeight') });
       return;
     }
+    // Si hay cargo extra > 0, el motivo es obligatorio.
+    const extraNumWiz = Number(box.extraChargeUsd);
+    const hasExtraWiz = Number.isFinite(extraNumWiz) && extraNumWiz > 0;
+    if (hasExtraWiz && !box.extraChargeReason.trim()) {
+      setSnack({ sev: 'error', msg: t('tdiExpress.wizard.extraChargeReasonRequired') });
+      return;
+    }
     setBusy(true);
     try {
       const r = await axios.post(
@@ -258,6 +266,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
           // Cargo extra opcional en USD — se registra como cargo_extra por cada
           // caja creada en guias_ajustes_financieros (backend).
           extraChargeUsd: Number(box.extraChargeUsd) > 0 ? Number(box.extraChargeUsd) : undefined,
+          extraChargeReason: Number(box.extraChargeUsd) > 0 ? box.extraChargeReason.trim() : undefined,
           // sin comments: se llenan en el paso 3
           quantity: Math.max(1, parseInt(quantity, 10) || 1),
         },
@@ -424,6 +433,11 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     const extraNum = Number(editClient.extraChargeUsd);
     const hasExtra = Number.isFinite(extraNum) && extraNum > 0;
     if (!editClient.value.trim() && !editClient.productType && !hasExtra) return;
+    // Si hay cargo extra, el motivo es obligatorio.
+    if (hasExtra && !editClient.extraChargeReason.trim()) {
+      window.alert(t('tdiExpress.wizard.extraChargeReasonRequired'));
+      return;
+    }
     try {
       await axios.patch(
         `${API_URL}/api/tdi-express/shipments/${editClient.id}`,
@@ -431,10 +445,11 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
           boxId: editClient.value.trim() || undefined,
           productType: editClient.productType || undefined,
           extraChargeUsd: hasExtra ? extraNum : undefined,
+          extraChargeReason: hasExtra ? editClient.extraChargeReason.trim() : undefined,
         },
         { headers: authHeaders }
       );
-      setEditClient({ open: false, id: null, value: '', productType: '', extraChargeUsd: '' });
+      setEditClient({ open: false, id: null, value: '', productType: '', extraChargeUsd: '', extraChargeReason: '' });
       loadAll();
     } catch (e: any) {
       window.alert(e?.response?.data?.error || 'Error');
@@ -544,6 +559,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                       productType: (s.child_tariff_types || '').split(',').filter(Boolean).length === 1
                         ? (TARIFF_TO_PRODUCT[(s.child_tariff_types || '').split(',')[0]] || '') : '',
                       extraChargeUsd: '',
+                      extraChargeReason: '',
                     })}
                     sx={{ color: '#1976D2' }}>
                     <EditIcon fontSize="small" />
@@ -652,6 +668,20 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                       helperText={qtyNum > 1 ? t('tdiExpress.wizard.extraChargeBatchHint', { n: qtyNum }) : t('tdiExpress.wizard.extraChargeHint')}
                     />
                   </Grid>
+                  {Number(box.extraChargeUsd) > 0 && (
+                    <Grid size={{ xs: 12 }}>
+                      <TextField
+                        label={t('tdiExpress.wizard.extraChargeReason')}
+                        value={box.extraChargeReason}
+                        onChange={(e) => setBox({ ...box, extraChargeReason: e.target.value })}
+                        fullWidth
+                        size="small"
+                        required
+                        error={!box.extraChargeReason.trim()}
+                        helperText={t('tdiExpress.wizard.extraChargeReasonHint')}
+                      />
+                    </Grid>
+                  )}
                 </Grid>
 
                 <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700 }}>{t('tdiExpress.wizard.section2')}</Typography>
@@ -775,7 +805,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       </Dialog>
 
       {/* ===== Editar envío: cliente y tipo de producto ===== */}
-      <Dialog open={editClient.open} onClose={() => setEditClient({ open: false, id: null, value: '', productType: '', extraChargeUsd: '' })} maxWidth="xs" fullWidth>
+      <Dialog open={editClient.open} onClose={() => setEditClient({ open: false, id: null, value: '', productType: '', extraChargeUsd: '', extraChargeReason: '' })} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ bgcolor: BLACK, color: '#FFF' }}>{t('tdiExpress.editClient')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2.5} sx={{ mt: 3 }}>
@@ -803,14 +833,28 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
               slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
               helperText={t('tdiExpress.wizard.extraChargeHint')}
             />
+            {Number(editClient.extraChargeUsd) > 0 && (
+              <TextField
+                fullWidth
+                label={t('tdiExpress.wizard.extraChargeReason')}
+                value={editClient.extraChargeReason}
+                onChange={(e) => setEditClient({ ...editClient, extraChargeReason: e.target.value })}
+                required
+                error={!editClient.extraChargeReason.trim()}
+                helperText={t('tdiExpress.wizard.extraChargeReasonHint')}
+              />
+            )}
           </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setEditClient({ open: false, id: null, value: '', productType: '', extraChargeUsd: '' })}>
+          <Button onClick={() => setEditClient({ open: false, id: null, value: '', productType: '', extraChargeUsd: '', extraChargeReason: '' })}>
             {t('tdiExpress.wizard.cancel')}
           </Button>
           <Button variant="contained" onClick={saveEdit}
-            disabled={!editClient.value.trim() && !editClient.productType && !(Number(editClient.extraChargeUsd) > 0)}
+            disabled={
+              (!editClient.value.trim() && !editClient.productType && !(Number(editClient.extraChargeUsd) > 0))
+              || (Number(editClient.extraChargeUsd) > 0 && !editClient.extraChargeReason.trim())
+            }
             sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A28' } }}>
             {t('tdiExpress.save')}
           </Button>

@@ -329,13 +329,17 @@ export const updateTdiShipment = async (req: Request, res: Response): Promise<an
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
-    const { boxId, productType, extraChargeUsd } = (req.body || {}) as { boxId?: string; productType?: string; extraChargeUsd?: number | string };
+    const { boxId, productType, extraChargeUsd, extraChargeReason } = (req.body || {}) as { boxId?: string; productType?: string; extraChargeUsd?: number | string; extraChargeReason?: string };
     const bid = boxId ? String(boxId).trim().toUpperCase() : '';
     const newTariff = productType
       ? (PRODUCT_TO_TARIFF[String(productType).toLowerCase()] || null)
       : null;
     const extraUsd = Number(extraChargeUsd);
     const hasExtra = Number.isFinite(extraUsd) && extraUsd > 0;
+    const extraReason = String(extraChargeReason || '').trim();
+    if (hasExtra && !extraReason) {
+      return res.status(400).json({ error: 'El motivo del cargo extra es obligatorio' });
+    }
     const autorizadoPor = (req as any).user?.userId ?? (req as any).user?.id ?? null;
     if (!bid && !newTariff && !hasExtra) {
       return res.status(400).json({ error: 'Nada que actualizar' });
@@ -395,7 +399,7 @@ export const updateTdiShipment = async (req: Request, res: Response): Promise<an
              (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, autorizado_por, cliente_id)
            VALUES ($1, $2, 'tdi_express', 'cargo_extra', $3, 'USD', $4, $5, $6)`,
           [m.rows[0].id, m.rows[0].tracking_internal, extraUsd,
-            'Cargo extra (edición manual)', autorizadoPor, m.rows[0].user_id]
+            extraReason, autorizadoPor, m.rows[0].user_id]
         );
       } catch (extraErr: any) {
         console.warn('[updateTdiShipment] no se pudo registrar cargo_extra:', extraErr.message);
@@ -430,11 +434,15 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
     const {
       originGuide, boxId, grossWeight, chargeableWeight,
       length, width, height, productType, description, comments, quantity,
-      extraChargeUsd,
+      extraChargeUsd, extraChargeReason,
     } = req.body || {};
     const qty = Math.max(1, Math.min(99, parseInt(String(quantity ?? 1), 10) || 1));
     const extraUsd = Number(extraChargeUsd);
     const hasExtra = Number.isFinite(extraUsd) && extraUsd > 0;
+    const extraReason = String(extraChargeReason || '').trim();
+    if (hasExtra && !extraReason) {
+      return res.status(400).json({ error: 'El motivo del cargo extra es obligatorio' });
+    }
     const autorizadoPor = (req as any).user?.userId ?? (req as any).user?.id ?? null;
 
     const gw = Number(grossWeight) || 0;
@@ -518,7 +526,7 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
                (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, autorizado_por, cliente_id)
              VALUES ($1, $2, 'tdi_express', 'cargo_extra', $3, 'USD', $4, $5, $6)`,
             [ins.rows[0].id, ins.rows[0].tracking_internal, extraUsd,
-              'Cargo extra en recepción TDI Express', autorizadoPor, master.user_id]
+              extraReason, autorizadoPor, master.user_id]
           );
         } catch (extraErr: any) {
           console.warn('[addTdiBox] no se pudo registrar cargo_extra:', extraErr.message);
