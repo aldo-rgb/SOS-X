@@ -9487,7 +9487,12 @@ export default function DashboardClient() {
                         📦 {pkg.total_boxes} {t('cd.delivery.boxes')}
                       </Typography>
                     )}
-                    {(pkg.weight || pkg.cbm) && (
+                    {(() => {
+                      const isTdxPkg = ['servicio', 'service_type', 'air_source']
+                        .some(k => String((pkg as any)[k] || '').toLowerCase() === 'tdi_express');
+                      const tdxUsd = isTdxPkg ? Number((pkg as any).air_sale_price) || 0 : 0;
+                      if (!(pkg.weight || pkg.cbm || tdxUsd > 0)) return null;
+                      return (
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         {pkg.weight && (
                           <Box>
@@ -9497,7 +9502,16 @@ export default function DashboardClient() {
                             <Typography variant="body2" fontWeight="bold">{Number(pkg.weight).toFixed(2)} kg</Typography>
                           </Box>
                         )}
-                        {pkg.cbm && (
+                        {/* TDX: total a pagar en USD (suma de todas las cajas) */}
+                        {isTdxPkg && tdxUsd > 0 && (
+                          <Box sx={{ textAlign: 'right' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Total USD
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>${tdxUsd.toFixed(2)}</Typography>
+                          </Box>
+                        )}
+                        {!isTdxPkg && pkg.cbm && (
                           <Box sx={{ textAlign: 'right' }}>
                             <Typography variant="caption" color="text.secondary">
                               CBM Total
@@ -9506,7 +9520,8 @@ export default function DashboardClient() {
                           </Box>
                         )}
                       </Box>
-                    )}
+                      );
+                    })()}
 
                     {/* Botón para desglosar cajas */}
                     {((pkg.included_guides && pkg.included_guides.length > 0) || (pkg.total_boxes && pkg.total_boxes > 1)) && (() => {
