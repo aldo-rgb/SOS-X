@@ -5,6 +5,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Box,
   Typography,
@@ -238,6 +239,23 @@ const MaritimeConsolidationsPage: React.FC = () => {
     catch { return ''; }
   })();
   const isSuperAdmin = currentRole === 'super_admin';
+
+  const { t } = useTranslation();
+
+  // Sucursal Bodega China (branch 8): vista simplificada — solo LOGs "Recibido en
+  // China" y un único widget con los pendientes de subir Packing List.
+  const [branchId, setBranchId] = useState<number | null>(null);
+  useEffect(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || '{}');
+      if (u.branch_id != null) setBranchId(Number(u.branch_id));
+    } catch { /* noop */ }
+    fetch(`${API_URL}/api/auth/profile`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { const b = d?.user?.branch_id ?? d?.branch_id; if (b != null) setBranchId(Number(b)); })
+      .catch(() => {});
+  }, [token]);
+  const isBodegaChina = branchId === 8;
 
   // Catálogo de estados permitidos para órdenes marítimas
   const MARITIME_STATUS_OPTIONS: Array<{ value: string; label: string; color: 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' }> = [
@@ -503,9 +521,13 @@ const MaritimeConsolidationsPage: React.FC = () => {
     }
   };
 
+  // Bodega China: solo LOGs con status "Recibido en China".
+  const pendingPackingChina = orders.filter(o => o.status === 'received_china' && !o.packing_list_url).length;
+
   // Filtrar órdenes
   const filteredOrders = orders.filter(order => {
-    if (searchTerm && !order.ordersn.toLowerCase().includes(searchTerm.toLowerCase()) && 
+    if (isBodegaChina && order.status !== 'received_china') return false;
+    if (searchTerm && !order.ordersn.toLowerCase().includes(searchTerm.toLowerCase()) &&
         !order.shipping_mark?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (filterContainer !== 'all') {
       if (filterContainer === 'unassigned' && order.container_id) return false;
@@ -539,35 +561,51 @@ const MaritimeConsolidationsPage: React.FC = () => {
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
         <DirectionsBoatIcon sx={{ fontSize: 32, mr: 1, color: 'primary.main' }} />
         <Typography variant="h5" fontWeight="bold">
-          Consolidaciones Marítimas
+          {t('maritimeConsolidations.title')}
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
-        <Button
-          variant="outlined"
-          startIcon={<RouteIcon />}
-          onClick={() => setRoutesDialog(true)}
-          sx={{ mr: 1 }}
-        >
-          Gestionar Rutas
-        </Button>
+        {!isBodegaChina && (
+          <Button
+            variant="outlined"
+            startIcon={<RouteIcon />}
+            onClick={() => setRoutesDialog(true)}
+            sx={{ mr: 1 }}
+          >
+            {t('maritimeConsolidations.manageRoutes')}
+          </Button>
+        )}
         <Button
           variant="contained"
           startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
           onClick={loadData}
           disabled={loading}
         >
-          Actualizar
+          {t('maritimeConsolidations.refresh')}
         </Button>
       </Box>
 
       {/* Stats Cards */}
+      {isBodegaChina ? (
+        // Bodega China: un único widget — LOGs "Recibido en China" pendientes de Packing List.
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid size={{ xs: 12, md: 4 }}>
+            <Card sx={{ bgcolor: 'warning.light' }}>
+              <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                <DescriptionIcon sx={{ fontSize: 32, color: 'warning.dark' }} />
+                <Typography variant="h4" fontWeight="bold">{pendingPackingChina}</Typography>
+                <Typography variant="body2">{t('maritimeConsolidations.pendingPackingChina')}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      ) : (
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid size={{ xs: 6, md: 3 }}>
           <Card sx={{ bgcolor: 'info.light' }}>
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <InventoryIcon sx={{ fontSize: 32, color: 'info.dark' }} />
               <Typography variant="h4" fontWeight="bold">{stats?.total_orders || 0}</Typography>
-              <Typography variant="body2">Total LOGs</Typography>
+              <Typography variant="body2">{t('maritimeConsolidations.totalLogs')}</Typography>
             </CardContent>
           </Card>
         </Grid>
@@ -576,7 +614,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <CheckCircleIcon sx={{ fontSize: 32, color: 'success.dark' }} />
               <Typography variant="h4" fontWeight="bold">{stats?.assigned_to_container || 0}</Typography>
-              <Typography variant="body2">En Contenedor</Typography>
+              <Typography variant="body2">{t('maritimeConsolidations.inContainer')}</Typography>
             </CardContent>
           </Card>
         </Grid>
@@ -585,7 +623,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <PendingIcon sx={{ fontSize: 32, color: 'warning.dark' }} />
               <Typography variant="h4" fontWeight="bold">{stats?.pending_assignment || 0}</Typography>
-              <Typography variant="body2">Sin Asignar</Typography>
+              <Typography variant="body2">{t('maritimeConsolidations.unassigned')}</Typography>
             </CardContent>
           </Card>
         </Grid>
@@ -594,18 +632,21 @@ const MaritimeConsolidationsPage: React.FC = () => {
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <DescriptionIcon sx={{ fontSize: 32, color: 'secondary.dark' }} />
               <Typography variant="h4" fontWeight="bold">{stats?.with_packing_list || 0}</Typography>
-              <Typography variant="body2">Con Packing List</Typography>
+              <Typography variant="body2">{t('maritimeConsolidations.withPackingList')}</Typography>
             </CardContent>
           </Card>
         </Grid>
       </Grid>
+      )}
 
-      {/* Tabs */}
+      {/* Tabs — ocultas para Bodega China (solo ven Recibido en China) */}
+      {!isBodegaChina && (
       <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ mb: 2 }}>
-        <Tab label="Todos los LOGs" icon={<InventoryIcon />} iconPosition="start" />
-        <Tab label="Sin Contenedor" icon={<PendingIcon />} iconPosition="start" />
-        <Tab label="Asignados" icon={<CheckCircleIcon />} iconPosition="start" />
+        <Tab label={t('maritimeConsolidations.tabAll')} icon={<InventoryIcon />} iconPosition="start" />
+        <Tab label={t('maritimeConsolidations.tabNoContainer')} icon={<PendingIcon />} iconPosition="start" />
+        <Tab label={t('maritimeConsolidations.tabAssigned')} icon={<CheckCircleIcon />} iconPosition="start" />
       </Tabs>
+      )}
 
       {/* Filtros */}
       <Paper sx={{ p: 2, mb: 2 }}>

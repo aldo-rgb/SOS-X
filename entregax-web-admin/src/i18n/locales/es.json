@@ -2096,6 +2096,19 @@
     "thisMonth": "Este Mes",
     "subAdvisors": "Sub-Asesores"
   },
+  "maritimeConsolidations": {
+    "title": "Consolidaciones Marítimas",
+    "manageRoutes": "Gestionar Rutas",
+    "refresh": "Actualizar",
+    "totalLogs": "Total LOGs",
+    "inContainer": "En Contenedor",
+    "unassigned": "Sin Asignar",
+    "withPackingList": "Con Packing List",
+    "pendingPackingChina": "Recibidos en China pendientes de Packing List",
+    "tabAll": "Todos los LOGs",
+    "tabNoContainer": "Sin Contenedor",
+    "tabAssigned": "Asignados"
+  },
   "labelingModule": {
     "title": "Módulo de etiquetado",
     "subtitle": "Reimprime etiquetas de cualquier paquete en el sistema (PO Box USA, China Aéreo, China Marítimo, DHL, Nacional)",
