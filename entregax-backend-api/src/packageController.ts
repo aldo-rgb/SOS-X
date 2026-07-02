@@ -6542,15 +6542,15 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
     }
 
     // Buscar usuario opcional
-    let user: { id: number | null; full_name: string; box_id: string } | null = null;
+    let user: { id: number | null; full_name: string; box_id: string; is_broker?: boolean } | null = null;
     if (boxId && boxId.trim()) {
       const normalized = boxId.trim().toUpperCase();
       const u = await client.query(
-        'SELECT id, full_name, box_id FROM users WHERE UPPER(TRIM(box_id)) = $1',
+        'SELECT id, full_name, box_id, COALESCE(is_broker, false) AS is_broker FROM users WHERE UPPER(TRIM(box_id)) = $1',
         [normalized]
       );
       if (u.rows.length > 0) {
-        user = { id: u.rows[0].id, full_name: u.rows[0].full_name, box_id: u.rows[0].box_id };
+        user = { id: u.rows[0].id, full_name: u.rows[0].full_name, box_id: u.rows[0].box_id, is_broker: u.rows[0].is_broker === true };
       } else {
         const lg = await client.query(
           'SELECT id, full_name, box_id FROM legacy_clients WHERE UPPER(TRIM(box_id)) = $1',
@@ -6573,12 +6573,28 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
     // detecta is_master=false y actualiza esta misma fila en lugar de
     // crear una hija.
     const isSingleBox = total === 1;
-    const description = isSingleBox
+    // 🧑‍💼 BROKER: el cliente broker recibe TODAS sus cajas como paquetes
+    // individuales (sin esquema master-hijas). Creamos el anchor como paquete
+    // individual (is_master=false, total_boxes=1) y lo marcamos con
+    // broker_receipt_id = su propio id. addBulkBoxToMaster detecta el broker y,
+    // tras capturar la 1ª caja en el anchor, crea cada caja siguiente como un
+    // paquete independiente (master_id=NULL) con el mismo broker_receipt_id.
+    const isBroker = user?.is_broker === true;
+    const description = (isSingleBox || isBroker)
       ? 'Hidalgo TX - Recepción individual'
       : 'Hidalgo TX - Recepción en serie';
     const notesText = notes || (isSingleBox
       ? 'Recepción individual - 1 caja'
-      : 'Recepción en serie - Master');
+      : (isBroker ? 'Recepción broker - cajas individuales' : 'Recepción en serie - Master'));
+
+    // Broker o 1 caja → paquete individual (is_master=false, box_number=1, total_boxes=1)
+    const anchorIsMaster = !isSingleBox && !isBroker;
+    const anchorTotalBoxes = anchorIsMaster ? total : 1;
+    const anchorBoxNumber = anchorIsMaster ? 0 : 1;
+
+    if (isBroker) {
+      await client.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS broker_receipt_id INTEGER`).catch(() => {});
+    }
 
     await client.query('BEGIN');
     const r = await client.query(
@@ -6591,7 +6607,7 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
          pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
          registered_exchange_rate, pobox_cost_usd, national_shipping_cost, needs_instructions)
        VALUES ($1, $2, $3, $4, 0, NULL, $5,
-               'received', $7, $8, $6, 'BODEGA',
+               'received', $7, $8, $9, 'BODEGA',
                'México', 'En Bodega', 'Pendiente de asignar',
                'POBOX_USA', 'usa_pobox', false,
                0, 0, 0,
@@ -6605,12 +6621,16 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
         description,
         notesText,
         total,
-        // is_master: false si es 1 caja (paquete individual), true si son varias
-        !isSingleBox,
-        // box_number: 1 cuando es individual, 0 cuando es master placeholder
-        isSingleBox ? 1 : 0,
+        anchorIsMaster,
+        anchorBoxNumber,
+        anchorTotalBoxes,
       ]
     );
+    // Marcar el anchor broker con su propio id (autorreferencia) para agrupar la
+    // sesión de recepción sin usar master_id (así NO se anidan como hijas).
+    if (isBroker) {
+      await client.query(`UPDATE packages SET broker_receipt_id = $1 WHERE id = $1`, [r.rows[0].id]);
+    }
     await client.query('COMMIT');
 
     const savedTracking = r.rows[0].tracking_internal;
@@ -6622,10 +6642,13 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
       success: true,
       masterId: r.rows[0].id,
       masterTracking: savedTracking,
-      totalBoxes: r.rows[0].total_boxes,
-      isSingleBox,
+      // Para broker informamos el total real de cajas esperadas (el frontend
+      // lleva el conteo local), aunque cada caja sea un paquete individual.
+      totalBoxes: isBroker ? total : r.rows[0].total_boxes,
+      isSingleBox: isSingleBox && !isBroker,
+      isBroker,
       isIndividual: r.rows[0].is_master === false,
-      client: user ? { id: user.id, fullName: user.full_name, boxId: user.box_id } : null,
+      client: user ? { id: user.id, fullName: user.full_name, boxId: user.box_id, isBroker } : null,
     });
   } catch (error: any) {
     await client.query('ROLLBACK').catch(() => {});
@@ -6744,12 +6767,91 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
     // Aceptamos ambos para que el frontend mantenga la misma llamada.
     const m = await client.query(
       `SELECT id, tracking_internal, total_boxes, user_id, box_id, service_type, warehouse_location, status,
-              destination_country, destination_city, destination_address, carrier, is_master, weight
+              destination_country, destination_city, destination_address, carrier, is_master, weight,
+              broker_receipt_id
        FROM packages WHERE id = $1`,
       [masterId]
     );
     if (m.rows.length === 0) return res.status(404).json({ error: 'Master no encontrado' });
     const master = m.rows[0];
+
+    // 🧑‍💼 BROKER: el anchor lleva broker_receipt_id = su propio id. La 1ª caja
+    // (anchor con weight=0) se captura llenando el anchor por la vía individual
+    // de abajo. A partir de la 2ª caja (anchor ya capturado, weight>0) creamos
+    // un paquete INDEPENDIENTE (master_id=NULL, is_master=false, total_boxes=1)
+    // con el mismo broker_receipt_id — sin guías hijas.
+    const isBrokerReceipt = master.broker_receipt_id != null;
+    if (isBrokerReceipt && Number(master.weight) > 0) {
+      const brokerReceiptId = master.broker_receipt_id;
+      let svcMxn = 0, costUsd: number | null = null, ventaUsd: number | null = null, nivel: number | null = null, tc: number | null = null;
+      if ((master.service_type || 'POBOX_USA') === 'POBOX_USA') {
+        try {
+          const cr = await calculatePOBoxCost(client, [{ weight: w, length: l, width: wd, height: h }]);
+          svcMxn = cr.poboxServiceCost || 0; costUsd = cr.poboxCostUsd ?? null;
+          ventaUsd = cr.precioVentaUsd ?? null; nivel = cr.nivelTarifa ?? null; tc = cr.registeredExchangeRate || null;
+        } catch (calcErr) {
+          console.warn('[addBulkBoxToMaster broker] No se pudo calcular costo PO Box:', calcErr);
+        }
+      }
+      const ventaMxn = (ventaUsd || 0) * (tc || 0);
+      const brokerTracking = generateTracking();
+      await client.query('BEGIN');
+      const ins = await client.query(
+        `INSERT INTO packages
+          (user_id, box_id, tracking_internal, tracking_provider, origin_carrier, description, weight,
+           pkg_length, pkg_width, pkg_height, status,
+           is_master, master_id, box_number, total_boxes, carrier, broker_receipt_id,
+           destination_country, destination_city, destination_address,
+           service_type, warehouse_location, has_gex,
+           pobox_service_cost, pobox_cost_usd, pobox_venta_usd, pobox_tarifa_nivel, registered_exchange_rate,
+           pobox_provider_cost_mxn, pobox_provider_cost_usd,
+           assigned_cost_mxn, single_cbm, saldo_pendiente, needs_instructions)
+         VALUES ($1, $2, $3, $4, $5, $6, $7,
+                 $8, $9, $10, 'received',
+                 false, NULL, 1, 1, 'BODEGA', $11,
+                 'México', 'En Bodega', 'Pendiente de asignar',
+                 'POBOX_USA', 'usa_pobox', false,
+                 $12, $13, $14, $15, $16,
+                 $12, $13,
+                 0, 0, 0, true)
+         RETURNING id, tracking_internal, weight, pkg_length, pkg_width, pkg_height`,
+        [
+          master.user_id || null, master.box_id || null, brokerTracking, trackingCourier || null, cleanOriginCarrier,
+          'Hidalgo TX - Recepción individual', w, l, wd, h, brokerReceiptId,
+          svcMxn, costUsd, ventaUsd, nivel, tc,
+        ]
+      );
+      await client.query('COMMIT');
+
+      let clientNameBk = 'SIN CLIENTE';
+      if (master.user_id) {
+        const u = await pool.query('SELECT full_name FROM users WHERE id = $1', [master.user_id]);
+        if (u.rows.length > 0) clientNameBk = u.rows[0].full_name;
+      } else if (master.box_id) {
+        const lg = await pool.query('SELECT full_name FROM legacy_clients WHERE box_id = $1', [master.box_id]);
+        if (lg.rows.length > 0) clientNameBk = lg.rows[0].full_name;
+      }
+      const labelBk = {
+        boxNumber: 1, totalBoxes: 1,
+        tracking: ins.rows[0].tracking_internal, labelCode: ins.rows[0].tracking_internal,
+        masterTracking: null, isMaster: false,
+        weight: parseFloat(ins.rows[0].weight),
+        dimensions: formatDimensions(parseFloat(ins.rows[0].pkg_length), parseFloat(ins.rows[0].pkg_width), parseFloat(ins.rows[0].pkg_height)),
+        clientName: clientNameBk, clientBoxId: master.box_id || 'PENDIENTE',
+        description: 'Hidalgo TX', receivedAt: new Date().toISOString(),
+        trackingCourier: trackingCourier || null, originCarrier: cleanOriginCarrier || null,
+      };
+      return res.status(201).json({
+        success: true,
+        isIndividual: true,
+        isBroker: true,
+        childId: ins.rows[0].id,
+        childTracking: ins.rows[0].tracking_internal,
+        boxNumber: 1, expectedTotal: 1, completed: true,
+        weight: ins.rows[0].weight,
+        label: labelBk,
+      });
+    }
 
     // ⚡ Recepción individual (1 caja): en lugar de crear una hija,
     // actualizamos el paquete placeholder con peso/dimensiones/courier
@@ -7073,12 +7175,35 @@ export const removeBulkBoxFromMaster = async (req: Request, res: Response): Prom
 
     // Cargar paquete a eliminar
     const c = await client.query(
-      `SELECT id, master_id, is_master, total_boxes, tracking_internal, weight
+      `SELECT id, master_id, is_master, total_boxes, tracking_internal, weight, broker_receipt_id
          FROM packages WHERE id = $1`,
       [childId]
     );
     if (c.rows.length === 0) return res.status(404).json({ error: 'Caja no encontrada' });
     const child = c.rows[0];
+
+    // 🧑‍💼 BROKER: paquete individual de una sesión broker (broker_receipt_id =
+    // anchor) que NO es el propio anchor → se borra directamente (no es hija).
+    if (child.broker_receipt_id != null && child.id !== child.broker_receipt_id && child.broker_receipt_id === masterId) {
+      await client.query('BEGIN');
+      const relatedTablesBk = ['caja_chica_aplicacion_pagos', 'delivery_documents', 'china_status_history', 'package_history'];
+      for (const t of relatedTablesBk) {
+        try { await client.query(`DELETE FROM ${t} WHERE package_id = $1`, [childId]); } catch { /* tabla ausente */ }
+      }
+      await client.query('DELETE FROM packages WHERE id = $1', [childId]);
+      await client.query('COMMIT');
+      const cnt = await client.query(
+        `SELECT COUNT(*)::int AS n FROM packages WHERE broker_receipt_id = $1`,
+        [masterId]
+      );
+      return res.json({
+        success: true,
+        removedId: childId,
+        removedTracking: child.tracking_internal,
+        currentChildren: cnt.rows[0].n as number,
+        isBroker: true,
+      });
+    }
 
     // Caso individual placeholder: revertir captura sin borrar la fila
     if (masterId === childId && child.is_master === false && Number(child.total_boxes) === 1) {
@@ -7229,7 +7354,7 @@ export const notifyBulkMasterReception = async (req: Request, res: Response): Pr
           const firstName = (pkg.full_name || '').split(' ')[0] || 'Cliente';
           const childRows = await pool.query(
             `SELECT COUNT(*) as total, MIN(tracking_provider) as guia_origen
-             FROM packages WHERE master_id = $1`,
+             FROM packages WHERE master_id = $1 OR broker_receipt_id = $1`,
             [masterId]
           );
           const totalCajas = parseInt(childRows.rows[0]?.total || '0', 10) || 1;
@@ -7278,6 +7403,9 @@ export const cancelBulkMaster = async (req: Request, res: Response): Promise<any
     await client.query('BEGIN');
     // Borrar hijas primero (FK), luego el master
     await client.query(`DELETE FROM packages WHERE master_package_id = $1`, [masterId]);
+    // Broker: borrar también los paquetes individuales de la sesión (excepto el
+    // anchor, que se borra abajo por id). broker_receipt_id agrupa la sesión.
+    await client.query(`DELETE FROM packages WHERE broker_receipt_id = $1 AND id <> $1`, [masterId]);
     const r = await client.query(`DELETE FROM packages WHERE id = $1 RETURNING tracking_internal`, [masterId]);
     await client.query('COMMIT');
 

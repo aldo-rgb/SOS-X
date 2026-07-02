@@ -365,6 +365,7 @@ export const getCRMClients = async (req: Request, res: Response): Promise<any> =
         u.created_at,
         u.is_verified,
         u.is_active,
+        COALESCE(u.is_broker, false) as is_broker,
         u.referred_by_id,
         COALESCE(u.advisor_id, u.referred_by_id) as advisor_id,
         u.first_transaction_date,
@@ -1516,6 +1517,28 @@ export const toggleClientActive = async (req: Request, res: Response): Promise<a
     const newState = !cur.rows[0].is_active;
     await pool.query(`UPDATE users SET is_active = $1 WHERE id = $2`, [newState, id]);
     res.json({ success: true, is_active: newState });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * PATCH /api/admin/crm/clients/:id/toggle-broker
+ * Marca/desmarca un cliente como BROKER (users.is_broker). Un broker recibe en
+ * PO Box "Recepción en serie" todas sus cajas como paquetes INDIVIDUALES (sin
+ * guías hijas / sin esquema master-hijas).
+ */
+export const toggleClientBroker = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_broker BOOLEAN DEFAULT false`).catch(() => {});
+    const cur = await pool.query(`SELECT is_broker FROM users WHERE id = $1 AND role = 'client'`, [id]);
+    if (cur.rows.length === 0) {
+      return res.status(404).json({ error: 'Cliente no encontrado' });
+    }
+    const newState = !cur.rows[0].is_broker;
+    await pool.query(`UPDATE users SET is_broker = $1 WHERE id = $2`, [newState, id]);
+    res.json({ success: true, is_broker: newState });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

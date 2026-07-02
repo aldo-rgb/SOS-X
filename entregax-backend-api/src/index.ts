@@ -612,7 +612,8 @@ import {
   getTeamLeaders,
   changeClientAdvisor,
   resetClientPassword,
-  toggleClientActive
+  toggleClientActive,
+  toggleClientBroker
 } from './crmController';
 import {
   handleSupportMessage,
@@ -4759,7 +4760,7 @@ app.get('/api/packages/lookup-client/:boxId', authenticateToken, requireMinLevel
     if (!boxId) return res.status(400).json({ found: false, error: 'boxId requerido' });
 
     const u = await pool.query(
-      'SELECT id, full_name, box_id, email FROM users WHERE UPPER(box_id) = $1 LIMIT 1',
+      'SELECT id, full_name, box_id, email, COALESCE(is_broker, false) AS is_broker FROM users WHERE UPPER(box_id) = $1 LIMIT 1',
       [boxId]
     );
     if (u.rows.length > 0) {
@@ -4767,6 +4768,7 @@ app.get('/api/packages/lookup-client/:boxId', authenticateToken, requireMinLevel
       return res.json({
         found: true, source: 'users',
         id: r.id, fullName: r.full_name, boxId: r.box_id, email: r.email || null,
+        isBroker: r.is_broker === true,
       });
     }
 
@@ -6811,6 +6813,7 @@ app.post('/api/admin/crm/recovery/detect', authenticateToken, requireMinLevel(RO
 app.patch('/api/admin/crm/clients/:id/advisor', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), changeClientAdvisor);
 app.post('/api/admin/crm/clients/:id/reset-password', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resetClientPassword);
 app.patch('/api/admin/crm/clients/:id/toggle-active', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), toggleClientActive);
+app.patch('/api/admin/crm/clients/:id/toggle-broker', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), toggleClientBroker);
 
 // Módulo 3: Prospectos (Leads mejorado)
 app.get('/api/admin/crm/prospects', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProspects);

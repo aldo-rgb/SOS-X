@@ -335,6 +335,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
       status: 'idle' | 'loading' | 'found' | 'notfound' | 'error';
       fullName?: string;
       source?: 'users' | 'legacy';
+      isBroker?: boolean;
       message?: string;
     }>({ status: 'idle' });
     const [bulkRegisteredIds, setBulkRegisteredIds] = useState<number[]>([]); // IDs de paquetes ya creados en esta sesión
@@ -359,6 +360,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                         status: 'found',
                         fullName: r.data.fullName,
                         source: r.data.source,
+                        isBroker: r.data.isBroker === true,
                     });
                 } else {
                     setBulkClientLookup({
@@ -1948,6 +1950,14 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                         <Typography variant="caption" color="text.secondary">
                                                             Casillero {bulkBoxId} · {bulkClientLookup.source === 'legacy' ? 'Cliente legacy' : 'Cliente registrado'}
                                                         </Typography>
+                                                        {bulkClientLookup.isBroker && (
+                                                            <Chip
+                                                                label="🧑‍💼 BROKER · cajas individuales (sin guías hijas)"
+                                                                size="small"
+                                                                color="warning"
+                                                                sx={{ mt: 0.5, fontWeight: 700 }}
+                                                            />
+                                                        )}
                                                     </Alert>
                                                 ) : bulkClientLookup.status === 'notfound' ? (
                                                     <Alert severity="error">

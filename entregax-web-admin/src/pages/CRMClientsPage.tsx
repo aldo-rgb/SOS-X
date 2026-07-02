@@ -52,6 +52,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import LockResetIcon from '@mui/icons-material/LockReset';
 import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import * as XLSX from 'xlsx';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
@@ -65,6 +66,7 @@ interface Client {
   created_at: string;
   is_verified: boolean;
   is_active: boolean;
+  is_broker?: boolean;
   referred_by_id: number | null;
   advisor_id: number | null;
   first_transaction_date: string | null;
@@ -383,6 +385,26 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
       setSnackbar({ open: true, message: 'Error al resetear contraseña', severity: 'error' });
     } finally {
       setResetPwdLoading(false);
+    }
+  };
+
+  const handleToggleBroker = async (client: Client) => {
+    try {
+      const res = await axios.patch(
+        `${API_URL}/admin/crm/clients/${client.id}/toggle-broker`,
+        {},
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setClients(prev => prev.map(c => c.id === client.id ? { ...c, is_broker: res.data.is_broker } : c));
+      setSnackbar({
+        open: true,
+        message: res.data.is_broker
+          ? '🧑‍💼 Cliente marcado como BROKER — recibirá sus cajas como individuales (sin guías hijas)'
+          : 'Cliente ya no es broker',
+        severity: 'success',
+      });
+    } catch {
+      setSnackbar({ open: true, message: 'Error al cambiar broker', severity: 'error' });
     }
   };
 
@@ -707,6 +729,17 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
                               onClick={() => setToggleActiveClient(client)}
                             >
                               {client.is_active === false ? <CheckCircleIcon fontSize="small" /> : <BlockIcon fontSize="small" />}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {canEditClients && (
+                          <Tooltip title={client.is_broker ? 'Broker ✓ — cajas individuales. Clic para quitar' : 'Marcar como Broker (recibe cajas individuales, sin guías hijas)'}>
+                            <IconButton
+                              size="small"
+                              color={client.is_broker ? 'success' : 'default'}
+                              onClick={() => handleToggleBroker(client)}
+                            >
+                              <BusinessCenterIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
                         )}
