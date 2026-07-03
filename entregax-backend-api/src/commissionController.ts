@@ -6,6 +6,20 @@ import { generateBoxId } from './authController';
 // SISTEMA DE COMISIONES Y REFERIDOS
 // ============================================
 
+// ✈️ Regla Aéreo China: una comisión solo cuenta si su GUÍA tiene una ORDEN DE
+// PAGO (advisor_payment_orders) generada Y PAGADA (status 'pagado'). Igual que
+// PO Box pero contra la tabla de órdenes del asesor. Vínculo por package_uids
+// ('PKG-'||shipment_id) o por tracking. Requiere alias `ac` para advisor_commissions.
+export const AEREO_PAID_ORDER_SQL = `(
+    ac.service_type <> 'aereo_china_mx'
+    OR EXISTS (
+        SELECT 1 FROM advisor_payment_orders apo_x
+         WHERE apo_x.status = 'pagado'
+           AND (apo_x.package_uids ? ('PKG-' || ac.shipment_id::text)
+                OR (ac.tracking IS NOT NULL AND apo_x.trackings ? ac.tracking))
+    )
+)`;
+
 // 1. ADMIN: Obtener tabla de comisiones
 export const getCommissionRates = async (req: Request, res: Response): Promise<any> => {
     try {
@@ -530,6 +544,10 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
             OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk ON pk.pobox_payment_id = pp_x.id WHERE pk.id = ac.shipment_id AND ${PAID_ORDER})
             OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk2 ON NULLIF(pk2.payment_reference,'') = pp_x.payment_reference WHERE pk2.id = ac.shipment_id AND ${PAID_ORDER})
         )`);
+        // ✈️ Aéreo China: misma regla — la guía debe tener una ORDEN DE PAGO
+        // (advisor_payment_orders) generada Y PAGADA (status 'pagado'). Vínculo por
+        // package_uids ('PKG-'||id) o por tracking.
+        conditions.push(AEREO_PAID_ORDER_SQL);
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -717,6 +735,8 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
             OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk ON pk.pobox_payment_id = pp_x.id WHERE pk.id = ac.shipment_id AND ${PAID_ORDER})
             OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk2 ON NULLIF(pk2.payment_reference,'') = pp_x.payment_reference WHERE pk2.id = ac.shipment_id AND ${PAID_ORDER})
         )`);
+        // ✈️ Aéreo China: orden de pago generada Y pagada (mismo criterio que el ledger).
+        rowConds.push(AEREO_PAID_ORDER_SQL);
 
         const rowWhere = rowConds.length > 0 ? `WHERE ${rowConds.join(' AND ')}` : '';
 

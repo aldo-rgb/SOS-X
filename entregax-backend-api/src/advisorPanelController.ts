@@ -6,6 +6,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { signS3UrlIfNeeded } from './s3Service';
+import { AEREO_PAID_ORDER_SQL } from './commissionController';
 
 // ─── Helper: asegurar que existan columnas de onboarding (idempotente) ───
 let _advisorColumnsEnsured = false;
@@ -1002,7 +1003,8 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         OR EXISTS (SELECT 1 FROM pobox_payments pp_x WHERE pp_x.package_ids @> to_jsonb(ac.shipment_id) AND ${POBOX_PAID})
         OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk ON pk.pobox_payment_id = pp_x.id WHERE pk.id = ac.shipment_id AND ${POBOX_PAID})
         OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk2 ON NULLIF(pk2.payment_reference,'') = pp_x.payment_reference WHERE pk2.id = ac.shipment_id AND ${POBOX_PAID})
-    )`;
+    )
+    AND ${AEREO_PAID_ORDER_SQL}`;
 
     // Helper: agrega condiciones de fecha/servicio/estado a una query (empuja params).
     const extraFilter = (params: any[]): string => {
