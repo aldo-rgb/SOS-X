@@ -4593,6 +4593,23 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                             }
                         }
 
+                        // 💳 Evisa Prepagado: tarifa FIJA por caja configurada en Administración
+                        // (carrier_service_options.price_label, ej. "$400") × número de cajas.
+                        // Se SUMA al costo PO Box (no lo reemplaza).
+                        const isEvisaPre = carrierNorm === 'evisapre';
+                        if (isEvisaPre) {
+                            const cfgEv = await pool.query(
+                                `SELECT price_label FROM carrier_service_options WHERE carrier_key = 'evisa_pre' LIMIT 1`
+                            );
+                            const perBoxEv = parseFloat(String(cfgEv.rows[0]?.price_label || '').replace(/[^0-9.]/g, '')) || 0;
+                            const boxesEvRes = await pool.query(
+                                `SELECT COALESCE(total_boxes, 1) AS boxes FROM packages WHERE id = $1`, [packageId]
+                            );
+                            const boxesEv = Number(boxesEvRes.rows[0]?.boxes) || 1;
+                            shippingCostMxn = perBoxEv * boxesEv;
+                            console.log(`💳 [Evisa Prepagado] Paquete ${packageId}: ${boxesEv} caja(s) × $${perBoxEv} = $${shippingCostMxn} MXN`);
+                        }
+
                         // Recalcular total: PO Box + GEX + envío nacional
                         const currentPkgData = await pool.query(
                             'SELECT pobox_venta_usd, gex_total_cost, monto_pagado FROM packages WHERE id = $1',
