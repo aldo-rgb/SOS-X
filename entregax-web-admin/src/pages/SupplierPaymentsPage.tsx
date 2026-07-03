@@ -24,6 +24,7 @@ import HubIcon from '@mui/icons-material/Hub';
 import SecurityIcon from '@mui/icons-material/Security';
 import BoltIcon from '@mui/icons-material/Bolt';
 import PublicIcon from '@mui/icons-material/Public';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import EntangledAdminTab from '../components/EntangledAdminTab';
 import ClaveSatSearchBlock from '../components/ClaveSatSearchBlock';
 
@@ -291,6 +292,38 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
       setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al sincronizar proveedores', severity: 'error' });
     } finally {
       setSyncingProviders(false);
+    }
+  };
+
+  // Recargar saldo TCManual: abre el wallet en una nueva pestaña y copia el
+  // usuario al portapapeles. La contraseña queda accesible en el snackbar
+  // para pegarla con Cmd/Ctrl+V después del usuario.
+  const TC_WALLET_URL = 'https://wallet.tcmanual.mx/recarga';
+  const TC_WALLET_USER = 'jcseg';
+  const TC_WALLET_PASS = 'foMtum-beqzex-joxcu2';
+  const handleRecargaWallet = async () => {
+    try {
+      await navigator.clipboard.writeText(TC_WALLET_USER);
+      setSnackbar({
+        open: true,
+        severity: 'success',
+        message: `Usuario copiado (${TC_WALLET_USER}). Contraseña: ${TC_WALLET_PASS} — haz clic aquí para copiarla.`,
+      });
+    } catch {
+      setSnackbar({
+        open: true,
+        severity: 'error',
+        message: `No se pudo copiar. Usuario: ${TC_WALLET_USER} · Contraseña: ${TC_WALLET_PASS}`,
+      });
+    }
+    window.open(TC_WALLET_URL, '_blank', 'noopener,noreferrer');
+  };
+  const handleCopyWalletPass = async () => {
+    try {
+      await navigator.clipboard.writeText(TC_WALLET_PASS);
+      setSnackbar({ open: true, severity: 'success', message: 'Contraseña copiada. Pega en el campo contraseña.' });
+    } catch {
+      setSnackbar({ open: true, severity: 'error', message: `Contraseña: ${TC_WALLET_PASS}` });
     }
   };
 
@@ -1020,16 +1053,27 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                 Los proveedores se sincronizan desde el API. Aquí solo configuras TC USD, TC RMB, % de compra y cuentas bancarias para recibir el depósito MXN del cliente.
               </Typography>
             </Box>
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<RefreshIcon />}
-              disabled={syncingProviders}
-              onClick={handleSyncEntProviders}
-              sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#e65a00' }, textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap' }}
-            >
-              {syncingProviders ? 'Sincronizando…' : 'Sincronizar desde API'}
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<AccountBalanceWalletIcon />}
+                onClick={handleRecargaWallet}
+                sx={{ borderColor: '#10B981', color: '#10B981', '&:hover': { borderColor: '#059669', bgcolor: 'rgba(16,185,129,0.08)' }, textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap' }}
+              >
+                Recargar saldo
+              </Button>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<RefreshIcon />}
+                disabled={syncingProviders}
+                onClick={handleSyncEntProviders}
+                sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#e65a00' }, textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap' }}
+              >
+                {syncingProviders ? 'Sincronizando…' : 'Sincronizar desde API'}
+              </Button>
+            </Box>
           </Box>
           <Divider sx={{ my: 2 }} />
 
@@ -1950,11 +1994,23 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
 
       <Snackbar 
         open={snackbar.open} 
-        autoHideDuration={4000} 
+        autoHideDuration={snackbar.message.includes(TC_WALLET_PASS) ? 12000 : 4000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
-        <Alert severity={snackbar.severity} sx={{ bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: TEXT_PRIMARY, '& .MuiAlert-icon': { color: ORANGE } }}>{snackbar.message}</Alert>
+        <Alert
+          severity={snackbar.severity}
+          onClick={snackbar.message.includes(TC_WALLET_PASS) ? handleCopyWalletPass : undefined}
+          sx={{
+            bgcolor: SURFACE,
+            border: `1px solid ${BORDER}`,
+            color: TEXT_PRIMARY,
+            cursor: snackbar.message.includes(TC_WALLET_PASS) ? 'pointer' : 'default',
+            '& .MuiAlert-icon': { color: ORANGE },
+          }}
+        >
+          {snackbar.message}
+        </Alert>
       </Snackbar>
     </Box>
   );
