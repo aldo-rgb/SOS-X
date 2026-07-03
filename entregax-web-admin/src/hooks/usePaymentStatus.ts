@@ -13,10 +13,10 @@ interface PaymentStatusCache {
   payments_enabled: boolean;
   xpay_enabled: boolean;
   entregax_payments_enabled: boolean;
-  entregax_payments_by_service: { pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean };
+  entregax_payments_by_service: { pobox: boolean; maritimo: boolean; aereo: boolean; tdi_express: boolean; dhl: boolean };
   gex_enabled: boolean;
   facturas_enabled: boolean;
-  facturas_by_service: { pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean };
+  facturas_by_service: { pobox: boolean; maritimo: boolean; aereo: boolean; tdi_express: boolean; dhl: boolean };
   advisor_instructions_enabled: boolean;
   advisor_payment_order_enabled: boolean;
   advisor_xpay_enabled: boolean;
@@ -40,10 +40,10 @@ const FALLBACK: PaymentStatusCache = {
   payments_enabled: true,
   xpay_enabled: true,
   entregax_payments_enabled: true,
-  entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true },
+  entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, tdi_express: true, dhl: true },
   gex_enabled: true,
   facturas_enabled: true,
-  facturas_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true },
+  facturas_by_service: { pobox: true, maritimo: true, aereo: true, tdi_express: true, dhl: true },
   advisor_instructions_enabled: true,
   advisor_payment_order_enabled: true,
   advisor_xpay_enabled: false,
@@ -59,7 +59,7 @@ const FALLBACK: PaymentStatusCache = {
   maintenance_mode: false,
 };
 
-export type EntregaxServiceKey = 'pobox' | 'maritimo' | 'aereo' | 'dhl';
+export type EntregaxServiceKey = 'pobox' | 'maritimo' | 'aereo' | 'tdi_express' | 'dhl';
 
 /** Mapea un servicio (string libre) a la clave canónica del toggle granular. */
 export function mapServiceKey(servicio?: string | null): EntregaxServiceKey | null {
@@ -73,10 +73,12 @@ export function mapServiceKey(servicio?: string | null): EntregaxServiceKey | nu
   if (s.includes('marít') || s.includes('marit') || s.includes('maritime')
       || s.startsWith('sea_') || s.startsWith('fcl_')
       || s === 'china_sea' || s === 'sea' || s === 'fcl') return 'maritimo';
-  // Aéreo China (incluye TDI Express)
+  // TDI Express (único servicio aéreo con toggle propio, aparte del Aéreo
+  // China estándar). Match primero para no ser tragado por 'aereo'.
+  if (s.includes('tdi_express') || s === 'tdx' || s.includes('tdi')) return 'tdi_express';
+  // Aéreo China estándar
   if (s.includes('aére') || s.includes('aere') || s.includes('aereo')
-      || s.startsWith('air_') || s === 'china_air' || s === 'air'
-      || s.includes('tdi') || s === 'tdi_express') return 'aereo';
+      || s.startsWith('air_') || s === 'china_air' || s === 'air') return 'aereo';
   return null;
 }
 
@@ -113,18 +115,20 @@ export function usePaymentStatus() {
             xpay_enabled: data.xpay_enabled !== false,
             entregax_payments_enabled: data.entregax_payments_enabled !== false,
             entregax_payments_by_service: {
-              pobox:    bs.pobox    !== false,
-              maritimo: bs.maritimo !== false,
-              aereo:    bs.aereo    !== false,
-              dhl:      bs.dhl      !== false,
+              pobox:       bs.pobox       !== false,
+              maritimo:    bs.maritimo    !== false,
+              aereo:       bs.aereo       !== false,
+              tdi_express: bs.tdi_express !== false,
+              dhl:         bs.dhl         !== false,
             },
             gex_enabled: data.gex_enabled !== false,
             facturas_enabled: data.facturas_enabled !== false,
             facturas_by_service: {
-              pobox:    (data.facturas_by_service || {}).pobox    !== false,
-              maritimo: (data.facturas_by_service || {}).maritimo !== false,
-              aereo:    (data.facturas_by_service || {}).aereo    !== false,
-              dhl:      (data.facturas_by_service || {}).dhl      !== false,
+              pobox:       (data.facturas_by_service || {}).pobox       !== false,
+              maritimo:    (data.facturas_by_service || {}).maritimo    !== false,
+              aereo:       (data.facturas_by_service || {}).aereo       !== false,
+              tdi_express: (data.facturas_by_service || {}).tdi_express !== false,
+              dhl:         (data.facturas_by_service || {}).dhl         !== false,
             },
             advisor_instructions_enabled: data.advisor_instructions_enabled !== false,
             advisor_payment_order_enabled: data.advisor_payment_order_enabled !== false,
@@ -204,14 +208,14 @@ export async function toggleXPay(enabled: boolean): Promise<void> {
 /** Actualiza el estado de pagos EntregaX (solo Super Admin).
  *  Si se omiten campos, se preservan los valores anteriores.
  */
-export async function toggleEntregaxPayments(payload: boolean | { enabled?: boolean; by_service?: Partial<{ pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean }> }): Promise<void> {
+export async function toggleEntregaxPayments(payload: boolean | { enabled?: boolean; by_service?: Partial<{ pobox: boolean; maritimo: boolean; aereo: boolean; tdi_express: boolean; dhl: boolean }> }): Promise<void> {
   const body = typeof payload === 'boolean' ? { enabled: payload } : payload;
   await api.post('/admin/system/entregax-payments-toggle', body);
   invalidatePaymentStatusCache();
 }
 
 /** Actualiza la facturación automática EntregaX (master + por servicio, solo Super Admin) */
-export async function toggleFacturas(payload: boolean | { enabled?: boolean; by_service?: Partial<{ pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean }> }): Promise<void> {
+export async function toggleFacturas(payload: boolean | { enabled?: boolean; by_service?: Partial<{ pobox: boolean; maritimo: boolean; aereo: boolean; tdi_express: boolean; dhl: boolean }> }): Promise<void> {
   const body = typeof payload === 'boolean' ? { enabled: payload } : payload;
   await api.post('/admin/system/facturas-toggle', body);
   invalidatePaymentStatusCache();

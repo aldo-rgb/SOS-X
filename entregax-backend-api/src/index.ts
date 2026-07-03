@@ -13722,14 +13722,15 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
       ? byKey['entregax_payments_enabled']?.enabled !== false
       : (byKey['payments_enabled']?.enabled !== false); // fallback al toggle global
 
-    // entregax_payments_by_service: control granular por servicio (pobox, maritimo, aereo, dhl)
+    // entregax_payments_by_service: control granular por servicio (pobox, maritimo, aereo, tdi_express, dhl)
     // Si no existe la clave, todos los servicios heredan del master switch.
     const rawByService = byKey['entregax_payments_enabled']?.by_service;
     const entregaxPaymentsByService = {
-      pobox:    rawByService?.pobox    !== false,
-      maritimo: rawByService?.maritimo !== false,
-      aereo:    rawByService?.aereo    !== false,
-      dhl:      rawByService?.dhl      !== false,
+      pobox:       rawByService?.pobox        !== false,
+      maritimo:    rawByService?.maritimo     !== false,
+      aereo:       rawByService?.aereo        !== false,
+      tdi_express: rawByService?.tdi_express  !== false,
+      dhl:         rawByService?.dhl          !== false,
     };
 
     // gex_enabled: controla la contratación de Garantía Extendida (GEX).
@@ -13746,10 +13747,11 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
       : true;
     const rawFacturasByService = byKey['facturas_enabled']?.by_service;
     const facturasByService = {
-      pobox:    rawFacturasByService?.pobox    !== false,
-      maritimo: rawFacturasByService?.maritimo !== false,
-      aereo:    rawFacturasByService?.aereo    !== false,
-      dhl:      rawFacturasByService?.dhl      !== false,
+      pobox:       rawFacturasByService?.pobox        !== false,
+      maritimo:    rawFacturasByService?.maritimo     !== false,
+      aereo:       rawFacturasByService?.aereo        !== false,
+      tdi_express: rawFacturasByService?.tdi_express  !== false,
+      dhl:         rawFacturasByService?.dhl          !== false,
     };
 
     // advisor_instructions_enabled: controla botón lapiz y edición de instrucciones/direcciones en panel asesor
@@ -13834,7 +13836,7 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
         payments_enabled: true,
         xpay_enabled: true,
         entregax_payments_enabled: true,
-        entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true },
+        entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, tdi_express: true, dhl: true },
         gex_enabled: true,
         // Facturas EntregaX SÍ aplica a testers (valores reales, no modo libre)
         facturas_enabled: facturasEnabled,
@@ -13938,15 +13940,16 @@ app.post('/api/admin/system/entregax-payments-toggle', authenticateToken, requir
       `SELECT config_value FROM system_configurations WHERE config_key = 'entregax_payments_enabled' LIMIT 1`
     );
     const current = cur.rows[0]?.config_value || {};
-    const currentByService = current.by_service || { pobox: true, maritimo: true, aereo: true, dhl: true };
+    const currentByService = current.by_service || { pobox: true, maritimo: true, aereo: true, tdi_express: true, dhl: true };
 
     const nextEnabled = req.body?.enabled !== undefined ? !!req.body.enabled : (current.enabled !== false);
     const incomingByService = req.body?.by_service || {};
     const nextByService = {
-      pobox:    incomingByService.pobox    !== undefined ? !!incomingByService.pobox    : currentByService.pobox    !== false,
-      maritimo: incomingByService.maritimo !== undefined ? !!incomingByService.maritimo : currentByService.maritimo !== false,
-      aereo:    incomingByService.aereo    !== undefined ? !!incomingByService.aereo    : currentByService.aereo    !== false,
-      dhl:      incomingByService.dhl      !== undefined ? !!incomingByService.dhl      : currentByService.dhl      !== false,
+      pobox:       incomingByService.pobox       !== undefined ? !!incomingByService.pobox       : currentByService.pobox       !== false,
+      maritimo:    incomingByService.maritimo    !== undefined ? !!incomingByService.maritimo    : currentByService.maritimo    !== false,
+      aereo:       incomingByService.aereo       !== undefined ? !!incomingByService.aereo       : currentByService.aereo       !== false,
+      tdi_express: incomingByService.tdi_express !== undefined ? !!incomingByService.tdi_express : currentByService.tdi_express !== false,
+      dhl:         incomingByService.dhl         !== undefined ? !!incomingByService.dhl         : currentByService.dhl         !== false,
     };
     const nextValue = { enabled: nextEnabled, by_service: nextByService };
 
@@ -13975,15 +13978,16 @@ app.post('/api/admin/system/facturas-toggle', authenticateToken, requireRole('su
       `SELECT config_value FROM system_configurations WHERE config_key = 'facturas_enabled' LIMIT 1`
     );
     const current = cur.rows[0]?.config_value || {};
-    const currentByService = current.by_service || { pobox: true, maritimo: true, aereo: true, dhl: true };
+    const currentByService = current.by_service || { pobox: true, maritimo: true, aereo: true, tdi_express: true, dhl: true };
 
     const nextEnabled = req.body?.enabled !== undefined ? !!req.body.enabled : (current.enabled !== false);
     const incomingByService = req.body?.by_service || {};
     const nextByService = {
-      pobox:    incomingByService.pobox    !== undefined ? !!incomingByService.pobox    : currentByService.pobox    !== false,
-      maritimo: incomingByService.maritimo !== undefined ? !!incomingByService.maritimo : currentByService.maritimo !== false,
-      aereo:    incomingByService.aereo    !== undefined ? !!incomingByService.aereo    : currentByService.aereo    !== false,
-      dhl:      incomingByService.dhl      !== undefined ? !!incomingByService.dhl      : currentByService.dhl      !== false,
+      pobox:       incomingByService.pobox       !== undefined ? !!incomingByService.pobox       : currentByService.pobox       !== false,
+      maritimo:    incomingByService.maritimo    !== undefined ? !!incomingByService.maritimo    : currentByService.maritimo    !== false,
+      aereo:       incomingByService.aereo       !== undefined ? !!incomingByService.aereo       : currentByService.aereo       !== false,
+      tdi_express: incomingByService.tdi_express !== undefined ? !!incomingByService.tdi_express : currentByService.tdi_express !== false,
+      dhl:         incomingByService.dhl         !== undefined ? !!incomingByService.dhl         : currentByService.dhl         !== false,
     };
     const nextValue = { enabled: nextEnabled, by_service: nextByService };
 

@@ -177,7 +177,7 @@ export default function SettingsPage() {
             setTogglingEntregax(false);
         }
     };
-    const handleToggleEntregaxService = async (key: 'pobox' | 'maritimo' | 'aereo' | 'dhl', checked: boolean) => {
+    const handleToggleEntregaxService = async (key: 'pobox' | 'maritimo' | 'aereo' | 'tdi_express' | 'dhl', checked: boolean) => {
         setTogglingEntregaxService(key);
         const prev = localEntregaxByService;
         setLocalEntregaxByService(prev ? { ...prev, [key]: checked } : null);
@@ -208,7 +208,7 @@ export default function SettingsPage() {
             setTogglingFacturas(false);
         }
     };
-    const handleToggleFacturasService = async (key: 'pobox' | 'maritimo' | 'aereo' | 'dhl', checked: boolean) => {
+    const handleToggleFacturasService = async (key: 'pobox' | 'maritimo' | 'aereo' | 'tdi_express' | 'dhl', checked: boolean) => {
         setTogglingFacturasService(key);
         const prev = localFacturasByService;
         setLocalFacturasByService(prev ? { ...prev, [key]: checked } : null);
@@ -699,10 +699,11 @@ export default function SettingsPage() {
                                             Habilitar pagos EntregaX por tipo de servicio (master debe estar activado):
                                         </Typography>
                                         {([
-                                            { key: 'pobox',    label: '📦 PO Box USA',        desc: 'Cliente puede pagar paquetes PO Box USA con sucursal / SPEI.' },
-                                            { key: 'maritimo', label: '🚢 Marítimo China',   desc: 'Cliente puede pagar embarques marítimos consolidados.' },
-                                            { key: 'aereo',    label: '✈️ Aéreo China',       desc: 'Cliente puede pagar envíos aéreos (TDI / Express).' },
-                                            { key: 'dhl',      label: '🚚 DHL Nacional',      desc: 'Cliente puede pagar guías DHL nacionales.' },
+                                            { key: 'pobox',       label: '📦 PO Box USA',      desc: 'Cliente puede pagar paquetes PO Box USA con sucursal / SPEI.' },
+                                            { key: 'maritimo',    label: '🚢 Marítimo China',  desc: 'Cliente puede pagar embarques marítimos consolidados.' },
+                                            { key: 'aereo',       label: '✈️ Aéreo China',     desc: 'Cliente puede pagar envíos aéreos China estándar.' },
+                                            { key: 'tdi_express', label: '🚀 TDI Express',      desc: 'Cliente puede pagar envíos TDI Express (China → MTY).' },
+                                            { key: 'dhl',         label: '🚚 DHL Nacional',     desc: 'Cliente puede pagar guías DHL nacionales.' },
                                         ] as const).map(svc => (
                                             <Box key={svc.key} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, pl: 1 }}>
                                                 <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -772,10 +773,11 @@ export default function SettingsPage() {
                                             Facturación automática por tipo de servicio (master debe estar activado):
                                         </Typography>
                                         {([
-                                            { key: 'pobox',    label: '📦 PO Box USA',      desc: 'Timbrado automático para paquetes PO Box USA.' },
-                                            { key: 'maritimo', label: '🚢 Marítimo China',  desc: 'Timbrado automático para embarques marítimos.' },
-                                            { key: 'aereo',    label: '✈️ Aéreo China',      desc: 'Timbrado automático para envíos aéreos (TDI / Express).' },
-                                            { key: 'dhl',      label: '🚚 DHL Nacional',     desc: 'Timbrado automático para guías DHL nacionales.' },
+                                            { key: 'pobox',       label: '📦 PO Box USA',      desc: 'Timbrado automático para paquetes PO Box USA.' },
+                                            { key: 'maritimo',    label: '🚢 Marítimo China',  desc: 'Timbrado automático para embarques marítimos.' },
+                                            { key: 'aereo',       label: '✈️ Aéreo China',     desc: 'Timbrado automático para envíos aéreos China estándar.' },
+                                            { key: 'tdi_express', label: '🚀 TDI Express',      desc: 'Timbrado automático para envíos TDI Express (China → MTY).' },
+                                            { key: 'dhl',         label: '🚚 DHL Nacional',     desc: 'Timbrado automático para guías DHL nacionales.' },
                                         ] as const).map(svc => (
                                             <Box key={svc.key} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, pl: 1 }}>
                                                 <Box sx={{ flex: 1, minWidth: 0 }}>

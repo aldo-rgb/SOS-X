@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { API_URL } from '../services/api';
 import { getSecure } from '../services/secureStorage';
 
-export type EntregaxServiceKey = 'pobox' | 'maritimo' | 'aereo' | 'dhl';
+export type EntregaxServiceKey = 'pobox' | 'maritimo' | 'aereo' | 'tdi_express' | 'dhl';
 
 interface PaymentStatus {
   xpay_enabled: boolean;
@@ -12,7 +12,7 @@ interface PaymentStatus {
   advisor_xpay_enabled: boolean;
 }
 
-const FULL_SERVICES: Record<EntregaxServiceKey, boolean> = { pobox: true, maritimo: true, aereo: true, dhl: true };
+const FULL_SERVICES: Record<EntregaxServiceKey, boolean> = { pobox: true, maritimo: true, aereo: true, tdi_express: true, dhl: true };
 const FALLBACK: PaymentStatus = { xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: FULL_SERVICES, gex_enabled: true, advisor_xpay_enabled: false };
 let cached: PaymentStatus | null = null;
 let lastFetch: number | null = null;
@@ -30,6 +30,8 @@ export function mapServiceKey(servicio?: string | null): EntregaxServiceKey | nu
   if (s.includes('marít') || s.includes('marit') || s.includes('maritime')
       || s.startsWith('sea_') || s.startsWith('fcl_')
       || s === 'china_sea' || s === 'sea' || s === 'fcl') return 'maritimo';
+  // TDI Express antes de Aéreo estándar (para no ser tragado por 'aereo').
+  if (s.includes('tdi_express') || s === 'tdx' || s.includes('tdi')) return 'tdi_express';
   if (s.includes('aére') || s.includes('aere') || s.includes('aereo')
       || s.startsWith('air_') || s === 'china_air' || s === 'air') return 'aereo';
   return null;
@@ -61,10 +63,11 @@ export function usePaymentStatus() {
             xpay_enabled: data.xpay_enabled !== false,
             entregax_payments_enabled: data.entregax_payments_enabled !== false,
             entregax_payments_by_service: {
-              pobox:    bs.pobox    !== false,
-              maritimo: bs.maritimo !== false,
-              aereo:    bs.aereo    !== false,
-              dhl:      bs.dhl      !== false,
+              pobox:       bs.pobox       !== false,
+              maritimo:    bs.maritimo    !== false,
+              aereo:       bs.aereo       !== false,
+              tdi_express: bs.tdi_express !== false,
+              dhl:         bs.dhl         !== false,
             },
             gex_enabled: data.gex_enabled !== false,
             advisor_xpay_enabled: data.advisor_xpay_enabled === true,

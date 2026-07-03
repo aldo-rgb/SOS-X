@@ -231,11 +231,12 @@ const SERVICE_TYPE_MAP_FISCAL: Record<string, string> = {
 };
 
 // Mapeo de ServiceType (corto) a la clave del toggle "Facturas EntregaX"
-const FACTURA_TOGGLE_KEY: Record<string, 'pobox' | 'maritimo' | 'aereo' | 'dhl'> = {
+const FACTURA_TOGGLE_KEY: Record<string, 'pobox' | 'maritimo' | 'aereo' | 'tdi_express' | 'dhl'> = {
   po_box: 'pobox', pobox: 'pobox',
   maritimo: 'maritimo',
   aereo: 'aereo',
-  tdi: 'aereo',
+  tdi: 'tdi_express',
+  tdi_express: 'tdi_express',
   dhl: 'dhl',
 };
 
