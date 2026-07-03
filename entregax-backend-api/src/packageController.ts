@@ -5608,7 +5608,15 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
         try {
             // Obtener nivel de tarifa del cálculo de costo PO Box
             const nivelTarifa = (poboxCost as any).nivelTarifa || 1;
-            
+
+            // tracking_provider es VARCHAR(100). Con varias guías, "REPACK-a+b+c..."
+            // rebasa 100 chars y el INSERT falla (por eso "Error al procesar el
+            // reempaque"). La lista completa ya queda en notes; aquí capamos a 100.
+            const repackProviderFull = `REPACK-${packages.map(p => p.tracking_internal).join('+')}`;
+            const repackProviderVal = repackProviderFull.length > 100
+                ? `REPACK-${packages.length} guías`
+                : repackProviderFull;
+
             parentResult = await pool.query(`
                 INSERT INTO packages (
                     tracking_internal, tracking_provider, user_id,
@@ -5625,7 +5633,7 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
                 ) RETURNING id
             `, [
                 consolidatedTracking,
-                `REPACK-${packages.map(p => p.tracking_internal).join('+')}`,
+                repackProviderVal,
                 firstPkg.user_id,
                 `Consolidación de ${packages.length} paquetes`,
                 billedWeight,
