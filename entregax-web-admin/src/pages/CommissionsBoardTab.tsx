@@ -9,6 +9,8 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import PeopleIcon from '@mui/icons-material/People';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import jsPDF from 'jspdf';
 
 // Mismos labels/keys que el ledger "Comisiones Generadas".
 const serviceLabels: Record<string, string> = {
@@ -108,6 +110,137 @@ export default function CommissionsBoardTab() {
   const totalCommission = displayRows.reduce((s, r) => s + r.totalCommission, 0);
   const activeAdvisors = displayRows.length;
 
+  // Formateador de moneda simple para el PDF (evita símbolos raros de locale).
+  const money = (n: number) => '$' + (n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const filterSummary = () => {
+    const parts: string[] = [];
+    if (fromDate || toDate) parts.push(`Fecha: ${fromDate || '—'} a ${toDate || '—'}`);
+    if (service) parts.push(`Servicio: ${(serviceLabels[service] || service).replace(/^[^\s]+\s/, '')}`);
+    if (status) parts.push(`Estado: ${status === 'paid' ? 'Pagado' : 'Pendiente'}`);
+    return parts.length ? parts.join('   ·   ') : 'Todos los asesores activos (sin filtros)';
+  };
+
+  const downloadPdf = () => {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const mL = 12;
+    const now = new Date();
+    const stamp = now.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+
+    // Encabezado
+    doc.setFillColor(240, 90, 40);
+    doc.rect(0, 0, pageW, 26, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('EntregaX — Reporte de Comisiones', mL, 12);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(`Generado: ${stamp}`, mL, 19);
+
+    // Filtros aplicados
+    doc.setTextColor(60, 60, 60);
+    doc.setFontSize(9);
+    doc.text(`Filtros: ${filterSummary()}`, mL, 34);
+
+    // KPIs
+    let y = 44;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(240, 90, 40);
+    doc.text(`Comisión por pagar: ${money(totalPending)}`, mL, y);
+    doc.setTextColor(46, 125, 50);
+    doc.text(`Pagada: ${money(totalPaid)}`, mL + 70, y);
+    doc.setTextColor(21, 101, 192);
+    doc.text(`Total: ${money(totalCommission)}`, mL + 120, y);
+    doc.setTextColor(60, 60, 60);
+    doc.text(`Asesores: ${activeAdvisors}`, mL + 165, y);
+
+    // Tabla
+    const cols = [
+      { key: 'rank',    label: '#',        w: 10, align: 'left' as const },
+      { key: 'name',    label: 'Asesor',   w: 50, align: 'left' as const },
+      { key: 'leader',  label: 'Líder',    w: 35, align: 'left' as const },
+      { key: 'pending', label: 'Por pagar', w: 30, align: 'right' as const },
+      { key: 'paid',    label: 'Pagado',   w: 25, align: 'right' as const },
+      { key: 'total',   label: 'Total',    w: 26, align: 'right' as const },
+      { key: 'count',   label: 'Guías',    w: 10, align: 'right' as const },
+    ];
+
+    const drawHeader = (yy: number) => {
+      doc.setFillColor(30, 30, 30);
+      doc.rect(mL, yy, pageW - mL * 2, 8, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      let x = mL;
+      cols.forEach(c => {
+        const tx = c.align === 'right' ? x + c.w - 2 : x + 2;
+        doc.text(c.label, tx, yy + 5.5, { align: c.align });
+        x += c.w;
+      });
+      return yy + 8;
+    };
+
+    y = 52;
+    y = drawHeader(y);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+
+    displayRows.forEach((r, idx) => {
+      if (y > pageH - 14) {
+        doc.addPage();
+        y = 16;
+        y = drawHeader(y);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+      }
+      if (idx % 2 === 0) {
+        doc.setFillColor(245, 245, 245);
+        doc.rect(mL, y, pageW - mL * 2, 7, 'F');
+      }
+      doc.setTextColor(40, 40, 40);
+      const vals: Record<string, string> = {
+        rank: String(idx + 1),
+        name: (r.advisorName || `#${r.advisorId}`),
+        leader: r.leaderName || '—',
+        pending: money(r.pendingCommission),
+        paid: money(r.paidCommission),
+        total: money(r.totalCommission),
+        count: String(r.totalCount),
+      };
+      let x = mL;
+      cols.forEach(c => {
+        let txt = vals[c.key];
+        if (c.key === 'name' && txt.length > 30) txt = txt.slice(0, 29) + '…';
+        if (c.key === 'leader' && txt.length > 22) txt = txt.slice(0, 21) + '…';
+        const tx = c.align === 'right' ? x + c.w - 2 : x + 2;
+        doc.text(txt, tx, y + 5, { align: c.align });
+        x += c.w;
+      });
+      y += 7;
+    });
+
+    // Fila de totales
+    if (y > pageH - 14) { doc.addPage(); y = 16; }
+    doc.setFillColor(255, 240, 232);
+    doc.rect(mL, y, pageW - mL * 2, 8, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(240, 90, 40);
+    doc.text('TOTAL', mL + 2, y + 5.5);
+    let xt = mL + cols[0].w + cols[1].w + cols[2].w;
+    doc.text(money(totalPending), xt + cols[3].w - 2, y + 5.5, { align: 'right' });
+    xt += cols[3].w;
+    doc.text(money(totalPaid), xt + cols[4].w - 2, y + 5.5, { align: 'right' });
+    xt += cols[4].w;
+    doc.text(money(totalCommission), xt + cols[5].w - 2, y + 5.5, { align: 'right' });
+
+    const fname = `Reporte_Comisiones_${now.toISOString().slice(0, 10)}.pdf`;
+    doc.save(fname);
+  };
+
   return (
     <Box>
       {/* Filtros */}
@@ -148,6 +281,15 @@ export default function CommissionsBoardTab() {
           </Button>
         )}
         <Box sx={{ flex: 1 }} />
+        <Button
+          variant="contained"
+          startIcon={<PictureAsPdfIcon />}
+          onClick={downloadPdf}
+          disabled={loading || displayRows.length === 0}
+          sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, textTransform: 'none', fontWeight: 700 }}
+        >
+          {es ? 'Descargar reporte' : 'Download report'}
+        </Button>
         <Tooltip title={es ? 'Actualizar' : 'Refresh'}>
           <IconButton onClick={load} sx={{ bgcolor: 'grey.100' }}><RefreshIcon /></IconButton>
         </Tooltip>
