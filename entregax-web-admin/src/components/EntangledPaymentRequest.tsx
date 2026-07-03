@@ -3648,29 +3648,20 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: `1px solid ${C.border}`, borderRadius: 1.5 }}>
                   <Typography sx={{ color: C.textMuted, fontSize: '0.82rem' }}>Consultando asignación bancaria…</Typography>
                 </Box>
-              ) : asignacion?.cuenta_bancaria ? (() => {
-                const cb = asignacion.cuenta_bancaria!;
-                return (
-                  <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: '1px solid rgba(240,90,40,0.45)', borderRadius: 1.5 }}>
-                    <Typography sx={{ color: '#f97316', fontSize: '0.78rem', fontWeight: 700, mb: 0.8, letterSpacing: 0.4 }}>
-                      🏦 CUENTA BANCARIA DESTINO
-                    </Typography>
-                    {asignacion.empresa && (
-                      <Typography sx={{ color: C.textPrimary, fontSize: '0.82rem', fontWeight: 600, mb: 0.5 }}>{asignacion.empresa.razon_social}</Typography>
-                    )}
-                    {cb.banco && <Typography sx={{ color: C.textSecondary, fontSize: '0.82rem' }}>Banco: <strong>{cb.banco}</strong>{cb.moneda ? ` (${cb.moneda})` : ''}</Typography>}
-                    {cb.titular && <Typography sx={{ color: C.textMuted, fontSize: '0.78rem' }}>Titular: {cb.titular}</Typography>}
-                    {cb.clabe && <Typography sx={{ color: C.textSecondary, fontSize: '0.82rem', fontFamily: 'monospace' }}>CLABE: {cb.clabe}</Typography>}
-                    {cb.cuenta && <Typography sx={{ color: C.textSecondary, fontSize: '0.82rem', fontFamily: 'monospace' }}>Cuenta: {cb.cuenta}</Typography>}
-                    {cb.sucursal && <Typography sx={{ color: C.textMuted, fontSize: '0.78rem' }}>Sucursal: {cb.sucursal}</Typography>}
-                    {asignacion.facturacion?.sustitucion && (
-                      <Typography sx={{ color: '#facc15', fontSize: '0.75rem', mt: 0.5 }}>
-                        ⚠️ Clave sustituida: {asignacion.facturacion.clave_solicitada} → {asignacion.facturacion.clave_facturacion}
-                      </Typography>
-                    )}
-                  </Box>
-                );
-              })() : !requiereFactura ? (
+              ) : asignacion?.cuenta_bancaria ? (
+                // ⚠️ NO mostramos aquí la cuenta del preview: ENTANGLED asigna la
+                // cuenta REAL al confirmar la solicitud (/solicitud-pago), y puede
+                // diferir de esta consulta previa (/asignacion). Mostrar la cuenta
+                // del preview era peligroso: el cliente podría transferir a una
+                // cuenta que luego cambia. La cuenta final se muestra en la pantalla
+                // "Solicitud creada — Instrucciones de pago".
+                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: '1px solid rgba(59,130,246,0.45)', borderRadius: 1.5 }}>
+                  <Typography sx={{ color: '#93c5fd', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>ℹ️ CUENTA DE DEPÓSITO</Typography>
+                  <Typography sx={{ color: '#bfdbfe', fontSize: '0.82rem', lineHeight: 1.4 }}>
+                    Hay cuenta de depósito disponible. La cuenta bancaria FINAL a la que debes transferir se asigna al enviar la solicitud y se mostrará en las instrucciones de pago. <strong>No transfieras hasta ver la cuenta final ahí.</strong>
+                  </Typography>
+                </Box>
+              ) : !requiereFactura ? (
                 <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: '1px solid rgba(239,68,68,0.5)', borderRadius: 1.5 }}>
                   <Typography sx={{ color: '#ef4444', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>⚠️ SIN CUENTA BANCARIA</Typography>
                   <Typography sx={{ color: '#fca5a5', fontSize: '0.82rem', lineHeight: 1.4 }}>
