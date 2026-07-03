@@ -514,6 +514,23 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
             params.push(`%${(tracking as string).trim()}%`);
         }
 
+        // 🧾 Regla: en PO Box solo aparecen comisiones cuya GUÍA tiene una ORDEN DE
+        // PAGO registrada y PAGADA. Las guías marcadas como pagadas sin orden real
+        // (p.ej. "Marcar pagado" masivo) no deben aparecer para cobro de comisiones.
+        // 💳 Además, un pago a CRÉDITO NO genera comisión hasta que el cliente paga
+        // la orden (credit_settled=true); una orden a crédito NO liquidada no cuenta.
+        // Por ahora solo PO Box tiene órdenes de pago, así que el filtro aplica solo
+        // a ese servicio; los demás (aéreo/marítimo/DHL/GEX/xpay) pasan sin filtrar.
+        // "Orden pagada válida" = status completed/paid Y (no es crédito, o el crédito
+        // ya fue liquidado).
+        const PAID_ORDER = `pp_x.status IN ('completed','paid') AND (LOWER(COALESCE(pp_x.payment_method,'')) <> 'credit' OR COALESCE(pp_x.credit_settled,false) = true)`;
+        conditions.push(`(
+            ac.service_type <> 'pobox_usa_mx'
+            OR EXISTS (SELECT 1 FROM pobox_payments pp_x WHERE pp_x.package_ids @> to_jsonb(ac.shipment_id) AND ${PAID_ORDER})
+            OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk ON pk.pobox_payment_id = pp_x.id WHERE pk.id = ac.shipment_id AND ${PAID_ORDER})
+            OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk2 ON NULLIF(pk2.payment_reference,'') = pp_x.payment_reference WHERE pk2.id = ac.shipment_id AND ${PAID_ORDER})
+        )`);
+
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
         // Total count

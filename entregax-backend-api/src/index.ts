@@ -8650,6 +8650,17 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
                 [montoPago, poboxPay.user_id]
               );
             }
+            // 💸 Liberar las comisiones retenidas de estas guías: el crédito ya se
+            //    pagó, así que la comisión pasa de "en crédito" a cobrable.
+            if (packageIds.length > 0) {
+              await client.query(
+                `UPDATE advisor_commissions
+                    SET awaiting_client_payment = FALSE, client_paid_at = NOW(), updated_at = NOW()
+                  WHERE shipment_type = 'PKG' AND shipment_id = ANY($1)
+                    AND COALESCE(awaiting_client_payment, FALSE) = TRUE`,
+                [packageIds]
+              );
+            }
           }
 
           // 2. Marcar paquetes como pagados

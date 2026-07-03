@@ -703,6 +703,16 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
             [montoCredito, o.user_id]
           );
         }
+        // 💸 Liberar comisiones retenidas de estas guías (el crédito ya se pagó).
+        if (pkgIdsCredit.length > 0) {
+          await pool.query(
+            `UPDATE advisor_commissions
+                SET awaiting_client_payment = FALSE, client_paid_at = NOW(), updated_at = NOW()
+              WHERE shipment_type = 'PKG' AND shipment_id = ANY($1)
+                AND COALESCE(awaiting_client_payment, FALSE) = TRUE`,
+            [pkgIdsCredit]
+          );
+        }
       }
 
       // 🧾 Factura SOLO si el cliente la solicitó (requiere_factura). Para crédito
