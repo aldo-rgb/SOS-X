@@ -408,6 +408,15 @@ export default function AdvisorCommissionsLedgerPage() {
                                   pending: { label: 'Pendiente', color: 'warning' },
                                   vouchers_submitted: { label: 'Procesando', color: 'info' },
                                   vouchers_partial: { label: 'Procesando', color: 'info' },
+                                  // X-Pay (entangled_payment_requests.estatus_global)
+                                  completado: { label: 'Completada', color: 'success' },
+                                  en_proceso: { label: 'Pendiente', color: 'warning' },
+                                  esperando_comprobante: { label: 'Pendiente', color: 'warning' },
+                                  cancelado: { label: 'Cancelada', color: 'error' },
+                                  error_envio: { label: 'Error', color: 'error' },
+                                  // GEX (warranties.status)
+                                  active: { label: 'Pagada', color: 'success' },
+                                  generated: { label: 'Pendiente', color: 'warning' },
                                 };
                                 const c = map[st] || { label: r.paymentOrderStatus as string, color: 'default' };
                                 return <Chip label={c.label} size="small" color={c.color} variant={c.color === 'success' ? 'filled' : 'outlined'} sx={{ fontSize: '0.7rem' }} />;

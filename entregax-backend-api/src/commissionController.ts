@@ -20,6 +20,29 @@ export const AEREO_PAID_ORDER_SQL = `(
     )
 )`;
 
+// 💱 Regla X-Pay: una comisión solo cuenta si su operación ENTANGLED
+// (entangled_payment_requests, vinculada por id = ac.shipment_id) está
+// COMPLETADA (estatus_global = 'completado'). En proceso / esperando comprobante
+// NO cuentan aún. Requiere alias `ac` para advisor_commissions.
+export const XPAY_COMPLETED_SQL = `(
+    ac.service_type <> 'xpay'
+    OR EXISTS (
+        SELECT 1 FROM entangled_payment_requests epr_x
+         WHERE epr_x.id = ac.shipment_id AND epr_x.estatus_global = 'completado'
+    )
+)`;
+
+// 🛡️ Regla GEX: una comisión solo cuenta si su GARANTÍA (warranties, vinculada
+// por id = ac.shipment_id) está PAGADA — status 'active' (o con paid_at). Las
+// 'generated' (creadas, sin pagar) no cuentan. Requiere alias `ac`.
+export const GEX_PAID_SQL = `(
+    ac.service_type <> 'gex_warranty'
+    OR EXISTS (
+        SELECT 1 FROM warranties w_x
+         WHERE w_x.id = ac.shipment_id AND (w_x.status = 'active' OR w_x.paid_at IS NOT NULL)
+    )
+)`;
+
 // 1. ADMIN: Obtener tabla de comisiones
 export const getCommissionRates = async (req: Request, res: Response): Promise<any> => {
     try {
@@ -548,6 +571,10 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
         // (advisor_payment_orders) generada Y PAGADA (status 'pagado'). Vínculo por
         // package_uids ('PKG-'||id) o por tracking.
         conditions.push(AEREO_PAID_ORDER_SQL);
+        // 💱 X-Pay: solo cuentan las operaciones COMPLETADAS.
+        conditions.push(XPAY_COMPLETED_SQL);
+        // 🛡️ GEX: solo cuentan las garantías PAGADAS (active).
+        conditions.push(GEX_PAID_SQL);
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -576,9 +603,18 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                 -- pagó con otro método a la mera hora (ej. PayPal PP-) se muestra esa,
                 -- no una RO- cancelada. Exponemos también el status de la orden.
                 COALESCE(bo.payment_reference,
-                    (CASE ac.shipment_type WHEN 'DHL' THEN (SELECT d.payment_reference FROM dhl_shipments d WHERE d.id = ac.shipment_id) ELSE NULL END)
+                    (CASE ac.shipment_type
+                        WHEN 'DHL' THEN (SELECT d.payment_reference FROM dhl_shipments d WHERE d.id = ac.shipment_id)
+                        WHEN 'XPAY' THEN (SELECT epr.referencia_pago FROM entangled_payment_requests epr WHERE epr.id = ac.shipment_id)
+                        WHEN 'GEX' THEN (SELECT w.gex_folio FROM warranties w WHERE w.id = ac.shipment_id)
+                        ELSE NULL END)
                 ) AS payment_order,
-                bo.status AS payment_order_status
+                COALESCE(bo.status,
+                    (CASE ac.shipment_type
+                        WHEN 'XPAY' THEN (SELECT epr.estatus_global FROM entangled_payment_requests epr WHERE epr.id = ac.shipment_id)
+                        WHEN 'GEX' THEN (SELECT w.status FROM warranties w WHERE w.id = ac.shipment_id)
+                        ELSE NULL END)
+                ) AS payment_order_status
             FROM advisor_commissions ac
             LEFT JOIN users cu ON cu.id = ac.client_id
             LEFT JOIN LATERAL (
@@ -737,6 +773,10 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
         )`);
         // ✈️ Aéreo China: orden de pago generada Y pagada (mismo criterio que el ledger).
         rowConds.push(AEREO_PAID_ORDER_SQL);
+        // 💱 X-Pay: solo operaciones completadas.
+        rowConds.push(XPAY_COMPLETED_SQL);
+        // 🛡️ GEX: solo garantías pagadas (active).
+        rowConds.push(GEX_PAID_SQL);
 
         const rowWhere = rowConds.length > 0 ? `WHERE ${rowConds.join(' AND ')}` : '';
 
