@@ -571,9 +571,14 @@ export const createPaymentRequestV2 = async (
     });
   }
 
-  // Estado tras crear la orden en ENTANGLED: con comprobante → en_proceso;
-  // sin comprobante → esperando_comprobante (la orden ya existe en remoto).
-  const estatusTrasFase1 = hasFile ? 'en_proceso' : 'esperando_comprobante';
+  // Estado tras crear la orden en ENTANGLED:
+  //  - con comprobante y EFECTIVO → completado (el pago en efectivo se da por
+  //    recibido al llegar el comprobante; no espera factura ni conciliación).
+  //  - con comprobante (transfer) → en_proceso (espera confirmación del proveedor).
+  //  - sin comprobante → esperando_comprobante (la orden ya existe en remoto).
+  const estatusTrasFase1 = hasFile
+    ? (subservicio === 'efectivo' ? 'completado' : 'en_proceso')
+    : 'esperando_comprobante';
 
   // La cuenta puede venir en empresas_asignadas[] o directa en cuenta_deposito
   // (Puerta 2). Normalizamos a empresas_asignadas para UI/WhatsApp existentes.
@@ -794,7 +799,7 @@ export async function sendPendingRequestToEntangled(
     }
     const upd = await pool.query(
       `UPDATE entangled_payment_requests
-          SET estatus_global = 'en_proceso',
+          SET estatus_global = CASE WHEN LOWER(COALESCE(subservicio,'')) = 'efectivo' THEN 'completado' ELSE 'en_proceso' END,
               url_comprobante_cliente = COALESCE($1, url_comprobante_cliente),
               comprobante_subido_at = NOW(),
               updated_at = NOW()
@@ -999,7 +1004,7 @@ export async function sendPendingRequestToEntangled(
   const upd = await pool.query(
     `UPDATE entangled_payment_requests
         SET entangled_transaccion_id = $1,
-            estatus_global = 'en_proceso',
+            estatus_global = CASE WHEN LOWER(COALESCE(subservicio,'')) = 'efectivo' THEN 'completado' ELSE 'en_proceso' END,
             comision_cobrada_porcentaje = $2,
             tc_aplicado_usd = $3,
             empresas_asignadas = $4::jsonb,
