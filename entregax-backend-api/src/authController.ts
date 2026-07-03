@@ -1859,6 +1859,13 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
             }
             updates.push(`role = $${paramCount++}`);
             values.push(role);
+            // 📏 Regla de negocio: un ASESOR (advisor) es de nivel superior y NO
+            // tiene líder. Al promover a alguien a 'advisor' se le quita el líder
+            // (referred_by_id) para que empiece a ganar la comisión COMPLETA (sin
+            // split 50/50). Un 'sub_advisor' sí conserva su líder.
+            if (role === 'advisor') {
+                updates.push(`referred_by_id = NULL`);
+            }
         }
         if (box_id !== undefined) {
             updates.push(`box_id = $${paramCount++}`);
