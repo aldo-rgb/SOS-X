@@ -673,9 +673,9 @@ function App() {
         return ['dashboard', 'salesReport', 'clients', 'panels', 'cajaChicaGroup', 'commissions', 'permissions'].includes(item.key);
       }
       
-      // director: Dashboard, Herramientas (incluye Contabilidad/Tesorería), Caja CC, Empresas (solo Banco/Syncfy)
+      // director: Dashboard, Herramientas (incluye Contabilidad/Tesorería), Caja CC, Comisiones, Empresas (solo Banco/Syncfy)
       if (role === 'director') {
-        return ['dashboard', 'panels', 'cajaChicaGroup', 'fiscal'].includes(item.key);
+        return ['dashboard', 'panels', 'cajaChicaGroup', 'commissions', 'fiscal'].includes(item.key);
       }
       
       // finanzas: Dashboard, Herramientas (incluye Contabilidad/Tesorería), Caja CC
