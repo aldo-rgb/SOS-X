@@ -453,7 +453,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     quote: { tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null;
     providerSnapshot?: { name: string; bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }> } | null;
     operationSnapshot?: { divisa: string; monto: number; servicio: string; requiere_factura: boolean; rfc?: string; razon_social?: string } | null;
-    beneficiarioSnapshot?: { nombre: string; nombre_chino?: string; cuenta?: string; iban?: string; banco?: string; swift?: string; aba?: string } | null;
+    beneficiarioSnapshot?: { nombre: string; nombre_chino?: string; pais?: string; cuenta?: string; iban?: string; banco?: string; swift?: string; aba?: string } | null;
     empresas_asignadas?: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>;
     sinFacturaCuenta?: { banco?: string; titular?: string; cuenta?: string; clabe?: string; moneda?: string } | null;
     entangled_transaccion_id?: string;
@@ -1871,6 +1871,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       const beneficiarioSnapshot = {
         nombre: supplierForm.nombre_beneficiario,
         nombre_chino: supplierForm.nombre_chino,
+        pais: supplierForm.pais_beneficiario,
         cuenta: supplierForm.numero_cuenta,
         iban: supplierForm.iban,
         banco: supplierForm.banco_nombre,

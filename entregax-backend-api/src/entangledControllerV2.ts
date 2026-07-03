@@ -439,9 +439,15 @@ export const createPaymentRequestV2 = async (
   // quedaba sin la cuenta del proveedor en el flujo nuevo.
   const benefSnap = instructionsSnapshot?.beneficiarioSnapshot || null;
   const benefNombre = String(body.beneficiario_nombre || '').trim();
+  // 🌎 País destino: ENTANGLED lo necesita para saber a qué país va el dinero
+  //    (y detectar China en efectivo). Preferimos el país del beneficiario;
+  //    si no viene, lo derivamos de la divisa (RMB→China, USD→Estados Unidos).
+  const paisDestino = String((benefSnap as any)?.pais || '').trim()
+    || (String(divisa).toUpperCase() === 'RMB' ? 'China' : 'Estados Unidos');
   if (benefSnap || benefNombre) {
     const notasObj: any = {
       proveedor_envio: {
+        pais: paisDestino,
         nombre_beneficiario: benefSnap?.nombre || benefNombre || '',
         nombre_chino: benefSnap?.nombre_chino || '',
         numero_cuenta: benefSnap?.cuenta || '',
@@ -870,9 +876,14 @@ export async function sendPendingRequestToEntangled(
   const snap = reqRow.instructions_snapshot && typeof reqRow.instructions_snapshot === 'object'
     ? reqRow.instructions_snapshot as any : null;
   const benefSnap = snap?.beneficiarioSnapshot || null;
-  const notasObj: any = { proveedor_envio: {} };
+  // 🌎 País destino (ver build principal): preferir país del beneficiario, si no
+  //    derivar de la divisa (RMB→China, USD→Estados Unidos).
+  const paisDestino = String((benefSnap as any)?.pais || '').trim()
+    || (String(reqRow.op_divisa_destino).toUpperCase() === 'RMB' ? 'China' : 'Estados Unidos');
+  const notasObj: any = { proveedor_envio: { pais: paisDestino } };
   if (benefSnap) {
     notasObj.proveedor_envio = {
+      pais: paisDestino,
       nombre_beneficiario: benefSnap.nombre || reqRow.op_beneficiario_nombre || '',
       nombre_chino: benefSnap.nombre_chino || '',
       numero_cuenta: benefSnap.cuenta || '',
