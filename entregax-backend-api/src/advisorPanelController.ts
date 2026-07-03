@@ -991,6 +991,11 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     // Filtro de servicio (opcional) — usado por la app para que las tarjetas de
     // totales reflejen el servicio seleccionado (PO Box / Aéreo / Marítimo…).
     const svcTypeParam = String((req.query.service_type as string) || '').trim();
+    // Filtros opcionales para el Resumen (app): fecha, servicio y estado.
+    const dateRx = /^\d{4}-\d{2}-\d{2}$/;
+    const fromDate = dateRx.test(String(req.query.from_date || '')) ? String(req.query.from_date) : '';
+    const toDate = dateRx.test(String(req.query.to_date || '')) ? String(req.query.to_date) : '';
+    const statusParam = (() => { const s = String(req.query.status || '').trim(); return (s === 'pending' || s === 'paid') ? s : ''; })();
     const POBOX_PAID = `pp_x.status IN ('completed','paid') AND (LOWER(COALESCE(pp_x.payment_method,'')) <> 'credit' OR COALESCE(pp_x.credit_settled,false) = true)`;
     const PAID_ORDER_FILTER = `AND (
         ac.service_type <> 'pobox_usa_mx'
@@ -999,6 +1004,16 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk2 ON NULLIF(pk2.payment_reference,'') = pp_x.payment_reference WHERE pk2.id = ac.shipment_id AND ${POBOX_PAID})
     )`;
 
+    // Helper: agrega condiciones de fecha/servicio/estado a una query (empuja params).
+    const extraFilter = (params: any[]): string => {
+      let sql = '';
+      if (fromDate) { params.push(fromDate); sql += ` AND ac.created_at >= $${params.length}`; }
+      if (toDate) { params.push(toDate); sql += ` AND ac.created_at <= $${params.length}::date + interval '1 day'`; }
+      if (svcTypeParam) { params.push(svcTypeParam); sql += ` AND ac.service_type = $${params.length}`; }
+      if (statusParam) { params.push(statusParam); sql += ` AND ac.status = $${params.length}`; }
+      return sql;
+    };
+
     // ─── Tasas de comisión por tipo de servicio ───
     const ratesRes = await pool.query(`
       SELECT service_type, label, percentage, leader_override, fixed_fee, is_gex
@@ -1006,8 +1021,10 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     `);
 
     // ─── Resumen por tipo de servicio (de advisor_commissions) ───
+    const byServiceParams: any[] = [advisorId];
+    const byServiceExtra = extraFilter(byServiceParams);
     const byServiceRes = await pool.query(`
-      SELECT 
+      SELECT
         ac.service_type,
         COUNT(*) as total_count,
         SUM(ac.payment_amount_mxn) as total_volume,
@@ -1020,9 +1037,31 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'paid') as paid_commission
       FROM advisor_commissions ac
       WHERE ac.advisor_id = $1
+      ${byServiceExtra}
       ${PAID_ORDER_FILTER}
       GROUP BY ac.service_type
-    `, [advisorId]);
+    `, byServiceParams);
+
+    // ─── Override que gana como LÍDER, desglosado por cada SUBASESOR ───
+    const subParams: any[] = [advisorId];
+    const subExtra = extraFilter(subParams);
+    const subAdvisorsRes = await pool.query(`
+      SELECT
+        ac.advisor_id AS sub_id,
+        MAX(ac.advisor_name) AS sub_name,
+        MAX(su.profile_photo_url) AS sub_photo,
+        COUNT(*) AS count,
+        COALESCE(SUM(ac.leader_override_amount), 0) AS override_total,
+        COALESCE(SUM(ac.leader_override_amount) FILTER (WHERE ac.status = 'pending'), 0) AS override_pending,
+        COALESCE(SUM(ac.leader_override_amount) FILTER (WHERE ac.status = 'paid'), 0) AS override_paid
+      FROM advisor_commissions ac
+      LEFT JOIN users su ON su.id = ac.advisor_id
+      WHERE ac.leader_id = $1 AND COALESCE(ac.leader_override_amount, 0) > 0
+      ${subExtra}
+      ${PAID_ORDER_FILTER}
+      GROUP BY ac.advisor_id
+      ORDER BY override_total DESC
+    `, subParams);
 
     // ─── Resumen mensual (últimos 6 meses) ───
     const monthlyRes = await pool.query(`
@@ -1049,8 +1088,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     // tarjetas Por Cobrar/Pagadas muestran solo ese servicio (antes mostraban
     // siempre el total general aunque se filtrara).
     const totalsParams: any[] = [advisorId];
-    let totalsSvcCond = '';
-    if (svcTypeParam) { totalsParams.push(svcTypeParam); totalsSvcCond = `AND ac.service_type = $${totalsParams.length}`; }
+    const totalsExtra = extraFilter(totalsParams);
     const totalsRes = await pool.query(`
       SELECT
         COUNT(*) as total_count,
@@ -1061,9 +1099,14 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         COUNT(*) FILTER (WHERE status = 'paid') as paid_count
       FROM advisor_commissions ac
       WHERE ac.advisor_id = $1
-      ${totalsSvcCond}
+      ${totalsExtra}
       ${PAID_ORDER_FILTER}
     `, totalsParams);
+
+    // Totales del OVERRIDE (lo que gana como líder por sus subasesores)
+    const overrideTotal = subAdvisorsRes.rows.reduce((s, r) => s + (parseFloat(r.override_total) || 0), 0);
+    const overridePending = subAdvisorsRes.rows.reduce((s, r) => s + (parseFloat(r.override_pending) || 0), 0);
+    const overridePaid = subAdvisorsRes.rows.reduce((s, r) => s + (parseFloat(r.override_paid) || 0), 0);
 
     // ─── Últimas 20 comisiones (detalle) ───
     // Filtros opcionales del historial: por tipo de servicio y/o estado.
@@ -1139,6 +1182,22 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         pendingCount: parseInt(totals.pending_count) || 0,
         paidCount: parseInt(totals.paid_count) || 0,
       },
+      // Override que gana como líder por sus subasesores + desglose por cada uno.
+      leaderOverride: {
+        total: overrideTotal,
+        pending: overridePending,
+        paid: overridePaid,
+        subCount: subAdvisorsRes.rows.length,
+      },
+      subAdvisors: subAdvisorsRes.rows.map(r => ({
+        subId: r.sub_id,
+        subName: r.sub_name,
+        photoUrl: r.sub_photo || null,
+        count: parseInt(r.count) || 0,
+        overrideTotal: parseFloat(r.override_total) || 0,
+        overridePending: parseFloat(r.override_pending) || 0,
+        overridePaid: parseFloat(r.override_paid) || 0,
+      })),
       recent: recentRes.rows.map(r => ({
         id: r.id,
         shipmentType: r.shipment_type,
