@@ -102,6 +102,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const [clientBoxId, setClientBoxId] = useState('');
   const [expectedBoxes, setExpectedBoxes] = useState('');
   const [masterId, setMasterId] = useState<number | null>(null);
+  const [masterTracking, setMasterTracking] = useState<string>('');
   const [totalBoxes, setTotalBoxes] = useState(0);
   const [captured, setCaptured] = useState<BoxRow[]>([]);
   const [box, setBox] = useState({ ...emptyBox });
@@ -187,6 +188,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     setClientBoxId('');
     setExpectedBoxes('');
     setMasterId(null);
+    setMasterTracking('');
     setTotalBoxes(0);
     setCaptured([]);
     setBox({ ...emptyBox });
@@ -214,6 +216,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         { headers: authHeaders }
       );
       setMasterId(r.data.masterId);
+      setMasterTracking(r.data.masterTracking || '');
       setTotalBoxes(r.data.totalBoxes);
       setBox({ ...emptyBox, clientNumber: clientBoxId.trim() });
       setCaptured([]);
@@ -280,7 +283,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         clientNumber: clientBoxId, originGuide: box.originGuide,
         originGuide2: '',
         gw: box.grossWeight, cw: box.chargeableWeight, dims: dims0,
-      })));
+      })), masterTracking);
       // Limpiar medidas para la siguiente caja (mantener cliente del wizard)
       setBox({ ...emptyBox });
       setQuantity('1');
@@ -343,18 +346,27 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   };
 
   // Imprime etiquetas TDI Express (4x6"), una por caja.
+  // masterTracking se usa como título del documento y como nombre por
+  // defecto del PDF cuando el usuario elige "Guardar como PDF" en el
+  // diálogo de impresión del navegador.
   const printLabels = (
     items: {
       tracking: string; boxNumber: number; total: number;
       clientNumber: string; originGuide: string; originGuide2?: string;
       gw: string | number | null; cw: string | number | null;
       dims: string;
-    }[]
+    }[],
+    masterTracking?: string,
   ) => {
     if (!items.length) return;
     const w = window.open('', '_blank', 'width=440,height=660');
     if (!w) return;
     const esc = (s: any) => String(s ?? '').replace(/[<>&]/g, '');
+    // Título/filename: si hay master, usa "TDX-XXXXX - Etiquetas", si no
+    // cae al genérico "Etiquetas TDI Express".
+    const docTitle = masterTracking && masterTracking.trim()
+      ? `${masterTracking.trim()} - Etiquetas`
+      : 'Etiquetas TDI Express';
     const labels = items.map((it, i) => `
       <div class="label">
         <div class="hdr">TDI EXPRESS<span>${it.boxNumber} / ${it.total}</span></div>
@@ -367,7 +379,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         <div class="row"><b>GW:</b> ${esc(it.gw) || '—'} kg &nbsp; <b>CW:</b> ${esc(it.cw) || '—'} kg</div>
         <div class="row"><b>${esc(t('tdiExpress.wizard.length'))}:</b> ${esc(it.dims)}</div>
       </div>`).join('');
-    w.document.write(`<!DOCTYPE html><html><head><title>Etiquetas TDI Express</title>
+    w.document.write(`<!DOCTYPE html><html><head><title>${esc(docTitle)}</title>
       <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
       <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>
       <style>
@@ -404,7 +416,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
           ? `${b.pkg_length}×${b.pkg_width}×${b.pkg_height} cm` : '—',
         productType: b.air_tariff_type
           ? t(`tdiExpress.productTypes.${TARIFF_TO_PRODUCT[b.air_tariff_type] || 'generico'}`) : '',
-      })));
+      })), s.tracking_internal);
     } catch (e: any) {
       window.alert(e?.response?.data?.error || 'Error');
     }
