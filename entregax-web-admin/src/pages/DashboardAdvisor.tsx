@@ -282,6 +282,16 @@ interface CommissionRecent {
   createdAt: string;
 }
 
+interface CommissionSubAdvisor {
+  subId: number;
+  subName: string;
+  photoUrl: string | null;
+  count: number;
+  overrideTotal: number;
+  overridePending: number;
+  overridePaid: number;
+}
+
 interface CommissionData {
   rates: CommissionRate[];
   byService: CommissionByService[];
@@ -294,6 +304,8 @@ interface CommissionData {
     pendingCount: number;
     paidCount: number;
   };
+  leaderOverride?: { total: number; pending: number; paid: number; subCount: number };
+  subAdvisors?: CommissionSubAdvisor[];
   recent: CommissionRecent[];
   conversion: { totalReferred: number; withShipments: number; rate: string };
 }
@@ -4644,6 +4656,14 @@ export default function DashboardAdvisor() {
       'GEX': '🛡️',
     };
 
+    // Override que gana como líder por sus subasesores + totales combinados.
+    const ov = c.leaderOverride || { total: 0, pending: 0, paid: 0, subCount: 0 };
+    const subs = c.subAdvisors || [];
+    const hasSubs = ov.subCount > 0;
+    const combinedPending = c.totals.pendingCommission + ov.pending;
+    const combinedPaid = c.totals.paidCommission + ov.paid;
+    const combinedTotal = c.totals.totalCommission + ov.total;
+
     return (
       <Fade in timeout={400}>
         <Box>
@@ -4653,10 +4673,10 @@ export default function DashboardAdvisor() {
               <Paper sx={{ p: 2, borderRadius: 2, borderLeft: 4, borderColor: 'warning.main', textAlign: 'center' }}>
                 <Typography variant="caption" color="text.secondary">Pendiente de Pago</Typography>
                 <Typography variant="h5" fontWeight={700} color="warning.main">
-                  {formatMXN(c.totals.pendingCommission)}
+                  {formatMXN(combinedPending)}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {c.totals.pendingCount} comisiones
+                  {c.totals.pendingCount} comisiones{hasSubs ? ' + subs' : ''}
                 </Typography>
               </Paper>
             </Grid>
@@ -4664,7 +4684,7 @@ export default function DashboardAdvisor() {
               <Paper sx={{ p: 2, borderRadius: 2, borderLeft: 4, borderColor: 'success.main', textAlign: 'center' }}>
                 <Typography variant="caption" color="text.secondary">Ya Pagado</Typography>
                 <Typography variant="h5" fontWeight={700} color="success.main">
-                  {formatMXN(c.totals.paidCommission)}
+                  {formatMXN(combinedPaid)}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {c.totals.paidCount} comisiones
@@ -4675,7 +4695,7 @@ export default function DashboardAdvisor() {
               <Paper sx={{ p: 2, borderRadius: 2, borderLeft: 4, borderColor: 'info.main', textAlign: 'center' }}>
                 <Typography variant="caption" color="text.secondary">Total Acumulado</Typography>
                 <Typography variant="h5" fontWeight={700} color="info.main">
-                  {formatMXN(c.totals.totalCommission)}
+                  {formatMXN(combinedTotal)}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {c.totals.totalCount} guías pagadas
@@ -4694,6 +4714,64 @@ export default function DashboardAdvisor() {
               </Paper>
             </Grid>
           </Grid>
+
+          {/* ── Desglose propia / subasesores (solo líderes) ── */}
+          {hasSubs && (
+            <Paper sx={{ p: 2, mb: 3, borderRadius: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ color: 'text.secondary' }}>
+                👥 Líder de {ov.subCount} subasesor(es):
+              </Typography>
+              <Chip label={`Propia: ${formatMXN(c.totals.totalCommission)}`} sx={{ bgcolor: '#FFF3E0', color: '#e65100', fontWeight: 700 }} />
+              <Chip label={`Subasesores: ${formatMXN(ov.total)}`} sx={{ bgcolor: '#EDE7F6', color: '#5e35b1', fontWeight: 700 }} />
+              <Chip label={`Total: ${formatMXN(combinedTotal)}`} color="info" variant="outlined" sx={{ fontWeight: 700 }} />
+            </Paper>
+          )}
+
+          {/* ── Comisión de tus subasesores ── */}
+          {subs.length > 0 && (
+            <Paper sx={{ p: 2.5, mb: 3, borderRadius: 2 }}>
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                🤝 Comisión de tus Subasesores
+              </Typography>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Subasesor</TableCell>
+                      <TableCell align="right">Guías</TableCell>
+                      <TableCell align="right">Tu comisión</TableCell>
+                      <TableCell align="center">Por cobrar</TableCell>
+                      <TableCell align="center">Pagado</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {subs.map((s) => (
+                      <TableRow key={s.subId} hover>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Avatar src={s.photoUrl || undefined} sx={{ width: 28, height: 28, fontSize: 12, bgcolor: '#5e35b1' }}>
+                              {(s.subName || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('')}
+                            </Avatar>
+                            <Typography variant="body2" fontWeight={600}>{s.subName}</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right">{s.count}</TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" fontWeight={700} sx={{ color: '#5e35b1' }}>{formatMXN(s.overrideTotal)}</Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip size="small" label={formatMXN(s.overridePending)} sx={{ bgcolor: '#FFF3E0', color: '#e65100' }} />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip size="small" label={formatMXN(s.overridePaid)} sx={{ bgcolor: '#E8F5E9', color: '#2e7d32' }} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          )}
 
           {/* ── Desglose por tipo de servicio ── */}
           {c.byService.length > 0 && (
