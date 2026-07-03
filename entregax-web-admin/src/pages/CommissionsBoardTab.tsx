@@ -4,10 +4,22 @@ import { useTranslation } from 'react-i18next';
 import {
   Box, Typography, Paper, TextField, Button, Avatar,
   CircularProgress, Chip, Tooltip, IconButton,
+  FormControl, InputLabel, Select, MenuItem,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import PeopleIcon from '@mui/icons-material/People';
+
+// Mismos labels/keys que el ledger "Comisiones Generadas".
+const serviceLabels: Record<string, string> = {
+  'pobox_usa_mx': '📦 PO Box USA',
+  'aereo_china_mx': '✈️ Aéreo China',
+  'maritimo_china_mx': '🚢 Marítimo',
+  'nacional_mx': '🚚 Nacional',
+  'liberacion_aa_dhl': '📮 DHL',
+  'gex_warranty': '🛡️ GEX',
+  'xpay': '💱 X-Pay',
+};
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
@@ -51,6 +63,7 @@ export default function CommissionsBoardTab() {
   const [loading, setLoading] = useState(true);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [service, setService] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,6 +71,7 @@ export default function CommissionsBoardTab() {
       const params: Record<string, string> = {};
       if (fromDate) params.from_date = fromDate;
       if (toDate) params.to_date = toDate;
+      if (service) params.service_type = service;
       const res = await axios.get(`${API_URL}/admin/commissions/by-advisor`, {
         headers: { Authorization: `Bearer ${getToken()}` },
         params,
@@ -75,6 +89,8 @@ export default function CommissionsBoardTab() {
   }, [fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
+
+  const hasFilter = Boolean(fromDate || toDate || service);
 
   const totalPending = rows.reduce((s, r) => s + r.pendingCommission, 0);
   const totalPaid = rows.reduce((s, r) => s + r.paidCommission, 0);
@@ -98,8 +114,17 @@ export default function CommissionsBoardTab() {
           value={toDate} onChange={(e) => setToDate(e.target.value)}
           InputLabelProps={{ shrink: true }}
         />
-        {(fromDate || toDate) && (
-          <Button size="small" color="inherit" onClick={() => { setFromDate(''); setToDate(''); }}>
+        <FormControl size="small" sx={{ minWidth: 170 }}>
+          <InputLabel>{es ? 'Servicio' : 'Service'}</InputLabel>
+          <Select value={service} label={es ? 'Servicio' : 'Service'} onChange={(e) => setService(e.target.value)}>
+            <MenuItem value="">{es ? 'Todos' : 'All'}</MenuItem>
+            {Object.entries(serviceLabels).map(([k, v]) => (
+              <MenuItem key={k} value={k}>{v}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        {hasFilter && (
+          <Button size="small" color="inherit" onClick={() => { setFromDate(''); setToDate(''); setService(''); }}>
             {es ? 'Limpiar' : 'Clear'}
           </Button>
         )}

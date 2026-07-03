@@ -685,10 +685,13 @@ export const markCommissionsAsPaid = async (req: Request, res: Response): Promis
 // 13. ADMIN: Resumen de comisiones por asesor
 export const getCommissionsByAdvisor = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { from_date, to_date } = req.query;
+        const { from_date, to_date, service_type } = req.query;
         const conditions: string[] = [];
         const params: any[] = [];
         let paramIdx = 1;
+
+        // Solo asesores activos (is_active). NULL se considera activo.
+        conditions.push(`COALESCE(u.is_active, true) = true AND u.id IS NOT NULL`);
 
         if (from_date) {
             conditions.push(`ac.created_at >= $${paramIdx++}`);
@@ -697,6 +700,10 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
         if (to_date) {
             conditions.push(`ac.created_at <= $${paramIdx++}::date + interval '1 day'`);
             params.push(to_date);
+        }
+        if (service_type) {
+            conditions.push(`ac.service_type = $${paramIdx++}`);
+            params.push(service_type);
         }
 
         // 🧾 Misma regla que el ledger (getAdvisorCommissionsList): en PO Box solo
