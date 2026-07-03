@@ -258,10 +258,10 @@ export default function CommissionsPage() {
       {/* Tabs */}
       <Paper sx={{ mb: 3, borderRadius: 2 }}>
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tab icon={<DashboardIcon />} label={i18n.language === 'es' ? 'General' : 'Overview'} />
-          <Tab icon={<PaymentIcon />} label={i18n.language === 'es' ? 'Comisiones Generadas' : 'Commissions Ledger'} />
-          <Tab icon={<MonetizationOnIcon />} label={i18n.language === 'es' ? 'Tarifas' : 'Rates'} />
-          <Tab icon={<AccountTreeIcon />} label={i18n.language === 'es' ? 'Asesores' : 'Hierarchy'} />
+          <Tab value={0} icon={<DashboardIcon />} label={i18n.language === 'es' ? 'General' : 'Overview'} />
+          <Tab value={1} icon={<PaymentIcon />} label={i18n.language === 'es' ? 'Comisiones Generadas' : 'Commissions Ledger'} />
+          {/* Pestaña "Tarifas" ocultada a pedido; el contenido (tabValue===2) queda inaccesible. */}
+          <Tab value={3} icon={<AccountTreeIcon />} label={i18n.language === 'es' ? 'Asesores' : 'Hierarchy'} />
         </Tabs>
       </Paper>
 
