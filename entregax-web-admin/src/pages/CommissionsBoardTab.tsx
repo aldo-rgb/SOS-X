@@ -64,6 +64,7 @@ export default function CommissionsBoardTab() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [service, setService] = useState('');
+  const [status, setStatus] = useState<'' | 'pending' | 'paid'>('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,8 +78,6 @@ export default function CommissionsBoardTab() {
         params,
       });
       const data: AdvisorBoardRow[] = (res.data || []).filter((r: AdvisorBoardRow) => r.advisorId != null);
-      // Orden: por comisión que les corresponde (pendiente) desc, luego total.
-      data.sort((a, b) => (b.pendingCommission - a.pendingCommission) || (b.totalCommission - a.totalCommission));
       setRows(data);
     } catch (e) {
       console.error('Error loading board:', e);
@@ -86,16 +85,28 @@ export default function CommissionsBoardTab() {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, service]);
 
   useEffect(() => { load(); }, [load]);
 
-  const hasFilter = Boolean(fromDate || toDate || service);
+  const hasFilter = Boolean(fromDate || toDate || service || status);
 
-  const totalPending = rows.reduce((s, r) => s + r.pendingCommission, 0);
-  const totalPaid = rows.reduce((s, r) => s + r.paidCommission, 0);
-  const totalCommission = rows.reduce((s, r) => s + r.totalCommission, 0);
-  const activeAdvisors = rows.filter(r => r.pendingCommission > 0 || r.totalCommission > 0).length;
+  // Métrica destacada según el estado seleccionado (pagado → pagada; resto → por pagar)
+  const metric = (r: AdvisorBoardRow) => (status === 'paid' ? r.paidCommission : r.pendingCommission);
+
+  // Lista mostrada: filtrada por estado + ordenada por la métrica activa.
+  const displayRows = rows
+    .filter(r => {
+      if (status === 'pending') return r.pendingCommission > 0;
+      if (status === 'paid') return r.paidCommission > 0;
+      return r.pendingCommission > 0 || r.totalCommission > 0;
+    })
+    .sort((a, b) => (metric(b) - metric(a)) || (b.totalCommission - a.totalCommission));
+
+  const totalPending = displayRows.reduce((s, r) => s + r.pendingCommission, 0);
+  const totalPaid = displayRows.reduce((s, r) => s + r.paidCommission, 0);
+  const totalCommission = displayRows.reduce((s, r) => s + r.totalCommission, 0);
+  const activeAdvisors = displayRows.length;
 
   return (
     <Box>
@@ -123,8 +134,16 @@ export default function CommissionsBoardTab() {
             ))}
           </Select>
         </FormControl>
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel>{es ? 'Estado' : 'Status'}</InputLabel>
+          <Select value={status} label={es ? 'Estado' : 'Status'} onChange={(e) => setStatus(e.target.value as '' | 'pending' | 'paid')}>
+            <MenuItem value="">{es ? 'Todos' : 'All'}</MenuItem>
+            <MenuItem value="pending">{es ? '⏳ Pendiente' : '⏳ Pending'}</MenuItem>
+            <MenuItem value="paid">{es ? '✅ Pagado' : '✅ Paid'}</MenuItem>
+          </Select>
+        </FormControl>
         {hasFilter && (
-          <Button size="small" color="inherit" onClick={() => { setFromDate(''); setToDate(''); setService(''); }}>
+          <Button size="small" color="inherit" onClick={() => { setFromDate(''); setToDate(''); setService(''); setStatus(''); }}>
             {es ? 'Limpiar' : 'Clear'}
           </Button>
         )}
@@ -173,10 +192,10 @@ export default function CommissionsBoardTab() {
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
           <CircularProgress sx={{ color: ORANGE }} />
         </Box>
-      ) : rows.length === 0 ? (
+      ) : displayRows.length === 0 ? (
         <Paper sx={{ p: 6, textAlign: 'center', borderRadius: 3 }}>
           <Typography color="text.secondary">
-            {es ? 'No hay comisiones en el periodo seleccionado.' : 'No commissions in the selected period.'}
+            {es ? 'No hay comisiones con los filtros seleccionados.' : 'No commissions with the selected filters.'}
           </Typography>
         </Paper>
       ) : (
@@ -185,7 +204,7 @@ export default function CommissionsBoardTab() {
           gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr', xl: '1fr 1fr 1fr 1fr' },
           gap: 2.5,
         }}>
-          {rows.map((r, idx) => {
+          {displayRows.map((r, idx) => {
             const isPodium = idx < 3;
             const ring = isPodium ? PODIUM[idx] : 'transparent';
             return (
@@ -228,12 +247,14 @@ export default function CommissionsBoardTab() {
                   </Box>
                 </Box>
 
-                {/* Monto que le corresponde (pendiente) */}
+                {/* Monto destacado: se adapta al estado seleccionado */}
                 <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                  {es ? 'Comisión por pagar' : 'Pending commission'}
+                  {status === 'paid'
+                    ? (es ? 'Comisión pagada' : 'Paid commission')
+                    : (es ? 'Comisión por pagar' : 'Pending commission')}
                 </Typography>
-                <Typography sx={{ fontWeight: 800, fontSize: 32, lineHeight: 1.1, color: ORANGE, mb: 1.5 }}>
-                  {fmt(r.pendingCommission)}
+                <Typography sx={{ fontWeight: 800, fontSize: 32, lineHeight: 1.1, color: status === 'paid' ? '#2e7d32' : ORANGE, mb: 1.5 }}>
+                  {fmt(metric(r))}
                 </Typography>
 
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
