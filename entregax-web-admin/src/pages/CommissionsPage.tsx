@@ -110,6 +110,10 @@ const getServiceColor = (serviceType: string) => {
 
 export default function CommissionsPage() {
   const { i18n } = useTranslation();
+  // Rol del usuario (para gating de pestañas). La pestaña "Asesores" solo es
+  // visible para admin y super_admin.
+  const currentRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; } })();
+  const canSeeAsesores = currentRole === 'admin' || currentRole === 'super_admin';
   // Tarifas se manejan ahora en System Settings; mantenemos el setter
   // por si otro effect aún lo escribe.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -261,7 +265,7 @@ export default function CommissionsPage() {
           <Tab value={0} icon={<DashboardIcon />} label={i18n.language === 'es' ? 'General' : 'Overview'} />
           <Tab value={1} icon={<PaymentIcon />} label={i18n.language === 'es' ? 'Comisiones Generadas' : 'Commissions Ledger'} />
           {/* Pestaña "Tarifas" ocultada a pedido; el contenido (tabValue===2) queda inaccesible. */}
-          <Tab value={3} icon={<AccountTreeIcon />} label={i18n.language === 'es' ? 'Asesores' : 'Hierarchy'} />
+          {canSeeAsesores && <Tab value={3} icon={<AccountTreeIcon />} label={i18n.language === 'es' ? 'Asesores' : 'Hierarchy'} />}
         </Tabs>
       </Paper>
 
@@ -447,8 +451,8 @@ export default function CommissionsPage() {
       </>
       )}
 
-      {/* Tab Asesores */}
-      {tabValue === 3 && (
+      {/* Tab Asesores (solo admin / super_admin) */}
+      {canSeeAsesores && tabValue === 3 && (
         <Box>
           <Paper elevation={3} sx={{ borderRadius: 3, overflow: 'hidden' }}>
             <Box sx={{ bgcolor: BLACK, px: 3, py: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
