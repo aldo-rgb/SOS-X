@@ -90,7 +90,7 @@ export default function SettingsPage() {
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
     const [localFacturas, setLocalFacturas] = useState<boolean | null>(null);
-    const [localFacturasByService, setLocalFacturasByService] = useState<{ pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean } | null>(null);
+    const [localFacturasByService, setLocalFacturasByService] = useState<{ pobox: boolean; maritimo: boolean; aereo: boolean; tdi_express: boolean; dhl: boolean } | null>(null);
     const [togglingFacturas, setTogglingFacturas] = useState(false);
     const [togglingFacturasService, setTogglingFacturasService] = useState<string | null>(null);
     const [togglingGex, setTogglingGex] = useState(false);
@@ -103,7 +103,7 @@ export default function SettingsPage() {
     // Estado local optimista que se sincroniza con el hook al cargar.
     const [localXpay, setLocalXpay] = useState<boolean | null>(null);
     const [localEntregax, setLocalEntregax] = useState<boolean | null>(null);
-    const [localEntregaxByService, setLocalEntregaxByService] = useState<{ pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean } | null>(null);
+    const [localEntregaxByService, setLocalEntregaxByService] = useState<{ pobox: boolean; maritimo: boolean; aereo: boolean; tdi_express: boolean; dhl: boolean } | null>(null);
     const [togglingEntregaxService, setTogglingEntregaxService] = useState<string | null>(null);
     const [localGex, setLocalGex] = useState<boolean | null>(null);
     const [localAdvisorInstr, setLocalAdvisorInstr] = useState<boolean | null>(null);

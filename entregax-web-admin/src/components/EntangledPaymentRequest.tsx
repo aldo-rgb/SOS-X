@@ -1871,7 +1871,13 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       const beneficiarioSnapshot = {
         nombre: supplierForm.nombre_beneficiario,
         nombre_chino: supplierForm.nombre_chino,
-        pais: supplierForm.pais_beneficiario,
+        // País DESTINO: el del beneficiario si está capturado; si no, el país que
+        // seleccionó el usuario en "País de Destino" (widget CN/US). NUNCA se
+        // deriva de la divisa (se puede enviar USD a China).
+        pais: (supplierForm.pais_beneficiario || '').trim()
+          || (widgetDestinationCountry === 'CN' ? 'China'
+              : widgetDestinationCountry === 'US' ? 'Estados Unidos'
+              : ''),
         cuenta: supplierForm.numero_cuenta,
         iban: supplierForm.iban,
         banco: supplierForm.banco_nombre,
