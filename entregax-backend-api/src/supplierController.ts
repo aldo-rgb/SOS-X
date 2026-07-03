@@ -164,7 +164,15 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
         const receivedFrom = rawFrom || single;
         const receivedTo = rawTo || single;
         console.log(`📋 [CONSOLIDACIONES] Buscando consolidaciones pendientes de pago... (rango=${receivedFrom || '–'} a ${receivedTo || '–'})`);
-        
+
+        // 🏷️ "Pagado a PROVEEDOR" = tiene evidencia real de pago al proveedor.
+        // OJO: `costing_paid` está contaminado — el pago del CLIENTE también lo
+        // marca TRUE (client_paid). El pago real al proveedor (endpoint /pay o
+        // markCostingPaid) es el único que setea `costing_payment_reference` o
+        // `costing_paid_by`. Usamos eso para no mostrar como pagadas al proveedor
+        // guías que solo pagó el cliente.
+        const PROVIDER_PAID = `(p.costing_payment_reference IS NOT NULL OR p.costing_paid_by IS NOT NULL)`;
+
         // Primero verificar si hay consolidaciones con paquetes sin supplier
         const debugResult = await pool.query(`
             SELECT 
@@ -226,11 +234,11 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
                 -- Total PENDIENTE de pago AHORA (unpaid + no missing + no lost + received/delivered/out_for_delivery)
                 -- Si pobox_provider_cost_mxn no existe, lo calculamos como pobox_provider_cost_usd * registered_exchange_rate
                 -- Si pobox_provider_cost_usd no existe, usamos pobox_cost_usd como fallback (igual que el frontend)
-                COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd) * p.registered_exchange_rate, 0)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery', 'returned_to_warehouse'))), 0) as total_cost_mxn,
-                COALESCE(SUM(COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery', 'returned_to_warehouse'))), 0) as total_cost_usd,
+                COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd) * p.registered_exchange_rate, 0)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND NOT ${PROVIDER_PAID} AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery', 'returned_to_warehouse'))), 0) as total_cost_mxn,
+                COALESCE(SUM(COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND NOT ${PROVIDER_PAID} AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery', 'returned_to_warehouse'))), 0) as total_cost_usd,
                 -- Total YA PAGADO (no missing + no lost + paid + received/delivered/out_for_delivery)
-                COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd) * p.registered_exchange_rate, 0)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery', 'returned_to_warehouse'))), 0) as paid_cost_mxn,
-                COALESCE(SUM(COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery', 'returned_to_warehouse'))), 0) as paid_cost_usd,
+                COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd) * p.registered_exchange_rate, 0)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND ${PROVIDER_PAID} AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery', 'returned_to_warehouse'))), 0) as paid_cost_mxn,
+                COALESCE(SUM(COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND ${PROVIDER_PAID} AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery', 'returned_to_warehouse'))), 0) as paid_cost_usd,
                 -- Total FALTANTE/PERDIDO (no suma al pago)
                 COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd) * p.registered_exchange_rate, 0)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_mxn,
                 COALESCE(SUM(COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_usd,
@@ -247,7 +255,7 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
               ${dateFilterJoin}
             GROUP BY c.id, c.status, c.created_at, s.id, s.name
             -- Solo consolidaciones que TODAVÍA tienen algo pendiente
-            HAVING COUNT(p.id) FILTER (WHERE COALESCE(p.costing_paid, FALSE) = FALSE) > 0
+            HAVING COUNT(p.id) FILTER (WHERE NOT ${PROVIDER_PAID}) > 0
             ORDER BY c.created_at DESC
         `, queryParams);
         
@@ -269,7 +277,7 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
                         p.pobox_provider_cost_usd,
                         p.pobox_provider_cost_mxn,
                         p.registered_exchange_rate,
-                        p.costing_paid,
+                        ${PROVIDER_PAID} AS costing_paid,
                         p.status,
                         p.created_at,
                         p.received_at,
