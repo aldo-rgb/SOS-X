@@ -32,13 +32,23 @@ interface AdvisorBoardRow {
   advisorId: number;
   advisorName: string;
   leaderName: string | null;
+  leaderId: number | null;
   photoUrl: string | null;
   referralCode: string | null;
   totalCount: number;
   totalVolume: number;
+  // Combinados (propia + override de subasesores)
   totalCommission: number;
   pendingCommission: number;
   paidCommission: number;
+  // Desglose
+  ownTotal: number;
+  ownPending: number;
+  ownPaid: number;
+  overrideTotal: number;
+  overridePending: number;
+  overridePaid: number;
+  subCount: number;
   pendingCount: number;
   paidCount: number;
   lastCommissionAt: string | null;
@@ -95,15 +105,44 @@ export default function CommissionsBoardTab() {
 
   // Métrica destacada según el estado seleccionado (pagado → pagada; resto → por pagar)
   const metric = (r: AdvisorBoardRow) => (status === 'paid' ? r.paidCommission : r.pendingCommission);
+  const metricSort = (a: AdvisorBoardRow, b: AdvisorBoardRow) =>
+    (metric(b) - metric(a)) || (b.totalCommission - a.totalCommission);
 
-  // Lista mostrada: filtrada por estado + ordenada por la métrica activa.
-  const displayRows = rows
-    .filter(r => {
-      if (status === 'pending') return r.pendingCommission > 0;
-      if (status === 'paid') return r.paidCommission > 0;
-      return r.pendingCommission > 0 || r.totalCommission > 0;
-    })
-    .sort((a, b) => (metric(b) - metric(a)) || (b.totalCommission - a.totalCommission));
+  // 1) Filtrar por estado.
+  const filtered = rows.filter(r => {
+    if (status === 'pending') return r.pendingCommission > 0;
+    if (status === 'paid') return r.paidCommission > 0;
+    return r.pendingCommission > 0 || r.totalCommission > 0;
+  });
+
+  // 2) Orden jerárquico: cada LÍDER seguido de sus subasesores (recursivo).
+  const byId = new Map(filtered.map(r => [r.advisorId, r]));
+  const subsByLeader = new Map<number, AdvisorBoardRow[]>();
+  const topLevel: AdvisorBoardRow[] = [];
+  for (const r of filtered) {
+    if (r.leaderId && byId.has(r.leaderId)) {
+      const arr = subsByLeader.get(r.leaderId) || [];
+      arr.push(r);
+      subsByLeader.set(r.leaderId, arr);
+    } else {
+      topLevel.push(r);
+    }
+  }
+  const displayRows: AdvisorBoardRow[] = [];
+  const subIds = new Set<number>();
+  const visited = new Set<number>();
+  const appendWithSubs = (leader: AdvisorBoardRow) => {
+    if (visited.has(leader.advisorId)) return;
+    visited.add(leader.advisorId);
+    displayRows.push(leader);
+    const subs = (subsByLeader.get(leader.advisorId) || []).slice().sort(metricSort);
+    for (const s of subs) { subIds.add(s.advisorId); appendWithSubs(s); }
+  };
+  topLevel.slice().sort(metricSort).forEach(appendWithSubs);
+
+  // Trofeos: top 3 por la métrica activa, sin importar la jerarquía.
+  const top3 = filtered.slice().sort(metricSort).slice(0, 3).map(r => r.advisorId);
+  const trophyRankById = new Map<number, number>(top3.map((id, i) => [id, i]));
 
   const totalPending = displayRows.reduce((s, r) => s + r.pendingCommission, 0);
   const totalPaid = displayRows.reduce((s, r) => s + r.paidCommission, 0);
@@ -158,15 +197,16 @@ export default function CommissionsBoardTab() {
     doc.setTextColor(60, 60, 60);
     doc.text(`Asesores: ${activeAdvisors}`, mL + 165, y);
 
-    // Tabla
+    // Tabla — con desglose Propia / Subasesores (override)
+    const payLabel = status === 'paid' ? 'Pagado' : 'Por pagar';
     const cols = [
-      { key: 'rank',    label: '#',        w: 10, align: 'left' as const },
-      { key: 'name',    label: 'Asesor',   w: 50, align: 'left' as const },
-      { key: 'leader',  label: 'Líder',    w: 35, align: 'left' as const },
-      { key: 'pending', label: 'Por pagar', w: 30, align: 'right' as const },
-      { key: 'paid',    label: 'Pagado',   w: 25, align: 'right' as const },
-      { key: 'total',   label: 'Total',    w: 26, align: 'right' as const },
-      { key: 'count',   label: 'Guías',    w: 10, align: 'right' as const },
+      { key: 'rank',     label: '#',        w: 8,  align: 'left' as const },
+      { key: 'name',     label: 'Asesor',   w: 46, align: 'left' as const },
+      { key: 'leader',   label: 'Líder',    w: 30, align: 'left' as const },
+      { key: 'own',      label: 'Propia',   w: 26, align: 'right' as const },
+      { key: 'override', label: 'Subs',     w: 24, align: 'right' as const },
+      { key: 'pay',      label: payLabel,   w: 28, align: 'right' as const },
+      { key: 'count',    label: 'Guías',    w: 10, align: 'right' as const },
     ];
 
     const drawHeader = (yy: number) => {
@@ -202,20 +242,24 @@ export default function CommissionsBoardTab() {
         doc.rect(mL, y, pageW - mL * 2, 7, 'F');
       }
       doc.setTextColor(40, 40, 40);
+      const isSub = subIds.has(r.advisorId);
+      const ownVal = status === 'paid' ? r.ownPaid : r.ownPending;
+      const ovVal = status === 'paid' ? r.overridePaid : r.overridePending;
+      const payVal = metric(r);
       const vals: Record<string, string> = {
         rank: String(idx + 1),
-        name: (r.advisorName || `#${r.advisorId}`),
+        name: (isSub ? '  ↳ ' : '') + (r.advisorName || `#${r.advisorId}`),
         leader: r.leaderName || '—',
-        pending: money(r.pendingCommission),
-        paid: money(r.paidCommission),
-        total: money(r.totalCommission),
+        own: money(ownVal),
+        override: r.subCount > 0 ? money(ovVal) : '—',
+        pay: money(payVal),
         count: String(r.totalCount),
       };
       let x = mL;
       cols.forEach(c => {
         let txt = vals[c.key];
-        if (c.key === 'name' && txt.length > 30) txt = txt.slice(0, 29) + '…';
-        if (c.key === 'leader' && txt.length > 22) txt = txt.slice(0, 21) + '…';
+        if (c.key === 'name' && txt.length > 28) txt = txt.slice(0, 27) + '…';
+        if (c.key === 'leader' && txt.length > 19) txt = txt.slice(0, 18) + '…';
         const tx = c.align === 'right' ? x + c.w - 2 : x + 2;
         doc.text(txt, tx, y + 5, { align: c.align });
         x += c.w;
@@ -223,19 +267,22 @@ export default function CommissionsBoardTab() {
       y += 7;
     });
 
-    // Fila de totales
+    // Fila de totales (Propia / Subs / Por pagar combinado)
     if (y > pageH - 14) { doc.addPage(); y = 16; }
+    const sumOwn = displayRows.reduce((s, r) => s + (status === 'paid' ? r.ownPaid : r.ownPending), 0);
+    const sumOv = displayRows.reduce((s, r) => s + (status === 'paid' ? r.overridePaid : r.overridePending), 0);
+    const sumPay = displayRows.reduce((s, r) => s + metric(r), 0);
     doc.setFillColor(255, 240, 232);
     doc.rect(mL, y, pageW - mL * 2, 8, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(240, 90, 40);
     doc.text('TOTAL', mL + 2, y + 5.5);
     let xt = mL + cols[0].w + cols[1].w + cols[2].w;
-    doc.text(money(totalPending), xt + cols[3].w - 2, y + 5.5, { align: 'right' });
+    doc.text(money(sumOwn), xt + cols[3].w - 2, y + 5.5, { align: 'right' });
     xt += cols[3].w;
-    doc.text(money(totalPaid), xt + cols[4].w - 2, y + 5.5, { align: 'right' });
+    doc.text(money(sumOv), xt + cols[4].w - 2, y + 5.5, { align: 'right' });
     xt += cols[4].w;
-    doc.text(money(totalCommission), xt + cols[5].w - 2, y + 5.5, { align: 'right' });
+    doc.text(money(sumPay), xt + cols[5].w - 2, y + 5.5, { align: 'right' });
 
     const fname = `Reporte_Comisiones_${now.toISOString().slice(0, 10)}.pdf`;
     doc.save(fname);
@@ -346,32 +393,44 @@ export default function CommissionsBoardTab() {
           gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr', xl: '1fr 1fr 1fr 1fr' },
           gap: 2.5,
         }}>
-          {displayRows.map((r, idx) => {
-            const isPodium = idx < 3;
-            const ring = isPodium ? PODIUM[idx] : 'transparent';
+          {displayRows.map((r) => {
+            const tRank = trophyRankById.get(r.advisorId);
+            const isPodium = tRank !== undefined;
+            const ring = isPodium ? PODIUM[tRank as number] : 'transparent';
+            const isSub = subIds.has(r.advisorId);
+            const hasSubs = r.subCount > 0;
+            const ownMetric = status === 'paid' ? r.ownPaid : r.ownPending;
+            const ovMetric = status === 'paid' ? r.overridePaid : r.overridePending;
             return (
               <Paper key={r.advisorId} elevation={isPodium ? 6 : 1} sx={{
                 p: 2.5, borderRadius: 3, position: 'relative', overflow: 'hidden',
                 border: '2px solid', borderColor: isPodium ? ring : 'divider',
+                borderLeft: isSub ? '6px solid' : (isPodium ? '2px solid' : '2px solid'),
+                borderLeftColor: isSub ? '#b0bec5' : (isPodium ? ring : 'divider'),
+                ml: isSub ? { xs: 0, sm: 2 } : 0,
                 transition: 'transform .15s', '&:hover': { transform: 'translateY(-3px)' },
               }}>
-                {/* Rank */}
-                <Box sx={{
-                  position: 'absolute', top: 12, right: 12,
-                  width: 34, height: 34, borderRadius: '50%',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  bgcolor: isPodium ? ring : 'grey.200',
-                  color: isPodium ? '#111' : 'text.secondary', fontWeight: 800, fontSize: 15,
-                }}>
-                  {isPodium ? <EmojiEventsIcon sx={{ fontSize: 20 }} /> : idx + 1}
-                </Box>
+                {/* Badge esquina: trofeo (top 3) o # de subasesores */}
+                {isPodium ? (
+                  <Box sx={{
+                    position: 'absolute', top: 12, right: 12,
+                    width: 34, height: 34, borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    bgcolor: ring, color: '#111',
+                  }}>
+                    <EmojiEventsIcon sx={{ fontSize: 20 }} />
+                  </Box>
+                ) : hasSubs ? (
+                  <Chip size="small" label={`${r.subCount} ${es ? 'subs' : 'subs'}`}
+                    sx={{ position: 'absolute', top: 12, right: 12, bgcolor: '#ECEFF1', fontWeight: 700 }} />
+                ) : null}
 
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
                   <Avatar
                     src={r.photoUrl || undefined}
                     sx={{
                       width: 72, height: 72, fontSize: 26, fontWeight: 700,
-                      bgcolor: ORANGE,
+                      bgcolor: isSub ? '#78909c' : ORANGE,
                       border: '3px solid', borderColor: isPodium ? ring : 'grey.100',
                     }}
                   >
@@ -379,25 +438,39 @@ export default function CommissionsBoardTab() {
                   </Avatar>
                   <Box sx={{ minWidth: 0, pr: 4 }}>
                     <Typography sx={{ fontWeight: 700, fontSize: 18, lineHeight: 1.2 }} noWrap title={r.advisorName}>
-                      {r.advisorName || `#${r.advisorId}`}
+                      {isSub ? '↳ ' : ''}{r.advisorName || `#${r.advisorId}`}
                     </Typography>
-                    {r.leaderName && (
+                    {r.leaderName ? (
                       <Typography variant="caption" color="text.secondary" noWrap>
                         {es ? 'Líder: ' : 'Leader: '}{r.leaderName}
                       </Typography>
-                    )}
+                    ) : hasSubs ? (
+                      <Typography variant="caption" sx={{ color: '#546e7a', fontWeight: 600 }} noWrap>
+                        {es ? `Líder de ${r.subCount} subasesor(es)` : `Leads ${r.subCount} sub-advisor(s)`}
+                      </Typography>
+                    ) : null}
                   </Box>
                 </Box>
 
-                {/* Monto destacado: se adapta al estado seleccionado */}
+                {/* Monto destacado (combinado: propia + override de subs) */}
                 <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
                   {status === 'paid'
                     ? (es ? 'Comisión pagada' : 'Paid commission')
                     : (es ? 'Comisión por pagar' : 'Pending commission')}
                 </Typography>
-                <Typography sx={{ fontWeight: 800, fontSize: 32, lineHeight: 1.1, color: status === 'paid' ? '#2e7d32' : ORANGE, mb: 1.5 }}>
+                <Typography sx={{ fontWeight: 800, fontSize: 32, lineHeight: 1.1, color: status === 'paid' ? '#2e7d32' : ORANGE, mb: 1 }}>
                   {fmt(metric(r))}
                 </Typography>
+
+                {/* Desglose propia / subasesores (solo si es líder con subs) */}
+                {hasSubs && (
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+                    <Chip size="small" label={`${es ? 'Propia' : 'Own'}: ${fmt(ownMetric)}`}
+                      sx={{ bgcolor: '#FFF3E0', color: '#e65100', fontWeight: 700 }} />
+                    <Chip size="small" label={`${es ? 'Subasesores' : 'Sub-advisors'}: ${fmt(ovMetric)}`}
+                      sx={{ bgcolor: '#EDE7F6', color: '#5e35b1', fontWeight: 700 }} />
+                  </Box>
+                )}
 
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   <Chip size="small" label={`${es ? 'Total' : 'Total'}: ${fmt(r.totalCommission)}`} sx={{ bgcolor: '#e3f2fd', color: '#1565c0', fontWeight: 600 }} />

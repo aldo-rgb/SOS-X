@@ -686,25 +686,23 @@ export const markCommissionsAsPaid = async (req: Request, res: Response): Promis
 export const getCommissionsByAdvisor = async (req: Request, res: Response): Promise<any> => {
     try {
         const { from_date, to_date, service_type } = req.query;
-        const conditions: string[] = [];
+        // Filtros a NIVEL DE FILA de comisión (fecha, servicio, orden pagada).
+        // El filtro de usuario (activo/oculto/líder actual) se aplica al final,
+        // sobre el asesor mostrado, NO sobre las filas de sus subasesores.
+        const rowConds: string[] = [];
         const params: any[] = [];
         let paramIdx = 1;
 
-        // Solo asesores activos (is_active). NULL se considera activo.
-        // Además, excluir los marcados como ocultos del board General
-        // (hide_from_commission_board), sin afectar el ledger ni otras vistas.
-        conditions.push(`COALESCE(u.is_active, true) = true AND u.id IS NOT NULL AND COALESCE(u.hide_from_commission_board, false) = false`);
-
         if (from_date) {
-            conditions.push(`ac.created_at >= $${paramIdx++}`);
+            rowConds.push(`ac.created_at >= $${paramIdx++}`);
             params.push(from_date);
         }
         if (to_date) {
-            conditions.push(`ac.created_at <= $${paramIdx++}::date + interval '1 day'`);
+            rowConds.push(`ac.created_at <= $${paramIdx++}::date + interval '1 day'`);
             params.push(to_date);
         }
         if (service_type) {
-            conditions.push(`ac.service_type = $${paramIdx++}`);
+            rowConds.push(`ac.service_type = $${paramIdx++}`);
             params.push(service_type);
         }
 
@@ -713,52 +711,113 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
         // (y si es crédito, ya liquidada). Así los montos del board General cuadran
         // con "Comisiones Generadas".
         const PAID_ORDER = `pp_x.status IN ('completed','paid') AND (LOWER(COALESCE(pp_x.payment_method,'')) <> 'credit' OR COALESCE(pp_x.credit_settled,false) = true)`;
-        conditions.push(`(
+        rowConds.push(`(
             ac.service_type <> 'pobox_usa_mx'
             OR EXISTS (SELECT 1 FROM pobox_payments pp_x WHERE pp_x.package_ids @> to_jsonb(ac.shipment_id) AND ${PAID_ORDER})
             OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk ON pk.pobox_payment_id = pp_x.id WHERE pk.id = ac.shipment_id AND ${PAID_ORDER})
             OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk2 ON NULLIF(pk2.payment_reference,'') = pp_x.payment_reference WHERE pk2.id = ac.shipment_id AND ${PAID_ORDER})
         )`);
 
-        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+        const rowWhere = rowConds.length > 0 ? `WHERE ${rowConds.join(' AND ')}` : '';
 
+        // own  = comisión PROPIA del asesor (por sus propias guías, agrupada por advisor_id)
+        // ov   = OVERRIDE que gana como LÍDER por las guías de sus subasesores (por leader_id)
+        // Se combinan: "comisión por pagar" del líder = propia + override de subs.
         const result = await pool.query(`
+            WITH filtered AS (
+                SELECT ac.advisor_id, ac.advisor_name, ac.leader_id,
+                       ac.commission_amount_mxn, COALESCE(ac.leader_override_amount, 0) AS leader_override_amount,
+                       ac.payment_amount_mxn, ac.status, ac.created_at
+                  FROM advisor_commissions ac
+                  ${rowWhere}
+            ),
+            own AS (
+                SELECT advisor_id,
+                       COUNT(*) AS total_count,
+                       COALESCE(SUM(payment_amount_mxn), 0) AS total_volume,
+                       COALESCE(SUM(commission_amount_mxn), 0) AS own_total,
+                       COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'pending'), 0) AS own_pending,
+                       COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'paid'), 0) AS own_paid,
+                       COUNT(*) FILTER (WHERE status = 'pending') AS pending_count,
+                       COUNT(*) FILTER (WHERE status = 'paid') AS paid_count,
+                       MAX(created_at) AS last_commission_at
+                  FROM filtered GROUP BY advisor_id
+            ),
+            ov AS (
+                SELECT leader_id AS advisor_id,
+                       COALESCE(SUM(leader_override_amount), 0) AS ov_total,
+                       COALESCE(SUM(leader_override_amount) FILTER (WHERE status = 'pending'), 0) AS ov_pending,
+                       COALESCE(SUM(leader_override_amount) FILTER (WHERE status = 'paid'), 0) AS ov_paid,
+                       COUNT(DISTINCT advisor_id) AS sub_count
+                  FROM filtered
+                 WHERE leader_id IS NOT NULL AND leader_override_amount > 0
+                 GROUP BY leader_id
+            ),
+            ids AS (
+                SELECT advisor_id FROM own
+                UNION
+                SELECT advisor_id FROM ov
+            )
             SELECT
-                ac.advisor_id,
-                ac.advisor_name,
-                ac.leader_name,
+                i.advisor_id,
+                u.full_name AS advisor_name,
                 u.profile_photo_url,
                 u.referral_code,
-                COUNT(*) as total_count,
-                COALESCE(SUM(ac.payment_amount_mxn), 0) as total_volume,
-                COALESCE(SUM(ac.commission_amount_mxn), 0) as total_commission,
-                COALESCE(SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'pending'), 0) as pending_commission,
-                COALESCE(SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'paid'), 0) as paid_commission,
-                COUNT(*) FILTER (WHERE ac.status = 'pending') as pending_count,
-                COUNT(*) FILTER (WHERE ac.status = 'paid') as paid_count,
-                MAX(ac.created_at) as last_commission_at
-            FROM advisor_commissions ac
-            LEFT JOIN users u ON u.id = ac.advisor_id
-            ${whereClause}
-            GROUP BY ac.advisor_id, ac.advisor_name, ac.leader_name, u.profile_photo_url, u.referral_code
-            ORDER BY total_commission DESC
+                u.referred_by_id AS leader_id,
+                l.full_name AS leader_name,
+                COALESCE(o.total_count, 0) AS total_count,
+                COALESCE(o.total_volume, 0) AS total_volume,
+                COALESCE(o.own_total, 0) AS own_total,
+                COALESCE(o.own_pending, 0) AS own_pending,
+                COALESCE(o.own_paid, 0) AS own_paid,
+                COALESCE(o.pending_count, 0) AS pending_count,
+                COALESCE(o.paid_count, 0) AS paid_count,
+                o.last_commission_at,
+                COALESCE(v.ov_total, 0) AS ov_total,
+                COALESCE(v.ov_pending, 0) AS ov_pending,
+                COALESCE(v.ov_paid, 0) AS ov_paid,
+                COALESCE(v.sub_count, 0) AS sub_count
+            FROM ids i
+            JOIN users u ON u.id = i.advisor_id
+            LEFT JOIN users l ON l.id = u.referred_by_id
+            LEFT JOIN own o ON o.advisor_id = i.advisor_id
+            LEFT JOIN ov  v ON v.advisor_id = i.advisor_id
+            WHERE COALESCE(u.is_active, true) = true
+              AND COALESCE(u.hide_from_commission_board, false) = false
+            ORDER BY (COALESCE(o.own_total, 0) + COALESCE(v.ov_total, 0)) DESC
         `, params);
 
-        res.json(result.rows.map(r => ({
-            advisorId: r.advisor_id,
-            advisorName: r.advisor_name,
-            leaderName: r.leader_name,
-            photoUrl: r.profile_photo_url || null,
-            referralCode: r.referral_code || null,
-            totalCount: parseInt(r.total_count) || 0,
-            totalVolume: parseFloat(r.total_volume) || 0,
-            totalCommission: parseFloat(r.total_commission) || 0,
-            pendingCommission: parseFloat(r.pending_commission) || 0,
-            paidCommission: parseFloat(r.paid_commission) || 0,
-            pendingCount: parseInt(r.pending_count) || 0,
-            paidCount: parseInt(r.paid_count) || 0,
-            lastCommissionAt: r.last_commission_at,
-        })));
+        res.json(result.rows.map(r => {
+            const ownTotal = parseFloat(r.own_total) || 0;
+            const ownPending = parseFloat(r.own_pending) || 0;
+            const ownPaid = parseFloat(r.own_paid) || 0;
+            const ovTotal = parseFloat(r.ov_total) || 0;
+            const ovPending = parseFloat(r.ov_pending) || 0;
+            const ovPaid = parseFloat(r.ov_paid) || 0;
+            return {
+                advisorId: r.advisor_id,
+                advisorName: r.advisor_name,
+                leaderName: r.leader_name || null,
+                leaderId: r.leader_id || null,
+                photoUrl: r.profile_photo_url || null,
+                referralCode: r.referral_code || null,
+                totalCount: parseInt(r.total_count) || 0,
+                totalVolume: parseFloat(r.total_volume) || 0,
+                // Combinados (propia + override de subasesores) — lo que se le paga
+                totalCommission: ownTotal + ovTotal,
+                pendingCommission: ownPending + ovPending,
+                paidCommission: ownPaid + ovPaid,
+                // Desglose
+                ownTotal, ownPending, ownPaid,
+                overrideTotal: ovTotal,
+                overridePending: ovPending,
+                overridePaid: ovPaid,
+                subCount: parseInt(r.sub_count) || 0,
+                pendingCount: parseInt(r.pending_count) || 0,
+                paidCount: parseInt(r.paid_count) || 0,
+                lastCommissionAt: r.last_commission_at,
+            };
+        }));
     } catch (error) {
         console.error('Error getting commissions by advisor:', error);
         res.status(500).json({ error: 'Error al obtener comisiones por asesor' });
