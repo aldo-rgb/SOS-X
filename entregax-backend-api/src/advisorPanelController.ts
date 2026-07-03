@@ -984,6 +984,18 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
+    // 🧾 MISMA REGLA que el ledger super-admin: en PO Box solo cuentan las
+    // comisiones cuya guía tiene una ORDEN DE PAGO registrada y PAGADA (y si es
+    // crédito, ya liquidado). Los demás servicios (GEX/DHL/aéreo/marítimo/xpay)
+    // pasan sin filtrar (aún no tienen órdenes). Referencia con alias `ac`.
+    const POBOX_PAID = `pp_x.status IN ('completed','paid') AND (LOWER(COALESCE(pp_x.payment_method,'')) <> 'credit' OR COALESCE(pp_x.credit_settled,false) = true)`;
+    const PAID_ORDER_FILTER = `AND (
+        ac.service_type <> 'pobox_usa_mx'
+        OR EXISTS (SELECT 1 FROM pobox_payments pp_x WHERE pp_x.package_ids @> to_jsonb(ac.shipment_id) AND ${POBOX_PAID})
+        OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk ON pk.pobox_payment_id = pp_x.id WHERE pk.id = ac.shipment_id AND ${POBOX_PAID})
+        OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk2 ON NULLIF(pk2.payment_reference,'') = pp_x.payment_reference WHERE pk2.id = ac.shipment_id AND ${POBOX_PAID})
+    )`;
+
     // ─── Tasas de comisión por tipo de servicio ───
     const ratesRes = await pool.query(`
       SELECT service_type, label, percentage, leader_override, fixed_fee, is_gex
@@ -1005,6 +1017,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'paid') as paid_commission
       FROM advisor_commissions ac
       WHERE ac.advisor_id = $1
+      ${PAID_ORDER_FILTER}
       GROUP BY ac.service_type
     `, [advisorId]);
 
@@ -1022,6 +1035,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
       FROM advisor_commissions ac
       WHERE ac.advisor_id = $1
         AND ac.created_at >= NOW() - INTERVAL '6 months'
+      ${PAID_ORDER_FILTER}
       GROUP BY to_char(ac.created_at, 'YYYY-MM')
       ORDER BY month DESC
     `, [advisorId]);
@@ -1035,8 +1049,9 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'paid'), 0) as paid_commission,
         COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
         COUNT(*) FILTER (WHERE status = 'paid') as paid_count
-      FROM advisor_commissions
-      WHERE advisor_id = $1
+      FROM advisor_commissions ac
+      WHERE ac.advisor_id = $1
+      ${PAID_ORDER_FILTER}
     `, [advisorId]);
 
     // ─── Últimas 20 comisiones (detalle) ───
@@ -1056,6 +1071,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
       FROM advisor_commissions ac
       LEFT JOIN users cu ON cu.id = ac.client_id
       ${recentWhere}
+      ${PAID_ORDER_FILTER}
       ORDER BY ac.created_at DESC
       LIMIT ${svcFilter || statusFilter ? 200 : 50}
     `, recentParams);
