@@ -30,6 +30,7 @@ import {
 } from 'react-native-paper';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { API_URL, Package } from '../services/api';
 
@@ -150,6 +151,7 @@ const getPackageCBM = (pkg: any): number => {
 
 export default function DeliveryInstructionsScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const { package: pkg, packages: multiplePackages, user, token, isChangingFromPickup } = route.params as any;
   
   // Usar múltiples paquetes si vienen, si no usar el paquete único
@@ -1744,7 +1746,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
         onRequestClose={() => setRepackModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.repackModal}>
+          <View style={[styles.repackModal, { paddingBottom: 20 + Math.max(insets.bottom, 8) }]}>
             {/* Header del modal */}
             <View style={styles.repackModalHeader}>
               <MaterialCommunityIcons name="package-variant-closed" size={28} color={ORANGE} />
