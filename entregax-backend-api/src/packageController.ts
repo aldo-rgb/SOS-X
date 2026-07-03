@@ -1817,18 +1817,21 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         try {
             const ordRes = await pool.query(
                 `SELECT payment_reference, payment_method FROM (
-                    SELECT payment_reference, payment_method, created_at, package_ids AS ids
-                      FROM pobox_payments WHERE COALESCE(status,'') <> 'cancelled'
+                    SELECT payment_reference, payment_method, created_at, package_ids AS ids, status
+                      FROM pobox_payments WHERE LOWER(COALESCE(status,'')) NOT IN ('cancelled','cancelado','expired')
                     UNION ALL
-                    SELECT payment_reference, NULL::text AS payment_method, created_at, package_uids AS ids
-                      FROM advisor_payment_orders
+                    SELECT payment_reference, NULL::text AS payment_method, created_at, package_uids AS ids, status
+                      FROM advisor_payment_orders WHERE LOWER(COALESCE(status,'')) NOT IN ('cancelled','cancelado','expired')
                  ) o
                  WHERE o.payment_reference IS NOT NULL AND EXISTS (
                     SELECT 1 FROM jsonb_array_elements_text(COALESCE(o.ids,'[]'::jsonb)) e
                     WHERE e = $1::text OR e = 'PKG-'||$1::text
                        OR ($2::int IS NOT NULL AND (e = $2::text OR e = 'PKG-'||$2::text))
                  )
-                 ORDER BY created_at DESC LIMIT 1`,
+                 -- Preferir la orden PAGADA sobre pendientes; luego la más reciente.
+                 ORDER BY (CASE WHEN LOWER(COALESCE(o.status,'')) IN ('completed','paid','pagado') THEN 0 ELSE 1 END),
+                          o.created_at DESC
+                 LIMIT 1`,
                 [pkg.id, pkg.master_id || null]
             );
             paymentOrderRef = ordRes.rows[0]?.payment_reference || null;

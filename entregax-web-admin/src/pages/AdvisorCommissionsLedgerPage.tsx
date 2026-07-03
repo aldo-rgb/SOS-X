@@ -68,6 +68,7 @@ interface CommissionRecord {
   paidAt: string | null;
   createdAt: string;
   paymentOrder: string | null;
+  paymentOrderStatus: string | null;
 }
 
 interface Summary {
@@ -341,6 +342,7 @@ export default function AdvisorCommissionsLedgerPage() {
                         <TableCell><strong>Servicio</strong></TableCell>
                         <TableCell><strong>Tracking</strong></TableCell>
                         <TableCell><strong>Orden de Pago</strong></TableCell>
+                        <TableCell align="center"><strong>Status Orden</strong></TableCell>
                         <TableCell><strong>Cliente</strong></TableCell>
                         <TableCell align="right"><strong>Monto Base</strong></TableCell>
                         <TableCell align="right"><strong>Tasa</strong></TableCell>
@@ -351,7 +353,7 @@ export default function AdvisorCommissionsLedgerPage() {
                     <TableBody>
                       {records.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={11} align="center">
+                          <TableCell colSpan={12} align="center">
                             <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
                               Sin comisiones en este período
                             </Typography>
@@ -392,6 +394,24 @@ export default function AdvisorCommissionsLedgerPage() {
                               ) : (
                                 <Typography variant="caption" color="text.secondary">—</Typography>
                               )}
+                            </TableCell>
+                            <TableCell align="center">
+                              {(() => {
+                                const st = String(r.paymentOrderStatus || '').toLowerCase();
+                                if (!st) return <Typography variant="caption" color="text.secondary">—</Typography>;
+                                const map: Record<string, { label: string; color: any }> = {
+                                  completed: { label: 'Pagado', color: 'success' },
+                                  paid: { label: 'Pagado', color: 'success' },
+                                  cancelled: { label: 'Cancelada', color: 'error' },
+                                  expired: { label: 'Expirada', color: 'error' },
+                                  pending_payment: { label: 'Pendiente', color: 'warning' },
+                                  pending: { label: 'Pendiente', color: 'warning' },
+                                  vouchers_submitted: { label: 'Procesando', color: 'info' },
+                                  vouchers_partial: { label: 'Procesando', color: 'info' },
+                                };
+                                const c = map[st] || { label: r.paymentOrderStatus as string, color: 'default' };
+                                return <Chip label={c.label} size="small" color={c.color} variant={c.color === 'success' ? 'filled' : 'outlined'} sx={{ fontSize: '0.7rem' }} />;
+                              })()}
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>{r.clientBox || '—'}</Typography>
