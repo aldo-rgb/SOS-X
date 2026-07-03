@@ -72,7 +72,7 @@ const DATE_PRESETS = [
   { key: 'all',       label: 'Todo' },
   { key: 'month',     label: 'Este mes' },
   { key: 'lastmonth', label: 'Mes pasado' },
-  { key: '7d',        label: '7 días' },
+  { key: 'week',      label: 'Semana (vie–jue)' },
 ];
 const SERVICE_FILTERS = [
   { key: 'all', label: '🗂️ Todos' },
@@ -91,8 +91,11 @@ const STATUS_FILTERS = [
 ];
 
 // Calcula el rango de fechas (YYYY-MM-DD) según el preset seleccionado.
+// Usa componentes LOCALES (no UTC) para no correrse un día por zona horaria.
+const iso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 const dateRange = (preset: string): { from?: string; to?: string } => {
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
   const now = new Date();
   if (preset === 'month') {
     return { from: iso(new Date(now.getFullYear(), now.getMonth(), 1)) };
@@ -103,10 +106,15 @@ const dateRange = (preset: string): { from?: string; to?: string } => {
       to: iso(new Date(now.getFullYear(), now.getMonth(), 0)),
     };
   }
-  if (preset === '7d') {
-    const d = new Date(now);
-    d.setDate(d.getDate() - 7);
-    return { from: iso(d) };
+  if (preset === 'week') {
+    // Semana de comisiones viernes→jueves, la recién cerrada:
+    // fin = último jueves (getDay 4) en o antes de hoy; inicio = su viernes anterior.
+    const end = new Date(now);
+    const diff = (end.getDay() - 4 + 7) % 7; // días desde el último jueves (0 si hoy es jueves)
+    end.setDate(end.getDate() - diff);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 6); // viernes anterior a ese jueves
+    return { from: iso(start), to: iso(end) };
   }
   return {};
 };
