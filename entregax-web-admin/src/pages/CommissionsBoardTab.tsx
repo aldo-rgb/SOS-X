@@ -77,6 +77,29 @@ export default function CommissionsBoardTab() {
   const [toDate, setToDate] = useState('');
   const [service, setService] = useState('');
   const [status, setStatus] = useState<'' | 'pending' | 'paid'>('');
+  const [datePreset, setDatePreset] = useState('');
+
+  // Presets de fecha (fecha local, no UTC). 'week' = semana comisiones vie→jue.
+  const isoLocal = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const applyPreset = (key: string) => {
+    const now = new Date();
+    if (key === 'month') {
+      setFromDate(isoLocal(new Date(now.getFullYear(), now.getMonth(), 1)));
+      setToDate('');
+    } else if (key === 'lastmonth') {
+      setFromDate(isoLocal(new Date(now.getFullYear(), now.getMonth() - 1, 1)));
+      setToDate(isoLocal(new Date(now.getFullYear(), now.getMonth(), 0)));
+    } else if (key === 'week') {
+      const end = new Date(now);
+      end.setDate(end.getDate() - ((end.getDay() - 4 + 7) % 7)); // último jueves ≤ hoy
+      const start = new Date(end);
+      start.setDate(start.getDate() - 6); // viernes anterior
+      setFromDate(isoLocal(start));
+      setToDate(isoLocal(end));
+    }
+    setDatePreset(key);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -297,14 +320,31 @@ export default function CommissionsBoardTab() {
         </Typography>
         <TextField
           label={es ? 'Desde' : 'From'} type="date" size="small"
-          value={fromDate} onChange={(e) => setFromDate(e.target.value)}
+          value={fromDate} onChange={(e) => { setFromDate(e.target.value); setDatePreset(''); }}
           InputLabelProps={{ shrink: true }}
         />
         <TextField
           label={es ? 'Hasta' : 'To'} type="date" size="small"
-          value={toDate} onChange={(e) => setToDate(e.target.value)}
+          value={toDate} onChange={(e) => { setToDate(e.target.value); setDatePreset(''); }}
           InputLabelProps={{ shrink: true }}
         />
+        {/* Presets rápidos */}
+        {[
+          { key: 'month',     label: es ? 'Este mes' : 'This month' },
+          { key: 'lastmonth', label: es ? 'Mes anterior' : 'Last month' },
+          { key: 'week',      label: es ? 'Semana (vie–jue)' : 'Week (Fri–Thu)' },
+        ].map(p => (
+          <Button
+            key={p.key} size="small"
+            variant={datePreset === p.key ? 'contained' : 'outlined'}
+            onClick={() => applyPreset(p.key)}
+            sx={datePreset === p.key
+              ? { background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, textTransform: 'none' }
+              : { textTransform: 'none', color: 'text.secondary', borderColor: 'divider' }}
+          >
+            {p.label}
+          </Button>
+        ))}
         <FormControl size="small" sx={{ minWidth: 170 }}>
           <InputLabel>{es ? 'Servicio' : 'Service'}</InputLabel>
           <Select value={service} label={es ? 'Servicio' : 'Service'} onChange={(e) => setService(e.target.value)}>
@@ -323,7 +363,7 @@ export default function CommissionsBoardTab() {
           </Select>
         </FormControl>
         {hasFilter && (
-          <Button size="small" color="inherit" onClick={() => { setFromDate(''); setToDate(''); setService(''); setStatus(''); }}>
+          <Button size="small" color="inherit" onClick={() => { setFromDate(''); setToDate(''); setService(''); setStatus(''); setDatePreset(''); }}>
             {es ? 'Limpiar' : 'Clear'}
           </Button>
         )}
