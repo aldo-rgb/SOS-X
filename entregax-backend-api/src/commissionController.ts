@@ -691,7 +691,9 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
         let paramIdx = 1;
 
         // Solo asesores activos (is_active). NULL se considera activo.
-        conditions.push(`COALESCE(u.is_active, true) = true AND u.id IS NOT NULL`);
+        // Además, excluir los marcados como ocultos del board General
+        // (hide_from_commission_board), sin afectar el ledger ni otras vistas.
+        conditions.push(`COALESCE(u.is_active, true) = true AND u.id IS NOT NULL AND COALESCE(u.hide_from_commission_board, false) = false`);
 
         if (from_date) {
             conditions.push(`ac.created_at >= $${paramIdx++}`);
