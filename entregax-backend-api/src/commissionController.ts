@@ -685,11 +685,41 @@ export const markCommissionsAsPaid = async (req: Request, res: Response): Promis
 // 13. ADMIN: Resumen de comisiones por asesor
 export const getCommissionsByAdvisor = async (req: Request, res: Response): Promise<any> => {
     try {
+        const { from_date, to_date } = req.query;
+        const conditions: string[] = [];
+        const params: any[] = [];
+        let paramIdx = 1;
+
+        if (from_date) {
+            conditions.push(`ac.created_at >= $${paramIdx++}`);
+            params.push(from_date);
+        }
+        if (to_date) {
+            conditions.push(`ac.created_at <= $${paramIdx++}::date + interval '1 day'`);
+            params.push(to_date);
+        }
+
+        // 🧾 Misma regla que el ledger (getAdvisorCommissionsList): en PO Box solo
+        // cuentan comisiones cuya guía tiene una ORDEN DE PAGO registrada y PAGADA
+        // (y si es crédito, ya liquidada). Así los montos del board General cuadran
+        // con "Comisiones Generadas".
+        const PAID_ORDER = `pp_x.status IN ('completed','paid') AND (LOWER(COALESCE(pp_x.payment_method,'')) <> 'credit' OR COALESCE(pp_x.credit_settled,false) = true)`;
+        conditions.push(`(
+            ac.service_type <> 'pobox_usa_mx'
+            OR EXISTS (SELECT 1 FROM pobox_payments pp_x WHERE pp_x.package_ids @> to_jsonb(ac.shipment_id) AND ${PAID_ORDER})
+            OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk ON pk.pobox_payment_id = pp_x.id WHERE pk.id = ac.shipment_id AND ${PAID_ORDER})
+            OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk2 ON NULLIF(pk2.payment_reference,'') = pp_x.payment_reference WHERE pk2.id = ac.shipment_id AND ${PAID_ORDER})
+        )`);
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
         const result = await pool.query(`
-            SELECT 
+            SELECT
                 ac.advisor_id,
                 ac.advisor_name,
                 ac.leader_name,
+                u.profile_photo_url,
+                u.referral_code,
                 COUNT(*) as total_count,
                 COALESCE(SUM(ac.payment_amount_mxn), 0) as total_volume,
                 COALESCE(SUM(ac.commission_amount_mxn), 0) as total_commission,
@@ -699,14 +729,18 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
                 COUNT(*) FILTER (WHERE ac.status = 'paid') as paid_count,
                 MAX(ac.created_at) as last_commission_at
             FROM advisor_commissions ac
-            GROUP BY ac.advisor_id, ac.advisor_name, ac.leader_name
-            ORDER BY pending_commission DESC
-        `);
+            LEFT JOIN users u ON u.id = ac.advisor_id
+            ${whereClause}
+            GROUP BY ac.advisor_id, ac.advisor_name, ac.leader_name, u.profile_photo_url, u.referral_code
+            ORDER BY total_commission DESC
+        `, params);
 
         res.json(result.rows.map(r => ({
             advisorId: r.advisor_id,
             advisorName: r.advisor_name,
             leaderName: r.leader_name,
+            photoUrl: r.profile_photo_url || null,
+            referralCode: r.referral_code || null,
             totalCount: parseInt(r.total_count) || 0,
             totalVolume: parseFloat(r.total_volume) || 0,
             totalCommission: parseFloat(r.total_commission) || 0,

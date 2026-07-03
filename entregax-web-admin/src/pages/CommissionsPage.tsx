@@ -25,7 +25,9 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import SecurityIcon from '@mui/icons-material/Security';
 import PaymentIcon from '@mui/icons-material/Payment';
+import DashboardIcon from '@mui/icons-material/Dashboard';
 import AdvisorCommissionsLedgerPage from './AdvisorCommissionsLedgerPage';
+import CommissionsBoardTab from './CommissionsBoardTab';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
@@ -256,19 +258,25 @@ export default function CommissionsPage() {
       {/* Tabs */}
       <Paper sx={{ mb: 3, borderRadius: 2 }}>
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Tab icon={<DashboardIcon />} label={i18n.language === 'es' ? 'General' : 'Overview'} />
           <Tab icon={<PaymentIcon />} label={i18n.language === 'es' ? 'Comisiones Generadas' : 'Commissions Ledger'} />
           <Tab icon={<MonetizationOnIcon />} label={i18n.language === 'es' ? 'Tarifas' : 'Rates'} />
           <Tab icon={<AccountTreeIcon />} label={i18n.language === 'es' ? 'Asesores' : 'Hierarchy'} />
         </Tabs>
       </Paper>
 
-      {/* Tab Comisiones Generadas */}
+      {/* Tab General (board de asesores) */}
       {tabValue === 0 && (
+        <CommissionsBoardTab />
+      )}
+
+      {/* Tab Comisiones Generadas */}
+      {tabValue === 1 && (
         <AdvisorCommissionsLedgerPage />
       )}
 
       {/* Stats Cards */}
-      {tabValue === 1 && (
+      {tabValue === 2 && (
       <>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mb: 4 }}>
         <Box sx={{ flex: '1 1 300px', minWidth: 250 }}>
@@ -440,7 +448,7 @@ export default function CommissionsPage() {
       )}
 
       {/* Tab Asesores */}
-      {tabValue === 2 && (
+      {tabValue === 3 && (
         <Box>
           <Paper elevation={3} sx={{ borderRadius: 3, overflow: 'hidden' }}>
             <Box sx={{ bgcolor: BLACK, px: 3, py: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
