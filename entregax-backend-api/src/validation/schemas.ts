@@ -24,12 +24,15 @@ export const validateBody =
   (req: Request, res: Response, next: NextFunction): void => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
+      const issues = result.error.issues.map((i) => ({
+        path: i.path.join('.'),
+        message: i.message,
+      }));
       res.status(400).json({
-        error: 'Datos inválidos',
-        issues: result.error.issues.map((i) => ({
-          path: i.path.join('.'),
-          message: i.message,
-        })),
+        // Mensaje específico del primer problema (ej. "La contraseña debe tener
+        // al menos 6 caracteres") en vez de un genérico "Datos inválidos".
+        error: issues[0]?.message || 'Datos inválidos',
+        issues,
       });
       return;
     }
@@ -51,12 +54,13 @@ export const loginSchema = z
 
 export const registerSchema = z
   .object({
-    fullName: z.string().trim().min(2).max(120),
-    email: z.string().trim().toLowerCase().email().max(255),
-    password: z.string().min(8).max(200).optional(),
+    fullName: z.string().trim().min(2, 'Ingresa tu nombre completo').max(120),
+    email: z.string().trim().toLowerCase().email('El correo electrónico no es válido').max(255),
+    // Mínimo 6 caracteres — igual que el mensaje mostrado en el formulario.
+    password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres').max(200).optional(),
     // Teléfono ahora es obligatorio (excepto cuando isAdminCreated=true que ya valida en controller).
     // Formato esperado: con código de país (ej. 5215512345678).
-    phone: z.string().trim().min(7).max(20),
+    phone: z.string().trim().min(7, 'Ingresa un número de WhatsApp válido').max(20),
     isAdminCreated: z.boolean().optional(),
     referralCodeInput: z.string().trim().max(50).optional(),
     existingBoxId: z.string().trim().max(20).optional(),
