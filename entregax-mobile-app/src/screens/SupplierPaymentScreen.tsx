@@ -1840,7 +1840,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
                 {(r.entangled_transaccion_id) && (
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                    {r.cf_rfc && (
+                    {r.cf_rfc && (r.estatus_factura === 'emitida' || !!r.factura_url) && (
                       <TouchableOpacity
                         style={styles.linkBtn}
                         disabled={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_pdf'}
@@ -1852,7 +1852,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                         <Text style={styles.linkText}>Factura PDF</Text>
                       </TouchableOpacity>
                     )}
-                    {r.cf_rfc && (
+                    {r.cf_rfc && (r.estatus_factura === 'emitida' || !!r.factura_url) && (
                       <TouchableOpacity
                         style={styles.linkBtn}
                         disabled={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_xml'}
