@@ -988,6 +988,9 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     // comisiones cuya guía tiene una ORDEN DE PAGO registrada y PAGADA (y si es
     // crédito, ya liquidado). Los demás servicios (GEX/DHL/aéreo/marítimo/xpay)
     // pasan sin filtrar (aún no tienen órdenes). Referencia con alias `ac`.
+    // Filtro de servicio (opcional) — usado por la app para que las tarjetas de
+    // totales reflejen el servicio seleccionado (PO Box / Aéreo / Marítimo…).
+    const svcTypeParam = String((req.query.service_type as string) || '').trim();
     const POBOX_PAID = `pp_x.status IN ('completed','paid') AND (LOWER(COALESCE(pp_x.payment_method,'')) <> 'credit' OR COALESCE(pp_x.credit_settled,false) = true)`;
     const PAID_ORDER_FILTER = `AND (
         ac.service_type <> 'pobox_usa_mx'
@@ -1035,14 +1038,21 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
       FROM advisor_commissions ac
       WHERE ac.advisor_id = $1
         AND ac.created_at >= NOW() - INTERVAL '6 months'
+        ${svcTypeParam ? 'AND ac.service_type = $2' : ''}
       ${PAID_ORDER_FILTER}
       GROUP BY to_char(ac.created_at, 'YYYY-MM')
       ORDER BY month DESC
-    `, [advisorId]);
+    `, svcTypeParam ? [advisorId, svcTypeParam] : [advisorId]);
 
     // ─── Totales generales ───
+    // Respetan el filtro de servicio: al seleccionar "PO Box" en la app, las
+    // tarjetas Por Cobrar/Pagadas muestran solo ese servicio (antes mostraban
+    // siempre el total general aunque se filtrara).
+    const totalsParams: any[] = [advisorId];
+    let totalsSvcCond = '';
+    if (svcTypeParam) { totalsParams.push(svcTypeParam); totalsSvcCond = `AND ac.service_type = $${totalsParams.length}`; }
     const totalsRes = await pool.query(`
-      SELECT 
+      SELECT
         COUNT(*) as total_count,
         COALESCE(SUM(commission_amount_mxn), 0) as total_commission,
         COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'pending'), 0) as pending_commission,
@@ -1051,8 +1061,9 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         COUNT(*) FILTER (WHERE status = 'paid') as paid_count
       FROM advisor_commissions ac
       WHERE ac.advisor_id = $1
+      ${totalsSvcCond}
       ${PAID_ORDER_FILTER}
-    `, [advisorId]);
+    `, totalsParams);
 
     // ─── Últimas 20 comisiones (detalle) ───
     // Filtros opcionales del historial: por tipo de servicio y/o estado.
