@@ -126,12 +126,14 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const widthRef = useRef<HTMLInputElement>(null);
   const heightRef = useRef<HTMLInputElement>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
-  // Auto-focus al cambiar de paso o abrir wizard
+  const guiaRef = useRef<HTMLInputElement>(null);
+  // Auto-focus al cambiar de paso o abrir wizard. En "Capturar cajas" (step 1)
+  // enfocamos la GUÍA ORIGEN para poder escanear de inmediato.
   useEffect(() => {
     if (!wizardOpen) return;
     const tm = setTimeout(() => {
       if (step === 0) clientRef.current?.focus();
-      else if (step === 1) gwRef.current?.focus();
+      else if (step === 1) guiaRef.current?.focus();
     }, 80);
     return () => clearTimeout(tm);
   }, [wizardOpen, step]);
@@ -288,8 +290,9 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       setBox({ ...emptyBox });
       setQuantity('1');
       setSnack(null);
-      // Listo para la siguiente captura: regresar foco al primer campo
-      setTimeout(() => gwRef.current?.focus(), 60);
+      // Listo para la siguiente captura: regresar foco a GUÍA ORIGEN para
+      // escanear la siguiente caja directo con el scanner.
+      setTimeout(() => guiaRef.current?.focus(), 60);
     } catch (e: any) {
       setSnack({ sev: 'error', msg: e?.response?.data?.error || 'Error' });
     } finally {
@@ -664,6 +667,8 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                       fullWidth
                       size="small"
                       placeholder="Ej. JD01234567890123"
+                      inputRef={guiaRef}
+                      onKeyDown={focusNext(gwRef)}
                       helperText={qtyNum > 1 ? t('tdiExpress.wizard.originGuideBatchHint', { n: qtyNum }) : ''}
                     />
                   </Grid>
