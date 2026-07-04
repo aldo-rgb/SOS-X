@@ -681,6 +681,25 @@ export const startEntangledSyncCron = () => {
 };
 
 /**
+ * CRON JOB: Sincronizar STATUS de operaciones X-Pay con ENTANGLED cada 10 min.
+ * Respaldo porque ENTANGLED no está llamando nuestros webhooks (factura.generada /
+ * pago.proveedor): consulta el estado real de cada operación en proceso y
+ * actualiza estatus_factura ('pendiente'→'emitida'), estatus_proveedor,
+ * documentos y estatus_global. Así el status se confirma sin depender del webhook.
+ */
+export const startXpayStatusSyncCron = () => {
+  cron.schedule('*/10 * * * *', async () => {
+    try {
+      const { syncPendingEntangledOperations } = await import('./entangledControllerV2');
+      const r = await syncPendingEntangledOperations();
+      if (r.updated > 0) console.log(`🔄 [CRON] X-Pay status sync: ${r.updated}/${r.checked} actualizadas`);
+    } catch (err: any) {
+      console.error('❌ [CRON] Error en X-Pay status sync:', err.message);
+    }
+  });
+};
+
+/**
  * CRON JOB: Auto-cancelación X-Pay por congelamiento vencido.
  * Cada 15 min cancela las órdenes que pasaron su payment_deadline_at SIN que el
  * cliente haya subido su comprobante (la ventana de TC de NUESTRO lado venció).
@@ -882,6 +901,7 @@ export const initCronJobs = () => {
   startAutoCheckoutCron();
   startDatabaseBackupCron();
   startEntangledSyncCron();
+  startXpayStatusSyncCron();
   startXpayExpiryCron();
   startSyncfyAutoSyncCron();
   startChartbackIPromotionCron();

@@ -1274,6 +1274,81 @@ export const syncRequestFromEntangled = async (req: Request, res: Response): Pro
 };
 
 // ===========================================================================
+// Sync PERIÓDICO (cron): consulta ENTANGLED para operaciones en proceso y
+// actualiza estatus_factura / estatus_proveedor / estatus_global / documentos.
+// Respaldo por si el webhook factura.generada / pago.proveedor no llegó.
+// Mismo UPDATE que syncRequestFromEntangled.
+// ===========================================================================
+export async function syncPendingEntangledOperations(): Promise<{ checked: number; updated: number }> {
+  if (!isEntangledConfigured()) return { checked: 0, updated: 0 };
+  const pend = await pool.query(
+    `SELECT id, servicio, entangled_transaccion_id
+       FROM entangled_payment_requests
+      WHERE entangled_transaccion_id IS NOT NULL
+        AND estatus_global IN ('en_proceso', 'esperando_comprobante')
+        AND (COALESCE(estatus_factura,'') <> 'emitida' OR COALESCE(estatus_proveedor,'') <> 'completado')
+        AND created_at >= NOW() - INTERVAL '45 days'
+      ORDER BY updated_at ASC
+      LIMIT 60`
+  );
+  let updated = 0;
+  for (const row of pend.rows) {
+    try {
+      const remote = await getSolicitudStatus(String(row.entangled_transaccion_id));
+      if (!remote.ok) continue;
+      const data = remote.data || {};
+      const docs = data.documentos || data.docs || {};
+      const detalles = data.detalles || {};
+      const facturaUrl = docs.factura_pdf || docs.url_factura_pdf || data.url_factura_pdf || data.factura_url || null;
+      const facturaXmlUrl = docs.factura_xml || docs.url_factura_xml || data.url_factura_xml || data.factura_xml_url || null;
+      const comprobanteProvUrl = docs.comprobante_proveedor || docs.url_comprobante_proveedor || data.url_comprobante_proveedor || data.comprobante_proveedor_url || null;
+      const comprobanteClienteUrl = docs.comprobante_cliente || docs.url_comprobante_cliente || data.url_comprobante_cliente || null;
+      const estatusFacturaRemote = String(data.estatus_factura || '').toLowerCase() || null;
+      const estatusProveedorRemote = String(data.estatus_proveedor || detalles.estatus || data.estatus || '').toLowerCase() || null;
+      const upd = await pool.query(
+        `UPDATE entangled_payment_requests
+            SET factura_url = COALESCE($1, factura_url),
+                estatus_factura = CASE
+                  WHEN $7::text IS NOT NULL AND $7::text <> '' THEN $7::text
+                  WHEN $1 IS NOT NULL THEN 'emitida'
+                  ELSE estatus_factura
+                END,
+                factura_emitida_at = CASE
+                  WHEN factura_emitida_at IS NULL
+                       AND ($1 IS NOT NULL OR $7::text IN ('emitida','completado'))
+                  THEN NOW() ELSE factura_emitida_at END,
+                comprobante_proveedor_url = COALESCE($2, comprobante_proveedor_url),
+                url_comprobante_cliente = COALESCE($9, url_comprobante_cliente),
+                estatus_proveedor = CASE
+                  WHEN $3::text IN ('completado','rechazado','en_proceso','pendiente') THEN $3::text
+                  ELSE estatus_proveedor END,
+                proveedor_pagado_at = CASE
+                  WHEN $3::text = 'completado' AND proveedor_pagado_at IS NULL THEN NOW()
+                  ELSE proveedor_pagado_at END,
+                raw_response = COALESCE(raw_response, '{}'::jsonb)
+                  || jsonb_build_object('factura_xml_url', $4::text)
+                  || jsonb_build_object('last_sync_at', NOW())
+                  || jsonb_build_object('last_sync_payload', $5::jsonb),
+                estatus_global = CASE
+                  WHEN ($6 = 'pago_sin_factura' AND $3::text = 'completado') THEN 'completado'
+                  WHEN ($6 = 'pago_con_factura' AND $3::text = 'completado'
+                        AND ($1 IS NOT NULL OR estatus_factura = 'emitida' OR $7::text IN ('emitida','completado'))) THEN 'completado'
+                  WHEN $3::text = 'rechazado' THEN 'rechazado'
+                  ELSE estatus_global END,
+                last_webhook_at = NOW(),
+                updated_at = NOW()
+          WHERE id = $8`,
+        [facturaUrl, comprobanteProvUrl, estatusProveedorRemote, facturaXmlUrl, JSON.stringify(data), row.servicio, estatusFacturaRemote, row.id, comprobanteClienteUrl]
+      );
+      if (upd.rowCount) updated++;
+    } catch (e: any) {
+      console.warn('[ENTANGLED sync] error op', row.id, e?.message);
+    }
+  }
+  return { checked: pend.rows.length, updated };
+}
+
+// ===========================================================================
 // POST /api/entangled/asignacion
 // Obtiene empresa + cuenta bancaria asignada para un concepto SAT + cliente.
 // ===========================================================================
