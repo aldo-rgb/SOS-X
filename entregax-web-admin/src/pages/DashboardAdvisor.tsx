@@ -3517,6 +3517,9 @@ export default function DashboardAdvisor() {
                 const ref = op.payment_reference || `#${op.id}`;
                 // Solicitar factura: pagada y dentro de los 3 días posteriores al pago.
                 const isPaidStatus = op.status === 'pagado' || op.status === 'completed' || op.status === 'paid';
+                // Distinción crédito: "Crédito" (a crédito, sin liquidar) vs "Crédito Pagado" (liquidado).
+                const isCreditPay = String(op.payment_method || '').toLowerCase() === 'credit';
+                const isCreditPaid = isPaidStatus && isCreditPay;
                 const yaFacturada = !!op.facturada;
                 const facturaPendiente = !!op.requiere_factura && !yaFacturada; // ya solicitada (cliente o asesor), en pendientes por timbrar
                 const canInvoice = isPaidStatus && !!op.paid_at &&
@@ -3701,7 +3704,15 @@ export default function DashboardAdvisor() {
                           : <Typography color="text.disabled">—</Typography>}
                       </TableCell>
                       <TableCell align="center">
-                        <Chip label={st.label} color={st.color as any} size="small" sx={{ fontWeight: 700, fontSize: '0.7rem' }} />
+                        {isCreditPaid ? (
+                          <Chip
+                            label={op.credit_settled ? '💳 Crédito Pagado' : '💳 Crédito'}
+                            size="small"
+                            sx={{ fontWeight: 700, fontSize: '0.7rem', color: '#fff', bgcolor: op.credit_settled ? '#2E7D32' : '#AD1457' }}
+                          />
+                        ) : (
+                          <Chip label={st.label} color={st.color as any} size="small" sx={{ fontWeight: 700, fontSize: '0.7rem' }} />
+                        )}
                       </TableCell>
                       <TableCell align="center">
                         <Chip

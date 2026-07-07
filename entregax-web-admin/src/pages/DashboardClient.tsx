@@ -4790,8 +4790,10 @@ export default function DashboardClient() {
                 let st = statusMap[order.status] || statusMap.pending_payment;
                 const isCreditPay = String(order.payment_method || '').toLowerCase() === 'credit';
                 const isUnsettledCredit = isCreditPay && !order.credit_settled;
-                if (isUnsettledCredit && ['completed', 'paid'].includes(order.status)) {
-                  st = { color: '#6A1B9A', label: '💳 Crédito' };
+                const isSettledCredit = isCreditPay && !!order.credit_settled;
+                if (['completed', 'paid'].includes(order.status)) {
+                  if (isUnsettledCredit) st = { color: '#AD1457', label: '💳 Crédito' };
+                  else if (isSettledCredit) st = { color: '#2E7D32', label: '💳 Crédito Pagado' };
                 }
                 return (
                   <Fragment key={order.id}>
@@ -4815,8 +4817,8 @@ export default function DashboardClient() {
                         {new Date(order.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </Typography>
                       {order.paid_at && (
-                        <Typography variant="caption" display="block" sx={{ color: isUnsettledCredit ? '#6A1B9A' : '#2E7D32' }}>
-                          {isUnsettledCredit ? 'A crédito' : 'Pagado'}: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
+                        <Typography variant="caption" display="block" sx={{ color: isUnsettledCredit ? '#AD1457' : '#2E7D32' }}>
+                          {isUnsettledCredit ? 'A crédito' : isSettledCredit ? 'Crédito pagado' : 'Pagado'}: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
                         </Typography>
                       )}
                     </TableCell>

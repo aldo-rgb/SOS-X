@@ -100,11 +100,14 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         pp.requiere_factura,
         (SELECT pdf_url FROM facturas_emitidas WHERE uuid_sat = pp.factura_uuid LIMIT 1) AS factura_pdf,
         (SELECT xml_url FROM facturas_emitidas WHERE uuid_sat = pp.factura_uuid LIMIT 1) AS factura_xml,
+        pp.payment_method,
+        COALESCE(pp.credit_settled, false) AS credit_settled,
         apo.created_at
       FROM advisor_payment_orders apo
       LEFT JOIN LATERAL (
         SELECT p2.status, p2.payment_reference, p2.paid_at,
                p2.facturada, p2.requiere_factura, p2.factura_uuid,
+               p2.payment_method, p2.credit_settled,
                fe.bank_clabe, fe.bank_name, fe.business_name AS beneficiario
         FROM pobox_payments p2
         LEFT JOIN service_company_config scc ON scc.service_type = COALESCE(apo.service_type_cfg,'POBOX_USA') AND scc.is_active = TRUE
@@ -162,6 +165,8 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         pp.requiere_factura,
         (SELECT pdf_url FROM facturas_emitidas WHERE uuid_sat = pp.factura_uuid LIMIT 1) AS factura_pdf,
         (SELECT xml_url FROM facturas_emitidas WHERE uuid_sat = pp.factura_uuid LIMIT 1) AS factura_xml,
+        pp.payment_method,
+        COALESCE(pp.credit_settled, false) AS credit_settled,
         pp.created_at
       FROM pobox_payments pp
       JOIN users u ON u.id = pp.user_id
