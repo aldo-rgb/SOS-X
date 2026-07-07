@@ -294,7 +294,6 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
           <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
             {([
               ['lcl',     '📦 LCL (carga consolidada)'],
-              ['fcl40',   '🏗️ FCL 40\''],
               ['fcl40hq', '🏗️ FCL 40\' HQ'],
             ] as const).map(([val, label]) => (
               <Box key={val} onClick={() => setMaritimoTipo(val)}
