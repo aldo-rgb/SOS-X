@@ -3520,11 +3520,18 @@ export default function DashboardAdvisor() {
                 // Distinción crédito: "Crédito" (a crédito, sin liquidar) vs "Crédito Pagado" (liquidado).
                 const isCreditPay = String(op.payment_method || '').toLowerCase() === 'credit';
                 const isCreditPaid = isPaidStatus && isCreditPay;
+                const isSettledCredit = isCreditPay && !!op.credit_settled;
                 const yaFacturada = !!op.facturada;
                 const facturaPendiente = !!op.requiere_factura && !yaFacturada; // ya solicitada (cliente o asesor), en pendientes por timbrar
-                const canInvoice = isPaidStatus && !!op.paid_at &&
-                  (Date.now() - new Date(op.paid_at).getTime()) <= 3 * 24 * 60 * 60 * 1000 &&
-                  !yaFacturada && !facturaPendiente;
+                // Facturable:
+                //  • Contado (efectivo/SPEI/etc.): dentro de los 3 días posteriores al pago.
+                //  • Crédito PAGADO (liquidado): puede solicitarse al liquidar (sin ventana de 3 días).
+                //  • Crédito SIN liquidar: NO facturable.
+                const withinPaidWindow = !!op.paid_at &&
+                  (Date.now() - new Date(op.paid_at).getTime()) <= 3 * 24 * 60 * 60 * 1000;
+                const canInvoice = !yaFacturada && !facturaPendiente && (
+                  isSettledCredit || (!isCreditPay && isPaidStatus && withinPaidWindow)
+                );
 
                 const downloadPDF = async () => {
                   // Detalle de la orden (master + guías hijas + desglose). Usa el
