@@ -2133,7 +2133,7 @@ export const createAdvisorQuoteRequest = async (req: Request, res: Response): Pr
     const {
       client_id, servicio, maritimo_tipo, destination_address, box_blocks, total_cbm, total_pieces,
       peso_kg, product_description, has_brand, has_brand_letter, con_recoleccion,
-      origin_address, merchandise_value_usd,
+      direccion_recoleccion, origin_address, merchandise_value_usd,
     } = req.body || {};
 
     if (!product_description) return res.status(400).json({ error: 'product_description requerido' });
@@ -2194,6 +2194,7 @@ export const createAdvisorQuoteRequest = async (req: Request, res: Response): Pr
       `\n📍 Destino: ${destination_address || '—'}`,
       `\n🏭 Origen proveedor: ${origin_address || '—'}`,
       con_recoleccion === 'true' ? '\n🚚 Con recolección' : '\n🚚 Sin recolección (entrega en bodega)',
+      con_recoleccion === 'true' && direccion_recoleccion ? `\n📍 Dirección de recolección: ${direccion_recoleccion}` : '',
       `\n🔖 Producto: ${product_description}`,
       `\n🏷️ Marca registrada: ${has_brand === 'true' ? (has_brand_letter === 'true' ? 'Sí (con carta de uso)' : 'Sí (sin carta de uso)') : 'No'}`,
       merchandise_value_usd ? `\n💵 Valor mercancía: $${parseFloat(merchandise_value_usd).toLocaleString('es-MX')} USD` : '',
@@ -2231,6 +2232,7 @@ export const createAdvisorQuoteRequest = async (req: Request, res: Response): Pr
         JSON.stringify({
           servicio, maritimo_tipo, box_blocks: blocks, total_cbm, total_pieces, peso_kg,
           destination_address, origin_address, product_description,
+          con_recoleccion, direccion_recoleccion,
           has_brand, has_brand_letter, merchandise_value_usd,
           photo_urls: photoUrls, doc_urls: docUrls, requested_by_advisor_id: advisorId,
         }),

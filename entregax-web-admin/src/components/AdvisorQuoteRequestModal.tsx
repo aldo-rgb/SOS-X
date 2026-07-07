@@ -86,6 +86,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
   // Proveedor
   const [originAddress, setOriginAddress] = useState('');
   const [conRecoleccion, setConRecoleccion] = useState(false);
+  const [direccionRecoleccion, setDireccionRecoleccion] = useState('');
 
   // Valor
   const [merchandiseValue, setMerchandiseValue] = useState('');
@@ -170,6 +171,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
       fd.append('has_brand_letter', hasBrand ? String(hasBrandLetter) : 'false');
       fd.append('origin_address', originAddress);
       fd.append('con_recoleccion', String(conRecoleccion));
+      fd.append('direccion_recoleccion', conRecoleccion ? direccionRecoleccion : '');
       fd.append('merchandise_value_usd', merchandiseValue);
 
       for (const img of images) fd.append('photos', img);
@@ -233,6 +235,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
       <table>
         <tr><td>Origen proveedor</td><td>${originAddress || '—'}</td></tr>
         <tr><td>Recolección en origen</td><td>${conRecoleccion ? '✅ Con recolección' : '❌ Sin recolección'}</td></tr>
+        ${conRecoleccion && direccionRecoleccion ? `<tr><td>Dirección de recolección</td><td>${direccionRecoleccion}</td></tr>` : ''}
         <tr><td>Valor mercancía</td><td>${merchandiseValue ? `$${parseFloat(merchandiseValue).toLocaleString('es-MX', { minimumFractionDigits: 2 })} USD` : '—'}</td></tr>
       </table>
 
@@ -254,7 +257,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
     setServicio('maritimo'); setMaritimoTipo('lcl'); setPesoKg('');
     setCbmDirecto(''); setShowBlocks(false);
     setProductDescription(''); setHasBrand(false); setHasBrandLetter(false);
-    setOriginAddress(''); setMerchandiseValue(''); setConRecoleccion(false); setImages([]); setDocs([]);
+    setOriginAddress(''); setMerchandiseValue(''); setConRecoleccion(false); setDireccionRecoleccion(''); setImages([]); setDocs([]);
     onClose();
   };
 
@@ -545,8 +548,18 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
               </Typography>
             </Box>
           }
-          sx={{ mb: 3, alignItems: 'flex-start', mt: 0.5 }}
+          sx={{ mb: conRecoleccion ? 1.5 : 3, alignItems: 'flex-start', mt: 0.5 }}
         />
+        {conRecoleccion && (
+          <TextField
+            fullWidth size="small" multiline minRows={2}
+            label="Dirección de recolección (opcional)"
+            value={direccionRecoleccion}
+            onChange={e => setDireccionRecoleccion(e.target.value)}
+            placeholder="Dirección donde el proveedor tiene la mercancía para recolectar"
+            sx={{ mb: 3 }}
+          />
+        )}
 
         <Divider sx={{ mb: 3 }} />
 
