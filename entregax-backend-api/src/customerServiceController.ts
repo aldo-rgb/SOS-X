@@ -1661,18 +1661,26 @@ export const resolveDiscountRequest = async (req: Request, res: Response) => {
 
       // Aplicar el descuento como ajuste financiero (con moneda para conversión correcta)
       const servicioDesc = desc.servicio || desc.source_type;
+      // guias_ajustes_financieros.guia_id es NOT NULL: resolvemos el id interno de la guía.
+      let guiaIdAjuste = 0;
+      try {
+        const mapAj = guiaTableFor(servicioDesc);
+        if (mapAj) {
+          const gr = await pool.query(`SELECT id FROM ${mapAj.table} WHERE ${mapAj.col} = $1 LIMIT 1`, [desc.guia_tracking]);
+          if (gr.rows.length > 0) guiaIdAjuste = Number(gr.rows[0].id) || 0;
+        }
+      } catch { /* guia_id quedará en 0 si no se resuelve */ }
       try {
         await pool.query(
           `INSERT INTO guias_ajustes_financieros
-           (guia_tracking, servicio, tipo, monto, moneda, concepto, notas, autorizado_por, cliente_id)
-           VALUES ($1, $2, 'descuento', $3, $4, $5, $6, $7, $8)`,
-          [desc.guia_tracking, servicioDesc, Math.abs(Number(desc.monto) || 0), desc.moneda || 'MXN',
+           (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, notas, autorizado_por, cliente_id)
+           VALUES ($1, $2, $3, 'descuento', $4, $5, $6, $7, $8, $9)`,
+          [guiaIdAjuste, desc.guia_tracking, servicioDesc, Math.abs(Number(desc.monto) || 0), desc.moneda || 'MXN',
            desc.concepto, `Aprobado por ${autorizador.full_name}. ${desc.notas || ''}`,
            autorizador.id, desc.cliente_id]
         );
-      } catch (e) {
-        // guias_ajustes_financieros might not exist yet
-        console.log('Could not create ajuste, table might not exist');
+      } catch (e: any) {
+        console.error('No se pudo crear el ajuste financiero del descuento:', e?.message || e);
       }
 
       // Recalcular saldo_pendiente de la guía (paridad con createAjuste)
