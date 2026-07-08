@@ -1941,7 +1941,11 @@ function App() {
             width: { xs: '100%', sm: desktopOpen ? `calc(100% - ${drawerWidth}px)` : '100%' },
             mt: 8,
             bgcolor: 'background.default',
-            minHeight: '100vh',
+            // El AppBar es position:fixed y mt:8 (64px) lo compensa. Acotamos el
+            // área de contenido al viewport restante con scroll propio para que
+            // pantallas altas (p.ej. Verificaciones) puedan desplazarse.
+            height: 'calc(100vh - 64px)',
+            overflowY: 'auto',
             transition: (theme) => theme.transitions.create(['width', 'margin'], {
               easing: theme.transitions.easing.sharp,
               duration: theme.transitions.duration.leavingScreen,

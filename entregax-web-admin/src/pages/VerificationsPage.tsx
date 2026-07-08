@@ -154,7 +154,9 @@ export default function VerificationsPage() {
     try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; }
   })();
   const isSoporteTecnico = currentUserRole === 'soporte_tecnico';
-  const hideDiscountTab = isSoporteTecnico || ['customer_service', 'atencion_cliente', 'service_a_cliente'].includes(currentUserRole);
+  // Servicio a cliente con permiso de verificaciones también ve Descuento y Saldo a Favor.
+  // Solo soporte técnico queda limitado a "Verificar Identidad".
+  const hideDiscountTab = isSoporteTecnico;
   const [activeTab, setActiveTab] = useState(0);
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
