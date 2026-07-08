@@ -1460,6 +1460,166 @@ export const getDiscountStats = async (_req: Request, res: Response) => {
 };
 
 // Aprobar/Rechazar descuento (requiere PIN de director)
+// Genera un folio tipo "RO-1234ABCD" (mismo formato que poboxPaymentController).
+const genOrderRef = (prefix = 'RO'): string => {
+  const ts = (Date.now() % 10000).toString().padStart(4, '0');
+  const rnd = crypto.randomBytes(2).toString('hex').toUpperCase();
+  return `${prefix}-${ts}${rnd}`;
+};
+
+// Mapea servicio/source_type de un descuento a la tabla+columna de tracking de la guía.
+const guiaTableFor = (servicio: string): { table: string; col: string } | null => {
+  switch (servicio) {
+    case 'package':        return { table: 'packages',           col: 'tracking_internal' };
+    case 'dhl':            return { table: 'dhl_shipments',       col: 'inbound_tracking' };
+    case 'china_receipt':  return { table: 'china_receipts',      col: 'fno' };
+    case 'maritime_order': return { table: 'maritime_orders',     col: 'ordersn' };
+    case 'maritime':       return { table: 'maritime_shipments',  col: 'log_number' };
+    case 'national':       return { table: 'national_shipments',  col: 'tracking_number' };
+    default:               return { table: 'packages',            col: 'tracking_internal' };
+  }
+};
+
+/**
+ * Al aprobarse un descuento sobre una guía que ya tiene orden de pago:
+ *  - Órdenes NO pagadas (cliente pobox_payments y asesor advisor_payment_orders):
+ *    se cancelan y se regeneran con folio nuevo y el monto ya con el descuento.
+ *  - Órdenes YA pagadas: no se tocan; el descuento se abona al saldo a favor
+ *    (wallet_balance) del cliente y se registra en financial_transactions.
+ * El monto del descuento se convierte a MXN (USD→MXN con TC de TDI, igual que el
+ * display de ajustes) para operar contra montos en MXN de las órdenes.
+ */
+async function aplicarDescuentoAOrdenes(desc: any): Promise<string> {
+  const servicio = desc.servicio || desc.source_type || 'package';
+  const map = guiaTableFor(servicio);
+  const tracking = desc.guia_tracking;
+  const notas: string[] = [];
+
+  // 1) Monto del descuento en MXN
+  let tcUsdToMxn = 1;
+  try {
+    const tcR = await pool.query(`
+      SELECT COALESCE(tipo_cambio_manual, ultimo_tc_api, 17.77) + COALESCE(sobreprecio, 0) AS tc
+      FROM exchange_rate_config WHERE servicio = 'tdi' AND estado = TRUE LIMIT 1
+    `);
+    if (tcR.rows.length > 0) tcUsdToMxn = Number(tcR.rows[0].tc) || 1;
+  } catch { /* fallback 1 */ }
+  const monedaUp = String(desc.moneda || 'MXN').toUpperCase();
+  const descMxn = Math.abs(Number(desc.monto) || 0) * (monedaUp === 'USD' ? tcUsdToMxn : 1);
+  if (descMxn <= 0) return 'sin monto a aplicar';
+
+  // 2) Resolver id interno de la guía y dueño (cliente)
+  let guiaId: number | null = null;
+  let clienteId: number | null = desc.cliente_id || null;
+  if (map) {
+    try {
+      const gr = await pool.query(
+        `SELECT id, user_id FROM ${map.table} WHERE ${map.col} = $1 LIMIT 1`,
+        [tracking]
+      );
+      if (gr.rows.length > 0) {
+        guiaId = Number(gr.rows[0].id);
+        if (!clienteId) clienteId = gr.rows[0].user_id || null;
+      }
+    } catch { /* tabla puede no tener user_id; se ignora */ }
+  }
+  if (!guiaId || !clienteId) return 'guía sin id/cliente resoluble (no se regeneró orden)';
+
+  // 3) Órdenes del cliente que contienen la guía (no canceladas)
+  const ordersRes = await pool.query(
+    `SELECT * FROM pobox_payments
+      WHERE user_id = $1
+        AND status NOT IN ('cancelled','expired')
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(package_ids) e WHERE e::int = $2
+        )
+      ORDER BY created_at DESC`,
+    [clienteId, guiaId]
+  );
+
+  const UNPAID = ['pending', 'pending_payment', 'vouchers_submitted', 'vouchers_partial'];
+  const PAID = ['completed', 'paid'];
+  const unpaid = ordersRes.rows.filter((o: any) => UNPAID.includes(o.status));
+  const paid = ordersRes.rows.filter((o: any) => PAID.includes(o.status));
+
+  // 3a) Regenerar órdenes NO pagadas
+  for (const o of unpaid) {
+    const oldAmount = Number(o.amount) || 0;
+    const newAmount = Math.max(0, oldAmount - descMxn);
+    const prefix = String(o.payment_reference || 'RO').split('-')[0] || 'RO';
+    const newRef = genOrderRef(prefix);
+
+    // Cancelar la orden vieja
+    await pool.query(
+      `UPDATE pobox_payments
+          SET status = 'cancelled',
+              confirmation_notes = CONCAT(COALESCE(confirmation_notes,''), ' | Cancelada por descuento aprobado #', $2::text, ' → nueva orden ', $3)
+        WHERE id = $1`,
+      [o.id, String(desc.id), newRef]
+    );
+
+    // Crear la nueva orden con el descuento aplicado
+    const newPobox = await pool.query(
+      `INSERT INTO pobox_payments
+         (user_id, package_ids, amount, currency, payment_method, payment_reference, status, requiere_factura, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending_payment', $7, CURRENT_TIMESTAMP)
+       RETURNING id`,
+      [o.user_id, o.package_ids, newAmount, o.currency || 'MXN',
+       o.payment_method || 'cash', newRef, o.requiere_factura || false]
+    );
+    const newPoboxId = newPobox.rows[0].id;
+
+    // Regenerar órdenes de asesor (CTZ) vinculadas
+    const apoRes = await pool.query(
+      `SELECT * FROM advisor_payment_orders WHERE pobox_payment_id = $1 AND status <> 'cancelado'`,
+      [o.id]
+    );
+    for (const apo of apoRes.rows) {
+      const newTotal = Math.max(0, (Number(apo.total_mxn) || oldAmount) - descMxn);
+      const newFolio = genOrderRef('OP');
+      await pool.query(
+        `UPDATE advisor_payment_orders
+            SET status = 'cancelado',
+                notes = CONCAT(COALESCE(notes,''), ' | Cancelada por descuento aprobado #', $2::text)
+          WHERE id = $1`,
+        [apo.id, String(desc.id)]
+      );
+      await pool.query(
+        `INSERT INTO advisor_payment_orders
+           (folio, advisor_id, client_id, client_name, client_box_id,
+            package_uids, trackings, notes, total_mxn, status,
+            pobox_payment_id, payment_reference, service_type_cfg)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pendiente',$10,$11,$12)`,
+        [newFolio, apo.advisor_id, apo.client_id, apo.client_name, apo.client_box_id,
+         apo.package_uids, apo.trackings,
+         `${apo.notes || ''} | Regenerada con descuento aprobado #${desc.id}`,
+         newTotal, newPoboxId, newRef, apo.service_type_cfg]
+      );
+    }
+    notas.push(`orden ${o.payment_reference} ($${oldAmount.toFixed(2)}) → ${newRef} ($${newAmount.toFixed(2)})`);
+  }
+
+  // 3b) Si NO hay órdenes por regenerar pero SÍ hay pagadas → abonar a saldo a favor
+  if (unpaid.length === 0 && paid.length > 0) {
+    await pool.query(
+      `UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + $1 WHERE id = $2`,
+      [descMxn, clienteId]
+    );
+    try {
+      await pool.query(
+        `INSERT INTO financial_transactions (user_id, type, amount, description, reference_id, reference_type, created_at)
+         VALUES ($1, 'credit', $2, $3, $4, 'descuento_saldo', NOW())`,
+        [clienteId, descMxn,
+         `Descuento aprobado sobre orden pagada ${paid[0].payment_reference} (guía ${tracking})`,
+         String(desc.id)]
+      );
+    } catch (e) { console.warn('No se pudo registrar financial_transactions del descuento:', e); }
+    notas.push(`orden ya pagada → $${descMxn.toFixed(2)} abonados a saldo a favor`);
+  }
+
+  return notas.length > 0 ? notas.join('; ') : 'sin órdenes activas para la guía';
+}
+
 export const resolveDiscountRequest = async (req: Request, res: Response) => {
   const { id } = req.params;
   const { accion, pin, motivo_rechazo } = req.body;
@@ -1499,14 +1659,15 @@ export const resolveDiscountRequest = async (req: Request, res: Response) => {
         [autorizador.id, autorizador.full_name, id]
       );
 
-      // Aplicar el descuento como ajuste financiero
+      // Aplicar el descuento como ajuste financiero (con moneda para conversión correcta)
+      const servicioDesc = desc.servicio || desc.source_type;
       try {
         await pool.query(
-          `INSERT INTO guias_ajustes_financieros 
-           (guia_tracking, servicio, tipo, monto, concepto, notas, autorizado_por, cliente_id)
-           VALUES ($1, $2, 'descuento', $3, $4, $5, $6, $7)`,
-          [desc.guia_tracking, desc.servicio || desc.source_type, desc.monto, 
-           desc.concepto, `Aprobado por ${autorizador.full_name}. ${desc.notas || ''}`, 
+          `INSERT INTO guias_ajustes_financieros
+           (guia_tracking, servicio, tipo, monto, moneda, concepto, notas, autorizado_por, cliente_id)
+           VALUES ($1, $2, 'descuento', $3, $4, $5, $6, $7, $8)`,
+          [desc.guia_tracking, servicioDesc, Math.abs(Number(desc.monto) || 0), desc.moneda || 'MXN',
+           desc.concepto, `Aprobado por ${autorizador.full_name}. ${desc.notas || ''}`,
            autorizador.id, desc.cliente_id]
         );
       } catch (e) {
@@ -1514,7 +1675,19 @@ export const resolveDiscountRequest = async (req: Request, res: Response) => {
         console.log('Could not create ajuste, table might not exist');
       }
 
-      res.json({ success: true, message: `Descuento de $${desc.monto} ${desc.moneda} aprobado por ${autorizador.full_name}` });
+      // Recalcular saldo_pendiente de la guía (paridad con createAjuste)
+      try { await actualizarSaldoGuia(desc.guia_tracking, servicioDesc); } catch (e) { console.warn('actualizarSaldoGuia falló:', e); }
+
+      // Cancelar + regenerar orden de pago con descuento (o abonar a saldo si ya está pagada)
+      let ordenMsg = '';
+      try {
+        ordenMsg = await aplicarDescuentoAOrdenes(desc);
+      } catch (e: any) {
+        console.error('aplicarDescuentoAOrdenes falló:', e);
+        ordenMsg = 'descuento aprobado, pero no se pudo regenerar la orden automáticamente (revisar manualmente)';
+      }
+
+      res.json({ success: true, message: `Descuento de $${desc.monto} ${desc.moneda} aprobado por ${autorizador.full_name}${ordenMsg ? ` — ${ordenMsg}` : ''}` });
     } else {
       // Rechazar
       await pool.query(
