@@ -88,16 +88,30 @@ export const deleteAjuste = async (req: Request, res: Response) => {
   }
 };
 
-// Actualiza el saldo_pendiente sumando cargos y restando descuentos
+// TC USD→MXN para ajustes (mismo criterio que el display de ajustes: servicio 'tdi').
+export async function getUsdToMxnRate(): Promise<number> {
+  try {
+    const r = await pool.query(`
+      SELECT COALESCE(tipo_cambio_manual, ultimo_tc_api, 17.77) + COALESCE(sobreprecio, 0) AS tc
+      FROM exchange_rate_config WHERE servicio = 'tdi' AND estado = TRUE LIMIT 1
+    `);
+    if (r.rows.length > 0) return Number(r.rows[0].tc) || 1;
+  } catch { /* fallback */ }
+  return 1;
+}
+
+// Actualiza el saldo_pendiente sumando cargos y restando descuentos.
+// Los ajustes en USD se convierten a MXN (los costos base están en MXN).
 async function actualizarSaldoGuia(tracking: string, servicio: string) {
-  // Calcular suma de ajustes
+  const tcUsd = await getUsdToMxnRate();
+  // Calcular suma de ajustes (convirtiendo USD→MXN)
   const ajustesResult = await pool.query(
-    `SELECT 
-       COALESCE(SUM(CASE WHEN tipo = 'cargo_extra' THEN monto ELSE 0 END), 0) as cargos,
-       COALESCE(SUM(CASE WHEN tipo = 'descuento' THEN monto ELSE 0 END), 0) as descuentos
+    `SELECT
+       COALESCE(SUM(CASE WHEN tipo = 'cargo_extra' THEN monto * (CASE WHEN UPPER(COALESCE(moneda,'MXN'))='USD' THEN $3::numeric ELSE 1 END) ELSE 0 END), 0) as cargos,
+       COALESCE(SUM(CASE WHEN tipo = 'descuento'  THEN monto * (CASE WHEN UPPER(COALESCE(moneda,'MXN'))='USD' THEN $3::numeric ELSE 1 END) ELSE 0 END), 0) as descuentos
      FROM guias_ajustes_financieros
      WHERE guia_tracking = $1 AND servicio = $2 AND activo = TRUE`,
-    [tracking, servicio]
+    [tracking, servicio, tcUsd]
   );
   const { cargos, descuentos } = ajustesResult.rows[0];
 
@@ -1496,14 +1510,7 @@ async function aplicarDescuentoAOrdenes(desc: any): Promise<string> {
   const notas: string[] = [];
 
   // 1) Monto del descuento en MXN
-  let tcUsdToMxn = 1;
-  try {
-    const tcR = await pool.query(`
-      SELECT COALESCE(tipo_cambio_manual, ultimo_tc_api, 17.77) + COALESCE(sobreprecio, 0) AS tc
-      FROM exchange_rate_config WHERE servicio = 'tdi' AND estado = TRUE LIMIT 1
-    `);
-    if (tcR.rows.length > 0) tcUsdToMxn = Number(tcR.rows[0].tc) || 1;
-  } catch { /* fallback 1 */ }
+  const tcUsdToMxn = await getUsdToMxnRate();
   const monedaUp = String(desc.moneda || 'MXN').toUpperCase();
   const descMxn = Math.abs(Number(desc.monto) || 0) * (monedaUp === 'USD' ? tcUsdToMxn : 1);
   if (descMxn <= 0) return 'sin monto a aplicar';
