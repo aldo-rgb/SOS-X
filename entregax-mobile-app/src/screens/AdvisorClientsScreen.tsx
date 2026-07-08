@@ -1425,27 +1425,30 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
               </>
             )}
           </ScrollView>
-        </View>
-      </Modal>
 
-      {/* Picker régimen / uso CFDI */}
-      <Modal visible={fiscalPicker !== null} transparent animationType="slide" onRequestClose={() => setFiscalPicker(null)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '70%' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
-              <Text style={{ fontSize: 16, fontWeight: '700' }}>{fiscalPicker === 'regimen' ? 'Régimen fiscal' : 'Uso CFDI'}</Text>
-              <TouchableOpacity onPress={() => setFiscalPicker(null)} hitSlop={20}><Ionicons name="close" size={26} color="#111" /></TouchableOpacity>
+          {/* Picker régimen / uso CFDI — overlay DENTRO del modal.
+              Un <Modal> anidado sobre un modal con presentationStyle="pageSheet"
+              no se muestra en iOS (queda detrás), por eso el dropdown "no se desplegaba". */}
+          {fiscalPicker !== null && (
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+              <TouchableOpacity activeOpacity={1} onPress={() => setFiscalPicker(null)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+              <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '70%' }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+                  <Text style={{ fontSize: 16, fontWeight: '700' }}>{fiscalPicker === 'regimen' ? 'Régimen fiscal' : 'Uso CFDI'}</Text>
+                  <TouchableOpacity onPress={() => setFiscalPicker(null)} hitSlop={20}><Ionicons name="close" size={26} color="#111" /></TouchableOpacity>
+                </View>
+                <ScrollView>
+                  {(fiscalPicker === 'regimen' ? satRegimenes : satUsos).map((o) => (
+                    <TouchableOpacity key={o.clave}
+                      onPress={() => { setFiscalForm((p) => ({ ...p, [fiscalPicker === 'regimen' ? 'regimen_fiscal' : 'uso_cfdi']: o.clave })); setFiscalPicker(null); }}
+                      style={{ paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#f2f2f2' }}>
+                      <Text style={{ fontSize: 14 }}><Text style={{ fontWeight: '700' }}>{o.clave}</Text> — {o.descripcion}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
             </View>
-            <ScrollView>
-              {(fiscalPicker === 'regimen' ? satRegimenes : satUsos).map((o) => (
-                <TouchableOpacity key={o.clave}
-                  onPress={() => { setFiscalForm((p) => ({ ...p, [fiscalPicker === 'regimen' ? 'regimen_fiscal' : 'uso_cfdi']: o.clave })); setFiscalPicker(null); }}
-                  style={{ paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#f2f2f2' }}>
-                  <Text style={{ fontSize: 14 }}><Text style={{ fontWeight: '700' }}>{o.clave}</Text> — {o.descripcion}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
+          )}
         </View>
       </Modal>
     </View>
