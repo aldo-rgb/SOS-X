@@ -87,6 +87,7 @@ import PanelPermissionsScreen from './src/screens/PanelPermissionsScreen';
 import VerificacionesAdminScreen from './src/screens/VerificacionesAdminScreen';
 import RecursosHumanosScreen from './src/screens/RecursosHumanosScreen';
 import CommissionsScreen from './src/screens/CommissionsScreen';
+import CommissionsBoardScreen from './src/screens/CommissionsBoardScreen';
 import CajaHubScreen from './src/screens/CajaHubScreen';
 import CajaCCScreen from './src/screens/CajaCCScreen';
 import BranchTreasuryScreen from './src/screens/BranchTreasuryScreen';
@@ -212,6 +213,7 @@ export type RootStackParamList = {
   VerificacionesAdmin: { user: any; token: string };
   RecursosHumanos: { user: any; token: string };
   Commissions: { user: any; token: string };
+  CommissionsBoard: { user: any; token: string };
   CajaHub: { user: any; token: string };
   CajaCC: { user: any; token: string };
   BranchTreasury: { user: any; token: string };
@@ -486,6 +488,7 @@ function App() {
           <Stack.Screen name="VerificacionesAdmin" component={VerificacionesAdminScreen} />
           <Stack.Screen name="RecursosHumanos" component={RecursosHumanosScreen} />
           <Stack.Screen name="Commissions" component={CommissionsScreen} />
+          <Stack.Screen name="CommissionsBoard" component={CommissionsBoardScreen} />
           <Stack.Screen name="CajaHub" component={CajaHubScreen} />
           <Stack.Screen name="CajaCC" component={CajaCCScreen} />
           <Stack.Screen name="BranchTreasury" component={BranchTreasuryScreen} />

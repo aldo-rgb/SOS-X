@@ -333,7 +333,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     icon: 'cash-outline',
     iconFamily: 'ionicons',
     color: '#F05A28',
-    screen: 'Commissions',
+    screen: 'CommissionsBoard',
     roles: ['admin', 'super_admin', 'director'],
     requiresOnboarding: false,
   },
