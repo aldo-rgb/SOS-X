@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, ActivityIndicator,
   StyleSheet, RefreshControl, Alert, Modal, ScrollView, Image,
-  StatusBar,
+  StatusBar, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,6 +58,22 @@ export default function VerificacionesAdminScreen({ route, navigation }: Props) 
   const [detail, setDetail] = useState<DetailData | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [acting, setActing] = useState(false);
+
+  // Tabs: identidad | descuento | saldo
+  const [tab, setTab] = useState<'identidad' | 'descuento' | 'saldo'>('identidad');
+  const [descItems, setDescItems] = useState<any[]>([]);
+  const [descStats, setDescStats] = useState<any | null>(null);
+  const [saldoItems, setSaldoItems] = useState<any[]>([]);
+  const [saldoStats, setSaldoStats] = useState<any | null>(null);
+  const [csLoading, setCsLoading] = useState(false);
+  const [csRefreshing, setCsRefreshing] = useState(false);
+
+  // Modal de PIN (aprobar/rechazar descuento o saldo — requiere PIN de director)
+  const [pinCtx, setPinCtx] = useState<{ kind: 'descuento' | 'saldo'; id: number; accion: 'aprobar' | 'rechazar'; title: string } | null>(null);
+  const [pin, setPin] = useState('');
+  const [pinReason, setPinReason] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinSubmitting, setPinSubmitting] = useState(false);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -135,6 +151,72 @@ export default function VerificacionesAdminScreen({ route, navigation }: Props) 
     setActing(false);
   };
 
+  const loadDiscounts = useCallback(async () => {
+    setCsLoading(true);
+    try {
+      const [l, s] = await Promise.all([
+        fetch(`${API_URL}/api/cs/descuentos/pendientes?estado=pendiente`, { headers }),
+        fetch(`${API_URL}/api/cs/descuentos/stats`, { headers }),
+      ]);
+      if (l.ok) { const d = await l.json(); setDescItems(Array.isArray(d) ? d : (d.descuentos || [])); }
+      if (s.ok) setDescStats(await s.json());
+    } catch (e) { console.warn('Error cargando descuentos:', e); }
+    setCsLoading(false); setCsRefreshing(false);
+  }, [token]);
+
+  const loadSaldos = useCallback(async () => {
+    setCsLoading(true);
+    try {
+      const [l, s] = await Promise.all([
+        fetch(`${API_URL}/api/cs/saldo-a-favor/pendientes?estado=pendiente`, { headers }),
+        fetch(`${API_URL}/api/cs/saldo-a-favor/stats`, { headers }),
+      ]);
+      if (l.ok) { const d = await l.json(); setSaldoItems(Array.isArray(d) ? d : (d.saldos || [])); }
+      if (s.ok) setSaldoStats(await s.json());
+    } catch (e) { console.warn('Error cargando saldo a favor:', e); }
+    setCsLoading(false); setCsRefreshing(false);
+  }, [token]);
+
+  // Cargar contadores de descuentos/saldo al entrar (para los badges de las pestañas)
+  useEffect(() => { loadDiscounts(); loadSaldos(); }, [loadDiscounts, loadSaldos]);
+
+  const openPin = (kind: 'descuento' | 'saldo', id: number, accion: 'aprobar' | 'rechazar', title: string) => {
+    setPin(''); setPinReason(''); setPinError('');
+    setPinCtx({ kind, id, accion, title });
+  };
+
+  const submitPin = async () => {
+    if (!pinCtx || !pin.trim()) { setPinError('Ingresa el PIN'); return; }
+    if (pinCtx.accion === 'rechazar' && !pinReason.trim()) { setPinError('Escribe el motivo de rechazo'); return; }
+    setPinSubmitting(true); setPinError('');
+    try {
+      const base = pinCtx.kind === 'descuento' ? 'descuentos' : 'saldo-a-favor';
+      const res = await fetch(`${API_URL}/api/cs/${base}/${pinCtx.id}/resolver`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accion: pinCtx.accion,
+          pin: pin.trim(),
+          motivo_rechazo: pinCtx.accion === 'rechazar' ? pinReason.trim() : undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const kind = pinCtx.kind;
+        setPinCtx(null); setPin(''); setPinReason('');
+        Alert.alert('Listo', data.message || (pinCtx.accion === 'aprobar' ? '✅ Aprobado' : '❌ Rechazado'));
+        if (kind === 'descuento') loadDiscounts(); else loadSaldos();
+      } else {
+        setPinError(data.error || 'PIN inválido');
+      }
+    } catch (e) {
+      setPinError('Error de red');
+    }
+    setPinSubmitting(false);
+  };
+
+  const money = (n: any, cur?: string) => `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ${cur || 'MXN'}`;
+
   const formatDate = (iso?: string) => {
     if (!iso) return '—';
     return new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -175,6 +257,55 @@ export default function VerificacionesAdminScreen({ route, navigation }: Props) 
     </TouchableOpacity>
   );
 
+  const renderTabButton = (key: 'identidad' | 'descuento' | 'saldo', label: string, icon: any, badge: number) => (
+    <TouchableOpacity style={[styles.tabBtn, tab === key && styles.tabBtnActive]} onPress={() => setTab(key)} activeOpacity={0.7}>
+      <View>
+        <Ionicons name={icon} size={20} color={tab === key ? ORANGE : '#6b7280'} />
+        {badge > 0 && <View style={styles.tabBadge}><Text style={styles.tabBadgeText}>{badge}</Text></View>}
+      </View>
+      <Text style={[styles.tabLabel, tab === key && { color: ORANGE, fontWeight: '700' }]} numberOfLines={1}>{label}</Text>
+    </TouchableOpacity>
+  );
+
+  const renderDescItem = ({ item }: { item: any }) => (
+    <View style={styles.card}>
+      <Text style={styles.name}>{item.guia_tracking}</Text>
+      <Text style={styles.email}>{item.cliente_nombre || `ID: ${item.cliente_id}`}</Text>
+      {item.concepto ? <Text style={styles.csConcepto}>{item.concepto}</Text> : null}
+      <View style={styles.csRow}>
+        <Text style={[styles.csMonto, { color: RED }]}>-{money(item.monto, item.moneda)}</Text>
+        {item.solicitado_nombre ? <Text style={styles.csBy}>{item.solicitado_nombre}</Text> : null}
+      </View>
+      <View style={styles.csActions}>
+        <TouchableOpacity style={[styles.csBtn, { backgroundColor: RED }]} onPress={() => openPin('descuento', item.id, 'rechazar', `Rechazar descuento ${item.guia_tracking}`)}>
+          <Text style={styles.csBtnText}>Rechazar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.csBtn, { backgroundColor: GREEN }]} onPress={() => openPin('descuento', item.id, 'aprobar', `Aprobar descuento ${item.guia_tracking}`)}>
+          <Text style={styles.csBtnText}>Aprobar</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderSaldoItem = ({ item }: { item: any }) => (
+    <View style={styles.card}>
+      <Text style={styles.name}>{item.cliente_nombre || `ID: ${item.cliente_id}`}</Text>
+      {(item.motivo || item.concepto) ? <Text style={styles.csConcepto}>{item.motivo || item.concepto}</Text> : null}
+      <View style={styles.csRow}>
+        <Text style={[styles.csMonto, { color: GREEN }]}>+{money(item.monto, item.moneda)}</Text>
+        {item.solicitado_nombre ? <Text style={styles.csBy}>{item.solicitado_nombre}</Text> : null}
+      </View>
+      <View style={styles.csActions}>
+        <TouchableOpacity style={[styles.csBtn, { backgroundColor: RED }]} onPress={() => openPin('saldo', item.id, 'rechazar', 'Rechazar saldo a favor')}>
+          <Text style={styles.csBtnText}>Rechazar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.csBtn, { backgroundColor: GREEN }]} onPress={() => openPin('saldo', item.id, 'aprobar', 'Aprobar saldo a favor')}>
+          <Text style={styles.csBtnText}>Aprobar</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -187,7 +318,15 @@ export default function VerificacionesAdminScreen({ route, navigation }: Props) 
         <Text style={styles.title}>Verificaciones KYC</Text>
       </View>
 
-      {loading ? (
+      {/* Tabs */}
+      <View style={styles.tabsRow}>
+        {renderTabButton('identidad', 'Identidad', 'shield-checkmark-outline', stats?.pending || 0)}
+        {renderTabButton('descuento', 'Descuentos', 'pricetag-outline', descStats?.pendientes || 0)}
+        {renderTabButton('saldo', 'Saldo a Favor', 'wallet-outline', saldoStats?.pendientes || 0)}
+      </View>
+
+      {/* IDENTIDAD */}
+      {tab === 'identidad' && (loading ? (
         <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 60 }} />
       ) : (
         <>
@@ -227,7 +366,45 @@ export default function VerificacionesAdminScreen({ route, navigation }: Props) 
             }
           />
         </>
-      )}
+      ))}
+
+      {/* DESCUENTOS */}
+      {tab === 'descuento' && (csLoading && descItems.length === 0 ? (
+        <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 60 }} />
+      ) : (
+        <FlatList
+          data={descItems}
+          keyExtractor={(i: any) => String(i.id)}
+          renderItem={renderDescItem}
+          contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={csRefreshing} onRefresh={() => { setCsRefreshing(true); loadDiscounts(); }} tintColor={ORANGE} />}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons name="pricetags-outline" size={52} color="#9ca3af" />
+              <Text style={styles.emptyText}>No hay descuentos pendientes</Text>
+            </View>
+          }
+        />
+      ))}
+
+      {/* SALDO A FAVOR */}
+      {tab === 'saldo' && (csLoading && saldoItems.length === 0 ? (
+        <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 60 }} />
+      ) : (
+        <FlatList
+          data={saldoItems}
+          keyExtractor={(i: any) => String(i.id)}
+          renderItem={renderSaldoItem}
+          contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={csRefreshing} onRefresh={() => { setCsRefreshing(true); loadSaldos(); }} tintColor={ORANGE} />}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons name="wallet-outline" size={52} color="#9ca3af" />
+              <Text style={styles.emptyText}>No hay saldos a favor pendientes</Text>
+            </View>
+          }
+        />
+      ))}
 
       {/* Loading overlay para detalle */}
       {detailLoading && (
@@ -322,6 +499,49 @@ export default function VerificacionesAdminScreen({ route, navigation }: Props) 
           )}
         </SafeAreaView>
       </Modal>
+
+      {/* Modal PIN (aprobar/rechazar descuento o saldo) */}
+      <Modal visible={!!pinCtx} transparent animationType="fade" onRequestClose={() => setPinCtx(null)}>
+        <View style={styles.pinOverlay}>
+          <View style={styles.pinCard}>
+            <Text style={styles.pinTitle}>{pinCtx?.title}</Text>
+            <Text style={styles.pinSub}>Ingresa el PIN de autorización (director / super admin).</Text>
+            <TextInput
+              style={styles.pinInput}
+              value={pin}
+              onChangeText={(t) => { setPin(t); setPinError(''); }}
+              placeholder="PIN"
+              placeholderTextColor="#9ca3af"
+              secureTextEntry
+              keyboardType="number-pad"
+              autoFocus
+            />
+            {pinCtx?.accion === 'rechazar' && (
+              <TextInput
+                style={[styles.pinInput, { height: 70, textAlignVertical: 'top' }]}
+                value={pinReason}
+                onChangeText={setPinReason}
+                placeholder="Motivo de rechazo"
+                placeholderTextColor="#9ca3af"
+                multiline
+              />
+            )}
+            {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+            <View style={styles.pinActions}>
+              <TouchableOpacity style={[styles.csBtn, { backgroundColor: '#e5e7eb' }]} onPress={() => setPinCtx(null)} disabled={pinSubmitting}>
+                <Text style={[styles.csBtnText, { color: '#374151' }]}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.csBtn, { backgroundColor: pinCtx?.accion === 'aprobar' ? GREEN : RED }, pinSubmitting && styles.disabled]}
+                onPress={submitPin}
+                disabled={pinSubmitting}
+              >
+                {pinSubmitting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.csBtnText}>{pinCtx?.accion === 'aprobar' ? 'Aprobar' : 'Rechazar'}</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -372,4 +592,27 @@ const styles = StyleSheet.create({
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12 },
   actionBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   disabled: { opacity: 0.5 },
+  // Tabs
+  tabsRow: { flexDirection: 'row', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
+  tabBtn: { flex: 1, alignItems: 'center', paddingVertical: 10, gap: 3, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  tabBtnActive: { borderBottomColor: ORANGE },
+  tabLabel: { fontSize: 11, color: '#6b7280', fontWeight: '600' },
+  tabBadge: { position: 'absolute', top: -6, right: -12, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: RED, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  tabBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  // CS cards (descuento / saldo)
+  csConcepto: { fontSize: 12, color: '#374151', marginTop: 4 },
+  csRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
+  csMonto: { fontSize: 16, fontWeight: '800' },
+  csBy: { fontSize: 11, color: '#9ca3af', flexShrink: 1, textAlign: 'right', marginLeft: 8 },
+  csActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  csBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 10 },
+  csBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  // PIN modal
+  pinOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  pinCard: { width: '100%', backgroundColor: '#fff', borderRadius: 16, padding: 20 },
+  pinTitle: { fontSize: 16, fontWeight: '700', color: '#111' },
+  pinSub: { fontSize: 12, color: '#6b7280', marginTop: 4, marginBottom: 12 },
+  pinInput: { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, color: '#111', marginBottom: 10 },
+  pinError: { color: RED, fontSize: 12, marginBottom: 8 },
+  pinActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
 });
