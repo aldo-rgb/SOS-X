@@ -428,29 +428,28 @@ export default function UsersAdminScreen({ navigation, route }: Props) {
                 )}
               </ScrollView>
             )}
+            {/* Pickers dentro del modal padre — en iOS un <Modal> hermano no puede
+                superponerse a otro modal abierto. Se renderizan como overlays
+                absolutos que cubren el modal de edición. */}
+            <PickerModal
+              visible={rolePickerOpen}
+              title="Selecciona el rol"
+              onClose={() => setRolePickerOpen(false)}
+              options={ROLES_FILTER.filter(r => r.key !== 'all').map(r => ({ id: r.key, label: r.label }))}
+              selectedId={editForm.role}
+              onSelect={(id) => { setEditForm(p => ({ ...p, role: String(id) })); setRolePickerOpen(false); }}
+            />
+            <PickerModal
+              visible={advisorPickerOpen}
+              title="Asesor asignado"
+              onClose={() => setAdvisorPickerOpen(false)}
+              options={[{ id: 0, label: 'Sin asignar' }, ...advisors.map(a => ({ id: a.id, label: a.full_name }))]}
+              selectedId={editForm.advisor_id ?? 0}
+              onSelect={(id) => { setEditForm(p => ({ ...p, advisor_id: id === 0 ? null : Number(id) })); setAdvisorPickerOpen(false); }}
+            />
           </View>
         </KeyboardAvoidingView>
       </Modal>
-
-      {/* Role picker */}
-      <PickerModal
-        visible={rolePickerOpen}
-        title="Selecciona el rol"
-        onClose={() => setRolePickerOpen(false)}
-        options={ROLES_FILTER.filter(r => r.key !== 'all').map(r => ({ id: r.key, label: r.label }))}
-        selectedId={editForm.role}
-        onSelect={(id) => { setEditForm(p => ({ ...p, role: String(id) })); setRolePickerOpen(false); }}
-      />
-
-      {/* Advisor picker */}
-      <PickerModal
-        visible={advisorPickerOpen}
-        title="Asesor asignado"
-        onClose={() => setAdvisorPickerOpen(false)}
-        options={[{ id: 0, label: 'Sin asignar' }, ...advisors.map(a => ({ id: a.id, label: a.full_name }))]}
-        selectedId={editForm.advisor_id ?? 0}
-        onSelect={(id) => { setEditForm(p => ({ ...p, advisor_id: id === 0 ? null : Number(id) })); setAdvisorPickerOpen(false); }}
-      />
     </SafeAreaView>
   );
 }
@@ -498,39 +497,34 @@ function PickerModal({ visible, title, onClose, options, selectedId, onSelect }:
   selectedId: string | number;
   onSelect: (id: string | number) => void;
 }) {
+  // NO usamos <Modal> nativo porque iOS solo permite UN modal presentado a la
+  // vez: si el padre (Editar Usuario) ya está abierto, el segundo modal queda
+  // invisible detrás. En su lugar renderizamos un overlay absoluto que vive
+  // dentro del modal padre y lo cubre por completo.
+  if (!visible) return null;
   return (
-    // presentationStyle="overFullScreen" es OBLIGATORIO cuando este Modal se
-    // abre encima de otro Modal (el de Editar Usuario). Sin este flag iOS no
-    // apila modales y el picker queda invisible detrás del modal padre.
-    <Modal
-      visible={visible}
-      animationType="fade"
-      transparent
-      onRequestClose={onClose}
-      presentationStyle="overFullScreen"
-    >
-      <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose}>
-        <View style={[styles.modalCard, { maxHeight: '70%' }]}>
-          <View style={styles.modalHead}>
-            <Text style={styles.modalTitle}>{title}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={10}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
-          </View>
-          <FlatList
-            data={options}
-            keyExtractor={(o) => String(o.id)}
-            renderItem={({ item }) => {
-              const active = item.id === selectedId;
-              return (
-                <TouchableOpacity style={styles.pickerItem} onPress={() => onSelect(item.id)}>
-                  <Text style={[styles.pickerItemTxt, active && { color: ORANGE, fontWeight: '700' }]}>{item.label}</Text>
-                  {active && <Ionicons name="checkmark" size={18} color={ORANGE} />}
-                </TouchableOpacity>
-              );
-            }}
-          />
+    <View style={styles.pickerOverlay} pointerEvents="box-none">
+      <TouchableOpacity style={styles.pickerOverlayBg} activeOpacity={1} onPress={onClose} />
+      <View style={[styles.modalCard, { maxHeight: '70%' }]}>
+        <View style={styles.modalHead}>
+          <Text style={styles.modalTitle}>{title}</Text>
+          <TouchableOpacity onPress={onClose} hitSlop={10}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
         </View>
-      </TouchableOpacity>
-    </Modal>
+        <FlatList
+          data={options}
+          keyExtractor={(o) => String(o.id)}
+          renderItem={({ item }) => {
+            const active = item.id === selectedId;
+            return (
+              <TouchableOpacity style={styles.pickerItem} onPress={() => onSelect(item.id)}>
+                <Text style={[styles.pickerItemTxt, active && { color: ORANGE, fontWeight: '700' }]}>{item.label}</Text>
+                {active && <Ionicons name="checkmark" size={18} color={ORANGE} />}
+              </TouchableOpacity>
+            );
+          }}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -584,4 +578,6 @@ const styles = StyleSheet.create({
 
   pickerItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#EEE' },
   pickerItemTxt: { fontSize: 14, color: '#222' },
+  pickerOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'flex-end', zIndex: 1000, elevation: 1000 },
+  pickerOverlayBg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)' },
 });
