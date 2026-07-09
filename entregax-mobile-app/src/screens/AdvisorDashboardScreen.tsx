@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import CajitoFab from '../components/CajitoFab';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
@@ -1505,6 +1506,8 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           </View>
         </View>
       </Modal>
+
+      <CajitoFab user={user} token={token} />
     </View>
   );
 }

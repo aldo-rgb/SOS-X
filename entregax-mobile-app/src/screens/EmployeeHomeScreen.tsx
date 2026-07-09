@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import CajitoFab from '../components/CajitoFab';
 import {
   View,
   Text,
@@ -1459,6 +1460,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <CajitoFab user={user} token={token} />
     </SafeAreaView>
   );
 }
