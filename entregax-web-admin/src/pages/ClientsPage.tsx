@@ -553,8 +553,8 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
           </Typography>
         </Paper>
       ) : (
-        <TableContainer component={Paper} sx={{ borderRadius: 2, overflow: 'hidden' }}>
-          <Table>
+        <TableContainer component={Paper} sx={{ borderRadius: 2, overflowX: 'auto', overflowY: 'hidden' }}>
+          <Table sx={{ minWidth: 720 }}>
             <TableHead>
               <TableRow>
                 <TableCell>ID</TableCell>
