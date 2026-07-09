@@ -56,7 +56,7 @@ interface FinanceData {
   }>;
   ingresos_por_servicio: Array<{ servicio: string; cantidad: number; monto: number }>;
   transacciones: Array<{
-    id: number; fecha_hora: string; cliente: string; monto_bruto: number; monto_neto: number;
+    id: number; fecha_hora: string; cliente: string; cliente_box_id: string | null; monto_bruto: number; monto_neto: number;
     metodo: string; concepto: string; origen: string; estatus: string; service_type: string | null;
   }>;
 }
@@ -292,13 +292,13 @@ export default function CobranzaDashboardScreen({ navigation, route }: Props) {
           <Text style={[styles.sectionTitleTxt, { flex: 1 }]}>Últimas transacciones ({Math.min(transacciones.length, 20)})</Text>
           <Ionicons name={showTx ? 'chevron-up' : 'chevron-down'} size={18} color="#888" />
         </TouchableOpacity>
-        {showTx && transacciones.slice(0, 20).map(t => (
-          <View key={`${t.origen}-${t.id}`} style={styles.txRow}>
+        {showTx && transacciones.slice(0, 20).map((t, idx) => (
+          <View key={`${t.origen}-${t.id}-${idx}`} style={styles.txRow}>
             <View style={[styles.txIcon, { backgroundColor: (METHOD_COLOR[t.metodo] || TEAL) + '22' }]}>
               <Ionicons name="arrow-up" size={14} color={METHOD_COLOR[t.metodo] || TEAL} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.txCliente} numberOfLines={1}>{t.cliente}</Text>
+              <Text style={styles.txCliente} numberOfLines={1}>{t.cliente}{t.cliente_box_id ? ` · ${t.cliente_box_id}` : ''}</Text>
               <Text style={styles.txMeta} numberOfLines={1}>
                 {(METHOD_LABEL[t.metodo] || t.metodo)} · {t.origen}{t.service_type ? ` · ${SERVICE_LABEL[t.service_type] || t.service_type}` : ''} · {formatDateTime(t.fecha_hora)}
               </Text>
