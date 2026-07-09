@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput, StyleSheet, Modal, ScrollView,
-  ActivityIndicator, Image, KeyboardAvoidingView, Platform,
+  ActivityIndicator, Image, KeyboardAvoidingView, Platform, Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -15,6 +15,41 @@ const CONV_KEY = 'cajito.conversationId';
 const CAJITO_AVATAR = require('../../assets/cajito-asomando.png');
 
 const TRACK_ONLY_ROLES = ['advisor', 'sub_advisor', 'customer_service'];
+
+const fmtMoney = (v: any, cur = 'MXN') =>
+  v == null || v === '' ? '—' : `$${Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`;
+
+const fmtDT = (d?: string | null) => {
+  if (!d) return '—';
+  try { return new Date(d).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return String(d); }
+};
+
+const resolveUrl = (url?: string | null): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http')) return url;
+  return `${API_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
+const STATUS_ES: Record<string, string> = {
+  pending: 'Pendiente', in_transit: 'En tránsito', received: 'Recibido MX', received_mty: 'Recibido MTY',
+  received_cedis: 'Recibido CEDIS', shipped: 'Enviado a destino', delivered: 'Entregado',
+  ready_pickup: 'Listo para recoger', customs: 'En aduana', received_china: 'Recibido China',
+  consolidated: 'Consolidado', at_port: 'En puerto', returned_to_warehouse: 'Devuelto a almacén', lost: 'Perdido',
+};
+const statusLabel = (s?: string) => STATUS_ES[s || ''] || s || '—';
+const statusColors = (s?: string): { bg: string; fg: string } => {
+  const v = (s || '').toLowerCase();
+  if (v === 'delivered') return { bg: '#dcfce7', fg: '#16a34a' };
+  if (v === 'shipped' || v === 'ready_pickup') return { bg: '#dbeafe', fg: '#2563eb' };
+  if (v === 'in_transit' || v.startsWith('received')) return { bg: '#e0f2fe', fg: '#0288d1' };
+  if (v === 'customs' || v === 'at_port' || v === 'consolidated') return { bg: '#fef3c7', fg: '#b45309' };
+  if (v === 'lost') return { bg: '#fee2e2', fg: '#dc2626' };
+  return { bg: '#f3f4f6', fg: '#6b7280' };
+};
+
+const Chip = ({ label, bg = '#f3f4f6', fg = '#374151' }: { label: string; bg?: string; fg?: string }) => (
+  <View style={[styles.chip, { backgroundColor: bg }]}><Text style={[styles.chipText, { color: fg }]}>{label}</Text></View>
+);
 
 interface ChatMsg { role: 'user' | 'cajito'; text: string; tools?: string[]; }
 
@@ -102,19 +137,28 @@ export default function CajitoFab({ user, token }: Props) {
     if (!q || trackLoading) return;
     setTrackLoading(true); setTrackError(''); setTracking(null);
     try {
-      const res = await fetch(`${API_URL}/api/public/track/${encodeURIComponent(q)}`);
+      const res = await fetch(`${API_URL}/api/packages/track/${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.found !== false && data.tracking) setTracking(data);
-      else setTrackError(data.error || 'Guía no encontrada. Verifica el número e intenta de nuevo.');
+      const m = data?.shipment?.master || data?.package || ((data && (data.tracking || data.tracking_internal)) ? data : null);
+      if (!res.ok || !m) {
+        setTrackError(data?.error || 'Guía no encontrada. Verifica el número e intenta de nuevo.');
+        setTrackLoading(false);
+        return;
+      }
+      const client = data?.shipment?.client || data?.client || null;
+      const children = data?.shipment?.children || [];
+      let movements: any[] = [];
+      try {
+        const mvRes = await fetch(`${API_URL}/api/packages/track/${encodeURIComponent(m.tracking || m.tracking_internal || q)}/movements`, { headers: { Authorization: `Bearer ${token}` } });
+        const md = await mvRes.json().catch(() => ({}));
+        const list = md?.movements || md?.events || md?.history || md?.timeline || [];
+        movements = Array.isArray(list) ? list : [];
+      } catch { /* sin movimientos */ }
+      setTracking({ m, client, children, movements, searched: q });
     } catch {
       setTrackError('Error de red. Intenta de nuevo.');
     }
     setTrackLoading(false);
-  };
-
-  const fmtDate = (iso?: string) => {
-    if (!iso) return '';
-    try { return new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
   };
 
   const renderTrack = () => {
@@ -128,57 +172,150 @@ export default function CajitoFab({ user, token }: Props) {
     if (!tracking) return (
       <View style={styles.trackEmpty}>
         <Ionicons name="cube-outline" size={44} color="#d1d5db" />
-        <Text style={styles.trackEmptyText}>Escribe una guía (US-…, TDX-…, AIR…, LOG…) para rastrear.</Text>
+        <Text style={styles.trackEmptyText}>Escribe una guía (US-…, TDX-…, AIR…, LOG…) para ver toda su información.</Text>
       </View>
     );
-    const cur = Number(tracking.current_milestone ?? 0);
+    const { m, client, children, movements } = tracking;
+    const status = m.status ?? m.statusLabel ?? '';
+    const sc = statusColors(status);
+    const paid = (m.clientPaid ?? m.client_paid) || (m.paymentStatus ?? m.payment_status) === 'paid';
+    const clientPaidAt = m.clientPaidAt ?? m.client_paid_at ?? m.paid_at ?? null;
+    const dest = m.assignedAddress;
+    const hasInstr = !!dest || m.needs_instructions === false;
+    const carrier = String(m.nationalCarrier || '').toLowerCase();
+    const isLocal = !carrier || ['local', 'entregax', 'pickup', 'bodega'].some((x) => carrier.includes(x));
+    const hasLabel = isLocal ? !!m.nationalLabelUrl : !!(m.nationalLabelUrl || m.nationalTracking);
+    const guiaOrigen = m.trackingCourier || m.trackingProvider;
+    const lastMile = m.nationalLabelCost != null ? Number(m.nationalLabelCost) : null;
+    const provMxn = isTrackOnly ? null : (m.poboxProviderCostMxn ?? m.poboxServiceCost ?? null);
+    const provUsd = isTrackOnly ? null : (m.poboxProviderCostUsd ?? m.poboxCostUsd ?? null);
+    const ventaUsd = m.poboxVentaUsd != null ? Number(m.poboxVentaUsd) : null;
+    const totalCost = m.totalCost != null ? Number(m.totalCost) : null;
+    const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
+    const saldo = m.saldoPendiente ?? m.saldo_pendiente ?? null;
+    const hasCosts = lastMile != null || provMxn != null || ventaUsd != null || totalCost != null;
+    const img = resolveUrl(m.imageUrl || m.image_url);
+    const guia = m.airTracking || m.tracking || m.tracking_internal || tracking.searched;
+
     return (
-      <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
-        <Text style={styles.trackGuia}>{tracking.tracking}</Text>
-        {tracking.service?.es ? <Text style={styles.trackService}>{tracking.service.es}</Text> : null}
-
-        {Array.isArray(tracking.milestones) && (
-          <View style={styles.milestones}>
-            {tracking.milestones.map((ms: any, idx: number) => {
-              const done = idx <= cur;
-              return (
-                <View key={ms.key || idx} style={styles.msRow}>
-                  <View style={[styles.msDot, { backgroundColor: done ? GREEN : '#e5e7eb' }]}>
-                    <Ionicons name={done ? 'checkmark' : 'ellipse-outline'} size={12} color={done ? '#fff' : '#9ca3af'} />
-                  </View>
-                  <Text style={[styles.msLabel, done && { color: DARK, fontWeight: '700' }]}>{ms.label_es}</Text>
-                </View>
-              );
-            })}
+      <ScrollView contentContainerStyle={{ paddingBottom: 28 }} keyboardShouldPersistTaps="handled">
+        {/* GUÍA */}
+        <View style={[styles.box, { borderColor: '#FFB74D' }]}>
+          <Text style={styles.boxLabel}>GUÍA</Text>
+          <Text style={styles.guia}>{guia}</Text>
+          {guiaOrigen && guiaOrigen !== m.tracking ? (
+            <Text style={styles.sub}>📦 Guía origen: {m.originCarrier ? `${m.originCarrier} · ` : ''}{guiaOrigen}</Text>
+          ) : null}
+          <View style={styles.chipRow}>
+            <Chip label={statusLabel(status)} bg={sc.bg} fg={sc.fg} />
+            {m.paymentOrderRef ? <Chip label={`🧾 ${m.paymentOrderRef}`} bg="#e8f0fe" fg="#1a56db" /> : null}
+            <Chip label={paid ? `✅ Pagado${clientPaidAt ? ` · ${fmtDT(clientPaidAt)}` : ''}` : '⏳ Pendiente'} bg={paid ? '#dcfce7' : '#fef3c7'} fg={paid ? '#16a34a' : '#b45309'} />
+            <Chip label={hasLabel ? '🏷️ Etiquetado' : '📋 Sin etiqueta'} bg={hasLabel ? '#dcfce7' : '#f3f4f6'} fg={hasLabel ? '#16a34a' : '#6b7280'} />
+            <Chip label={hasInstr ? '📍 Con instrucciones' : '⚠️ Sin instrucciones'} bg={hasInstr ? '#dcfce7' : '#fef3c7'} fg={hasInstr ? '#16a34a' : '#b45309'} />
+            {Number(m.totalBoxes ?? m.total_boxes ?? 1) > 1 ? <Chip label={`${m.totalBoxes ?? m.total_boxes} cajas`} /> : null}
           </View>
-        )}
+        </View>
 
-        {tracking.is_master && Array.isArray(tracking.children) && tracking.children.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Master · {tracking.total_boxes || tracking.children.length} cajas</Text>
-            {tracking.children.map((c: any, i: number) => (
+        {/* CLIENTE */}
+        {client ? (
+          <View style={styles.box}>
+            <View style={styles.boxHeadRow}>
+              <Text style={styles.boxLabel}>CLIENTE</Text>
+              {client.id ? <Chip label={client.isVerified ? '✅ Verificado' : '⚠️ Sin verificar'} bg={client.isVerified ? '#dcfce7' : '#fef3c7'} fg={client.isVerified ? '#16a34a' : '#b45309'} /> : null}
+            </View>
+            <Text style={styles.strong}>{client.name || '—'}</Text>
+            {client.boxId ? <Text style={styles.sub}>{client.boxId}</Text> : null}
+            {client.email ? <Text style={styles.sub}>{client.email}</Text> : null}
+            {client.advisor?.name ? <Text style={[styles.sub, { color: ORANGE, fontWeight: '600', marginTop: 3 }]}>👤 Asesor: {client.advisor.name}</Text> : null}
+          </View>
+        ) : null}
+
+        {/* CONTENIDO / PESO / MEDIDAS */}
+        {(m.description || m.weight || m.length || m.width || m.height) ? (
+          <View style={styles.box}>
+            <View style={styles.contentRow}>
+              {m.description ? <View style={{ flex: 1, minWidth: 120 }}><Text style={styles.boxLabel}>CONTENIDO</Text><Text style={styles.val}>{m.description}</Text></View> : null}
+              {m.weight ? <View><Text style={styles.boxLabel}>PESO</Text><Text style={styles.val}>{Number(m.weight).toFixed(2)} kg</Text></View> : null}
+              {(m.length || m.width || m.height) ? <View><Text style={styles.boxLabel}>MEDIDAS</Text><Text style={styles.val}>{Number(m.length || 0).toFixed(0)}×{Number(m.width || 0).toFixed(0)}×{Number(m.height || 0).toFixed(0)} cm</Text></View> : null}
+            </View>
+          </View>
+        ) : null}
+
+        {/* FOTO DEL PRODUCTO */}
+        {img ? (
+          <View style={[styles.box, { borderColor: '#FFB74D' }]}>
+            <Text style={styles.boxLabel}>FOTO DEL PRODUCTO</Text>
+            <View style={styles.photoRow}>
+              <Image source={{ uri: img }} style={styles.photo} resizeMode="cover" />
+              <TouchableOpacity style={styles.photoBtn} onPress={() => Linking.openURL(img)}>
+                <Text style={styles.photoBtnText}>📷 VER FOTO</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        {/* DIRECCIÓN DE ENTREGA */}
+        {dest ? (
+          <View style={[styles.box, { borderColor: '#A5D6A7' }]}>
+            <Text style={styles.boxLabel}>DIRECCIÓN DE ENTREGA</Text>
+            <Text style={styles.strong}>{dest.recipientName || client?.name || '—'}</Text>
+            <Text style={styles.sub}>{[dest.street, dest.exterior, dest.interior ? `Int. ${dest.interior}` : null].filter(Boolean).join(' ')}</Text>
+            {dest.neighborhood ? <Text style={styles.sub}>Col. {dest.neighborhood}</Text> : null}
+            <Text style={styles.sub}>{[dest.city, dest.state].filter(Boolean).join(', ')} C.P. {dest.zip || '—'}</Text>
+            {dest.phone ? <Text style={styles.sub}>📞 {dest.phone}</Text> : null}
+          </View>
+        ) : null}
+
+        {/* PAQUETERÍA NACIONAL */}
+        {(m.nationalCarrier || m.nationalTracking) ? (
+          <View style={styles.box}>
+            <Text style={styles.boxLabel}>PAQUETERÍA NACIONAL</Text>
+            {m.nationalCarrier ? <Text style={styles.strong}>{m.nationalCarrier}</Text> : null}
+            {m.nationalTracking ? <Text style={[styles.sub, { color: ORANGE }]}>{m.nationalTracking}</Text> : null}
+          </View>
+        ) : null}
+
+        {/* CAJAS (hijas) */}
+        {children.length > 0 ? (
+          <View style={styles.box}>
+            <Text style={styles.boxLabel}>CAJAS ({children.length})</Text>
+            {children.slice(0, 8).map((c: any, i: number) => (
               <View key={c.tracking || i} style={styles.childRow}>
-                <Text style={styles.childTrk}>{c.tracking}</Text>
-                <Text style={styles.childStatus}>{c.status_label?.es || ''}</Text>
+                <Text style={styles.childTrk}>{c.tracking || c.trackingInternal || `Caja ${c.boxNumber || i + 1}`}</Text>
+                <Chip label={statusLabel(c.status)} bg={statusColors(c.status).bg} fg={statusColors(c.status).fg} />
               </View>
             ))}
+            {children.length > 8 ? <Text style={styles.sub}>+{children.length - 8} más</Text> : null}
           </View>
-        )}
+        ) : null}
 
-        {Array.isArray(tracking.movements) && tracking.movements.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Movimientos</Text>
-            {tracking.movements.map((mv: any, i: number) => (
-              <View key={i} style={styles.mvRow}>
-                <View style={styles.mvDot} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.mvDesc}>{mv.description_es || mv.location || ''}</Text>
-                  <Text style={styles.mvDate}>{[mv.location, fmtDate(mv.date)].filter(Boolean).join(' · ')}</Text>
-                </View>
-              </View>
-            ))}
+        {/* COSTOS */}
+        {hasCosts ? (
+          <View style={[styles.box, { borderColor: '#FFE0B2' }]}>
+            <Text style={styles.boxLabel}>COSTOS</Text>
+            {lastMile != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Paquetería (última milla)</Text><Text style={[styles.costVal, { color: '#dc2626' }]}>{fmtMoney(lastMile)}</Text></View> : null}
+            {provMxn != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Costo proveedor</Text><Text style={styles.costVal}>{fmtMoney(Number(provMxn))}{provUsd ? ` (${fmtMoney(Number(provUsd), 'USD')})` : ''}</Text></View> : null}
+            {ventaUsd != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Venta al cliente</Text><Text style={[styles.costVal, { color: '#16a34a' }]}>{fmtMoney(ventaUsd, 'USD')}</Text></View> : null}
+            {totalCost != null ? <View style={[styles.costRow, styles.costTotal]}><Text style={[styles.costLbl, { fontWeight: '800', color: DARK }]}>Total a cobrar</Text><Text style={[styles.costVal, { color: '#b45309', fontWeight: '800' }]}>{fmtMoney(totalCost)}</Text></View> : null}
+            {montoPagado != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Monto pagado{clientPaidAt ? ` · ${fmtDT(clientPaidAt)}` : ''}</Text><Text style={[styles.costVal, { color: '#16a34a' }]}>{fmtMoney(Number(montoPagado))}</Text></View> : null}
+            {saldo != null && Number(saldo) > 0 ? <View style={styles.costRow}><Text style={styles.costLbl}>Saldo pendiente</Text><Text style={[styles.costVal, { color: '#dc2626' }]}>{fmtMoney(Number(saldo))}</Text></View> : null}
           </View>
-        )}
+        ) : null}
+
+        {/* HISTORIAL */}
+        <View style={styles.box}>
+          <Text style={styles.boxLabel}>HISTORIAL</Text>
+          {movements.length === 0 ? <Text style={[styles.sub, { fontStyle: 'italic' }]}>Sin movimientos registrados</Text> : movements.map((ev: any, i: number) => (
+            <View key={ev.id ?? i} style={[styles.histRow, i < movements.length - 1 ? styles.histBorder : null]}>
+              <Text style={styles.histDate}>{fmtDT(ev.createdAt || ev.created_at || ev.date)}</Text>
+              <View style={{ flexDirection: 'row', marginTop: 2 }}>
+                <Chip label={statusLabel(ev.statusLabel || ev.status_label || ev.status)} bg={statusColors(ev.status).bg} fg={statusColors(ev.status).fg} />
+              </View>
+              {(ev.branch || ev.branch_name || ev.location) ? <Text style={styles.histSub}>📍 {ev.branch || ev.branch_name || ev.location}</Text> : null}
+              {(ev.description || ev.notes) ? <Text style={[styles.histSub, { fontStyle: 'italic' }]}>{ev.description || ev.notes}</Text> : null}
+            </View>
+          ))}
+        </View>
       </ScrollView>
     );
   };
@@ -316,19 +453,30 @@ const styles = StyleSheet.create({
   searchBtn: { width: 44, borderRadius: 10, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center' },
   trackEmpty: { alignItems: 'center', paddingTop: 40, paddingHorizontal: 20, gap: 12 },
   trackEmptyText: { color: '#6b7280', textAlign: 'center', fontSize: 14 },
-  trackGuia: { fontSize: 18, fontWeight: '800', color: DARK },
-  trackService: { fontSize: 13, color: ORANGE, fontWeight: '600', marginTop: 2, marginBottom: 8 },
-  milestones: { marginTop: 6, marginBottom: 8 },
-  msRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
-  msDot: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  msLabel: { fontSize: 14, color: '#9ca3af' },
-  section: { marginTop: 14 },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: DARK, marginBottom: 8 },
-  childRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-  childTrk: { fontSize: 13, fontWeight: '600', color: '#374151' },
-  childStatus: { fontSize: 12, color: '#6b7280' },
-  mvRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
-  mvDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: ORANGE, marginTop: 5 },
-  mvDesc: { fontSize: 13, color: '#374151' },
-  mvDate: { fontSize: 11, color: '#9ca3af', marginTop: 1 },
+  // rich track cards
+  box: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, marginBottom: 10, backgroundColor: '#fff' },
+  boxLabel: { fontSize: 11, fontWeight: '700', color: '#6b7280', letterSpacing: 0.3 },
+  boxHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
+  guia: { fontSize: 16, fontWeight: '800', color: DARK, marginTop: 2 },
+  sub: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  strong: { fontSize: 14, fontWeight: '700', color: DARK, marginTop: 2 },
+  val: { fontSize: 13, color: '#374151', marginTop: 2 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 8 },
+  chip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+  chipText: { fontSize: 11, fontWeight: '700' },
+  contentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
+  photo: { width: 76, height: 76, borderRadius: 8, borderWidth: 1, borderColor: '#FFE0B2', backgroundColor: '#f3f4f6' },
+  photoBtn: { flex: 1, borderWidth: 1, borderColor: ORANGE, borderRadius: 8, paddingVertical: 12, alignItems: 'center' },
+  photoBtnText: { color: ORANGE, fontWeight: '700', fontSize: 13 },
+  childRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  childTrk: { fontSize: 13, fontWeight: '600', color: '#374151', flex: 1, marginRight: 8 },
+  costRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 },
+  costLbl: { fontSize: 12, color: '#6b7280', flex: 1, marginRight: 8 },
+  costVal: { fontSize: 13, fontWeight: '600', color: DARK },
+  costTotal: { borderTopWidth: 1, borderTopColor: '#FFE0B2', paddingTop: 6, marginTop: 6 },
+  histRow: { paddingVertical: 8 },
+  histBorder: { borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  histDate: { fontSize: 11, color: '#9ca3af' },
+  histSub: { fontSize: 11, color: '#6b7280', marginTop: 3 },
 });
