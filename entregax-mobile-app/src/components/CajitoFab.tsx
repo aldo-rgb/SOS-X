@@ -45,9 +45,23 @@ export default function CajitoFab({ user, token }: Props) {
   const [trackLoading, setTrackLoading] = useState(false);
   const [trackError, setTrackError] = useState('');
 
+  // Avatar configurado (slot cajito_avatar) — se sirve en /api/system/payment-status
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+
   useEffect(() => {
     AsyncStorage.getItem(CONV_KEY).then((v) => { if (v) convIdRef.current = Number(v) || null; }).catch(() => {});
+    fetch(`${API_URL}/api/system/payment-status`)
+      .then((r) => r.json())
+      .then((d) => {
+        const u = d?.cajito_avatar_url;
+        if (typeof u === 'string' && u) {
+          setAvatarUri(u.startsWith('http') ? u : `${API_URL}${u.startsWith('/') ? '' : '/'}${u}`);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  const avatarSource = avatarUri ? { uri: avatarUri } : CAJITO_AVATAR;
 
   if (!canUse) return null;
 
@@ -206,7 +220,7 @@ export default function CajitoFab({ user, token }: Props) {
     <>
       {/* FAB */}
       <TouchableOpacity style={styles.fab} onPress={() => setOpen(true)} activeOpacity={0.85}>
-        <Image source={CAJITO_AVATAR} style={styles.fabImg} resizeMode="cover" />
+        <Image source={avatarSource} style={styles.fabImg} resizeMode="cover" />
       </TouchableOpacity>
 
       <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
@@ -214,7 +228,7 @@ export default function CajitoFab({ user, token }: Props) {
           <View style={styles.sheet}>
             {/* Header */}
             <View style={styles.header}>
-              <Image source={CAJITO_AVATAR} style={styles.headerAvatar} />
+              <Image source={avatarSource} style={styles.headerAvatar} />
               <View style={{ flex: 1, marginLeft: 10 }}>
                 <Text style={styles.headerTitle}>Cajito</Text>
                 <Text style={styles.headerSub}>Asistente IA · Solo lectura · {roleLabel}</Text>
