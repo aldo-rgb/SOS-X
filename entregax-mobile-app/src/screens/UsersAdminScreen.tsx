@@ -499,7 +499,16 @@ function PickerModal({ visible, title, onClose, options, selectedId, onSelect }:
   onSelect: (id: string | number) => void;
 }) {
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+    // presentationStyle="overFullScreen" es OBLIGATORIO cuando este Modal se
+    // abre encima de otro Modal (el de Editar Usuario). Sin este flag iOS no
+    // apila modales y el picker queda invisible detrás del modal padre.
+    <Modal
+      visible={visible}
+      animationType="fade"
+      transparent
+      onRequestClose={onClose}
+      presentationStyle="overFullScreen"
+    >
       <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose}>
         <View style={[styles.modalCard, { maxHeight: '70%' }]}>
           <View style={styles.modalHead}>
