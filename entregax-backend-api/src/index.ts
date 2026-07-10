@@ -2165,6 +2165,16 @@ app.get('/api/migrate/mjcustomer-fcl', async (_req: Request, res: Response) => {
       CREATE INDEX IF NOT EXISTS idx_packages_master_id
           ON packages (master_id) WHERE master_id IS NOT NULL;
     `);
+    // Índices para el escaneo de carga del repartidor (scanPackageToLoad): el
+    // match por tracking usaba to_jsonb + seq scan (~19s). Con estos índices
+    // funcionales el match exacto case-insensitive es instantáneo.
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_packages_tracking_provider ON packages (tracking_provider) WHERE tracking_provider IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_packages_child_no ON packages (child_no) WHERE child_no IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_packages_ti_upper ON packages (UPPER(tracking_internal));
+      CREATE INDEX IF NOT EXISTS idx_packages_tp_upper ON packages (UPPER(tracking_provider));
+      CREATE INDEX IF NOT EXISTS idx_packages_cn_upper ON packages (UPPER(child_no));
+    `);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS mjcustomer_sync_log (
         id SERIAL PRIMARY KEY,

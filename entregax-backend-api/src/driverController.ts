@@ -11,26 +11,29 @@ import { pool } from './db';
 // Aéreo China: la guía pública/impresa es la completa (child_no, p.ej.
 // AIR2615662DJOtz-001), NO el código interno CN-...  Preferimos child_no solo
 // cuando empieza con AIR para no afectar otros servicios.
+// Columnas reales indexables (tracking_internal tiene índice único). Se usa
+// to_jsonb solo para columnas OPCIONALES que pueden no existir (tracking_number,
+// skydropx_label_id, dhl_awb). Antes todo era to_jsonb → seq scan de ~19s.
 const TRACKING_PUBLIC_SQL = `COALESCE(
-    CASE WHEN to_jsonb(p)->>'child_no' ~* '^AIR' THEN to_jsonb(p)->>'child_no' END,
+    CASE WHEN p.child_no ~* '^AIR' THEN p.child_no END,
     to_jsonb(p)->>'tracking_number',
-    to_jsonb(p)->>'tracking_internal',
-    to_jsonb(p)->>'tracking_provider'
+    p.tracking_internal,
+    p.tracking_provider
 )`;
 
 const TRACKING_MATCH_SQL = `(
-    ${TRACKING_PUBLIC_SQL} = $1
+    -- Rutas exactas primero (usan índice de tracking_internal cuando aplica).
+    p.tracking_internal = $1
+    OR p.tracking_provider = $1
+    OR p.child_no = $1
+    OR UPPER(COALESCE(p.child_no,'')) = UPPER($1)
+    OR UPPER(COALESCE(p.tracking_internal,'')) = UPPER($1)
+    OR to_jsonb(p)->>'tracking_number' = $1
     OR to_jsonb(p)->>'skydropx_label_id' = $1
     OR to_jsonb(p)->>'dhl_awb' = $1
-    -- Aceptar tanto la guía completa (child_no AIR...) como el código interno
-    -- (tracking_internal CN...) para no romper etiquetas viejas ya impresas.
-    OR UPPER(COALESCE(to_jsonb(p)->>'child_no','')) = UPPER($1)
-    OR UPPER(COALESCE(to_jsonb(p)->>'tracking_internal','')) = UPPER($1)
-    OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'child_no','')), '-', '') = REPLACE(UPPER($1), '-', '')
-    OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'tracking_internal','')), '-', '') = REPLACE(UPPER($1), '-', '')
+    OR REPLACE(UPPER(COALESCE(p.child_no,'')), '-', '') = REPLACE(UPPER($1), '-', '')
+    OR REPLACE(UPPER(COALESCE(p.tracking_internal,'')), '-', '') = REPLACE(UPPER($1), '-', '')
     OR REPLACE(UPPER(${TRACKING_PUBLIC_SQL}), '-', '') = REPLACE(UPPER($1), '-', '')
-    OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'skydropx_label_id', '')), '-', '') = REPLACE(UPPER($1), '-', '')
-    OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'dhl_awb', '')), '-', '') = REPLACE(UPPER($1), '-', '')
     OR REGEXP_REPLACE(UPPER(${TRACKING_PUBLIC_SQL}), '-0+([0-9])', '-\\1', 'g')
        = REGEXP_REPLACE(UPPER($1), '-0+([0-9])', '-\\1', 'g')
 )`;
@@ -519,51 +522,23 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
             }
         } catch {}
 
-        // 1. BUSCAR EL PAQUETE POR TRACKING NUMBER O CÓDIGO DE BARRAS
-        // Hacemos LEFT JOIN con master para que las hijas hereden payment/label del master.
-        const pkgRes = await pool.query(`
-            SELECT 
-                p.id, 
-                ${TRACKING_PUBLIC_SQL} as tracking_number,
-                COALESCE((to_jsonb(p)->>'is_master')::boolean, false) as is_master,
-                (to_jsonb(p)->>'master_id')::int as master_id,
-                (SELECT COUNT(*) FROM packages c WHERE (to_jsonb(c)->>'master_id')::int = p.id) as children_count,
-                ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
-                -- Para carga: si delivery_status TEXT dice 'delivered' pero el ENUM status
-                -- dice un estado cargable (received_mty, etc.), el ENUM es más reciente.
-                -- Usamos el ENUM cuando delivery_status dice 'delivered' para evitar falsos bloqueos.
-                CASE
-                    WHEN COALESCE(to_jsonb(p)->>'delivery_status','') = 'delivered'
-                     AND to_jsonb(p)->>'status' NOT IN ('', 'delivered', 'sent', 'shipped')
-                    THEN to_jsonb(p)->>'status'
-                    ELSE ${DELIVERY_STATUS_SQL}
-                END as delivery_status,
-                ${LOADED_AT_SQL} as loaded_at,
-                -- Si el MASTER está pagado, las hijas heredan 'paid' (aunque su propio
-                -- payment_status haya quedado en 'pending' por desincronización).
-                CASE
-                    WHEN LOWER(COALESCE(to_jsonb(m)->>'payment_status','')) = 'paid' THEN 'paid'
-                    ELSE COALESCE(LOWER(to_jsonb(p)->>'payment_status'), 'pending')
-                END as payment_status,
-                COALESCE(to_jsonb(p)->>'national_label_url', to_jsonb(m)->>'national_label_url') as national_label_url,
-                COALESCE(to_jsonb(p)->>'national_tracking', to_jsonb(m)->>'national_tracking') as national_tracking,
-                COALESCE(to_jsonb(p)->>'skydropx_label_id', to_jsonb(m)->>'skydropx_label_id') as skydropx_label_id,
-                COALESCE(to_jsonb(p)->>'dhl_awb', to_jsonb(m)->>'dhl_awb') as dhl_awb,
-                COALESCE(to_jsonb(p)->>'national_carrier', to_jsonb(p)->>'carrier', to_jsonb(m)->>'national_carrier', to_jsonb(m)->>'carrier') as national_carrier,
-                COALESCE(to_jsonb(p)->>'assigned_address_id', to_jsonb(m)->>'assigned_address_id') as assigned_address_id,
-                ${packageBranchSql} as package_branch_id,
-                NULL::text as driver_name,
-                NULL::text as client_name,
-                NULL::text as client_email
-            FROM packages p
-            LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
-            WHERE ${TRACKING_MATCH_SQL}
-        `, [barcode]);
+        // 1. BUSCAR EL PAQUETE — RUTA RÁPIDA primero: match exacto por columnas
+        //    indexadas (índices funcionales UPPER). Evita el seq scan de ~19s del
+        //    match difuso (TRACKING_MATCH_SQL) para el caso común.
+        const fastMatch = await pool.query(
+            `SELECT id FROM packages p
+              WHERE UPPER(p.tracking_internal) = UPPER($1)
+                 OR UPPER(p.tracking_provider) = UPPER($1)
+                 OR UPPER(p.child_no) = UPPER($1)
+              LIMIT 1`,
+            [barcode]
+        );
+        let matchedId: number | null = fastMatch.rows[0]?.id ?? null;
 
-        if (pkgRes.rows.length === 0) {
-            // Fallback DHL: las guías DHL viven en dhl_shipments (no en packages).
-            // El repartidor las CARGA (marca out_for_delivery); la entrega se
-            // confirma por otro flujo (Operaciones DHL).
+        // Si el exacto falló, revisar DHL ANTES del match difuso (caro): las guías
+        // DHL viven en dhl_shipments (no en packages). El repartidor las CARGA
+        // (out_for_delivery); la entrega se confirma por otro flujo.
+        if (matchedId === null) {
             const bcNorm = String(barcode).toUpperCase().trim();
             const bcCompact = bcNorm.replace(/[^A-Z0-9]/g, '');
             const dhlRes = await pool.query(
@@ -608,6 +583,51 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
                     isDhl: true,
                 });
             }
+        }
+
+        // Query pesada: por id (rápido, ya resuelto) o TRACKING_MATCH_SQL (difuso,
+        // último recurso para códigos truncados/normalizados).
+        const pkgRes = await pool.query(`
+            SELECT 
+                p.id, 
+                ${TRACKING_PUBLIC_SQL} as tracking_number,
+                COALESCE((to_jsonb(p)->>'is_master')::boolean, false) as is_master,
+                p.master_id as master_id,
+                (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id) as children_count,
+                ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
+                -- Para carga: si delivery_status TEXT dice 'delivered' pero el ENUM status
+                -- dice un estado cargable (received_mty, etc.), el ENUM es más reciente.
+                -- Usamos el ENUM cuando delivery_status dice 'delivered' para evitar falsos bloqueos.
+                CASE
+                    WHEN COALESCE(to_jsonb(p)->>'delivery_status','') = 'delivered'
+                     AND to_jsonb(p)->>'status' NOT IN ('', 'delivered', 'sent', 'shipped')
+                    THEN to_jsonb(p)->>'status'
+                    ELSE ${DELIVERY_STATUS_SQL}
+                END as delivery_status,
+                ${LOADED_AT_SQL} as loaded_at,
+                -- Si el MASTER está pagado, las hijas heredan 'paid' (aunque su propio
+                -- payment_status haya quedado en 'pending' por desincronización).
+                CASE
+                    WHEN LOWER(COALESCE(to_jsonb(m)->>'payment_status','')) = 'paid' THEN 'paid'
+                    ELSE COALESCE(LOWER(to_jsonb(p)->>'payment_status'), 'pending')
+                END as payment_status,
+                COALESCE(to_jsonb(p)->>'national_label_url', to_jsonb(m)->>'national_label_url') as national_label_url,
+                COALESCE(to_jsonb(p)->>'national_tracking', to_jsonb(m)->>'national_tracking') as national_tracking,
+                COALESCE(to_jsonb(p)->>'skydropx_label_id', to_jsonb(m)->>'skydropx_label_id') as skydropx_label_id,
+                COALESCE(to_jsonb(p)->>'dhl_awb', to_jsonb(m)->>'dhl_awb') as dhl_awb,
+                COALESCE(to_jsonb(p)->>'national_carrier', to_jsonb(p)->>'carrier', to_jsonb(m)->>'national_carrier', to_jsonb(m)->>'carrier') as national_carrier,
+                COALESCE(to_jsonb(p)->>'assigned_address_id', to_jsonb(m)->>'assigned_address_id') as assigned_address_id,
+                ${packageBranchSql} as package_branch_id,
+                NULL::text as driver_name,
+                NULL::text as client_name,
+                NULL::text as client_email
+            FROM packages p
+            LEFT JOIN packages m ON m.id = p.master_id
+            WHERE ${matchedId !== null ? 'p.id = $1' : TRACKING_MATCH_SQL}
+        `, [matchedId !== null ? matchedId : barcode]);
+
+        if (pkgRes.rows.length === 0) {
+            // DHL ya se revisó arriba (ruta rápida). Si llegamos aquí, no existe.
             return res.status(404).json({
                 error: '❌ Código no encontrado en el sistema.',
                 barcode
@@ -887,7 +907,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
                     COUNT(*) OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL}) as total_boxes
                 FROM packages p
-                LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                LEFT JOIN packages m ON m.id = p.master_id
                 LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${packageBranchSql} = $1
                   AND ${NOT_MASTER_WITH_CHILDREN_SQL}
@@ -920,7 +940,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
                     COUNT(*) OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL}) as total_boxes
                 FROM packages p
-                LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                LEFT JOIN packages m ON m.id = p.master_id
                                 LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
                   AND ${NOT_MASTER_WITH_CHILDREN_SQL}
@@ -949,7 +969,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
                     COUNT(*) OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL}) as total_boxes
                 FROM packages p
-                LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                LEFT JOIN packages m ON m.id = p.master_id
                                 LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE (
                     ${ASSIGNED_DRIVER_SQL} = $1::text
@@ -979,7 +999,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                         ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
                         COUNT(*) OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL}) as total_boxes
                     FROM packages p
-                    LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                    LEFT JOIN packages m ON m.id = p.master_id
                                         LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                     WHERE ${packageBranchSql} = $1
                       AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
@@ -1006,7 +1026,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 ${CLIENT_NUMBER_NO_USER_SQL} as client_number,
                 p.updated_at
             FROM packages p
-            LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+            LEFT JOIN packages m ON m.id = p.master_id
         `;
         const deliveredPromise = hasAssignedDriverColumn
             ? pool.query(`${DELIVERED_SELECT}
@@ -1453,7 +1473,7 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
                 p.tracking_internal,
                 p.service_type
             FROM packages p
-            LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+            LEFT JOIN packages m ON m.id = p.master_id
             WHERE ${TRACKING_MATCH_SQL}
         `, [barcode]);
 
@@ -1602,7 +1622,7 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
         // 4.b PROPAGAR AL MASTER: si todas las hijas están entregadas, marcar el master también.
         try {
             const masterRes = await pool.query(
-                `SELECT (to_jsonb(p)->>'master_id')::int as master_id FROM packages p WHERE p.id = $1`,
+                `SELECT p.master_id as master_id FROM packages p WHERE p.id = $1`,
                 [pkg.id]
             );
             const masterId = masterRes.rows[0]?.master_id;
@@ -1612,7 +1632,7 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
                         COUNT(*) as total,
                         SUM(CASE WHEN COALESCE(${statusColumn}::text, '') IN ('delivered', 'sent') THEN 1 ELSE 0 END) as done
                      FROM packages p 
-                     WHERE (to_jsonb(p)->>'master_id')::int = $1`,
+                     WHERE p.master_id = $1`,
                     [masterId]
                 );
                 const total = Number(childRes.rows[0]?.total || 0);
@@ -1767,7 +1787,7 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                             to_jsonb(m)->>'national_tracking'
                         ) as national_tracking
                     FROM packages p
-                    LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                    LEFT JOIN packages m ON m.id = p.master_id
                     WHERE ${TRACKING_MATCH_SQL}
                     LIMIT 1
                 `, [internalGuide]);
@@ -1847,7 +1867,7 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                 // Propagar al MASTER si todas las hijas ya están entregadas
                 try {
                     const mres = await pool.query(
-                        `SELECT (to_jsonb(p)->>'master_id')::int as master_id FROM packages p WHERE p.id = $1`,
+                        `SELECT p.master_id as master_id FROM packages p WHERE p.id = $1`,
                         [packageId]
                     );
                     const masterId = mres.rows[0]?.master_id;
@@ -1856,7 +1876,7 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                             `SELECT 
                                 COUNT(*) as total,
                                 SUM(CASE WHEN COALESCE(${statusColumn}::text, '') IN ('delivered', 'sent') THEN 1 ELSE 0 END) as done
-                             FROM packages p WHERE (to_jsonb(p)->>'master_id')::int = $1`,
+                             FROM packages p WHERE p.master_id = $1`,
                             [masterId]
                         );
                         const total = Number(cres.rows[0]?.total || 0);
@@ -2279,7 +2299,7 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                         COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
                         p.national_tracking
                  FROM packages p
-                 LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                 LEFT JOIN packages m ON m.id = p.master_id
                  WHERE UPPER(p.tracking_internal) = $1 OR UPPER(p.tracking_provider) = $1
                     OR UPPER(COALESCE(p.child_no, '')) = $1
                     OR REPLACE(UPPER(COALESCE(p.child_no, '')), '-', '') = REPLACE($1, '-', '')`,
@@ -2307,7 +2327,7 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                                         COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
                                         p.national_tracking
                                  FROM packages p
-                                 LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                                 LEFT JOIN packages m ON m.id = p.master_id
                                  WHERE UPPER(p.tracking_internal) = $1 LIMIT 1`,
                                 [candidate.toUpperCase()]
                             );
@@ -2333,7 +2353,7 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                                         COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
                                         p.national_tracking
                                  FROM packages p
-                                 LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                                 LEFT JOIN packages m ON m.id = p.master_id
                                  WHERE UPPER(p.tracking_internal) = $1 LIMIT 1`,
                                 [padded.toUpperCase()]
                             );
@@ -2353,7 +2373,7 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                                 COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
                                 p.national_tracking
                          FROM packages p
-                         LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                         LEFT JOIN packages m ON m.id = p.master_id
                          WHERE UPPER(p.tracking_internal) LIKE $1 OR UPPER(p.tracking_provider) LIKE $1
                             OR UPPER(COALESCE(p.child_no, '')) LIKE $1
                          LIMIT 2`,
