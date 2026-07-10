@@ -913,7 +913,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         // cambia el branding de la etiqueta; la dirección impresa sigue siendo la
         // final del cliente.
         const evisaMode = isEvisaMtyDispersion(shipment);
-        const deliveryBadge = evisaMode ? '🚚 eVISA PREPAGADO' : '📍 ENTREGA LOCAL';
+        const deliveryBadge = evisaMode ? '🚚 eVISA PRE' : '📍 ENTREGA LOCAL';
 
         // Generar una página por caja
         const boxes: Array<{ boxNum: number; tn: string; tnCompact: string; weight: number | null }> = [];
@@ -1347,6 +1347,13 @@ ${body}
     const isEntregaxNacionalAssigned = Boolean(assignedCarrier && isEntregaxNacionalCarrier(assignedCarrier.normalized));
     const isEntregaxOwnDeliveryAssigned = isEntregaxLocalAssigned || isEntregaxNacionalAssigned;
     const carrierGuideTitle = assignedCarrier ? `Guía ${assignedCarrier.displayName}` : 'Guía de paquetería';
+    // TDI Aéreo/Marítimo → zona metro MTY con EntregaX local: se despacha por eVISA
+    // prepagado (ver isEvisaMtyDispersion). En los chips del módulo mostramos el
+    // nombre completo + el indicador eVISA para que operaciones lo distinga.
+    const evisaMtyDispersion = isEvisaMtyDispersion(shipment);
+    const carrierChipLabel = evisaMtyDispersion
+        ? 'EntregaX Local MTY · eVISA PRE'
+        : (assignedCarrier?.displayName || '');
 
     const getAssignedCarrierGuideUrl = (opts?: { format4x6?: boolean }): string | null => {
         if (!shipment) return null;
@@ -1423,6 +1430,11 @@ ${body}
         if (assignedCarrier && isCollectCarrier(assignedCarrier.normalized)) {
             carrierLabel = carrierLabel.replace(/\s*POR COBRAR\s*/i, ' ').trim();
         }
+        // TDI Aéreo/Marítimo → zona metro MTY con EntregaX local: el tramo CDMX→MTY
+        // lo mueve eVISA prepagado (ver isEvisaMtyDispersion). La etiqueta se marca
+        // "eVISA PRE" arriba (badge) y abajo (SERVICIO), con la dirección final.
+        const evisaMode = isEvisaMtyDispersion(shipment);
+        if (evisaMode) carrierLabel = 'eVISA PRE';
         const printWindow = window.open('', '_blank', 'width=400,height=600');
         if (!printWindow) { setError('Permite ventanas emergentes para imprimir'); return; }
         const recipient = (a.recipientName || shipment.client.name || 'CLIENTE').toUpperCase();
@@ -1743,7 +1755,7 @@ ${labelsHtml}
                                 )}
                                 {assignedCarrier && (
                                     <Chip
-                                        label={`🚚 ${assignedCarrier.displayName}`}
+                                        label={`🚚 ${carrierChipLabel}`}
                                         sx={{ bgcolor: '#1976d2', color: 'white', fontWeight: 700 }}
                                     />
                                 )}
@@ -1830,7 +1842,7 @@ ${labelsHtml}
                                 {assignedCarrier && (
                                     <Chip
                                         size="small"
-                                        label={`🚚 ${assignedCarrier.displayName}`}
+                                        label={`🚚 ${carrierChipLabel}`}
                                         sx={{ bgcolor: '#1976d2', color: 'white', fontWeight: 700 }}
                                     />
                                 )}
