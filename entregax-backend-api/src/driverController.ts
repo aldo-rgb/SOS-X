@@ -2067,7 +2067,9 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                         p.national_tracking
                  FROM packages p
                  LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
-                 WHERE UPPER(p.tracking_internal) = $1 OR UPPER(p.tracking_provider) = $1`,
+                 WHERE UPPER(p.tracking_internal) = $1 OR UPPER(p.tracking_provider) = $1
+                    OR UPPER(COALESCE(p.child_no, '')) = $1
+                    OR REPLACE(UPPER(COALESCE(p.child_no, '')), '-', '') = REPLACE($1, '-', '')`,
                 [code]
             );
             // Fuzzy: si el código está truncado (scanner cortó el último char), buscar con LIKE
@@ -2140,6 +2142,7 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                          FROM packages p
                          LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
                          WHERE UPPER(p.tracking_internal) LIKE $1 OR UPPER(p.tracking_provider) LIKE $1
+                            OR UPPER(COALESCE(p.child_no, '')) LIKE $1
                          LIMIT 2`,
                         [`${code}%`]
                     );
