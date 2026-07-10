@@ -3670,9 +3670,13 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
 
         // 3. Paquetes TDI AÉREO China (china_receipts) - Buscar por user_id O por shipping_mark
         const chinaAirResult = await pool.query(`
-            SELECT DISTINCT ON (cr.id) cr.*, u.full_name, COALESCE(u.box_id, cr.shipping_mark) as box_id
+            SELECT DISTINCT ON (cr.id) cr.*, u.full_name, COALESCE(u.box_id, cr.shipping_mark) as box_id,
+                   da.street AS da_street, da.exterior_number AS da_ext, da.interior_number AS da_int,
+                   da.neighborhood AS da_neigh, da.city AS da_city, da.state AS da_state,
+                   da.zip_code AS da_zip, da.recipient_name AS da_recipient, da.phone AS da_phone
             FROM china_receipts cr
             LEFT JOIN users u ON cr.user_id = u.id
+            LEFT JOIN addresses da ON da.id = cr.delivery_address_id
             WHERE cr.user_id = $1 OR ($2::text IS NOT NULL AND cr.shipping_mark = $2::text)
             ORDER BY cr.id, cr.created_at DESC
         `, [userId, userBoxId]);
@@ -3831,6 +3835,22 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             gex_folio: pkg.gex_folio || null,
             // Instrucciones de entrega (china_receipts)
             delivery_address_id: pkg.delivery_address_id || null,
+            assigned_address_id: pkg.delivery_address_id || null,
+            // Dirección asignada resuelta (aunque sea interna "EntregaX Sync",
+            // que no aparece en la lista de direcciones del cliente) para que el
+            // detalle pueda mostrarla en vez de "Dirección asignada (ID: …)".
+            assigned_address: pkg.da_street ? {
+              id: pkg.delivery_address_id,
+              street: pkg.da_street,
+              exterior_number: pkg.da_ext,
+              interior_number: pkg.da_int,
+              colony: pkg.da_neigh,
+              city: pkg.da_city,
+              state: pkg.da_state,
+              zip_code: pkg.da_zip,
+              contact_name: pkg.da_recipient,
+              phone: pkg.da_phone,
+            } : null,
             delivery_instructions: pkg.delivery_instructions || null,
             // Paquetería asignada y costos
             national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : 0,

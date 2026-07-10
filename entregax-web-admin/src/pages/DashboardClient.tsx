@@ -9882,8 +9882,17 @@ export default function DashboardClient() {
                     const isPaqueteExpress = id === 'paquete_express' || id === 'paquete_express_pc';
                     // PO Box USA: nunca mostrar CDMX local
                     if (isPoboxSelection && isLocalCdmx) return false;
-                    // TDI en zona metro: ocultar Paquete Express
-                    if (isTdiService && inMetro && isPaqueteExpress) return false;
+                    // En zona metro, ocultar Paquete Express cuando existe EntregaX
+                    // Local para esa zona (el local es gratis y más rápido) o es TDI.
+                    // Ej.: dirección en Monterrey (64/65/66/67) con Aéreo China → solo
+                    // EntregaX Local MTY, sin Paquete Express.
+                    const hasLocalForZone = carrierServices.some(cs => {
+                      const cid = String(cs.id || '').toLowerCase();
+                      if (inMtyMetro) return cid === 'local' || cid === 'entregax_local_mty' || cid === 'entregax_local';
+                      if (inCdmxMetro && !isPoboxSelection) return cid === 'entregax_local_cdmx';
+                      return false;
+                    });
+                    if (inMetro && (isTdiService || hasLocalForZone) && isPaqueteExpress) return false;
                     // En MTY metro ocultamos Local CDMX y viceversa.
                     if (inMtyMetro)  return !isLocalCdmx;
                     if (inCdmxMetro) return !isLocalMty;
@@ -11255,7 +11264,9 @@ export default function DashboardClient() {
                       {(() => {
                         // Resolver dirección completa desde deliveryAddresses
                         const addrId = selectedPackage.delivery_address_id || selectedPackage.assigned_address_id;
-                        const resolvedAddr = addrId ? deliveryAddresses.find(a => a.id === addrId) : null;
+                        const resolvedAddr = (addrId ? deliveryAddresses.find(a => Number(a.id) === Number(addrId)) : null)
+                          || (selectedPackage as any).assigned_address
+                          || null;
                         
                         if (resolvedAddr) {
                           return (
