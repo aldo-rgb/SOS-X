@@ -2029,6 +2029,10 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         const labels = [];
         // Si el master no tiene box_id, buscar en los hijos (caso consolidaciones multicliente)
         const childBoxId = children.find((c: any) => c.box_id)?.box_id || null;
+        // Aéreo China: la guía visible/impresa debe ser la completa (child_no,
+        // p.ej. AIR2615662DJOtz-001), no el código interno CN-...
+        const dispTn = (internal: any, childNo: any) =>
+            (childNo && /^AIR/i.test(String(childNo))) ? String(childNo) : internal;
         const resolvedName = pkg.full_name || pkg.legacy_name || 'SIN CLIENTE';
         const resolvedBoxId = pkg.user_box_id || pkg.legacy_box_id || pkg.box_id || childBoxId || 'PENDIENTE';
 
@@ -2037,16 +2041,16 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         const destCountry = pkg.destination_country || (pkg.addr_state ? 'México' : null);
 
         if (pkg.is_master) {
-            labels.push({ boxNumber: 0, totalBoxes: pkg.total_boxes, tracking: pkg.tracking_internal, 
-                labelCode: pkg.tracking_internal, isMaster: true, weight: parseFloat(pkg.weight),
+            labels.push({ boxNumber: 0, totalBoxes: pkg.total_boxes, tracking: dispTn(pkg.tracking_internal, pkg.child_no),
+                labelCode: dispTn(pkg.tracking_internal, pkg.child_no), isMaster: true, weight: parseFloat(pkg.weight),
                 clientName: resolvedName, clientBoxId: resolvedBoxId, description: pkg.description,
                 destinationCity: destCityFull, destinationCountry: destCountry, destinationCode,
                 carrier: pkg.carrier, receivedAt: pkg.received_at });
             
             for (const child of children) {
                 labels.push({ boxNumber: child.box_number, totalBoxes: child.total_boxes,
-                    tracking: child.tracking_internal, labelCode: child.tracking_internal,
-                    masterTracking: pkg.tracking_internal, isMaster: false,
+                    tracking: dispTn(child.tracking_internal, child.child_no), labelCode: dispTn(child.tracking_internal, child.child_no),
+                    masterTracking: dispTn(pkg.tracking_internal, pkg.child_no), isMaster: false,
                     weight: parseFloat(child.weight),
                     dimensions: formatDimensions(parseFloat(child.pkg_length), parseFloat(child.pkg_width), parseFloat(child.pkg_height)),
                     clientName: resolvedName, clientBoxId: resolvedBoxId, description: child.description,
@@ -2054,8 +2058,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     carrier: pkg.carrier, receivedAt: pkg.received_at });
             }
         } else {
-            labels.push({ boxNumber: 1, totalBoxes: 1, tracking: pkg.tracking_internal,
-                labelCode: pkg.tracking_internal, isMaster: false, weight: parseFloat(pkg.weight),
+            labels.push({ boxNumber: 1, totalBoxes: 1, tracking: dispTn(pkg.tracking_internal, pkg.child_no),
+                labelCode: dispTn(pkg.tracking_internal, pkg.child_no), isMaster: false, weight: parseFloat(pkg.weight),
                 dimensions: formatDimensions(parseFloat(pkg.pkg_length), parseFloat(pkg.pkg_width), parseFloat(pkg.pkg_height)),
                 clientName: resolvedName, clientBoxId: resolvedBoxId, description: pkg.description,
                 destinationCity: destCityFull, destinationCountry: destCountry, destinationCode,
@@ -2130,7 +2134,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         res.json({
             success: true,
             shipment: {
-                master: { id: pkg.id, tracking: pkg.tracking_internal, trackingProvider: pkg.tracking_provider || aggregatedOriginGuides,
+                master: { id: pkg.id, tracking: (pkg.child_no && /^AIR/i.test(String(pkg.child_no))) ? pkg.child_no : pkg.tracking_internal, trackingProvider: pkg.tracking_provider || aggregatedOriginGuides,
                     serviceType: pkg.service_type || null,
                     airTracking: airFno,
                     originCarrier: pkg.origin_carrier || null,
@@ -2356,7 +2360,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                             : null,
                     },
                 },
-                children: children.map(c => ({ id: c.id, tracking: c.tracking_internal, boxNumber: c.box_number,
+                children: children.map(c => ({ id: c.id, tracking: (c.child_no && /^AIR/i.test(String(c.child_no))) ? c.child_no : c.tracking_internal, boxNumber: c.box_number,
                     trackingCourier: c.tracking_provider, // Tracking del courier (Amazon, USPS, etc)
                     weight: parseFloat(c.weight), dimensions: { length: parseFloat(c.pkg_length),
                         width: parseFloat(c.pkg_width), height: parseFloat(c.pkg_height),

@@ -179,23 +179,21 @@ const extractTracking = (raw: string): string => {
 
 // Detecta el tipo de servicio por el prefijo del tracking
 const getServiceInfo = (tracking: string) => {
-    const prefix = tracking.split('-')[0]?.toUpperCase() || '';
-    switch (prefix) {
-        case 'US':
-            return { label: 'PO Box USA', color: '#2196F3', emoji: '🇺🇸' };
-        case 'CN':
-            return { label: 'China Aéreo (TDI)', color: '#FF5722', emoji: '✈️' };
-        case 'LOG':
-            return { label: 'China Marítimo', color: '#00BCD4', emoji: '🚢' };
-        case 'AIR':
-            return { label: 'Aéreo', color: '#FF5722', emoji: '✈️' };
-        case 'DHL':
-            return { label: 'DHL Monterrey', color: '#FFC107', emoji: '📮' };
-        case 'MX':
-            return { label: 'Nacional México', color: '#4CAF50', emoji: '🇲🇽' };
-        default:
-            return { label: prefix || 'Otro', color: '#666', emoji: '📦' };
-    }
+    // El prefijo puede venir pegado al folio (p.ej. "AIR2615662DJOtz-001") → usar
+    // startsWith en vez de igualdad exacta.
+    const prefix = (tracking.split('-')[0] || '').toUpperCase();
+    // Aéreo China: guía completa comienza con AIR o código interno con CN.
+    if (prefix.startsWith('AIR') || prefix.startsWith('CN'))
+        return { label: 'China Aéreo (TDI)', color: '#FF5722', emoji: '✈️' };
+    if (prefix.startsWith('LOG'))
+        return { label: 'China Marítimo', color: '#00BCD4', emoji: '🚢' };
+    if (prefix.startsWith('US'))
+        return { label: 'PO Box USA', color: '#2196F3', emoji: '🇺🇸' };
+    if (prefix.startsWith('DHL'))
+        return { label: 'DHL Monterrey', color: '#FFC107', emoji: '📮' };
+    if (prefix.startsWith('MX'))
+        return { label: 'Nacional México', color: '#4CAF50', emoji: '🇲🇽' };
+    return { label: prefix || 'Otro', color: '#666', emoji: '📦' };
 };
 
 const normalizeCarrierText = (value: any): string => String(value || '')
