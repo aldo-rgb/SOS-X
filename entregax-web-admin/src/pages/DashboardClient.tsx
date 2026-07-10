@@ -11223,13 +11223,14 @@ export default function DashboardClient() {
                             ? `Asignadas por ${selectedPackage.instructions_assigned_by_name}`
                             : t('cd.detail.instructionsAssigned')}
                         </Typography>
-                        {/* ✏️ Solo permitir editar instrucciones cuando el paquete
-                            esté en CEDIS MTY y aún no se haya generado el PDF de
-                            la etiqueta nacional. Para envíos DHL, `national_tracking`
-                            llega poblado desde origen (es la guía DHL misma), por
-                            eso aquí miramos solo `national_label_url` que sí indica
-                            que la etiqueta ya se imprimió. */}
-                        {selectedPackage.status === 'received_mty' && !selectedPackage.national_label_url && (
+                        {/* ✏️ Permitir editar instrucciones mientras el paquete no
+                            haya salido a ruta / no se haya entregado y aún no tenga
+                            la etiqueta nacional impresa. Antes se limitaba a
+                            'received_mty', lo que impedía editar cuando el paquete
+                            estaba en CDMX (received_cdmx) u otro estado previo.
+                            Para DHL `national_tracking` viene desde origen (la guía
+                            DHL misma), por eso miramos solo `national_label_url`. */}
+                        {!['delivered', 'out_for_delivery', 'sent', 'returned_to_warehouse'].includes(String(selectedPackage.status)) && !selectedPackage.national_label_url && (
                           <Tooltip title="Editar instrucciones de entrega" arrow>
                             <IconButton
                               size="small"
