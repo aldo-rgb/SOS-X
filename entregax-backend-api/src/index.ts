@@ -13648,6 +13648,14 @@ async function ensureRequiredColumns() {
         icon = EXCLUDED.icon,
         category = EXCLUDED.category
     `);
+    // Alinear el nombre del panel de operaciones mx_cedis con la herramienta del
+    // hub: esa ubicación es "DHL Monterrey" (Liberación AA DHL), no "Bodega CEDIS".
+    await pool.query(`
+      UPDATE admin_panels
+      SET panel_name = 'DHL Monterrey',
+          description = 'Liberación AA DHL y operaciones CEDIS Monterrey'
+      WHERE panel_key = 'ops_mx_cedis'
+    `);
     // Sembrar panel de Consolidaciones PO Box
     await pool.query(`
       INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order)
