@@ -336,6 +336,21 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
             if (el) { el.focus(); el.select(); }
         }, 250);
     };
+    // Tras auto-imprimir la etiqueta local: dejar el módulo listo para escanear la
+    // SIGUIENTE caja → limpiar el cuadro de texto, ocultar la guía impresa y volver
+    // el foco al input. No usamos handleSearch({internal:true}) aquí porque re-cargar
+    // la misma guía dejaría la tarjeta en pantalla y el cursor fuera del campo.
+    const resetForNextScan = () => {
+        setTracking('');
+        setShipment(null);
+        setError(null);
+        lastScannedRef.current = null;
+        autoPrintPendingRef.current = false;
+        setTimeout(() => {
+            const el = searchInputRef.current;
+            if (el) { el.focus(); el.select(); }
+        }, 300);
+    };
     const [generatingPqtx, setGeneratingPqtx] = useState(false);
     const [pqtxMsg, setPqtxMsg] = useState<string | null>(null);
     const [pqtxError, setPqtxError] = useState<string | null>(null);
@@ -854,7 +869,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         }
     };
 
-    const handlePrintLocalDelivery = () => {
+    const handlePrintLocalDelivery = (opts?: { autoReset?: boolean }) => {
         if (!shipment?.master.assignedAddress) return;
         const a = shipment.master.assignedAddress;
         const printWindow = window.open('', '_blank', 'width=400,height=600');
@@ -993,6 +1008,9 @@ ${labelsHtml}
       try { JsBarcode('#barcode_' + b.idx, b.tnCompact, { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 }); } catch(e) {}
       try { var qr = qrcode(0, 'M'); qr.addData(b.qr); qr.make(); document.getElementById('qrcode_' + b.idx).innerHTML = qr.createImgTag(3); } catch(e) {}
     });
+    // Cerrar la ventana automáticamente al terminar de imprimir para no dejar
+    // pestañas abiertas entre escaneos consecutivos.
+    window.onafterprint = function() { setTimeout(function(){ window.close(); }, 200); };
     setTimeout(function() { window.print(); }, 500);
   });
 </script>
@@ -1002,8 +1020,19 @@ ${labelsHtml}
         // Marcar como etiquetado al imprimir etiqueta EntregaX Local/Nacional
         if (shipment?.master?.id) {
             markLabelPrinted()
-                .then(() => { setPqtxMsg('✅ Etiqueta impresa — paquete marcado como etiquetado'); handleSearch({ internal: true }); })
-                .catch(() => { /* silencioso */ });
+                .then(() => {
+                    if (opts?.autoReset) {
+                        // Flujo escáner: listo para la siguiente caja.
+                        setPqtxMsg('✅ Etiqueta impresa — escanea la siguiente caja');
+                        resetForNextScan();
+                    } else {
+                        setPqtxMsg('✅ Etiqueta impresa — paquete marcado como etiquetado');
+                        handleSearch({ internal: true });
+                    }
+                })
+                .catch(() => { if (opts?.autoReset) resetForNextScan(); });
+        } else if (opts?.autoReset) {
+            resetForNextScan();
         }
     };
 
@@ -1557,9 +1586,10 @@ ${labelsHtml}
         const t = setTimeout(() => {
             if (isPqtx && shipment.master.nationalTracking) {
                 window.open(buildPqtxLabelUrl(shipment.master.nationalTracking, { format4x6: true }), '_blank');
-                setPqtxMsg('🖨️ Auto-impresión: Etiqueta Paquete Express');
+                setPqtxMsg('🖨️ Auto-impresión: Etiqueta Paquete Express — escanea la siguiente caja');
+                resetForNextScan();
             } else if ((isLocal || !ac) && hasAddress) {
-                handlePrintLocalDelivery();
+                handlePrintLocalDelivery({ autoReset: true });
                 setPqtxMsg('🖨️ Auto-impresión: Etiqueta Local');
             } else {
                 setPqtxMsg(null);
@@ -2249,7 +2279,7 @@ ${labelsHtml}
                                         fullWidth
                                         variant="contained"
                                         startIcon={<PrintIcon />}
-                                        onClick={handlePrintLocalDelivery}
+                                        onClick={() => handlePrintLocalDelivery()}
                                         sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
                                     >
                                         {isEntregaxNacionalAssigned ? 'Imprimir Etiqueta Nacional' : 'Imprimir Etiqueta Local'}
