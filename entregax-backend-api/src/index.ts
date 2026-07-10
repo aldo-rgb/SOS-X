@@ -4040,9 +4040,10 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
 
     // Obtener paquetes entregados de la tabla packages
     const packagesQuery = await pool.query(`
-      SELECT 
+      SELECT
         id,
-        tracking_internal as tracking,
+        -- Aéreo China: mostrar la guía completa (child_no AIR...) no el código CN-...
+        CASE WHEN child_no ILIKE 'AIR%' THEN child_no ELSE tracking_internal END as tracking,
         tracking_provider,
         description as descripcion,
         service_type as servicio,
@@ -4054,8 +4055,10 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
           ELSE 'air'
         END as shipment_type,
         status,
+        -- eVISA prepagado = handoff a eVISA para dispersión en MTY → "ENVIADO"
+        -- (no lo entregó EntregaX directo). El resto queda "ENTREGADO".
         CASE
-          WHEN service_type = 'POBOX_USA' AND COALESCE(received_by, '') <> '' THEN 'ENTREGADO'
+          WHEN LOWER(COALESCE(national_carrier, '')) IN ('evisa_pre', 'evisapre', 'evisa') THEN 'ENVIADO'
           ELSE 'ENTREGADO'
         END as status_label,
         COALESCE(TO_CHAR(delivered_at, 'DD Mon YYYY'), TO_CHAR(updated_at, 'DD Mon YYYY')) as fecha_entrega,
