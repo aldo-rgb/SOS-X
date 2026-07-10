@@ -288,9 +288,9 @@ export const startFleetAlertsCron = () => {
       `);
       
       if (parseInt(criticalAlerts.rows[0].count) > 0) {
-        // Obtener admins de operaciones
+        // Destinatarios: super admin, admin, director, contabilidad (accountant) y servicio a cliente
         const admins = await pool.query(`
-          SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'branch_manager')
+          SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'director', 'accountant', 'customer_service')
         `);
         
         for (const admin of admins.rows) {
