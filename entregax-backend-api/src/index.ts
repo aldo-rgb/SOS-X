@@ -4589,6 +4589,10 @@ app.get('/api/cs/instructions/lookup', authenticateToken, requireMinLevel(ROLES.
          p.national_carrier,
          p.national_tracking,
          p.national_label_url,
+         p.is_master,
+         p.master_id,
+         p.china_receipt_id,
+         cr.fno AS receipt_fno,
          u.full_name AS client_name,
          u.email AS client_email,
          a.alias AS address_alias,
@@ -4606,11 +4610,20 @@ app.get('/api/cs/instructions/lookup', authenticateToken, requireMinLevel(ROLES.
        FROM packages p
        LEFT JOIN users u ON u.id = p.user_id
        LEFT JOIN addresses a ON a.id = p.assigned_address_id
+       LEFT JOIN china_receipts cr ON cr.id = p.china_receipt_id
+       LEFT JOIN packages mp ON mp.id = p.master_id
        WHERE UPPER(p.tracking_internal) = UPPER($1)
           OR UPPER(p.tracking_provider) = UPPER($1)
           OR REPLACE(UPPER(p.tracking_internal), '-', '') = $2
           OR REPLACE(UPPER(p.tracking_provider), '-', '') = $2
-       LIMIT 5`,
+          -- Buscar por la guía del recibo aéreo (china_receipts.fno) → sus hijas
+          OR UPPER(cr.fno) = UPPER($1)
+          OR REPLACE(UPPER(cr.fno), '-', '') = $2
+          -- Buscar por la guía del master → sus hijas
+          OR UPPER(mp.tracking_internal) = UPPER($1)
+          OR REPLACE(UPPER(mp.tracking_internal), '-', '') = $2
+       ORDER BY p.tracking_internal
+       LIMIT 40`,
       [tracking, compact]
     );
     if (r.rows.length === 0) {
@@ -4641,7 +4654,7 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
     const cur = await pool.query(
       `SELECT id, tracking_internal, assigned_address_id,
               delivery_address_id, destination_address, national_label_url,
-              national_tracking, status
+              national_tracking, status, is_master
        FROM packages WHERE id = $1`,
       [id]
     );
@@ -4683,6 +4696,29 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
       [id]
     );
 
+    // Si es master, revertir también las instrucciones de TODAS sus hijas
+    // (no se tocan las que ya salieron a ruta / entregadas).
+    let childrenReverted = 0;
+    if (pkg.is_master) {
+      const childRes = await pool.query(
+        `UPDATE packages SET
+           assigned_address_id = NULL,
+           delivery_address_id = NULL,
+           destination_address = 'Pendiente de asignar',
+           destination_city = NULL,
+           destination_zip = NULL,
+           destination_phone = NULL,
+           destination_contact = NULL,
+           needs_instructions = TRUE,
+           updated_at = NOW()
+         WHERE master_id = $1
+           AND status NOT IN ('delivered', 'out_for_delivery', 'returned_to_warehouse')`,
+        [id]
+      );
+      childrenReverted = childRes.rowCount || 0;
+      console.log(`🔄 [CS-INSTRUCTIONS-REVERT] master #${id} → ${childrenReverted} hija(s) revertida(s)`);
+    }
+
     // Audit log best-effort (fuera de transacción para que no envenene si la tabla no existe)
     pool.query(
       `INSERT INTO audit_log (action, entity_type, entity_id, user_id, details)
@@ -4697,7 +4733,7 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
     ).catch(() => {});
 
     console.log(`🔄 [CS-INSTRUCTIONS-REVERT] pkg #${id} (${pkg.tracking_internal}) revertido por user #${userId}`);
-    return res.json({ success: true, packageId: id, tracking: pkg.tracking_internal });
+    return res.json({ success: true, packageId: id, tracking: pkg.tracking_internal, childrenReverted });
   } catch (err: any) {
     console.error('[CS-INSTRUCTIONS-REVERT]', err.message);
     return res.status(500).json({ error: 'Error al revertir instrucciones' });
