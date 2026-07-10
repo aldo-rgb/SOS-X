@@ -153,8 +153,13 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
     const pkgRes = await client.query(
       `SELECT p.id, p.tracking_internal, p.status FROM packages p
         WHERE p.consolidation_id = $1::int
+          -- Excluir un master SOLO si sus hijas están en la MISMA consolidación
+          -- (multi-caja: se escanean las hijas). Un REPACK tiene sus hijas
+          -- consolidadas dentro (consolidation_id NULL), así que el master SÍ se
+          -- escanea como una sola guía y debe entrar aquí.
           AND NOT EXISTS (
-            SELECT 1 FROM packages c WHERE c.master_id = p.id
+            SELECT 1 FROM packages c
+             WHERE c.master_id = p.id AND c.consolidation_id = p.consolidation_id
           )
         FOR UPDATE`,
       [Number(id)]
@@ -205,6 +210,20 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
            -- etc.) NO debemos retrocederle el estado al re-finalizar una
            -- consolidación parcial. Solo limpiamos los flags de faltante.
            AND status::text IN ('in_transit', 'in_transit_mty', 'received', 'reception_failed')`,
+        [scanned, mtyBranchId]
+      );
+
+      // REPACK: las hijas viven dentro del master (status 'reempacado') y no se
+      // escanean individualmente. Al recibir el master, propagar la recepción a
+      // sus hijas para que su tracking individual también muestre "Recibido MTY".
+      await client.query(
+        `UPDATE packages
+           SET status = 'received_mty',
+               received_at = COALESCE(received_at, NOW()),
+               current_branch_id = COALESCE($2::int, current_branch_id),
+               updated_at = NOW()
+         WHERE master_id = ANY($1::int[])
+           AND status::text IN ('reempacado', 'in_transit', 'in_transit_mty', 'received', 'reception_failed')`,
         [scanned, mtyBranchId]
       );
 

@@ -274,8 +274,12 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
                         p.pkg_height,
                         p.pobox_service_cost,
                         p.pobox_cost_usd,
-                        p.pobox_provider_cost_usd,
-                        p.pobox_provider_cost_mxn,
+                        -- REPACK master: costo proveedor = suma de sus hijas (que
+                        -- guardan el costo individual). Un paquete normal usa el suyo.
+                        COALESCE(p.pobox_provider_cost_usd,
+                                 (SELECT SUM(ch.pobox_provider_cost_usd) FROM packages ch WHERE ch.master_id = p.id)) as pobox_provider_cost_usd,
+                        COALESCE(p.pobox_provider_cost_mxn,
+                                 (SELECT SUM(ch.pobox_provider_cost_mxn) FROM packages ch WHERE ch.master_id = p.id)) as pobox_provider_cost_mxn,
                         p.registered_exchange_rate,
                         ${PROVIDER_PAID} AS costing_paid,
                         p.status,
@@ -373,8 +377,12 @@ export const getSupplierConsolidations = async (req: Request, res: Response): Pr
                         p.status,
                         p.pobox_service_cost,
                         p.pobox_cost_usd,
-                        p.pobox_provider_cost_usd,
-                        p.pobox_provider_cost_mxn,
+                        -- REPACK master: costo proveedor = suma de sus hijas (que
+                        -- guardan el costo individual). Un paquete normal usa el suyo.
+                        COALESCE(p.pobox_provider_cost_usd,
+                                 (SELECT SUM(ch.pobox_provider_cost_usd) FROM packages ch WHERE ch.master_id = p.id)) as pobox_provider_cost_usd,
+                        COALESCE(p.pobox_provider_cost_mxn,
+                                 (SELECT SUM(ch.pobox_provider_cost_mxn) FROM packages ch WHERE ch.master_id = p.id)) as pobox_provider_cost_mxn,
                         p.registered_exchange_rate,
                         p.costing_paid,
                         p.received_at,
@@ -394,8 +402,12 @@ export const getSupplierConsolidations = async (req: Request, res: Response): Pr
                     LEFT JOIN users u ON p.user_id = u.id
                     LEFT JOIN legacy_clients lc ON UPPER(lc.box_id) = UPPER(p.box_id)
                     WHERE p.consolidation_id = $1 AND p.supplier_id = $2
+                    -- Excluir master SOLO si sus hijas están en la MISMA consolidación
+                    -- (multi-caja). El REPACK tiene sus hijas consolidadas dentro
+                    -- (consolidation_id NULL) → el master SÍ debe listarse.
                     AND NOT EXISTS (
-                        SELECT 1 FROM packages c WHERE c.master_id = p.id
+                        SELECT 1 FROM packages c
+                         WHERE c.master_id = p.id AND c.consolidation_id = p.consolidation_id
                     )
                     ORDER BY p.tracking_internal
                 `, [consolidation.id, id]);
