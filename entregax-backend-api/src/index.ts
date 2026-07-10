@@ -2174,6 +2174,7 @@ app.get('/api/migrate/mjcustomer-fcl', async (_req: Request, res: Response) => {
       CREATE INDEX IF NOT EXISTS idx_packages_ti_upper ON packages (UPPER(tracking_internal));
       CREATE INDEX IF NOT EXISTS idx_packages_tp_upper ON packages (UPPER(tracking_provider));
       CREATE INDEX IF NOT EXISTS idx_packages_cn_upper ON packages (UPPER(child_no));
+      CREATE INDEX IF NOT EXISTS idx_packages_current_branch_id ON packages (current_branch_id) WHERE current_branch_id IS NOT NULL;
     `);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS mjcustomer_sync_log (

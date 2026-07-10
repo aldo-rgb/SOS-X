@@ -44,6 +44,16 @@ const TRACKING_MATCH_SQL = `(
 // (route-today pasaba de ~40s a instantáneo con esto).
 const DELIVERY_STATUS_SQL = `COALESCE(p.delivery_status::text, p.status::text)`;
 
+// Filtro de estado SARGABLE para el WHERE (usa idx_packages_delivery_status).
+// delivery_status solo está poblado en ~8% de filas (el resto usa el enum status);
+// la forma COALESCE(delivery_status, status) NO es sargable → seq scan (~2s). Esta
+// versión sí usa índices (≈140ms). Usar SOLO en WHERE, no en SELECT.
+const DS_IN = (vals: string[]): string => {
+    const list = vals.map(v => `'${v.replace(/'/g, "''")}'`).join(', ');
+    return `(p.delivery_status::text IN (${list}) OR (p.delivery_status IS NULL AND p.status::text IN (${list})))`;
+};
+const DS_EQ = (v: string): string => DS_IN([v]);
+
 const ASSIGNED_DRIVER_SQL = `p.assigned_driver_id::text`;
 const PAYMENT_STATUS_SQL = `COALESCE(LOWER(p.payment_status), 'paid')`;
 const DELIVERY_ADDRESS_SQL = `COALESCE(to_jsonb(p)->>'delivery_address', to_jsonb(p)->>'destination_address')`;
@@ -911,7 +921,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${packageBranchSql} = $1
                   AND ${NOT_MASTER_WITH_CHILDREN_SQL}
-                  AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
+                  AND ${DS_IN(['received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse'])}
                   AND COALESCE(to_jsonb(p)->>'status', '') NOT IN ('delivered', 'shipped', 'sent')
                   ${paymentWhereClause}
                 ORDER BY p.updated_at ASC NULLS LAST, p.created_at ASC
@@ -944,7 +954,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                                 LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
                   AND ${NOT_MASTER_WITH_CHILDREN_SQL}
-                  AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
+                  AND ${DS_IN(['received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse'])}
                   AND COALESCE(to_jsonb(p)->>'status', '') NOT IN ('delivered', 'shipped', 'sent')
                 ORDER BY p.created_at ASC
             `, [driverId]);
@@ -976,7 +986,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     OR (${ASSIGNED_DRIVER_SQL} IS NULL
                         AND p.updated_at >= NOW() - INTERVAL '7 days')
                 )
-                  AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                  AND ${DS_EQ('out_for_delivery')}
                   AND ${NOT_MASTER_WITH_CHILDREN_SQL}
                 ORDER BY p.updated_at ASC, p.created_at ASC
             `, [driverId])
@@ -1002,7 +1012,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     LEFT JOIN packages m ON m.id = p.master_id
                                         LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                     WHERE ${packageBranchSql} = $1
-                      AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                      AND ${DS_EQ('out_for_delivery')}
                       AND ${NOT_MASTER_WITH_CHILDREN_SQL}
                     ORDER BY p.updated_at ASC, p.created_at ASC
                 `, [driverBranchId])
@@ -1031,7 +1041,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
         const deliveredPromise = hasAssignedDriverColumn
             ? pool.query(`${DELIVERED_SELECT}
                 WHERE p.assigned_driver_id::text = $1::text
-                    AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent', 'shipped')
+                    AND ${DS_IN(['delivered', 'sent', 'shipped'])}
                     AND DATE(p.updated_at) = CURRENT_DATE
                     AND COALESCE(p.is_master, false) = false
                 ORDER BY p.updated_at DESC
@@ -1039,7 +1049,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
             : driverBranchId
                 ? pool.query(`${DELIVERED_SELECT}
                     WHERE ${packageBranchSql} = $1
-                        AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent', 'shipped')
+                        AND ${DS_IN(['delivered', 'sent', 'shipped'])}
                         AND DATE(p.updated_at) = CURRENT_DATE
                         AND COALESCE(p.is_master, false) = false
                     ORDER BY p.updated_at DESC
@@ -1390,7 +1400,7 @@ export const getPackagesToReturn = async (req: Request, res: Response): Promise<
                     ${LOADED_AT_SQL} as loaded_at
                 FROM packages p
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
-                    AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                    AND ${DS_EQ('out_for_delivery')}
                     AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                 ORDER BY p.updated_at ASC, p.created_at ASC
             `, [driverId])
@@ -1405,7 +1415,7 @@ export const getPackagesToReturn = async (req: Request, res: Response): Promise<
                         ${LOADED_AT_SQL} as loaded_at
                     FROM packages p
                     WHERE ${packageBranchSql} = $1
-                        AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                        AND ${DS_EQ('out_for_delivery')}
                         AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                     ORDER BY p.updated_at ASC, p.created_at ASC
                 `, [driverBranchId])
@@ -1995,7 +2005,7 @@ export const getDeliveriesToday = async (req: Request, res: Response): Promise<a
                                 p.delivered_at
                         FROM packages p
                         WHERE p.assigned_driver_id = $1 
-                            AND ${DELIVERY_STATUS_SQL} = 'delivered'
+                            AND ${DS_EQ('delivered')}
                             AND DATE(p.delivered_at) = CURRENT_DATE
                         ORDER BY p.delivered_at DESC
         `, [driverId]);
