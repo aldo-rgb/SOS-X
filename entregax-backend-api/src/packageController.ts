@@ -7408,9 +7408,16 @@ export const notifyBulkMasterReception = async (req: Request, res: Response): Pr
       }
     } else {
       // Sin cliente: notificar a asesores
+      const goRows = await pool.query(
+        `SELECT MIN(tracking_provider) as guia_origen FROM packages WHERE master_id = $1 OR broker_receipt_id = $1`,
+        [masterId]
+      );
+      const guiaOrigen = goRows.rows[0]?.guia_origen || pkg.tracking_provider || null;
+      const origenStr = guiaOrigen ? ` · Guía origen: ${guiaOrigen}` : '';
+
       const notifTitle = '📦 Guía sin identificar · PO Box USA';
-      const notifBody = `${savedTracking} — Sin cliente asignado`;
-      const notifData = { screen: 'AdvisorPackages', filter: 'unidentified', tracking: savedTracking };
+      const notifBody = `${savedTracking}${origenStr} — Sin cliente asignado`;
+      const notifData = { screen: 'AdvisorPackages', filter: 'unidentified', tracking: savedTracking, guia_origen: guiaOrigen };
 
       const nr = await pool.query(`SELECT id FROM users WHERE role IN ('asesor','sub_advisor','advisor')`);
       const { createCustomNotification } = await import('./notificationController');
