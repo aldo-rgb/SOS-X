@@ -621,19 +621,25 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
             });
         }
 
+        // El candado "otro chofer" solo debe aplicar cuando el paquete sigue EN RUTA
+        // (out_for_delivery) en la unidad del otro chofer. Si ya volvió a bodega
+        // (received_mty, returned_to_warehouse, etc.) está libre para reasignarse a
+        // otro chofer, aunque conserve el assigned_driver_id anterior.
+        const freeToReassign = pkg.delivery_status !== 'out_for_delivery';
+
         // 2. REGLA DE SEGURIDAD: ¿Le toca a este chofer?
-        if (pkg.assigned_driver_id && Number(pkg.assigned_driver_id) !== driverId) {
+        if (pkg.assigned_driver_id && Number(pkg.assigned_driver_id) !== driverId && !freeToReassign) {
             // Obtener nombre del chofer asignado para el mensaje
             const assignedDriverName = pkg.driver_name || 'otro chofer';
-            return res.status(403).json({ 
+            return res.status(403).json({
                 error: `⛔ ALTO: Este paquete está asignado a ${assignedDriverName}. Devuélvelo a bodega.`,
                 assignedTo: assignedDriverName,
                 barcode
             });
         }
 
-        // Si no está asignado, permitirlo solo si pertenece a la sucursal del chofer
-        if (!pkg.assigned_driver_id) {
+        // Si no está asignado (o ya volvió a bodega), permitirlo solo si pertenece a la sucursal del chofer
+        if (!pkg.assigned_driver_id || freeToReassign) {
             const driverBranchId = await getDriverBranchId(driverId);
             if (!driverBranchId || Number(pkg.package_branch_id) !== driverBranchId) {
                 return res.status(403).json({
@@ -683,7 +689,11 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
 
         if (hasAssignedDriverColumn) {
             values.push(driverId);
-            setParts.push(`assigned_driver_id = COALESCE(assigned_driver_id, $${values.length})`);
+            // De vuelta en bodega → reasignar al chofer que lo vuelve a cargar; si
+            // sigue en ruta con el mismo chofer, conservar el asignado.
+            setParts.push(freeToReassign
+                ? `assigned_driver_id = $${values.length}`
+                : `assigned_driver_id = COALESCE(assigned_driver_id, $${values.length})`);
         }
 
         if (hasLoadedAtColumn) {
@@ -1161,6 +1171,13 @@ export const scanPackageReturn = async (req: Request, res: Response): Promise<an
 
         if (hasLoadedAtColumn) {
             setParts.push('loaded_at = NULL');
+        }
+
+        // Al retornar a bodega, liberar el paquete del chofer para que pueda
+        // reasignarse a otro chofer en el siguiente intento de entrega. Antes
+        // quedaba assigned_driver_id del chofer anterior → "asignado a otro chofer".
+        if (await hasPackageColumn('assigned_driver_id')) {
+            setParts.push('assigned_driver_id = NULL');
         }
 
         if (hasReturnReasonColumn) {
