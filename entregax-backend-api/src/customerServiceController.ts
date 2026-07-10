@@ -1995,7 +1995,20 @@ export const reassignPackageClient = async (req: Request, res: Response) => {
     }
 
     if (source_type === 'package') {
-      await pool.query(`UPDATE packages SET user_id = $1, box_id = $2 WHERE id = $3`, [target.id, target.box_id, id]);
+      // Reasignar el paquete Y todo su grupo master/hijas (multi-caja / repack),
+      // para que master e hijas NO queden con dueños distintos (bug histórico: el
+      // panel del cliente muestra el master, así que si solo se reasigna la hija
+      // el cliente no ve nada).
+      const pkgRow = await pool.query(`SELECT id, master_id FROM packages WHERE id = $1`, [id]);
+      if (pkgRow.rows.length === 0) {
+        return res.status(404).json({ error: 'Paquete no encontrado' });
+      }
+      const groupMasterId = pkgRow.rows[0].master_id || pkgRow.rows[0].id;
+      await pool.query(
+        `UPDATE packages SET user_id = $1, box_id = $2
+          WHERE id = $3 OR master_id = $3`,
+        [target.id, target.box_id, groupMasterId]
+      );
     } else if (source_type === 'china_receipt') {
       await pool.query(`UPDATE china_receipts SET user_id = $1, shipping_mark = $2 WHERE id = $3`, [target.id, target.box_id, id]);
     } else if (source_type === 'maritime_order') {

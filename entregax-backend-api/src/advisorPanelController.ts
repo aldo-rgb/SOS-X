@@ -2076,7 +2076,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       const ocurreZip = (carrierKey === 'paquete_express' && nationalDeliveryZip) ? String(nationalDeliveryZip).trim() : null;
 
       // 🚚 Regla eVISA: TDI Aéreo (CDMX) hacia la zona metro de Monterrey se
-      // despacha por eVISA prepagado (EntregaX lo paga; eVISA dispersa en MTY).
+      // despacha por pagado (EntregaX lo paga; eVISA dispersa en MTY).
       // Si el asesor eligió EntregaX Local MTY (o eVISA), guardamos el carrier
       // como 'evisa_pre' SIN costo (incluido en el flete). Solo aplica a TDI Aéreo.
       let effCarrier = carrierKey || null;
@@ -2251,11 +2251,14 @@ export const assignClientToPackage = async (req: Request, res: Response): Promis
       return res.status(404).json({ error: 'Paquete no encontrado o ya tiene cliente asignado' });
     }
 
-    // Asignar user_id y box_id al master y a todos sus hijos
+    // Asignar user_id y box_id a TODO el grupo master/hijas. Si se escaneó una
+    // hija, resolver el id del master para no dejar master e hijas con dueños
+    // distintos (el panel del cliente muestra el master).
+    const groupMasterId = pkgCheck.rows[0].master_id || parseInt(packageId);
     await pool.query(
       `UPDATE packages SET user_id = $1, box_id = $2, updated_at = NOW()
        WHERE id = $3 OR master_id = $3`,
-      [client.id, client.box_id, parseInt(packageId)]
+      [client.id, client.box_id, groupMasterId]
     );
 
     res.json({
