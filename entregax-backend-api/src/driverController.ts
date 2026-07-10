@@ -35,13 +35,14 @@ const TRACKING_MATCH_SQL = `(
        = REGEXP_REPLACE(UPPER($1), '-0+([0-9])', '-\\1', 'g')
 )`;
 
-const DELIVERY_STATUS_SQL = `COALESCE(
-    to_jsonb(p)->>'delivery_status',
-    to_jsonb(p)->>'status'
-)`;
+// Columnas reales indexadas (delivery_status, status, assigned_driver_id,
+// payment_status existen en el esquema y tienen índices). Usarlas directo — en
+// vez de to_jsonb(p)->>'...' — permite usar los índices y evita seq scans
+// (route-today pasaba de ~40s a instantáneo con esto).
+const DELIVERY_STATUS_SQL = `COALESCE(p.delivery_status::text, p.status::text)`;
 
-const ASSIGNED_DRIVER_SQL = `to_jsonb(p)->>'assigned_driver_id'`;
-const PAYMENT_STATUS_SQL = `COALESCE(LOWER(to_jsonb(p)->>'payment_status'), 'paid')`;
+const ASSIGNED_DRIVER_SQL = `p.assigned_driver_id::text`;
+const PAYMENT_STATUS_SQL = `COALESCE(LOWER(p.payment_status), 'paid')`;
 const DELIVERY_ADDRESS_SQL = `COALESCE(to_jsonb(p)->>'delivery_address', to_jsonb(p)->>'destination_address')`;
 const DELIVERY_CITY_SQL = `COALESCE(to_jsonb(p)->>'delivery_city', to_jsonb(p)->>'destination_city')`;
 const DELIVERY_ZIP_SQL = `COALESCE(to_jsonb(p)->>'delivery_zip', to_jsonb(p)->>'destination_zip')`;
@@ -68,7 +69,7 @@ const REFERENCE_HINT_SQL = `COALESCE(
     NULLIF(TRIM(to_jsonb(m)->>'bl_client_code'), '')
 )`;
 const PACKAGE_GROUP_KEY_SQL = `COALESCE(
-    NULLIF(to_jsonb(p)->>'master_id', ''),
+    NULLIF(p.master_id::text, ''),
     CONCAT('pkg-', p.id::text)
 )`;
 const NATIONAL_TRACKING_SQL = `COALESCE(
@@ -76,10 +77,7 @@ const NATIONAL_TRACKING_SQL = `COALESCE(
     to_jsonb(p)->>'skydropx_label_id',
     to_jsonb(p)->>'dhl_awb'
 )`;
-const NATIONAL_CARRIER_SQL = `COALESCE(
-    to_jsonb(p)->>'national_carrier',
-    to_jsonb(p)->>'carrier'
-)`;
+const NATIONAL_CARRIER_SQL = `COALESCE(p.national_carrier, p.carrier)`;
 const LOADED_AT_SQL = `to_jsonb(p)->>'loaded_at'`;
 const HAS_LABEL_SQL = `(
     to_jsonb(p)->>'national_label_url' IS NOT NULL
@@ -91,13 +89,14 @@ const HAS_LABEL_SQL = `(
 
 // Incluir: paquetes no-master, O masters sin hijos (standalone como US-1379808951 con PQTX)
 const NOT_MASTER_WITH_CHILDREN_SQL = `(
-    COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+    COALESCE(p.is_master, false) = false
     OR NOT EXISTS (SELECT 1 FROM packages c WHERE c.master_id = p.id LIMIT 1)
 )`;
 
 let packageStatusColumnCache: 'delivery_status' | 'status' | null = null;
 let packageBranchSqlCache: string | null = null;
 const packageColumnsCache = new Set<string>();
+const packageMissingColumnsCache = new Set<string>();
 let outForDeliveryWriteStatusCache: 'out_for_delivery' | 'in_transit' | null = null;
 let inCedisWriteStatusCache: 'in_cedis' | 'received_mty' | null = null;
 let sentWriteStatusCache: 'sent' | 'delivered' | null = null;
@@ -163,6 +162,10 @@ const getPackageStatusColumn = async (): Promise<'delivery_status' | 'status'> =
 
 const hasPackageColumn = async (columnName: string): Promise<boolean> => {
         if (packageColumnsCache.has(columnName)) return true;
+        // Cache negativo: evita re-consultar information_schema en cada request para
+        // columnas que NO existen (p.ej. loaded_at). Antes esto pegaba a la DB en
+        // cada llamada de route-today.
+        if (packageMissingColumnsCache.has(columnName)) return false;
 
         const result = await pool.query(
                 `
@@ -177,6 +180,7 @@ const hasPackageColumn = async (columnName: string): Promise<boolean> => {
 
         const exists = result.rows.length > 0;
         if (exists) packageColumnsCache.add(columnName);
+        else packageMissingColumnsCache.add(columnName);
         return exists;
 };
 
@@ -1006,10 +1010,10 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
         `;
         const deliveredPromise = hasAssignedDriverColumn
             ? pool.query(`${DELIVERED_SELECT}
-                WHERE to_jsonb(p)->>'assigned_driver_id' = $1::text
+                WHERE p.assigned_driver_id::text = $1::text
                     AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent', 'shipped')
                     AND DATE(p.updated_at) = CURRENT_DATE
-                    AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                    AND COALESCE(p.is_master, false) = false
                 ORDER BY p.updated_at DESC
             `, [driverId])
             : driverBranchId
@@ -1017,7 +1021,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     WHERE ${packageBranchSql} = $1
                         AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent', 'shipped')
                         AND DATE(p.updated_at) = CURRENT_DATE
-                        AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                        AND COALESCE(p.is_master, false) = false
                     ORDER BY p.updated_at DESC
                 `, [driverBranchId])
                 : Promise.resolve({ rows: [] as any[] });
@@ -1088,10 +1092,37 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
             `)
             : Promise.resolve({ rows: [] as any[] });
 
+        // DHL entregadas HOY → aparecen en "Entregados hoy".
+        const dhlDeliveredPromise = isMtyBranch
+            ? pool.query(`
+                SELECT
+                    'DHL-' || ds.id::text AS id,
+                    COALESCE(NULLIF(ds.secondary_tracking,''), ds.inbound_tracking) AS tracking_number,
+                    ds.inbound_tracking AS national_tracking,
+                    COALESCE(NULLIF(ds.national_carrier, ''), 'DHL') AS national_carrier,
+                    ds.status AS delivery_status,
+                    COALESCE(a.street || ' ' || a.exterior_number, 'Pendiente de asignar') AS delivery_address,
+                    COALESCE(a.city, 'MTY') AS delivery_city,
+                    a.zip_code AS delivery_zip,
+                    u.full_name AS recipient_name,
+                    u.phone AS recipient_phone,
+                    ds.box_id AS client_number,
+                    true AS is_dhl_shipment,
+                    ds.delivered_at
+                FROM dhl_shipments ds
+                LEFT JOIN users u ON u.id = ds.user_id
+                LEFT JOIN addresses a ON a.id = ds.delivery_address_id
+                WHERE ds.status = 'delivered' AND DATE(ds.delivered_at) = CURRENT_DATE
+                ORDER BY ds.delivered_at DESC
+            `)
+            : Promise.resolve({ rows: [] as any[] });
+
         // Ejecutar las queries en paralelo
-        const [pendingRes, loadedResRaw, deliveredTodayRes, dhlPendingRes, dhlLoadedRes] = await Promise.all([
-            pendingPromise, loadedPromise, deliveredPromise, dhlPendingPromise, dhlLoadedPromise
+        const [pendingRes, loadedResRaw, deliveredRawRes, dhlPendingRes, dhlLoadedRes, dhlDeliveredRes] = await Promise.all([
+            pendingPromise, loadedPromise, deliveredPromise, dhlPendingPromise, dhlLoadedPromise, dhlDeliveredPromise
         ]);
+        // Entregados hoy = packages + DHL entregadas hoy
+        const deliveredTodayRes = { rows: [...deliveredRawRes.rows, ...dhlDeliveredRes.rows] };
         // Combinar cargados regulares (packages) + DHL cargadas
         const loadedRes = { rows: [...loadedResRaw.rows, ...dhlLoadedRes.rows] };
 

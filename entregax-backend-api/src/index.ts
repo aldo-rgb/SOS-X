@@ -2159,6 +2159,12 @@ app.get('/api/migrate/mjcustomer-fcl', async (_req: Request, res: Response) => {
       CREATE INDEX IF NOT EXISTS idx_containers_mj_container_id
           ON containers (mj_container_id) WHERE mj_container_id IS NOT NULL;
     `);
+    // Índice para acelerar route-today del repartidor: la subconsulta
+    // NOT EXISTS (... master_id = p.id) hacía seq scan por fila (O(n²)).
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_packages_master_id
+          ON packages (master_id) WHERE master_id IS NOT NULL;
+    `);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS mjcustomer_sync_log (
         id SERIAL PRIMARY KEY,
