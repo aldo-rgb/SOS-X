@@ -1060,6 +1060,10 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 LEFT JOIN users u ON u.id = ds.user_id
                 LEFT JOIN addresses a ON a.id = ds.delivery_address_id
                 WHERE ds.status = 'received_mty'
+                  -- Misma regla que los paquetes: solo aparecen las guías DHL
+                  -- PAGADAS (cost_payment_status='paid') y con ETIQUETA impresa.
+                  ${reqPay ? `AND LOWER(COALESCE(ds.cost_payment_status,'')) = 'paid'` : ``}
+                  ${reqLabel ? `AND (ds.national_tracking IS NOT NULL OR ds.national_label_url IS NOT NULL)` : ``}
                 ORDER BY ds.created_at ASC
             `)
             : Promise.resolve({ rows: [] as any[] });
