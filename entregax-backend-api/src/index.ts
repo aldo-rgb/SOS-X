@@ -4359,15 +4359,67 @@ app.get('/api/packages/track/:tracking/photos', authenticateToken, async (req: R
       );
       photos = r.rows[0]?.evidence_urls || [];
     }
-    // Las fotos viven en un bucket S3 privado → firmar cada URL para evitar AccessDenied.
+    // Normalizar: algunos evidence_urls quedaron guardados como un string que a
+    // su vez es un JSON array (doble codificación), p.ej. '["http://...png"]'.
+    // Aplanar cada elemento a URLs individuales antes de firmar/servir.
+    const flatUrls: string[] = [];
+    const pushUrl = (v: any) => {
+      if (typeof v !== 'string') return;
+      const s = v.trim();
+      if (!s) return;
+      if (s.startsWith('[') || s.startsWith('"')) {
+        try {
+          const parsed = JSON.parse(s);
+          if (Array.isArray(parsed)) { parsed.forEach(pushUrl); return; }
+          if (typeof parsed === 'string') { pushUrl(parsed); return; }
+        } catch { /* no era JSON, seguir */ }
+      }
+      if (/^https?:\/\//i.test(s)) flatUrls.push(s);
+    };
+    (Array.isArray(photos) ? photos : []).forEach(pushUrl);
+    // Las fotos S3 privadas se firman; las de MoJie llegan por http (sin https),
+    // que el ATS de iOS bloquea → las servimos por nuestro proxy https.
+    const proto = (String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0] || 'https').trim();
+    const host = req.get('host');
+    const selfBase = host ? `${proto}://${host}` : '';
     const { signS3UrlIfNeeded } = await import('./s3Service');
-    const signedPhotos = Array.isArray(photos)
-      ? (await Promise.all(photos.map((u) => signS3UrlIfNeeded(u, 3600)))).filter(Boolean)
-      : [];
+    const signedPhotos = (await Promise.all(
+      flatUrls.map(async (u) => {
+        if (/^https?:\/\/[^/]*mojiegrupo\.com/i.test(u)) {
+          return selfBase
+            ? `${selfBase}/api/packages/photo-proxy?url=${encodeURIComponent(u)}`
+            : u;
+        }
+        return await signS3UrlIfNeeded(u, 3600);
+      })
+    )).filter(Boolean);
     res.json({ success: true, photos: signedPhotos });
   } catch (err: any) {
     console.error('[photos] error:', err?.message);
     res.status(500).json({ success: false, error: 'Error al cargar fotos' });
+  }
+});
+
+// Proxy de imágenes de MoJie (solo http, sin https) para pasar el ATS de iOS.
+// Sin auth (el componente <Image> no envía headers) pero con whitelist ESTRICTO
+// de host → evita SSRF. Solo sirve content-type image/*.
+app.get('/api/packages/photo-proxy', async (req: Request, res: Response) => {
+  try {
+    const raw = String(req.query.url || '');
+    let target: URL;
+    try { target = new URL(raw); } catch { res.status(400).end(); return; }
+    if (!/(^|\.)mojiegrupo\.com$/i.test(target.hostname)) { res.status(403).end(); return; }
+    const upstream = await fetch(target.toString());
+    if (!upstream.ok) { res.status(502).end(); return; }
+    const ct = upstream.headers.get('content-type') || 'image/png';
+    if (!/^image\//i.test(ct)) { res.status(415).end(); return; }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(buf);
+  } catch (err: any) {
+    console.error('[photo-proxy] error:', err?.message);
+    res.status(500).end();
   }
 });
 
