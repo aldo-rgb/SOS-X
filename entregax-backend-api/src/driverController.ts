@@ -557,9 +557,56 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         `, [barcode]);
 
         if (pkgRes.rows.length === 0) {
-            return res.status(404).json({ 
+            // Fallback DHL: las guías DHL viven en dhl_shipments (no en packages).
+            // El repartidor las CARGA (marca out_for_delivery); la entrega se
+            // confirma por otro flujo (Operaciones DHL).
+            const bcNorm = String(barcode).toUpperCase().trim();
+            const bcCompact = bcNorm.replace(/[^A-Z0-9]/g, '');
+            const dhlRes = await pool.query(
+                `SELECT id, inbound_tracking, secondary_tracking, status, cost_payment_status
+                   FROM dhl_shipments
+                  WHERE UPPER(inbound_tracking) = $1
+                     OR UPPER(COALESCE(secondary_tracking,'')) = $1
+                     OR REGEXP_REPLACE(UPPER(inbound_tracking), '[^A-Z0-9]', '', 'g') = $2
+                     OR REGEXP_REPLACE(UPPER(COALESCE(secondary_tracking,'')), '[^A-Z0-9]', '', 'g') = $2
+                  LIMIT 1`,
+                [bcNorm, bcCompact]
+            );
+            if (dhlRes.rows.length > 0) {
+                const d = dhlRes.rows[0];
+                const displayTn = d.secondary_tracking || d.inbound_tracking;
+                if (d.status === 'delivered') {
+                    return res.status(400).json({ error: '⚠️ Esta guía DHL ya fue entregada.', barcode });
+                }
+                if (d.status === 'out_for_delivery') {
+                    return res.status(400).json({ error: '⚠️ Esta guía DHL ya está cargada en tu unidad.', barcode });
+                }
+                if (d.status !== 'received_mty') {
+                    return res.status(400).json({ error: `⚠️ Guía DHL en estado "${d.status}" — no se puede cargar todavía.`, barcode });
+                }
+                const { requirePayment } = await getLoadingFlags();
+                if (requirePayment && String(d.cost_payment_status || '').toLowerCase() !== 'paid') {
+                    return res.status(400).json({ error: '⚠️ Falta el pago del costo DHL para poder cargar esta guía.', barcode });
+                }
+                await pool.query(
+                    `UPDATE dhl_shipments
+                        SET status = 'out_for_delivery',
+                            dispatched_at = COALESCE(dispatched_at, NOW()),
+                            dispatched_by = $2,
+                            updated_at = NOW()
+                      WHERE id = $1`,
+                    [d.id, driverId]
+                );
+                return res.json({
+                    success: true,
+                    message: `✅ Guía DHL ${displayTn} cargada en tu unidad.`,
+                    tracking: displayTn,
+                    isDhl: true,
+                });
+            }
+            return res.status(404).json({
                 error: '❌ Código no encontrado en el sistema.',
-                barcode 
+                barcode
             });
         }
 
@@ -1013,10 +1060,40 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
             `)
             : Promise.resolve({ rows: [] as any[] });
 
-        // Ejecutar las 4 queries en paralelo
-        const [pendingRes, loadedRes, deliveredTodayRes, dhlPendingRes] = await Promise.all([
-            pendingPromise, loadedPromise, deliveredPromise, dhlPendingPromise
+        // DHL ya CARGADAS (out_for_delivery) → cuentan como cargadas y pasan a
+        // "Confirmar Entrega". La entrega se confirma por su propio flujo.
+        const dhlLoadedPromise = isMtyBranch
+            ? pool.query(`
+                SELECT
+                    'DHL-' || ds.id::text AS id,
+                    COALESCE(NULLIF(ds.secondary_tracking,''), ds.inbound_tracking) AS tracking_number,
+                    ds.inbound_tracking AS national_tracking,
+                    COALESCE(NULLIF(ds.national_carrier, ''), 'DHL') AS national_carrier,
+                    ds.status AS delivery_status,
+                    COALESCE(a.street || ' ' || a.exterior_number, 'Pendiente de asignar') AS delivery_address,
+                    COALESCE(a.city, 'MTY') AS delivery_city,
+                    a.zip_code AS delivery_zip,
+                    u.full_name AS recipient_name,
+                    u.phone AS recipient_phone,
+                    ds.box_id AS client_number,
+                    true AS is_dhl_shipment,
+                    ds.delivery_address_id AS assigned_address_id,
+                    ds.dispatched_at AS loaded_at,
+                    (ds.national_tracking IS NOT NULL OR ds.national_label_url IS NOT NULL) AS has_label
+                FROM dhl_shipments ds
+                LEFT JOIN users u ON u.id = ds.user_id
+                LEFT JOIN addresses a ON a.id = ds.delivery_address_id
+                WHERE ds.status = 'out_for_delivery'
+                ORDER BY ds.dispatched_at ASC NULLS LAST
+            `)
+            : Promise.resolve({ rows: [] as any[] });
+
+        // Ejecutar las queries en paralelo
+        const [pendingRes, loadedResRaw, deliveredTodayRes, dhlPendingRes, dhlLoadedRes] = await Promise.all([
+            pendingPromise, loadedPromise, deliveredPromise, dhlPendingPromise, dhlLoadedPromise
         ]);
+        // Combinar cargados regulares (packages) + DHL cargadas
+        const loadedRes = { rows: [...loadedResRaw.rows, ...dhlLoadedRes.rows] };
 
         // Combinar pendientes regulares + DHL pendientes
         const allPendingRows = [...pendingRes.rows, ...dhlPendingRes.rows];
@@ -1346,9 +1423,44 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
         `, [barcode]);
 
         if (pkgRes.rows.length === 0) {
-            return res.status(404).json({ 
+            // Fallback DHL: confirmar entrega de guía DHL (vive en dhl_shipments).
+            const bcNorm = String(barcode).toUpperCase().trim();
+            const bcCompact = bcNorm.replace(/[^A-Z0-9]/g, '');
+            const dhlRes = await pool.query(
+                `SELECT id, inbound_tracking, secondary_tracking, status
+                   FROM dhl_shipments
+                  WHERE UPPER(inbound_tracking) = $1
+                     OR UPPER(COALESCE(secondary_tracking,'')) = $1
+                     OR REGEXP_REPLACE(UPPER(inbound_tracking), '[^A-Z0-9]', '', 'g') = $2
+                     OR REGEXP_REPLACE(UPPER(COALESCE(secondary_tracking,'')), '[^A-Z0-9]', '', 'g') = $2
+                  LIMIT 1`,
+                [bcNorm, bcCompact]
+            );
+            if (dhlRes.rows.length > 0) {
+                const d = dhlRes.rows[0];
+                const displayTn = d.secondary_tracking || d.inbound_tracking;
+                if (d.status === 'delivered') {
+                    return res.status(400).json({ error: '⚠️ Esta guía DHL ya fue entregada.', barcode });
+                }
+                if (!recipientNameTrimmed) {
+                    return res.status(400).json({ error: '❌ El nombre de quien recibe es obligatorio.' });
+                }
+                await pool.query(
+                    `UPDATE dhl_shipments
+                        SET status = 'delivered', delivered_at = NOW(), updated_at = NOW()
+                      WHERE id = $1`,
+                    [d.id]
+                );
+                return res.json({
+                    success: true,
+                    message: `✅ Guía DHL ${displayTn} entregada a ${recipientNameTrimmed}.`,
+                    tracking: displayTn,
+                    isDhl: true,
+                });
+            }
+            return res.status(404).json({
                 error: '❌ Código no encontrado.',
-                barcode 
+                barcode
             });
         }
 
@@ -1918,6 +2030,55 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
         `, [barcodeUpper, barcodeNormalized, barcodeCompact, barcodeNoHyphens, driverId]);
 
         if (result.rows.length === 0) {
+            // Fallback DHL: verificar guía DHL para entrega (vive en dhl_shipments).
+            const bcNorm = barcodeUpper;
+            const bcCompact = barcodeUpper.replace(/[^A-Z0-9]/g, '');
+            const dhlRes = await pool.query(
+                `SELECT ds.id, ds.inbound_tracking, ds.secondary_tracking, ds.status,
+                        COALESCE(NULLIF(ds.national_carrier,''),'DHL') AS national_carrier,
+                        COALESCE(a.street || ' ' || a.exterior_number, 'Pendiente de asignar') AS delivery_address,
+                        COALESCE(a.city,'MTY') AS delivery_city, a.zip_code AS delivery_zip,
+                        u.full_name AS recipient_name, u.phone AS recipient_phone
+                   FROM dhl_shipments ds
+                   LEFT JOIN users u ON u.id = ds.user_id
+                   LEFT JOIN addresses a ON a.id = ds.delivery_address_id
+                  WHERE UPPER(ds.inbound_tracking) = $1
+                     OR UPPER(COALESCE(ds.secondary_tracking,'')) = $1
+                     OR REGEXP_REPLACE(UPPER(ds.inbound_tracking), '[^A-Z0-9]', '', 'g') = $2
+                     OR REGEXP_REPLACE(UPPER(COALESCE(ds.secondary_tracking,'')), '[^A-Z0-9]', '', 'g') = $2
+                  LIMIT 1`,
+                [bcNorm, bcCompact]
+            );
+            if (dhlRes.rows.length > 0) {
+                const d = dhlRes.rows[0];
+                const displayTn = d.secondary_tracking || d.inbound_tracking;
+                if (d.status === 'delivered') {
+                    return res.status(400).json({ error: '⚠️ Esta guía DHL ya fue entregada.', currentStatus: 'delivered', barcode });
+                }
+                if (!['out_for_delivery', 'received_mty'].includes(d.status)) {
+                    return res.status(400).json({ error: `⚠️ Guía DHL en estado "${d.status}" — no está lista para entregar.`, currentStatus: d.status, barcode });
+                }
+                return res.json({
+                    success: true,
+                    package: {
+                        id: d.id,
+                        tracking_number: displayTn,
+                        recipient_name: d.recipient_name,
+                        recipient_phone: d.recipient_phone,
+                        delivery_address: d.delivery_address,
+                        delivery_city: d.delivery_city,
+                        delivery_zip: d.delivery_zip,
+                        delivery_status: d.status,
+                        national_tracking: d.inbound_tracking,
+                        national_carrier: d.national_carrier,
+                        carrier_service_request_code: null,
+                        requires_carrier_scan: false,
+                        has_children: false,
+                        child_guides: [],
+                        is_dhl: true,
+                    }
+                });
+            }
             console.warn(`⚠️ Paquete NO encontrado: "${barcode}"`);
             return res.status(404).json({ error: '❌ Paquete no encontrado o no está asignado a ti.', barcode });
         }
