@@ -14586,6 +14586,23 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
           params
         );
       }
+      // Espejo en packages: existe un master LOG (tracking_internal = ordersn) y
+      // sus cajas hijas que el rastreo/Cajito lee para el status. Si solo
+      // actualizamos maritime_orders, el rastreo se queda con el status viejo.
+      if (safeNewStatus) {
+        const PKG_ENUM = new Set(['received','in_transit','customs','ready_pickup','delivered','received_china','processing','reempacado','received_mty','lost','dispatched_national','out_for_delivery','returned_to_warehouse','received_cdmx','received_gdl','received_qro','sent','shipped']);
+        const pkgStatus = PKG_ENUM.has(safeNewStatus)
+          ? safeNewStatus
+          : (safeNewStatus === 'customs_mx' || safeNewStatus === 'customs_cleared') ? 'customs' : null;
+        if (pkgStatus) {
+          await pool.query(
+            `UPDATE packages SET status = $1::package_status, updated_at = NOW()
+              WHERE UPPER(tracking_internal) = UPPER($2)
+                 OR master_id IN (SELECT id FROM packages WHERE UPPER(tracking_internal) = UPPER($2))`,
+            [pkgStatus, guia]
+          );
+        }
+      }
     } else if (service === 'dhl') {
       // DHL Monterrey vive en dhl_shipments (no en packages).
       const updates: string[] = [];

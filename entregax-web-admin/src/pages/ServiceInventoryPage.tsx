@@ -50,6 +50,7 @@ const MARITIME_STATUS_LABELS: Record<string, { label: string; color: string; bg:
   customs_cleared: { label: 'Aduana Liberada',      color: '#1565C0', bg: '#E3F2FD' },
   received_mty:    { label: 'Recibido en MTY',      color: '#2E7D32', bg: '#E8F5E9' },
   received_cdmx:   { label: 'Recibido en CDMX',    color: '#2E7D32', bg: '#E8F5E9' },
+  out_for_delivery:{ label: 'En Ruta de Entrega',   color: '#EF6C00', bg: '#FFF3E0' },
   delivered:       { label: 'Entregado',            color: '#2E7D32', bg: '#E8F5E9' },
   pending_api:     { label: 'Pendiente API',        color: '#9E9E9E', bg: '#F5F5F5' },
 };
