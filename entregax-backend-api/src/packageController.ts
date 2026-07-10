@@ -3022,12 +3022,16 @@ const buildMaritimeMovementsResponse = async (order: any) => {
 };
 
 const getChinaReceiptBaseByTracking = async (tracking: string) => {
+    // La guía escaneada puede traer sufijo de caja (AIR2615662DJOtz-001); el fno
+    // del receipt es sin sufijo → probar ambas formas.
+    const upper = tracking.toUpperCase().trim();
+    const fnoCandidate = upper.replace(/-\d{1,4}$/, '');
     const result = await pool.query(
         `SELECT cr.id, cr.user_id, cr.fno, cr.shipping_mark, cr.status, cr.created_at, cr.updated_at
          FROM china_receipts cr
-         WHERE UPPER(cr.fno) = UPPER($1)
+         WHERE UPPER(cr.fno) = $1 OR UPPER(cr.fno) = $2
          LIMIT 1`,
-        [tracking]
+        [upper, fnoCandidate]
     );
     return result.rows[0] || null;
 };
@@ -4621,7 +4625,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                             }
                         }
 
-                        // 💳 Evisa Prepagado: tarifa FIJA por caja configurada en Administración
+                        // 💳 pagado: tarifa FIJA por caja configurada en Administración
                         // (carrier_service_options.price_label, ej. "$400") × número de cajas.
                         // Se SUMA al costo PO Box (no lo reemplaza).
                         const isEvisaPre = carrierNorm === 'evisapre';
@@ -4714,7 +4718,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                 const shippingCostMxn = parseFloat(carrierCost) || 0;
 
                 // 🚚 Regla eVISA: TDI Aéreo hacia la zona metro de Monterrey se
-                // despacha por eVISA prepagado (EntregaX lo paga; eVISA dispersa en
+                // despacha por EVISA prepagado (EntregaX lo paga; eVISA dispersa en
                 // MTY). Si se eligió EntregaX Local MTY (o eVISA), guardamos el
                 // carrier como 'evisa_pre' SIN costo (incluido en el flete).
                 let effCarrierAir = carrierName || carrier || null;

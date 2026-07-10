@@ -230,6 +230,13 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   );
   const displayStatusLabel = (status === 'delivered' && isExternalCarrier) ? 'Enviado' : statusLabel(status);
 
+  // Nombre legible de la paquetería (evita mostrar la clave cruda 'evisa_pre').
+  const carrierDisplay = /evisa/.test(carrierNorm)
+    ? 'eVISA PRE'
+    : (m.nationalCarrier
+        ? String(m.nationalCarrier).replace(/[_-]+/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+        : '');
+
   const totalBoxes = m.totalBoxes ?? m.total_boxes ?? 1;
 
   // Roles "track-only" (asesor, sub-asesor, servicio a cliente) no deben ver el costo proveedor
@@ -540,7 +547,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
             <LocalShippingIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
             <Typography variant="caption" color="text.secondary" fontWeight={600}>PAQUETERÍA NACIONAL</Typography>
           </Box>
-          {m.nationalCarrier && <Typography variant="body2" fontWeight={600}>{m.nationalCarrier}</Typography>}
+          {m.nationalCarrier && <Typography variant="body2" fontWeight={600}>{carrierDisplay}</Typography>}
           {m.nationalTracking && (
             <Typography variant="caption" fontFamily="monospace" color="primary.main">{m.nationalTracking}</Typography>
           )}
