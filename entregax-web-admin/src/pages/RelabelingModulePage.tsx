@@ -487,8 +487,8 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
       if (svc !== 'china_air' && svc !== 'maritime') return false;
       if (!isMtyMetroZipFront(s.master.assignedAddress.zip)) return false;
       const ac = getAssignedCarrier(s);
-      // EntregaX local / gratis, o sin carrier explícito asignado.
-      return !ac || isEntregaxLocalCarrier(ac.normalized);
+      // EntregaX local / gratis, eVISA prepagado, o sin carrier explícito.
+      return !ac || isEntregaxLocalCarrier(ac.normalized) || ac.normalized.includes('evisa');
     };
 
     // Marca la etiqueta como impresa en la tabla correcta según el servicio.
@@ -1627,6 +1627,7 @@ ${labelsHtml}
         autoPrintPendingRef.current = false;
         const ac = getAssignedCarrier(shipment);
         const isLocal = !!(ac && isEntregaxLocalCarrier(ac.normalized));
+        const isEvisa = !!(ac && ac.normalized.includes('evisa'));
         const isPqtx = !!(ac && isPaqueteExpressCarrier(ac.normalized));
         const hasAddress = !!shipment.master.assignedAddress;
         // pequeño delay para que React termine de renderizar
@@ -1635,9 +1636,11 @@ ${labelsHtml}
                 window.open(buildPqtxLabelUrl(shipment.master.nationalTracking, { format4x6: true }), '_blank');
                 setPqtxMsg('🖨️ Auto-impresión: Etiqueta Paquete Express — escanea la siguiente caja');
                 resetForNextScan();
-            } else if ((isLocal || !ac) && hasAddress) {
+            } else if ((isLocal || isEvisa || !ac) && hasAddress) {
+                // eVISA prepagado se imprime como etiqueta EntregaX con la dirección
+                // final (handlePrintLocalDelivery ya la marca "eVISA PRE").
                 handlePrintLocalDelivery({ autoReset: true });
-                setPqtxMsg('🖨️ Auto-impresión: Etiqueta Local');
+                setPqtxMsg(isEvisa ? '🖨️ Auto-impresión: Etiqueta eVISA PRE' : '🖨️ Auto-impresión: Etiqueta Local');
             } else {
                 setPqtxMsg(null);
             }
