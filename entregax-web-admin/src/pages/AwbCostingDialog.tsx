@@ -616,7 +616,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                                 <TableBody>
                                                                     {packagesS.map((pkg) => (
                                                                         <TableRow key={pkg.id}>
-                                                                            <TableCell sx={{ fontSize: '0.75rem' }}>{pkg.tracking_internal}</TableCell>
+                                                                            <TableCell sx={{ fontSize: '0.75rem' }}>{(pkg.child_no && /^AIR/i.test(pkg.child_no)) ? pkg.child_no : pkg.tracking_internal}</TableCell>
                                                                             <TableCell align="right" sx={{ fontSize: '0.75rem' }}>{pkg.weight ? `${pkg.weight} kg` : '-'}</TableCell>
                                                                             <TableCell align="right" sx={{ fontSize: '0.75rem' }}>
                                                                                 {pkg.assigned_cost_mxn ? fmt(pkg.assigned_cost_mxn) : '-'}
@@ -1490,7 +1490,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                                 return (
                                                                     <TableRow key={pkg.id} sx={{ '&:nth-of-type(odd)': { bgcolor: '#fafafa' } }}>
                                                                         <TableCell sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>{idx + 1}</TableCell>
-                                                                        <TableCell sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{pkg.tracking_internal}</TableCell>
+                                                                        <TableCell sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{(pkg.child_no && /^AIR/i.test(pkg.child_no)) ? pkg.child_no : pkg.tracking_internal}</TableCell>
                                                                         <TableCell sx={{ fontSize: '0.75rem' }}>
                                                                             {pkg.user_box_id ? (
                                                                                 <Chip size="small" label={pkg.user_box_id} variant="outlined" sx={{ fontSize: '0.7rem', height: 20 }} />
