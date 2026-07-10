@@ -14,7 +14,7 @@
  */
 
 import { pool } from './db';
-import { createNotification } from './notificationController';
+import { createNotification, createCustomNotification } from './notificationController';
 
 type AuthorizeResult = {
   ref: string;
@@ -297,14 +297,15 @@ const notifyStatementSynced = async (emitterId: number, summary: {
       [emitterId]
     ).catch(() => ({ rows: [] as any[] }));
     const empresa = emitter.rows[0]?.business_name || `Emisor #${emitterId}`;
-    const banco = emitter.rows[0]?.bank_name ? ` (${emitter.rows[0].bank_name})` : '';
+    const shortName = String(empresa).trim().split(/\s+/)[0] || empresa;
 
-    const message = `Se sincronizó el estado de cuenta de ${empresa}${banco}: ${summary.newTransactions} movimientos nuevos, ${summary.matchedTransactions} coincidencias, ${summary.authorized} pago(s) auto-autorizado(s).`;
+    const title = `Cuenta ${shortName} sincronizada.`;
+    const message = `${summary.newTransactions} movimientos, ${summary.matchedTransactions} coincidencias, ${summary.authorized} pago(s) auto-autorizado(s).`;
     const data = { emitter_id: emitterId, ...summary, source: 'syncfy_auto_sync' };
 
     for (const r of recipients.rows) {
       try {
-        await createNotification(Number(r.id), 'SYSTEM', message, data, '/admin/dashboard-cobranza');
+        await createCustomNotification(Number(r.id), title, message, 'info', 'bell', data, '/admin/dashboard-cobranza');
       } catch (e: any) {
         // continuar con los demás
         console.warn(`[bank-auto-auth] notif estado de cuenta user ${r.id} fallo:`, e?.message);
