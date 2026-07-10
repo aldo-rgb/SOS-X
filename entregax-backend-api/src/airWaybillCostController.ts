@@ -453,7 +453,26 @@ export const getAwbCostProfit = async (req: AuthRequest, res: Response): Promise
     const totalRevenueMXN = totalRevenueUSD * exchangeRate;
     const weightS = parseFloat(revenueS.rows[0].weight_s) || 0;
     
-    const totalCost = parseFloat(awbCost.calc_grand_total) || 0;
+    // Componentes de costo. El "Despacho Aduanal" (release) se captura a mano en
+    // customs_clearance; si aún está en 0, usamos el CÁLCULO AUTOMÁTICO de tarifas
+    // del proveedor (mismo que muestra la pestaña Liberación) para que la utilidad
+    // y el desglose no salgan en 0.
+    const origin = parseFloat(awbCost.calc_total_origin) || 0;
+    const savedCustoms = parseFloat(awbCost.customs_clearance) || 0;
+    let autoRelease = 0;
+    if (savedCustoms <= 0) {
+      try { autoRelease = (await computeAwbReleaseCosts(awbCost)).gastos_liberacion_total || 0; }
+      catch (e: any) { console.warn('✈️ [AWB-COST] auto-release en profit falló:', e?.message); }
+    }
+    const release = savedCustoms > 0 ? savedCustoms : autoRelease;
+    const custodyAndRelease = (parseFloat(awbCost.custody_fee) || 0) + (parseFloat(awbCost.aa_expenses) || 0) + (parseFloat(awbCost.storage_fee) || 0);
+    const logistics = parseFloat(awbCost.calc_total_logistics) || 0;
+
+    // Total = suma de componentes (incluye release auto). Si el grand_total guardado
+    // ya es mayor (por captura manual previa), respetamos el mayor.
+    const componentsTotal = origin + release + custodyAndRelease + logistics;
+    const savedGrandTotal = parseFloat(awbCost.calc_grand_total) || 0;
+    const totalCost = Math.max(componentsTotal, savedGrandTotal);
     const profit = totalRevenueMXN - totalCost;
     const margin = totalCost > 0 ? ((profit / totalCost) * 100) : 0;
 
@@ -471,10 +490,11 @@ export const getAwbCostProfit = async (req: AuthRequest, res: Response): Promise
         packagesS: parseInt(revenueS.rows[0].count_s),
         packagesPendingPrice: parseInt(pendingPrice.rows[0].count),
         breakdown: {
-          origin: parseFloat(awbCost.calc_total_origin) || 0,
-          release: parseFloat(awbCost.customs_clearance) || 0,
-          custodyAndRelease: (parseFloat(awbCost.custody_fee) || 0) + (parseFloat(awbCost.aa_expenses) || 0) + (parseFloat(awbCost.storage_fee) || 0),
-          logistics: parseFloat(awbCost.calc_total_logistics) || 0,
+          origin,
+          release,
+          releaseAuto: savedCustoms <= 0 && autoRelease > 0, // true si viene del cálculo automático
+          custodyAndRelease,
+          logistics,
         },
       },
     });
@@ -541,6 +561,67 @@ export const updateAwbCostReference = async (req: AuthRequest, res: Response): P
     console.error('✈️ [AWB-COST] Error updateReference:', error.message);
     res.status(500).json({ error: 'Error al actualizar referencia', detail: error?.message });
   }
+};
+
+// ============================================
+// Helper: cálculo automático de gastos de liberación (tarifas del proveedor).
+// Compartido por calcReleaseCosts (preview) y getAwbCostProfit (para que la
+// utilidad refleje el despacho aduanal auto aunque no se haya guardado a mano).
+// ============================================
+export const computeAwbReleaseCosts = async (awbCost: any) => {
+  const id = awbCost.id;
+  const packagesS = await pool.query(`
+    SELECT p.id, p.tracking_internal, p.weight, COALESCE(p.cajo_tariff_type, 'L') as tariff_type
+    FROM packages p
+    WHERE p.awb_cost_id = $1 OR p.international_tracking = $2
+  `, [id, awbCost.awb_number]);
+  const cajoGuides = await pool.query(`
+    SELECT id, guia_air, cliente, peso_kg, tipo FROM cajo_guides WHERE mawb = $1
+  `, [awbCost.awb_number]);
+  const overfeeRes = await pool.query(`SELECT value FROM system_config WHERE key = 'cajo_overfee_per_kg'`);
+  const cajoOverfeePerKg = overfeeRes.rows.length > 0 ? parseFloat(overfeeRes.rows[0].value) : 0;
+
+  const pesoS = packagesS.rows.reduce((sum: number, p: any) => sum + (parseFloat(p.weight) || 0), 0);
+  const pesoCajo = cajoGuides.rows.reduce((sum: number, g: any) => sum + (parseFloat(g.peso_kg) || 0), 0);
+  const pesoBrutoAwb = parseFloat(awbCost.gross_weight_kg) || 0;
+  const pesoTotalAwb = pesoS + pesoCajo;
+
+  let pesoLogo = 0, pesoGenerico = 0;
+  for (const pkg of packagesS.rows) {
+    const tipo = (pkg.tariff_type || 'G').toUpperCase();
+    const peso = parseFloat(pkg.weight) || 0;
+    if (tipo === 'L' || tipo === 'LOGO') pesoLogo += peso; else pesoGenerico += peso;
+  }
+  const tipoPredominante = pesoLogo > pesoGenerico ? 'L' : 'G';
+
+  const routeRes = await pool.query(`SELECT id FROM air_routes WHERE is_active = true ORDER BY id ASC LIMIT 1`);
+  const routeId = routeRes.rows.length > 0 ? routeRes.rows[0].id : 1;
+  const bracketsRes = await pool.query(`
+    SELECT min_kg, cost_per_kg FROM air_cost_brackets
+    WHERE route_id = $1 AND tariff_type = $2 ORDER BY min_kg DESC
+  `, [routeId, tipoPredominante]);
+  let costPerKgProveedor = 0;
+  for (const bracket of bracketsRes.rows) {
+    if (pesoBrutoAwb >= parseFloat(bracket.min_kg)) { costPerKgProveedor = parseFloat(bracket.cost_per_kg); break; }
+  }
+  if (costPerKgProveedor === 0 && bracketsRes.rows.length > 0) {
+    costPerKgProveedor = parseFloat(bracketsRes.rows[bracketsRes.rows.length - 1].cost_per_kg);
+  }
+
+  const gastosLiberacionS = pesoS * costPerKgProveedor;
+  const gastosLiberacionCajo = pesoCajo * (costPerKgProveedor + cajoOverfeePerKg);
+  const gastosLiberacionTotal = gastosLiberacionS + gastosLiberacionCajo;
+  const calcCostoLiberacionPerKg = pesoTotalAwb > 0 ? (gastosLiberacionTotal / pesoTotalAwb) : 0;
+
+  return {
+    peso_s: pesoS, peso_s_logo: pesoLogo, peso_s_generico: pesoGenerico,
+    peso_cajo: pesoCajo, peso_total: pesoTotalAwb, peso_bruto_awb: pesoBrutoAwb,
+    tipo_predominante: tipoPredominante, tarifa_proveedor_per_kg: costPerKgProveedor,
+    overfee_cajo_per_kg: cajoOverfeePerKg, route_id: routeId,
+    gastos_liberacion_s: gastosLiberacionS, gastos_liberacion_cajo: gastosLiberacionCajo,
+    gastos_liberacion_total: gastosLiberacionTotal, costo_liberacion_per_kg: calcCostoLiberacionPerKg,
+    count_packages_s: packagesS.rows.length, count_cajo_guides: cajoGuides.rows.length,
+  };
 };
 
 // ============================================
