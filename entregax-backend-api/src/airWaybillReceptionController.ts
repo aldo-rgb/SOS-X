@@ -282,6 +282,40 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
       /* tabla puede no existir, ignorar */
     }
 
+    // Sincronizar el estado del recibo master (china_receipts) cuando TODAS sus
+    // cajas ya llegaron a esta sucursal, para que el rastreo del cliente avance
+    // (antes el master quedaba en 'received_origin' y el cliente veía "En Bodega
+    // China" aunque las cajas ya estuvieran en CEDIS) y registrar el movimiento.
+    try {
+      const crRes = await client.query(
+        `SELECT cr.id, cr.fno, cr.status
+           FROM china_receipts cr
+          WHERE cr.id = (SELECT china_receipt_id FROM packages WHERE id = $1)`,
+        [pkg.id]
+      );
+      const cr = crRes.rows[0];
+      if (cr && cr.status !== receivedStatus) {
+        const remaining = await client.query(
+          `SELECT 1 FROM packages WHERE china_receipt_id = $1 AND status::text IS DISTINCT FROM $2 LIMIT 1`,
+          [cr.id, receivedStatus]
+        );
+        if (remaining.rows.length === 0) {
+          await client.query(`UPDATE china_receipts SET status = $1, updated_at = NOW() WHERE id = $2`, [receivedStatus, cr.id]);
+          try {
+            await client.query(
+              `INSERT INTO china_status_history (china_receipt_id, fno, old_status, new_status, source, notes, created_at)
+               VALUES ($1, $2, $3, $4, 'awb_reception', $5, NOW())`,
+              [cr.id, cr.fno, cr.status, receivedStatus, `Recibido en ${userBranchCode || 'CEDIS'} vía AWB ${awb.awb_number}`]
+            );
+          } catch (e2: any) {
+            console.warn('✈️ [AWB-RX] No se pudo registrar china_status_history:', e2?.message);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('✈️ [AWB-RX] No se pudo sincronizar china_receipts.status:', e?.message);
+    }
+
     await client.query('COMMIT');
 
     res.json({

@@ -4902,7 +4902,7 @@ app.get('/api/packages/track/:tracking', authenticateToken, async (req: Request,
         result = await pool.query(`
             SELECT cr.*, u.full_name FROM china_receipts cr
             JOIN users u ON cr.user_id = u.id
-            WHERE (UPPER(cr.ordersn) = $1 OR UPPER(cr.awb_number) = $1)
+            WHERE (UPPER(cr.ordersn) = $1 OR UPPER(cr.awb_number) = $1 OR UPPER(cr.fno) = $1)
               AND cr.user_id = $2
         `, [searchTerm, userId]);
         

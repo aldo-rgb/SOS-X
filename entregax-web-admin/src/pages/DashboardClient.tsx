@@ -4619,6 +4619,9 @@ export default function DashboardClient() {
         case 'customs': return 2;
         case 'customs_cleared':
         case 'received_cedis':
+        case 'received_cdmx':
+        case 'received_cdx':
+        case 'received_mty':
         case 'at_cedis':
         case 'arrived_mexico':
         case 'processing': return 3;
@@ -10657,20 +10660,19 @@ export default function DashboardClient() {
                     fetchCarriersForService(svc.serviceType);
                   }
                   // Reglas de cobertura para paqueterías locales:
-                  //   - "EntregaX Local CDMX" solo se ofrece si el CP es CDMX.
-                  //   - "EntregaX Local MTY"  solo se ofrece si el CP es MTY.
-                  //   - Para "Aéreo China" (svc.value === 'air') NUNCA se ofrece MTY,
-                  //     porque el flujo aéreo no incluye entrega local en Monterrey
-                  //     (la conexión es TDI Express).
+                  //   - "EntregaX Local CDMX" solo se ofrece si el CP es CDMX
+                  //     (01000-16999).
+                  //   - "EntregaX Local MTY"  solo se ofrece si el CP es MTY
+                  //     (64000-67999).
+                  // Aplica a TODOS los servicios (Aéreo China, Marítimo, TDI
+                  // Express, DHL, PO Box) — los locales son por zona, no por
+                  // tipo de servicio.
                   const cp = addressForm.zip_code || '';
                   const cpIsCdmx = isCdmxPostalCode(cp);
                   const cpIsMty = isMtyPostalCode(cp);
                   const availableCarriers = (rawCarriers as any[]).filter((c: any) => {
                     if (isLocalCdmxCarrier(c) && !cpIsCdmx) return false;
-                    if (isLocalMtyCarrier(c)) {
-                      if (svc.value === 'air') return false; // Aéreo China → nunca MTY
-                      if (!cpIsMty) return false;            // otros servicios → solo si CP MTY
-                    }
+                    if (isLocalMtyCarrier(c) && !cpIsMty) return false;
                     return true;
                   });
                   // Si la selección previa quedó fuera del listado (ej. cambió el CP),
