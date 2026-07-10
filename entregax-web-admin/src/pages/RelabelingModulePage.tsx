@@ -298,6 +298,15 @@ const isEntregaxLocalCarrier = (normalized: string): boolean => (
     normalized.includes('local cdmx')
 );
 
+// Zona metropolitana de Monterrey por CP (64/65/66/67). Versión ligera para el
+// front del módulo de etiquetado (el backend valida con la tabla de exclusiones).
+const isMtyMetroZipFront = (zip?: string | null): boolean => {
+    const z = String(zip || '').replace(/\D/g, '');
+    if (z.length < 4) return false;
+    const p2 = z.padStart(5, '0').substring(0, 2);
+    return ['64', '65', '66', '67'].includes(p2);
+};
+
 const isEntregaxNacionalCarrier = (normalized: string): boolean => (
     normalized.includes('entregax nacional') ||
     normalized.includes('entregax_nacional') ||
@@ -459,6 +468,22 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
       if (t.startsWith('AIR') || t.startsWith('AIR-')) return 'china_air';
       if (t.startsWith('TDX') || t.startsWith('TDI') || t.startsWith('DHL')) return 'dhl';
       return 'usa';
+    };
+
+    // Regla logística: TDI Aéreo (CDMX) y Marítimo hacia la zona metro de MTY con
+    // EntregaX (gratis) NO se entregan en local — el tramo CDMX→MTY lo mueve eVISA
+    // prepagado (EntregaX lo paga) y eVISA hace la dispersión en Monterrey. Por eso
+    // la ETIQUETA debe salir marcada "eVISA Prepagado" con la dirección FINAL del
+    // cliente. Solo cambia la etiqueta impresa; el carrier guardado y el costeo
+    // (cliente ve GRATIS) no se tocan.
+    const isEvisaMtyDispersion = (s: ShipmentData | null): boolean => {
+      if (!s?.master?.assignedAddress) return false;
+      const svc = detectPackageType(s.master.tracking);
+      if (svc !== 'china_air' && svc !== 'maritime') return false;
+      if (!isMtyMetroZipFront(s.master.assignedAddress.zip)) return false;
+      const ac = getAssignedCarrier(s);
+      // EntregaX local / gratis, o sin carrier explícito asignado.
+      return !ac || isEntregaxLocalCarrier(ac.normalized);
     };
 
     // Marca la etiqueta como impresa en la tabla correcta según el servicio.
@@ -884,6 +909,11 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         const today = new Date().toLocaleDateString('es-MX');
         const svc = getServiceInfo(masterTn);
         const totalBoxes = shipment.master.totalBoxes || 1;
+        // eVISA Prepagado: dispersión CDMX→MTY (ver isEvisaMtyDispersion). Solo
+        // cambia el branding de la etiqueta; la dirección impresa sigue siendo la
+        // final del cliente.
+        const evisaMode = isEvisaMtyDispersion(shipment);
+        const deliveryBadge = evisaMode ? '🚚 eVISA PREPAGADO' : '📍 ENTREGA LOCAL';
 
         // Generar una página por caja
         const boxes: Array<{ boxNum: number; tn: string; tnCompact: string; weight: number | null }> = [];
@@ -907,7 +937,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
     <div class="brand">
       <div class="logo">Entrega<span>X</span></div>
       <div class="brand-right">
-        <div class="badge">📍 ENTREGA LOCAL</div>
+        <div class="badge"${evisaMode ? ' style="background:#00695C"' : ''}>${deliveryBadge}</div>
         ${totalBoxes > 1 ? `<div class="box-badge">CAJA ${box.boxNum} / ${totalBoxes}</div>` : ''}
       </div>
     </div>
@@ -927,6 +957,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
       <div class="city">${cityLine}</div>
       ${a.phone ? `<div class="phone">📞 ${a.phone}</div>` : ''}
       ${a.reference ? `<div class="ref-box">Ref: ${a.reference}</div>` : ''}
+      ${evisaMode ? `<div class="evisa-note">🚚 Vía eVISA Prepagado · Dispersión en Monterrey</div>` : ''}
     </div>
 
     <div class="dest-code">
@@ -985,6 +1016,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
   .dest-code .code { font-family: 'Arial Black', sans-serif; font-size: 56px; font-weight: 900; color: #C1272D; letter-spacing: 4px; line-height: 1; }
   .dest-code .lbl { font-size: 9px; color: #666; font-weight: 800; letter-spacing: 2px; margin-right: 10px; writing-mode: vertical-rl; transform: rotate(180deg); }
   .ref-box { font-size: 10px; color: #444; border: 1px dashed #999; padding: 4px 6px; margin-top: 4px; font-style: italic; }
+  .evisa-note { font-size: 10px; font-weight: 800; color: #fff; background: #00695C; padding: 4px 8px; margin-top: 6px; border-radius: 4px; text-align: center; letter-spacing: 0.3px; }
   .pkg-info { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; font-size: 10px; margin: 4px 0; text-align: center; }
   .pkg-info .cell { border: 1px solid #ddd; padding: 4px; }
   .pkg-info .cell .lbl { font-size: 8px; color: #666; font-weight: 700; }
