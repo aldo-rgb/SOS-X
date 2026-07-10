@@ -8,7 +8,11 @@ import { pool } from './db';
 
 // Compatibilidad de esquema: algunos entornos no tienen tracking_number o tracking_provider.
 // Con to_jsonb(p)->>'campo' evitamos errores SQL cuando el campo no existe.
+// Aéreo China: la guía pública/impresa es la completa (child_no, p.ej.
+// AIR2615662DJOtz-001), NO el código interno CN-...  Preferimos child_no solo
+// cuando empieza con AIR para no afectar otros servicios.
 const TRACKING_PUBLIC_SQL = `COALESCE(
+    CASE WHEN to_jsonb(p)->>'child_no' ~* '^AIR' THEN to_jsonb(p)->>'child_no' END,
     to_jsonb(p)->>'tracking_number',
     to_jsonb(p)->>'tracking_internal',
     to_jsonb(p)->>'tracking_provider'
@@ -18,6 +22,12 @@ const TRACKING_MATCH_SQL = `(
     ${TRACKING_PUBLIC_SQL} = $1
     OR to_jsonb(p)->>'skydropx_label_id' = $1
     OR to_jsonb(p)->>'dhl_awb' = $1
+    -- Aceptar tanto la guía completa (child_no AIR...) como el código interno
+    -- (tracking_internal CN...) para no romper etiquetas viejas ya impresas.
+    OR UPPER(COALESCE(to_jsonb(p)->>'child_no','')) = UPPER($1)
+    OR UPPER(COALESCE(to_jsonb(p)->>'tracking_internal','')) = UPPER($1)
+    OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'child_no','')), '-', '') = REPLACE(UPPER($1), '-', '')
+    OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'tracking_internal','')), '-', '') = REPLACE(UPPER($1), '-', '')
     OR REPLACE(UPPER(${TRACKING_PUBLIC_SQL}), '-', '') = REPLACE(UPPER($1), '-', '')
     OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'skydropx_label_id', '')), '-', '') = REPLACE(UPPER($1), '-', '')
     OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'dhl_awb', '')), '-', '') = REPLACE(UPPER($1), '-', '')
