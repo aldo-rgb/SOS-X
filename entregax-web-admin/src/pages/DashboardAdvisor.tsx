@@ -125,6 +125,8 @@ import AdvisorVerificationWizard from '../components/AdvisorVerificationWizard';
 import AdvisorTermsSignatureDialog from '../components/AdvisorTermsSignatureDialog';
 import AdvisorQuoteRequestModal from '../components/AdvisorQuoteRequestModal';
 import CsfPanel from '../components/CsfPanel';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 // ─── Types ───
 
@@ -3674,11 +3676,47 @@ export default function DashboardAdvisor() {
                     <div class="footer">ENTREGAX &nbsp;|&nbsp; 📍 Monterrey, N.L., México &nbsp;|&nbsp; 📧 contacto@entregax.com &nbsp;|&nbsp; 🌐 www.entregax.com<br>Documento generado el ${today}. Este documento es una cotización informativa y no representa un comprobante fiscal.</div>
                   </body></html>`;
 
-                  const printWindow = window.open('', '_blank');
-                  if (printWindow) {
-                    printWindow.document.write(html);
-                    printWindow.document.close();
-                    setTimeout(() => { printWindow.print(); }, 400);
+                  // Descargar el PDF directamente (sin abrir el diálogo de
+                  // impresión): renderizamos el HTML con estilos en un iframe
+                  // oculto, lo capturamos con html2canvas y lo guardamos con jsPDF.
+                  const iframe = document.createElement('iframe');
+                  iframe.style.position = 'fixed';
+                  iframe.style.left = '-99999px';
+                  iframe.style.top = '0';
+                  iframe.style.width = '794px';   // ~A4/Carta a 96dpi
+                  iframe.style.height = '1123px';
+                  document.body.appendChild(iframe);
+                  try {
+                    const idoc = iframe.contentDocument || iframe.contentWindow?.document;
+                    if (!idoc) throw new Error('no iframe doc');
+                    idoc.open(); idoc.write(html); idoc.close();
+                    // Esperar a que carguen imágenes/fuentes del documento.
+                    await new Promise((r) => setTimeout(r, 350));
+                    const target = idoc.body;
+                    const canvas = await html2canvas(target, { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 794 });
+                    const imgData = canvas.toDataURL('image/png');
+                    const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+                    const pageW = doc.internal.pageSize.getWidth();
+                    const pageH = doc.internal.pageSize.getHeight();
+                    const imgW = pageW;
+                    const imgH = (canvas.height * imgW) / canvas.width;
+                    let heightLeft = imgH;
+                    let position = 0;
+                    doc.addImage(imgData, 'PNG', 0, position, imgW, imgH);
+                    heightLeft -= pageH;
+                    while (heightLeft > 0) {
+                      position -= pageH;
+                      doc.addPage();
+                      doc.addImage(imgData, 'PNG', 0, position, imgW, imgH);
+                      heightLeft -= pageH;
+                    }
+                    doc.save(`orden-${op.payment_reference || op.id}.pdf`);
+                  } catch (err) {
+                    // Fallback: si algo falla, abrir en ventana nueva para imprimir/guardar.
+                    const w = window.open('', '_blank');
+                    if (w) { w.document.write(html); w.document.close(); }
+                  } finally {
+                    iframe.remove();
                   }
                 };
 
