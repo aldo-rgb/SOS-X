@@ -6434,7 +6434,9 @@ app.patch('/api/admin/dhl/shipments/:id/mark-label-printed', authenticateToken, 
 app.patch('/api/admin/dhl/shipments/:id/product-type', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateDhlShipmentProductType);
 app.patch('/api/admin/dhl/shipments/:id/status', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateDhlShipmentStatus);
 // Eliminacion de guia (solo Super Admin)
-app.delete('/api/admin/dhl/shipments/:id', authenticateToken, requireRole('super_admin'), deleteDhlShipment);
+// Eliminar guía DHL: super_admin/admin, o usuario de operaciones con permiso de
+// edición del panel DHL Monterrey (ops_mx_cedis). La verificación fina va dentro.
+app.delete('/api/admin/dhl/shipments/:id', authenticateToken, deleteDhlShipment);
 app.get('/api/admin/dhl/settings/import-tax', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlImportTaxSetting);
 app.get('/api/admin/dhl/import-tax/expenses', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlImportTaxExpenses);
 app.put('/api/admin/dhl/settings/import-tax', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateDhlImportTaxSetting);

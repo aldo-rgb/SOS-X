@@ -163,7 +163,25 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
   const isSuperAdmin = (() => {
     try { return (JSON.parse(localStorage.getItem('user') || '{}').role || '') === 'super_admin'; } catch { return false; }
   })();
-  
+
+  // Borrar guía: super_admin/admin, o usuario con permiso de EDICIÓN del panel
+  // DHL Monterrey (ops_mx_cedis). El backend hace la verificación estricta.
+  const [canDeleteDhl, setCanDeleteDhl] = useState<boolean>(isSuperAdmin);
+  useEffect(() => {
+    if (isSuperAdmin) { setCanDeleteDhl(true); return; }
+    (async () => {
+      try {
+        const role = String(JSON.parse(localStorage.getItem('user') || '{}').role || '').toLowerCase();
+        if (role === 'admin') { setCanDeleteDhl(true); return; }
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_URL}/api/panels/me`, { headers: { Authorization: `Bearer ${token}` } });
+        const panels = res.data?.panels || [];
+        const dhl = panels.find((p: any) => p.panel_key === 'ops_mx_cedis');
+        setCanDeleteDhl(!!(dhl && dhl.can_edit));
+      } catch { setCanDeleteDhl(false); }
+    })();
+  }, [isSuperAdmin]);
+
   const [selectedShipment, setSelectedShipment] = useState<DhlShipment | null>(null);
 
   // Cambiar status (solo super_admin)
@@ -860,7 +878,7 @@ export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?
                             </IconButton>
                           </Tooltip>
                         )}
-                        {isSuperAdmin && (
+                        {canDeleteDhl && (
                           <Tooltip title="Eliminar guía">
                             <IconButton
                               size="small"

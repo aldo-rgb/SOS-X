@@ -1386,8 +1386,23 @@ function estimateBoxDimensions(imageBase64: string): { length_cm: number; width_
 export const deleteDhlShipment = async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   const userId = (req as any).user?.userId;
+  const role = String((req as any).user?.role || '').toLowerCase();
   if (!Number.isFinite(id) || id <= 0) {
     return res.status(400).json({ error: 'ID invalido' });
+  }
+
+  // Autorización: super_admin/admin, o usuario con permiso de EDICIÓN del panel
+  // DHL Monterrey (ops_mx_cedis).
+  if (!['super_admin', 'admin'].includes(role)) {
+    const perm = await pool.query(
+      `SELECT 1 FROM user_panel_permissions
+        WHERE user_id = $1 AND panel_key = 'ops_mx_cedis' AND can_edit = TRUE
+        LIMIT 1`,
+      [userId]
+    );
+    if (perm.rows.length === 0) {
+      return res.status(403).json({ error: 'No autorizado para eliminar guías DHL. Requiere permiso de edición del módulo DHL Monterrey.' });
+    }
   }
   const client = await pool.connect();
   try {
