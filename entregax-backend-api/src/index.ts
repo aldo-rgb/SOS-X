@@ -3355,6 +3355,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           WHEN service_type = 'AIR_CHN_MX' AND status::text IN ('processing', 'customs') THEN 'Procesando - Guía impresa'
           WHEN service_type = 'AIR_CHN_MX' AND status::text = 'out_for_delivery' THEN 'EN RUTA'
           WHEN service_type = 'AIR_CHN_MX' AND status::text IN ('shipped', 'sent', 'enviado') THEN 'ENVIADO'
+          -- eVISA prepagado = handoff para dispersión en MTY → "ENVIADO", no "Entregado".
+          WHEN service_type = 'AIR_CHN_MX' AND status::text = 'delivered' AND LOWER(COALESCE(national_carrier, '')) IN ('evisa_pre', 'evisapre', 'evisa') THEN 'ENVIADO'
           WHEN service_type = 'AIR_CHN_MX' AND status::text = 'delivered' THEN 'Entregado'
 
           -- Flujo general
@@ -3458,10 +3460,15 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         ))
       )
         AND status::text NOT IN ('cancelled', 'returned')
-        AND NOT (status::text IN ('shipped', 'delivered') AND client_paid = true)
+        -- Los enviados/entregados (aunque estén pagados) permanecen visibles en el
+        -- panel 48 horas tras enviarse/entregarse; después pasan solo al historial.
+        AND NOT (
+          status::text IN ('shipped', 'delivered') AND client_paid = true
+          AND COALESCE(delivered_at, updated_at) < NOW() - INTERVAL '48 hours'
+        )
         AND (
           status::text NOT IN ('delivered', 'sent')
-          OR updated_at >= NOW() - INTERVAL '7 days'
+          OR COALESCE(delivered_at, updated_at) >= NOW() - INTERVAL '48 hours'
         )
         AND (is_master = true OR master_id IS NULL)
       ORDER BY
@@ -3529,8 +3536,10 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         (SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = maritime_orders.gex_folio LIMIT 1) as gex_total_cost
       FROM maritime_orders
       WHERE (user_id = $1 OR UPPER(shipping_mark) = UPPER($2))
-        AND status NOT IN ('delivered', 'cancelled')
-      ORDER BY 
+        AND status <> 'cancelled'
+        -- Entregados permanecen 48h en el panel; luego solo en historial.
+        AND (status <> 'delivered' OR updated_at >= NOW() - INTERVAL '48 hours')
+      ORDER BY
         CASE WHEN status = 'ready_pickup' THEN 0 ELSE 1 END,
         created_at DESC
       LIMIT 50
