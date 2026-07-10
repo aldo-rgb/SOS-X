@@ -347,10 +347,15 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     const validIds = new Set(
       CARRIER_OPTIONS
         .filter(c => !(inMetro && hasLocalEntregax && (c.id === 'paquete_express' || c.id === 'paquete_express_pc')))
+        // 🗺️ Un local de zona incorrecta NO es válido para este CP destino.
+        .filter(c => !(selectedZip && c.id === 'entregax_local_cdmx' && !inCdmxMetro))
+        .filter(c => !(selectedZip && c.id === 'entregax_local_mty' && !inMtyMetro))
         .map(c => c.id)
     );
     if (!validIds.has(selectedCarrier)) {
-      const fallback = [...validIds][0];
+      // Preferir el local de EntregaX de la zona si existe; si no, el primero válido.
+      const preferLocal = localEntregaxOptions[0]?.id;
+      const fallback = (preferLocal && validIds.has(preferLocal)) ? preferLocal : [...validIds][0];
       if (fallback) setSelectedCarrier(fallback);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1456,6 +1461,14 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                   // Si viene de cambiar Pick Up, ocultar la opción de Pick Up
                   if (isChangingFromPickup && carrier.id === 'pickup_hidalgo') {
                     return false;
+                  }
+                  // 🗺️ Filtrar los locales de EntregaX por la ZONA del CP destino:
+                  //    EntregaX Local CDMX solo para CP de CDMX metro; EntregaX
+                  //    Local MTY solo para CP de la zona metro de Monterrey.
+                  //    (carrierRates puede traer ambos por un snapshot previo.)
+                  if (selectedZip) {
+                    if (carrier.id === 'entregax_local_cdmx' && !inCdmxMetro) return false;
+                    if (carrier.id === 'entregax_local_mty' && !inMtyMetro) return false;
                   }
                   // 🗺️ Si el CP destino es MTY metro o CDMX metro, ocultar Paquete Express
                   //    SOLO cuando ya existe una opción local de EntregaX para esa zona+tipo
