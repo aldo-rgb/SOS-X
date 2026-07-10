@@ -575,6 +575,12 @@ function App() {
       return;
     }
 
+    // Alertas de flotilla → abrir Gestión de Flotilla (pestaña Alertas)
+    if (titleLower.includes('flotilla') || titleLower.includes('flotil ')) {
+      window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'open_fleet' } }));
+      return;
+    }
+
     if (notif.action_url) {
       handleNotificationNavigate(notif.action_url);
     }
@@ -828,6 +834,17 @@ function App() {
         setTimeout(() => {
           window.dispatchEvent(new Event('open-admin-verifications'));
         }, 120);
+      }
+
+      // Alertas de flotilla → Administración → Gestión de Flotilla (Alertas)
+      if (action === 'open_fleet') {
+        const adminSubIndex = subItems.findIndex((s) => s.key === 'panelsAdmin');
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(adminSubIndex >= 0 ? adminSubIndex : null);
+        setTimeout(() => {
+          window.dispatchEvent(new Event('open-admin-fleet'));
+        }, 150);
       }
 
       if (action === 'accounting') {

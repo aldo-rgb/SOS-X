@@ -224,8 +224,9 @@ const formatDate = (dateStr: string): string => {
   return new Date(dateStr).toLocaleDateString('es-MX');
 };
 
-export default function FleetManagementPage() {
-  const [tab, setTab] = useState(0);
+export default function FleetManagementPage({ initialTab }: { initialTab?: number } = {}) {
+  const [tab, setTab] = useState(initialTab ?? 0);
+  useEffect(() => { if (initialTab != null) setTab(initialTab); }, [initialTab]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [inspections, setInspections] = useState<Inspection[]>([]);

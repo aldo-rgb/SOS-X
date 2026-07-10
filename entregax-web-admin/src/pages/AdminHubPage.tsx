@@ -268,6 +268,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
     const [showBranches, setShowBranches] = useState(false);
     const [showHR, setShowHR] = useState(false);
     const [showFleet, setShowFleet] = useState(false);
+    const [fleetInitialTab, setFleetInitialTab] = useState<number | undefined>(undefined);
     const [showPettyCash, setShowPettyCash] = useState(false);
     const [showExchangeRates, setShowExchangeRates] = useState(false);
     const [showCarousel, setShowCarousel] = useState(false);
@@ -300,6 +301,13 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         };
         window.addEventListener('open-admin-hr', handler);
         return () => window.removeEventListener('open-admin-hr', handler);
+    }, []);
+
+    // Abrir Gestión de Flotilla en la pestaña Alertas (desde notificaciones de flotilla).
+    useEffect(() => {
+        const handler = () => { setFleetInitialTab(1); setShowFleet(true); };
+        window.addEventListener('open-admin-fleet', handler);
+        return () => window.removeEventListener('open-admin-fleet', handler);
     }, []);
 
     // Deep-link genérico a un servicio+módulo (ej. accesos directos del dashboard).
@@ -485,7 +493,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         sx={{ cursor: 'pointer' }}
                     />
                 </Box>
-                <FleetManagementPage />
+                <FleetManagementPage initialTab={fleetInitialTab} />
             </Box>
         );
     }
