@@ -357,13 +357,17 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
       );
       const missingTrackings = missingTrackingRes.rows.map((r: any) => r.tracking_internal);
 
+      // Destinatarios: servicio a cliente (todos) + operaciones de la sucursal
+      // Monterrey (permiso ops_usa_pobox y branch = CEDIS MONTERREY).
+      // NO se notifica a super_admin/admin/director.
       const receiversRes = await client.query(
         `SELECT DISTINCT u.id
            FROM users u
            LEFT JOIN user_module_permissions ump
              ON ump.user_id = u.id AND ump.panel_key = 'ops_usa_pobox' AND ump.can_view = TRUE
-          WHERE u.role IN ('super_admin','admin')
-             OR ump.user_id IS NOT NULL`
+           LEFT JOIN branches b ON b.id = u.branch_id
+          WHERE u.role = 'customer_service'
+             OR (ump.user_id IS NOT NULL AND LOWER(COALESCE(b.name,'')) LIKE '%monterrey%')`
       );
 
       const title = '⚠️ Consolidación recibida con faltantes';
