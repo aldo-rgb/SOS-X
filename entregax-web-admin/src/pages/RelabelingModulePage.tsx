@@ -294,6 +294,7 @@ const isEntregaxLocalCarrier = (normalized: string): boolean => (
     normalized.includes('entregax local') ||
     normalized.includes('entregax_local') ||
     normalized === 'entregax' ||
+    normalized === 'local' ||   // carrier_key 'local' = EntregaX Local MTY
     normalized.includes('local mty') ||
     normalized.includes('local cdmx')
 );
@@ -979,7 +980,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
       <div class="service-box">
         <div class="lbl">SERVICIO</div>
         <div class="val">${svc.emoji} ${svc.label.toUpperCase()}</div>
-        <div class="sub">${shipment.master.statusLabel || ''}</div>
+        <div class="sub">${evisaMode ? 'eVISA PRE' : (shipment.master.statusLabel || '')}</div>
       </div>
     </div>
   </div>`;
