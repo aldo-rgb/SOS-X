@@ -1478,7 +1478,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                                 <TableCell align="right">Peso (kg)</TableCell>
                                                                 <TableCell align="center">Tarifa</TableCell>
                                                                 <TableCell align="right">$/kg (USD)</TableCell>
-                                                                <TableCell align="right">Costo (MXN)</TableCell>
+                                                                <TableCell align="right">Costo (USD)</TableCell>
                                                                 <TableCell align="right">Precio (USD)</TableCell>
                                                                 <TableCell>Status</TableCell>
                                                             </TableRow>
@@ -1512,10 +1512,10 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                                         <TableCell align="right" sx={{ fontSize: '0.75rem' }}>
                                                                             {pkg.air_price_per_kg ? `$${Number(pkg.air_price_per_kg).toFixed(2)}` : '-'}
                                                                         </TableCell>
-                                                                        {/* Costo proveedor por guía = peso × tarifa proveedor (despacho aduanal, MXN) */}
+                                                                        {/* Costo proveedor por guía = peso × tarifa proveedor (MXN) / TC → USD */}
                                                                         <TableCell align="right" sx={{ fontSize: '0.75rem', color: '#E65100' }}>
-                                                                            {releaseCalc && releaseCalc.tarifa_proveedor_per_kg > 0
-                                                                                ? fmt(Number(pkg.weight || 0) * releaseCalc.tarifa_proveedor_per_kg)
+                                                                            {releaseCalc && releaseCalc.tarifa_proveedor_per_kg > 0 && Number(profitData?.exchangeRate) > 0
+                                                                                ? fmtUSD((Number(pkg.weight || 0) * releaseCalc.tarifa_proveedor_per_kg) / Number(profitData!.exchangeRate))
                                                                                 : '-'}
                                                                         </TableCell>
                                                                         <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 'bold', color: Number(pkg.air_sale_price) > 0 ? '#1565C0' : 'text.secondary' }}>
@@ -1541,8 +1541,8 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                                 <TableCell />
                                                                 <TableCell />
                                                                 <TableCell align="right" sx={{ color: '#E65100' }}>
-                                                                    {releaseCalc && releaseCalc.tarifa_proveedor_per_kg > 0
-                                                                        ? fmt(packagesS.reduce((sum, p) => sum + (Number(p.weight) || 0), 0) * releaseCalc.tarifa_proveedor_per_kg)
+                                                                    {releaseCalc && releaseCalc.tarifa_proveedor_per_kg > 0 && Number(profitData?.exchangeRate) > 0
+                                                                        ? fmtUSD((packagesS.reduce((sum, p) => sum + (Number(p.weight) || 0), 0) * releaseCalc.tarifa_proveedor_per_kg) / Number(profitData!.exchangeRate))
                                                                         : '-'}
                                                                 </TableCell>
                                                                 <TableCell align="right" sx={{ color: '#1565C0' }}>
