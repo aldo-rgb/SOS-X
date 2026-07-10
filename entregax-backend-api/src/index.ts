@@ -4303,7 +4303,31 @@ app.get('/api/packages/track/:tracking/photos', authenticateToken, async (req: R
        LIMIT 1`,
       [upper, compact]
     );
-    const pkg = pkgRes.rows[0];
+    let pkg = pkgRes.rows[0];
+    if (!pkg) {
+      // Fallback: master Aéreo China cuya tarjeta usa el fno como tracking
+      // (AIR2615662DJOtz). No existe fila en packages con ese tracking → buscar
+      // el receipt directo por fno y armar un pkg virtual con sus evidencias.
+      const crRes = await pool.query(
+        `SELECT id, user_id, evidence_urls
+         FROM china_receipts
+         WHERE UPPER(fno) = $1
+            OR REGEXP_REPLACE(UPPER(COALESCE(fno,'')), '[^A-Z0-9]', '', 'g') = $2
+         ORDER BY id DESC
+         LIMIT 1`,
+        [upper, compact]
+      );
+      const cr = crRes.rows[0];
+      if (cr) {
+        pkg = {
+          id: null,
+          user_id: cr.user_id,
+          china_receipt_id: cr.id,
+          tracking_internal: upper,
+          child_no: null,
+        };
+      }
+    }
     if (!pkg) {
       res.status(404).json({ success: false, error: 'Paquete no encontrado' });
       return;
