@@ -244,6 +244,9 @@ export default function DashboardBranchManager() {
 
   // Alertas globales (contenedores sin referencia / guías AIR sin AWB) solo para Director / Admin / Super Admin
   const showGlobalOpsAlerts = !!stats?.totales_historicos && ['director', 'admin', 'super_admin'].includes(userRole);
+  // La sección "Operaciones" (widgets de entregas/tránsito por sucursal) se oculta
+  // para roles globales (admin/super_admin/director): ellos ven totales globales.
+  const hideOpsSection = ['super_admin', 'admin', 'director'].includes(userRole);
   const contenedoresSinRef = stats?.totales_historicos?.contenedores_sin_referencia || 0;
   const guiasAirSinAwb = stats?.totales_historicos?.guias_air_sin_awb || 0;
 
@@ -872,7 +875,8 @@ export default function DashboardBranchManager() {
         </>
       )}
 
-      {/* === Sección: Operaciones === */}
+      {/* === Sección: Operaciones (oculta para admin/super_admin/director) === */}
+      {!hideOpsSection && (<>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
         <Box sx={{ width: 4, height: 18, bgcolor: '#F05A28', borderRadius: 1 }} />
         <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.9rem', letterSpacing: 0.2, textTransform: 'uppercase' }}>
@@ -957,6 +961,7 @@ export default function DashboardBranchManager() {
           </Grid>
         )}
       </Grid>
+      </>)}
 
       {/* === Sección: Alertas (retrasos / parciales) === */}
       {(showPoboxWidget || showAirWidget || showSeaWidget || abandonoCount > 0 || (canSeePartialReceptions && partialReceptions.total > 0) || showGlobalOpsAlerts) && (        <>
