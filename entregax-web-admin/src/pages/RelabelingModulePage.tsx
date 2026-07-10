@@ -327,6 +327,15 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
     // 🔄 Auto-print al re-escanear la misma guía
     const lastScannedRef = useRef<string | null>(null);
     const autoPrintPendingRef = useRef(false);
+    // Input de búsqueda: tras cada escaneo dejamos el texto seleccionado para que
+    // el siguiente escaneo (misma guía) lo reemplace y dispare la auto-impresión.
+    const searchInputRef = useRef<HTMLInputElement | null>(null);
+    const focusSelectSearch = () => {
+        setTimeout(() => {
+            const el = searchInputRef.current;
+            if (el) { el.focus(); el.select(); }
+        }, 250);
+    };
     const [generatingPqtx, setGeneratingPqtx] = useState(false);
     const [pqtxMsg, setPqtxMsg] = useState<string | null>(null);
     const [pqtxError, setPqtxError] = useState<string | null>(null);
@@ -1019,6 +1028,10 @@ ${labelsHtml}
                 lastScannedRef.current = normalized;
                 setShipment(res.data.shipment);
                 setTracking(normalized);
+                // Dejar el texto seleccionado: si el scanner lee la MISMA guía otra
+                // vez, reemplaza el valor (no lo concatena) y dispara la
+                // auto-impresión de la etiqueta local.
+                if (!opts?.internal) focusSelectSearch();
             } else {
                 setError('Paquete no encontrado');
             }
@@ -1603,6 +1616,7 @@ ${labelsHtml}
                     <TextField
                         fullWidth
                         autoFocus
+                        inputRef={searchInputRef}
                         placeholder={t('labelingModule.searchPlaceholder')}
                         value={tracking}
                         onChange={(e) => setTracking(e.target.value)}
