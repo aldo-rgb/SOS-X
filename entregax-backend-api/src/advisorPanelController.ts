@@ -7,6 +7,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { signS3UrlIfNeeded } from './s3Service';
 import { AEREO_PAID_ORDER_SQL, XPAY_COMPLETED_SQL, GEX_PAID_SQL } from './commissionController';
+import { isMtyMetroZip } from './mtyMetroController';
 
 // ─── Helper: asegurar que existan columnas de onboarding (idempotente) ───
 let _advisorColumnsEnsured = false;
@@ -2073,6 +2074,29 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       if (addrCheck.rows.length === 0) return res.status(403).json({ error: 'Dirección no válida para este cliente' });
 
       const ocurreZip = (carrierKey === 'paquete_express' && nationalDeliveryZip) ? String(nationalDeliveryZip).trim() : null;
+
+      // 🚚 Regla eVISA: TDI Aéreo (CDMX) hacia la zona metro de Monterrey se
+      // despacha por eVISA prepagado (EntregaX lo paga; eVISA dispersa en MTY).
+      // Si el asesor eligió EntregaX Local MTY (o eVISA), guardamos el carrier
+      // como 'evisa_pre' SIN costo (incluido en el flete). Solo aplica a TDI Aéreo.
+      let effCarrier = carrierKey || null;
+      let forceEvisaZero = false;
+      {
+        const info = await pool.query(
+          `SELECT (p.child_no ILIKE 'AIR%' OR p.tracking_internal ILIKE 'CN-%' OR p.china_receipt_id IS NOT NULL) AS is_air,
+                  (SELECT zip_code FROM addresses WHERE id = $2) AS zip
+             FROM packages p WHERE p.id = $1`, [shipmentId, addressId]);
+        const isAir = info.rows[0]?.is_air === true;
+        const zip = info.rows[0]?.zip;
+        const localish = ['local', 'entregax_local_mty', 'entregax_local', 'evisa_pre', 'evisapre']
+          .includes(String(carrierKey || '').toLowerCase());
+        if (isAir && localish && await isMtyMetroZip(zip)) {
+          effCarrier = 'evisa_pre';
+          forceEvisaZero = true;
+          pqtxPerBox = 0;
+        }
+      }
+
       await pool.query(
         `UPDATE packages SET
           assigned_address_id = $1,
@@ -2094,7 +2118,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           )),
           instructions_assigned_by_id = $7
          WHERE id = $6`,
-        [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId, ocurreZip, pqtxPerBox, isCollectBool]
+        [addressId, effCarrier, isCollectBool, isCollectBool ? effCarrier : null, wantsFacturaBool, shipmentId, advisorId, ocurreZip, pqtxPerBox, (isCollectBool || forceEvisaZero)]
       );
 
       // Propagar instrucciones a cajas hijas del mismo master (multipieza)
@@ -2120,7 +2144,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
               instructions_assigned_by_id = $6
              WHERE tracking_internal ~ ('^' || $7 || '-\\d{1,4}$')
                AND assigned_address_id IS NULL`,
-            [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, advisorId, masterTracking, ocurreZip, pqtxPerBox, isCollectBool]
+            [addressId, effCarrier, isCollectBool, isCollectBool ? effCarrier : null, wantsFacturaBool, advisorId, masterTracking, ocurreZip, pqtxPerBox, (isCollectBool || forceEvisaZero)]
           );
         }
       }

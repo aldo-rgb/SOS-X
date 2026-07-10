@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { isMtyMetroZip } from './mtyMetroController';
 import { PoolClient, Pool } from 'pg';
 import multer from 'multer';
 import path from 'path';
@@ -4712,6 +4713,24 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                 const realId = isOffsetId ? numericId - 200000 : numericId;
                 const shippingCostMxn = parseFloat(carrierCost) || 0;
 
+                // 🚚 Regla eVISA: TDI Aéreo hacia la zona metro de Monterrey se
+                // despacha por eVISA prepagado (EntregaX lo paga; eVISA dispersa en
+                // MTY). Si se eligió EntregaX Local MTY (o eVISA), guardamos el
+                // carrier como 'evisa_pre' SIN costo (incluido en el flete).
+                let effCarrierAir = carrierName || carrier || null;
+                let effCostAir = shippingCostMxn;
+                {
+                    const chosen = String(carrierName || carrier || '').toLowerCase();
+                    const localish = ['local', 'entregax_local_mty', 'entregax_local', 'evisa_pre', 'evisapre'].includes(chosen);
+                    if (localish && deliveryAddressId) {
+                        const zr = await pool.query('SELECT zip_code FROM addresses WHERE id = $1', [deliveryAddressId]);
+                        if (await isMtyMetroZip(zr.rows[0]?.zip_code)) {
+                            effCarrierAir = 'evisa_pre';
+                            effCostAir = 0;
+                        }
+                    }
+                }
+
                 if (isOffsetId) {
                     // Actualizar china_receipts
                     result = await pool.query(`
@@ -4723,7 +4742,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                             updated_at = CURRENT_TIMESTAMP
                         WHERE id = $3${ownerCondition}
                         RETURNING id, fno as tracking_internal
-                    `, [deliveryAddressId, deliveryInstructions, realId, carrierName || carrier || null, shippingCostMxn]);
+                    `, [deliveryAddressId, deliveryInstructions, realId, effCarrierAir, effCostAir]);
 
                     // Propagar a packages hijos vinculados a este china_receipt
                     if (result.rowCount && result.rowCount > 0) {
@@ -4736,7 +4755,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                                 needs_instructions = false,
                                 updated_at = CURRENT_TIMESTAMP
                             WHERE china_receipt_id = $3
-                        `, [deliveryAddressId, deliveryInstructions, realId, carrierName || carrier || null, shippingCostMxn]);
+                        `, [deliveryAddressId, deliveryInstructions, realId, effCarrierAir, effCostAir]);
                     }
                 } else {
                     // Compatibilidad: actualizar package directo
@@ -4750,7 +4769,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                             updated_at = CURRENT_TIMESTAMP
                         WHERE id = $3${ownerCondition}
                         RETURNING id, tracking_internal
-                    `, [deliveryAddressId, deliveryInstructions, realId, carrierName || carrier || null, shippingCostMxn]);
+                    `, [deliveryAddressId, deliveryInstructions, realId, effCarrierAir, effCostAir]);
                 }
                 break;
             }

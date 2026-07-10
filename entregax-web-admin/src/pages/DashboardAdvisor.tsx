@@ -1418,6 +1418,15 @@ export default function DashboardAdvisor() {
     const s = String(serviceType).toUpperCase();
     return s === 'AIR_CHN_MX' || s === 'TDI_EXPRESS';
   };
+  // Carriers cuyo costo va INCLUIDO en la tarifa base (no se cobra extra):
+  // Paquete Express en TDI Aéreo/Express, y eVISA Prepagado en TDI Aéreo (el
+  // tramo CDMX→MTY lo paga EntregaX; se muestra $400 tachado + INCLUIDO).
+  const isCarrierIncludedInFreight = (carrierKey?: string | null, serviceType?: string | null): boolean => {
+    const k = String(carrierKey || '').toLowerCase();
+    if (k === 'paquete_express') return isPqtxIncludedService(serviceType);
+    if (k === 'evisa_pre' || k === 'evisapre') return String(serviceType || '').toUpperCase() === 'AIR_CHN_MX';
+    return false;
+  };
 
   const handleViewAddresses = async (clientId: number, clientName: string) => {
     setAddressesClient({ id: clientId, name: clientName });
@@ -7353,7 +7362,7 @@ export default function DashboardAdvisor() {
                   {instrCarriers.map((carrier: any) => {
                     const isCarrierSelected = instrCarrierKey === carrier.carrier_key;
                     const isUrl = carrier.icon && (carrier.icon.startsWith('/') || carrier.icon.startsWith('http'));
-                    const isPqtxIncluded = carrier.carrier_key === 'paquete_express' && isPqtxIncludedService(instrShipment?.serviceType);
+                    const isPqtxIncluded = isCarrierIncludedInFreight(carrier.carrier_key, instrShipment?.serviceType);
                     return (
                       <Paper
                         key={carrier.carrier_key}
@@ -7407,7 +7416,7 @@ export default function DashboardAdvisor() {
               )}
 
               {/* ── Estimado de costo / Aviso "Incluido" para TDI ── */}
-              {instrCarrierKey === 'paquete_express' && isPqtxIncludedService(instrShipment?.serviceType) ? (
+              {isCarrierIncludedInFreight(instrCarrierKey, instrShipment?.serviceType) ? (
                 <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#E8F5E9', border: '1px solid #A5D6A7', display: 'flex', alignItems: 'center', gap: 1.5 }}>
                   <Typography sx={{ fontSize: 22 }}>✅</Typography>
                   <Box>
