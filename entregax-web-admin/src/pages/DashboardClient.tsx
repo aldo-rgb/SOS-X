@@ -378,6 +378,27 @@ function normalizeServiceForCredit(raw: any): string {
   return map[s] || s;
 }
 
+// Helpers para validar cobertura de paqueterías locales por código postal.
+// - CDMX: 01000 a 16999 (todas las alcaldías)
+// - MTY metro (NL): 64000 a 67999 aproximadamente
+const isCdmxPostalCode = (cp: string): boolean => {
+  const n = parseInt(String(cp || '').replace(/\D/g, ''), 10);
+  return Number.isFinite(n) && n >= 1000 && n <= 16999;
+};
+const isMtyPostalCode = (cp: string): boolean => {
+  const n = parseInt(String(cp || '').replace(/\D/g, ''), 10);
+  return Number.isFinite(n) && n >= 64000 && n <= 67999;
+};
+// Detecta si un carrier es "EntregaX Local CDMX" o "…MTY" por id o nombre.
+const isLocalCdmxCarrier = (c: { id?: string; name?: string }): boolean => {
+  const s = `${c.id || ''} ${c.name || ''}`.toLowerCase();
+  return /(?:^|[^a-z])(local[_\s-]?cdmx|cdmx)/.test(s) || s.includes('entregax local cdmx');
+};
+const isLocalMtyCarrier = (c: { id?: string; name?: string }): boolean => {
+  const s = `${c.id || ''} ${c.name || ''}`.toLowerCase();
+  return /(?:^|[^a-z])(local[_\s-]?mty|mty|monterrey)/.test(s) || s.includes('entregax local mty');
+};
+
 export default function DashboardClient() {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -10627,13 +10648,41 @@ export default function DashboardClient() {
                   const isChecked = addressForm.service_types.includes(svc.value);
                   const currentCarrier = addressForm.carrier_config[svc.value] || '';
                   // Fetch carriers for this specific service type
-                  const availableCarriers = carriersPerService[svc.serviceType] || [
+                  const rawCarriers = carriersPerService[svc.serviceType] || [
                         { id: 'local', name: 'EntregaX Local MTY', icon: '🚛' },
                         { id: 'express', name: 'Paquete Express', icon: '⚡' },
                       ] as any[];
                   // Trigger fetch if not cached yet
                   if (!carriersPerService[svc.serviceType]) {
                     fetchCarriersForService(svc.serviceType);
+                  }
+                  // Reglas de cobertura para paqueterías locales:
+                  //   - "EntregaX Local CDMX" solo se ofrece si el CP es CDMX.
+                  //   - "EntregaX Local MTY"  solo se ofrece si el CP es MTY.
+                  //   - Para "Aéreo China" (svc.value === 'air') NUNCA se ofrece MTY,
+                  //     porque el flujo aéreo no incluye entrega local en Monterrey
+                  //     (la conexión es TDI Express).
+                  const cp = addressForm.zip_code || '';
+                  const cpIsCdmx = isCdmxPostalCode(cp);
+                  const cpIsMty = isMtyPostalCode(cp);
+                  const availableCarriers = (rawCarriers as any[]).filter((c: any) => {
+                    if (isLocalCdmxCarrier(c) && !cpIsCdmx) return false;
+                    if (isLocalMtyCarrier(c)) {
+                      if (svc.value === 'air') return false; // Aéreo China → nunca MTY
+                      if (!cpIsMty) return false;            // otros servicios → solo si CP MTY
+                    }
+                    return true;
+                  });
+                  // Si la selección previa quedó fuera del listado (ej. cambió el CP),
+                  // limpiamos el carrier de este servicio.
+                  if (currentCarrier && !availableCarriers.some((c: any) => c.id === currentCarrier)) {
+                    setTimeout(() => {
+                      setAddressForm(prev => {
+                        const cc = { ...prev.carrier_config };
+                        delete cc[svc.value];
+                        return { ...prev, carrier_config: cc };
+                      });
+                    }, 0);
                   }
                   return (
                     <Box key={svc.value} sx={{ mb: 0.5 }}>
