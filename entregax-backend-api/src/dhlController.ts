@@ -823,7 +823,7 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
         cost_payment_status,
         total_cost_mxn,
         status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $20, $17, $18, NOW(), $19, 'pending', (COALESCE($16,0) + COALESCE($20,0)), 'received_mty')
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $20, $17, $18, NOW(), $19, 'pending', (COALESCE($16::numeric,0) + COALESCE($20::numeric,0)), 'received_mty')
       RETURNING *
     `, [
       inbound_tracking, secondary_tracking || null,
