@@ -4767,6 +4767,10 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
          destination_phone = NULL,
          destination_contact = NULL,
          needs_instructions = TRUE,
+         -- Revertir el marcador de "etiquetado" (national_label_url) que pone el
+         -- módulo de etiquetado. Es lo que revisa la app del repartidor (has_label)
+         -- para mostrar la guía en la carga: sin etiqueta ⇒ ya no aparece.
+         national_label_url = NULL,
          updated_at = NOW()
        WHERE id = $1`,
       [id]
@@ -4786,6 +4790,7 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
            destination_phone = NULL,
            destination_contact = NULL,
            needs_instructions = TRUE,
+           national_label_url = NULL,
            updated_at = NOW()
          WHERE master_id = $1
            AND status NOT IN ('delivered', 'out_for_delivery', 'returned_to_warehouse')`,
