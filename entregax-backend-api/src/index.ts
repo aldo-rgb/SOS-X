@@ -11213,26 +11213,36 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
       });
     }
 
+    // 🏢 Sucursal CEDIS Monterrey: al recibir se debe asignar current_branch_id
+    // para que el paquete aparezca en la ruta del repartidor de sucursal MTY
+    // (la query del repartidor filtra por sucursal, igual que PO Box / DHL).
+    const mtyBranch = await pool.query(`SELECT id FROM branches WHERE UPPER(code) = 'MTY' LIMIT 1`);
+    const mtyBranchId = mtyBranch.rows[0]?.id || null;
+
     // Actualizar master y todos sus hijos
     await pool.query(`
-      UPDATE packages SET status = 'received_mty', updated_at = NOW()
+      UPDATE packages SET status = 'received_mty',
+             current_branch_id = COALESCE($2::int, current_branch_id),
+             updated_at = NOW()
       WHERE (id = $1 OR master_id = $1)
         AND service_type IN ('tdi_express','tdi_aereo')
-    `, [pkg.id]);
+    `, [pkg.id, mtyBranchId]);
 
     // 🔁 Rollup: si se escaneó una caja hija y ya NO queda ninguna hermana
     // pendiente de recibir, marcar también el master como received_mty para
     // que la tarjeta del cliente refleje el estado real del envío.
     if (pkg.master_id) {
       await pool.query(`
-        UPDATE packages SET status = 'received_mty', updated_at = NOW()
+        UPDATE packages SET status = 'received_mty',
+               current_branch_id = COALESCE($2::int, current_branch_id),
+               updated_at = NOW()
         WHERE id = $1
           AND service_type IN ('tdi_express','tdi_aereo')
           AND NOT EXISTS (
             SELECT 1 FROM packages c
             WHERE c.master_id = $1 AND c.status::text NOT IN ('received_mty','delivered','dispatched_national','ready_pickup')
           )
-      `, [pkg.master_id]);
+      `, [pkg.master_id, mtyBranchId]);
     }
 
     return res.json({
