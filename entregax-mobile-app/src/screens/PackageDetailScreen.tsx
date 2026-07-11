@@ -64,6 +64,8 @@ interface PackageDetails {
   id: number;
   tracking_internal: string;
   tracking_provider?: string;
+  international_tracking?: string;
+  dhl_awb?: string;
   description?: string;
   weight?: number;
   dimensions?: string | {
@@ -647,6 +649,20 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                   <MaterialCommunityIcons name="truck" size={20} color="#666" />
                   <Text style={styles.infoLabel}>Paquetería:</Text>
                   <Text style={styles.infoValue}>{displayName}</Text>
+                </View>
+              );
+            })()}
+
+            {/* 📦 Guía DHL / AWB (TDI Express) — asignada en el panel de
+                operaciones "Actualizar Guía AWB DHL". Vive en international_tracking. */}
+            {(() => {
+              const awb = details.dhl_awb || (isTdiExpress() ? details.international_tracking : null);
+              if (!awb) return null;
+              return (
+                <View style={styles.infoRow}>
+                  <MaterialCommunityIcons name="airplane" size={20} color="#666" />
+                  <Text style={styles.infoLabel}>Guía DHL:</Text>
+                  <Text style={styles.infoValue}>{awb}</Text>
                 </View>
               );
             })()}

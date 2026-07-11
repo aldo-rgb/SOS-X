@@ -213,6 +213,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     if (shipmentType === 'china_air') {
       const chinaAirLabels: Record<string, string> = {
         received_origin:     L('En Bodega China',                'In China Warehouse',              '在中国仓库'),
+        received_china:      L('Recibido en China',              'Received in China',               '已在中国收货'),
+        shipped:             L('Enviado',                        'Shipped',                         '已发货'),
         in_transit:          L('En Tránsito',                    'In Transit',                      '运输中'),
         at_customs:          L('En Aduana',                      'At Customs',                      '在海关'),
         customs_mx:          L('Aduana México',                  'Mexico Customs',                  '墨西哥海关'),
@@ -961,7 +963,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const isSelectable = isUserVerified && !isPaid && (
       (isPOBoxUSA && ['received', 'in_transit', 'received_mty', 'processing', 'ready_pickup'].includes(item.status)) ||
       (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status)) ||
-      (isChinaAir && ['received_origin', 'in_transit', 'at_customs', 'in_transit_transfer', 'arrived_mx'].includes(item.status)) ||
+      (isChinaAir && ['received_origin', 'received_china', 'in_transit', 'at_customs', 'in_transit_transfer', 'arrived_mx'].includes(item.status)) ||
       (isDHL && ['received_mty'].includes(item.status)) ||
       // 🛫 TDI Express: seleccionable para asignar instrucciones o pagar
       (isTdiExpress && ['received_china', 'in_transit', 'received_mty'].includes(item.status))
@@ -997,7 +999,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const gexEligible = gexEnabled && !isPendingClass && !((isMaritime || isChinaAir) && isLogoMerch) && (isMaritime
       ? (item.status === 'received_china')
       : isChinaAir
-        ? (item.status === 'received_origin')
+        ? (['received_origin', 'received_china'].includes(item.status))
         : (['received', 'processing'].includes(item.status) &&
            item.consolidation_status !== 'in_transit' &&
            item.consolidation_status !== 'shipped'));
@@ -1045,8 +1047,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const canAssignDelivery = isSelected && (isMaritime || isChinaAir || isDHL) && 
       (isMaritime 
         ? ['received_china', 'in_transit', 'at_port'].includes(item.status)
-        : isChinaAir 
-          ? ['received_origin', 'in_transit', 'at_customs'].includes(item.status)
+        : isChinaAir
+          ? ['received_origin', 'received_china', 'in_transit', 'at_customs'].includes(item.status)
           : ['received_mty'].includes(item.status)) &&
       !(item as any).delivery_address_id;
 
@@ -1064,8 +1066,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             // protegida con Garantía Extendida" — va en el card entero,
             // no en el pill de texto.
             item.has_gex && styles.cardGexProtected,
-            isSelected && styles.cardSelected,
-            isShipped && styles.cardShipped
+            isSelected && styles.cardSelected
           ]}
         >
           <Card.Content style={styles.cardContent}>
@@ -1181,6 +1182,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                           item.status === 'delivered' ? 'check-circle' : 'ferry'
                         ) : isChinaAir ? (
                           item.status === 'received_origin' ? 'package-variant' :
+                          item.status === 'received_china' ? 'package-variant' :
+                          item.status === 'shipped' ? 'airplane-takeoff' :
                           item.status === 'in_transit' ? 'airplane' :
                           item.status === 'at_customs' ? 'shield-lock' :
                           item.status === 'customs_mx' ? 'shield-lock' :

@@ -4946,6 +4946,7 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
                 p.id,
                 p.tracking_internal,
                 p.tracking_provider,
+                p.international_tracking,
                 p.description,
                 p.weight,
                 p.dimensions,
@@ -5118,6 +5119,11 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
             id: pkg.id,
             tracking_internal: pkg.tracking_internal,
             tracking_provider: effectiveTrackingProvider,
+            // 📦 Guía internacional / AWB DHL (TDI Express): se asigna en el
+            // panel "Actualizar Guía AWB DHL" y se guarda en international_tracking.
+            international_tracking: pkg.international_tracking || null,
+            dhl_awb: (pkg.air_source === 'tdi_express' || String(pkg.service_type || '').toLowerCase() === 'tdi_express')
+                ? (pkg.international_tracking || null) : null,
             origin_carrier: effectiveOriginCarrier,
             description: pkg.description,
             weight: pkg.weight ? parseFloat(pkg.weight) : null,
