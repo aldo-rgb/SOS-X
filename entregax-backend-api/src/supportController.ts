@@ -81,7 +81,7 @@ CONTEXTO: Estás chateando por la app móvil con un cliente de EntregaX que nece
 
 💡 RESPUESTAS TÍPICAS:
 - "¿Dónde está mi paquete?" → Revisa el contexto y da el status real; si no, pide el TRN.
-- "¿Cuánto cuesta?" → DA UN ESTIMADO con las TARIFAS del contexto. Marítimo: cobra el mayor entre volumen (m³) y peso÷500, por la tarifa por CBM — si el cliente no dio el peso, PÍDESELO (lo necesitas por la regla 500 kg = 1 CBM). Aéreo: por peso volumétrico. Siempre aclara que es aproximado y que el exacto sale del Cotizador.
+- "¿Cuánto cuesta?" → DA UN ESTIMADO con las TARIFAS del contexto (TODAS en USD). Marítimo: el CBM cobrable es el mayor entre volumen (m³) y peso÷500; multiplica por la tarifa USD/CBM del rango — si el cliente no dio el peso, PÍDESELO (lo necesitas por la regla 500 kg = 1 CBM). Aéreo: por peso volumétrico (USD/kg). Da el estimado en USD, aclara que es aproximado y que el exacto sale del Cotizador.
 - "Necesito factura" → Se solicita en Mi Perfil > Datos Fiscales.
 - "Mi paquete llegó roto" → Pide fotos y ofrece abrir reclamación (o escala).
 
@@ -390,18 +390,27 @@ async function buildClientContext(userId: number | string): Promise<string> {
     }
   } catch (e) { /* seguimos */ }
 
-  // 📐 Tarifas para cotización aproximada (marítimo por CBM, aéreo por kg).
+  // 📐 Tarifas para cotización aproximada. IMPORTANTE: TODAS las tarifas son en USD.
+  // Marítimo: tabla escalonada por CBM (pricing_tiers, categoría Genérico), en USD/CBM.
+  // Aéreo: USD por kg. El monto exacto se calcula en el Cotizador de la app.
   try {
     const tarifas: string[] = [];
-    const mr = await pool.query(`SELECT cost_per_cbm, min_charge FROM maritime_rates WHERE is_active = true ORDER BY id ASC LIMIT 1`);
-    if (mr.rows[0]) {
-      const cpc = Number(mr.rows[0].cost_per_cbm) || 0;
-      const minCh = Number(mr.rows[0].min_charge) || 0;
-      if (cpc > 0) tarifas.push(
-        `Marítimo China→México: $${cpc.toFixed(2)} MXN por m³ (CBM)${minCh > 0 ? `, cargo mínimo $${minCh.toFixed(2)} MXN` : ''}. ` +
-        `REGLA CLAVE: se cobra el MAYOR entre el volumen (m³) y el peso÷500 (500 kg = 1 CBM). ` +
-        `Para cotizar NECESITAS el peso Y el volumen (o dimensiones): si falta el peso, PÍDELO antes de dar el precio. ` +
-        `Ej: 5 m³ con ≤2,500 kg = 5 × $${cpc.toFixed(2)} = $${(5 * cpc).toLocaleString('es-MX', {maximumFractionDigits:2})} MXN.`
+    const mt = await pool.query(
+      `SELECT pt.min_cbm, pt.max_cbm, pt.price
+         FROM pricing_tiers pt JOIN pricing_categories pc ON pt.category_id = pc.id
+        WHERE pc.name = 'Generico' AND pt.is_active = TRUE
+        ORDER BY pt.min_cbm ASC`);
+    if (mt.rows.length) {
+      const tierLines = mt.rows.map((t: any) => {
+        const min = Number(t.min_cbm) || 0;
+        const max = t.max_cbm == null ? null : Number(t.max_cbm);
+        return `${min.toFixed(2)}–${max == null ? '∞' : max.toFixed(2)} m³: $${Number(t.price).toFixed(2)} USD por CBM`;
+      });
+      tarifas.push(
+        `Marítimo China→México (Genérico) — precio por CBM en USD, escalonado (a más volumen, menor tarifa):\n   ${tierLines.join('\n   ')}\n   ` +
+        `REGLA: el CBM cobrable = el MAYOR entre el volumen (m³) y el peso÷500 (500 kg = 1 CBM). ` +
+        `Total USD ≈ CBM_cobrable × (tarifa USD/CBM del rango correspondiente). ` +
+        `Para cotizar NECESITAS el peso Y el volumen (o dimensiones): si falta el peso, PÍDELO antes de dar el precio.`
       );
     }
     const air = await pool.query(`SELECT tariff_type, price_per_kg FROM air_tariffs WHERE route_id = 1 AND price_per_kg > 0 ORDER BY tariff_type`);
@@ -413,7 +422,7 @@ async function buildClientContext(userId: number | string): Promise<string> {
       );
     }
     if (tarifas.length) {
-      parts.push(`TARIFAS PARA COTIZAR (da un estimado aproximado; el monto exacto se calcula en el Cotizador de la app):\n• ${tarifas.join('\n• ')}`);
+      parts.push(`TARIFAS PARA COTIZAR (TODO EN USD; da un estimado aproximado y aclara que el exacto sale del Cotizador de la app):\n• ${tarifas.join('\n• ')}`);
     }
   } catch (e) { /* seguimos */ }
 
