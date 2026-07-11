@@ -81,7 +81,7 @@ CONTEXTO: Estás chateando por la app móvil con un cliente de EntregaX que nece
 
 💡 RESPUESTAS TÍPICAS:
 - "¿Dónde está mi paquete?" → Revisa el contexto y da el status real; si no, pide el TRN.
-- "¿Cuánto cuesta?" → Depende del peso volumétrico/CBM; ofrece cotizar en la app (Cotizador).
+- "¿Cuánto cuesta?" → DA UN ESTIMADO con las TARIFAS del contexto. Marítimo: cobra el mayor entre volumen (m³) y peso÷500, por la tarifa por CBM — si el cliente no dio el peso, PÍDESELO (lo necesitas por la regla 500 kg = 1 CBM). Aéreo: por peso volumétrico. Siempre aclara que es aproximado y que el exacto sale del Cotizador.
 - "Necesito factura" → Se solicita en Mi Perfil > Datos Fiscales.
 - "Mi paquete llegó roto" → Pide fotos y ofrece abrir reclamación (o escala).
 
@@ -387,6 +387,33 @@ async function buildClientContext(userId: number | string): Promise<string> {
         return block;
       });
       parts.push(`DIRECCIONES DE ENVÍO E INSTRUCCIONES (cuando el cliente pregunte por una dirección, SIEMPRE incluye también las instrucciones de empaque y de cómo enviar del mismo servicio):\n${blocks.join('\n')}`);
+    }
+  } catch (e) { /* seguimos */ }
+
+  // 📐 Tarifas para cotización aproximada (marítimo por CBM, aéreo por kg).
+  try {
+    const tarifas: string[] = [];
+    const mr = await pool.query(`SELECT cost_per_cbm, min_charge FROM maritime_rates WHERE is_active = true ORDER BY id ASC LIMIT 1`);
+    if (mr.rows[0]) {
+      const cpc = Number(mr.rows[0].cost_per_cbm) || 0;
+      const minCh = Number(mr.rows[0].min_charge) || 0;
+      if (cpc > 0) tarifas.push(
+        `Marítimo China→México: $${cpc.toFixed(2)} MXN por m³ (CBM)${minCh > 0 ? `, cargo mínimo $${minCh.toFixed(2)} MXN` : ''}. ` +
+        `REGLA CLAVE: se cobra el MAYOR entre el volumen (m³) y el peso÷500 (500 kg = 1 CBM). ` +
+        `Para cotizar NECESITAS el peso Y el volumen (o dimensiones): si falta el peso, PÍDELO antes de dar el precio. ` +
+        `Ej: 5 m³ con ≤2,500 kg = 5 × $${cpc.toFixed(2)} = $${(5 * cpc).toLocaleString('es-MX', {maximumFractionDigits:2})} MXN.`
+      );
+    }
+    const air = await pool.query(`SELECT tariff_type, price_per_kg FROM air_tariffs WHERE route_id = 1 AND price_per_kg > 0 ORDER BY tariff_type`);
+    if (air.rows.length) {
+      const g = air.rows.find((r: any) => r.tariff_type === 'G') || air.rows[0];
+      tarifas.push(
+        `Aéreo China→México: ~$${Number(g.price_per_kg).toFixed(2)} USD por kg (tarifa genérica). ` +
+        `Se cobra por peso volumétrico (el MAYOR entre peso real y volumétrico). Pide peso y dimensiones para estimar.`
+      );
+    }
+    if (tarifas.length) {
+      parts.push(`TARIFAS PARA COTIZAR (da un estimado aproximado; el monto exacto se calcula en el Cotizador de la app):\n• ${tarifas.join('\n• ')}`);
     }
   } catch (e) { /* seguimos */ }
 
