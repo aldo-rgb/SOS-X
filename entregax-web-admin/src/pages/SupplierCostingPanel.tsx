@@ -454,6 +454,10 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
     const { totalCost, totalCostUsd, paidCount, unpaidCount, unpaidTotal,
         totalCostoProveedor, totalCostoVenta, totalUtilidad, montoPdtePagoProveedor, montoPdteCobrar, montoYaCobrado } = getTotals();
 
+    // Formato de moneda con separador de miles y etiqueta (MXN por defecto).
+    const money = (n: number, cur: string = 'MXN') =>
+        `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`;
+
     return (
         <Box sx={{ p: 3 }}>
             {/* Header */}
@@ -684,15 +688,15 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                         </Grid>
                         <Grid size={{ xs: 6, sm: 3 }}>
                             <Typography variant="body2" color="text.secondary">Total USD</Typography>
-                            <Typography variant="h6" fontWeight="bold" color="primary">${Number(totalCostUsd || 0).toFixed(2)}</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="primary">{money(totalCostUsd, 'USD')}</Typography>
                         </Grid>
                         <Grid size={{ xs: 6, sm: 3 }}>
                             <Typography variant="body2" color="text.secondary">Total MXN</Typography>
-                            <Typography variant="h6" fontWeight="bold" color="success.main">${Number(totalCost || 0).toFixed(2)}</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="success.main">{money(totalCost)}</Typography>
                         </Grid>
                         <Grid size={{ xs: 6, sm: 3 }}>
                             <Typography variant="body2" color="text.secondary">Por Cobrar MXN</Typography>
-                            <Typography variant="h6" fontWeight="bold" color="error">${Number(unpaidTotal || 0).toFixed(2)}</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="error">{money(unpaidTotal)}</Typography>
                         </Grid>
 
                         {/* 🆕 Resumen financiero */}
@@ -700,27 +704,27 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
 
                         <Grid size={{ xs: 6, sm: 4 }}>
                             <Typography variant="body2" color="text.secondary">Monto Pdte de Pago a Proveedor</Typography>
-                            <Typography variant="h6" fontWeight="bold" color="warning.main">${Number(montoPdtePagoProveedor || 0).toFixed(2)}</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="warning.main">{money(montoPdtePagoProveedor)}</Typography>
                         </Grid>
                         <Grid size={{ xs: 6, sm: 4 }}>
                             <Typography variant="body2" color="text.secondary">Monto Pdte de Cobrar</Typography>
-                            <Typography variant="h6" fontWeight="bold" color="error">${Number(montoPdteCobrar || 0).toFixed(2)}</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="error">{money(montoPdteCobrar)}</Typography>
                         </Grid>
                         <Grid size={{ xs: 6, sm: 4 }}>
                             <Typography variant="body2" color="text.secondary">Monto Ya Cobrado</Typography>
-                            <Typography variant="h6" fontWeight="bold" color="success.main">${Number(montoYaCobrado || 0).toFixed(2)}</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="success.main">{money(montoYaCobrado)}</Typography>
                         </Grid>
                         <Grid size={{ xs: 6, sm: 4 }}>
                             <Typography variant="body2" color="text.secondary">Total Costo Proveedor</Typography>
-                            <Typography variant="h6" fontWeight="bold" color="error.main">${Number(totalCostoProveedor || 0).toFixed(2)}</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="error.main">{money(totalCostoProveedor)}</Typography>
                         </Grid>
                         <Grid size={{ xs: 6, sm: 4 }}>
                             <Typography variant="body2" color="text.secondary">Total Costo de Venta</Typography>
-                            <Typography variant="h6" fontWeight="bold" color="info.main">${Number(totalCostoVenta || 0).toFixed(2)}</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="info.main">{money(totalCostoVenta)}</Typography>
                         </Grid>
                         <Grid size={{ xs: 6, sm: 4 }}>
                             <Typography variant="body2" color="text.secondary">Total Utilidad</Typography>
-                            <Typography variant="h6" fontWeight="bold" color={totalUtilidad >= 0 ? 'success.main' : 'error.main'}>${Number(totalUtilidad || 0).toFixed(2)}</Typography>
+                            <Typography variant="h6" fontWeight="bold" color={totalUtilidad >= 0 ? 'success.main' : 'error.main'}>{money(totalUtilidad)}</Typography>
                         </Grid>
                     </Grid>
                 </Paper>
