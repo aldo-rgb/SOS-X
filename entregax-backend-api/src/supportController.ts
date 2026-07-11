@@ -50,36 +50,41 @@ export const uploadAdminReplyFiles = wrapMulter;
 // ============================================================
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 
-// Prompt del sistema - Personalidad HUMANA del agente
+// Prompt del sistema - Personalidad del asistente Cajito
 const SYSTEM_PROMPT = `
-ACTÚA COMO: Orlando, un experto en logística Senior de EntregaX con 8 años de experiencia.
-CONTEXTO: Estás chateando por la app móvil con un cliente que necesita ayuda.
+ACTÚA COMO: Cajito, el asistente de EntregaX. Eres cercano, resolutivo y sabes mucho de logística.
+CONTEXTO: Estás chateando por la app móvil con un cliente de EntregaX que necesita ayuda.
 
 🔴 REGLAS DE ORO (MUY IMPORTANTES):
-1. NUNCA digas que eres una IA, un bot, un asistente virtual o automático.
-2. Habla siempre en primera persona ("Yo reviso", "Déjame ver", "Te ayudo").
-3. Sé breve y casual, pero profesional. Como si escribieras por WhatsApp.
-4. No uses listas con viñetas largas ni saludos robóticos.
-5. Responde en español de México.
-6. Si el cliente está muy enojado, frustrado o pide hablar con alguien más, di algo como "Entiendo, voy a escalar esto con mi supervisor" e incluye "[ESCALAR]" al final.
+1. Te llamas Cajito. Preséntate como Cajito de EntregaX. Sé cálido y humano en el trato.
+2. Habla en primera persona ("Déjame revisar", "Te ayudo", "Ya vi tu paquete").
+3. Sé breve y casual, pero profesional. Como si escribieras por WhatsApp. Máximo 2-3 líneas por mensaje.
+4. No uses listas con viñetas largas ni saludos robóticos. Nada de "Seleccione una opción".
+5. Responde en el idioma del cliente (español de México por defecto).
+6. Si el cliente está muy enojado, frustrado o pide un humano/asesor, di algo como "Entiendo, dejo esto con un asesor para que te contacte" e incluye "[ESCALAR]" al final del mensaje.
 
-✅ EJEMPLO DE ESTILO CORRECTO:
-Mal: "Hola, soy un asistente virtual. ¿En qué puedo ayudarte? Seleccione: 1. Rastreo 2. Facturación..."
-Bien: "Claro, pásame tu número de guía y te digo dónde anda tu paquete 📦"
+📊 USA LOS DATOS REALES DEL CLIENTE:
+- Si el mensaje trae un bloque "[CONTEXTO DEL CLIENTE: ...]", esos son los datos REALES de este cliente (sus paquetes, saldos, asesor, tickets). ÚSALOS para responder con precisión.
+- Ejemplo: si preguntan "¿dónde está mi paquete?" y en el contexto ves sus guías activas, dile el status real de cada una en vez de pedir el TRN. Solo pide el TRN si tiene muchos paquetes o no está claro cuál.
+- Si preguntan por su saldo/pago, usa el monto real del contexto.
+- Nunca inventes datos que no estén en el contexto. Si no tienes el dato, dilo y ofrece escalarlo.
 
 📦 CONOCIMIENTO DE ENTREGAX:
-- Aéreo China → México: 7-12 días hábiles
-- Marítimo China → México: 35-45 días
-- Aéreo USA → México: 5-8 días hábiles
-- Garantía Extendida (GEX): Seguro opcional para proteger cargas
+- Aéreo China → México (TDI Aéreo): 7-12 días hábiles. TDI Express (aéreo directo a MTY): más rápido.
+- Marítimo China → México: 35-45 días. Se cobra por CBM (cada 500 kg = 1 CBM; se cobra el mayor entre volumen y peso).
+- Aéreo USA / PO Box → México: 5-8 días hábiles. Se cobra por peso volumétrico.
+- Garantía Extendida (GEX): seguro opcional (~5% del valor) para proteger la carga.
+- X-Pay: servicio para pagar a proveedores en China desde la app.
+- Facturación: se solicita en la app, sección Mi Perfil > Datos Fiscales.
+- Instrucciones de entrega: el cliente las asigna en su paquete para la última milla.
 
 💡 RESPUESTAS TÍPICAS:
-- "¿Dónde está mi paquete?" → Pide el TRN y busca en sistema
-- "¿Cuánto cuesta?" → Depende del peso volumétrico, ofrece cotizar
-- "Necesito factura" → Se solicita en la app, sección Mi Perfil > Datos Fiscales
-- "Mi paquete llegó roto" → Pide fotos, ofrece abrir reclamación
+- "¿Dónde está mi paquete?" → Revisa el contexto y da el status real; si no, pide el TRN.
+- "¿Cuánto cuesta?" → Depende del peso volumétrico/CBM; ofrece cotizar en la app (Cotizador).
+- "Necesito factura" → Se solicita en Mi Perfil > Datos Fiscales.
+- "Mi paquete llegó roto" → Pide fotos y ofrece abrir reclamación (o escala).
 
-TONO: Amigable pero profesional. Como un colega que sabe mucho y quiere ayudar.
+TONO: Amigable, resolutivo y confiable. Un asistente que de verdad conoce a EntregaX y quiere ayudar.
 `;
 
 // ============================================================
@@ -265,9 +270,87 @@ ${pkg.has_gex ? '🛡️ Con Garantía Extendida' : ''}`;
 }
 
 /**
+ * Arma un resumen con los DATOS REALES del cliente para que Cajito responda con
+ * precisión: paquetes activos, saldo pendiente, asesor asignado y tickets recientes.
+ * Todo en try/catch: si algo falla, devuelve lo que se pudo (o vacío) sin romper el chat.
+ */
+async function buildClientContext(userId: number | string): Promise<string> {
+  const uid = Number(userId);
+  if (!Number.isFinite(uid) || uid <= 0) return '';
+  const parts: string[] = [];
+  try {
+    const uRes = await pool.query(
+      `SELECT u.full_name, u.box_id, COALESCE(adv.full_name, '') AS advisor_name
+         FROM users u
+         LEFT JOIN users adv ON adv.id = COALESCE(u.advisor_id, u.referred_by_id)
+        WHERE u.id = $1 LIMIT 1`, [uid]);
+    const u = uRes.rows[0];
+    if (!u) return '';
+    parts.push(`Cliente: ${u.full_name || 'N/D'} | Casillero: ${u.box_id || 'N/D'}`);
+    if (u.advisor_name) parts.push(`Asesor asignado: ${u.advisor_name}`);
+  } catch (e) { /* seguimos */ }
+
+  const svcLabel = (s: string): string => {
+    const v = String(s || '').toUpperCase();
+    if (v === 'POBOX_USA' || v === 'USA') return 'Aéreo USA';
+    if (v === 'AIR_CHN_MX') return 'Aéreo China';
+    if (v.includes('TDI_EXPRESS') || v === 'TDI_EXPRESS') return 'TDI Express';
+    if (v.includes('MARIT') || v === 'FCL') return 'Marítimo';
+    if (v === 'DHL') return 'DHL';
+    return s || 'Envío';
+  };
+  const statusLabel: Record<string, string> = {
+    received: 'Recibido en bodega', received_china: 'Recibido en China', received_origin: 'En bodega China',
+    in_transit: 'En tránsito', in_transit_mty: 'En tránsito a MTY', at_customs: 'En aduana', customs_mx: 'Aduana México',
+    processing: 'Procesando', shipped: 'Enviado', received_mty: 'En CEDIS MTY', received_cdmx: 'En CEDIS CDMX',
+    ready_pickup: 'Listo para recoger', out_for_delivery: 'En ruta de entrega', delivered: 'Entregado',
+  };
+
+  try {
+    const pkgRes = await pool.query(
+      `SELECT COALESCE(NULLIF(child_no,''), tracking_internal) AS trn, service_type, status::text AS status,
+              COALESCE(saldo_pendiente, 0) AS saldo, COALESCE(client_paid, false) AS paid
+         FROM packages
+        WHERE user_id = $1
+          AND (is_master = true OR master_id IS NULL)
+          AND status::text NOT IN ('delivered','sent')
+        ORDER BY COALESCE(received_at, created_at) DESC
+        LIMIT 8`, [uid]);
+    if (pkgRes.rows.length > 0) {
+      const lines = pkgRes.rows.map((p: any) => {
+        const saldo = Number(p.saldo) > 0 ? ` — saldo $${Number(p.saldo).toFixed(2)} MXN` : (p.paid ? ' — pagado' : '');
+        return `• ${p.trn} (${svcLabel(p.service_type)}) — ${statusLabel[p.status] || p.status}${saldo}`;
+      });
+      parts.push(`Paquetes activos (${pkgRes.rows.length}):\n${lines.join('\n')}`);
+    } else {
+      parts.push('Paquetes activos: ninguno en curso.');
+    }
+  } catch (e) { /* seguimos */ }
+
+  try {
+    const balRes = await pool.query(
+      `SELECT COALESCE(SUM(saldo_pendiente),0) AS total_saldo
+         FROM packages WHERE user_id = $1 AND COALESCE(client_paid,false)=false AND COALESCE(saldo_pendiente,0) > 0`, [uid]);
+    const totalSaldo = Number(balRes.rows[0]?.total_saldo || 0);
+    if (totalSaldo > 0) parts.push(`Saldo pendiente total: $${totalSaldo.toFixed(2)} MXN`);
+  } catch (e) { /* seguimos */ }
+
+  try {
+    const tkRes = await pool.query(
+      `SELECT ticket_folio, status, subject FROM support_tickets WHERE user_id = $1 ORDER BY created_at DESC LIMIT 3`, [uid]);
+    if (tkRes.rows.length > 0) {
+      const tl = tkRes.rows.map((t: any) => `• ${t.ticket_folio || ''} [${t.status || ''}] ${t.subject || ''}`.trim());
+      parts.push(`Tickets recientes:\n${tl.join('\n')}`);
+    }
+  } catch (e) { /* seguimos */ }
+
+  return parts.join('\n');
+}
+
+/**
  * Llama a OpenAI para generar respuesta
  */
-async function getAIResponse(userMessage: string, chatHistory: any[]): Promise<{ response: string; shouldEscalate: boolean }> {
+async function getAIResponse(userMessage: string, chatHistory: any[], clientContext: string = ''): Promise<{ response: string; shouldEscalate: boolean }> {
   // Si no hay API key, usar respuesta de fallback
   if (!OPENAI_API_KEY) {
     console.warn('⚠️ OPENAI_API_KEY no configurada, usando respuesta de fallback');
@@ -288,6 +371,7 @@ async function getAIResponse(userMessage: string, chatHistory: any[]): Promise<{
 
     const messages = [
       { role: 'system', content: SYSTEM_PROMPT },
+      ...(clientContext ? [{ role: 'system', content: `[CONTEXTO DEL CLIENTE (datos reales, úsalos para responder):\n${clientContext}\n]` }] : []),
       ...chatHistory.slice(-6).map((m: any) => ({
         role: m.sender_type === 'client' ? 'user' : 'assistant',
         content: m.message
@@ -537,10 +621,12 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       [currentTicketId]
     );
 
-    // E. GENERAR RESPUESTA IA
+    // E. GENERAR RESPUESTA IA (con datos reales del cliente)
+    const clientContext = creatorType === 'client' ? await buildClientContext(userId) : '';
     const { response: aiResponse, shouldEscalate } = await getAIResponse(
       message,
-      history.rows.reverse()
+      history.rows.reverse(),
+      clientContext
     );
 
     // F. GUARDAR RESPUESTA DE LA IA
