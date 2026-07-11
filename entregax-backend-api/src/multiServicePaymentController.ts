@@ -1247,9 +1247,7 @@ export const handleOpenpayPaymentCallback = async (req: Request, res: Response):
               payment_status = 'paid',
               monto_pagado = COALESCE(monto_pagado, 0) + $1,
               saldo_pendiente = 0,
-              costing_paid = TRUE,
               client_paid = TRUE,
-              costing_paid_at = CURRENT_TIMESTAMP,
               payment_reference = $2
             WHERE (id = ANY($3) OR master_id = ANY($3)
                    OR id IN (SELECT master_id FROM packages WHERE id = ANY($3) AND master_id IS NOT NULL))
@@ -1492,10 +1490,7 @@ export const verifyOpenpayCharge = async (req: AuthRequest, res: Response): Prom
        WHERE (id = ANY($3) OR master_id = ANY($3)) AND user_id = $4`,
       [amount, ref, pkgIds, userId]
     );
-    await pool.query(
-      `UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP WHERE id = ANY($1) AND user_id = $2`,
-      [pkgIds, userId]
-    );
+    // El pago del cliente NO marca costing_paid (pago a proveedor).
 
     // Actualizar webhook log
     await pool.query(
@@ -1560,9 +1555,7 @@ export const handleOpenpayPaymentWebhook = async (req: Request, res: Response): 
                   payment_status = 'paid',
                   monto_pagado = COALESCE(monto_pagado, 0) + $1,
                   saldo_pendiente = 0,
-                  costing_paid = TRUE,
                   client_paid = TRUE,
-                  costing_paid_at = CURRENT_TIMESTAMP,
                   payment_reference = $2
                 WHERE (id = ANY($3) OR master_id = ANY($3)
                        OR id IN (SELECT master_id FROM packages WHERE id = ANY($3) AND master_id IS NOT NULL))
@@ -1858,9 +1851,7 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
             payment_status = 'paid',
             monto_pagado = COALESCE(monto_pagado, 0) + $1,
             saldo_pendiente = 0,
-            costing_paid = TRUE,
             client_paid = TRUE,
-            costing_paid_at = CURRENT_TIMESTAMP,
             payment_reference = $2
           WHERE (id = ANY($3) OR master_id = ANY($3)
                  OR id IN (SELECT master_id FROM packages WHERE id = ANY($3) AND master_id IS NOT NULL))

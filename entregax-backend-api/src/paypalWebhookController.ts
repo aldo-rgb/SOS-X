@@ -242,9 +242,7 @@ export const handlePayPalWebhook = async (req: Request, res: Response): Promise<
                             payment_status = 'paid',
                             monto_pagado = COALESCE(monto_pagado, 0) + $1,
                             saldo_pendiente = 0,
-                            costing_paid = TRUE,
                             client_paid = TRUE,
-                            costing_paid_at = COALESCE(costing_paid_at, CURRENT_TIMESTAMP),
                             payment_reference = COALESCE(payment_reference, $2)
                           WHERE id = ANY($3) AND user_id = $4
                             AND COALESCE(payment_status, '') <> 'paid'

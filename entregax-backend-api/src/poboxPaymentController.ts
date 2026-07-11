@@ -459,11 +459,8 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                     WHERE (id = ANY($2) OR master_id = ANY($2))
                       AND COALESCE(payment_status, '') <> 'paid'
                 `, [payment.amount, packageIds]);
-                // costing_paid solo en los paquetes explícitamente en la orden (no cascadear a hijos)
-                await pool.query(`
-                    UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP
-                    WHERE id = ANY($1)
-                `, [packageIds]);
+                // El pago del cliente NO marca costing_paid (pago a proveedor). Eso se marca
+                // únicamente desde el flujo real de pago a proveedor (caja chica / mark-paid).
 
                 // Marcar la guía MASTER como pagada si TODAS sus cajas hijas ya
                 // están pagadas. Cubre el caso en que la orden incluía las hijas
@@ -1324,17 +1321,15 @@ export const confirmPoboxCashPayment = async (req: AuthRequest, res: Response): 
                     VALUES ($1, $2, $3)
                 `, [cajaTransaccionId, pkgId, montoAplicado]);
 
-                // Actualizar paquete — payment_status/saldo cascadean a hijos, costing_paid solo al paquete explícito
+                // Actualizar paquete — payment_status/saldo/client_paid cascadean a hijos.
+                // (El pago del cliente NO marca costing_paid / pago a proveedor.)
                 await client.query(`
                     UPDATE packages SET
                         payment_status = 'paid',
                         monto_pagado = assigned_cost_mxn,
-                        saldo_pendiente = 0
+                        saldo_pendiente = 0,
+                        client_paid = TRUE
                     WHERE id = $1 OR master_id = $1
-                `, [pkgId]);
-                await client.query(`
-                    UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP
-                    WHERE id = $1
                 `, [pkgId]);
             }
         }
@@ -1479,13 +1474,10 @@ export const handlePoboxOpenpayWebhook = async (req: Request, res: Response): Pr
                         UPDATE packages SET
                             payment_status = 'paid',
                             monto_pagado = COALESCE(monto_pagado, 0) + $1,
-                            saldo_pendiente = 0
+                            saldo_pendiente = 0,
+                            client_paid = TRUE
                         WHERE id = ANY($2) OR master_id = ANY($2)
                     `, [payment.amount, packageIds]);
-                    await pool.query(`
-                        UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP
-                        WHERE id = ANY($1)
-                    `, [packageIds]);
 
                     // Registrar en openpay_webhook_logs para el dashboard de cobranza
                     await pool.query(`
@@ -2331,10 +2323,7 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
                  WHERE id = ANY($1) OR master_id = ANY($1)`,
                 [packageIds]
             );
-            await client.query(
-                `UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP WHERE id = ANY($1)`,
-                [packageIds]
-            );
+            // El pago del cliente NO marca costing_paid (pago a proveedor).
 
             // 🔧 También propagar a china_receipts (los paquetes china_air viven ahí también)
             // Buscar china_receipt_id desde los packages y marcar esos receipts como pagados.
@@ -2575,10 +2564,7 @@ export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): 
                      WHERE id = ANY($1) OR master_id = ANY($1)`,
                     [packageIds]
                 );
-                await client.query(
-                    `UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP WHERE id = ANY($1)`,
-                    [packageIds]
-                );
+                // El pago del cliente NO marca costing_paid (pago a proveedor).
             }
             try {
                 await client.query(
@@ -2827,10 +2813,7 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
                      WHERE id = ANY($1) OR master_id = ANY($1)`,
                     [packageIds]
                 );
-                await client.query(
-                    `UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP WHERE id = ANY($1)`,
-                    [packageIds]
-                );
+                // El pago del cliente NO marca costing_paid (pago a proveedor).
             }
             try {
                 await client.query(
