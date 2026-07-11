@@ -593,6 +593,7 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                     <TableCell align="center"><strong>Dimensiones</strong></TableCell>
                                     <TableCell align="right"><strong>Pie³</strong></TableCell>
                                     <TableCell align="right"><strong>USD</strong></TableCell>
+                                    <TableCell align="right"><strong>Costo</strong></TableCell>
                                     <TableCell align="right"><strong>MXN</strong></TableCell>
                                     <TableCell align="center"><strong>Status</strong></TableCell>
                                     <TableCell align="center"><strong>Estado</strong></TableCell>
@@ -617,6 +618,12 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                         </TableCell>
                                         <TableCell align="right">{pkg.volume_adjusted && pkg.volume_adjusted > 0 ? Number(pkg.volume_adjusted / config.dimensional_divisor).toFixed(4) : '-'}</TableCell>
                                         <TableCell align="right"><Typography fontWeight="medium" color="primary">${pkg.cost_usd ? Number(pkg.cost_usd).toFixed(2) : '-'}</Typography></TableCell>
+                                        {/* Costo = USD × TC asignado a la guía (costo real en MXN) */}
+                                        <TableCell align="right">
+                                            <Typography fontWeight="medium" color="error.main">
+                                                {pkg.cost_usd ? `$${(Number(pkg.cost_usd) * (Number(pkg.tc_registro) || Number(pkg.registered_exchange_rate) || tcApi)).toFixed(2)}` : '-'}
+                                            </Typography>
+                                        </TableCell>
                                         <TableCell align="right"><Typography fontWeight="bold" color="success.main">${pkg.calculated_cost ? Number(pkg.calculated_cost).toFixed(2) : '-'}</Typography></TableCell>
                                         <TableCell align="center">
                                             <Chip 
