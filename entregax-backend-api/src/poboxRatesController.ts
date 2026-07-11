@@ -394,6 +394,7 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
                 p.created_at,
                 p.costing_paid,
                 p.costing_paid_at,
+                p.client_paid,
                 p.assigned_cost_mxn,
                 COALESCE(p.pobox_service_cost, 0) as pobox_service_cost,
                 COALESCE(p.pobox_cost_usd, 0) as pobox_cost_usd,

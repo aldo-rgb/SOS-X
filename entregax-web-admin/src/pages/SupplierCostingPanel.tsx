@@ -595,6 +595,7 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                     <TableCell align="right"><strong>USD</strong></TableCell>
                                     <TableCell align="right"><strong>MXN</strong></TableCell>
                                     <TableCell align="center"><strong>Status</strong></TableCell>
+                                    <TableCell align="center"><strong>Estado</strong></TableCell>
                                     <TableCell align="center"><strong>Pago Proveedor</strong></TableCell>
                                 </TableRow>
                             </TableHead>
@@ -624,6 +625,11 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                                 color={pkg.status === 'in_transit' ? 'info' : pkg.status === 'received' ? 'default' : 'primary'} 
                                                 variant="outlined"
                                             />
+                                        </TableCell>
+                                        <TableCell align="center">
+                                            {pkg.client_paid
+                                                ? <Chip icon={<CheckCircleIcon />} label="Cobrado" size="small" color="success" />
+                                                : <Chip label="Por Cobrar" size="small" color="error" variant="outlined" />}
                                         </TableCell>
                                         <TableCell align="center">
                                             {pkg.costing_paid ? <Chip icon={<CheckCircleIcon />} label="Pagado" size="small" color="success" /> : <Chip label="Pendiente" size="small" color="warning" variant="outlined" />}
