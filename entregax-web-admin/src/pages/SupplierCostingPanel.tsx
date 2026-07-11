@@ -44,7 +44,6 @@ import {
     CheckCircle as CheckCircleIcon,
     FilterList as FilterIcon,
     Business as BusinessIcon,
-    TrendingUp as TrendingUpIcon,
     Info as InfoIcon,
     History as HistoryIcon,
     LocalShipping as ShippingIcon,
@@ -523,10 +522,10 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
             {/* Tabs */}
             <Paper sx={{ mb: 2 }}>
                 <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}>
-                    <Tab icon={<InventoryIcon />} label={`📦 Paquetes (${unpaidCount} pendientes)`} />
-                    <Tab icon={<HistoryIcon />} label="📊 Historial" />
-                    {canViewUtilidades && <Tab icon={<TrendingUpIcon />} label="💵 Utilidades" />}
-                    <Tab icon={<ShippingIcon />} label={`🚚 Consolidaciones (${consolidations.length})`} />
+                    {/* Se usan valores explícitos para conservar los índices de los
+                        TabPanels. Historial (1) y Utilidades (2) se ocultan: ya no se usan. */}
+                    <Tab value={0} icon={<InventoryIcon />} label={`📦 Paquetes (${unpaidCount} pendientes)`} />
+                    <Tab value={canViewUtilidades ? 3 : 2} icon={<ShippingIcon />} label={`🚚 Consolidaciones (${consolidations.length})`} />
                 </Tabs>
             </Paper>
 
@@ -626,7 +625,7 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                             </Typography>
                                         </TableCell>
                                         {/* Venta = pobox_service_cost (MXN cobrado del servicio PO Box) */}
-                                        <TableCell align="right"><Typography fontWeight="bold" color="success.main">${pkg.calculated_cost ? Number(pkg.calculated_cost).toFixed(2) : '-'}</Typography></TableCell>
+                                        <TableCell align="right"><Typography fontWeight="bold" color="info.main">${pkg.calculated_cost ? Number(pkg.calculated_cost).toFixed(2) : '-'}</Typography></TableCell>
                                         {/* Utilidad = Venta − Costo (ambos en MXN) */}
                                         <TableCell align="right">
                                             {(() => {
