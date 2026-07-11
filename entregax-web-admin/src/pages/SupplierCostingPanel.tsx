@@ -8,6 +8,7 @@ import {
     Box,
     Typography,
     Paper,
+    Divider,
     Grid,
     TextField,
     Button,
@@ -431,15 +432,27 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
 
     const getTotals = () => {
         const pkgs = packages || [];
-        const totalCost = pkgs.reduce((sum, pkg) => sum + (pkg.calculated_cost || 0), 0);
+        // costo (proveedor) en MXN = USD × TC de la guía; venta = calculated_cost (pobox_service_cost)
+        const costoMxn = (p: PackageCosting) => (Number(p.cost_usd) || 0) * (Number(p.tc_registro) || Number(p.registered_exchange_rate) || tcApi || 0);
+        const venta = (p: PackageCosting) => Number(p.calculated_cost) || 0;
+        const totalCost = pkgs.reduce((sum, pkg) => sum + venta(pkg), 0);
         const totalCostUsd = pkgs.reduce((sum, pkg) => sum + (pkg.cost_usd || 0), 0);
         const paidCount = pkgs.filter(p => p.costing_paid).length;
         const unpaidCount = pkgs.filter(p => !p.costing_paid).length;
-        const unpaidTotal = pkgs.filter(p => !p.costing_paid).reduce((sum, p) => sum + (p.calculated_cost || 0), 0);
-        return { totalCost: totalCost || 0, totalCostUsd: totalCostUsd || 0, paidCount, unpaidCount, unpaidTotal: unpaidTotal || 0 };
+        const unpaidTotal = pkgs.filter(p => !p.costing_paid).reduce((sum, p) => sum + venta(p), 0);
+        // 🆕 Totales financieros
+        const totalCostoProveedor = pkgs.reduce((sum, p) => sum + costoMxn(p), 0);      // Σ costo (todas)
+        const totalCostoVenta = totalCost;                                              // Σ venta (todas)
+        const totalUtilidad = pkgs.reduce((sum, p) => sum + (venta(p) - costoMxn(p)), 0); // Σ (venta − costo)
+        const montoPdtePagoProveedor = pkgs.filter(p => !p.costing_paid).reduce((sum, p) => sum + costoMxn(p), 0); // costo de las no pagadas a proveedor
+        const montoPdteCobrar = pkgs.filter(p => !p.client_paid).reduce((sum, p) => sum + venta(p), 0);           // venta de las no cobradas al cliente
+        const montoYaCobrado = pkgs.filter(p => p.client_paid).reduce((sum, p) => sum + venta(p), 0);             // venta de las ya cobradas
+        return { totalCost: totalCost || 0, totalCostUsd: totalCostUsd || 0, paidCount, unpaidCount, unpaidTotal: unpaidTotal || 0,
+            totalCostoProveedor, totalCostoVenta, totalUtilidad, montoPdtePagoProveedor, montoPdteCobrar, montoYaCobrado };
     };
 
-    const { totalCost, totalCostUsd, paidCount, unpaidCount, unpaidTotal } = getTotals();
+    const { totalCost, totalCostUsd, paidCount, unpaidCount, unpaidTotal,
+        totalCostoProveedor, totalCostoVenta, totalUtilidad, montoPdtePagoProveedor, montoPdteCobrar, montoYaCobrado } = getTotals();
 
     return (
         <Box sx={{ p: 3 }}>
@@ -680,6 +693,34 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                         <Grid size={{ xs: 6, sm: 3 }}>
                             <Typography variant="body2" color="text.secondary">Por Cobrar MXN</Typography>
                             <Typography variant="h6" fontWeight="bold" color="error">${Number(unpaidTotal || 0).toFixed(2)}</Typography>
+                        </Grid>
+
+                        {/* 🆕 Resumen financiero */}
+                        <Grid size={{ xs: 12 }}><Divider sx={{ my: 1 }} /></Grid>
+
+                        <Grid size={{ xs: 6, sm: 4 }}>
+                            <Typography variant="body2" color="text.secondary">Monto Pdte de Pago a Proveedor</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="warning.main">${Number(montoPdtePagoProveedor || 0).toFixed(2)}</Typography>
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 4 }}>
+                            <Typography variant="body2" color="text.secondary">Monto Pdte de Cobrar</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="error">${Number(montoPdteCobrar || 0).toFixed(2)}</Typography>
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 4 }}>
+                            <Typography variant="body2" color="text.secondary">Monto Ya Cobrado</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="success.main">${Number(montoYaCobrado || 0).toFixed(2)}</Typography>
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 4 }}>
+                            <Typography variant="body2" color="text.secondary">Total Costo Proveedor</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="error.main">${Number(totalCostoProveedor || 0).toFixed(2)}</Typography>
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 4 }}>
+                            <Typography variant="body2" color="text.secondary">Total Costo de Venta</Typography>
+                            <Typography variant="h6" fontWeight="bold" color="info.main">${Number(totalCostoVenta || 0).toFixed(2)}</Typography>
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 4 }}>
+                            <Typography variant="body2" color="text.secondary">Total Utilidad</Typography>
+                            <Typography variant="h6" fontWeight="bold" color={totalUtilidad >= 0 ? 'success.main' : 'error.main'}>${Number(totalUtilidad || 0).toFixed(2)}</Typography>
                         </Grid>
                     </Grid>
                 </Paper>
