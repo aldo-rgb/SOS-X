@@ -594,7 +594,8 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                     <TableCell align="right"><strong>Pie³</strong></TableCell>
                                     <TableCell align="right"><strong>USD</strong></TableCell>
                                     <TableCell align="right"><strong>Costo</strong></TableCell>
-                                    <TableCell align="right"><strong>MXN</strong></TableCell>
+                                    <TableCell align="right"><strong>Venta</strong></TableCell>
+                                    <TableCell align="right"><strong>Utilidad</strong></TableCell>
                                     <TableCell align="center"><strong>Status</strong></TableCell>
                                     <TableCell align="center"><strong>Estado</strong></TableCell>
                                     <TableCell align="center"><strong>Pago Proveedor</strong></TableCell>
@@ -624,7 +625,21 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                                 {pkg.cost_usd ? `$${(Number(pkg.cost_usd) * (Number(pkg.tc_registro) || Number(pkg.registered_exchange_rate) || tcApi)).toFixed(2)}` : '-'}
                                             </Typography>
                                         </TableCell>
+                                        {/* Venta = pobox_service_cost (MXN cobrado del servicio PO Box) */}
                                         <TableCell align="right"><Typography fontWeight="bold" color="success.main">${pkg.calculated_cost ? Number(pkg.calculated_cost).toFixed(2) : '-'}</Typography></TableCell>
+                                        {/* Utilidad = Venta − Costo (ambos en MXN) */}
+                                        <TableCell align="right">
+                                            {(() => {
+                                                const venta = Number(pkg.calculated_cost) || 0;
+                                                const costoMxn = (Number(pkg.cost_usd) || 0) * (Number(pkg.tc_registro) || Number(pkg.registered_exchange_rate) || tcApi);
+                                                const utilidad = venta - costoMxn;
+                                                return (
+                                                    <Typography fontWeight="bold" color={utilidad >= 0 ? 'success.main' : 'error.main'}>
+                                                        ${utilidad.toFixed(2)}
+                                                    </Typography>
+                                                );
+                                            })()}
+                                        </TableCell>
                                         <TableCell align="center">
                                             <Chip 
                                                 label={pkg.status === 'in_transit' ? 'En Tránsito' : pkg.status === 'received' ? 'Recibido' : pkg.status === 'dispatched' ? 'Despachado' : pkg.status || 'N/A'} 
