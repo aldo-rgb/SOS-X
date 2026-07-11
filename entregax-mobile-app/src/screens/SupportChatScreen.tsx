@@ -258,22 +258,45 @@ export default function SupportChatScreen({ navigation, route }: Props) {
   const showQuickReplies = !messages.some(m => m.type === 'user') && !isTyping;
   const quickReplies = QUICK_REPLIES[currentLang] || QUICK_REPLIES.es;
 
-  const renderMessage = ({ item }: { item: Message }) => {
+  // Extrae un selector [OPCIONES: a | b | c] del texto del agente.
+  const parseOptions = (text: string): { clean: string; options: string[] } => {
+    const m = text.match(/\[OPCIONES:\s*([^\]]+)\]/i);
+    if (!m) return { clean: text, options: [] };
+    const options = m[1].split('|').map(s => s.trim()).filter(Boolean);
+    const clean = text.replace(m[0], '').trim();
+    return { clean, options };
+  };
+
+  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isUser = item.type === 'user';
+    const { clean, options } = isUser ? { clean: item.text, options: [] as string[] } : parseOptions(item.text);
+    // Los chips solo son tappables en el último mensaje (evita re-elegir opciones viejas).
+    const isLast = index === messages.length - 1;
     return (
-      <View style={[styles.row, isUser ? styles.rowRight : styles.rowLeft]}>
-        {!isUser && (
-          <Avatar.Image size={34} source={avatarSource} style={styles.avatar} />
-        )}
-        <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAgent]}>
-          {item.image ? (
-            <Image source={{ uri: item.image }} style={styles.msgImage} resizeMode="cover" />
-          ) : null}
-          {!!item.text && (
-            <Text style={[styles.messageText, isUser && styles.messageTextUser]}>{item.text}</Text>
+      <View>
+        <View style={[styles.row, isUser ? styles.rowRight : styles.rowLeft]}>
+          {!isUser && (
+            <Avatar.Image size={34} source={avatarSource} style={styles.avatar} />
           )}
-          <Text style={[styles.timeText, isUser && styles.timeTextUser]}>{item.time}</Text>
+          <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAgent]}>
+            {item.image ? (
+              <Image source={{ uri: item.image }} style={styles.msgImage} resizeMode="cover" />
+            ) : null}
+            {!!clean && (
+              <Text style={[styles.messageText, isUser && styles.messageTextUser]}>{clean}</Text>
+            )}
+            <Text style={[styles.timeText, isUser && styles.timeTextUser]}>{item.time}</Text>
+          </View>
         </View>
+        {!isUser && options.length > 0 && isLast && !isTyping && (
+          <View style={styles.optionsRow}>
+            {options.map((o, i) => (
+              <TouchableOpacity key={i} style={styles.optionChip} onPress={() => sendMessage(o)} disabled={sending}>
+                <Text style={styles.optionChipText}>{o}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
     );
   };
@@ -407,6 +430,12 @@ const styles = StyleSheet.create({
   timeTextUser: { color: 'rgba(255,255,255,0.75)' },
   typingContainer: { flexDirection: 'row', alignItems: 'center', marginLeft: 4, marginTop: 8 },
   typingText: { color: '#666', fontStyle: 'italic', fontSize: 13 },
+  optionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginLeft: 42, marginRight: 12, marginTop: 2, marginBottom: 8 },
+  optionChip: {
+    backgroundColor: '#FFF3EC', borderWidth: 1, borderColor: BRAND_ORANGE, borderRadius: 18,
+    paddingHorizontal: 14, paddingVertical: 8,
+  },
+  optionChipText: { color: BRAND_ORANGE, fontSize: 14, fontWeight: '600' },
   quickRow: { maxHeight: 52, backgroundColor: 'white' },
   quickRowContent: { paddingHorizontal: 10, paddingVertical: 8, gap: 8 },
   quickChip: {
