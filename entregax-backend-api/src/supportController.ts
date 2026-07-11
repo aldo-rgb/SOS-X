@@ -67,6 +67,7 @@ CONTEXTO: Estás chateando por la app móvil con un cliente de EntregaX que nece
 - Si el mensaje trae un bloque "[CONTEXTO DEL CLIENTE: ...]", esos son los datos REALES de este cliente (sus paquetes, saldos, asesor, tickets). ÚSALOS para responder con precisión.
 - Ejemplo: si preguntan "¿dónde está mi paquete?" y en el contexto ves sus guías activas, dile el status real de cada una en vez de pedir el TRN. Solo pide el TRN si tiene muchos paquetes o no está claro cuál.
 - Si preguntan por su saldo/pago, usa el monto real del contexto.
+- Si preguntan "¿a qué dirección envío?" / "¿cuál es mi dirección de PO Box/casillero?", DA la dirección de envío del contexto (bodega + su casillero como Suite/Apt o Shipping Mark). Ya tienes esa dirección, NO digas que no tienes acceso.
 - Nunca inventes datos que no estén en el contexto. Si no tienes el dato, dilo y ofrece escalarlo.
 
 📦 CONOCIMIENTO DE ENTREGAX:
@@ -278,6 +279,7 @@ async function buildClientContext(userId: number | string): Promise<string> {
   const uid = Number(userId);
   if (!Number.isFinite(uid) || uid <= 0) return '';
   const parts: string[] = [];
+  let boxId = '';
   try {
     const uRes = await pool.query(
       `SELECT u.full_name, u.box_id, COALESCE(adv.full_name, '') AS advisor_name
@@ -286,6 +288,7 @@ async function buildClientContext(userId: number | string): Promise<string> {
         WHERE u.id = $1 LIMIT 1`, [uid]);
     const u = uRes.rows[0];
     if (!u) return '';
+    boxId = u.box_id || '';
     parts.push(`Cliente: ${u.full_name || 'N/D'} | Casillero: ${u.box_id || 'N/D'}`);
     if (u.advisor_name) parts.push(`Asesor asignado: ${u.advisor_name}`);
   } catch (e) { /* seguimos */ }
@@ -341,6 +344,30 @@ async function buildClientContext(userId: number | string): Promise<string> {
     if (tkRes.rows.length > 0) {
       const tl = tkRes.rows.map((t: any) => `• ${t.ticket_folio || ''} [${t.status || ''}] ${t.subject || ''}`.trim());
       parts.push(`Tickets recientes:\n${tl.join('\n')}`);
+    }
+  } catch (e) { /* seguimos */ }
+
+  // Direcciones de envío del cliente (bodegas por servicio + su casillero).
+  // El placeholder "(S-Numero de Cliente)" se reemplaza por el box_id del cliente.
+  try {
+    const suite = boxId || '(tu casillero)';
+    const addrRes = await pool.query(
+      `SELECT DISTINCT ON (service_type) service_type, alias, address_line1, address_line2,
+              city, state, zip_code, country, contact_phone
+         FROM service_warehouse_addresses
+        ORDER BY service_type, is_primary DESC, sort_order ASC`);
+    if (addrRes.rows.length > 0) {
+      const svcName: Record<string, string> = {
+        usa_pobox: 'Envíos a USA (PO Box)', china_air: 'Aéreo China', china_sea: 'Marítimo China', mx_cedis: 'Nacional / CEDIS MTY',
+      };
+      const lines = addrRes.rows.map((a: any) => {
+        const l1 = String(a.address_line1 || '').replace(/\(S-?Numero de Cliente\)/gi, suite);
+        const l2 = a.address_line2 ? ` ${a.address_line2}` : '';
+        const cityLine = [a.city, a.state, a.zip_code].filter(Boolean).join(', ');
+        const loc = [cityLine, a.country].filter(Boolean).join(' — ');
+        return `• ${svcName[a.service_type] || a.service_type}: ${l1}${l2}${loc ? `, ${loc}` : ''} (a nombre/casillero: ${suite}${a.contact_phone ? `, tel ${a.contact_phone}` : ''})`;
+      });
+      parts.push(`Direcciones de envío del cliente (usa el casillero ${suite} como Suite/Apt o Shipping Mark):\n${lines.join('\n')}`);
     }
   } catch (e) { /* seguimos */ }
 
