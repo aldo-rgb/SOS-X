@@ -403,7 +403,15 @@ export default function DashboardClient() {
   const { t } = useTranslation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const { xpayEnabled, entregaxPaymentsEnabled: rawEntregaxPaymentsEnabled, entregaxPaymentsByService, isEntregaxPaymentEnabledFor: rawIsEntregaxPaymentEnabledFor, gexEnabled } = usePaymentStatus();
+  const { xpayEnabled, entregaxPaymentsEnabled: rawEntregaxPaymentsEnabled, entregaxPaymentsByService, isEntregaxPaymentEnabledFor: rawIsEntregaxPaymentEnabledFor, gexEnabled, cajitoAvatarUrl } = usePaymentStatus();
+  // Avatar de Cajito para el botón de Centro de Ayuda (mismo look que el FAB de Cajito).
+  const cajitoAvatarResolved = (() => {
+    const raw = String(cajitoAvatarUrl || '').trim();
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    if (raw.startsWith('/')) return `${API_URL}${raw}`;
+    return `${API_URL}/${raw}`;
+  })();
   // Lee user del localStorage (puede haber sido actualizado tras OTP)
   const currentUser = useMemo(() => {
     try {
@@ -14247,15 +14255,27 @@ export default function DashboardClient() {
           <IconButton
             onClick={() => setHelpCenterOpen(true)}
             sx={{
-              bgcolor: BLUE,
+              bgcolor: cajitoAvatarResolved ? 'transparent' : BLUE,
               color: 'white',
-              width: isMobile ? 48 : 56,
-              height: isMobile ? 48 : 56,
+              width: isMobile ? 56 : 64,
+              height: isMobile ? 56 : 64,
+              p: 0,
+              overflow: 'hidden',
+              border: cajitoAvatarResolved ? `3px solid ${ORANGE}` : 'none',
               boxShadow: 3,
-              '&:hover': { bgcolor: '#1565C0' },
+              '&:hover': { bgcolor: cajitoAvatarResolved ? 'transparent' : '#1565C0', boxShadow: 6 },
             }}
           >
-            <SupportIcon />
+            {cajitoAvatarResolved ? (
+              <Box
+                component="img"
+                src={cajitoAvatarResolved}
+                alt="Centro de Ayuda"
+                sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              <SupportIcon />
+            )}
           </IconButton>
         </Tooltip>
       </Box>
