@@ -1298,9 +1298,11 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             WHERE UPPER(COALESCE(p.tracking_internal, '')) = $1
                OR UPPER(COALESCE(p.tracking_provider, '')) = $1
                OR UPPER(COALESCE(p.child_no, '')) = $1
+               OR UPPER(COALESCE(p.international_tracking, '')) = $1
                OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $2
                OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_provider, '')), '[^A-Z0-9]', '', 'g') = $2
                OR REGEXP_REPLACE(UPPER(COALESCE(p.child_no, '')), '[^A-Z0-9]', '', 'g') = $2
+               OR REGEXP_REPLACE(UPPER(COALESCE(p.international_tracking, '')), '[^A-Z0-9]', '', 'g') = $2
             ORDER BY
               CASE WHEN UPPER(COALESCE(p.tracking_internal, '')) = $1 THEN 0
                    WHEN UPPER(COALESCE(p.child_no, '')) = $1 THEN 1
@@ -1308,6 +1310,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                    WHEN REGEXP_REPLACE(UPPER(COALESCE(p.child_no, '')), '[^A-Z0-9]', '', 'g') = $2 THEN 3
                    ELSE 4 END ASC,
               CASE WHEN p.user_id IS NOT NULL THEN 0 ELSE 1 END ASC,
+              -- AWB compartido (international_tracking) → preferir el master
+              COALESCE(p.is_master, FALSE) DESC,
               p.id DESC
             LIMIT 1
         `, [trackingUpper, trackingCompact]);

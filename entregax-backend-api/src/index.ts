@@ -11145,18 +11145,36 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
     const { tracking } = req.body;
     if (!tracking) return res.status(400).json({ error: 'Tracking requerido' });
     const norm = String(tracking).trim().toUpperCase();
-    // Buscar master o hijo por tracking_internal
+    // 🔧 Compacto alfanumérico: el escáner físico a veces sustituye el guión "-"
+    // por apóstrofe/espacio (TDX'5894471122'001). Comparamos ignorando cualquier
+    // separador para que "TDX'5894471122'001" == "TDX-5894471122-001".
+    const compact = norm.replace(/[^A-Z0-9]/g, '');
+    // Buscar master o hijo por tracking_internal / child_no / AWB (international_tracking),
+    // preferimos el master cuando el match es por AWB compartido.
     const pkgRes = await pool.query(`
-      SELECT p.id, p.tracking_internal, p.status::text AS status,
+      SELECT p.id, p.master_id, p.tracking_internal, p.status::text AS status,
         p.service_type, COALESCE(p.is_master, false) AS is_master,
         (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id)::int AS children_count,
         u.full_name AS client_name, u.box_id AS client_box_id
       FROM packages p
       LEFT JOIN users u ON u.id = p.user_id
-      WHERE p.tracking_internal = $1
-        AND p.service_type IN ('tdi_express','tdi_aereo')
+      WHERE p.service_type IN ('tdi_express','tdi_aereo')
+        AND (
+          UPPER(COALESCE(p.tracking_internal, '')) = $1
+          OR UPPER(COALESCE(p.child_no, '')) = $1
+          OR UPPER(COALESCE(p.international_tracking, '')) = $1
+          OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $2
+          OR REGEXP_REPLACE(UPPER(COALESCE(p.child_no, '')), '[^A-Z0-9]', '', 'g') = $2
+          OR REGEXP_REPLACE(UPPER(COALESCE(p.international_tracking, '')), '[^A-Z0-9]', '', 'g') = $2
+        )
+      ORDER BY
+        CASE WHEN REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $2 THEN 0
+             WHEN REGEXP_REPLACE(UPPER(COALESCE(p.child_no, '')), '[^A-Z0-9]', '', 'g') = $2 THEN 1
+             ELSE 2 END ASC,
+        COALESCE(p.is_master, false) DESC,
+        p.id ASC
       LIMIT 1
-    `, [norm]);
+    `, [norm, compact]);
 
     if (pkgRes.rows.length === 0) {
       // Fallback: guías DHL (dhl_shipments) — mismo flujo de 2 pasos. La
@@ -11166,9 +11184,12 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
                ds.status, u.full_name AS client_name, u.box_id AS client_box_id
           FROM dhl_shipments ds
           LEFT JOIN users u ON u.id = ds.user_id
-         WHERE UPPER(ds.inbound_tracking) = $1 OR UPPER(COALESCE(ds.secondary_tracking,'')) = $1
+         WHERE UPPER(ds.inbound_tracking) = $1
+            OR UPPER(COALESCE(ds.secondary_tracking,'')) = $1
+            OR REGEXP_REPLACE(UPPER(COALESCE(ds.inbound_tracking,'')), '[^A-Z0-9]', '', 'g') = $2
+            OR REGEXP_REPLACE(UPPER(COALESCE(ds.secondary_tracking,'')), '[^A-Z0-9]', '', 'g') = $2
          LIMIT 1
-      `, [norm]);
+      `, [norm, compact]);
       if (dhlRes.rows.length > 0) {
         const d = dhlRes.rows[0];
         if (!['received_china', 'in_transit', 'customs'].includes(d.status)) {
@@ -11198,6 +11219,21 @@ app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLeve
       WHERE (id = $1 OR master_id = $1)
         AND service_type IN ('tdi_express','tdi_aereo')
     `, [pkg.id]);
+
+    // 🔁 Rollup: si se escaneó una caja hija y ya NO queda ninguna hermana
+    // pendiente de recibir, marcar también el master como received_mty para
+    // que la tarjeta del cliente refleje el estado real del envío.
+    if (pkg.master_id) {
+      await pool.query(`
+        UPDATE packages SET status = 'received_mty', updated_at = NOW()
+        WHERE id = $1
+          AND service_type IN ('tdi_express','tdi_aereo')
+          AND NOT EXISTS (
+            SELECT 1 FROM packages c
+            WHERE c.master_id = $1 AND c.status::text NOT IN ('received_mty','delivered','dispatched_national','ready_pickup')
+          )
+      `, [pkg.master_id]);
+    }
 
     return res.json({
       success: true,
