@@ -38,6 +38,7 @@ import RelabelingModulePage from './RelabelingModulePage';
 import ServiceInventoryPage from './ServiceInventoryPage';
 import ChinaAirHubPage from './ChinaAirHubPage';
 import ChinaSeaHubPage from './ChinaSeaHubPage';
+import TdiCedisMtyPage from './TdiCedisMtyPage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -149,7 +150,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
     const [locations, setLocations] = useState<WarehouseLocation[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null);
-    const [mtySubTool, setMtySubTool] = useState<'dhl_recibir' | 'inventario' | null>(null);
+    const [mtySubTool, setMtySubTool] = useState<'dhl_recibir' | 'inventario' | 'tdi_cedis_mty' | null>(null);
     const [userRole, setUserRole] = useState<string>('');
     const [inventoryBranchId, setInventoryBranchId] = useState<number | undefined>(undefined);
     const [lockInventoryBranch, setLockInventoryBranch] = useState<boolean>(false);
@@ -323,6 +324,8 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                         <DhlOperationsPage onBack={handleBackToMtyHub} autoOpenRecibir={true} />
                     ) : mtySubTool === 'inventario' ? (
                         <DhlOperationsPage onBack={handleBackToMtyHub} />
+                    ) : mtySubTool === 'tdi_cedis_mty' ? (
+                        <TdiCedisMtyPage onBack={handleBackToMtyHub} />
                     ) : (
                         <Box sx={{ p: 3, bgcolor: '#FAFAFA', minHeight: '100vh' }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 4, cursor: 'pointer' }} onClick={handleBackToHub}>
@@ -331,20 +334,20 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                             <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>DHL Monterrey</Typography>
                             <Typography variant="body2" sx={{ color: '#6B7280', mb: 4 }}>Selecciona una opción</Typography>
                             <Grid container spacing={3}>
-                                {/* TDI Express - Por desarrollar */}
+                                {/* TDI Express - Acceso directo a recibir en CEDIS MTY */}
                                 <Grid size={{ xs: 12, sm: 4 }}>
-                                    <Card sx={{ borderRadius: 2, border: '1px solid #E0E0E0', opacity: 0.5 }}>
-                                        <CardActionArea disabled sx={{ height: '100%' }}>
-                                            <Box sx={{ height: 4, bgcolor: '#9E9E9E' }} />
+                                    <Card sx={{ borderRadius: 2, border: '1px solid #ECECEC', transition: 'all 0.2s', '&:hover': { borderColor: '#2E7D32', boxShadow: '0 8px 24px rgba(46,125,50,0.12)', transform: 'translateY(-2px)' } }}>
+                                        <CardActionArea onClick={() => setMtySubTool('tdi_cedis_mty')}>
+                                            <Box sx={{ height: 4, bgcolor: '#2E7D32' }} />
                                             <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                                                <Box sx={{ width: 48, height: 48, borderRadius: 1.5, bgcolor: '#F5F5F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <TruckIcon sx={{ fontSize: 26, color: '#9E9E9E' }} />
+                                                <Box sx={{ width: 48, height: 48, borderRadius: 1.5, bgcolor: '#2E7D3215', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <TruckIcon sx={{ fontSize: 26, color: '#2E7D32' }} />
                                                 </Box>
                                                 <Typography sx={{ fontSize: 22 }}>🚚</Typography>
                                             </Box>
                                             <CardContent>
-                                                <Typography sx={{ fontWeight: 700, fontSize: 16, color: '#9E9E9E', mb: 0.5 }}>TDI Express</Typography>
-                                                <Typography sx={{ fontSize: 13, color: '#BDBDBD' }}>Por desarrollar</Typography>
+                                                <Typography sx={{ fontWeight: 700, fontSize: 16, color: '#1A1A1A', mb: 0.5 }}>TDI Express</Typography>
+                                                <Typography sx={{ fontSize: 13, color: '#6B7280' }}>Recibir en CEDIS MTY</Typography>
                                             </CardContent>
                                         </CardActionArea>
                                     </Card>
