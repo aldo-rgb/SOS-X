@@ -64,6 +64,7 @@ interface BranchStats {
     en_espera_cajas?: number;
     en_transito_pobox?: number;
     en_transito_transfer_cdmx?: number;
+    tdx_por_recibir?: number;
     en_espera_maritimo?: number;
     en_espera_aereo?: number;
     entregados_hoy: number;
@@ -908,14 +909,17 @@ export default function DashboardBranchManager() {
           </Grid>
         )}
 
+        {/* Widget "Transfer CEDIS CDMX" oculto a pedido de operaciones. */}
+
         {stats?.sucursal.codigo === 'MTY' && (
           <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
             <KpiCard
-              icon={<LocalShippingIcon sx={{ fontSize: 22 }} />}
-              label="En tránsito a MTY · Transfer CEDIS CDMX"
-              value={stats?.paquetes.en_transito_transfer_cdmx ?? 0}
-              sub="marítimo / aéreo desde CDMX"
+              icon={<FlightTakeoffIcon sx={{ fontSize: 22 }} />}
+              label="TDX por recibir"
+              value={stats?.paquetes.tdx_por_recibir ?? 0}
+              sub="cajas en tránsito → CEDIS MTY"
               tone="info"
+              accentBar="#2E7D32"
             />
           </Grid>
         )}

@@ -1087,6 +1087,23 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             `
         );
 
+        // 📦 TDX (TDI Express) pendientes de recibir en CEDIS MTY: SOLO las cajas
+        // que están EN TRÁNSITO (in_transit). El sistema distingue received_china
+        // (capturado en China) de in_transit (en tránsito) — aquí contamos solo las
+        // que ya van en camino y falta recibir en Monterrey.
+        const waitingTdxBoxesResult = await pool.query(
+            `
+                SELECT COALESCE(SUM(CASE WHEN COALESCE(p.total_boxes, 0) > 0 THEN p.total_boxes ELSE 1 END), 0)::int as total
+                FROM packages p
+                WHERE (p.is_master = TRUE OR p.master_id IS NULL)
+                  AND p.status::text IN ('in_transit', 'in_transit_mty')
+                  AND (
+                    LOWER(COALESCE(p.service_type, '')) = 'tdi_express'
+                    OR p.air_source = 'tdi_express'
+                  )
+            `
+        );
+
         // Entregas hoy: paquetes entregados hoy en ESTA sucursal.
         // ⏰ "Hoy" es el día LOCAL de México (UTC-6). La DB corre en UTC, así que
         // comparar DATE(delivered_at)=CURRENT_DATE (ambos UTC) descarta las entregas
@@ -1261,6 +1278,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 en_espera_cajas: parseInt(waitingBoxesResult.rows[0]?.total || 0) || 0,
                 en_transito_pobox: parseInt(waitingBoxesPoboxResult.rows[0]?.total || 0) || 0,
                 en_transito_transfer_cdmx: parseInt(waitingBoxesTransferResult.rows[0]?.total || 0) || 0,
+                tdx_por_recibir: parseInt(waitingTdxBoxesResult.rows[0]?.total || 0) || 0,
                 en_espera_maritimo: parseInt(waitingMaritimeBoxesResult.rows[0]?.total || 0) || 0,
                 en_espera_aereo: parseInt(waitingAirBoxesResult.rows[0]?.total || 0) || 0,
                 entregados_hoy: parseInt(deliveredTodayResult.rows[0]?.total || 0) || 0,
@@ -1306,6 +1324,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 en_espera_cajas: 0,
                 en_transito_pobox: 0,
                 en_transito_transfer_cdmx: 0,
+                tdx_por_recibir: 0,
                 en_espera_maritimo: 0,
                 en_espera_aereo: 0,
                 entregados_hoy: 0,
