@@ -75,7 +75,7 @@ CONTEXTO: Estás chateando por la app móvil con un cliente de EntregaX que nece
 - Marítimo China → México: 35-45 días. Se cobra por CBM (cada 500 kg = 1 CBM; se cobra el mayor entre volumen y peso).
 - Aéreo USA / PO Box → México: 5-8 días hábiles. Se cobra por peso volumétrico.
 - Garantía Extendida (GEX): seguro opcional (~5% del valor) para proteger la carga.
-- X-Pay: servicio para pagar a proveedores en China desde la app.
+- X-Pay: servicio para pagar a proveedores en China desde la app. En el contexto tienes el TIPO DE CAMBIO y la comisión vigentes de X-Pay: si preguntan "¿cuál es el TC de X-Pay?" o "¿cuánto pago por X USD?", RESPONDE con el tipo de cambio real y calcula el estimado con la fórmula del contexto. NO digas que no tienes acceso al tipo de cambio.
 - Facturación: se solicita en la app, sección Mi Perfil > Datos Fiscales.
 - Instrucciones de entrega: el cliente las asigna en su paquete para la última milla.
 
@@ -387,6 +387,33 @@ async function buildClientContext(userId: number | string): Promise<string> {
         return block;
       });
       parts.push(`DIRECCIONES DE ENVÍO E INSTRUCCIONES (cuando el cliente pregunte por una dirección, SIEMPRE incluye también las instrucciones de empaque y de cómo enviar del mismo servicio):\n${blocks.join('\n')}`);
+    }
+  } catch (e) { /* seguimos */ }
+
+  // 💱 X-Pay (pago a proveedores en China): tipo de cambio y comisión vigentes.
+  try {
+    const xp = await pool.query(
+      `SELECT (tipo_cambio_usd + COALESCE(override_tipo_cambio_usd,0)) AS tc_usd,
+              (tipo_cambio_rmb + COALESCE(override_tipo_cambio_rmb,0)) AS tc_rmb,
+              (porcentaje_compra + COALESCE(override_porcentaje_compra,0)) AS pct,
+              COALESCE(costo_operacion_usd,0) AS costo_op
+         FROM entangled_providers WHERE is_active = true
+        ORDER BY is_default DESC, sort_order ASC, id ASC LIMIT 1`);
+    const x = xp.rows[0];
+    if (x) {
+      const tcUsd = Number(x.tc_usd) || 0;
+      const tcRmb = Number(x.tc_rmb) || 0;
+      const pct = Number(x.pct) || 0;
+      const costoOp = Number(x.costo_op) || 0;
+      const rmbLine = tcRmb > 0 ? ` | TC RMB→MXN: ${tcRmb.toFixed(4)}` : '';
+      parts.push(
+        `X-PAY (pago a proveedores en China) — cotización vigente:\n` +
+        `   Tipo de cambio USD→MXN: ${tcUsd.toFixed(4)}${rmbLine}\n` +
+        `   Comisión: ${pct}% + costo de operación ${costoOp} USD.\n` +
+        `   Fórmula estimada: MXN a pagar = (monto_USD × ${tcUsd.toFixed(4)}) + comisión(${pct}%) + (${costoOp} USD × TC). ` +
+        `Ejemplo 10,000 USD ≈ $${((10000 * tcUsd) * (1 + pct/100) + costoOp * tcUsd).toLocaleString('es-MX', {maximumFractionDigits:2})} MXN. ` +
+        `Aclara que es un ESTIMADO; el monto exacto depende del proveedor y de si es con/sin factura, y se calcula en el wizard de X-Pay.`
+      );
     }
   } catch (e) { /* seguimos */ }
 
