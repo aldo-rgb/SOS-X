@@ -67,7 +67,7 @@ CONTEXTO: Estás chateando por la app móvil con un cliente de EntregaX que nece
 - Si el mensaje trae un bloque "[CONTEXTO DEL CLIENTE: ...]", esos son los datos REALES de este cliente (sus paquetes, saldos, asesor, tickets). ÚSALOS para responder con precisión.
 - Ejemplo: si preguntan "¿dónde está mi paquete?" y en el contexto ves sus guías activas, dile el status real de cada una en vez de pedir el TRN. Solo pide el TRN si tiene muchos paquetes o no está claro cuál.
 - Si preguntan por su saldo/pago, usa el monto real del contexto.
-- Si preguntan "¿a qué dirección envío?" / "¿cuál es mi dirección de PO Box/casillero?", DA la dirección de envío del contexto (bodega + su casillero como Suite/Apt o Shipping Mark). Ya tienes esa dirección, NO digas que no tienes acceso.
+- Si preguntan "¿a qué dirección envío?" / "¿cuál es mi dirección de PO Box/casillero?", DA la dirección de envío del contexto (bodega + su casillero como Suite/Apt o Shipping Mark). Ya tienes esa dirección, NO digas que no tienes acceso. SIEMPRE que des una dirección, incluye también en el mismo mensaje las "Instrucciones de empaque" y "Cómo enviar" de ESE servicio (vienen en el contexto). Preséntalo claro y ordenado.
 - Nunca inventes datos que no estén en el contexto. Si no tienes el dato, dilo y ofrece escalarlo.
 
 📦 CONOCIMIENTO DE ENTREGAX:
@@ -347,27 +347,46 @@ async function buildClientContext(userId: number | string): Promise<string> {
     }
   } catch (e) { /* seguimos */ }
 
-  // Direcciones de envío del cliente (bodegas por servicio + su casillero).
-  // El placeholder "(S-Numero de Cliente)" se reemplaza por el box_id del cliente.
+  // Direcciones de envío del cliente (bodegas por servicio + su casillero) CON
+  // instrucciones de empaque y de cómo enviar. El placeholder "(S-Numero de
+  // Cliente)" se reemplaza por el box_id del cliente en dirección e instrucciones.
   try {
     const suite = boxId || '(tu casillero)';
+    const sub = (txt: any) => String(txt || '').replace(/\(S-?Numero de Cliente\)/gi, suite).trim();
     const addrRes = await pool.query(
       `SELECT DISTINCT ON (service_type) service_type, alias, address_line1, address_line2,
-              city, state, zip_code, country, contact_phone
+              city, state, zip_code, country, contact_name, contact_phone
          FROM service_warehouse_addresses
         ORDER BY service_type, is_primary DESC, sort_order ASC`);
+    // Instrucciones por servicio (empaque + cómo enviar)
+    const instrMap: Record<string, any> = {};
+    try {
+      const insRes = await pool.query(`SELECT service_type, packaging_instructions, shipping_instructions, general_notes FROM service_instructions`);
+      insRes.rows.forEach((i: any) => { instrMap[i.service_type] = i; });
+    } catch (e) { /* sin instrucciones */ }
+
     if (addrRes.rows.length > 0) {
       const svcName: Record<string, string> = {
         usa_pobox: 'Envíos a USA (PO Box)', china_air: 'Aéreo China', china_sea: 'Marítimo China', mx_cedis: 'Nacional / CEDIS MTY',
       };
-      const lines = addrRes.rows.map((a: any) => {
-        const l1 = String(a.address_line1 || '').replace(/\(S-?Numero de Cliente\)/gi, suite);
-        const l2 = a.address_line2 ? ` ${a.address_line2}` : '';
+      const blocks = addrRes.rows.map((a: any) => {
+        const l1 = sub(a.address_line1);
+        const l2 = a.address_line2 ? ` ${sub(a.address_line2)}` : '';
         const cityLine = [a.city, a.state, a.zip_code].filter(Boolean).join(', ');
         const loc = [cityLine, a.country].filter(Boolean).join(' — ');
-        return `• ${svcName[a.service_type] || a.service_type}: ${l1}${l2}${loc ? `, ${loc}` : ''} (a nombre/casillero: ${suite}${a.contact_phone ? `, tel ${a.contact_phone}` : ''})`;
+        const contacto = [a.contact_name, a.contact_phone].filter(Boolean).join(' ');
+        let block = `• ${svcName[a.service_type] || a.service_type}:\n   Dirección: ${l1}${l2}${loc ? `, ${loc}` : ''}\n   A nombre/casillero (Shipping Mark o Suite/Apt): ${suite}`;
+        if (contacto) block += `\n   Contacto: ${contacto}`;
+        const ins = instrMap[a.service_type];
+        if (ins) {
+          const pk = sub(ins.packaging_instructions);
+          const sh = sub(ins.shipping_instructions);
+          if (pk) block += `\n   Instrucciones de empaque: ${pk}`;
+          if (sh) block += `\n   Cómo enviar: ${sh}`;
+        }
+        return block;
       });
-      parts.push(`Direcciones de envío del cliente (usa el casillero ${suite} como Suite/Apt o Shipping Mark):\n${lines.join('\n')}`);
+      parts.push(`DIRECCIONES DE ENVÍO E INSTRUCCIONES (cuando el cliente pregunte por una dirección, SIEMPRE incluye también las instrucciones de empaque y de cómo enviar del mismo servicio):\n${blocks.join('\n')}`);
     }
   } catch (e) { /* seguimos */ }
 
