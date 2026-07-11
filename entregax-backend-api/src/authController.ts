@@ -1087,14 +1087,18 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             `
         );
 
-        // Entregas hoy: paquetes entregados hoy en ESTA sucursal
+        // Entregas hoy: paquetes entregados hoy en ESTA sucursal.
+        // ⏰ "Hoy" es el día LOCAL de México (UTC-6). La DB corre en UTC, así que
+        // comparar DATE(delivered_at)=CURRENT_DATE (ambos UTC) descarta las entregas
+        // de la tarde/noche local (que ya cruzaron a la fecha UTC siguiente).
         const deliveredTodayResult = await pool.query(
             `
                 SELECT COUNT(*)::int as total
                 FROM packages p
                 WHERE (p.is_master = TRUE OR p.master_id IS NULL)
-                  AND p.status::text = 'delivered'
-                  AND DATE(p.delivered_at) = CURRENT_DATE
+                  AND (p.delivery_status::text = 'delivered' OR p.status::text = 'delivered')
+                  AND (p.delivered_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City')::date
+                      = (NOW() AT TIME ZONE 'America/Mexico_City')::date
                   AND ($1::int IS NULL OR p.current_branch_id = $1)
             `,
             [targetBranchId]
@@ -1125,7 +1129,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             const monthFinance = await pool.query(
                 `
                     SELECT
-                      COALESCE(SUM(CASE WHEN mf.tipo_movimiento = 'ingreso' AND DATE(mf.created_at) = CURRENT_DATE THEN mf.monto ELSE 0 END), 0) as ingresos_hoy,
+                      COALESCE(SUM(CASE WHEN mf.tipo_movimiento = 'ingreso' AND (mf.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City')::date = (NOW() AT TIME ZONE 'America/Mexico_City')::date THEN mf.monto ELSE 0 END), 0) as ingresos_hoy,
                       COALESCE(SUM(CASE WHEN mf.tipo_movimiento = 'ingreso' AND DATE_TRUNC('month', mf.created_at) = DATE_TRUNC('month', CURRENT_DATE) THEN mf.monto ELSE 0 END), 0) as ingresos_mes
                     FROM movimientos_financieros mf
                     WHERE mf.status = 'confirmado'
@@ -1167,8 +1171,8 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
         const operationsResult = await pool.query(
             `
                 SELECT
-                  COUNT(*) FILTER (WHERE DATE(p.received_at) = CURRENT_DATE)::int as recepciones_hoy,
-                  COUNT(*) FILTER (WHERE DATE(p.dispatched_at) = CURRENT_DATE)::int as despachos_hoy,
+                  COUNT(*) FILTER (WHERE (p.received_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City')::date = (NOW() AT TIME ZONE 'America/Mexico_City')::date)::int as recepciones_hoy,
+                  COUNT(*) FILTER (WHERE (p.dispatched_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City')::date = (NOW() AT TIME ZONE 'America/Mexico_City')::date)::int as despachos_hoy,
                   COUNT(*) FILTER (WHERE p.status::text IN ('processing', 'customs', 'reempacado'))::int as consolidaciones_pendientes
                 FROM packages p
                 WHERE (p.is_master = TRUE OR p.master_id IS NULL)
