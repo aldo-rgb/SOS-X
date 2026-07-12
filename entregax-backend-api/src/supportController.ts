@@ -757,7 +757,7 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
     // G. MANEJAR ESCALAMIENTO
     if (shouldEscalate) {
       await pool.query(
-        "UPDATE support_tickets SET status = 'escalated_human', updated_at = NOW() WHERE id = $1",
+        "UPDATE support_tickets SET status = 'escalated_human', resolved_by_ai = FALSE, updated_at = NOW() WHERE id = $1",
         [currentTicketId]
       );
       console.log(`⚠️ Ticket ${ticketCheck.rows[0].ticket_folio} escalado a humano`);
@@ -776,7 +776,7 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
     // reabre en modo IA (arriba). Solo los tickets escalados (arriba) quedan
     // abiertos para el equipo de atención al cliente.
     await pool.query(
-      "UPDATE support_tickets SET status = 'resolved', ticket_status = 'finalizado', resolved_at = COALESCE(resolved_at, NOW()), updated_at = NOW() WHERE id = $1",
+      "UPDATE support_tickets SET status = 'resolved', ticket_status = 'finalizado', resolved_by_ai = TRUE, resolved_at = COALESCE(resolved_at, NOW()), updated_at = NOW() WHERE id = $1",
       [currentTicketId]
     );
 
@@ -1114,13 +1114,21 @@ export const getSupportStats = async (req: Request, res: Response): Promise<any>
         SELECT
           COUNT(*) FILTER (WHERE status = 'open_ai' AND archived_at IS NULL) as ai_handling,
           -- "Requieren atención" = los tickets ROJOS del tablero: sin resolver,
-          -- no finalizados, no archivados y con MÁS DE 3 DÍAS sin resolver
-          -- (mismo criterio isOverdue / "+3 días sin resolver" de las columnas).
-          COUNT(*) FILTER (WHERE status <> 'resolved' AND COALESCE(ticket_status::text, '') <> 'finalizado' AND archived_at IS NULL AND created_at < NOW() - INTERVAL '3 days') as needs_human,
+          -- no finalizados, no archivados y con MÁS DE 3 DÍAS HÁBILES sin resolver
+          -- (L-V; sábado y domingo NO cuentan). Mismo criterio que las columnas.
+          COUNT(*) FILTER (
+            WHERE status <> 'resolved' AND COALESCE(ticket_status::text, '') <> 'finalizado' AND archived_at IS NULL
+              AND (
+                ((CURRENT_DATE - created_at::date) / 7) * 5
+                + (SELECT COUNT(*) FROM generate_series(1, GREATEST((CURRENT_DATE - created_at::date) % 7, 0)) gs
+                     WHERE EXTRACT(ISODOW FROM created_at::date + gs) < 6)
+              ) > 3
+          ) as needs_human,
           COUNT(*) FILTER (WHERE status = 'waiting_client' AND archived_at IS NULL) as waiting_client,
-          COUNT(*) FILTER (WHERE status = 'resolved') as resolved,
-          COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as today_new,
-          COUNT(*) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours') as today_resolved,
+          -- Resueltos y Nuevos hoy EXCLUYEN los atendidos/resueltos por la IA (Cajito).
+          COUNT(*) FILTER (WHERE status = 'resolved' AND resolved_by_ai IS NOT TRUE) as resolved,
+          COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours' AND resolved_by_ai IS NOT TRUE) as today_new,
+          COUNT(*) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours' AND resolved_by_ai IS NOT TRUE) as today_resolved,
           COUNT(*) FILTER (WHERE creator_type = 'employee' AND status != 'resolved' AND archived_at IS NULL) as employee_open,
           COUNT(*) FILTER (WHERE COALESCE(creator_type, 'client') != 'employee' AND status != 'resolved' AND archived_at IS NULL) as client_open,
           COALESCE(ROUND(AVG(business_minutes(created_at, resolved_at)) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours'))::int, 0) as avg_resolution_time_min
@@ -1278,6 +1286,7 @@ export const resolveTicket = async (req: Request, res: Response): Promise<any> =
            resolved_at = NOW(),
            updated_at = NOW(),
            ticket_status = 'finalizado',
+           resolved_by_ai = FALSE,
            resolution_time_minutes = EXTRACT(EPOCH FROM (NOW() - created_at))::int / 60
        WHERE id = $1
        RETURNING ticket_folio, user_id`,
@@ -1379,6 +1388,9 @@ export const ensureDepartmentsSchema = async () => {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    // Marca si el ticket fue resuelto por la IA (Cajito) sin intervención humana.
+    // Sirve para excluir esos tickets de "Resueltos" y "Nuevos hoy".
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolved_by_ai BOOLEAN DEFAULT FALSE`);
     // Función de tiempo hábil: minutos entre dos timestamps EXCLUYENDO fines de
     // semana (sábado=6, domingo=0). Se usa para el "Tiempo Promedio" de resolución
     // para no contar el tiempo que corre en fin de semana.

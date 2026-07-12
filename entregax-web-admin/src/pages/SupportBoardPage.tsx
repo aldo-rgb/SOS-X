@@ -683,7 +683,7 @@ export default function SupportBoardPage() {
   const isOverdue = (t: SupportTicket) =>
     t.status !== 'resolved' &&
     t.ticket_status !== 'finalizado' &&
-    (Date.now() - new Date(t.created_at).getTime()) > 3 * 24 * 60 * 60 * 1000;
+    businessDaysSince(t.created_at) > 3;
 
   const sortWithOverdueFirst = (list: SupportTicket[]) =>
     [...list].sort((a, b) => {
@@ -1165,7 +1165,7 @@ export default function SupportBoardPage() {
                         {msg.sender_type === 'agent' && <AgentIcon fontSize="small" sx={{ color: msg.is_internal ? '#F9A825' : '#4caf50' }} />}
                         <Typography variant="caption" color="text.secondary">
                           {msg.sender_type === 'client' ? 'Cliente' : msg.sender_type === 'ai' ? 'IA' : (msg.sender_name || 'Agente')} ·{' '}
-                          {new Date(msg.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                          {new Date(msg.created_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                         </Typography>
                         {msg.is_internal && (
                           <Chip label="🔒 Interno" size="small" sx={{ fontSize: 10, height: 18, bgcolor: '#FFF8E1', color: '#F57F17', border: '1px solid #F9A825' }} />
@@ -1496,12 +1496,29 @@ const TICKET_VISUAL = {
   archived:    { label: 'Archivado',            cardBg: '#F3F4F6', border: '#9CA3AF', chipBg: '#E5E7EB', chipColor: '#4B5563' },
 };
 
+// Días HÁBILES (lunes a viernes) transcurridos desde `dateStr` hasta hoy.
+// Sábado y domingo NO cuentan para el "+3 días sin resolver".
+function businessDaysSince(dateStr: string): number {
+  const start = new Date(dateStr);
+  if (isNaN(start.getTime())) return 0;
+  start.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let count = 0;
+  const cur = new Date(start);
+  while (cur < today) {
+    cur.setDate(cur.getDate() + 1);
+    const dow = cur.getDay();
+    if (dow !== 0 && dow !== 6) count++; // 0=domingo, 6=sábado
+  }
+  return count;
+}
+
 function getTicketVisual(ticket: SupportTicket, isArchived: boolean) {
   if (isArchived) return TICKET_VISUAL.archived;
   if (ticket.ticket_status === 'finalizado' || ticket.status === 'resolved') return TICKET_VISUAL.finalizado;
-  // Más de 3 días sin resolver
-  const daysSinceCreated = (Date.now() - new Date(ticket.created_at).getTime()) / (1000 * 60 * 60 * 24);
-  if (daysSinceCreated > 3) return TICKET_VISUAL.overdue;
+  // Más de 3 días HÁBILES sin resolver (sin contar sábados/domingos)
+  if (businessDaysSince(ticket.created_at) > 3) return TICKET_VISUAL.overdue;
   if (ticket.ticket_status === 'en_progreso') return TICKET_VISUAL.en_progreso;
   return TICKET_VISUAL.nuevo;
 }
