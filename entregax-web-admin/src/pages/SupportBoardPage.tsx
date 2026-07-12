@@ -900,7 +900,8 @@ export default function SupportBoardPage() {
               );
             };
             const col = sortWithOverdueFirst(applySearch(tickets.filter(t => t.department_id === dept.id)));
-            const urgent = col.filter(t => t.status === 'escalated_human').length;
+            // El badge ⚠️ cuenta solo los que tienen MÁS DE 3 DÍAS SIN RESOLVER.
+            const urgent = col.filter(isOverdue).length;
             return (
               <Paper key={dept.id} sx={{ flex: '0 0 280px', p: 2, bgcolor: '#fafafa', overflow: 'auto', borderRadius: 2, borderTop: `4px solid ${dept.color || '#999'}` }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
