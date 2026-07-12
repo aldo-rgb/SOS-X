@@ -1113,7 +1113,10 @@ export const getSupportStats = async (req: Request, res: Response): Promise<any>
       pool.query(`
         SELECT
           COUNT(*) FILTER (WHERE status = 'open_ai' AND archived_at IS NULL) as ai_handling,
-          COUNT(*) FILTER (WHERE status = 'escalated_human' AND archived_at IS NULL) as needs_human,
+          -- "Requieren atención" = los tickets ROJOS del tablero: sin resolver,
+          -- no finalizados, no archivados y con MÁS DE 3 DÍAS sin resolver
+          -- (mismo criterio isOverdue / "+3 días sin resolver" de las columnas).
+          COUNT(*) FILTER (WHERE status <> 'resolved' AND COALESCE(ticket_status::text, '') <> 'finalizado' AND archived_at IS NULL AND created_at < NOW() - INTERVAL '3 days') as needs_human,
           COUNT(*) FILTER (WHERE status = 'waiting_client' AND archived_at IS NULL) as waiting_client,
           COUNT(*) FILTER (WHERE status = 'resolved') as resolved,
           COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as today_new,
