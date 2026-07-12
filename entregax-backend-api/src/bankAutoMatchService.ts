@@ -277,6 +277,19 @@ const notifyClientAndAdvisorOfPayment = async (
 };
 
 /**
+ * Mapea el emisor fiscal (razón social) al SERVICIO cuyos pagos concilia esa
+ * cuenta bancaria. Así la notificación dice el servicio (PO Box, DHL/TDI…) en
+ * vez del nombre de la empresa, que no le dice nada a operaciones.
+ * Si se agrega un emisor/servicio nuevo, basta con una entrada aquí.
+ */
+const serviceLabelForEmitter = (businessName: string): string | null => {
+  const n = (businessName || '').toUpperCase();
+  if (n.includes('RODADA')) return 'PO Box';
+  if (n.includes('URBAN')) return 'DHL, TDI Express y TDI Aéreo';
+  return null;
+};
+
+/**
  * Notifica a todos los asesores, sub-asesores, directores, admins y super_admin
  * que el estado de cuenta se actualizó.
  */
@@ -299,7 +312,12 @@ const notifyStatementSynced = async (emitterId: number, summary: {
     const empresa = emitter.rows[0]?.business_name || `Emisor #${emitterId}`;
     const shortName = String(empresa).trim().split(/\s+/)[0] || empresa;
 
-    const title = `Cuenta ${shortName} sincronizada.`;
+    // Traducir la razón social (emisor) al SERVICIO que cobra, para que
+    // operaciones vea el servicio y no el nombre de la empresa (RODADA/URBAN).
+    const serviceLabel = serviceLabelForEmitter(empresa);
+    const title = serviceLabel
+      ? `Pagos de ${serviceLabel} actualizados`
+      : `Cuenta ${shortName} sincronizada.`;
     const message = `${summary.newTransactions} movimientos, ${summary.matchedTransactions} coincidencias, ${summary.authorized} pago(s) auto-autorizado(s).`;
     const data = { emitter_id: emitterId, ...summary, source: 'syncfy_auto_sync' };
 
