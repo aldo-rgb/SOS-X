@@ -61,7 +61,7 @@ CONTEXTO: Estás chateando por la app móvil con un cliente de EntregaX que nece
 3. Sé breve y casual, pero profesional. Como si escribieras por WhatsApp. Máximo 2-3 líneas por mensaje.
 4. No uses listas con viñetas largas ni saludos robóticos. Nada de "Seleccione una opción".
 5. Responde en el idioma del cliente (español de México por defecto).
-6. Si el cliente está muy enojado, frustrado o pide un humano/asesor, di algo como "Entiendo, dejo esto con un asesor para que te contacte" e incluye "[ESCALAR]" al final del mensaje.
+6. ESCALAMIENTO (MUY IMPORTANTE): Nunca escales sin que el cliente lo CONFIRME. Si el cliente pide un humano, está frustrado, o no puedes resolver algo, PRIMERO pregunta si quiere que lo pases a NUESTRO EQUIPO DE ATENCIÓN AL CLIENTE, ofreciendo el selector: "¿Quieres que lo escale a nuestro equipo de atención al cliente?" [OPCIONES: Sí | No]. SOLO cuando el cliente responda que SÍ, incluye el marcador "[ESCALAR]" al final de tu mensaje. Di SIEMPRE "nuestro equipo de atención al cliente", NUNCA "un asesor" (los asesores son comerciales, no soporte). Si el cliente dice que no, sigue ayudándolo tú.
 
 📊 USA LOS DATOS REALES DEL CLIENTE:
 - Si el mensaje trae un bloque "[CONTEXTO DEL CLIENTE: ...]", esos son los datos REALES de este cliente (sus paquetes, saldos, asesor, tickets). ÚSALOS para responder con precisión.
@@ -92,7 +92,7 @@ Si el cliente quiere reportar un problema (dice "reportar un problema", "tengo u
 2. Número de guía relacionado (pídelo solo si el problema aplica a una guía específica).
 3. Descripción del problema (pide que lo cuente con detalle).
 4. Ofrece adjuntar fotos (opcional) — el cliente puede usar el botón de imagen del chat.
-Cuando ya tengas la categoría y la descripción, confirma que registraste el reporte con esos datos y escálalo con "[ESCALAR]" para que un asesor lo atienda. No inventes folios de ticket.
+Cuando ya tengas la categoría y la descripción, resume lo que registraste y PREGUNTA si quiere que lo escale: "¿Quieres que lo pase a nuestro equipo de atención al cliente para darle seguimiento?" [OPCIONES: Sí | No]. Solo si responde SÍ, incluye "[ESCALAR]". Si dice que no, ofrece seguir ayudando tú. No inventes folios de ticket ni digas "un asesor".
 
 💡 RESPUESTAS TÍPICAS:
 - "¿Dónde está mi paquete?" → Revisa el contexto y da el status real; si no, pide el TRN.
@@ -709,19 +709,14 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       [currentTicketId]
     );
 
-    // Si estaba resuelto y el usuario escribe → reabrirlo automáticamente
+    // Si estaba resuelto (Cajito ya lo había cerrado) y el cliente escribe de
+    // nuevo → que Cajito lo SIGA atendiendo en modo IA (NO escalar a humano).
+    // Solo se escala cuando el cliente lo confirme (más abajo). Se reabre en IA.
     if (ticketCheck.rows[0].status === 'resolved') {
       await pool.query(
-        "UPDATE support_tickets SET status = 'escalated_human', updated_at = NOW() WHERE id = $1",
+        "UPDATE support_tickets SET status = 'open_ai', ticket_status = 'en_progreso', resolved_at = NULL, updated_at = NOW() WHERE id = $1",
         [currentTicketId]
       );
-      console.log(`🔄 Ticket ${ticketCheck.rows[0].ticket_folio} reabierto por mensaje del usuario`);
-      return res.json({
-        status: 'reopened',
-        ticketId: currentTicketId,
-        ticketFolio: ticketCheck.rows[0].ticket_folio,
-        message: 'Tu ticket fue reabierto. Un agente te atenderá pronto.'
-      });
     }
 
     // Si ya está asignado a humano, no interviene la IA
@@ -776,9 +771,12 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       });
     }
 
-    // H. RESPUESTA NORMAL DE LA IA
+    // H. RESPUESTA NORMAL DE LA IA — Cajito resolvió → se CIERRA el ticket (no se
+    // deja abierto ocupando la bandeja). Si el cliente vuelve a escribir, se
+    // reabre en modo IA (arriba). Solo los tickets escalados (arriba) quedan
+    // abiertos para el equipo de atención al cliente.
     await pool.query(
-      "UPDATE support_tickets SET updated_at = NOW() WHERE id = $1",
+      "UPDATE support_tickets SET status = 'resolved', ticket_status = 'finalizado', resolved_at = COALESCE(resolved_at, NOW()), updated_at = NOW() WHERE id = $1",
       [currentTicketId]
     );
 

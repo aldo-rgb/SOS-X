@@ -80,8 +80,14 @@ export default function SupportChatScreen({ navigation, route }: Props) {
   const avatarSource = avatarUri ? { uri: avatarUri } : CAJITO_AVATAR;
   const agentName = t('support.agentName');
 
-  const nowStr = () =>
-    new Date().toLocaleTimeString(currentLang === 'zh' ? 'zh-CN' : currentLang === 'en' ? 'en-US' : 'es-MX', { hour: '2-digit', minute: '2-digit' });
+  // Fecha + hora (el cliente pidió ver también la fecha, no solo la hora).
+  const fmtDateTime = (d: Date) => {
+    const loc = currentLang === 'zh' ? 'zh-CN' : currentLang === 'en' ? 'en-US' : 'es-MX';
+    const date = d.toLocaleDateString(loc, { day: '2-digit', month: 'short' });
+    const time = d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' });
+    return `${date}, ${time}`;
+  };
+  const nowStr = () => fmtDateTime(new Date());
 
   // Avatar configurado de Cajito
   useEffect(() => {
@@ -142,7 +148,7 @@ export default function SupportChatScreen({ navigation, route }: Props) {
         id: m.id,
         type: m.sender_type === 'client' ? 'user' : 'agent',
         text: m.message,
-        time: new Date(m.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+        time: fmtDateTime(new Date(m.created_at)),
       }));
       setMessages(formatted);
     } catch (error) {
