@@ -885,6 +885,87 @@ export const startChartbackIPromotionCron = () => {
   });
 };
 
+/**
+ * CRON JOB: Aviso semanal "Tarifa desactualizada" (TDI Aéreo / TDI Express)
+ * Se ejecuta cada LUNES a las 08:00 (hora de México). Antes este aviso se
+ * disparaba desde el frontend en CADA carga del dashboard de sucursal, por lo
+ * que se acumulaban miles de notificaciones (y doble: una por cada servicio
+ * desactualizado). Ahora corre una sola vez por semana y SOLO si la tarifa
+ * sigue desactualizada (>24h sin actualizarse). Incluye dedup por día por si
+ * el servidor reinicia el lunes.
+ */
+export const startStaleRatesNotifyCron = () => {
+  cron.schedule('0 8 * * 1', async () => {
+    console.log('💲 [CRON] Revisando tarifas TDI desactualizadas (aviso semanal, lunes)...');
+    try {
+      const STALE_HOURS = 24;
+      const [tdiRes, tdiExpressRes] = await Promise.all([
+        pool.query(
+          `SELECT r.updated_at,
+                  EXTRACT(EPOCH FROM (NOW() - r.updated_at)) / 3600 AS hours_since
+             FROM air_routes r
+            WHERE r.is_active = true AND r.code <> 'TDI-EXPRES'
+            ORDER BY r.id ASC LIMIT 1`
+        ),
+        pool.query(
+          `SELECT r.updated_at,
+                  EXTRACT(EPOCH FROM (NOW() - r.updated_at)) / 3600 AS hours_since
+             FROM air_routes r
+            WHERE r.is_active = true AND r.code = 'TDI-EXPRES'
+            ORDER BY r.id ASC LIMIT 1`
+        ),
+      ]);
+
+      const isStale = (row: any): boolean => {
+        if (!row) return false; // sin ruta activa: no molestar
+        if (row.updated_at === null) return true;
+        const h = Number(row.hours_since);
+        return isNaN(h) ? true : h > STALE_HOURS;
+      };
+
+      const staleServices: { key: string; label: string }[] = [];
+      if (isStale(tdiRes.rows[0])) staleServices.push({ key: 'tdi_air', label: 'TDI Aéreo' });
+      if (isStale(tdiExpressRes.rows[0])) staleServices.push({ key: 'tdi_express', label: 'TDI Express' });
+
+      if (staleServices.length === 0) {
+        console.log('✅ [CRON] Tarifas TDI al día. Sin avisos.');
+        return;
+      }
+
+      const usersRes = await pool.query(
+        `SELECT id FROM users WHERE role IN ('customer_service', 'soporte_tecnico') AND is_active = TRUE`
+      );
+
+      let sent = 0;
+      for (const svc of staleServices) {
+        const msg = `⚠️ El precio ${svc.label} necesita actualizarse. Accede al panel de tarifas para actualizar el costo por kg.`;
+        for (const u of usersRes.rows) {
+          // Dedup: no repetir el mismo aviso al mismo usuario el mismo día
+          const dup = await pool.query(
+            `SELECT 1 FROM notifications
+              WHERE user_id = $1 AND type = 'system_alert'
+                AND data->>'service' = $2
+                AND created_at::date = CURRENT_DATE
+              LIMIT 1`,
+            [u.id, svc.key]
+          );
+          if (dup.rows.length > 0) continue;
+          await pool.query(
+            `INSERT INTO notifications (user_id, type, title, message, data)
+             VALUES ($1, 'system_alert', 'Tarifa desactualizada', $2, $3)`,
+            [u.id, msg, JSON.stringify({ service: svc.key, action: 'update_rate' })]
+          ).catch(() => {});
+          sent++;
+        }
+      }
+      console.log(`✅ [CRON] Avisos de tarifa desactualizada enviados: ${sent} (${staleServices.map(s => s.label).join(', ')})`);
+    } catch (err: any) {
+      console.error('❌ [CRON] Error en aviso de tarifas desactualizadas:', err.message);
+    }
+  }, { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Aviso de tarifas TDI desactualizadas: lunes 08:00 (MX)');
+};
+
 export const initCronJobs = () => {
   startRecoveryCronJob();
   startProspectFollowUpCron();
@@ -905,6 +986,7 @@ export const initCronJobs = () => {
   startXpayExpiryCron();
   startSyncfyAutoSyncCron();
   startChartbackIPromotionCron();
+  startStaleRatesNotifyCron();
 };
 
 export default initCronJobs;

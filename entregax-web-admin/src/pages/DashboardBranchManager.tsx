@@ -135,7 +135,6 @@ export default function DashboardBranchManager() {
     tdi_express: any | null;
     stale_hours_threshold: number;
   } | null>(null);
-  const [staleNotifSent, setStaleNotifSent] = useState<Set<string>>(new Set());
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   // Abandonos listos para proceso (firmados por cliente)
@@ -307,16 +306,9 @@ export default function DashboardBranchManager() {
       const res = await api.get('/dashboard/system-rates');
       if (res.data) {
         setSystemRates(res.data);
-        // Notificar a customer_service/soporte_tecnico si TDI está desactualizado
-        const staleSvc: string[] = [];
-        if (res.data.tdi_air?.stale) staleSvc.push('tdi_air');
-        if (res.data.tdi_express?.stale) staleSvc.push('tdi_express');
-        for (const svc of staleSvc) {
-          if (!staleNotifSent.has(svc)) {
-            api.post('/dashboard/notify-stale-rates', { service: svc }).catch(() => {});
-            setStaleNotifSent(prev => new Set([...prev, svc]));
-          }
-        }
+        // El aviso "Tarifa desactualizada" ahora lo envía un CRON semanal (lunes)
+        // en el backend, una sola vez y solo si sigue desactualizada. Aquí ya no
+        // se dispara en cada carga del dashboard (antes generaba miles de avisos).
       }
     } catch (err) {
       console.debug('No se pudieron cargar system rates:', err);
