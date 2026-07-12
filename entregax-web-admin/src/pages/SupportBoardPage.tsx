@@ -57,6 +57,7 @@ import {
   Archive as ArchiveIcon,
   Unarchive as UnarchiveIcon,
   Lock as LockIcon,
+  OpenInFull as OpenInFullIcon,
 } from '@mui/icons-material';
 import PackageDetailDialog from './PackageDetailDialog';
 
@@ -352,6 +353,8 @@ export default function SupportBoardPage() {
 
   // Archivados
   const [archivedTickets, setArchivedTickets] = useState<SupportTicket[]>([]);
+  const [archivedModalOpen, setArchivedModalOpen] = useState(false);
+  const [archivedSearch, setArchivedSearch] = useState('');
 
   // Adjuntos
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -436,7 +439,7 @@ export default function SupportBoardPage() {
 
   const loadArchivedTickets = useCallback(async () => {
     try {
-      let url = `${API_URL}/admin/support/tickets?archived=true&limit=100`;
+      let url = `${API_URL}/admin/support/tickets?archived=true&limit=2000`;
       if (deptFilter !== 'all') url += `&department_id=${deptFilter}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return;
@@ -492,7 +495,7 @@ export default function SupportBoardPage() {
       setLoading(false);
     };
     init();
-    const interval = setInterval(() => { loadTickets(); loadStats(); loadArchivedTickets(); }, 30000);
+    const interval = setInterval(() => { loadTickets(); loadStats(); }, 30000);
     return () => clearInterval(interval);
   }, [loadTickets, loadStats, loadDepartments, loadArchivedTickets]);
 
@@ -972,7 +975,11 @@ export default function SupportBoardPage() {
 
         {/* Columna Archivados — siempre al final */}
         <Paper sx={{ flex: '0 0 280px', p: 2, bgcolor: '#F5F5F5', overflow: 'auto', borderRadius: 2, borderTop: '4px solid #9E9E9E', opacity: 0.92 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <Box
+            onClick={() => { setArchivedSearch(''); setArchivedModalOpen(true); }}
+            sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, cursor: 'pointer', borderRadius: 1, p: 0.5, mx: -0.5, '&:hover': { bgcolor: '#eeeeee' } }}
+            title="Ver todo el historial de archivados"
+          >
             <ArchiveIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
             <Typography variant="subtitle1" fontWeight="bold" sx={{ flex: 1, color: '#616161' }}>Archivados</Typography>
             <Box sx={{ bgcolor: '#e0e0e0', borderRadius: 10, px: 0.8, fontSize: 11, fontWeight: 600, lineHeight: '18px', color: '#616161' }}>
@@ -985,6 +992,7 @@ export default function SupportBoardPage() {
                   }).length
                 : archivedTickets.length}
             </Box>
+            <OpenInFullIcon sx={{ fontSize: 14, color: '#9E9E9E' }} />
           </Box>
           {(() => {
             const filteredArchived = searchQuery
@@ -1000,20 +1008,87 @@ export default function SupportBoardPage() {
                 {searchQuery ? 'Sin resultados' : 'Sin archivados'}
               </Typography>
             ) : (
-              filteredArchived.slice(0, 50).map((ticket) => (
-                <TicketCard
-                  key={ticket.id}
-                  ticket={ticket}
-                  onClick={() => handleOpenTicket(ticket)}
-                  formatTime={formatTimeAgo}
-                  isArchived
-                  onArchive={handleArchiveTicket}
-                />
-              ))
+              <>
+                {filteredArchived.slice(0, 50).map((ticket) => (
+                  <TicketCard
+                    key={ticket.id}
+                    ticket={ticket}
+                    onClick={() => handleOpenTicket(ticket)}
+                    formatTime={formatTimeAgo}
+                    isArchived
+                    onArchive={handleArchiveTicket}
+                  />
+                ))}
+                {filteredArchived.length > 50 && (
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    startIcon={<OpenInFullIcon sx={{ fontSize: 16 }} />}
+                    onClick={() => { setArchivedSearch(searchQuery); setArchivedModalOpen(true); }}
+                    sx={{ mt: 1, color: '#616161', borderColor: '#c9c9c9', textTransform: 'none' }}
+                  >
+                    Ver todos ({filteredArchived.length})
+                  </Button>
+                )}
+              </>
             );
           })()}
         </Paper>
       </Box>
+
+      {/* Modal: Historial completo de Archivados */}
+      <Dialog open={archivedModalOpen} onClose={() => setArchivedModalOpen(false)} maxWidth="lg" fullWidth
+        PaperProps={{ sx: { height: '90vh' } }}>
+        <DialogTitle sx={{ bgcolor: BLACK, color: 'white', pb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ArchiveIcon />
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="h6">Historial de archivados</Typography>
+            <Typography variant="body2" sx={{ opacity: 0.75 }}>{archivedTickets.length} tickets</Typography>
+          </Box>
+          <IconButton onClick={() => setArchivedModalOpen(false)} sx={{ color: 'white' }}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <Box sx={{ px: 3, pt: 2, pb: 1 }}>
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Buscar por folio, cliente o asunto…"
+            value={archivedSearch}
+            onChange={(e) => setArchivedSearch(e.target.value)}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+          />
+        </Box>
+        <DialogContent sx={{ pt: 1 }}>
+          {(() => {
+            const q = archivedSearch.trim().toLowerCase();
+            const list = q
+              ? archivedTickets.filter(t =>
+                  t.ticket_folio?.toLowerCase().includes(q) ||
+                  t.full_name?.toLowerCase().includes(q) ||
+                  t.email?.toLowerCase().includes(q) ||
+                  t.subject?.toLowerCase().includes(q) ||
+                  String(t.client_box_id || '').toLowerCase().includes(q))
+              : archivedTickets;
+            if (list.length === 0) {
+              return <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 6 }}>Sin resultados</Typography>;
+            }
+            return (
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 1.5 }}>
+                {list.map((ticket) => (
+                  <TicketCard
+                    key={ticket.id}
+                    ticket={ticket}
+                    onClick={() => { setArchivedModalOpen(false); handleOpenTicket(ticket); }}
+                    formatTime={formatTimeAgo}
+                    isArchived
+                    onArchive={handleArchiveTicket}
+                  />
+                ))}
+              </Box>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog: Detalle del Ticket */}
       <Dialog open={dialogOpen} onClose={() => { setDialogOpen(false); setSelectedTicket(null); }} maxWidth="md" fullWidth>
