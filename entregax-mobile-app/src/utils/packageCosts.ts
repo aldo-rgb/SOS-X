@@ -46,6 +46,8 @@ export interface CostBreakdown {
   nationalPerBoxMxn: number;
   /** Número de cajas / piezas (de boxes JSON o total_boxes) */
   boxCount: number;
+  /** true si es un REPACK (varias guías consolidadas en 1 caja) */
+  isRepack: boolean;
 }
 
 const sumChildren = (children: any[] | undefined, picker: (c: any) => number): number => {
@@ -80,11 +82,24 @@ export function getPackageCostBreakdown(pkg: any, opts: { children?: any[] } = {
     return num(p?.assigned_cost_mxn);
   };
 
-  // 1) PO Box service (MXN). Master multipieza → Σ hijas; resto → resolver propio.
+  // 1) PO Box service (MXN).
+  //   - REPACK (varias guías consolidadas en 1 caja): precio del master
+  //     consolidado (pobox_venta_usd × TC), NO la suma de las guías.
+  //   - Master multipieza (multi-caja): Σ hijas.
+  //   - Resto: resolver propio.
   let poboxServiceMxn = 0;
   const isMaster = !!pkg?.is_master;
   const hasChildren = Array.isArray(children) && children.length > 0;
-  if (isMaster && hasChildren) {
+  const isRepack = String(pkg?.tracking_internal ?? pkg?.tracking ?? '')
+    .toUpperCase()
+    .startsWith('US-REPACK-');
+  if (isRepack) {
+    const u = num(pkg?.pobox_venta_usd);
+    const t = num(pkg?.registered_exchange_rate) || tc;
+    poboxServiceMxn = (u > 0 && t > 0)
+      ? u * t
+      : (num(pkg?.assigned_cost_mxn) || resolvePobox(pkg, tc));
+  } else if (isMaster && hasChildren) {
     poboxServiceMxn = children.reduce((s: number, c: any) => s + resolvePobox(c, tc), 0);
     if (poboxServiceMxn === 0) poboxServiceMxn = resolvePobox(pkg, tc);
   } else {
@@ -132,6 +147,7 @@ export function getPackageCostBreakdown(pkg: any, opts: { children?: any[] } = {
     poboxPerBoxMxn,
     nationalPerBoxMxn,
     boxCount,
+    isRepack,
   };
 }
 

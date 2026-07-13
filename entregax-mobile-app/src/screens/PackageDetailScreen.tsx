@@ -223,8 +223,17 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
     const ventaUsdBackend = Number((details as any).pobox_venta_usd) || 0;
 
     // Usar MXN guardado como fuente de verdad (igual que la web con getPackageCostBreakdown).
-    let costoPoboxMxn = serviceCostBackend > 0 ? serviceCostBackend : (ventaUsdBackend * tc);
-    let costoPoboxUsd = costoPoboxMxn > 0 && tc > 0 ? costoPoboxMxn / tc : ventaUsdBackend;
+    // REPACK: siempre el precio del master consolidado (venta_usd × TC), NO un
+    // pobox_service_cost que pueda venir stale ni la suma de las guías.
+    let costoPoboxMxn: number;
+    let costoPoboxUsd: number;
+    if (isRepackPackage() && ventaUsdBackend > 0 && tc > 0) {
+      costoPoboxMxn = ventaUsdBackend * tc;
+      costoPoboxUsd = ventaUsdBackend;
+    } else {
+      costoPoboxMxn = serviceCostBackend > 0 ? serviceCostBackend : (ventaUsdBackend * tc);
+      costoPoboxUsd = costoPoboxMxn > 0 && tc > 0 ? costoPoboxMxn / tc : ventaUsdBackend;
+    }
 
     // Si el master no trae costo pero sí hay hijas con costo, sumar hijas.
     const childrenCostMxn = childPackages.reduce(
