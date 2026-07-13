@@ -571,6 +571,18 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         p.id, p.tracking_internal as tracking, COALESCE(p.tracking_provider, p.international_tracking) as international_tracking, p.child_no,
         p.status::text as status, p.service_type,
         CASE
+          -- REPACK: se cobra el master consolidado (pobox_venta_usd × TC).
+          -- pobox_service_cost del master puede venir stale, por eso NO se usa
+          -- primero; assigned_cost_mxn / saldo_pendiente (que ya son el precio
+          -- consolidado) sirven de respaldo.
+          WHEN p.service_type = 'POBOX_USA' AND UPPER(COALESCE(p.tracking_internal, '')) LIKE 'US-REPACK-%' THEN
+            COALESCE(
+              NULLIF(p.pobox_venta_usd * p.registered_exchange_rate, 0),
+              NULLIF(p.assigned_cost_mxn, 0),
+              NULLIF(p.saldo_pendiente, 0),
+              NULLIF(p.pobox_service_cost, 0),
+              0
+            )
           WHEN p.service_type = 'POBOX_USA' THEN
             COALESCE(NULLIF(p.pobox_service_cost, 0), NULLIF(p.assigned_cost_mxn, 0), NULLIF(p.saldo_pendiente, 0), 0)
           ELSE
