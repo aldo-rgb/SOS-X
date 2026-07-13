@@ -146,6 +146,18 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
 
     await client.query('BEGIN');
 
+    // Bloquear la fila de la consolidación (FOR UPDATE) y capturar su estado
+    // PREVIO. Esto (a) serializa recepciones concurrentes de la misma
+    // consolidación y (b) permite notificar SOLO la primera vez que pasa a
+    // parcial: al re-finalizar una consolidación ya 'received_partial' NO se
+    // vuelve a mandar el aviso de faltantes (antes se duplicaba en cada
+    // re-recepción).
+    const consLockRes = await client.query(
+      `SELECT status FROM consolidations WHERE id = $1::int FOR UPDATE`,
+      [Number(id)]
+    );
+    const prevConsStatus: string | null = consLockRes.rows[0]?.status ?? null;
+
     // Traer paquetes de la consolidación (excluyendo masters con hijas; solo se
     // escanean las hijas y el master se propaga automáticamente). Filtramos por
     // existencia real de hijas (master_id) porque total_boxes puede no estar
@@ -368,8 +380,10 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
       [newStatus, isComplete, userId || null, Number(id)]
     );
 
-    // Notificar a todos los usuarios con permiso sobre 'ops_usa_pobox' si hay faltantes
-    if (missing.length > 0) {
+    // Notificar SOLO la primera vez que la consolidación pasa a parcial (con
+    // faltantes). Si ya estaba 'received_partial', es una re-recepción y NO se
+    // vuelve a notificar (evita el spam de la misma alerta 4+ veces).
+    if (missing.length > 0 && prevConsStatus !== 'received_partial') {
       const missingTrackingRes = await client.query(
         `SELECT tracking_internal FROM packages WHERE id = ANY($1::int[])`,
         [missing]
