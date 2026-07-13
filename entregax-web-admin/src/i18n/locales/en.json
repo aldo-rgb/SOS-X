@@ -1265,6 +1265,20 @@
     "codeRequired": "Route code is required"
   },
   "cd": {
+    "label": {
+      "title": "Shipment label",
+      "help": "Give it a name so you can recognize it easily (e.g. \"Keychains Entregax\").",
+      "placeholder": "E.g. Keychains Entregax",
+      "add": "Add label",
+      "edit": "Edit label",
+      "remove": "Remove",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Label saved",
+      "removed": "Label removed",
+      "error": "Couldn't save the label"
+    },
     "header": {
       "welcome": "Welcome,",
       "portal": "EntregaX Client Portal",

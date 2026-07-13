@@ -3335,6 +3335,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         CASE WHEN child_no IS NOT NULL AND child_no LIKE 'AIR%' THEN child_no ELSE tracking_internal END as tracking,
         tracking_provider,
         description as descripcion,
+        custom_label,
         service_type as servicio,
         CASE
           WHEN service_type = 'POBOX_USA' THEN 'air'
@@ -3502,6 +3503,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         ordersn as tracking,
         'MARITIMO' as tracking_provider,
         COALESCE(goods_name, summary_description, 'Carga Marítima') as descripcion,
+        custom_label,
         'SEA_CHN_MX' as servicio,
         'maritime' as shipment_type,
         status,
@@ -3845,7 +3847,9 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         cbm: finalCbm || null,
         declared_value: finalDeclaredValue || null,
         included_guides: children,
-        total_guides: children.length
+        total_guides: children.length,
+        // Origen para la etiqueta personalizada (tabla packages → source 'air')
+        label_source: 'air',
       };
     });
 
@@ -3858,6 +3862,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         cbm: mo.cbm ? parseFloat(mo.cbm) : null,
         monto: mo.monto ? parseFloat(mo.monto) : 0,
         declared_value: mo.declared_value ? parseFloat(mo.declared_value) : null,
+        // Origen para la etiqueta personalizada (tabla maritime_orders)
+        label_source: 'maritime',
       })),
       ...dhlPackagesRows,
       ...dhlShipmentRows,
@@ -4072,6 +4078,7 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
         CASE WHEN child_no ILIKE 'AIR%' THEN child_no ELSE tracking_internal END as tracking,
         tracking_provider,
         description as descripcion,
+        custom_label,
         service_type as servicio,
         CASE
           WHEN service_type = 'POBOX_USA' THEN 'air'

@@ -1319,6 +1319,20 @@
     "codeRequired": "El código de ruta es requerido"
   },
   "cd": {
+    "label": {
+      "title": "Etiqueta del envío",
+      "help": "Ponle un nombre para reconocerlo fácilmente (ej. \"Llaveros Entregax\").",
+      "placeholder": "Ej. Llaveros Entregax",
+      "add": "Agregar etiqueta",
+      "edit": "Editar etiqueta",
+      "remove": "Quitar",
+      "cancel": "Cancelar",
+      "save": "Guardar",
+      "saving": "Guardando…",
+      "saved": "Etiqueta guardada",
+      "removed": "Etiqueta eliminada",
+      "error": "No se pudo guardar la etiqueta"
+    },
     "header": {
       "welcome": "Bienvenido,",
       "portal": "Portal de Cliente EntregaX",

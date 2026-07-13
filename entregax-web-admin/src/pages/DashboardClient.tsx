@@ -163,6 +163,8 @@ interface PackageTracking {
   tracking: string;
   tracking_internal?: string;
   descripcion: string;
+  custom_label?: string | null;
+  label_source?: string;
   servicio: string;
   shipment_type?: string;
   service_type?: string;
@@ -511,6 +513,11 @@ export default function DashboardClient() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<ClientStats | null>(null);
   const [packages, setPackages] = useState<PackageTracking[]>([]);
+  // Etiqueta personalizada (alias que el cliente le pone a un envío para
+  // reconocerlo), igual que en la app. Editor por modal.
+  const [labelDialogPkg, setLabelDialogPkg] = useState<PackageTracking | null>(null);
+  const [labelText, setLabelText] = useState('');
+  const [savingLabel, setSavingLabel] = useState(false);
   // Si el backend marca al cliente como pendiente de verificación,
   // forzamos el banner aunque localStorage piense que está aprobado.
   const [serverVerificationGated, setServerVerificationGated] = useState(false);
@@ -2822,6 +2829,40 @@ export default function DashboardClient() {
       setInvoices([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Abrir el editor de etiqueta personalizada para un envío.
+  const openLabelEditor = (pkg: PackageTracking) => {
+    setLabelDialogPkg(pkg);
+    setLabelText(pkg.custom_label || '');
+  };
+
+  // Guardar/quitar la etiqueta personalizada. Usa el mismo endpoint que la app
+  // (PATCH /packages/:id/label). El `source` viene del backend (label_source):
+  // 'air' → tabla packages (PO Box / Aéreo China / TDX), 'maritime' → maritime_orders.
+  const handleSaveLabel = async () => {
+    if (!labelDialogPkg) return;
+    const value = labelText.trim();
+    setSavingLabel(true);
+    try {
+      const source = labelDialogPkg.label_source || labelDialogPkg.shipment_type || 'air';
+      const res = await api.patch(`/packages/${labelDialogPkg.id}/label`, { label: value, source });
+      const newLabel: string | null = res.data?.custom_label ?? (value.length > 0 ? value : null);
+      // Refleja el cambio en la tarjeta (y en las hijas si era master).
+      setPackages(prev => prev.map(p =>
+        (p.id === labelDialogPkg.id || (p as unknown as { master_id?: number }).master_id === labelDialogPkg.id)
+          ? { ...p, custom_label: newLabel }
+          : p
+      ));
+      setLabelDialogPkg(null);
+      setLabelText('');
+      setSnackbar({ open: true, message: newLabel ? t('cd.label.saved') : t('cd.label.removed'), severity: 'success' });
+    } catch (e) {
+      console.error('Error guardando etiqueta:', e);
+      setSnackbar({ open: true, message: t('cd.label.error'), severity: 'error' });
+    } finally {
+      setSavingLabel(false);
     }
   };
 
@@ -6309,6 +6350,37 @@ export default function DashboardClient() {
                               />
                             )}
                             {isPaid && pkg.status !== 'delivered' && <Chip label="✓" size="small" color="success" sx={{ height: 16, fontSize: '0.55rem', minWidth: 'auto' }} />}
+                          </Box>
+                          {/* Etiqueta personalizada (alias del cliente) — igual que en la app */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
+                            {pkg.custom_label ? (
+                              <>
+                                <Typography
+                                  variant="caption"
+                                  sx={{ fontSize: isMobile ? '0.68rem' : '0.78rem', fontWeight: 800, color: ORANGE, lineHeight: 1.2 }}
+                                  noWrap
+                                >
+                                  🏷️ {pkg.custom_label}
+                                </Typography>
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => { e.stopPropagation(); openLabelEditor(pkg); }}
+                                  sx={{ p: 0.25, color: ORANGE }}
+                                  title={t('cd.label.edit')}
+                                >
+                                  <EditIcon sx={{ fontSize: 13 }} />
+                                </IconButton>
+                              </>
+                            ) : (
+                              <Box
+                                onClick={(e) => { e.stopPropagation(); openLabelEditor(pkg); }}
+                                sx={{ display: 'flex', alignItems: 'center', gap: 0.25, cursor: 'pointer', color: '#9e9e9e', '&:hover': { color: ORANGE } }}
+                                title={t('cd.label.add')}
+                              >
+                                <EditIcon sx={{ fontSize: 12 }} />
+                                <Typography variant="caption" sx={{ fontSize: isMobile ? '0.6rem' : '0.68rem' }}>{t('cd.label.add')}</Typography>
+                              </Box>
+                            )}
                           </Box>
                           {/* Guía JJD (hijo) para paquetes DHL con master tracking */}
                           {pkg.dhl_child_tracking && (
@@ -13040,6 +13112,57 @@ export default function DashboardClient() {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      {/* Dialog: Etiqueta personalizada del envío (alias del cliente) */}
+      <Dialog
+        open={!!labelDialogPkg}
+        onClose={() => { if (!savingLabel) { setLabelDialogPkg(null); setLabelText(''); } }}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold' }}>
+          🏷️ {t('cd.label.title')}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            {t('cd.label.help')}
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            placeholder={t('cd.label.placeholder')}
+            value={labelText}
+            onChange={(e) => setLabelText(e.target.value.slice(0, 120))}
+            inputProps={{ maxLength: 120 }}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSaveLabel(); }}
+          />
+          {labelDialogPkg?.tracking && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, fontFamily: 'monospace' }}>
+              {labelDialogPkg.tracking}
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          {labelDialogPkg?.custom_label && (
+            <Button
+              onClick={() => { setLabelText(''); }}
+              color="error"
+              disabled={savingLabel}
+              sx={{ mr: 'auto' }}
+            >
+              {t('cd.label.remove')}
+            </Button>
+          )}
+          <Button onClick={() => { setLabelDialogPkg(null); setLabelText(''); }} disabled={savingLabel} color="inherit">
+            {t('cd.label.cancel')}
+          </Button>
+          <Button onClick={handleSaveLabel} variant="contained" disabled={savingLabel} sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94f1f' } }}>
+            {savingLabel ? t('cd.label.saving') : t('cd.label.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Dialog de Instrucciones de Pago en efectivo */}
       <Dialog 

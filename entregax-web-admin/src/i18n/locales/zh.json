@@ -1126,6 +1126,20 @@
     "notes": "备注"
   },
   "cd": {
+    "label": {
+      "title": "包裹标签",
+      "help": "给它起个名字方便识别（例如\"钥匙扣 Entregax\"）。",
+      "placeholder": "例如：钥匙扣 Entregax",
+      "add": "添加标签",
+      "edit": "编辑标签",
+      "remove": "移除",
+      "cancel": "取消",
+      "save": "保存",
+      "saving": "保存中…",
+      "saved": "标签已保存",
+      "removed": "标签已移除",
+      "error": "无法保存标签"
+    },
     "header": {
       "welcome": "欢迎，",
       "portal": "EntregaX 客户门户",
