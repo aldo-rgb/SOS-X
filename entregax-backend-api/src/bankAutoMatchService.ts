@@ -300,10 +300,15 @@ const notifyStatementSynced = async (emitterId: number, summary: {
   alreadyPaid: number;
 }) => {
   try {
+    // Conciliación bancaria = cuentas MX (RODADA/URBAN, BBVA México). NO aplica a
+    // mostradores en USA (Hidalgo TX, code HGO): sus usuarios no deben recibir
+    // estas notificaciones de pagos.
     const recipients = await pool.query(
-      `SELECT id FROM users
-        WHERE role IN ('advisor','sub_advisor','director','admin','super_admin','branch_manager')
-          AND COALESCE(is_active, true) = true`
+      `SELECT u.id FROM users u
+         LEFT JOIN branches b ON b.id = u.branch_id
+        WHERE u.role IN ('advisor','sub_advisor','director','admin','super_admin','branch_manager')
+          AND COALESCE(u.is_active, true) = true
+          AND UPPER(COALESCE(b.code, '')) <> 'HGO'`
     );
     const emitter = await pool.query(
       `SELECT business_name, bank_name FROM fiscal_emitters WHERE id = $1`,

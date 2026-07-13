@@ -288,38 +288,57 @@ export const startFleetAlertsCron = () => {
         `SELECT EXTRACT(ISODOW FROM (NOW() AT TIME ZONE 'America/Mexico_City')) = 1 AS es_lunes`
       );
       if (isMonday.rows[0]?.es_lunes) {
-        const criticalAlerts = await pool.query(`
-          SELECT COUNT(*) as count FROM fleet_alerts
+        const dedupTitle = '🚨 Alertas de Flotilla Críticas';
+        const notifyOnce = async (userId: number, message: string) => {
+          const dup = await pool.query(
+            `SELECT 1 FROM notifications
+              WHERE user_id = $1 AND title = $2
+                AND created_at::date = (NOW() AT TIME ZONE 'America/Mexico_City')::date
+              LIMIT 1`,
+            [userId, dedupTitle]
+          );
+          if (dup.rows.length > 0) return;
+          await pool.query(
+            `INSERT INTO notifications (user_id, title, message, type, icon)
+             VALUES ($1, $2, $3, 'error', 'local-shipping') ON CONFLICT DO NOTHING`,
+            [userId, dedupTitle, message]
+          );
+        };
+
+        // (a) Resumen GLOBAL solo para roles de oficina central (HQ).
+        const globalCritical = await pool.query(`
+          SELECT COUNT(*)::int as count FROM fleet_alerts
           WHERE alert_level = 'critical' AND is_resolved = FALSE
         `);
-
-        if (parseInt(criticalAlerts.rows[0].count) > 0) {
-          // Destinatarios: super admin, admin, director, contabilidad (accountant) y servicio a cliente
-          const admins = await pool.query(`
+        if (globalCritical.rows[0].count > 0) {
+          const hq = await pool.query(`
             SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'director', 'accountant', 'customer_service')
+              AND COALESCE(is_active, true) = true
           `);
+          for (const u of hq.rows) {
+            await notifyOnce(u.id, `Hay ${globalCritical.rows[0].count} alertas críticas de flotilla que requieren atención inmediata.`);
+          }
+        }
 
-          for (const admin of admins.rows) {
-            // Dedup: no repetir el aviso al mismo usuario el mismo día (por si reinicia)
-            const dup = await pool.query(
-              `SELECT 1 FROM notifications
-                WHERE user_id = $1 AND title = '🚨 Alertas de Flotilla Críticas'
-                  AND created_at::date = (NOW() AT TIME ZONE 'America/Mexico_City')::date
-                LIMIT 1`,
-              [admin.id]
-            );
-            if (dup.rows.length > 0) continue;
-            await pool.query(`
-              INSERT INTO notifications (user_id, title, message, type, icon)
-              VALUES ($1, $2, $3, $4, $5)
-              ON CONFLICT DO NOTHING
-            `, [
-              admin.id,
-              '🚨 Alertas de Flotilla Críticas',
-              `Hay ${criticalAlerts.rows[0].count} alertas críticas de flotilla que requieren atención inmediata.`,
-              'error',
-              'local-shipping'
-            ]);
+        // (b) Por SUCURSAL: gerentes/operaciones solo reciben alertas de las
+        //     UNIDADES ASIGNADAS a SU sucursal (no de toda la flotilla).
+        const byBranch = await pool.query(`
+          SELECT v.branch_id, COUNT(*)::int as count
+            FROM fleet_alerts fa
+            JOIN vehicles v ON v.id = fa.vehicle_id
+           WHERE fa.alert_level = 'critical' AND fa.is_resolved = FALSE
+             AND v.branch_id IS NOT NULL
+           GROUP BY v.branch_id
+        `);
+        for (const row of byBranch.rows) {
+          const branchUsers = await pool.query(`
+            SELECT id FROM users
+             WHERE branch_id = $1
+               AND role IN ('branch_manager', 'operaciones', 'Operaciones')
+               AND COALESCE(is_active, true) = true
+          `, [row.branch_id]);
+          for (const u of branchUsers.rows) {
+            await notifyOnce(u.id, `Tu sucursal tiene ${row.count} alerta(s) crítica(s) de flotilla en tus unidades asignadas.`);
           }
         }
       }
