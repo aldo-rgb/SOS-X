@@ -29,6 +29,7 @@ import {
   Slide,
   IconButton,
   Avatar,
+  Chip,
 } from '@mui/material';
 import {
   QrCodeScanner as ScanIcon,
@@ -153,10 +154,11 @@ interface DhlReceptionWizardProps {
 }
 
 interface ClientInfo {
-  id: number;
+  id: number | null;
   full_name: string;
   email: string;
   box_id: string;
+  is_legacy?: boolean;
 }
 
 // Wizard Steps - Ahora con Cliente primero
@@ -882,9 +884,14 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                       {clientInfo.full_name?.charAt(0) || 'C'}
                     </Avatar>
                     <Box sx={{ textAlign: 'left' }}>
-                      <Typography fontWeight="bold">{clientInfo.full_name}</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography fontWeight="bold">{clientInfo.full_name}</Typography>
+                        {clientInfo.is_legacy && (
+                          <Chip label="Legacy" size="small" sx={{ height: 18, fontSize: '0.6rem', bgcolor: '#fff3e0', color: '#e65100', fontWeight: 700 }} />
+                        )}
+                      </Box>
                       <Typography variant="body2" color="text.secondary">
-                        Box ID: {clientInfo.box_id} | {clientInfo.email}
+                        Box ID: {clientInfo.box_id}{clientInfo.email ? ` | ${clientInfo.email}` : ''}
                       </Typography>
                     </Box>
                     <CheckIcon sx={{ color: '#4caf50', ml: 'auto' }} />

@@ -6124,25 +6124,41 @@ app.get('/api/admin/users/search', authenticateToken, requireMinLevel(ROLES.WARE
     }
     
     const searchTerm = q.trim();
-    
-    // Buscar por box_id exacto, o por nombre/email parcial
+
+    // Buscar por box_id exacto, o por nombre/email parcial. Incluye también
+    // clientes LEGACY no reclamados (sin cuenta users todavía): así recepción
+    // (p.ej. DHL) puede recibir a un cliente histórico por su Box ID. Los legacy
+    // ya reclamados tienen su fila en users y se encuentran arriba, por eso solo
+    // agregamos los NO reclamados (claimed_by_user_id IS NULL) para no duplicar.
     const result = await pool.query(`
-      SELECT id, full_name, email, box_id, phone, role
-      FROM users 
-      WHERE role = 'client'
-        AND (
-          UPPER(box_id) = UPPER($1)
-          OR UPPER(full_name) LIKE UPPER($2)
-          OR UPPER(email) LIKE UPPER($2)
-          OR phone LIKE $3
-          OR id::text = $1
-        )
-      ORDER BY 
+      SELECT * FROM (
+        SELECT id, full_name, email, box_id, phone, role, FALSE AS is_legacy
+        FROM users
+        WHERE role = 'client'
+          AND (
+            UPPER(box_id) = UPPER($1)
+            OR UPPER(full_name) LIKE UPPER($2)
+            OR UPPER(email) LIKE UPPER($2)
+            OR phone LIKE $3
+            OR id::text = $1
+          )
+        UNION ALL
+        SELECT NULL::int AS id, full_name, email, box_id, phone, 'client' AS role, TRUE AS is_legacy
+        FROM legacy_clients
+        WHERE claimed_by_user_id IS NULL
+          AND (
+            UPPER(box_id) = UPPER($1)
+            OR UPPER(full_name) LIKE UPPER($2)
+            OR phone LIKE $3
+          )
+      ) t
+      ORDER BY
         CASE WHEN UPPER(box_id) = UPPER($1) THEN 0 ELSE 1 END,
+        is_legacy,
         full_name
       LIMIT 10
     `, [searchTerm, `%${searchTerm}%`, `%${searchTerm}%`]);
-    
+
     res.json(result.rows);
   } catch (error) {
     console.error('Error buscando usuarios:', error);

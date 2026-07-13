@@ -742,32 +742,64 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Este tracking ya fue registrado' });
     }
 
-    // Buscar cliente por ID o box_id
+    // Buscar cliente por ID o box_id. Si no está en `users`, buscar también en
+    // `legacy_clients` (clientes históricos). Un legacy reclamado usa su
+    // claimed_by_user_id; uno no reclamado se recibe con user_id NULL + box_id
+    // (igual que aéreo/marítimo), y se le queda ligado por Box ID cuando active
+    // su cuenta.
     let userId = client_id;
+    let effectiveBoxId = box_id || null;
     if (!userId && box_id) {
       const userResult = await pool.query(
-        'SELECT id FROM users WHERE UPPER(box_id) = UPPER($1)',
+        'SELECT id, box_id FROM users WHERE UPPER(box_id) = UPPER($1)',
         [box_id]
       );
       if (userResult.rows.length > 0) {
         userId = userResult.rows[0].id;
+        effectiveBoxId = userResult.rows[0].box_id;
+      } else {
+        const legacyResult = await pool.query(
+          'SELECT box_id, claimed_by_user_id FROM legacy_clients WHERE UPPER(box_id) = UPPER($1) LIMIT 1',
+          [box_id]
+        );
+        if (legacyResult.rows.length > 0) {
+          effectiveBoxId = legacyResult.rows[0].box_id;
+          if (legacyResult.rows[0].claimed_by_user_id) {
+            userId = legacyResult.rows[0].claimed_by_user_id;
+          }
+          // legacy no reclamado → userId queda null; se recibe por Box ID.
+        }
       }
     }
 
-    if (!userId) {
+    // Debe existir al menos un Box ID válido (de users o de legacy_clients).
+    if (!userId && !effectiveBoxId) {
+      return res.status(400).json({ error: 'Cliente no encontrado. Proporcione ID o Box ID válido' });
+    }
+    // Si vino box_id pero no se resolvió a users ni a legacy, es inválido.
+    if (!userId && box_id && !effectiveBoxId) {
       return res.status(400).json({ error: 'Cliente no encontrado. Proporcione ID o Box ID válido' });
     }
 
-    // Obtener precios del cliente
-    const userPricing = await pool.query(
-      'SELECT dhl_standard_price, dhl_high_value_price FROM users WHERE id = $1',
-      [userId]
-    );
-    const pricing = userPricing.rows[0];
+    // Precios DHL: del cliente si tiene cuenta; si es legacy sin cuenta, usar
+    // el precio por defecto del sistema (mismos defaults que una cuenta nueva).
+    const DEFAULT_DHL_STANDARD = 145;
+    const DEFAULT_DHL_HIGH_VALUE = 225;
+    let pricing: { dhl_standard_price: any; dhl_high_value_price: any } = {
+      dhl_standard_price: DEFAULT_DHL_STANDARD,
+      dhl_high_value_price: DEFAULT_DHL_HIGH_VALUE,
+    };
+    if (userId) {
+      const userPricing = await pool.query(
+        'SELECT dhl_standard_price, dhl_high_value_price FROM users WHERE id = $1',
+        [userId]
+      );
+      if (userPricing.rows[0]) pricing = userPricing.rows[0];
+    }
 
     // Determinar precio según tipo de producto
     const priceType = product_type || 'standard';
-    const importCostUsd = priceType === 'high_value' 
+    const importCostUsd = priceType === 'high_value'
       ? parseFloat(pricing.dhl_high_value_price)
       : parseFloat(pricing.dhl_standard_price);
 
@@ -827,7 +859,7 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       RETURNING *
     `, [
       inbound_tracking, secondary_tracking || null,
-      userId, box_id, priceType, description,
+      userId || null, effectiveBoxId, priceType, description,
       weight_kg, length_cm, width_cm, height_cm, volWeight,
       JSON.stringify(photos || []), inspectorId,
       exchangeRate, importCostUsd, totalWithTax,
@@ -835,10 +867,9 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       importTaxMxn
     ]);
 
-    // TODO: Enviar notificación push al cliente
-    // await sendPushNotification(userId, '📦 Paquete DHL Recibido', 'Tu paquete llegó a MTY...');
-
-    // Enviar notificación al usuario
+    // Enviar notificación al usuario (solo si tiene cuenta; los legacy sin
+    // cuenta no tienen a quién notificar hasta que activen su usuario).
+    if (userId) {
     await createNotification(
       userId,
       'PACKAGE_RECEIVED',
@@ -850,9 +881,10 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       },
       '/dhl-dashboard'
     );
+    }
 
     // ===== Notificación Push + WhatsApp según preferencias del cliente =====
-    try {
+    if (userId) try {
       const prefRow = await pool.query(
         `SELECT notif_push, notif_whatsapp, notif_dhl, phone, phone_verified, whatsapp_verified, full_name
          FROM users WHERE id = $1`,
