@@ -124,6 +124,7 @@ export default function DashboardBranchManager() {
   const [delayedOpen, setDelayedOpen] = useState(false);
   const [delayedService, setDelayedService] = useState<'pobox' | 'air' | 'sea'>('pobox');
   const [userRole, setUserRole] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string>('');
   const [pendingVerifications, setPendingVerifications] = useState<number>(0);
 
   // Tipos de cambio del sistema (monitor de APIs) — solo admin/super_admin/director
@@ -226,6 +227,7 @@ export default function DashboardBranchManager() {
       const parsed = JSON.parse(user);
       setUserName(parsed.name?.split(' ')[0] || 'Gerente');
       setUserRole(String(parsed.role || '').toLowerCase());
+      setUserEmail(String(parsed.email || '').toLowerCase());
     }
     const iv = setInterval(() => {
       loadDelayedCount();
@@ -236,14 +238,21 @@ export default function DashboardBranchManager() {
     return () => clearInterval(iv);
   }, []);
 
+  // Usuarios específicos con acceso a las alertas globales (Contenedores sin
+  // referencia, AIR sin AWB, Retraso PO Box, Verificaciones) aunque su rol no
+  // sea global (petición directa). Se comparan en minúsculas.
+  const OPS_ALERTS_EMAIL_ALLOWLIST = ['victorgonzalez@gmail.com', 'ibarberip@gmail.com'];
+  const canSeeGlobalOpsByEmail = OPS_ALERTS_EMAIL_ALLOWLIST.includes(userEmail);
+
   // Widget "Recepción Parcial" solo visible para roles globales (no gerente sucursal)
   const canSeePartialReceptions = ['super_admin', 'admin', 'director', 'customer_service'].includes(userRole);
 
-  // Widget "Verificaciones Pendientes" solo para Director / Admin / Super Admin
-  const canSeeVerifications = ['super_admin', 'admin', 'director', 'customer_service', 'soporte_tecnico'].includes(userRole);
+  // Widget "Verificaciones Pendientes" para Director / Admin / Super Admin (+ allowlist)
+  const canSeeVerifications = ['super_admin', 'admin', 'director', 'customer_service', 'soporte_tecnico'].includes(userRole) || canSeeGlobalOpsByEmail;
 
-  // Alertas globales (contenedores sin referencia / guías AIR sin AWB) solo para Director / Admin / Super Admin
-  const showGlobalOpsAlerts = !!stats?.totales_historicos && ['director', 'admin', 'super_admin'].includes(userRole);
+  // Alertas globales (contenedores sin referencia / guías AIR sin AWB) para
+  // Director / Admin / Super Admin, más los usuarios de la allowlist.
+  const showGlobalOpsAlerts = !!stats?.totales_historicos && (['director', 'admin', 'super_admin'].includes(userRole) || canSeeGlobalOpsByEmail);
   // La sección "Operaciones" (widgets de entregas/tránsito por sucursal) se oculta
   // para roles globales (admin/super_admin/director): ellos ven totales globales.
   const hideOpsSection = ['super_admin', 'admin', 'director'].includes(userRole);
@@ -362,7 +371,7 @@ export default function DashboardBranchManager() {
   const showSeaWidget = !isMty && (hasService('SEA_CHN_MX') || hasService('FCL_CHN_MX') || isCedis);
   // POBox sólo aplica a sucursales con servicio POBOX_USA (ej. CEDIS MTY).
   // CEDIS CDMX NO opera POBox, no debe ver el widget.
-  const showPoboxWidget = isMty || hasService('POBOX_USA');
+  const showPoboxWidget = isMty || hasService('POBOX_USA') || canSeeGlobalOpsByEmail;
   // Abandono: ocultar en MTY (sólo PoBox en alertas)
   const showAbandono = !isMty;
 
