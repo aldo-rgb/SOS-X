@@ -3358,6 +3358,56 @@ export const setPackageLabel = async (req: Request, res: Response): Promise<void
             `UPDATE ${table} SET custom_label = $1 WHERE ${where} RETURNING id`,
             [label, realId]
         );
+
+        // ── SINCRONIZAR ENTRE TABLAS ─────────────────────────────────────────
+        // El MISMO envío aéreo China vive tanto en `china_receipts` (que lee la
+        // app) como en `packages` (que lee el portal web). El vínculo es
+        // china_receipts.fno = prefijo del código AIR, que en packages vive en
+        // `child_no` ('AIR2610023iwgCe-003'), NO en tracking_internal ('CN-...').
+        // Sin esto, una etiqueta puesta en la app no aparecía en la web (y
+        // viceversa). Best-effort: si falla, no rompe el guardado.
+        try {
+            const ownerUserId = Number(owner.rows[0].user_id) || null;
+            if (table === 'china_receipts') {
+                // Propagar hacia packages (por fno del recibo China).
+                const cr = await pool.query(`SELECT fno FROM china_receipts WHERE id = $1`, [realId]);
+                const fno = String(cr.rows[0]?.fno || '').trim();
+                if (fno) {
+                    await pool.query(
+                        `UPDATE packages SET custom_label = $1
+                          WHERE ($3::int IS NULL OR user_id = $3::int)
+                            AND LOWER($2) IN (
+                              LOWER(split_part(tracking_internal, '-', 1)),
+                              LOWER(split_part(COALESCE(child_no, ''), '-', 1))
+                            )`,
+                        [label, fno, ownerUserId]
+                    );
+                }
+            } else if (table === 'packages') {
+                // Propagar hacia china_receipts (por prefijo AIR del paquete:
+                // child_no si existe, si no tracking_internal).
+                const pk = await pool.query(
+                    `SELECT split_part(tracking_internal, '-', 1) AS prefix_trk,
+                            split_part(COALESCE(child_no, ''), '-', 1) AS prefix_child
+                       FROM packages WHERE id = $1`,
+                    [realId]
+                );
+                const prefixes = [pk.rows[0]?.prefix_trk, pk.rows[0]?.prefix_child]
+                    .map((s: any) => String(s || '').trim().toLowerCase())
+                    .filter(Boolean);
+                if (prefixes.length > 0) {
+                    await pool.query(
+                        `UPDATE china_receipts SET custom_label = $1
+                          WHERE ($3::int IS NULL OR user_id = $3::int)
+                            AND LOWER(fno) = ANY($2::text[])`,
+                        [label, prefixes, ownerUserId]
+                    );
+                }
+            }
+        } catch (syncErr) {
+            console.warn('[setPackageLabel] sync entre tablas falló (no bloqueante):', (syncErr as any)?.message);
+        }
+
         res.json({ ok: true, id: realId, source, custom_label: label, affected: upd.rowCount });
     } catch (error) {
         console.error('Error setPackageLabel:', error);
@@ -4082,6 +4132,9 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 tracking_internal: pkg.tracking_internal,
                 tracking_provider: null,
                 description: `TDI Express - ${pkg.total_boxes || 1} cajas`,
+                // Etiqueta personalizada (alias del cliente). Sin esto la app
+                // nunca la leía y siempre mostraba "TDI Express - N cajas".
+                custom_label: pkg.custom_label || null,
                 weight: pkg.weight ? parseFloat(pkg.weight) : null,
                 volume: null,
                 dimensions: null,
