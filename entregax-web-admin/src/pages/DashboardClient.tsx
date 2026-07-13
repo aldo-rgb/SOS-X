@@ -922,10 +922,13 @@ export default function DashboardClient() {
     const isAir = pkg.shipment_type === 'china_air' || pkg.servicio === 'AIR_CHN_MX';
     const isPobox = pkg.servicio === 'POBOX_USA';
 
-    // PO Box: pobox_service_cost es la fuente de verdad (no assigned_cost_mxn que puede ser stale)
-    let envioMXN = isPobox && Number((pkg as any).pobox_service_cost) > 0
-      ? Number((pkg as any).pobox_service_cost)
-      : monto;
+    // PO Box: usar el helper canónico (aplica la regla de REPACK = precio del
+    // master consolidado, no la suma de guías; evita pobox_service_cost stale).
+    let envioMXN = monto;
+    if (isPobox) {
+      const bd = getPackageCostBreakdown(pkg);
+      if (bd.poboxServiceMxn > 0) envioMXN = bd.poboxServiceMxn;
+    }
 
     // Maritime with 0 monto: estimate from CBM
     if (isMar && envioMXN === 0 && pkg.cbm && Number(pkg.cbm) > 0) {
@@ -11685,11 +11688,18 @@ export default function DashboardClient() {
                         // TC real usado al recibir (NO el actual)
                         tcToShow = breakdown.exchangeRate > 0 ? breakdown.exchangeRate : tcConfig;
                         costoUSD = tcToShow > 0 ? montoMXN / tcToShow : breakdown.poboxVentaUsd;
-                        const ventaUsdUnit = breakdown.poboxVentaUsd || (breakdown.boxCount > 0 ? costoUSD / breakdown.boxCount : 0);
                         const nivelLabel = breakdown.tarifaNivel ? ` (Nivel ${breakdown.tarifaNivel})` : '';
-                        detailLine = breakdown.boxCount > 1
-                          ? `${breakdown.boxCount} cajas × $${ventaUsdUnit.toFixed(2)} USD × TC $${tcToShow.toFixed(2)}${nivelLabel}`
-                          : `$${ventaUsdUnit.toFixed(2)} USD × TC $${tcToShow.toFixed(2)}${nivelLabel}`;
+                        if (breakdown.isRepack) {
+                          // Repack: 1 caja consolidada (aunque contenga N guías). El precio
+                          // es el del master, no la suma de las guías originales.
+                          const ventaUsd = breakdown.poboxVentaUsd || costoUSD;
+                          detailLine = `Repack de ${breakdown.boxCount} guías · $${ventaUsd.toFixed(2)} USD × TC $${tcToShow.toFixed(2)}${nivelLabel}`;
+                        } else {
+                          const ventaUsdUnit = breakdown.poboxVentaUsd || (breakdown.boxCount > 0 ? costoUSD / breakdown.boxCount : 0);
+                          detailLine = breakdown.boxCount > 1
+                            ? `${breakdown.boxCount} cajas × $${ventaUsdUnit.toFixed(2)} USD × TC $${tcToShow.toFixed(2)}${nivelLabel}`
+                            : `$${ventaUsdUnit.toFixed(2)} USD × TC $${tcToShow.toFixed(2)}${nivelLabel}`;
+                        }
                       } else {
                         // Sin precio aún — pendiente de cotizar
                         costoUSD = 0;

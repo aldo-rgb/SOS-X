@@ -3491,6 +3491,24 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             }
         });
 
+        // 💵 Mapa de precio de paqueterías nacionales (carrier_key → MXN). Se usa
+        // para incluir el flete nacional (p.ej. Evisa Prepagado = $400) en el
+        // total cuando la guía no trae national_shipping_cost guardado.
+        // price_label como '$400' → 400; 'Por cobrar' / collect → 0 (lo paga el cliente al recibir).
+        const carrierPriceMap: Record<string, number> = {};
+        try {
+            const carriersRes = await pool.query(
+                `SELECT carrier_key, price_label, allows_collect FROM carrier_service_options WHERE is_active = TRUE`
+            );
+            for (const c of carriersRes.rows) {
+                const key = String(c.carrier_key || '').toLowerCase();
+                if (!key) continue;
+                if (c.allows_collect) { carrierPriceMap[key] = 0; continue; }
+                const num = parseFloat(String(c.price_label || '').replace(/[^0-9.]/g, ''));
+                carrierPriceMap[key] = isNaN(num) ? 0 : num;
+            }
+        } catch (e) { /* ignore — sin mapa, se usa national_shipping_cost tal cual */ }
+
         // Cargar paquetes hijos para los masters
         const masterIds = airResult.rows
             .filter(p => p.is_master)
@@ -3574,7 +3592,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 national_carrier: pkg.national_carrier || null,
                 national_tracking: pkg.national_tracking || null,
                 national_label_url: pkg.national_label_url || null,
-                national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : 0,
+                // national_shipping_cost se inyecta abajo (IIFE) con el fallback de catálogo (Evisa, etc.)
                 destination_city: pkg.destination_city,
                 destination_country: pkg.destination_country,
                 image_url: pkg.image_url,
@@ -3598,7 +3616,6 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
                 ...(() => {
                     const gexTotal = parseFloat(pkg.gex_total_cost) || 0;
-                    const shipping = parseFloat(pkg.national_shipping_cost) || 0;
                     const pagado = parseFloat(pkg.monto_pagado) || 0;
                     const tc = parseFloat(pkg.registered_exchange_rate) || 0;
 
@@ -3611,15 +3628,37 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                         return parseFloat(p.assigned_cost_mxn) || 0;
                     };
 
+                    // 🔁 REPACK: varias guías consolidadas en 1 caja. Se cobra el
+                    // precio del MASTER consolidado (pobox_venta_usd × TC), NO la
+                    // suma de las guías originales (que ya no viajan por separado).
+                    const isRepack = String(pkg.tracking_internal || '').toUpperCase().startsWith('US-REPACK-');
                     const masterChildren = pkg.is_master ? (childrenByMaster[pkg.id] || []) : [];
                     let poboxMxn = 0;
-                    if (masterChildren.length > 0) {
-                        // Master multipieza → Σ hijas
+                    if (isRepack) {
+                        const u = parseFloat(pkg.pobox_venta_usd) || 0;
+                        const t = parseFloat(pkg.registered_exchange_rate) || tc;
+                        poboxMxn = (u > 0 && t > 0)
+                            ? u * t
+                            : (parseFloat(pkg.assigned_cost_mxn) || parseFloat(pkg.saldo_pendiente) || resolvePobox(pkg, tc));
+                    } else if (masterChildren.length > 0) {
+                        // Master multipieza (multi-caja) → Σ hijas (cada caja viaja/cobra aparte)
                         poboxMxn = masterChildren.reduce((s: number, c: any) => s + resolvePobox(c, tc), 0);
                         // Si todas las hijas están en 0, fallback al master
                         if (poboxMxn === 0) poboxMxn = resolvePobox(pkg, tc);
                     } else {
                         poboxMxn = resolvePobox(pkg, tc);
+                    }
+
+                    // 🚚 Flete nacional: usa el guardado; si es 0 y hay paquetería
+                    // real (no local/collect), toma el precio del catálogo (Evisa
+                    // Prepagado = $400). Antes no se incluía en el total del app.
+                    let shipping = parseFloat(pkg.national_shipping_cost) || 0;
+                    if (shipping === 0) {
+                        const carrierKey = String(pkg.national_carrier || '').toLowerCase();
+                        const carrierPrice = carrierPriceMap[carrierKey] || 0;
+                        const isLocalOrFree = !carrierKey || carrierKey.includes('local') || carrierKey.includes('pickup')
+                            || carrierKey.includes('bodega') || carrierKey.includes('rack') || carrierKey.includes('piso') || carrierKey.includes('tarima');
+                        if (!isLocalOrFree && carrierPrice > 0) shipping = carrierPrice;
                     }
 
                     const totalMxn = poboxMxn + gexTotal + shipping;
@@ -3629,8 +3668,9 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
 
                     return {
                         saldo_pendiente: saldo,
-                        // Inyectar valor resuelto para que el front lo lea sin recalcular
+                        // Inyectar valores resueltos para que el front los lea sin recalcular
                         pobox_service_cost: poboxMxn > 0 ? poboxMxn : null,
+                        national_shipping_cost: shipping,
                     };
                 })(),
                 monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
