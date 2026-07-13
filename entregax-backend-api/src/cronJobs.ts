@@ -281,30 +281,46 @@ export const startFleetAlertsCron = () => {
       const maintAlerts = await checkUpcomingMaintenance();
       console.log(`   🔧 Alertas de mantenimiento: ${maintAlerts.created} creadas`);
 
-      // 3. Notificar a administradores si hay alertas críticas
-      const criticalAlerts = await pool.query(`
-        SELECT COUNT(*) as count FROM fleet_alerts
-        WHERE alert_level = 'critical' AND is_resolved = FALSE
-      `);
-      
-      if (parseInt(criticalAlerts.rows[0].count) > 0) {
-        // Destinatarios: super admin, admin, director, contabilidad (accountant) y servicio a cliente
-        const admins = await pool.query(`
-          SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'director', 'accountant', 'customer_service')
+      // 3. Notificar a administradores si hay alertas críticas — SOLO los LUNES
+      //    (antes se enviaba a diario y saturaba la campana). La generación de
+      //    alertas de arriba sí corre diario para mantener fleet_alerts al día.
+      const isMonday = await pool.query(
+        `SELECT EXTRACT(ISODOW FROM (NOW() AT TIME ZONE 'America/Mexico_City')) = 1 AS es_lunes`
+      );
+      if (isMonday.rows[0]?.es_lunes) {
+        const criticalAlerts = await pool.query(`
+          SELECT COUNT(*) as count FROM fleet_alerts
+          WHERE alert_level = 'critical' AND is_resolved = FALSE
         `);
-        
-        for (const admin of admins.rows) {
-          await pool.query(`
-            INSERT INTO notifications (user_id, title, message, type, icon)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT DO NOTHING
-          `, [
-            admin.id,
-            '🚨 Alertas de Flotilla Críticas',
-            `Hay ${criticalAlerts.rows[0].count} alertas críticas de flotilla que requieren atención inmediata.`,
-            'error',
-            'local-shipping'
-          ]);
+
+        if (parseInt(criticalAlerts.rows[0].count) > 0) {
+          // Destinatarios: super admin, admin, director, contabilidad (accountant) y servicio a cliente
+          const admins = await pool.query(`
+            SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'director', 'accountant', 'customer_service')
+          `);
+
+          for (const admin of admins.rows) {
+            // Dedup: no repetir el aviso al mismo usuario el mismo día (por si reinicia)
+            const dup = await pool.query(
+              `SELECT 1 FROM notifications
+                WHERE user_id = $1 AND title = '🚨 Alertas de Flotilla Críticas'
+                  AND created_at::date = (NOW() AT TIME ZONE 'America/Mexico_City')::date
+                LIMIT 1`,
+              [admin.id]
+            );
+            if (dup.rows.length > 0) continue;
+            await pool.query(`
+              INSERT INTO notifications (user_id, title, message, type, icon)
+              VALUES ($1, $2, $3, $4, $5)
+              ON CONFLICT DO NOTHING
+            `, [
+              admin.id,
+              '🚨 Alertas de Flotilla Críticas',
+              `Hay ${criticalAlerts.rows[0].count} alertas críticas de flotilla que requieren atención inmediata.`,
+              'error',
+              'local-shipping'
+            ]);
+          }
         }
       }
 
