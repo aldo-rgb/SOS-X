@@ -249,9 +249,21 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
             JOIN packages p ON p.consolidation_id = c.id
             LEFT JOIN suppliers s ON p.supplier_id = s.id
             WHERE p.supplier_id IS NOT NULL
-              -- Excluir guías master que tienen hijas (multi-bulto): sus hijas
-              -- ya contienen el costo individual, sumar el master duplicaría.
-              AND NOT (COALESCE(p.is_master, FALSE) = TRUE AND COALESCE(p.total_boxes, 1) > 1)
+              -- Excluir SOLO masters multi-caja cuyas hijas están en la MISMA
+              -- consolidación (ahí las hijas ya cargan el costo individual, sumar
+              -- el master duplicaría). Un REPACK es al revés: el master carga el
+              -- costo agregado + la consolidación + el supplier, y sus hijas NO
+              -- están en la consolidación (consolidation_id NULL) — ese SÍ se
+              -- conserva, si no la consolidación quedaría vacía.
+              AND NOT (
+                COALESCE(p.is_master, FALSE) = TRUE
+                AND COALESCE(p.total_boxes, 1) > 1
+                AND EXISTS (
+                  SELECT 1 FROM packages ch
+                   WHERE ch.master_id = p.id
+                     AND ch.consolidation_id = p.consolidation_id
+                )
+              )
               ${dateFilterJoin}
             GROUP BY c.id, c.status, c.created_at, s.id, s.name
             -- Solo consolidaciones que TODAVÍA tienen algo pendiente
@@ -311,10 +323,15 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
                     FROM packages p
                     LEFT JOIN users u ON p.user_id = u.id
                     LEFT JOIN legacy_clients lc ON UPPER(lc.box_id) = UPPER(p.box_id)
-                    WHERE p.consolidation_id = $1 
+                    WHERE p.consolidation_id = $1
                     AND p.supplier_id = $2
+                    -- Excluir masters cuyas hijas están en la MISMA consolidación
+                    -- (multi-caja: se listan las hijas). Un REPACK conserva el
+                    -- master porque sus hijas NO están en la consolidación.
                     AND NOT EXISTS (
-                        SELECT 1 FROM packages c WHERE c.master_id = p.id
+                        SELECT 1 FROM packages c
+                         WHERE c.master_id = p.id
+                           AND c.consolidation_id = p.consolidation_id
                     )
                     ORDER BY
                         CASE WHEN COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE THEN 1 ELSE 0 END,
