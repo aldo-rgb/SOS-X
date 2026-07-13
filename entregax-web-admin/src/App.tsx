@@ -819,6 +819,21 @@ function App() {
         return;
       }
 
+      // Acceso directo a Costeo Marítimo con el filtro "Solo sin referencia"
+      // activo (desde el widget "Contenedores sin referencia" del dashboard).
+      if (action === 'maritime_costing_no_ref') {
+        const adminSubIndex = subItems.findIndex((s) => s.key === 'panelsAdmin');
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(adminSubIndex >= 0 ? adminSubIndex : null);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('open-admin-panel', {
+            detail: { service: 'china_sea', module: 'costing', costingFilter: 'no_reference' },
+          }));
+        }, 120);
+        return;
+      }
+
       if (action === 'service_tickets') {
         setCsHubPendingView('support');
         setPanelsExpanded(true);

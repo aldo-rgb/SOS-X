@@ -282,7 +282,7 @@ const formatCurrency = (value: number | string | null | undefined): string => {
     return numValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-export default function CostingPanelMaritimo() {
+export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { initialNoReferenceNonce?: number } = {}) {
     const { t, i18n } = useTranslation();
     const [containers, setContainers] = useState<Container[]>([]);
     const [bulkOpen, setBulkOpen] = useState(false);
@@ -296,8 +296,14 @@ export default function CostingPanelMaritimo() {
     const [newContainerDialog, setNewContainerDialog] = useState(false);
     const [newContainer, setNewContainer] = useState({ containerNumber: '', blNumber: '', eta: '', notes: '' });
     const [statusFilter, setStatusFilter] = useState('all');
-    const [onlyNoReference, setOnlyNoReference] = useState(false);
+    const [onlyNoReference, setOnlyNoReference] = useState(initialNoReferenceNonce > 0);
     const [searchTerm, setSearchTerm] = useState('');
+
+    // Activar el filtro "Solo sin referencia" cuando se abre desde el widget del
+    // dashboard (el nonce cambia en cada click, incluso si el panel ya estaba montado).
+    useEffect(() => {
+        if (initialNoReferenceNonce > 0) setOnlyNoReference(true);
+    }, [initialNoReferenceNonce]);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
     
     // Obtener rol del usuario del localStorage

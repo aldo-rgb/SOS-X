@@ -980,6 +980,7 @@ export default function DashboardBranchManager() {
                   tone={contenedoresSinRef > 0 ? 'danger' : 'neutral'}
                   category="alert"
                   badge={contenedoresSinRef > 0 ? contenedoresSinRef : undefined}
+                  onClick={() => window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'maritime_costing_no_ref' } }))}
                 />
               </Grid>
             )}

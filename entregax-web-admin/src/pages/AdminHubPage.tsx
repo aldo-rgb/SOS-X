@@ -310,6 +310,11 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         return () => window.removeEventListener('open-admin-fleet', handler);
     }, []);
 
+    // Filtro inicial para Costeo Marítimo cuando se abre desde el widget
+    // "Contenedores sin referencia" del dashboard. El nonce fuerza re-aplicar
+    // el filtro aunque el panel ya estuviera montado.
+    const [costingNoRefNonce, setCostingNoRefNonce] = useState(0);
+
     // Deep-link genérico a un servicio+módulo (ej. accesos directos del dashboard).
     useEffect(() => {
         const handler = (e: Event) => {
@@ -319,6 +324,9 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
             setShowHR(false);
             setSelectedService(detail.service);
             setSelectedModule(detail.module || null);
+            if (detail.costingFilter === 'no_reference') {
+                setCostingNoRefNonce((n) => n + 1);
+            }
         };
         window.addEventListener('open-admin-panel', handler);
         return () => window.removeEventListener('open-admin-panel', handler);
@@ -711,7 +719,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                             variant="outlined"
                         />
                     </Box>
-                    <CostingPanelMaritimo />
+                    <CostingPanelMaritimo initialNoReferenceNonce={costingNoRefNonce} />
                 </Box>
             );
         }
