@@ -1138,6 +1138,16 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             [targetBranchId]
         );
 
+        // Guías por reempacar: masters US-REPACK-* que siguen en 'received'
+        // (solicitud de reempaque generada, pendiente de procesar físicamente en
+        // bodega Hidalgo). Es global (PO Box USA se reempaca en Hidalgo).
+        const repacksPendientesResult = await pool.query(
+            `SELECT COUNT(*)::int as total
+               FROM packages
+              WHERE tracking_internal LIKE 'US-REPACK-%'
+                AND status::text = 'received'`
+        );
+
         // Financiero real (si existen tablas de tesorería)
         let ingresosHoy = 0;
         let ingresosMes = 0;
@@ -1283,6 +1293,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 en_espera_aereo: parseInt(waitingAirBoxesResult.rows[0]?.total || 0) || 0,
                 entregados_hoy: parseInt(deliveredTodayResult.rows[0]?.total || 0) || 0,
                 pendientes_cobro: parseInt(pendingChargeResult.rows[0]?.total || 0) || 0,
+                repacks_pendientes: parseInt(repacksPendientesResult.rows[0]?.total || 0) || 0,
             },
             financiero: {
                 ingresos_hoy: ingresosHoy,

@@ -48,6 +48,7 @@ import {
   CurrencyExchange as CurrencyExchangeIcon,
   TrendingUpOutlined as TrendingUpIcon,
   CloudOffOutlined as CloudOffIcon,
+  Inventory2Outlined as Inventory2Icon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import DelayedPackagesPage from './DelayedPackagesPage';
@@ -69,6 +70,7 @@ interface BranchStats {
     en_espera_aereo?: number;
     entregados_hoy: number;
     pendientes_cobro: number;
+    repacks_pendientes?: number;
   };
   financiero: {
     ingresos_hoy: number;
@@ -257,6 +259,7 @@ export default function DashboardBranchManager() {
   // para roles globales (admin/super_admin/director): ellos ven totales globales.
   const hideOpsSection = ['super_admin', 'admin', 'director'].includes(userRole);
   const contenedoresSinRef = stats?.totales_historicos?.contenedores_sin_referencia || 0;
+  const repacksPendientes = stats?.paquetes?.repacks_pendientes ?? 0;
   const guiasAirSinAwb = stats?.totales_historicos?.guias_air_sin_awb || 0;
 
   const loadDelayedCount = async () => {
@@ -962,6 +965,22 @@ export default function DashboardBranchManager() {
               category="alert"
               badge={delayedCount > 0 ? delayedCount : undefined}
               onClick={() => openDelayedModal('pobox')}
+            />
+          </Grid>
+        )}
+
+        {isHidalgo && (
+          <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+            <KpiCard
+              icon={<Inventory2Icon sx={{ fontSize: 22 }} />}
+              label="Por reempacar"
+              value={repacksPendientes}
+              sub={repacksPendientes === 0 ? 'sin solicitudes' : repacksPendientes === 1 ? 'guía por reempacar' : 'guías por reempacar'}
+              tone={repacksPendientes > 0 ? 'warning' : 'neutral'}
+              category="alert"
+              badge={repacksPendientes > 0 ? repacksPendientes : undefined}
+              accentBar="#D97706"
+              onClick={() => handleQuickAction('relabeling')}
             />
           </Grid>
         )}

@@ -5901,7 +5901,32 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
         
         console.log(`✅ Reempaque completado: ${consolidatedTracking} - ${packages.length} paquetes -> Cliente: ${firstPkg.box_id}`);
         console.log(`   Total a pagar: $${totalMxn.toFixed(2)} MXN ($${totalUsd.toFixed(2)} USD)`);
-        
+
+        // 🔔 Notificar a los usuarios de la sucursal Hidalgo (bodega USA que
+        // ejecuta físicamente el reempaque) que hay una nueva solicitud.
+        try {
+            const hidalgoUsers = await pool.query(
+                `SELECT u.id FROM users u
+                   JOIN branches b ON b.id = u.branch_id
+                  WHERE UPPER(b.code) = 'HGO' AND COALESCE(u.is_active, TRUE) = TRUE`
+            );
+            if (hidalgoUsers.rows.length > 0) {
+                const { createCustomNotification } = await import('./notificationController');
+                const notifTitle = '📦 Nueva solicitud de reempaque';
+                const notifBody = `${firstPkg.box_id || firstPkg.full_name || 'Cliente'}: ${packages.length} guías por reempacar (${consolidatedTracking}). Guías: ${packages.map(p => p.tracking_internal).join(', ').slice(0, 120)}`;
+                const notifData = { screen: 'relabeling', repack_tracking: consolidatedTracking, master_id: parentId, service: 'REPACK' };
+                await Promise.all(
+                    hidalgoUsers.rows.map((r: any) =>
+                        createCustomNotification(r.id, notifTitle, notifBody, 'info', 'package', notifData, '/dashboard')
+                            .catch((e: any) => console.warn('[REPACK] notif Hidalgo user', r.id, 'falló:', e?.message))
+                    )
+                );
+                console.log(`🔔 [REPACK] Notificación enviada a ${hidalgoUsers.rows.length} usuario(s) de Hidalgo`);
+            }
+        } catch (notifErr: any) {
+            console.warn('[REPACK] No se pudo notificar a Hidalgo:', notifErr?.message);
+        }
+
         res.json({
             success: true,
             message: 'Reempaque solicitado exitosamente',
