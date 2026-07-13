@@ -314,6 +314,8 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
     // "Contenedores sin referencia" del dashboard. El nonce fuerza re-aplicar
     // el filtro aunque el panel ya estuviera montado.
     const [costingNoRefNonce, setCostingNoRefNonce] = useState(0);
+    // Filtro inicial "Sin AWB" para Gestión Aérea (desde el widget del dashboard).
+    const [airNoAwbNonce, setAirNoAwbNonce] = useState(0);
 
     // Deep-link genérico a un servicio+módulo (ej. accesos directos del dashboard).
     useEffect(() => {
@@ -326,6 +328,9 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
             setSelectedModule(detail.module || null);
             if (detail.costingFilter === 'no_reference') {
                 setCostingNoRefNonce((n) => n + 1);
+            }
+            if (detail.airFilter === 'no_awb') {
+                setAirNoAwbNonce((n) => n + 1);
             }
         };
         window.addEventListener('open-admin-panel', handler);
@@ -1213,7 +1218,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         // Panel Gestión Aérea - Guías EntregaX (air_management) - solo china_air
         if (selectedModule === 'air_management' && selectedService === 'china_air') {
             return (
-                <AirManagementPage onBack={() => setSelectedModule(null)} />
+                <AirManagementPage onBack={() => setSelectedModule(null)} initialNoAwbNonce={airNoAwbNonce} />
             );
         }
 

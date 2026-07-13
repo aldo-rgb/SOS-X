@@ -834,6 +834,21 @@ function App() {
         return;
       }
 
+      // Acceso directo a Gestión Aérea con el filtro "Sin AWB" activo
+      // (desde el widget "AIR sin AWB" del dashboard).
+      if (action === 'air_no_awb') {
+        const adminSubIndex = subItems.findIndex((s) => s.key === 'panelsAdmin');
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(adminSubIndex >= 0 ? adminSubIndex : null);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('open-admin-panel', {
+            detail: { service: 'china_air', module: 'air_management', airFilter: 'no_awb' },
+          }));
+        }, 120);
+        return;
+      }
+
       if (action === 'service_tickets') {
         setCsHubPendingView('support');
         setPanelsExpanded(true);

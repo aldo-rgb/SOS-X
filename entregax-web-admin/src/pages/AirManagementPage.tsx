@@ -97,6 +97,8 @@ interface Stats {
 
 interface Props {
   onBack: () => void;
+  /** Nonce del dashboard: cuando >0 activa el filtro "Sin AWB" al abrir. */
+  initialNoAwbNonce?: number;
 }
 
 const STATUS_LABEL_MAP: Record<string, string> = {
@@ -121,13 +123,13 @@ const STATUS_LABEL_MAP: Record<string, string> = {
   'in_customs_gz': 'En Proceso de Aduana',
 };
 
-const AirManagementPage: React.FC<Props> = ({ onBack }) => {
+const AirManagementPage: React.FC<Props> = ({ onBack, initialNoAwbNonce = 0 }) => {
   const [guides, setGuides] = useState<AirGuide[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [dynamicStatusFilters, setDynamicStatusFilters] = useState<Array<{ status: string; count: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(initialNoAwbNonce > 0 ? 'no_awb' : 'all');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(50);
   const [total, setTotal] = useState(0);
@@ -146,7 +148,9 @@ const AirManagementPage: React.FC<Props> = ({ onBack }) => {
 
       // Load guides
       const params = new URLSearchParams();
-      if (statusFilter !== 'all') params.set('status', statusFilter);
+      // "no_awb" es un filtro especial (guías sin AWB), no un status real.
+      if (statusFilter === 'no_awb') params.set('no_awb', 'true');
+      else if (statusFilter !== 'all') params.set('status', statusFilter);
       if (search.trim()) params.set('search', search.trim());
       params.set('limit', String(rowsPerPage));
       params.set('offset', String(page * rowsPerPage));
@@ -180,6 +184,12 @@ const AirManagementPage: React.FC<Props> = ({ onBack }) => {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Activar el filtro "Sin AWB" cuando se abre desde el widget del dashboard
+  // (el nonce cambia en cada click, incluso si el panel ya estaba montado).
+  useEffect(() => {
+    if (initialNoAwbNonce > 0) { setStatusFilter('no_awb'); setPage(0); }
+  }, [initialNoAwbNonce]);
 
   const getStatusChip = (status: string) => {
     const statusConfig: Record<string, { label: string; color: 'default' | 'warning' | 'info' | 'success' | 'primary' | 'error' | 'secondary' }> = {
@@ -335,6 +345,7 @@ const AirManagementPage: React.FC<Props> = ({ onBack }) => {
             sx={{ '& .MuiTab-root': { minWidth: 'auto', px: 2, py: 1, fontSize: '0.8rem' } }}
           >
             <Tab label="Todas" value="all" />
+            <Tab label="Sin AWB" value="no_awb" />
             {dynamicStatusFilters.map(sf => (
               <Tab 
                 key={sf.status} 

@@ -916,7 +916,7 @@ export const getChinaStats = async (req: Request, res: Response): Promise<any> =
 // ============================================
 export const getAirDaughterGuides = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { status, search, awb, limit = 100, offset = 0 } = req.query;
+        const { status, search, awb, no_awb, limit = 100, offset = 0 } = req.query;
 
         // Query packages table with status from packages
         let query = `
@@ -993,6 +993,11 @@ export const getAirDaughterGuides = async (req: Request, res: Response): Promise
             query += ` AND UPPER(p.international_tracking) = UPPER($${paramIndex})`;
             params.push(awb);
             paramIndex++;
+        }
+
+        // Filtro "Sin AWB": guías sin guía aérea internacional asignada.
+        if (String(no_awb) === 'true') {
+            query += ` AND (p.international_tracking IS NULL OR TRIM(p.international_tracking) = '')`;
         }
 
         // Union with china_receipts for status that may only exist there

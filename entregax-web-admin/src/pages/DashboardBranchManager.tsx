@@ -1005,6 +1005,7 @@ export default function DashboardBranchManager() {
                   category="alert"
                   badge={guiasAirSinAwb > 0 ? guiasAirSinAwb : undefined}
                   accentBar="#D97706"
+                  onClick={() => window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'air_no_awb' } }))}
                 />
               </Grid>
             )}
