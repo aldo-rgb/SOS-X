@@ -239,6 +239,7 @@ export async function deleteCredential(dbCredentialId: number): Promise<boolean>
 const SYNCFY_AUTH_ERRORS: Record<number, string> = {
   401: 'Credenciales inválidas en el banco',
   403: 'Acceso denegado por el banco',
+  406: 'BBVA: ya hay una sesión abierta de este usuario ("Sesión Abierta"). BBVA Empresas solo permite una sesión a la vez. Cierra la sesión de BBVA (banca en línea y app), espera ~15 min y vuelve a Sincronizar (re-autenticar).',
   408: 'Tiempo de espera agotado al conectar con el banco',
   409: 'La sesión bancaria expiró, re-autentica',
   410: 'Token 2FA requerido — usa el botón Sincronizar (re-autenticar)',
