@@ -3408,7 +3408,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               {/* Clave SAT — SIEMPRE visible (incluso con datos fiscales precargados) */}
               <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 1 }}>
                 <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 700, display: 'block', mb: 1 }}>
-                  📝 Productos SAT a facturar *
+                  📝 Claves de Productos SAT a importar *
                 </Typography>
                 <Box sx={{ position: 'relative' }}>
                   <TextField
@@ -3580,7 +3580,6 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                             value={isLast ? c.precioUnitario.toFixed(2) : c.precioUnitario}
                             onChange={(e) => { if (!isLast) setConceptoField(c.clave_prodserv, 'precioUnitario', Math.max(0, Number(e.target.value) || 0)); }}
                             disabled={isLast}
-                            helperText={isLast ? 'Se ajusta al total' : undefined}
                             sx={{ width: 140, '& input': { color: isLast ? ORANGE : C.textPrimary, fontWeight: isLast ? 700 : 400 }, '& label': { color: C.textMuted } }}
                             inputProps={{ min: 0, step: '0.01' }}
                           />
