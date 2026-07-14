@@ -150,11 +150,14 @@ const USOS_CFDI = [
   { value: 'I08', label: 'I08 - Otra maquinaria' },
 ];
 
-const DIVISAS = ['USD', 'RMB'];
+const DIVISAS = ['USD', 'RMB', 'MXN'];
 const DESTINATION_COUNTRIES = [
   { code: 'CN', label: 'China', flag: '🇨🇳' },
   { code: 'US', label: 'Estados Unidos', flag: '🇺🇸' },
+  { code: 'MX', label: 'México', flag: '🇲🇽' },
 ];
+// Divisa por país de destino. México se envía en pesos (MXN, 1:1, sin conversión).
+const CURRENCY_BY_COUNTRY: Record<string, string> = { CN: 'USD', US: 'USD', MX: 'MXN' };
 const formatTimeLabel = (ts: number | null | undefined) => {
   if (!ts) return '—';
   return new Intl.DateTimeFormat('es-MX', {
@@ -758,15 +761,23 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   }));
   const [rateWidgetCurrency, setRateWidgetCurrency] = useState<'USD' | 'RMB'>('USD');
 
+  // Divisa del widget según el país destino (México = MXN, 1:1).
+  const widgetCurrency = CURRENCY_BY_COUNTRY[widgetDestinationCountry] || 'USD';
+
   const widgetEstimate = useMemo(() => {
     const amount = Number(widgetAmountUsd);
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+
+    // 🇲🇽 México: el monto ya está en pesos, no hay conversión de divisa (TC = 1).
+    if (widgetCurrency === 'MXN') {
+      return { fx: 1, base: amount, commission: 0, operationalCost: 0, total: amount, pct: 0, opUsd: 0 };
+    }
+
     const fx = defaultProvider ? Number(defaultProvider.tipo_cambio_usd) : NaN;
     const pct = defaultProvider ? Number(defaultProvider.porcentaje_compra || 0) : 0;
     const opUsd = defaultProvider ? Number(defaultProvider.costo_operacion_usd || 0) : 0;
 
-    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(fx) || fx <= 0) {
-      return null;
-    }
+    if (!Number.isFinite(fx) || fx <= 0) return null;
 
     const base = amount * fx;
     const commission = base * (pct / 100);
@@ -774,7 +785,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     const total = base + commission + operationalCost;
 
     return { fx, base, commission, operationalCost, total, pct, opUsd };
-  }, [widgetAmountUsd, defaultProvider]);
+  }, [widgetAmountUsd, defaultProvider, widgetCurrency]);
 
 
   const widgetSuppliersPreview = useMemo(() => {
@@ -1671,7 +1682,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       if (!form.rfc || !form.razon_social || !form.cp || !form.email) return t('entangled.messages.requiredFields');
     }
     if (!form.monto || Number(form.monto) <= 0) return t('entangled.messages.requiredFields');
-    if (!['USD', 'RMB'].includes(form.divisa_destino)) return t('entangled.messages.requiredFields');
+    if (!['USD', 'RMB', 'MXN'].includes(form.divisa_destino)) return t('entangled.messages.requiredFields');
     if (!supplierForm.nombre_beneficiario || !supplierForm.numero_cuenta || !supplierForm.banco_nombre) {
       return t('entangled.suppliers.requiredFields', 'Completa beneficiario, número de cuenta y banco del proveedor de envío');
     }
@@ -1723,7 +1734,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       setQuote(null);
       return;
     }
-    const tc = form.divisa_destino === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd;
+    // 🇲🇽 MXN: pesos a pesos, sin conversión (TC = 1). USD/RMB usan su TC.
+    const tc = form.divisa_destino === 'MXN' ? 1
+      : form.divisa_destino === 'RMB' ? pricing.tipo_cambio_rmb
+      : pricing.tipo_cambio_usd;
     const base = m * tc;
     // Tasa para el cliente: configuración XPAY → Cliente final (con/sin factura).
     // Si el endpoint no respondió, caemos al % del proveedor para no romper la UI.
@@ -1990,7 +2004,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     }
     if (step === 1) {
       if (!form.monto || Number(form.monto) <= 0) return 'Captura un monto válido';
-      if (!['USD', 'RMB'].includes(form.divisa_destino)) return 'Selecciona una divisa válida';
+      if (!['USD', 'RMB', 'MXN'].includes(form.divisa_destino)) return 'Selecciona una divisa válida';
       if (!quote) return 'No se pudo calcular la cotización';
       return null;
     }
@@ -2043,7 +2057,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     setForm((prev) => ({
       ...prev,
       monto: Number.isFinite(amount) && amount > 0 ? String(amount) : prev.monto,
-      divisa_destino: 'USD',
+      // México = MXN (pesos); China/USA = USD por defecto.
+      divisa_destino: widgetCurrency === 'MXN' ? 'MXN' : 'USD',
     }));
     setWizardStep(0);
     setDialogOpen(true);
@@ -2165,7 +2180,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 size="small"
                 fullWidth
                 type="number"
-                label="Monto a Enviar (USD)"
+                label={`Monto a Enviar (${widgetCurrency})`}
                 value={widgetAmountUsd}
                 onChange={(e) => setWidgetAmountUsd(e.target.value)}
                 InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
@@ -2181,7 +2196,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   {widgetEstimate ? `$${formatMoney(widgetEstimate.total)} MXN` : '—'}
                 </Typography>
                 <Typography sx={{ color: C.textFaint, fontSize: '0.64rem', mt: 0.2 }}>
-                  TC: {widgetEstimate ? `${widgetEstimate.fx.toFixed(4)} MXN/USD` : '—'}
+                  {widgetCurrency === 'MXN'
+                    ? 'En pesos (sin conversión de divisa)'
+                    : `TC: ${widgetEstimate ? `${widgetEstimate.fx.toFixed(4)} MXN/${widgetCurrency}` : '—'}`}
                 </Typography>
               </Box>
             </Stack>
