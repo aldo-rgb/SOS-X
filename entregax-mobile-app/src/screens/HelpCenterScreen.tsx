@@ -58,6 +58,20 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
   const [privacyModalOpen, setPrivacyModalOpen] = useState(false);
   const [privacyDoc, setPrivacyDoc] = useState<{ title: string; content: string; version?: number; updated_at?: string } | null>(null);
   const [privacyLoading, setPrivacyLoading] = useState(false);
+  // Avatar de Cajito para el hero (configurado en payment-status, fallback local).
+  const [cajitoAvatar, setCajitoAvatar] = useState<string | null>(null);
+  useEffect(() => {
+    fetch(`${API_URL}/api/system/payment-status`)
+      .then(r => r.json())
+      .then(d => {
+        const u = d?.cajito_avatar_url;
+        if (typeof u === 'string' && u) {
+          setCajitoAvatar(u.startsWith('http') ? u : `${API_URL}${u.startsWith('/') ? '' : '/'}${u}`);
+        }
+      })
+      .catch(() => {});
+  }, []);
+  const cajitoAvatarSource = cajitoAvatar ? { uri: cajitoAvatar } : require('../../assets/cajito-asomando.png');
   const openPrivacyPolicy = async () => {
     setPrivacyModalOpen(true);
     if (privacyDoc) return; // ya cargado
@@ -373,11 +387,10 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Hero Section */}
         <View style={styles.heroSection}>
-          <Avatar.Icon
-            size={80}
-            icon="headset"
+          <Avatar.Image
+            size={96}
+            source={cajitoAvatarSource}
             style={styles.heroIcon}
-            color="#FFF"
           />
           <Text style={styles.heroTitle}>{t('helpCenter.welcomeTitle')}</Text>
           <Text style={styles.heroSubtitle}>{t('helpCenter.welcomeSubtitle')}</Text>
@@ -775,8 +788,10 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
   heroIcon: {
-    backgroundColor: ORANGE,
+    backgroundColor: '#FFF',
     marginBottom: 16,
+    borderWidth: 3,
+    borderColor: ORANGE,
   },
   heroTitle: {
     fontSize: 22,

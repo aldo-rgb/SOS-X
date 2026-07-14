@@ -219,9 +219,9 @@ const CARRIER_DISPLAY_NAMES: Record<string, string> = {
     'entregax local mty': 'Entregax Local MTY',
     'local mty': 'EntregaX Local MTY',
     'local cdmx': 'EntregaX Local CDMX',
-    'evisa_pre': 'eVISA PRE',
-    'evisa pre': 'eVISA PRE',
-    'evisapre': 'eVISA PRE',
+    'evisa_pre': 'EVISA PRE',
+    'evisa pre': '',
+    'evisapre': 'EVISA PRE',
     'evisa': 'eVISA',
     'paqueteexpress': 'Paquete Express',
     'fedex': 'FedEx',
@@ -914,7 +914,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         const today = new Date().toLocaleDateString('es-MX');
         const svc = getServiceInfo(masterTn);
         const totalBoxes = shipment.master.totalBoxes || 1;
-        // eVISA Prepagado: dispersión CDMX→MTY (ver isEvisaMtyDispersion). Solo
+        // EVISA Prepagado: dispersión CDMX→MTY (ver isEvisaMtyDispersion). Solo
         // cambia el branding de la etiqueta; la dirección impresa sigue siendo la
         // final del cliente.
         const evisaMode = isEvisaMtyDispersion(shipment);
@@ -1436,10 +1436,10 @@ ${body}
             carrierLabel = carrierLabel.replace(/\s*POR COBRAR\s*/i, ' ').trim();
         }
         // TDI Aéreo/Marítimo → zona metro MTY con EntregaX local: el tramo CDMX→MTY
-        // lo mueve eVISA prepagado (ver isEvisaMtyDispersion). La etiqueta se marca
-        // "eVISA PRE" arriba (badge) y abajo (SERVICIO), con la dirección final.
+        // lo mueve EVISA prepagado (ver isEvisaMtyDispersion). La etiqueta se marca
+        // "EVISA PRE" arriba (badge) y abajo (SERVICIO), con la dirección final.
         const evisaMode = isEvisaMtyDispersion(shipment);
-        if (evisaMode) carrierLabel = 'eVISA PRE';
+        if (evisaMode) carrierLabel = 'EVISA PRE';
         const printWindow = window.open('', '_blank', 'width=400,height=600');
         if (!printWindow) { setError('Permite ventanas emergentes para imprimir'); return; }
         const recipient = (a.recipientName || shipment.client.name || 'CLIENTE').toUpperCase();
@@ -1637,7 +1637,7 @@ ${labelsHtml}
                 setPqtxMsg('🖨️ Auto-impresión: Etiqueta Paquete Express — escanea la siguiente caja');
                 resetForNextScan();
             } else if ((isLocal || isEvisa || !ac) && hasAddress) {
-                // eVISA prepagado se imprime como etiqueta EntregaX con la dirección
+                // EVISA prepagado se imprime como etiqueta EntregaX con la dirección
                 // final (handlePrintLocalDelivery ya la marca "eVISA PRE").
                 handlePrintLocalDelivery({ autoReset: true });
                 setPqtxMsg(isEvisa ? '🖨️ Auto-impresión: Etiqueta eVISA PRE' : '🖨️ Auto-impresión: Etiqueta Local');

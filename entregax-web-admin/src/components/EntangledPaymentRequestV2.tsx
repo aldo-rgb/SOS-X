@@ -444,7 +444,7 @@ export default function EntangledPaymentRequestV2() {
               {/* Conceptos SAT — bloque independiente, captura por operación */}
               <Box sx={{ p: 2, borderRadius: 2, border: (theme) => `1px solid ${theme.palette.divider}`, bgcolor: 'action.hover' }}>
                 <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                  🧾 Claves SAT a facturar <b>(por operación)</b>
+                  🧾 Claves SAT de los productos a importar
                 </Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
                   Captura las claves de producto/servicio SAT que correspondan a este pago. Se guardan en tu historial para reutilizarlas.

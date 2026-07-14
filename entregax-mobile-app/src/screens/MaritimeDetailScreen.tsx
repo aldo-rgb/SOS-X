@@ -241,6 +241,14 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
         return { label: zh ? '装柜中' : en ? 'Loading' : 'Cargando en contenedor', color: '#FF6B35', icon: 'package-variant-closed' };
       case 'in_transit':
         return { label: zh ? '已起航' : en ? 'Departed' : 'Ya Zarpó', color: '#E53935', icon: 'ferry' };
+      case 'docs_received':
+        return { label: zh ? '已收到文件' : en ? 'Documents Received' : 'Documentos Recibidos', color: '#1E88E5', icon: 'file-check' };
+      case 'procedure_requested':
+        return { label: zh ? '已申请手续' : en ? 'Procedure Requested' : 'Trámite Solicitado', color: '#3949AB', icon: 'file-send' };
+      case 'cbp_signature_received':
+        return { label: zh ? '已收到CBP电子签名' : en ? 'CBP e-Signature Received' : 'Firma Electrónica CBP Recibida', color: '#5E35B1', icon: 'signature-freehand' };
+      case 'arrived_port':
+        return { label: zh ? '已到港' : en ? 'Arrived at Port' : 'Arribo a Puerto', color: '#673AB7', icon: 'anchor' };
       case 'in_transit_transfer':
         return { label: zh ? '运输中' : en ? 'In Transit' : 'En Tránsito', color: '#E53935', icon: 'airplane' };
       case 'arrived_mx':

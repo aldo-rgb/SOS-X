@@ -89,7 +89,7 @@ const OPTIONS = [
     },
     {
         key: 'tdi_cedis_mty' as const,
-        title: 'Recibir en CEDIS MTY',
+        title: 'Recibir TDX en CEDIS MTY',
         description: 'Escanea guías TDX que llegaron a Monterrey para marcarlas como Recibido MTY',
         icon: <ShippingIcon sx={{ fontSize: 56, color: '#111' }} />,
         bgGradient: 'linear-gradient(135deg, #2E7D32 0%, #66BB6A 100%)',

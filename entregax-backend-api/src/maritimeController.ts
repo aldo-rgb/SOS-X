@@ -283,7 +283,7 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
     const { id } = req.params;
     const { status, driver_name, driver_plates, driver_phone, driver_company, monitor_user_id, notes } = req.body;
 
-    const validStatuses = ['received_origin', 'consolidated', 'in_transit', 'arrived_port', 'customs_cleared', 'in_transit_clientfinal', 'delivered'];
+    const validStatuses = ['received_origin', 'consolidated', 'in_transit', 'docs_received', 'procedure_requested', 'cbp_signature_received', 'arrived_port', 'customs_cleared', 'in_transit_clientfinal', 'delivered'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Estado inválido' });
     }

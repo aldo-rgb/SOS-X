@@ -6305,7 +6305,7 @@ app.get('/api/admin/branches/inventory-report', authenticateToken, requireMinLev
     };
     containersAgg.forEach((r: any) => {
       const s = String(r.status || '').toLowerCase();
-      if (s.startsWith('in_transit')) globalContainers.en_camino += r.count;
+      if (s.startsWith('in_transit') || s === 'docs_received' || s === 'procedure_requested' || s === 'cbp_signature_received') globalContainers.en_camino += r.count;
       else if (s === 'arrived_port' || s === 'customs_cleared') globalContainers.en_puerto += r.count;
       else if (s === 'consolidated' || s.startsWith('received_')) globalContainers.consolidando += r.count;
       else if (s === 'delivered') globalContainers.entregados += r.count;

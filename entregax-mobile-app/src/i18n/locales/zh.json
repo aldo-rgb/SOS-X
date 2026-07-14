@@ -355,7 +355,7 @@
     "welcomeTitle": "我们如何帮助您？",
     "welcomeSubtitle": "选择一个选项以获得帮助",
     "talkNow": "立即对话",
-    "talkNowDesc": "与我们的虚拟助手聊天获得即时回复",
+    "talkNowDesc": "与 Cajito 聊天获得即时回复",
     "requestAdvisor": "请求顾问",
     "requestAdvisorDesc": "将您的账户与销售顾问关联",
     "createTicket": "创建工单",
@@ -404,7 +404,7 @@
   },
   "support": {
     "title": "帮助中心",
-    "agentName": "Orlando",
+    "agentName": "Cajito",
     "greeting": "您好 {{name}}，我是EntregaX的{{agent}}。👋",
     "howCanIHelp": "今天我可以帮您处理什么运输问题？",
     "typing": "正在输入...",

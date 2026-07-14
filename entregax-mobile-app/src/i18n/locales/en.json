@@ -356,7 +356,7 @@
     "welcomeTitle": "How can we help you?",
     "welcomeSubtitle": "Select an option to receive assistance",
     "talkNow": "Talk Now",
-    "talkNowDesc": "Chat with our virtual assistant for immediate answers",
+    "talkNowDesc": "Chat with Cajito for immediate answers",
     "requestAdvisor": "Request Advisor",
     "requestAdvisorDesc": "Link your account with a sales advisor",
     "createTicket": "Create Support Ticket",
@@ -405,7 +405,7 @@
   },
   "support": {
     "title": "Help Center",
-    "agentName": "Orlando",
+    "agentName": "Cajito",
     "greeting": "Hi {{name}}, I'm {{agent}} from EntregaX. 👋",
     "howCanIHelp": "How can I help you with your shipment today?",
     "typing": "typing...",

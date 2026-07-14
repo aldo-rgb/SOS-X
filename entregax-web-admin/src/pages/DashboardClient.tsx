@@ -807,6 +807,9 @@ export default function DashboardClient() {
         'in_warehouse': 'En Bodega',
         'in_transit': 'Ya Zarpó',
         'in_transit_sea': 'Ya Zarpó',
+        'docs_received': 'Ya Zarpó',
+        'procedure_requested': 'Ya Zarpó',
+        'cbp_signature_received': 'Ya Zarpó',
         'arrived_port': 'Arribo a Puerto',
         'at_port': 'Arribo a Puerto',
         'in_transit_mx': 'En Tránsito MX',
@@ -4663,7 +4666,10 @@ export default function DashboardClient() {
         case 'consolidated':
         case 'in_warehouse': return 0;
         case 'in_transit':
-        case 'in_transit_sea': return 1;
+        case 'in_transit_sea':
+        case 'docs_received':
+        case 'procedure_requested':
+        case 'cbp_signature_received': return 1;
         case 'arrived_port':
         case 'at_port': return 2;
         case 'in_transit_mx':
