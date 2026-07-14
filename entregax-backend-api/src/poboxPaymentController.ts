@@ -452,10 +452,10 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
             if (!alreadyCompleted) {
                 await pool.query(`
                     UPDATE packages SET
-                        payment_status = 'paid',
+                        payment_status = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN 'partial' ELSE 'paid' END,
                         monto_pagado = COALESCE(monto_pagado, 0) + $1,
-                        saldo_pendiente = 0,
-                        client_paid = TRUE
+                        saldo_pendiente = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 THEN GREATEST(0, assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1)) ELSE 0 END,
+                        client_paid = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN FALSE ELSE TRUE END
                     WHERE (id = ANY($2) OR master_id = ANY($2))
                       AND COALESCE(payment_status, '') <> 'paid'
                 `, [payment.amount, packageIds]);
@@ -1472,10 +1472,10 @@ export const handlePoboxOpenpayWebhook = async (req: Request, res: Response): Pr
 
                     await pool.query(`
                         UPDATE packages SET
-                            payment_status = 'paid',
+                            payment_status = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN 'partial' ELSE 'paid' END,
                             monto_pagado = COALESCE(monto_pagado, 0) + $1,
-                            saldo_pendiente = 0,
-                            client_paid = TRUE
+                            saldo_pendiente = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 THEN GREATEST(0, assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1)) ELSE 0 END,
+                            client_paid = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN FALSE ELSE TRUE END
                         WHERE id = ANY($2) OR master_id = ANY($2)
                     `, [payment.amount, packageIds]);
 

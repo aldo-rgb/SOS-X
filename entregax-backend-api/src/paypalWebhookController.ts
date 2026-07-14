@@ -239,13 +239,14 @@ export const handlePayPalWebhook = async (req: Request, res: Response): Promise<
                         // Marcar paquetes como pagados (idempotente)
                         await pool.query(`
                           UPDATE packages SET
-                            payment_status = 'paid',
+                            payment_status = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN 'partial' ELSE 'paid' END,
                             monto_pagado = COALESCE(monto_pagado, 0) + $1,
-                            saldo_pendiente = 0,
-                            client_paid = TRUE,
-                            payment_reference = COALESCE(payment_reference, $2)
+                            saldo_pendiente = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 THEN GREATEST(0, assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1)) ELSE 0 END,
+                            client_paid = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN FALSE ELSE TRUE END,
+                            payment_reference = $2
                           WHERE id = ANY($3) AND user_id = $4
                             AND COALESCE(payment_status, '') <> 'paid'
+                            AND COALESCE(payment_reference, '') IS DISTINCT FROM $2
                         `, [intentAmount, paymentRef, pkgIds, userId]).catch((e: any) => {
                             console.warn('[paypal webhook] packages update:', e.message);
                         });

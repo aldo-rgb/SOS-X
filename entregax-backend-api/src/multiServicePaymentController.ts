@@ -1243,15 +1243,17 @@ export const handleOpenpayPaymentCallback = async (req: Request, res: Response):
         if (!alreadyPaid) {
           // Marcar como pagados (OpenPay redirige después de pago exitoso)
           await pool.query(`
-            UPDATE packages SET 
-              payment_status = 'paid',
+            UPDATE packages SET
+              -- 🩹 Saldo real: no marcar pagado si el pago no cubre assigned_cost_mxn
+              payment_status = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN 'partial' ELSE 'paid' END,
               monto_pagado = COALESCE(monto_pagado, 0) + $1,
-              saldo_pendiente = 0,
-              client_paid = TRUE,
+              saldo_pendiente = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 THEN GREATEST(0, assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1)) ELSE 0 END,
+              client_paid = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN FALSE ELSE TRUE END,
               payment_reference = $2
             WHERE (id = ANY($3) OR master_id = ANY($3)
                    OR id IN (SELECT master_id FROM packages WHERE id = ANY($3) AND master_id IS NOT NULL))
               AND user_id = $4
+              AND COALESCE(payment_reference, '') IS DISTINCT FROM $2
           `, [parsedAmount, paymentRef, pkgIds, parsedUserId]);
 
           // Registrar en logs de cobranza
@@ -1485,9 +1487,14 @@ export const verifyOpenpayCharge = async (req: AuthRequest, res: Response): Prom
     );
 
     await pool.query(
-      `UPDATE packages SET payment_status = 'paid', monto_pagado = COALESCE(monto_pagado, 0) + $1, saldo_pendiente = 0,
-                            client_paid = TRUE, payment_reference = $2
-       WHERE (id = ANY($3) OR master_id = ANY($3)) AND user_id = $4`,
+      `UPDATE packages SET
+         payment_status = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN 'partial' ELSE 'paid' END,
+         monto_pagado = COALESCE(monto_pagado, 0) + $1,
+         saldo_pendiente = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 THEN GREATEST(0, assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1)) ELSE 0 END,
+         client_paid = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN FALSE ELSE TRUE END,
+         payment_reference = $2
+       WHERE (id = ANY($3) OR master_id = ANY($3)) AND user_id = $4
+         AND COALESCE(payment_reference, '') IS DISTINCT FROM $2`,
       [amount, ref, pkgIds, userId]
     );
     // El pago del cliente NO marca costing_paid (pago a proveedor).
@@ -1551,15 +1558,16 @@ export const handleOpenpayPaymentWebhook = async (req: Request, res: Response): 
 
             if (checkResult.rows.length > 0) {
               await pool.query(`
-                UPDATE packages SET 
-                  payment_status = 'paid',
+                UPDATE packages SET
+                  payment_status = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN 'partial' ELSE 'paid' END,
                   monto_pagado = COALESCE(monto_pagado, 0) + $1,
-                  saldo_pendiente = 0,
-                  client_paid = TRUE,
+                  saldo_pendiente = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 THEN GREATEST(0, assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1)) ELSE 0 END,
+                  client_paid = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN FALSE ELSE TRUE END,
                   payment_reference = $2
                 WHERE (id = ANY($3) OR master_id = ANY($3)
                        OR id IN (SELECT master_id FROM packages WHERE id = ANY($3) AND master_id IS NOT NULL))
                   AND user_id = $4
+                  AND COALESCE(payment_reference, '') IS DISTINCT FROM $2
               `, [amount, orderId, packageIds, userId]);
 
               // Registrar en logs de cobranza
@@ -1847,16 +1855,17 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
       if (pkgIds.length > 0 && parsedUserId > 0) {
         // Marcar paquetes como pagados (idempotente: solo afecta paquetes que aún no estaban paid)
         await pool.query(`
-          UPDATE packages SET 
-            payment_status = 'paid',
+          UPDATE packages SET
+            payment_status = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN 'partial' ELSE 'paid' END,
             monto_pagado = COALESCE(monto_pagado, 0) + $1,
-            saldo_pendiente = 0,
-            client_paid = TRUE,
+            saldo_pendiente = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 THEN GREATEST(0, assigned_cost_mxn - (COALESCE(monto_pagado,0) + $1)) ELSE 0 END,
+            client_paid = CASE WHEN COALESCE(NULLIF(assigned_cost_mxn,0),0) > 0 AND (COALESCE(monto_pagado,0) + $1) < assigned_cost_mxn - 0.01 THEN FALSE ELSE TRUE END,
             payment_reference = $2
           WHERE (id = ANY($3) OR master_id = ANY($3)
                  OR id IN (SELECT master_id FROM packages WHERE id = ANY($3) AND master_id IS NOT NULL))
             AND user_id = $4
             AND COALESCE(payment_status, '') <> 'paid'
+            AND COALESCE(payment_reference, '') IS DISTINCT FROM $2
         `, [intentAmount, paymentRef, pkgIds, parsedUserId]);
 
         // Registrar en logs de cobranza (idempotente vía índice único en transaction_id)
