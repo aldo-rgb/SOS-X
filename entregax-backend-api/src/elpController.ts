@@ -179,7 +179,11 @@ export const maybeNotifyElpForContainer = async (containerNumber?: string | null
 
     const docs = buildDocuments(row);
     const zipUrl = elpZipUrl(row.container_number);
-    const subject = `[ELP] Contenedor recibido: ${row.container_number} — descargar documentos`;
+    // LGB = penúltima ciudad de la ruta (ej. CHN-LAX-ELP-MXC -> ELP; CHN-LGB-MEX -> LGB).
+    const routeParts = String(row.route_code || '').split('-').map((s: string) => s.trim()).filter(Boolean);
+    const lgb = routeParts.length >= 2 ? routeParts[routeParts.length - 2] : (routeParts[0] || '—');
+    // Asunto: Documentos Recibidos REFERENCIA//BL//CONTENEDOR//LGB//
+    const subject = `Documentos Recibidos ${row.reference_code || '—'}//${row.bl_number || '—'}//${row.container_number}//${lgb}//`;
     const html = `
       <div style="font-family:Arial,sans-serif;font-size:14px;color:#111">
         <h2 style="color:#3949AB;margin-bottom:4px">Nuevo contenedor listo para trámite (ELP)</h2>
