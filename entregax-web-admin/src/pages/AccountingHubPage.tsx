@@ -2594,7 +2594,32 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
   const [stats, setStats] = useState<any>(null);
   const [links, setLinks] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [syncfyModalOpen, setSyncfyModalOpen] = useState(false);
+
+  // Rutea el resultado de una sincronización Syncfy a un aviso verde (éxito/info)
+  // o rojo (error real). Clave: si el conector reportó un aviso transitorio
+  // (ej. BBVA "Error Interno") PERO sí bajaron movimientos, NO es un error.
+  const applySyncResult = (
+    { new_count, matched_count, credential_warning }: { new_count?: number; matched_count?: number; credential_warning?: string },
+    zeroMsg?: string
+  ) => {
+    const nuevos = new_count ?? 0;
+    if (credential_warning && nuevos > 0) {
+      setError(null);
+      setNotice(`✅ Movimientos sincronizados (${nuevos} ${nuevos === 1 ? 'nueva' : 'nuevas'}). El banco mostró un aviso temporal ("${credential_warning}") que puedes ignorar.`);
+    } else if (credential_warning) {
+      setNotice(null);
+      setError(`⚠️ ${credential_warning}`);
+    } else {
+      setError(null);
+      if (nuevos > 0) {
+        setNotice(`✅ Sincronizado: ${nuevos} ${nuevos === 1 ? 'nueva' : 'nuevas'}${matched_count != null ? `, ${matched_count} conciliadas` : ''}`);
+      } else {
+        setNotice(zeroMsg ?? 'Sin movimientos nuevos.');
+      }
+    }
+  };
   const [filters, setFilters] = useState<{ from: string; to: string; type: string; match: string; search: string }>({
     from: '', to: '', type: '', match: '', search: '',
   });
@@ -2606,6 +2631,7 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
       setLinks(prev => prev.filter((l: any) => l.id !== credId));
       await load();
     } catch (e: any) {
+      setNotice(null);
       setError(e.response?.data?.error || 'Error desconectando banco');
     }
   };
@@ -2625,6 +2651,7 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
       setStats(r.data.stats || null);
       setLinks(r.data.links || []);
     } catch (e: any) {
+      setNotice(null);
       setError(e.response?.data?.error || 'Error cargando movimientos');
     } finally {
       setLoading(false);
@@ -2717,7 +2744,8 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
 
   return (
     <Box>
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      {notice && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice(null)}>{notice}</Alert>}
 
       {stats && (
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: 2, mb: 2 }}>
@@ -2782,13 +2810,8 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           skipWidget
           sx={{ borderColor: ORANGE, color: ORANGE }}
           onSuccess={async ({ new_count, matched_count, credential_warning }) => {
-            setError(null);
-            if (credential_warning) {
-              setError(`⚠️ ${credential_warning}`);
-            } else if (new_count === 0) {
-              setError(`Sin movimientos nuevos. Conciliados: ${matched_count}.`);
-            }
             await load();
+            applySyncResult({ new_count, matched_count, credential_warning }, `Sin movimientos nuevos. Conciliados: ${matched_count}.`);
           }}
         />
         {links.length === 0 ? (
@@ -2899,9 +2922,8 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
                   variant="text"
                   color="primary"
                   onSuccess={async ({ new_count, matched_count, credential_warning }) => {
-                    if (credential_warning) setError(`⚠️ ${credential_warning}`);
-                    else setError(`✅ Sincronizado: ${new_count} nuevas, ${matched_count} conciliadas`);
                     await load();
+                    applySyncResult({ new_count, matched_count, credential_warning });
                   }}
                 />
               </Box>
@@ -2936,10 +2958,8 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
               label="Conectar Banco"
               sx={{ width: '100%', bgcolor: '#1e88e5', '&:hover': { bgcolor: '#1565c0' }, py: 1.5 }}
               onSuccess={async ({ new_count, credential_warning }) => {
-                if (credential_warning) setError(`⚠️ ${credential_warning}`);
-                else if (new_count === 0) setError('✅ Conexión completada. La descarga automática está programada (~10 min).');
-                else setError(null);
                 await load();
+                applySyncResult({ new_count, credential_warning }, '✅ Conexión completada. La descarga automática está programada (~10 min).');
               }}
             />
           )}
