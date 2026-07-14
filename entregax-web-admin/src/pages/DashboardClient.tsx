@@ -2039,7 +2039,7 @@ export default function DashboardClient() {
         api.get('/referidos/mis-referidos').catch(() => null),
         api.get('/public/rates').catch(() => null),
         api.get('/entangled/service-config').catch(() => null),
-        api.get('/entangled/exchange-rate?divisa=USD').catch(() => null),
+        api.get('/entangled/providers').catch(() => null),
       ]);
       // Tarifas de referencia: marítimo (USD/m³) y aéreo (USD/kg).
       const servicios = ratesRes?.data?.servicios;
@@ -2053,7 +2053,11 @@ export default function DashboardClient() {
       // Info X-Pay: comisión (con/sin factura) + tipo de cambio USD.
       const comCon = Number(xpayCfgRes?.data?.pago_con_factura?.comision_porcentaje);
       const comSin = Number(xpayCfgRes?.data?.pago_sin_factura?.comision_porcentaje);
-      const tc = Number(xpayTcRes?.data?.tipo_cambio);
+      // TC efectivo de X-Pay = tipo_cambio_usd del proveedor default (mismo que
+      // muestra el panel), NO el de /exchange-rate (que es la base sin markup).
+      const provList = Array.isArray(xpayTcRes?.data) ? xpayTcRes.data : [];
+      const defProv = provList.find((p: { is_default?: boolean }) => p.is_default) || provList[0];
+      const tc = Number(defProv?.tipo_cambio_usd);
       if (Number.isFinite(tc) && tc > 0) {
         setXpayInfo({ tc, comCon: Number.isFinite(comCon) ? comCon : 0, comSin: Number.isFinite(comSin) ? comSin : 0 });
       }

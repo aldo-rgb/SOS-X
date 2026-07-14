@@ -656,12 +656,17 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         }
       } catch { /* ignore */ }
       try {
-        const r = await fetch(`${API_URL}/api/entangled/exchange-rate?divisa=USD`, {
+        // TC efectivo de X-Pay = tipo_cambio_usd del proveedor default (mismo que
+        // muestra el panel X-Pay), NO /exchange-rate (base sin markup).
+        const r = await fetch(`${API_URL}/api/entangled/providers`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (r.ok) {
-          const d = await r.json();
-          if (d?.tipo_cambio) setXpayTc(Number(d.tipo_cambio));
+          const list = await r.json();
+          const arr = Array.isArray(list) ? list : [];
+          const def = arr.find((p: { is_default?: boolean }) => p.is_default) || arr[0];
+          const tc = Number(def?.tipo_cambio_usd);
+          if (Number.isFinite(tc) && tc > 0) setXpayTc(tc);
         }
       } catch { /* ignore */ }
     })();
