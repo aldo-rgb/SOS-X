@@ -37,7 +37,7 @@ const elpDownloadToken = (containerNumber: string): string =>
     .digest('hex');
 
 const elpZipUrl = (containerNumber: string): string =>
-  `${ELP_PUBLIC_BASE_URL}/api/elp/containers/${encodeURIComponent(containerNumber)}/documents.zip?token=${elpDownloadToken(containerNumber)}`;
+  `${ELP_PUBLIC_BASE_URL}/api/elp/containers/${encodeURIComponent(containerNumber)}/zip?token=${elpDownloadToken(containerNumber)}`;
 
 // Estados que el proveedor ELP puede reportar (subconjunto del ciclo del contenedor).
 const ELP_ALLOWED_STATUSES = ['docs_received', 'procedure_requested', 'cbp_signature_received', 'arrived_port'];
