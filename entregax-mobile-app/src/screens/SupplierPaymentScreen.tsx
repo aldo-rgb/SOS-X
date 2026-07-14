@@ -2394,9 +2394,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
                 {/* Claves SAT por operación (siempre visible cuando requiere factura) */}
                 <View style={{ marginTop: 16, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#FFD580', backgroundColor: '#FFF8E7' }}>
-                  <Text style={[styles.sectionTitle, { fontSize: 13, marginBottom: 4 }]}>🧾 {t('xpay.claveSatPerOp', 'Claves SAT a facturar (por operación)')}</Text>
+                  <Text style={[styles.sectionTitle, { fontSize: 13, marginBottom: 4 }]}>🧾 {t('xpay.claveSatPerOp', 'CClaves SAT de los productos a importar')}</Text>
                   <Text style={{ fontSize: 11, color: TEXT_DIM, marginBottom: 8 }}>
-                    {t('xpay.claveSatHint', 'Captura los códigos SAT de producto/servicio de esta operación específica.')}
+                    {t('xpay.claveSatHint', 'Captura los códigos SAT del producto a importar.')}
                   </Text>
                   {claveHistory.length > 0 && (
                     <>
