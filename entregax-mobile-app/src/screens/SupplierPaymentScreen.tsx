@@ -177,6 +177,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [uso, setUso] = useState('G03');
   const [email, setEmail] = useState('');
   const [conceptos, setConceptos] = useState('');
+  // 🧾 Cantidad (piezas) y precio unitario manual por clave SAT. La ÚLTIMA clave
+  // autobalancea su precio para que la suma cuadre con el total en MXN.
+  const [conceptoQty, setConceptoQty] = useState<Record<string, number>>({});
+  const [conceptoPrice, setConceptoPrice] = useState<Record<string, number>>({});
   const [claveHistory, setClaveHistory] = useState<Array<{ clave: string; descripcion?: string | null; uses_count: number }>>([]);
   const [monto, setMonto] = useState('');
   const [divisa, setDivisa] = useState<'USD' | 'RMB'>('USD');
@@ -411,9 +415,34 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     } catch {}
   }, [token]);
 
+  // Parseo ordenado de claves "clave|descripcion, ..." → [{clave, descripcion}].
+  const parseClaves = (str: string) => str.split(',').map(s => s.trim()).filter(Boolean).map(c => ({
+    clave: c.split('|')[0].trim(),
+    descripcion: c.split('|')[1]?.trim() || '',
+  }));
+  // Partidas de la factura: cantidad × precio; la ÚLTIMA clave autobalancea.
+  const computeMobileLineItems = (claves: { clave: string; descripcion: string }[], totalMxn: number) => {
+    const items = claves.map(c => ({ ...c, cantidad: conceptoQty[c.clave] || 1, precioUnitario: conceptoPrice[c.clave] || 0 }));
+    const n = items.length;
+    if (n === 0) return items;
+    const othersSubtotal = items.slice(0, n - 1).reduce((s, c) => s + c.cantidad * c.precioUnitario, 0);
+    const last = items[n - 1];
+    last.precioUnitario = last.cantidad > 0 ? Math.max(0, (totalMxn - othersSubtotal) / last.cantidad) : 0;
+    return items;
+  };
+  // Congela el precio autobalanceado de la clave que era última antes de agregar otra.
+  const freezeLastBeforeAdd = () => {
+    const claves = parseClaves(conceptos);
+    if (claves.length === 0) return;
+    const items = computeMobileLineItems(claves, quote?.monto_mxn_total || 0);
+    const last = items[items.length - 1];
+    setConceptoPrice(prev => ({ ...prev, [last.clave]: last.precioUnitario }));
+  };
+
   const appendClaveFromHistory = (h: { clave: string; descripcion?: string | null }) => {
     const existing = conceptos.split(',').map(s => s.trim()).filter(Boolean);
     if (existing.includes(h.clave)) return;
+    freezeLastBeforeAdd();
     const next = existing.length ? `${conceptos}, ${h.clave}` : h.clave;
     setConceptos(next);
   };
@@ -422,11 +451,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     const list = conceptos.split(',').map(s => s.trim()).filter(Boolean);
     const next = list.filter(c => c.split('|')[0].trim() !== clave);
     setConceptos(next.join(', '));
+    setConceptoQty(({ [clave]: _q, ...rest }) => rest);
+    setConceptoPrice(({ [clave]: _p, ...rest }) => rest);
   };
 
   const addClaveFromSearch = (opt: { clave_prodserv: string; descripcion: string }) => {
     const existing = conceptos.split(',').map(s => s.trim().split('|')[0].trim()).filter(Boolean);
     if (existing.includes(opt.clave_prodserv)) return;
+    freezeLastBeforeAdd();
     // Guardamos clave|descripcion para que el chip muestre la descripción
     // aunque aún no haya pasado por la validación de /asignacion.
     const piece = `${opt.clave_prodserv}|${opt.descripcion}`;
@@ -899,10 +931,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         )
       );
       if (requiereFactura) {
-        const conceptosArr = conceptos.split(',').map(s => s.trim()).filter(Boolean).map(c => {
-          const m = c.match(/^(\S+)\s*[-:]?\s*(.*)$/);
-          return { clave_prodserv: m?.[1] || c, descripcion: m?.[2] || undefined };
-        });
+        const conceptosArr = computeMobileLineItems(parseClaves(conceptos), quote?.monto_mxn_total || 0).map(c => ({
+          clave_prodserv: c.clave,
+          descripcion: c.descripcion || undefined,
+          cantidad: c.cantidad,
+          valor_unitario: Number(c.precioUnitario.toFixed(2)),
+        }));
         fd.append('conceptos', JSON.stringify(conceptosArr));
       }
       if (notas) fd.append('notas', notas);
@@ -2358,53 +2392,68 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                       </ScrollView>
                     </>
                   )}
-                  {/* Chips de claves seleccionadas (multi-producto) */}
+                  {/* Partidas: clave + cantidad × precio unitario (última autobalancea) */}
                   {(() => {
-                    const selected = conceptos
-                      .split(',')
-                      .map(s => s.trim())
-                      .filter(Boolean)
-                      .map(c => {
-                        const clave = c.split('|')[0].trim();
-                        const descFromPipe = c.split('|')[1]?.trim() || '';
-                        const v = claveValidations.find(x => x.clave === clave);
-                        return { clave, descripcion: v?.descripcion || descFromPipe };
-                      });
-                    if (selected.length === 0) return null;
+                    const claves = parseClaves(conceptos).map(c => {
+                      const v = claveValidations.find(x => x.clave === c.clave);
+                      return { clave: c.clave, descripcion: v?.descripcion || c.descripcion };
+                    });
+                    const items = computeMobileLineItems(claves, quote?.monto_mxn_total || 0);
+                    if (items.length === 0) return null;
+                    const totalPartidas = items.reduce((s, c) => s + c.cantidad * c.precioUnitario, 0);
                     return (
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                        {selected.map(s => (
-                          <View
-                            key={s.clave}
-                            style={{
-                              flexDirection: 'row', alignItems: 'center',
-                              backgroundColor: '#FFF', borderRadius: 16,
-                              borderWidth: 1, borderColor: ORANGE,
-                              paddingLeft: 10, paddingRight: 4, paddingVertical: 4,
-                              gap: 6, maxWidth: '100%',
-                            }}
-                          >
-                            <Text style={{ fontSize: 11, fontWeight: '800', color: '#111', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>
-                              {s.clave}
-                            </Text>
-                            {!!s.descripcion && (
-                              <Text numberOfLines={1} style={{ fontSize: 11, color: TEXT_DIM, maxWidth: 140 }}>
-                                · {s.descripcion}
-                              </Text>
-                            )}
-                            <TouchableOpacity
-                              onPress={() => removeClave(s.clave)}
-                              hitSlop={{ top: 6, left: 6, right: 6, bottom: 6 }}
-                              style={{
-                                width: 20, height: 20, borderRadius: 10,
-                                backgroundColor: '#FFE0D0',
-                                alignItems: 'center', justifyContent: 'center',
-                              }}
-                            >
-                              <Text style={{ fontSize: 13, color: ORANGE, fontWeight: '900', lineHeight: 16 }}>×</Text>
-                            </TouchableOpacity>
+                      <View style={{ gap: 8, marginBottom: 10 }}>
+                        {items.map((s, idx) => {
+                          const isLast = idx === items.length - 1;
+                          const subtotal = s.cantidad * s.precioUnitario;
+                          return (
+                          <View key={s.clave} style={{ backgroundColor: '#FFF', borderRadius: 10, borderWidth: 1, borderColor: ORANGE, padding: 8, gap: 6 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={{ fontSize: 12, fontWeight: '800', color: '#111', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>{s.clave}</Text>
+                              {!!s.descripcion && (
+                                <Text numberOfLines={1} style={{ fontSize: 11, color: TEXT_DIM, flex: 1 }}>· {s.descripcion}</Text>
+                              )}
+                              <TouchableOpacity onPress={() => removeClave(s.clave)} hitSlop={{ top: 6, left: 6, right: 6, bottom: 6 }}
+                                style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFE0D0', alignItems: 'center', justifyContent: 'center' }}>
+                                <Text style={{ fontSize: 13, color: ORANGE, fontWeight: '900', lineHeight: 16 }}>×</Text>
+                              </TouchableOpacity>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 9, color: TEXT_DIM }}>Cantidad</Text>
+                                <TextInput
+                                  value={String(s.cantidad)}
+                                  onChangeText={(t) => setConceptoQty(prev => ({ ...prev, [s.clave]: Math.max(1, parseInt(t.replace(/[^0-9]/g, ''), 10) || 1) }))}
+                                  keyboardType="number-pad"
+                                  style={{ borderWidth: 1, borderColor: '#DDD', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, fontSize: 13, color: '#111' }}
+                                />
+                              </View>
+                              <Text style={{ color: TEXT_DIM, marginTop: 12 }}>×</Text>
+                              <View style={{ flex: 1.3 }}>
+                                <Text style={{ fontSize: 9, color: TEXT_DIM }}>{isLast ? 'P. unitario (auto)' : 'P. unitario'}</Text>
+                                <TextInput
+                                  value={isLast ? s.precioUnitario.toFixed(2) : String(conceptoPrice[s.clave] ?? '')}
+                                  onChangeText={(t) => { if (!isLast) setConceptoPrice(prev => ({ ...prev, [s.clave]: Math.max(0, parseFloat(t.replace(/[^0-9.]/g, '')) || 0) })); }}
+                                  editable={!isLast}
+                                  keyboardType="decimal-pad"
+                                  placeholder="0.00"
+                                  style={{ borderWidth: 1, borderColor: isLast ? ORANGE : '#DDD', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, fontSize: 13, color: isLast ? ORANGE : '#111', fontWeight: isLast ? '800' : '400', backgroundColor: isLast ? '#FFF6F2' : '#FFF' }}
+                                />
+                              </View>
+                              <View style={{ alignItems: 'flex-end', marginTop: 12 }}>
+                                <Text style={{ fontSize: 9, color: TEXT_DIM }}>Subtotal</Text>
+                                <Text style={{ fontSize: 12, fontWeight: '800', color: '#111' }}>${formatMoney(subtotal, 2)}</Text>
+                              </View>
+                            </View>
                           </View>
-                        ))}
+                          );
+                        })}
+                        {(quote?.monto_mxn_total || 0) > 0 && (
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 }}>
+                            <Text style={{ fontSize: 11, color: TEXT_DIM }}>Suma de partidas</Text>
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: '#10b981' }}>${formatMoney(totalPartidas, 2)} / ${formatMoney(quote?.monto_mxn_total || 0, 2)} MXN</Text>
+                          </View>
+                        )}
                       </View>
                     );
                   })()}
