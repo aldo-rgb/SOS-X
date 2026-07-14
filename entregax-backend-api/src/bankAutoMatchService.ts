@@ -120,6 +120,59 @@ const authorizeOneMatch = async (
       );
     }
 
+    // 2b) 💳 Orden a CRÉDITO: RESTAURAR el crédito del servicio (used_credit).
+    //     Antes esto SOLO lo hacía el flujo manual de confirmación de comprobante,
+    //     así que los pagos auto-conciliados por Syncfy dejaban el crédito como
+    //     "usado" y nunca se reintegraba al monedero de crédito del cliente.
+    if (String(order.payment_method || '').toLowerCase() === 'credit') {
+      await client.query(
+        `UPDATE pobox_payments SET credit_settled = TRUE, credit_settled_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [order.id]
+      );
+      const { normalizeServiceForCredit } = await import('./poboxPaymentController');
+      let svcKeyCredit: string | null = null;
+      if (packageIds.length > 0) {
+        const svcRes = await client.query(
+          `SELECT service_type FROM packages WHERE id = ANY($1) AND service_type IS NOT NULL LIMIT 1`,
+          [packageIds]
+        );
+        svcKeyCredit = normalizeServiceForCredit(svcRes.rows[0]?.service_type);
+      }
+      let restoredRows = 0;
+      if (svcKeyCredit) {
+        const r = await client.query(
+          `UPDATE user_service_credits
+              SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1),
+                  is_blocked = CASE WHEN GREATEST(0, COALESCE(used_credit, 0) - $1) <= 0 THEN FALSE ELSE is_blocked END,
+                  updated_at = NOW()
+            WHERE user_id = $2 AND service = $3`,
+          [orderAmount, order.user_id, svcKeyCredit]
+        );
+        restoredRows = r.rowCount || 0;
+      }
+      if (restoredRows === 0) {
+        // Fallback: crédito global (users.used_credit)
+        await client.query(
+          `UPDATE users
+              SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1),
+                  is_credit_blocked = CASE WHEN GREATEST(0, COALESCE(used_credit, 0) - $1) <= 0 THEN FALSE ELSE is_credit_blocked END
+            WHERE id = $2`,
+          [orderAmount, order.user_id]
+        );
+      }
+      // Liberar comisiones retenidas de estas guías (el crédito ya se pagó).
+      if (packageIds.length > 0) {
+        await client.query(
+          `UPDATE advisor_commissions
+              SET awaiting_client_payment = FALSE, client_paid_at = NOW(), updated_at = NOW()
+            WHERE shipment_type = 'PKG' AND shipment_id = ANY($1)
+              AND COALESCE(awaiting_client_payment, FALSE) = TRUE`,
+          [packageIds]
+        );
+      }
+      console.log(`↩️ [auto-match] Crédito reintegrado: $${orderAmount} servicio=${svcKeyCredit || 'global'} usuario=${order.user_id}`);
+    }
+
     // 3) Aprobar vouchers pendientes
     await client.query(
       `UPDATE payment_vouchers SET status = 'approved', reviewed_by = $2, reviewed_at = CURRENT_TIMESTAMP
