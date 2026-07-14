@@ -26,7 +26,6 @@
     "@google-cloud/vision": "^5.3.5",
     "@sentry/node": "^10.53.1",
     "@types/multer": "^2.0.0",
-    "archiver": "^8.0.0",
     "axios": "^1.13.4",
     "bcrypt": "^6.0.0",
     "canvas": "^3.2.1",
@@ -41,6 +40,7 @@
     "helmet": "^8.1.0",
     "jose": "^6.2.3",
     "jsonwebtoken": "^9.0.3",
+    "jszip": "^3.10.1",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
     "openai": "^6.18.0",
@@ -58,7 +58,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/archiver": "^8.0.0",
     "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",

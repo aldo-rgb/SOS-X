@@ -14,7 +14,7 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import axios from 'axios';
-const archiver = require('archiver');
+import JSZip from 'jszip';
 import { pool } from './db';
 import { AuthRequest } from './authController';
 import { sendEmail } from './emailService';
@@ -313,19 +313,11 @@ export const elpDownloadZip = async (req: Request, res: Response): Promise<any> 
     }
 
     // Armar el ZIP en memoria y enviarlo completo (docs son pocos y pequeños).
-    // Así cualquier error de archiver se captura ANTES de mandar headers.
-    const zipBuffer: Buffer = await new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      const archive = archiver('zip', { zlib: { level: 9 } });
-      archive.on('data', (c: Buffer) => chunks.push(c));
-      archive.on('warning', (w: any) => console.warn('[ELP] archiver warning:', w?.message));
-      archive.on('error', (err: any) => reject(err));
-      archive.on('end', () => resolve(Buffer.concat(chunks)));
-      for (const p of available) {
-        archive.append(p.bytes as Buffer, { name: p.name });
-      }
-      archive.finalize();
-    });
+    const zip = new JSZip();
+    for (const p of available) {
+      zip.file(p.name, p.bytes as Buffer);
+    }
+    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${row.container_number}_documentos.zip"`);
@@ -334,7 +326,7 @@ export const elpDownloadZip = async (req: Request, res: Response): Promise<any> 
     await logElpEvent(row.id, row.container_number, 'outbound_docs', 'zip_downloaded', { files: available.length }, 200);
   } catch (e: any) {
     console.error('[ELP] elpDownloadZip error:', e?.stack || e?.message || e);
-    if (!res.headersSent) res.status(500).send('Error generando el ZIP: ' + (e?.message || e));
+    if (!res.headersSent) res.status(500).send('Error generando el ZIP');
   }
 };
 

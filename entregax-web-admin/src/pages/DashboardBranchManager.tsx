@@ -104,7 +104,7 @@ interface QuickAction {
   description: string;
   icon: React.ReactNode;
   color: string;
-  action: 'operations' | 'service_tickets' | 'relabeling' | 'branch_inventory';
+  action: 'operations' | 'service_tickets' | 'relabeling' | 'branch_inventory' | 'outbound';
 }
 
 export default function DashboardBranchManager() {
