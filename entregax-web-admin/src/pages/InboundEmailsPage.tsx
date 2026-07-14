@@ -196,6 +196,8 @@ export default function InboundEmailsPage() {
     // FCL files
     const [fclBlFile, setFclBlFile] = useState<File | null>(null);
     const [fclTelexFile, setFclTelexFile] = useState<File | null>(null);
+    const [fclIsfFile, setFclIsfFile] = useState<File | null>(null);
+    const [fclInvoiceFile, setFclInvoiceFile] = useState<File | null>(null);
     const [fclPackingFile, setFclPackingFile] = useState<File | null>(null);
     const [fclSubject, setFclSubject] = useState('');
     
@@ -2132,7 +2134,7 @@ export default function InboundEmailsPage() {
                     </Box>
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                        📜 Telex Release / ISF - PDF o Imagen
+                        📜 Telex / ISF - PDF
                     </Typography>
                     <Box sx={{ mb: 2 }}>
                         <input
@@ -2142,11 +2144,51 @@ export default function InboundEmailsPage() {
                             style={{ marginBottom: 8 }}
                         />
                         {fclTelexFile && (
-                            <Chip 
-                                label={fclTelexFile.name} 
-                                onDelete={() => setFclTelexFile(null)} 
-                                color="secondary" 
-                                size="small" 
+                            <Chip
+                                label={fclTelexFile.name}
+                                onDelete={() => setFclTelexFile(null)}
+                                color="secondary"
+                                size="small"
+                            />
+                        )}
+                    </Box>
+
+                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+                        📝 ISF - Word
+                    </Typography>
+                    <Box sx={{ mb: 2 }}>
+                        <input
+                            type="file"
+                            accept=".doc,.docx"
+                            onChange={(e) => setFclIsfFile(e.target.files?.[0] || null)}
+                            style={{ marginBottom: 8 }}
+                        />
+                        {fclIsfFile && (
+                            <Chip
+                                label={fclIsfFile.name}
+                                onDelete={() => setFclIsfFile(null)}
+                                color="secondary"
+                                size="small"
+                            />
+                        )}
+                    </Box>
+
+                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+                        🧾 Invoice - PDF
+                    </Typography>
+                    <Box sx={{ mb: 2 }}>
+                        <input
+                            type="file"
+                            accept=".pdf"
+                            onChange={(e) => setFclInvoiceFile(e.target.files?.[0] || null)}
+                            style={{ marginBottom: 8 }}
+                        />
+                        {fclInvoiceFile && (
+                            <Chip
+                                label={fclInvoiceFile.name}
+                                onDelete={() => setFclInvoiceFile(null)}
+                                color="warning"
+                                size="small"
                             />
                         )}
                     </Box>
@@ -2209,6 +2251,8 @@ export default function InboundEmailsPage() {
                             setUploadFCLOpen(false);
                             setFclBlFile(null);
                             setFclTelexFile(null);
+                            setFclIsfFile(null);
+                            setFclInvoiceFile(null);
                             setFclPackingFile(null);
                             setFclSubject('');
                             setFclRouteId('');
@@ -2227,7 +2271,7 @@ export default function InboundEmailsPage() {
                             setUploadLoading(true);
                             
                             // Calcular total de archivos a subir
-                            const totalFiles = 1 + (fclTelexFile ? 1 : 0) + (fclPackingFile ? 1 : 0);
+                            const totalFiles = 1 + (fclTelexFile ? 1 : 0) + (fclIsfFile ? 1 : 0) + (fclInvoiceFile ? 1 : 0) + (fclPackingFile ? 1 : 0);
                             let currentStep = 0;
                             
                             try {
@@ -2259,8 +2303,34 @@ export default function InboundEmailsPage() {
                                     });
                                     formData.append('telex', fclTelexFile);
                                 }
-                                
-                                // Paso 3: Packing List (si existe)
+
+                                // ISF - Word (si existe)
+                                if (fclIsfFile) {
+                                    currentStep++;
+                                    setUploadProgress({
+                                        step: currentStep,
+                                        totalSteps: totalFiles + 1,
+                                        currentFile: 'ISF (Word)',
+                                        status: 'uploading',
+                                        message: `Subiendo archivo ${currentStep} de ${totalFiles}...`
+                                    });
+                                    formData.append('isf', fclIsfFile);
+                                }
+
+                                // Invoice - PDF (si existe)
+                                if (fclInvoiceFile) {
+                                    currentStep++;
+                                    setUploadProgress({
+                                        step: currentStep,
+                                        totalSteps: totalFiles + 1,
+                                        currentFile: 'Invoice',
+                                        status: 'uploading',
+                                        message: `Subiendo archivo ${currentStep} de ${totalFiles}...`
+                                    });
+                                    formData.append('invoice', fclInvoiceFile);
+                                }
+
+                                // Paso final: Packing List (si existe)
                                 if (fclPackingFile) {
                                     currentStep++;
                                     setUploadProgress({
@@ -2301,6 +2371,8 @@ export default function InboundEmailsPage() {
                                         setUploadFCLOpen(false);
                                         setFclBlFile(null);
                                         setFclTelexFile(null);
+                                        setFclIsfFile(null);
+                                        setFclInvoiceFile(null);
                                         setFclPackingFile(null);
                                         setFclSubject('');
                                         setFclRouteId('');

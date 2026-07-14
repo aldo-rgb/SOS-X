@@ -2863,6 +2863,8 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
     // Obtener archivos
     const blFile = files['bl']?.[0];
     const telexFile = files['telex']?.[0];
+    const isfFile = files['isf']?.[0];        // ISF en Word (.doc/.docx)
+    const invoiceFile = files['invoice']?.[0]; // Invoice en PDF
     const packingFile = files['packingList']?.[0];
     const summaryFile = files['summary']?.[0];
 
@@ -2926,6 +2928,43 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
         }
       } else {
         telexS3Url = telexDataUrl;
+      }
+    }
+
+    // Subir ISF (Word) a S3
+    let isfS3Url: string | null = null;
+    if (isfFile) {
+      const isfDataUrl = `data:${isfFile.mimetype};base64,${isfFile.buffer.toString('base64')}`;
+      if (isS3Configured()) {
+        try {
+          const ext = (isfFile.originalname.split('.').pop() || 'docx').toLowerCase();
+          const isfKey = `maritime/${shipmentType?.toLowerCase() || 'manual'}/${timestamp}_${sanitizedSubject}_isf.${ext}`;
+          isfS3Url = await uploadToS3(isfFile.buffer, isfKey, isfFile.mimetype || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+          console.log('☁️ ISF (Word) subido a S3:', isfS3Url);
+        } catch (s3Error: any) {
+          console.error('⚠️ Error subiendo ISF a S3:', s3Error.message);
+          isfS3Url = isfDataUrl;
+        }
+      } else {
+        isfS3Url = isfDataUrl;
+      }
+    }
+
+    // Subir Invoice (PDF) a S3
+    let invoiceS3Url: string | null = null;
+    if (invoiceFile) {
+      const invoiceDataUrl = `data:${invoiceFile.mimetype};base64,${invoiceFile.buffer.toString('base64')}`;
+      if (isS3Configured()) {
+        try {
+          const invoiceKey = `maritime/${shipmentType?.toLowerCase() || 'manual'}/${timestamp}_${sanitizedSubject}_invoice.pdf`;
+          invoiceS3Url = await uploadToS3(invoiceFile.buffer, invoiceKey, invoiceFile.mimetype || 'application/pdf');
+          console.log('☁️ Invoice subido a S3:', invoiceS3Url);
+        } catch (s3Error: any) {
+          console.error('⚠️ Error subiendo Invoice a S3:', s3Error.message);
+          invoiceS3Url = invoiceDataUrl;
+        }
+      } else {
+        invoiceS3Url = invoiceDataUrl;
       }
     }
 
@@ -3076,6 +3115,14 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
     extractedData.shipment_type = shipmentType;
     extractedData.bl_filename = blFile.originalname;
     if (telexFile) extractedData.telex_filename = telexFile.originalname;
+    if (isfFile) {
+      extractedData.isf_word_filename = isfFile.originalname;
+      extractedData.isf_word_url = isfS3Url;
+    }
+    if (invoiceFile) {
+      extractedData.invoice_filename = invoiceFile.originalname;
+      extractedData.invoice_url = invoiceS3Url;
+    }
     if (packingFile) extractedData.packing_list_filename = packingFile.originalname;
     if (summaryFile) extractedData.summary_filename = summaryFile.originalname;
 

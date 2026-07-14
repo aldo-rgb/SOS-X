@@ -11092,6 +11092,8 @@ app.post('/api/admin/maritime/upload-manual',
   maritimeUpload.fields([
     { name: 'bl', maxCount: 1 },
     { name: 'telex', maxCount: 1 },
+    { name: 'isf', maxCount: 1 },
+    { name: 'invoice', maxCount: 1 },
     { name: 'packingList', maxCount: 1 },
     { name: 'summary', maxCount: 1 }
   ]),
