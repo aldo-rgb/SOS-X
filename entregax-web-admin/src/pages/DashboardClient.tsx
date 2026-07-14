@@ -5166,20 +5166,6 @@ export default function DashboardClient() {
                     </Typography>
                   </Box>
                 )}
-                {/* Info X-Pay (comisión + TC) — solo con asesor asignado */}
-                {!!advisorInfo && xpayInfo && (
-                  <Box sx={{
-                    px: 1.5, py: 0.5,
-                    bgcolor: 'rgba(240,90,40,0.15)',
-                    borderRadius: 1.5,
-                    border: '1px dashed rgba(240,90,40,0.5)',
-                    display: 'flex', alignItems: 'center', gap: 1,
-                  }}>
-                    <Typography variant="caption" sx={{ color: 'white', fontWeight: 600, fontSize: '0.62rem', whiteSpace: 'nowrap' }}>
-                      <span style={{ color: ORANGE, fontWeight: 700 }}>X-Pay</span> 💱 ${xpayInfo.tc.toFixed(2)} · 🧾 {xpayInfo.comCon.toFixed(1)}%
-                    </Typography>
-                  </Box>
-                )}
               </Box>
             </Box>
           ) : (
@@ -5336,27 +5322,6 @@ export default function DashboardClient() {
                       </Typography>
                       <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
                         ✈️ ${refRates.aereo.toFixed(2)} USD/kg
-                      </Typography>
-                    </Box>
-                  )}
-                  {/* Info X-Pay (comisión + tipo de cambio) — solo con asesor asignado */}
-                  {!!advisorInfo && xpayInfo && (
-                    <Box sx={{
-                      flex: 1,
-                      p: 1.5,
-                      bgcolor: 'rgba(240,90,40,0.12)',
-                      borderRadius: 2,
-                      border: '1px solid rgba(240,90,40,0.35)',
-                      display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.4,
-                    }}>
-                      <Typography variant="caption" sx={{ color: ORANGE, fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}>
-                        X-Pay
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
-                        💱 TC ${xpayInfo.tc.toFixed(2)} USD
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
-                        🧾 Comisión {xpayInfo.comCon.toFixed(1)}%
                       </Typography>
                     </Box>
                   )}
@@ -5664,6 +5629,7 @@ export default function DashboardClient() {
 
 {/* X-Pay solo disponible para clientes con asesor asignado */}
 {!!advisorInfo && (
+<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
 <Tooltip title={!paymentsEnabled ? 'Función temporalmente no disponible' : ''} disableHoverListener={paymentsEnabled}>
               <span>
             <Button
@@ -5717,6 +5683,17 @@ export default function DashboardClient() {
             </Button>
               </span>
             </Tooltip>
+            {xpayInfo && (
+              <Box sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.58rem', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                  TC X-Pay
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 800, color: ORANGE, whiteSpace: 'nowrap', lineHeight: 1.1 }}>
+                  ${xpayInfo.tc.toFixed(2)}
+                </Typography>
+              </Box>
+            )}
+            </Box>
             )}
           </Box>
         </Paper>
