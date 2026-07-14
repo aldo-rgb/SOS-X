@@ -1451,6 +1451,8 @@ export default function DashboardClient() {
   const [referralCode, setReferralCode] = useState<string>('');
   // Tarifas de referencia (para el recuadro informativo): USD/m³ marítimo y USD/kg aéreo.
   const [refRates, setRefRates] = useState<{ maritimo: number; aereo: number } | null>(null);
+  // Info X-Pay para el recuadro: comisión (con/sin factura) y tipo de cambio USD.
+  const [xpayInfo, setXpayInfo] = useState<{ tc: number; comCon: number; comSin: number } | null>(null);
   const [myReferrals, setMyReferrals] = useState<any[]>([]);
   const [referralStats, setReferralStats] = useState<{ total: number; validated: number; pending: number; earnings: number }>({ total: 0, validated: 0, pending: 0, earnings: 0 });
 
@@ -2032,10 +2034,12 @@ export default function DashboardClient() {
   // Cargar datos de referidos
   const loadReferralData = async () => {
     try {
-      const [codeRes, referralsRes, ratesRes] = await Promise.all([
+      const [codeRes, referralsRes, ratesRes, xpayCfgRes, xpayTcRes] = await Promise.all([
         api.get('/referidos/mi-codigo').catch(() => null),
         api.get('/referidos/mis-referidos').catch(() => null),
         api.get('/public/rates').catch(() => null),
+        api.get('/entangled/service-config').catch(() => null),
+        api.get('/entangled/exchange-rate?divisa=USD').catch(() => null),
       ]);
       // Tarifas de referencia: marítimo (USD/m³) y aéreo (USD/kg).
       const servicios = ratesRes?.data?.servicios;
@@ -2045,6 +2049,13 @@ export default function DashboardClient() {
         const marUsd = Number(mar?.precio_base_usd) || 0;
         const airUsd = Number(air?.precio_base_usd) || 0;
         if (marUsd > 0 || airUsd > 0) setRefRates({ maritimo: marUsd, aereo: airUsd });
+      }
+      // Info X-Pay: comisión (con/sin factura) + tipo de cambio USD.
+      const comCon = Number(xpayCfgRes?.data?.pago_con_factura?.comision_porcentaje);
+      const comSin = Number(xpayCfgRes?.data?.pago_sin_factura?.comision_porcentaje);
+      const tc = Number(xpayTcRes?.data?.tipo_cambio);
+      if (Number.isFinite(tc) && tc > 0) {
+        setXpayInfo({ tc, comCon: Number.isFinite(comCon) ? comCon : 0, comSin: Number.isFinite(comSin) ? comSin : 0 });
       }
       // El backend retorna { success: true, data: { codigo: "XXX", ... } }
       if (codeRes?.data?.data?.codigo) {
@@ -5155,6 +5166,20 @@ export default function DashboardClient() {
                     </Typography>
                   </Box>
                 )}
+                {/* Info X-Pay (comisión + TC) — solo con asesor asignado */}
+                {!!advisorInfo && xpayInfo && (
+                  <Box sx={{
+                    px: 1.5, py: 0.5,
+                    bgcolor: 'rgba(240,90,40,0.15)',
+                    borderRadius: 1.5,
+                    border: '1px dashed rgba(240,90,40,0.5)',
+                    display: 'flex', alignItems: 'center', gap: 1,
+                  }}>
+                    <Typography variant="caption" sx={{ color: 'white', fontWeight: 600, fontSize: '0.62rem', whiteSpace: 'nowrap' }}>
+                      <span style={{ color: ORANGE, fontWeight: 700 }}>X-Pay</span> 💱 ${xpayInfo.tc.toFixed(2)} · 🧾 {xpayInfo.comCon.toFixed(1)}%/{xpayInfo.comSin.toFixed(1)}%
+                    </Typography>
+                  </Box>
+                )}
               </Box>
             </Box>
           ) : (
@@ -5311,6 +5336,27 @@ export default function DashboardClient() {
                       </Typography>
                       <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
                         ✈️ ${refRates.aereo.toFixed(2)} USD/kg
+                      </Typography>
+                    </Box>
+                  )}
+                  {/* Info X-Pay (comisión + tipo de cambio) — solo con asesor asignado */}
+                  {!!advisorInfo && xpayInfo && (
+                    <Box sx={{
+                      flex: 1,
+                      p: 1.5,
+                      bgcolor: 'rgba(240,90,40,0.12)',
+                      borderRadius: 2,
+                      border: '1px solid rgba(240,90,40,0.35)',
+                      display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.4,
+                    }}>
+                      <Typography variant="caption" sx={{ color: ORANGE, fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}>
+                        X-Pay
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                        💱 TC ${xpayInfo.tc.toFixed(2)} USD
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                        🧾 Comisión {xpayInfo.comCon.toFixed(1)}% c/f · {xpayInfo.comSin.toFixed(1)}% s/f
                       </Typography>
                     </Box>
                   )}
