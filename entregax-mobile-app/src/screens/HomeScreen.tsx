@@ -115,6 +115,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const [user, setUser] = useState(initialUser);
   // X-Pay solo se muestra a clientes con asesor asignado (advisor_id del perfil).
   const [hasAdvisor, setHasAdvisor] = useState<boolean>(!!((initialUser as any)?.advisor_id));
+  // Info bajo los botones del header: TC X-Pay, marítimo USD/m³ y aéreo USD/kg.
+  const [xpayTc, setXpayTc] = useState<number | null>(null);
+  const [refRates, setRefRates] = useState<{ maritimo: number; aereo: number } | null>(null);
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]); // 🔥 IDs seleccionados
   const [loading, setLoading] = useState(true);
@@ -635,6 +638,34 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // 👁 Cargar lista de guías en seguimiento al inicio
     getFollowedTrackings().then(setFollowed).catch(() => {});
   }, [fetchPackages, fetchCarouselSlides, fetchUnreadNotifications]);
+
+  // 📊 Tarifas de referencia bajo los botones: marítimo (USD/m³), aéreo (USD/kg)
+  // y tipo de cambio X-Pay (USD).
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/public/rates`);
+        if (r.ok) {
+          const d = await r.json();
+          const servicios = d?.servicios;
+          if (Array.isArray(servicios)) {
+            const mar = servicios.find((s: { id: string }) => s.id === 'maritimo');
+            const air = servicios.find((s: { id: string }) => s.id === 'aereo');
+            setRefRates({ maritimo: Number(mar?.precio_base_usd) || 0, aereo: Number(air?.precio_base_usd) || 0 });
+          }
+        }
+      } catch { /* ignore */ }
+      try {
+        const r = await fetch(`${API_URL}/api/entangled/exchange-rate?divisa=USD`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (r.ok) {
+          const d = await r.json();
+          if (d?.tipo_cambio) setXpayTc(Number(d.tipo_cambio));
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [token]);
 
   // 🔔 Registrar push token y manejar deep-link desde notificaciones de ticket
   useEffect(() => {
@@ -2396,8 +2427,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           <View style={styles.headerButtonsRow}>
             {/* 💰 Botón X-Pay — solo visible si está habilitado y el cliente tiene asesor asignado */}
             {xpayEnabled && hasAdvisor && (
+              <View style={styles.headerBtnCol}>
               <TouchableOpacity
-                style={styles.supplierPaymentButton}
+                style={[styles.supplierPaymentButton, styles.headerBtnInCol]}
                 onPress={() => {
                   navigation.navigate('ExternalProviderTransition' as any, {
                     user,
@@ -2412,10 +2444,15 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   style={styles.supplierPaymentLogo}
                 />
               </TouchableOpacity>
+              {xpayTc != null && (
+                <Text style={styles.headerBtnCaption} numberOfLines={1}>TC X-Pay ${xpayTc.toFixed(2)}</Text>
+              )}
+              </View>
             )}
             {/* 🧮 Botón Cotizar — mismo estilo negro que "¿Cómo enviar?" */}
+            <View style={styles.headerBtnCol}>
             <TouchableOpacity
-              style={styles.requestShipmentButton}
+              style={[styles.requestShipmentButton, styles.headerBtnInCol]}
               onPress={() => {
                 navigation.navigate('QuoteHub' as any, { user, token });
               }}
@@ -2423,10 +2460,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Ionicons name="calculator-outline" size={16} color={ORANGE} />
               <Text style={styles.requestShipmentText}>{t('home.cotizar')}</Text>
             </TouchableOpacity>
+            {refRates != null && (
+              <Text style={styles.headerBtnCaption} numberOfLines={1}>🚢 ${refRates.maritimo.toFixed(0)} USD/m³</Text>
+            )}
+            </View>
             {/* 🚀 Botón ¿Cómo enviar? o Cambiar Método */}
+            <View style={styles.headerBtnCol}>
             <TouchableOpacity
               style={[
                 styles.requestShipmentButton,
+                styles.headerBtnInCol,
                 selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') && { backgroundColor: '#00796B' }
               ]}
               onPress={() => {
@@ -2464,9 +2507,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   : t('home.send')}
               </Text>
             </TouchableOpacity>
+            {refRates != null && (
+              <Text style={styles.headerBtnCaption} numberOfLines={1}>✈️ ${refRates.aereo.toFixed(2)} USD/kg</Text>
+            )}
+            </View>
           </View>
         </View>
-        
+
         {/* 🔍 Botones de Acción - Rastreo, Instrucciones, Historial */}
         <View style={styles.headerActionButtons}>
           {/* 🔍 Rastreo */}
@@ -3737,10 +3784,27 @@ const styles = StyleSheet.create({
   // alturas/paddings idénticos.
   headerButtonsRow: {
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'flex-start',
     paddingHorizontal: 16,
     gap: 8,
     marginTop: 10,
+  },
+  // Cada botón del header en su columna, con leyenda debajo (TC X-Pay / m³ / kg).
+  headerBtnCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  // El botón dentro de la columna no debe crecer verticalmente; ocupa el ancho.
+  headerBtnInCol: {
+    flex: 0,
+    alignSelf: 'stretch',
+  },
+  headerBtnCaption: {
+    color: '#6B7280',
+    fontSize: 9.5,
+    fontWeight: '600',
+    marginTop: 4,
+    textAlign: 'center',
   },
   supplierPaymentButton: {
     flex: 1,
