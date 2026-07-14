@@ -517,12 +517,32 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     empresa: { rfc: string; razon_social: string };
     cuenta_bancaria?: any;
     facturacion?: any;
+    cantidad?: number;        // piezas de esta clave SAT
+    precioUnitario?: number;  // precio unitario (la ÚLTIMA clave se autobalancea)
   };
   const [selectedConceptos, setSelectedConceptos] = useState<SelectedConcepto[]>([]);
   const [addingConcepto, setAddingConcepto] = useState(false);
   const [addConceptoError, setAddConceptoError] = useState<string | null>(null);
 
   const lockedEmpresa = selectedConceptos[0]?.empresa || null;
+
+  // 🧾 Facturación por partidas: base = total en MXN (con comisión). La suma de
+  // (cantidad × precio unitario) de todas las claves cuadra con ese total; la
+  // ÚLTIMA clave autobalancea su precio unitario. Las demás son editables.
+  const facturaTotalMxn = quote?.monto_mxn_total || 0;
+  const computeLineItems = useCallback((concs: SelectedConcepto[], totalMxn: number) => {
+    const items = concs.map((c) => ({ ...c, cantidad: Number(c.cantidad) || 1, precioUnitario: Number(c.precioUnitario) || 0 }));
+    const n = items.length;
+    if (n === 0) return items;
+    const othersSubtotal = items.slice(0, n - 1).reduce((s, c) => s + c.cantidad * c.precioUnitario, 0);
+    const last = items[n - 1];
+    last.precioUnitario = last.cantidad > 0 ? Math.max(0, (totalMxn - othersSubtotal) / last.cantidad) : 0;
+    return items;
+  }, []);
+  const lineItems = useMemo(() => computeLineItems(selectedConceptos, facturaTotalMxn), [selectedConceptos, facturaTotalMxn, computeLineItems]);
+  const setConceptoField = (clave: string, field: 'cantidad' | 'precioUnitario', value: number) => {
+    setSelectedConceptos((prev) => prev.map((c) => c.clave_prodserv === clave ? { ...c, [field]: value } : c));
+  };
 
   // Sincroniza form.conceptos y asignacion cuando cambian las claves seleccionadas
   useEffect(() => {
@@ -713,13 +733,20 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         );
         return;
       }
-      setSelectedConceptos([...selectedConceptos, {
-        clave_prodserv: opt.clave_prodserv,
-        descripcion: opt.descripcion,
-        empresa: newEmpresa,
-        cuenta_bancaria: r.data?.cuenta_bancaria,
-        facturacion: r.data?.facturacion,
-      }]);
+      setSelectedConceptos((prev) => {
+        // Congelar el precio autobalanceado de la clave que era ÚLTIMA para que
+        // conserve su valor al dejar de ser la balanceadora.
+        const frozen = prev.length > 0 ? computeLineItems(prev, facturaTotalMxn) : [];
+        return [...frozen, {
+          clave_prodserv: opt.clave_prodserv,
+          descripcion: opt.descripcion,
+          empresa: newEmpresa,
+          cuenta_bancaria: r.data?.cuenta_bancaria,
+          facturacion: r.data?.facturacion,
+          cantidad: 1,
+          precioUnitario: 0,
+        }];
+      });
       setConceptoSearchInput('');
       setConceptoOptions([]);
       setConceptoSearchError(null);
@@ -1831,7 +1858,12 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         fd.append('tc_cliente_final', String(quote.tipo_cambio));
       }
       const conceptosArr = requiereFactura
-        ? form.conceptos.split(',').map(s => s.trim()).filter(Boolean).map(c => ({ clave_prodserv: c }))
+        ? computeLineItems(selectedConceptos, facturaTotalMxn).map((c) => ({
+            clave_prodserv: c.clave_prodserv,
+            descripcion: c.descripcion,
+            cantidad: c.cantidad,
+            valor_unitario: Number(c.precioUnitario.toFixed(2)),
+          }))
         : [];
       fd.append('conceptos', JSON.stringify(conceptosArr));
       const clienteFinal = requiereFactura
@@ -3507,28 +3539,68 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                     <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mb: 0.5 }}>
                       {selectedConceptos.length === 1 ? '1 producto agregado' : `${selectedConceptos.length} productos agregados`}
                     </Typography>
-                    {selectedConceptos.map((c) => (
+                    {lineItems.map((c, idx) => {
+                      const isLast = idx === lineItems.length - 1;
+                      const subtotal = c.cantidad * c.precioUnitario;
+                      return (
                       <Box key={c.clave_prodserv}
                         sx={{
-                          display: 'flex', alignItems: 'center', gap: 1, py: 0.8, px: 1.2, mb: 0.5,
+                          display: 'flex', flexDirection: 'column', gap: 0.6, py: 0.8, px: 1.2, mb: 0.5,
                           borderRadius: 1,
                           bgcolor: 'rgba(16, 185, 129, 0.12)',
                           border: '1px solid #10b981',
                         }}
                       >
-                        <Typography sx={{ color: '#10b981', fontWeight: 700 }}>✓</Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 700, color: C.textPrimary, fontFamily: 'monospace' }}>
-                          {c.clave_prodserv}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: C.textSecondary, flex: 1 }}>
-                          {c.descripcion || '—'}
-                        </Typography>
-                        <IconButton size="small" onClick={() => removeSelectedConcepto(c.clave_prodserv)}
-                          sx={{ color: C.textMuted, '&:hover': { color: '#ef4444', bgcolor: 'rgba(239,68,68,0.15)' } }}>
-                          <DeleteIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography sx={{ color: '#10b981', fontWeight: 700 }}>✓</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700, color: C.textPrimary, fontFamily: 'monospace' }}>
+                            {c.clave_prodserv}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: C.textSecondary, flex: 1 }} noWrap>
+                            {c.descripcion || '—'}
+                          </Typography>
+                          <IconButton size="small" onClick={() => removeSelectedConcepto(c.clave_prodserv)}
+                            sx={{ color: C.textMuted, '&:hover': { color: '#ef4444', bgcolor: 'rgba(239,68,68,0.15)' } }}>
+                            <DeleteIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Box>
+                        {/* Cantidad × Precio unitario = Subtotal (la última clave autobalancea) */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5, flexWrap: 'wrap' }}>
+                          <TextField
+                            size="small" type="number" label="Cantidad"
+                            value={c.cantidad}
+                            onChange={(e) => setConceptoField(c.clave_prodserv, 'cantidad', Math.max(1, Number(e.target.value) || 1))}
+                            sx={{ width: 96, '& input': { color: C.textPrimary }, '& label': { color: C.textMuted } }}
+                            inputProps={{ min: 1, step: 1 }}
+                          />
+                          <Typography sx={{ color: C.textMuted }}>×</Typography>
+                          <TextField
+                            size="small" type="number"
+                            label={isLast ? 'P. unitario (auto)' : 'P. unitario'}
+                            value={isLast ? c.precioUnitario.toFixed(2) : c.precioUnitario}
+                            onChange={(e) => { if (!isLast) setConceptoField(c.clave_prodserv, 'precioUnitario', Math.max(0, Number(e.target.value) || 0)); }}
+                            disabled={isLast}
+                            helperText={isLast ? 'Se ajusta al total' : undefined}
+                            sx={{ width: 140, '& input': { color: isLast ? ORANGE : C.textPrimary, fontWeight: isLast ? 700 : 400 }, '& label': { color: C.textMuted } }}
+                            inputProps={{ min: 0, step: '0.01' }}
+                          />
+                          <Typography sx={{ color: C.textMuted }}>=</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700, color: C.textPrimary, whiteSpace: 'nowrap' }}>
+                            ${formatMoney(subtotal)} MXN
+                          </Typography>
+                        </Box>
                       </Box>
-                    ))}
+                      );
+                    })}
+                    {/* Total de la factura vs total de la operación */}
+                    {facturaTotalMxn > 0 && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', px: 1.2, pt: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: C.textMuted }}>Suma de partidas</Typography>
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: '#10b981' }}>
+                          ${formatMoney(lineItems.reduce((s, c) => s + c.cantidad * c.precioUnitario, 0))} / ${formatMoney(facturaTotalMxn)} MXN
+                        </Typography>
+                      </Box>
+                    )}
                   </Box>
                 )}
 
