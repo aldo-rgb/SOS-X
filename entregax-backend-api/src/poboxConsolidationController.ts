@@ -106,8 +106,15 @@ export const getConsolidationPackages = async (req: AuthRequest, res: Response):
         AND p.box_id IS NOT NULL
         AND UPPER(p.box_id) = UPPER(lc.box_id)
        WHERE p.consolidation_id = $1
+         -- Excluir un master SOLO si sus hijas están en la MISMA consolidación
+         -- (multi-caja: se escanean las hijas). Un REPACK tiene sus hijas con
+         -- consolidation_id NULL, así que el master SÍ se muestra y se escanea
+         -- como una sola guía. DEBE coincidir con el filtro de receiveConsolidation,
+         -- si no el master del repack queda oculto aquí pero requerido al recibir,
+         -- causando un "faltante" permanente que rompe "Finalizar recepción".
          AND NOT EXISTS (
-           SELECT 1 FROM packages c WHERE c.master_id = p.id
+           SELECT 1 FROM packages c
+            WHERE c.master_id = p.id AND c.consolidation_id = p.consolidation_id
          )
        ORDER BY p.tracking_internal ASC`,
       [id]
