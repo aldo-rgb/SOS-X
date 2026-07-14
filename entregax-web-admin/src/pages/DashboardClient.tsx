@@ -5570,6 +5570,8 @@ export default function DashboardClient() {
               />
             </Tabs>
 
+{/* X-Pay solo disponible para clientes con asesor asignado */}
+{!!advisorInfo && (
 <Tooltip title={!paymentsEnabled ? 'Función temporalmente no disponible' : ''} disableHoverListener={paymentsEnabled}>
               <span>
             <Button
@@ -5623,6 +5625,7 @@ export default function DashboardClient() {
             </Button>
               </span>
             </Tooltip>
+            )}
           </Box>
         </Paper>
       )}
@@ -15452,6 +15455,10 @@ export default function DashboardClient() {
             onChange={(_, newValue) => {
               // newValue 1 es "Pago a proveedores" - redirigir a x-pay.direct
               if (newValue === 1) {
+                if (!advisorInfo) {
+                  alert('X-Pay está disponible solo para clientes con asesor asignado.');
+                  return;
+                }
                 if (!paymentsEnabled) {
                   alert('Función temporalmente no disponible');
                   return;
@@ -15494,7 +15501,7 @@ export default function DashboardClient() {
             }}
           >
             <BottomNavigationAction label="Envíos" icon={<ShippingIcon sx={{ fontSize: 22 }} />} />
-            <BottomNavigationAction label="X-Pay" icon={<PaymentsIcon sx={{ fontSize: 22 }} />} />
+            <BottomNavigationAction label="X-Pay" icon={<PaymentsIcon sx={{ fontSize: 22 }} />} disabled={!advisorInfo} />
             <BottomNavigationAction label="Cotizar" icon={<CalculateIcon sx={{ fontSize: 22 }} />} />
             <BottomNavigationAction label="Direcciones" icon={<HomeIcon sx={{ fontSize: 22 }} />} />
             <BottomNavigationAction label="Facturas" icon={<ReceiptIcon sx={{ fontSize: 22 }} />} />

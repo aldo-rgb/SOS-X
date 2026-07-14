@@ -113,6 +113,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const xpayLogoUrl = useBrandAsset('xpay_full_white');
   const entregaxXOnlyUrl = useBrandAsset('entregax_x_only'); // botón Enviar
   const [user, setUser] = useState(initialUser);
+  // X-Pay solo se muestra a clientes con asesor asignado (advisor_id del perfil).
+  const [hasAdvisor, setHasAdvisor] = useState<boolean>(!!((initialUser as any)?.advisor_id));
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]); // 🔥 IDs seleccionados
   const [loading, setLoading] = useState(true);
@@ -619,6 +621,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           verificationStatus: data.verification_status,
           isEmployeeOnboarded: data.is_employee_onboarded,
         }));
+        setHasAdvisor(!!(data.advisor_id));
       }
     } catch (error) {
       console.error('Error refreshing user data:', error);
@@ -2391,8 +2394,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <Text style={styles.boxId}>🏠 {t('home.mailbox')}: {user.boxId}</Text>
           </View>
           <View style={styles.headerButtonsRow}>
-            {/* 💰 Botón X-Pay — solo visible si está habilitado */}
-            {xpayEnabled && (
+            {/* 💰 Botón X-Pay — solo visible si está habilitado y el cliente tiene asesor asignado */}
+            {xpayEnabled && hasAdvisor && (
               <TouchableOpacity
                 style={styles.supplierPaymentButton}
                 onPress={() => {
