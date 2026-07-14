@@ -5176,7 +5176,7 @@ export default function DashboardClient() {
                     display: 'flex', alignItems: 'center', gap: 1,
                   }}>
                     <Typography variant="caption" sx={{ color: 'white', fontWeight: 600, fontSize: '0.62rem', whiteSpace: 'nowrap' }}>
-                      <span style={{ color: ORANGE, fontWeight: 700 }}>X-Pay</span> 💱 ${xpayInfo.tc.toFixed(2)} · 🧾 {xpayInfo.comCon.toFixed(1)}%/{xpayInfo.comSin.toFixed(1)}%
+                      <span style={{ color: ORANGE, fontWeight: 700 }}>X-Pay</span> 💱 ${xpayInfo.tc.toFixed(2)} · 🧾 {xpayInfo.comCon.toFixed(1)}%
                     </Typography>
                   </Box>
                 )}
@@ -5356,7 +5356,7 @@ export default function DashboardClient() {
                         💱 TC ${xpayInfo.tc.toFixed(2)} USD
                       </Typography>
                       <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
-                        🧾 Comisión {xpayInfo.comCon.toFixed(1)}% c/f · {xpayInfo.comSin.toFixed(1)}% s/f
+                        🧾 Comisión {xpayInfo.comCon.toFixed(1)}%
                       </Typography>
                     </Box>
                   )}
