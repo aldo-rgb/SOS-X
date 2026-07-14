@@ -1449,6 +1449,8 @@ export default function DashboardClient() {
 
   // Referidos / Invita y Gana
   const [referralCode, setReferralCode] = useState<string>('');
+  // Tarifas de referencia (para el recuadro informativo): USD/m³ marítimo y USD/kg aéreo.
+  const [refRates, setRefRates] = useState<{ maritimo: number; aereo: number } | null>(null);
   const [myReferrals, setMyReferrals] = useState<any[]>([]);
   const [referralStats, setReferralStats] = useState<{ total: number; validated: number; pending: number; earnings: number }>({ total: 0, validated: 0, pending: 0, earnings: 0 });
 
@@ -2030,10 +2032,20 @@ export default function DashboardClient() {
   // Cargar datos de referidos
   const loadReferralData = async () => {
     try {
-      const [codeRes, referralsRes] = await Promise.all([
+      const [codeRes, referralsRes, ratesRes] = await Promise.all([
         api.get('/referidos/mi-codigo').catch(() => null),
         api.get('/referidos/mis-referidos').catch(() => null),
+        api.get('/public/rates').catch(() => null),
       ]);
+      // Tarifas de referencia: marítimo (USD/m³) y aéreo (USD/kg).
+      const servicios = ratesRes?.data?.servicios;
+      if (Array.isArray(servicios)) {
+        const mar = servicios.find((s: { id: string }) => s.id === 'maritimo');
+        const air = servicios.find((s: { id: string }) => s.id === 'aereo');
+        const marUsd = Number(mar?.precio_base_usd) || 0;
+        const airUsd = Number(air?.precio_base_usd) || 0;
+        if (marUsd > 0 || airUsd > 0) setRefRates({ maritimo: marUsd, aereo: airUsd });
+      }
       // El backend retorna { success: true, data: { codigo: "XXX", ... } }
       if (codeRes?.data?.data?.codigo) {
         setReferralCode(codeRes.data.data.codigo);
@@ -5130,6 +5142,19 @@ export default function DashboardClient() {
                     <Box component="img" src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" sx={{ width: 12, height: 12 }} />
                   </IconButton>
                 </Box>
+                {/* Tarifas de referencia: marítimo (USD/m³) y aéreo (USD/kg) */}
+                {refRates && (
+                  <Box sx={{
+                    px: 1.5, py: 0.5,
+                    bgcolor: 'rgba(255,255,255,0.08)',
+                    borderRadius: 1.5,
+                    display: 'flex', alignItems: 'center', gap: 1,
+                  }}>
+                    <Typography variant="caption" sx={{ color: 'white', fontWeight: 600, fontSize: '0.62rem', whiteSpace: 'nowrap' }}>
+                      🚢 ${refRates.maritimo.toFixed(0)}/m³ · ✈️ ${refRates.aereo.toFixed(2)}/kg <span style={{ opacity: 0.6 }}>USD</span>
+                    </Typography>
+                  </Box>
+                )}
               </Box>
             </Box>
           ) : (
@@ -5268,6 +5293,27 @@ export default function DashboardClient() {
                       </IconButton>
                     </Tooltip>
                   </Box>
+                  {/* Tarifas de referencia: marítimo (USD/m³) y aéreo (USD/kg) */}
+                  {refRates && (
+                    <Box sx={{
+                      flex: 1,
+                      p: 1.5,
+                      bgcolor: 'rgba(255,255,255,0.05)',
+                      borderRadius: 2,
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.4,
+                    }}>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        Tarifas de referencia
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                        🚢 ${refRates.maritimo.toFixed(0)} USD/m³
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                        ✈️ ${refRates.aereo.toFixed(2)} USD/kg
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
               </Grid>
             </Grid>
