@@ -5153,19 +5153,6 @@ export default function DashboardClient() {
                     <Box component="img" src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" sx={{ width: 12, height: 12 }} />
                   </IconButton>
                 </Box>
-                {/* Tarifas de referencia: marítimo (USD/m³) y aéreo (USD/kg) */}
-                {refRates && (
-                  <Box sx={{
-                    px: 1.5, py: 0.5,
-                    bgcolor: 'rgba(255,255,255,0.08)',
-                    borderRadius: 1.5,
-                    display: 'flex', alignItems: 'center', gap: 1,
-                  }}>
-                    <Typography variant="caption" sx={{ color: 'white', fontWeight: 600, fontSize: '0.62rem', whiteSpace: 'nowrap' }}>
-                      🚢 ${refRates.maritimo.toFixed(0)}/m³ · ✈️ ${refRates.aereo.toFixed(2)}/kg <span style={{ opacity: 0.6 }}>USD</span>
-                    </Typography>
-                  </Box>
-                )}
               </Box>
             </Box>
           ) : (
@@ -5304,27 +5291,6 @@ export default function DashboardClient() {
                       </IconButton>
                     </Tooltip>
                   </Box>
-                  {/* Tarifas de referencia: marítimo (USD/m³) y aéreo (USD/kg) */}
-                  {refRates && (
-                    <Box sx={{
-                      flex: 1,
-                      p: 1.5,
-                      bgcolor: 'rgba(255,255,255,0.05)',
-                      borderRadius: 2,
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.4,
-                    }}>
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        Tarifas de referencia
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
-                        🚢 ${refRates.maritimo.toFixed(0)} USD/m³
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: 'white', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
-                        ✈️ ${refRates.aereo.toFixed(2)} USD/kg
-                      </Typography>
-                    </Box>
-                  )}
                 </Box>
               </Grid>
             </Grid>
@@ -5627,9 +5593,39 @@ export default function DashboardClient() {
               />
             </Tabs>
 
-{/* X-Pay solo disponible para clientes con asesor asignado */}
-{!!advisorInfo && (
-<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+{/* Tarifas de referencia (todos) + TC/botón X-Pay (solo con asesor asignado) */}
+<Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            {refRates && (
+              <Box sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1, alignItems: 'flex-end' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                  🚢 Marítimo
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 800, color: '#0F172A', whiteSpace: 'nowrap', lineHeight: 1.1, fontSize: '0.82rem' }}>
+                  ${refRates.maritimo.toFixed(0)}/m³
+                </Typography>
+              </Box>
+            )}
+            {refRates && (
+              <Box sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1, alignItems: 'flex-end' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                  ✈️ Aéreo
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 800, color: '#0F172A', whiteSpace: 'nowrap', lineHeight: 1.1, fontSize: '0.82rem' }}>
+                  ${refRates.aereo.toFixed(2)}/kg
+                </Typography>
+              </Box>
+            )}
+            {!!advisorInfo && xpayInfo && (
+              <Box sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1, alignItems: 'flex-end' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                  TC X-Pay
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 800, color: ORANGE, whiteSpace: 'nowrap', lineHeight: 1.1, fontSize: '0.82rem' }}>
+                  ${xpayInfo.tc.toFixed(2)}
+                </Typography>
+              </Box>
+            )}
+            {!!advisorInfo && (
 <Tooltip title={!paymentsEnabled ? 'Función temporalmente no disponible' : ''} disableHoverListener={paymentsEnabled}>
               <span>
             <Button
@@ -5683,18 +5679,8 @@ export default function DashboardClient() {
             </Button>
               </span>
             </Tooltip>
-            {xpayInfo && (
-              <Box sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
-                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.58rem', textTransform: 'uppercase', letterSpacing: 0.3 }}>
-                  TC X-Pay
-                </Typography>
-                <Typography variant="body2" sx={{ fontWeight: 800, color: ORANGE, whiteSpace: 'nowrap', lineHeight: 1.1 }}>
-                  ${xpayInfo.tc.toFixed(2)}
-                </Typography>
-              </Box>
             )}
             </Box>
-            )}
           </Box>
         </Paper>
       )}
