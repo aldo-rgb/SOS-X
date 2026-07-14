@@ -409,6 +409,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
       pendiente: { color: 'warning', icon: <PendingIcon fontSize="small" /> },
       processing: { color: 'info', icon: <CurrencyExchangeIcon fontSize="small" /> },
       en_proceso: { color: 'info', icon: <CurrencyExchangeIcon fontSize="small" /> },
+      solicitada: { color: 'info', icon: <PaymentsIcon fontSize="small" /> },
       paid: { color: 'info', icon: <PaymentsIcon fontSize="small" /> },
       enviado: { color: 'info', icon: <PaymentsIcon fontSize="small" /> },
       emitida: { color: 'info', icon: <CheckCircleIcon fontSize="small" /> },
@@ -873,6 +874,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
               >
                 <MenuItem value="all">Todos</MenuItem>
                 <MenuItem value="pendiente">Pendientes</MenuItem>
+                <MenuItem value="solicitada">Solicitadas</MenuItem>
                 <MenuItem value="en_proceso">En Proceso</MenuItem>
                 <MenuItem value="completado">Completados</MenuItem>
                 <MenuItem value="rechazado">Rechazados</MenuItem>

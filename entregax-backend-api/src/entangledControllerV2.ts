@@ -1843,6 +1843,27 @@ export const webhookPagoProveedorV2 = async (
     const cuenta = detalles.cuenta_destino || null;
     const estatus = String(payload.estatus || detalles.estatus || 'completado').toLowerCase();
 
+    // 🆕 Señal "solicitada" (nuevo evento de Entangled sobre el MISMO webhook):
+    // la operación ya fue APROBADA y entró a proceso de pago — paso previo a la
+    // confirmación de pago a proveedor. Solo reflejamos el estatus global; NO
+    // tocamos los datos de pago al proveedor ni marcamos proveedor_pagado_at.
+    // No degrada estados terminales (completado/cancelado/rechazado).
+    if (estatus === 'solicitada' || String(evento).toLowerCase() === 'solicitada') {
+      await pool.query(
+        `UPDATE entangled_payment_requests
+            SET estatus_global = CASE
+                  WHEN estatus_global IN ('completado', 'cancelado', 'rechazado') THEN estatus_global
+                  ELSE 'solicitada'
+                END,
+                last_webhook_at = NOW(),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [requestId]
+      );
+      await logWebhook(transaccionId, evento, payload, requestId);
+      return res.status(200).json({ ok: true, estatus: 'solicitada' });
+    }
+
     // El estatus global se completa cuando:
     //  - servicio sin factura: con que llegue este webhook con estatus 'completado'
     //  - servicio con factura: cuando ADEMÁS factura ya está emitida
