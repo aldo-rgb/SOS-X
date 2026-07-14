@@ -53,6 +53,7 @@ interface MaritimeRoute {
     destination: string;
     estimated_days: number;
     is_active: boolean;
+    elp_enabled?: boolean;
     fcl_price_usd: number | null;
     effective_fcl_price: number;
     created_at: string;
@@ -67,6 +68,7 @@ interface RouteDialogData {
     email: string;
     fclPriceUsd: string;
     isActive: boolean;
+    elpEnabled: boolean;
 }
 
 export default function MaritimeRoutesPage() {
@@ -82,6 +84,7 @@ export default function MaritimeRoutesPage() {
         email: '',
         fclPriceUsd: '',
         isActive: true,
+        elpEnabled: false,
     });
     const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; route: MaritimeRoute | null }>({
         open: false,
@@ -125,6 +128,7 @@ export default function MaritimeRoutesPage() {
             email: '',
             fclPriceUsd: '',
             isActive: true,
+            elpEnabled: false,
         });
     };
 
@@ -138,6 +142,7 @@ export default function MaritimeRoutesPage() {
             email: route.email || '',
             fclPriceUsd: route.fcl_price_usd?.toString() || '',
             isActive: route.is_active,
+            elpEnabled: route.elp_enabled === true,
         });
     };
 
@@ -163,6 +168,7 @@ export default function MaritimeRoutesPage() {
                     email: dialogData.email.trim() || null,
                     fclPriceUsd: dialogData.fclPriceUsd ? parseFloat(dialogData.fclPriceUsd) : null,
                     destination: 'México', // Default
+                    elpEnabled: dialogData.elpEnabled,
                 }
                 : {
                     code: dialogData.code.toUpperCase(),
@@ -170,6 +176,7 @@ export default function MaritimeRoutesPage() {
                     email: dialogData.email.trim() || null,
                     fclPriceUsd: dialogData.fclPriceUsd ? parseFloat(dialogData.fclPriceUsd) : null,
                     isActive: dialogData.isActive,
+                    elpEnabled: dialogData.elpEnabled,
                 };
 
             const res = await fetch(url, {
@@ -370,14 +377,19 @@ export default function MaritimeRoutesPage() {
                                             </Box>
                                         </TableCell>
                                         <TableCell align="center">
-                                            <Chip
-                                                icon={route.is_active ? <CheckCircleIcon /> : <CancelIcon />}
-                                                label={route.is_active ? t('routes.active') : t('routes.inactive')}
-                                                color={route.is_active ? 'success' : 'default'}
-                                                size="small"
-                                                onClick={() => handleToggleActive(route)}
-                                                sx={{ cursor: 'pointer' }}
-                                            />
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                                                <Chip
+                                                    icon={route.is_active ? <CheckCircleIcon /> : <CancelIcon />}
+                                                    label={route.is_active ? t('routes.active') : t('routes.inactive')}
+                                                    color={route.is_active ? 'success' : 'default'}
+                                                    size="small"
+                                                    onClick={() => handleToggleActive(route)}
+                                                    sx={{ cursor: 'pointer' }}
+                                                />
+                                                {route.elp_enabled && (
+                                                    <Chip label="🌉 API ELP" size="small" sx={{ bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700, fontSize: 10 }} />
+                                                )}
+                                            </Box>
                                         </TableCell>
                                         <TableCell align="center">
                                             <Tooltip title={t('routes.edit')}>
@@ -456,6 +468,20 @@ export default function MaritimeRoutesPage() {
                                 label={t('routes.routeActive')}
                             />
                         )}
+                        <FormControlLabel
+                            control={
+                                <Switch
+                                    checked={dialogData.elpEnabled}
+                                    onChange={(e) => setDialogData({ ...dialogData, elpEnabled: e.target.checked })}
+                                    color="secondary"
+                                />
+                            }
+                            label="🌉 Comunicar con API ELP"
+                        />
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: -2 }}>
+                            Si está activo, los contenedores de esta ruta se comparten con el proveedor ELP
+                            (trámite/CBP) y se le notifica por correo al registrarlos.
+                        </Typography>
                     </Box>
                 </DialogContent>
                 <DialogActions sx={{ p: 2 }}>

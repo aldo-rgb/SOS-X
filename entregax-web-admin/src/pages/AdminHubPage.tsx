@@ -58,6 +58,7 @@ import SupplierPaymentsPage from './SupplierPaymentsPage';
 import InboundEmailsPage from './InboundEmailsPage';
 import InboundEmailsAirPage from './InboundEmailsAirPage';
 import MaritimeApiPage from './MaritimeApiPage';
+import ElpApiPage from './ElpApiPage';
 import AirApiPage from './AirApiPage';
 import MaritimeRoutesPage from './MaritimeRoutesPage';
 import AirRoutesPage from './AirRoutesPage';
@@ -149,6 +150,7 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     inbound_emails: <EmailIcon />,
     inbound_emails_air: <EmailIcon />,
     maritime_api: <ApiIcon />,
+    elp_api: <ApiIcon />,
     air_api: <ApiIcon />,
     routes: <RouteIcon />,
     air_routes: <FlightIcon />,
@@ -192,6 +194,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'fcl_management', status: 'active' },
         { key: 'inbound_emails', status: 'active' },
         { key: 'maritime_api', status: 'active' },
+        { key: 'elp_api', status: 'active' },
         { key: 'anticipos', status: 'active' },
         { key: 'transporte_control', status: 'active' },
         { key: 'demora_control', status: 'active' },
@@ -805,6 +808,13 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         if (selectedModule === 'maritime_api' && selectedService === 'china_sea') {
             return (
                 <MaritimeApiPage onBack={() => setSelectedModule(null)} />
+            );
+        }
+
+        // Panel API ELP (elp_api) - solo china_sea
+        if (selectedModule === 'elp_api' && selectedService === 'china_sea') {
+            return (
+                <ElpApiPage onBack={() => setSelectedModule(null)} />
             );
         }
 

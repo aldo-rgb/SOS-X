@@ -697,6 +697,7 @@
       "inbound_emails_air": "空运邮件",
       "air_routes": "空运路线",
       "maritime_api": "中国海运API",
+      "elp_api": "ELP API",
       "air_api": "中国空运API",
       "routes": "路线",
       "last_mile": "Skydropx",

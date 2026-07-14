@@ -1529,12 +1529,12 @@ export const getMaritimeRoutes = async (req: Request, res: Response): Promise<an
  */
 export const createMaritimeRoute = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { name, code, origin, waypoints, destination, estimatedDays, email, fclPriceUsd } = req.body;
+        const { name, code, origin, waypoints, destination, estimatedDays, email, fclPriceUsd, elpEnabled } = req.body;
 
         if (!name || !code) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Se requiere nombre y código de ruta' 
+            return res.status(400).json({
+                success: false,
+                error: 'Se requiere nombre y código de ruta'
             });
         }
 
@@ -1552,9 +1552,9 @@ export const createMaritimeRoute = async (req: Request, res: Response): Promise<
         }
 
         const result = await pool.query(`
-            INSERT INTO maritime_routes 
-            (name, code, origin, waypoints, destination, estimated_days, is_active, email, fcl_price_usd)
-            VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)
+            INSERT INTO maritime_routes
+            (name, code, origin, waypoints, destination, estimated_days, is_active, email, fcl_price_usd, elp_enabled)
+            VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9)
             RETURNING *
         `, [
             name,
@@ -1564,7 +1564,8 @@ export const createMaritimeRoute = async (req: Request, res: Response): Promise<
             destination || 'México',
             estimatedDays || 45,
             email || null,
-            fclPriceUsd || null
+            fclPriceUsd || null,
+            elpEnabled === true
         ]);
 
         res.json({
@@ -1586,10 +1587,10 @@ export const createMaritimeRoute = async (req: Request, res: Response): Promise<
 export const updateMaritimeRoute = async (req: Request, res: Response): Promise<any> => {
     try {
         const { id } = req.params;
-        const { name, code, origin, waypoints, destination, estimatedDays, isActive, email, fclPriceUsd } = req.body;
+        const { name, code, origin, waypoints, destination, estimatedDays, isActive, email, fclPriceUsd, elpEnabled } = req.body;
 
         const result = await pool.query(`
-            UPDATE maritime_routes 
+            UPDATE maritime_routes
             SET name = COALESCE($1, name),
                 code = COALESCE($2, code),
                 origin = COALESCE($3, origin),
@@ -1599,10 +1600,11 @@ export const updateMaritimeRoute = async (req: Request, res: Response): Promise<
                 is_active = COALESCE($7, is_active),
                 email = COALESCE($8, email),
                 fcl_price_usd = $9,
+                elp_enabled = COALESCE($10, elp_enabled),
                 updated_at = NOW()
-            WHERE id = $10
+            WHERE id = $11
             RETURNING *
-        `, [name, code, origin, waypoints, destination, estimatedDays, isActive, email, fclPriceUsd, id]);
+        `, [name, code, origin, waypoints, destination, estimatedDays, isActive, email, fclPriceUsd, elpEnabled ?? null, id]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, error: 'Ruta no encontrada' });

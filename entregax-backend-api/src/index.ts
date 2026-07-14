@@ -941,6 +941,15 @@ import {
   bulkAssignPricing
 } from './maritimeApiController';
 import {
+  requireElpApiKey,
+  elpListContainers,
+  elpGetDocuments,
+  elpReceiveStatus,
+  elpAdminListContainers,
+  elpAdminStats,
+  elpAdminResendNotify,
+} from './elpController';
+import {
   importLegacyClients,
   getLegacyClients,
   getLegacyStats,
@@ -7487,6 +7496,16 @@ app.post('/api/maritime-api/routes', authenticateToken, requireMinLevel(ROLES.CO
 app.put('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateMaritimeRoute);
 app.delete('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteMaritimeRoute);
 
+// ========== API ELP — proveedor externo de trámite/CBP (USA) ==========
+// Endpoints del proveedor (auth por API key en header X-ELP-Api-Key, sin login)
+app.get('/api/elp/containers', requireElpApiKey, elpListContainers);
+app.get('/api/elp/containers/:ref/documents', requireElpApiKey, elpGetDocuments);
+app.post('/api/elp/containers/:ref/status', requireElpApiKey, elpReceiveStatus);
+// Endpoints admin (login normal) para la página "API ELP"
+app.get('/api/elp/admin/containers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminListContainers);
+app.get('/api/elp/admin/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminStats);
+app.post('/api/elp/admin/containers/:id/notify', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminResendNotify);
+
 // ========== TARIFAS FCL POR CLIENTE/RUTA ==========
 app.get('/api/admin/fcl-rates/base-price', authenticateToken, getFclBasePrice);
 app.get('/api/admin/fcl-rates/clients', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getFclClientRates);
@@ -13399,6 +13418,25 @@ async function ensureRequiredColumns() {
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS national_carrier TEXT;
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS delivery_notes TEXT;
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS national_shipping_cost NUMERIC(12,2) DEFAULT 0;
+
+      -- 🌉 API ELP — proveedor externo de trámite/CBP en USA
+      -- Flag por ruta: si la ruta se comunica con el proveedor ELP.
+      ALTER TABLE maritime_routes ADD COLUMN IF NOT EXISTS elp_enabled BOOLEAN DEFAULT false;
+      -- Marca de cuándo se notificó al proveedor ELP (para no reenviar el correo).
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS elp_notified_at TIMESTAMPTZ;
+      -- Auditoría de interacciones con el proveedor ELP (GET documentos, pulsos de status).
+      CREATE TABLE IF NOT EXISTS elp_event_logs (
+        id SERIAL PRIMARY KEY,
+        container_id INTEGER REFERENCES containers(id) ON DELETE SET NULL,
+        container_number TEXT,
+        direction TEXT NOT NULL,            -- 'inbound_status' | 'outbound_docs' | 'email_sent'
+        event TEXT,                         -- p.ej. status recibido, 'documents_fetched'
+        payload JSONB,
+        status_code INTEGER,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_elp_event_logs_container ON elp_event_logs(container_id);
+      CREATE INDEX IF NOT EXISTS idx_elp_event_logs_created_at ON elp_event_logs(created_at DESC);
     `);
     console.log('✅ [STARTUP] Columnas de paquetería nacional verificadas');
 

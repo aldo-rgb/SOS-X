@@ -17,6 +17,7 @@ import * as path from 'path';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 // S3 para almacenamiento de archivos grandes
 import { uploadToS3, isS3Configured, getSignedUrlForKey, signS3UrlIfNeeded } from './s3Service';
+import { maybeNotifyElpForContainer } from './elpController';
 
 // Lazy initialization - only create OpenAI client when API key exists
 let openaiInstance: OpenAI | null = null;
@@ -2492,8 +2493,13 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       WHERE id = $2
     `, [userId, id, finalData.blNumber, finalData.containerNumber, JSON.stringify(finalData)]);
 
-    res.json({ 
-      success: true, 
+    // 🌉 API ELP: si la ruta del contenedor está habilitada para ELP, notificar
+    // al proveedor (correo) para que haga GET de los documentos. Idempotente y
+    // no bloqueante — cualquier error se registra pero no falla la aprobación.
+    maybeNotifyElpForContainer(finalData.containerNumber, finalData.blNumber).catch(() => {});
+
+    res.json({
+      success: true,
       message: `${draft.document_type} aprobado y registrado correctamente`,
       documentType: draft.document_type
     });
