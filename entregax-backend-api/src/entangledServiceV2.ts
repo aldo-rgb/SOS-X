@@ -55,7 +55,7 @@ const authHeaders = (extra: Record<string, string> = {}): Record<string, string>
 // ---------------------------------------------------------------------------
 
 export type EntangledServicio = 'pago_con_factura' | 'pago_sin_factura';
-export type EntangledDivisa = 'USD' | 'RMB';
+export type EntangledDivisa = 'USD' | 'RMB' | 'MXN';
 
 export interface EntangledClienteFinalV2 {
   razon_social: string;

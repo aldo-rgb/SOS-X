@@ -193,8 +193,8 @@ export const createPaymentRequestV2 = async (
     return res.status(400).json({ error: 'monto_usd debe ser > 0' });
   }
   const divisa = String(body.divisa || 'USD').toUpperCase() as EntangledDivisa;
-  if (!['USD', 'RMB'].includes(divisa)) {
-    return res.status(400).json({ error: 'divisa debe ser USD o RMB' });
+  if (!['USD', 'RMB', 'MXN'].includes(divisa)) {
+    return res.status(400).json({ error: 'divisa debe ser USD, RMB o MXN' });
   }
   // TC que XPAY le cobra al cliente — requerido por ENTANGLED
   const tcClienteFinal = Number(body.tc_cliente_final);
@@ -443,7 +443,9 @@ export const createPaymentRequestV2 = async (
   //    (y detectar China en efectivo). Preferimos el país del beneficiario;
   //    si no viene, lo derivamos de la divisa (RMB→China, USD→Estados Unidos).
   const paisDestino = String((benefSnap as any)?.pais || '').trim()
-    || (String(divisa).toUpperCase() === 'RMB' ? 'China' : 'Estados Unidos');
+    || (String(divisa).toUpperCase() === 'RMB' ? 'China'
+        : String(divisa).toUpperCase() === 'MXN' ? 'México'
+        : 'Estados Unidos');
   if (benefSnap || benefNombre) {
     const notasObj: any = {
       proveedor_envio: {

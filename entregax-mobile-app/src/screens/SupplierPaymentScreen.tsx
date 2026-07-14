@@ -183,7 +183,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [conceptoPrice, setConceptoPrice] = useState<Record<string, number>>({});
   const [claveHistory, setClaveHistory] = useState<Array<{ clave: string; descripcion?: string | null; uses_count: number }>>([]);
   const [monto, setMonto] = useState('');
-  const [divisa, setDivisa] = useState<'USD' | 'RMB'>('USD');
+  const [divisa, setDivisa] = useState<'USD' | 'RMB' | 'MXN'>('USD');
+  // País de destino (igual que la web). Determina la divisa: China→USD/RMB,
+  // Estados Unidos→USD, México→MXN (pesos, sin conversión).
+  const [destCountry, setDestCountry] = useState<'CN' | 'US' | 'MX'>('CN');
   const [savedSuppliers, setSavedSuppliers] = useState<any[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | 'new'>('new');
   const [saveSupplier, setSaveSupplier] = useState(true);
@@ -283,7 +286,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   // Dashboard state
   const [viewMode, setViewMode] = useState<'dashboard' | 'wizard'>('dashboard');
   const [calcMonto, setCalcMonto] = useState('');
-  const [calcDivisa, setCalcDivisa] = useState<'USD' | 'RMB'>('USD');
+  const [calcDivisa, setCalcDivisa] = useState<'USD' | 'RMB' | 'MXN'>('USD');
+  // Cambiar país destino ajusta la divisa de la calculadora.
+  const onSelectDestCountry = (code: 'CN' | 'US' | 'MX') => {
+    setDestCountry(code);
+    if (code === 'MX') setCalcDivisa('MXN');
+    else if (code === 'US') setCalcDivisa('USD');
+    else if (calcDivisa === 'MXN') setCalcDivisa('USD'); // China: default USD, permite RMB
+  };
   const [chartTab, setChartTab] = useState<'usd' | 'rmb'>('usd');
   const [rateHistory] = useState<Array<{ t: number; usd: number; rmb: number }>>(seedRateHistory);
 
@@ -589,7 +599,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const quote = (() => {
     const m = parseFloat(monto);
     if (!pricing || !m || m <= 0) return null;
-    const tc = divisa === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd;
+    // 🇲🇽 MXN: pesos a pesos, TC = 1 (sin conversión).
+    const tc = divisa === 'MXN' ? 1 : divisa === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd;
     const base = m * tc;
     // Usar comisión de la config XPAY→Cliente final; fallback al % del proveedor
     const clientPct = clientCommissionCfg
@@ -743,6 +754,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const calcQuote = (() => {
     const m = parseFloat(calcMonto);
     if (!defaultProvider || !m || m <= 0) return null;
+    // 🇲🇽 México: pesos a pesos, sin conversión (TC = 1) ni comisión de cambio.
+    if (calcDivisa === 'MXN') {
+      return { tc: 1, total: m, divisa: calcDivisa };
+    }
     const tc = calcDivisa === 'RMB'
       ? Number(defaultProvider.tipo_cambio_rmb)
       : Number(defaultProvider.tipo_cambio_usd);
@@ -1576,7 +1591,21 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           )}
         </View>
 
-        <Text style={styles.label}>Monto a Enviar</Text>
+        {/* País de Destino (igual que la web): China / USA / México */}
+        <Text style={styles.label}>País de Destino</Text>
+        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+          {([['CN', '🇨🇳 China'], ['US', '🇺🇸 USA'], ['MX', '🇲🇽 México']] as const).map(([code, label]) => (
+            <TouchableOpacity
+              key={code}
+              style={[styles.amountSuffixBadge, { flex: 1, paddingVertical: 9 }, destCountry === code && { backgroundColor: ORANGE, borderColor: ORANGE }]}
+              onPress={() => onSelectDestCountry(code)}
+            >
+              <Text style={[styles.amountSuffixText, { fontSize: 11 }, destCountry === code && { color: '#fff' }]}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={styles.label}>Monto a Enviar{destCountry === 'MX' ? ' (MXN)' : ''}</Text>
         <View style={styles.amountRow}>
           <Text style={styles.amountDollar}>$</Text>
           <TextInput
@@ -1588,7 +1617,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             placeholderTextColor={TEXT_MUTED}
           />
           <View style={{ flexDirection: 'row', gap: 4, marginLeft: 6 }}>
-            {(['USD', 'RMB'] as const).map(d => (
+            {(destCountry === 'MX' ? (['MXN'] as const) : destCountry === 'US' ? (['USD'] as const) : (['USD', 'RMB'] as const)).map(d => (
               <TouchableOpacity
                 key={d}
                 style={[styles.amountSuffixBadge, calcDivisa === d && { backgroundColor: ORANGE, borderColor: ORANGE }]}
