@@ -944,6 +944,7 @@ import {
   requireElpApiKey,
   elpListContainers,
   elpGetDocuments,
+  elpDownloadZip,
   elpReceiveStatus,
   elpAdminListContainers,
   elpAdminStats,
@@ -7500,6 +7501,8 @@ app.delete('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(RO
 // Endpoints del proveedor (auth por API key en header X-ELP-Api-Key, sin login)
 app.get('/api/elp/containers', requireElpApiKey, elpListContainers);
 app.get('/api/elp/containers/:ref/documents', requireElpApiKey, elpGetDocuments);
+// Descarga ZIP pública (auth por token en la URL, para el link del correo)
+app.get('/api/elp/containers/:ref/documents.zip', elpDownloadZip);
 app.post('/api/elp/containers/:ref/status', requireElpApiKey, elpReceiveStatus);
 // Endpoints admin (login normal) para la página "API ELP"
 app.get('/api/elp/admin/containers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminListContainers);

@@ -13,6 +13,8 @@
  */
 import { Request, Response } from 'express';
 import crypto from 'crypto';
+import axios from 'axios';
+const archiver = require('archiver');
 import { pool } from './db';
 import { AuthRequest } from './authController';
 import { sendEmail } from './emailService';
@@ -24,6 +26,18 @@ const ELP_DOC_URL_TTL = 7 * 24 * 3600;
 
 const ELP_API_KEY = process.env.ELP_API_KEY || '';
 const ELP_NOTIFY_EMAIL = process.env.ELP_NOTIFY_EMAIL || 'aldocampos@entregax.com';
+// URL pública del backend para armar el link de descarga ZIP del correo.
+const ELP_PUBLIC_BASE_URL = (process.env.API_URL || 'https://api.entregax.app').replace(/\/$/, '');
+
+// Token de descarga público por contenedor (HMAC del número con la API key).
+// Permite un link clickeable desde el correo sin exponer la API key ni requerir header.
+const elpDownloadToken = (containerNumber: string): string =>
+  crypto.createHmac('sha256', ELP_API_KEY || 'elp-fallback-secret')
+    .update(String(containerNumber).toUpperCase())
+    .digest('hex');
+
+const elpZipUrl = (containerNumber: string): string =>
+  `${ELP_PUBLIC_BASE_URL}/api/elp/containers/${encodeURIComponent(containerNumber)}/documents.zip?token=${elpDownloadToken(containerNumber)}`;
 
 // Estados que el proveedor ELP puede reportar (subconjunto del ciclo del contenedor).
 const ELP_ALLOWED_STATUSES = ['docs_received', 'procedure_requested', 'cbp_signature_received', 'arrived_port'];
@@ -147,12 +161,13 @@ export const maybeNotifyElpForContainer = async (containerNumber?: string | null
     if (row.elp_notified_at) return;         // ya notificado
 
     const docs = buildDocuments(row);
-    const subject = `[ELP] Contenedor recibido: ${row.container_number} — realizar GET`;
+    const zipUrl = elpZipUrl(row.container_number);
+    const subject = `[ELP] Contenedor recibido: ${row.container_number} — descargar documentos`;
     const html = `
       <div style="font-family:Arial,sans-serif;font-size:14px;color:#111">
         <h2 style="color:#3949AB;margin-bottom:4px">Nuevo contenedor listo para trámite (ELP)</h2>
-        <p>Se registró un contenedor en una ruta habilitada para ELP. Por favor realiza un GET
-        en tu sistema para obtener las URLs de los documentos.</p>
+        <p>Se registró un contenedor en una ruta habilitada para ELP. Descarga todos los
+        documentos en un archivo ZIP con el siguiente botón.</p>
         <table style="border-collapse:collapse">
           <tr><td style="padding:2px 8px"><b>Contenedor</b></td><td style="padding:2px 8px">${row.container_number || '—'}</td></tr>
           <tr><td style="padding:2px 8px"><b>BL</b></td><td style="padding:2px 8px">${row.bl_number || '—'}</td></tr>
@@ -160,10 +175,12 @@ export const maybeNotifyElpForContainer = async (containerNumber?: string | null
           <tr><td style="padding:2px 8px"><b>Ruta</b></td><td style="padding:2px 8px">${row.route_code || '—'}</td></tr>
           <tr><td style="padding:2px 8px"><b>Week</b></td><td style="padding:2px 8px">${row.week_number || '—'}</td></tr>
         </table>
-        <p style="margin-top:12px"><b>Endpoint:</b><br/>
-        <code>GET /api/elp/containers/${encodeURIComponent(row.container_number)}/documents</code><br/>
-        (header <code>X-ELP-Api-Key</code>)</p>
-        <p style="color:#666;font-size:12px">Documentos disponibles:
+        <p style="margin:18px 0">
+          <a href="${zipUrl}" style="background:#3949AB;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:bold;display:inline-block">
+            ⬇️ Descargar todos los documentos (ZIP)
+          </a>
+        </p>
+        <p style="color:#666;font-size:12px">Documentos incluidos:
           ${docs.bl ? 'BL ' : ''}${docs.telex_isf ? 'Telex/ISF ' : ''}${docs.isf_word ? 'ISF-Word ' : ''}${docs.invoice ? 'Invoice ' : ''}${docs.packing_list ? 'Packing ' : ''}
         </p>
       </div>`;
@@ -222,10 +239,95 @@ export const elpGetDocuments = async (req: Request, res: Response): Promise<any>
       route_code: row.route_code,
       status: row.status,
       documents,
+      zip_url: elpZipUrl(row.container_number),
     });
   } catch (e: any) {
     console.error('[ELP] elpGetDocuments error:', e.message);
     res.status(500).json({ error: e.message });
+  }
+};
+
+// Descarga los bytes de un documento (S3 firmado, data-url base64, o http directo).
+const fetchDocBytes = async (url: string | null): Promise<Buffer | null> => {
+  try {
+    if (!url) return null;
+    if (url.startsWith('data:')) {
+      const m = url.match(/^data:([^;]+);base64,(.+)$/);
+      if (!m || !m[2]) return null;
+      return Buffer.from(m[2], 'base64');
+    }
+    const signed = (await signS3UrlIfNeeded(url, ELP_DOC_URL_TTL)) || url;
+    const resp = await axios.get(signed, { responseType: 'arraybuffer', timeout: 30000 });
+    return Buffer.from(resp.data);
+  } catch (e: any) {
+    console.error('[ELP] fetchDocBytes error:', e.message);
+    return null;
+  }
+};
+
+const extFromUrl = (url: string, fallback: string): string => {
+  try {
+    const path = new URL(url).pathname;
+    const m = path.match(/\.([a-zA-Z0-9]{2,5})$/);
+    return m && m[1] ? m[1].toLowerCase() : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+// GET /api/elp/containers/:ref/documents.zip?token=... — descarga pública (link del correo)
+// Auth por token en la URL (HMAC del número de contenedor con la API key), sin header.
+export const elpDownloadZip = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const ref = String(req.params.ref || '');
+    const token = String(req.query.token || '');
+    const expected = elpDownloadToken(ref);
+    const a = Buffer.from(token);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      return res.status(401).send('Token de descarga inválido');
+    }
+    const row = await getContainerRowByNumber(ref);
+    if (!row) return res.status(404).send(`Contenedor no encontrado: ${ref}`);
+    if (!row.elp_enabled) return res.status(403).send('La ruta de este contenedor no está habilitada para ELP');
+
+    const docs = buildDocuments(row);
+    const wanted: { url: string | null; name: string; fallbackExt: string }[] = [
+      { url: docs.bl, name: 'BL', fallbackExt: 'pdf' },
+      { url: docs.telex_isf, name: 'TELEX_ISF', fallbackExt: 'pdf' },
+      { url: docs.isf_word, name: 'ISF', fallbackExt: 'docx' },
+      { url: docs.invoice, name: 'INVOICE', fallbackExt: 'pdf' },
+      { url: docs.packing_list, name: 'PACKING', fallbackExt: 'xlsx' },
+    ];
+    // Descargar todos los bytes ANTES de empezar el stream (para poder responder 404 si no hay ninguno).
+    const parts = await Promise.all(
+      wanted.filter((w) => w.url).map(async (w) => ({
+        name: `${row.container_number}_${w.name}.${extFromUrl(w.url as string, w.fallbackExt)}`,
+        bytes: await fetchDocBytes(w.url),
+      }))
+    );
+    const available = parts.filter((p) => p.bytes && p.bytes.length > 0);
+    if (available.length === 0) {
+      await logElpEvent(row.id, row.container_number, 'outbound_docs', 'zip_empty', null, 404);
+      return res.status(404).send('No hay documentos disponibles para este contenedor');
+    }
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${row.container_number}_documentos.zip"`);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err: any) => {
+      console.error('[ELP] archiver error:', err.message);
+      try { res.status(500).end(); } catch { /* noop */ }
+    });
+    archive.pipe(res);
+    for (const p of available) {
+      archive.append(p.bytes as Buffer, { name: p.name });
+    }
+    await archive.finalize();
+    await logElpEvent(row.id, row.container_number, 'outbound_docs', 'zip_downloaded', { files: available.length }, 200);
+  } catch (e: any) {
+    console.error('[ELP] elpDownloadZip error:', e.message);
+    if (!res.headersSent) res.status(500).send('Error generando el ZIP');
   }
 };
 
@@ -303,6 +405,7 @@ export const elpAdminListContainers = async (_req: AuthRequest, res: Response): 
         elp_notified_at: row.elp_notified_at,
         doc_count: docCount,
         documents,
+        zip_url: elpZipUrl(row.container_number),
       };
     }));
     res.json({ ok: true, count: containers.length, containers });

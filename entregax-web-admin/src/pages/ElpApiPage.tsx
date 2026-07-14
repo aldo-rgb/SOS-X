@@ -28,6 +28,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EmailIcon from '@mui/icons-material/Email';
 import DescriptionIcon from '@mui/icons-material/Description';
+import DownloadIcon from '@mui/icons-material/Download';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -52,6 +53,7 @@ interface ElpContainer {
   elp_notified_at: string | null;
   doc_count: number;
   documents: ElpDocuments;
+  zip_url: string;
 }
 
 interface ElpStats {
@@ -239,6 +241,18 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
                       )}
                     </TableCell>
                     <TableCell>
+                      <Tooltip title="Descargar todos los documentos (ZIP)">
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="secondary"
+                            disabled={c.doc_count === 0}
+                            onClick={() => window.open(c.zip_url, '_blank')}
+                          >
+                            <DownloadIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                       <Tooltip title="Reenviar correo al proveedor ELP">
                         <IconButton size="small" color="primary" onClick={() => handleResend(c)}>
                           <EmailIcon fontSize="small" />
