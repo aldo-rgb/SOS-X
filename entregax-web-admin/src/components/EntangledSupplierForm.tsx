@@ -48,7 +48,8 @@ export const EMPTY_SUPPLIER: SupplierFormData = {
   notes: '',
 };
 
-const DIVISAS = ['RMB', 'USD', 'EUR', 'JPY', 'KRW', 'GBP'];
+// Divisas operativas: Pesos (MXN), RMB (China) y USD. Se quitaron EUR/JPY/KRW/GBP.
+const DIVISAS = ['MXN', 'RMB', 'USD'];
 
 const ORANGE = '#F05A28';
 
