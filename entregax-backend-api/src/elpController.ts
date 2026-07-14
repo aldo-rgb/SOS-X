@@ -50,6 +50,23 @@ const ELP_STATUS_LABELS: Record<string, string> = {
 
 export const isElpConfigured = (): boolean => Boolean(ELP_API_KEY);
 
+// Destinatarios del correo de aviso: primero la config editable (elp_settings),
+// si está vacía se usa el default de la variable de entorno.
+const getElpNotifyEmails = async (): Promise<string[]> => {
+  try {
+    const r = await pool.query('SELECT notify_emails FROM elp_settings WHERE id = 1');
+    const raw = r.rows[0]?.notify_emails;
+    const list = String(raw || '')
+      .split(/[,;\s]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.includes('@'));
+    if (list.length > 0) return list;
+  } catch (e: any) {
+    console.error('[ELP] getElpNotifyEmails error:', e.message);
+  }
+  return [ELP_NOTIFY_EMAIL];
+};
+
 // ---------------------------------------------------------------------------
 // Auth del proveedor: header X-ELP-Api-Key (comparación timing-safe)
 // ---------------------------------------------------------------------------
@@ -184,11 +201,13 @@ export const maybeNotifyElpForContainer = async (containerNumber?: string | null
           ${docs.bl ? 'BL ' : ''}${docs.telex_isf ? 'Telex/ISF ' : ''}${docs.isf_word ? 'ISF-Word ' : ''}${docs.invoice ? 'Invoice ' : ''}${docs.packing_list ? 'Packing ' : ''}
         </p>
       </div>`;
-    const result = await sendEmail(ELP_NOTIFY_EMAIL, subject, html);
+    const recipients = await getElpNotifyEmails();
+    const results = await Promise.all(recipients.map((to) => sendEmail(to, subject, html)));
+    const anyOk = results.some((r) => r.ok);
 
     await pool.query('UPDATE containers SET elp_notified_at = NOW() WHERE id = $1', [row.id]);
-    await logElpEvent(row.id, row.container_number, 'email_sent', result.ok ? 'notify_ok' : 'notify_fail', { to: ELP_NOTIFY_EMAIL, messageId: result.messageId, error: result.error }, result.ok ? 200 : 500);
-    console.log(`📧 [ELP] Notificación enviada a ${ELP_NOTIFY_EMAIL} por contenedor ${row.container_number} (ok=${result.ok})`);
+    await logElpEvent(row.id, row.container_number, 'email_sent', anyOk ? 'notify_ok' : 'notify_fail', { to: recipients, errors: results.map((r) => r.error).filter(Boolean) }, anyOk ? 200 : 500);
+    console.log(`📧 [ELP] Notificación enviada a [${recipients.join(', ')}] por contenedor ${row.container_number} (ok=${anyOk})`);
   } catch (e: any) {
     console.error('[ELP] maybeNotifyElpForContainer error:', e.message);
   }
@@ -447,6 +466,45 @@ export const elpAdminResendNotify = async (req: AuthRequest, res: Response): Pro
     res.json({ ok: true, message: 'Notificación reenviada al proveedor ELP' });
   } catch (e: any) {
     console.error('[ELP] elpAdminResendNotify error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+};
+
+// GET /api/elp/admin/settings — destinatarios del correo de aviso
+export const elpAdminGetSettings = async (_req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const emails = await getElpNotifyEmails();
+    const r = await pool.query('SELECT notify_emails FROM elp_settings WHERE id = 1');
+    const isCustom = !!(r.rows[0]?.notify_emails && String(r.rows[0].notify_emails).trim());
+    res.json({ ok: true, notify_emails: emails, is_custom: isCustom, default_email: ELP_NOTIFY_EMAIL });
+  } catch (e: any) {
+    console.error('[ELP] elpAdminGetSettings error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+};
+
+// PUT /api/elp/admin/settings — actualizar destinatarios (array o coma-separado)
+export const elpAdminUpdateSettings = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const input = req.body?.notify_emails;
+    const list: string[] = Array.isArray(input)
+      ? input
+      : String(input || '').split(/[,;\s]+/);
+    const clean = list.map((s) => String(s).trim()).filter((s) => s.includes('@'));
+    // Validación básica de formato de correo
+    const invalid = clean.filter((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (invalid.length > 0) {
+      return res.status(400).json({ error: `Correo(s) inválido(s): ${invalid.join(', ')}` });
+    }
+    const value = clean.join(', ') || null;
+    await pool.query(
+      `INSERT INTO elp_settings (id, notify_emails, updated_at) VALUES (1, $1, NOW())
+       ON CONFLICT (id) DO UPDATE SET notify_emails = EXCLUDED.notify_emails, updated_at = NOW()`,
+      [value]
+    );
+    res.json({ ok: true, notify_emails: clean.length ? clean : [ELP_NOTIFY_EMAIL], is_custom: clean.length > 0 });
+  } catch (e: any) {
+    console.error('[ELP] elpAdminUpdateSettings error:', e.message);
     res.status(500).json({ error: e.message });
   }
 };

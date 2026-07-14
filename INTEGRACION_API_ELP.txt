@@ -1,0 +1,346 @@
+===============================================================================
+ MANUAL DE INTEGRACION - API ELP (EntregaX)
+===============================================================================
+ Version:      1.0
+ Actualizado:  2026-07-14
+ Contacto:     aldocampos@entregax.com
+===============================================================================
+
+
+1. INTRODUCCION
+-------------------------------------------------------------------------------
+Esta API permite al proveedor ELP integrarse con la plataforma de EntregaX
+para:
+
+  1) Consultar los contenedores maritimos asignados a rutas habilitadas
+     para ELP.
+  2) Descargar los documentos de cada contenedor (BL, Telex/ISF, ISF Word,
+     Invoice, Packing List).
+  3) Reportar el avance del tramite enviando "pulsos" de estatus a EntregaX.
+
+Flujo tipico:
+
+  1. Se registra un contenedor en EntregaX (ruta ELP)
+         |
+         v
+  2. EntregaX envia un correo de aviso  --->  ELP recibe la notificacion
+         |
+         v
+  3. ELP hace GET de los documentos  --->  (o descarga el ZIP)
+         |
+         v
+  4. ELP realiza el tramite y envia pulsos de estatus (POST) a EntregaX:
+     docs_received -> procedure_requested -> cbp_signature_received -> arrived_port
+
+
+2. DATOS DE CONEXION
+-------------------------------------------------------------------------------
+  URL base (produccion) : https://api.entregax.app
+  Autenticacion         : Header  X-ELP-Api-Key
+  API Key               : Se entrega por canal seguro, por separado de este
+                          documento.
+  Formato               : JSON (UTF-8)
+  Identificador         : Numero de contenedor (container_number),
+                          ej. ONEU4343977
+
+  IMPORTANTE: El identificador que se usa en todas las URLs ({container}) es
+  el NUMERO DE CONTENEDOR, no el BL ni la referencia interna.
+
+
+3. AUTENTICACION
+-------------------------------------------------------------------------------
+Todas las peticiones (excepto la descarga ZIP por link, ver seccion 7) deben
+incluir el header:
+
+  X-ELP-Api-Key: TU_API_KEY_AQUI
+
+Si el header falta o es invalido, la API responde HTTP 401:
+
+  { "error": "API key invalida" }
+
+
+4. ENDPOINT: LISTAR CONTENEDORES
+-------------------------------------------------------------------------------
+Devuelve todos los contenedores en rutas habilitadas para ELP.
+
+REQUEST:
+  GET /api/elp/containers
+  X-ELP-Api-Key: TU_API_KEY_AQUI
+
+RESPONSE 200 OK:
+  {
+    "ok": true,
+    "count": 2,
+    "containers": [
+      {
+        "container_number": "ONEU4343977",
+        "bl_number": "ONEYNB6JBD537800",
+        "reference_code": "EPG26-0137",
+        "status": "in_transit",
+        "route_code": "CHN-LAX-ELP-MXC",
+        "week_number": "S2690",
+        "eta": "2026-07-28T00:00:00.000Z",
+        "elp_notified_at": "2026-07-14T21:06:36.859Z"
+      }
+    ]
+  }
+
+CAMPOS:
+  container_number  Identificador que se usa en las demas llamadas
+  bl_number         Numero de Bill of Lading
+  reference_code    Referencia interna de EntregaX (informativa)
+  status            Estatus actual del contenedor (ver seccion 8)
+  route_code        Codigo de la ruta
+  week_number       Semana de embarque
+  eta               Fecha estimada de arribo (ISO 8601, UTC)
+  elp_notified_at   Fecha/hora en que se notifico a ELP (o null)
+
+
+5. ENDPOINT: OBTENER DOCUMENTOS DE UN CONTENEDOR
+-------------------------------------------------------------------------------
+Devuelve las URLs de descarga de los documentos del contenedor.
+
+REQUEST:
+  GET /api/elp/containers/{container}/documents
+  X-ELP-Api-Key: TU_API_KEY_AQUI
+
+  Ejemplo: GET /api/elp/containers/ONEU4343977/documents
+
+RESPONSE 200 OK:
+  {
+    "ok": true,
+    "container_number": "ONEU4343977",
+    "bl_number": "ONEYNB6JBD537800",
+    "reference_code": "EPG26-0137",
+    "route_code": "CHN-LAX-ELP-MXC",
+    "status": "in_transit",
+    "documents": {
+      "bl":           "https://entregax-uploads.s3...amazonaws.com/.../bl.pdf?X-Amz-Signature=...",
+      "telex_isf":    "https://entregax-uploads.s3...amazonaws.com/.../telex.pdf?X-Amz-Signature=...",
+      "isf_word":     "https://entregax-uploads.s3...amazonaws.com/.../isf.docx?X-Amz-Signature=...",
+      "invoice":      "https://entregax-uploads.s3...amazonaws.com/.../invoice.pdf?X-Amz-Signature=...",
+      "packing_list": "https://entregax-uploads.s3...amazonaws.com/.../packing.xlsx?X-Amz-Signature=..."
+    },
+    "zip_url": "https://api.entregax.app/api/elp/containers/ONEU4343977/zip?token=..."
+  }
+
+DOCUMENTOS:
+  bl            Bill of Lading (PDF)
+  telex_isf     Telex Release / ISF (PDF o imagen)
+  isf_word      ISF en Word (.doc/.docx)
+  invoice       Invoice (PDF)
+  packing_list  Packing List (Excel)
+  zip_url       Link para descargar TODOS los documentos en un ZIP (seccion 7)
+
+NOTAS SOBRE LAS URLs DE DOCUMENTOS:
+  - Son URLs firmadas de Amazon S3, VALIDAS POR 7 DIAS. Si expiran, vuelve a
+    llamar este endpoint para obtener URLs nuevas.
+  - Un documento que no fue subido llega como null. Descarga solo los que no
+    sean null.
+  - Descarga los archivos con un simple GET (sin headers adicionales); la
+    firma va en la URL.
+
+
+6. ENDPOINT: ENVIAR PULSO DE ESTATUS   *** DONDE ELP REPORTA EL AVANCE ***
+-------------------------------------------------------------------------------
+Este es el endpoint donde ELP debe mandar los pulsos de informacion de estatus.
+
+REQUEST:
+  POST /api/elp/containers/{container}/status
+  X-ELP-Api-Key: TU_API_KEY_AQUI
+  Content-Type: application/json
+
+  {
+    "status": "docs_received",
+    "notes": "Documentos recibidos y validados"     (opcional)
+  }
+
+  Ejemplo: POST /api/elp/containers/ONEU4343977/status
+
+RESPONSE 200 OK:
+  {
+    "ok": true,
+    "container_number": "ONEU4343977",
+    "previous_status": "in_transit",
+    "new_status": "docs_received",
+    "label": "Documentos Recibidos"
+  }
+
+VALORES DE "status" PERMITIDOS (los 4 estatus que maneja ELP):
+
+  status (enviar este valor)   Significado
+  --------------------------   -------------------------------------------------
+  docs_received                Documentos Recibidos - ELP recibio y valido la
+                               documentacion
+  procedure_requested          Tramite Solicitado - se inicio el tramite aduanal
+  cbp_signature_received       Firma Electronica CBP Recibida - se recibio la
+                               firma electronica de CBP
+  arrived_port                 Arribo a Puerto - el contenedor arribo al puerto
+
+  - El campo "notes" es OPCIONAL: texto libre que queda registrado en el
+    historial del contenedor.
+  - Se pueden enviar los pulsos en el orden en que ocurran; cada pulso
+    actualiza el estatus del contenedor en EntregaX.
+
+Si se envia un "status" no permitido -> 400 Bad Request:
+  {
+    "error": "Estado invalido para ELP",
+    "allowed": ["docs_received", "procedure_requested",
+                "cbp_signature_received", "arrived_port"]
+  }
+
+
+7. DESCARGA DE TODOS LOS DOCUMENTOS EN ZIP
+-------------------------------------------------------------------------------
+Dos formas de obtener un ZIP con todos los documentos:
+
+  a) Usando el "zip_url" que devuelve el endpoint de documentos (seccion 5).
+     Es un link publico con token, se descarga con un GET directo (sin header):
+
+       GET https://api.entregax.app/api/elp/containers/ONEU4343977/zip?token=...
+
+  b) El mismo link llega en el correo de aviso (seccion 9), en el boton
+     "Descargar todos los documentos (ZIP)".
+
+La respuesta es un archivo application/zip ({container}_documentos.zip) con los
+documentos disponibles.
+
+
+8. CICLO DE VIDA DEL ESTATUS DEL CONTENEDOR (CONTEXTO)
+-------------------------------------------------------------------------------
+El contenedor pasa por varios estatus en EntregaX. ELP es responsable de
+reportar los 4 marcados con (*):
+
+  Orden  status                    Etiqueta                          Responsable
+  -----  ------------------------  --------------------------------  -----------
+    1    received_origin           Recibido en China                 EntregaX
+    2    consolidated              Contenedor cerrado                EntregaX
+    3    in_transit                Ya Zarpo                          EntregaX
+    4    docs_received         (*) Documentos Recibidos              ELP
+    5    procedure_requested   (*) Tramite Solicitado                ELP
+    6    cbp_signature_received(*) Firma Electronica CBP Recibida    ELP
+    7    arrived_port          (*) Arribo a Puerto                   ELP
+    8    customs_cleared           Liberado                          EntregaX
+    9    in_transit_clientfinal    En Ruta a CEDIS                   EntregaX
+   10    delivered                 Entregado                         EntregaX
+
+
+9. NOTIFICACION POR CORREO (AVISO DE NUEVO CONTENEDOR)
+-------------------------------------------------------------------------------
+Cuando se registra un contenedor en una ruta habilitada para ELP, EntregaX
+envia automaticamente un correo de aviso con:
+
+  - Datos del contenedor (numero, BL, referencia, ruta, semana).
+  - Un boton "Descargar todos los documentos (ZIP)".
+
+Al recibir ese correo, ELP puede:
+  1) Descargar el ZIP directamente desde el boton, o
+  2) Llamar GET /api/elp/containers/{container}/documents para obtener las
+     URLs individuales.
+
+Alternativamente, ELP puede consultar periodicamente
+GET /api/elp/containers (polling) para detectar contenedores nuevos sin
+depender del correo.
+
+
+10. CODIGOS DE RESPUESTA HTTP
+-------------------------------------------------------------------------------
+  200  OK                   Operacion exitosa
+  400  Bad Request          Estatus invalido (revisar lista "allowed")
+  401  Unauthorized         Falta o es invalida la X-ELP-Api-Key
+  403  Forbidden            El contenedor pertenece a una ruta NO habilitada
+                            para ELP
+  404  Not Found            Contenedor no encontrado
+  503  Service Unavailable  La API no esta configurada del lado de EntregaX
+                            (contactar soporte)
+
+
+11. EJEMPLOS CON curl
+-------------------------------------------------------------------------------
+Listar contenedores:
+  curl -H "X-ELP-Api-Key: TU_API_KEY_AQUI" \
+    https://api.entregax.app/api/elp/containers
+
+Obtener documentos:
+  curl -H "X-ELP-Api-Key: TU_API_KEY_AQUI" \
+    https://api.entregax.app/api/elp/containers/ONEU4343977/documents
+
+Enviar pulso de estatus:
+  curl -X POST \
+    -H "X-ELP-Api-Key: TU_API_KEY_AQUI" \
+    -H "Content-Type: application/json" \
+    -d '{"status":"docs_received","notes":"Docs OK"}' \
+    https://api.entregax.app/api/elp/containers/ONEU4343977/status
+
+Descargar el ZIP (usar el zip_url recibido):
+  curl -L -o ONEU4343977_documentos.zip \
+    "https://api.entregax.app/api/elp/containers/ONEU4343977/zip?token=..."
+
+
+12. EJEMPLO DE INTEGRACION (Node.js)
+-------------------------------------------------------------------------------
+  const API_BASE = 'https://api.entregax.app';
+  const API_KEY  = process.env.ELP_API_KEY; // guardar en variable de entorno
+
+  const headers = { 'X-ELP-Api-Key': API_KEY };
+
+  // 1. Listar contenedores
+  async function listContainers() {
+    const r = await fetch(`${API_BASE}/api/elp/containers`, { headers });
+    return (await r.json()).containers;
+  }
+
+  // 2. Obtener documentos de un contenedor
+  async function getDocuments(containerNumber) {
+    const r = await fetch(`${API_BASE}/api/elp/containers/${containerNumber}/documents`, { headers });
+    return await r.json();
+  }
+
+  // 3. Enviar pulso de estatus
+  async function sendStatus(containerNumber, status, notes) {
+    const r = await fetch(`${API_BASE}/api/elp/containers/${containerNumber}/status`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, notes }),
+    });
+    if (!r.ok) throw new Error(`Error ${r.status}: ${await r.text()}`);
+    return await r.json();
+  }
+
+  // Ejemplo de uso
+  (async () => {
+    const containers = await listContainers();
+    const c = containers[0];
+    const docs = await getDocuments(c.container_number);
+    console.log('Documentos:', docs.documents);
+    await sendStatus(c.container_number, 'docs_received', 'Documentacion validada');
+  })();
+
+
+13. RECOMENDACIONES DE SEGURIDAD
+-------------------------------------------------------------------------------
+  - Guarda la API Key en una variable de entorno / boveda de secretos. NO la
+    pongas en codigo fuente ni la compartas por canales inseguros.
+  - Todo el trafico es sobre HTTPS.
+  - Si sospechas que la API Key se comprometio, contacta a EntregaX para
+    rotarla de inmediato.
+  - Las URLs de documentos son firmadas y temporales (7 dias); tratalas como
+    sensibles.
+
+
+14. RESUMEN RAPIDO (CHEAT SHEET)
+-------------------------------------------------------------------------------
+  Base:  https://api.entregax.app
+  Auth:  X-ELP-Api-Key: <key>
+
+  GET   /api/elp/containers                        -> lista de contenedores
+  GET   /api/elp/containers/{container}/documents  -> URLs de documentos + zip_url
+  GET   /api/elp/containers/{container}/zip?token= -> ZIP (link publico del correo)
+  POST  /api/elp/containers/{container}/status     -> PULSO DE ESTATUS
+          body: { "status": "docs_received" | "procedure_requested"
+                          | "cbp_signature_received" | "arrived_port",
+                  "notes": "opcional" }
+
+===============================================================================
+ Contacto tecnico EntregaX: aldocampos@entregax.com
+===============================================================================

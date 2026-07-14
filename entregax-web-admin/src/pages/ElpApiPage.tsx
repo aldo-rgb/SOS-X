@@ -23,12 +23,18 @@ import {
   Card,
   CardContent,
   Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EmailIcon from '@mui/icons-material/Email';
 import DescriptionIcon from '@mui/icons-material/Description';
 import DownloadIcon from '@mui/icons-material/Download';
+import EditIcon from '@mui/icons-material/Edit';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -87,6 +93,11 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
   const [configured, setConfigured] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
+  // Editor de destinatarios del correo de aviso
+  const [emailsOpen, setEmailsOpen] = useState(false);
+  const [emailsValue, setEmailsValue] = useState('');
+  const [emailsSaving, setEmailsSaving] = useState(false);
+
   const token = localStorage.getItem('token');
 
   const load = useCallback(async () => {
@@ -130,6 +141,37 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
     }
   };
 
+  const openEmailsEditor = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/elp/admin/settings`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.ok) setEmailsValue((data.notify_emails || []).join(', '));
+    } catch { /* usa valor vacío */ }
+    setEmailsOpen(true);
+  };
+
+  const saveEmails = async () => {
+    try {
+      setEmailsSaving(true);
+      const res = await fetch(`${API_URL}/api/elp/admin/settings`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notify_emails: emailsValue }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSnackbar({ open: true, message: `Destinatarios guardados: ${(data.notify_emails || []).join(', ')}`, severity: 'success' });
+        setEmailsOpen(false);
+      } else {
+        throw new Error(data.error || 'Error');
+      }
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.message, severity: 'error' });
+    } finally {
+      setEmailsSaving(false);
+    }
+  };
+
   const statCard = (label: string, value: number, color: string) => (
     <Card sx={{ flex: 1, minWidth: 140, bgcolor: `${color}14` }}>
       <CardContent sx={{ py: 1.5 }}>
@@ -150,6 +192,9 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
             Contenedores de rutas habilitadas para el proveedor ELP (trámite / CBP)
           </Typography>
         </Box>
+        <Button startIcon={<EditIcon />} onClick={openEmailsEditor} variant="outlined" sx={{ mr: 1 }}>
+          Destinatarios del correo
+        </Button>
         <Button startIcon={<RefreshIcon />} onClick={load} variant="outlined">Actualizar</Button>
       </Box>
 
@@ -266,6 +311,32 @@ export default function ElpApiPage({ onBack }: { onBack: () => void }) {
           </Table>
         </TableContainer>
       )}
+
+      {/* Editor de destinatarios del correo de aviso */}
+      <Dialog open={emailsOpen} onClose={() => setEmailsOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>📧 Destinatarios del correo de aviso ELP</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Correos a los que se avisa cuando se registra un contenedor de ruta ELP.
+            Separa varios con coma. Si lo dejas vacío, se usa el destinatario por defecto del sistema.
+          </Typography>
+          <TextField
+            label="Correos (separados por coma)"
+            value={emailsValue}
+            onChange={(e) => setEmailsValue(e.target.value)}
+            fullWidth
+            multiline
+            minRows={2}
+            placeholder="aldocampos@entregax.com, proveedor@elp.com"
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setEmailsOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={saveEmails} disabled={emailsSaving}>
+            {emailsSaving ? 'Guardando…' : 'Guardar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={snackbar.open}

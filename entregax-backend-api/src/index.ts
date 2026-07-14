@@ -949,6 +949,8 @@ import {
   elpAdminListContainers,
   elpAdminStats,
   elpAdminResendNotify,
+  elpAdminGetSettings,
+  elpAdminUpdateSettings,
 } from './elpController';
 import {
   importLegacyClients,
@@ -7509,6 +7511,8 @@ app.post('/api/elp/containers/:ref/status', requireElpApiKey, elpReceiveStatus);
 app.get('/api/elp/admin/containers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminListContainers);
 app.get('/api/elp/admin/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminStats);
 app.post('/api/elp/admin/containers/:id/notify', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminResendNotify);
+app.get('/api/elp/admin/settings', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), elpAdminGetSettings);
+app.put('/api/elp/admin/settings', authenticateToken, requireMinLevel(ROLES.ADMIN), elpAdminUpdateSettings);
 
 // ========== TARIFAS FCL POR CLIENTE/RUTA ==========
 app.get('/api/admin/fcl-rates/base-price', authenticateToken, getFclBasePrice);
@@ -13441,6 +13445,13 @@ async function ensureRequiredColumns() {
       );
       CREATE INDEX IF NOT EXISTS idx_elp_event_logs_container ON elp_event_logs(container_id);
       CREATE INDEX IF NOT EXISTS idx_elp_event_logs_created_at ON elp_event_logs(created_at DESC);
+      -- Config editable de ELP: destinatarios del correo de aviso (coma-separado).
+      CREATE TABLE IF NOT EXISTS elp_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        notify_emails TEXT,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      INSERT INTO elp_settings (id, notify_emails) VALUES (1, NULL) ON CONFLICT (id) DO NOTHING;
     `);
     console.log('✅ [STARTUP] Columnas de paquetería nacional verificadas');
 
