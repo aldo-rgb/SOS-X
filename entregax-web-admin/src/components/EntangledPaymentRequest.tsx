@@ -3446,7 +3446,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       final ofrece "Agregar clave" cuando ya es una clave completa
                       de 8 dígitos (fallback si el catálogo no la trae). */}
                   {activeToken && (
-                    <Paper sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, bgcolor: C.surfaceAlt, border: `1px solid ${ORANGE}`, borderRadius: 1, maxHeight: 300, overflowY: 'auto', mt: 0.5 }}>
+                    <Paper elevation={8} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1300, bgcolor: lightTheme ? '#ffffff' : '#161616', backgroundImage: 'none', border: `1px solid ${ORANGE}`, borderRadius: 1, maxHeight: 300, overflowY: 'auto', mt: 0.5, boxShadow: '0 12px 32px rgba(0,0,0,0.55)' }}>
                       {conceptoSearching && (
                         <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                           <CircularProgress size={14} sx={{ color: ORANGE }} />
