@@ -4656,6 +4656,25 @@ app.get('/api/packages/:id/children', authenticateToken, requireMinLevel(ROLES.W
 // Actualizar estatus de paquete (Bodega o superior)
 app.patch('/api/packages/:id/status', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updatePackageStatus);
 
+// Editar el PESO de una guía — solo Super Admin (corrección manual).
+app.patch('/api/packages/:id/weight', authenticateToken, requireRole(ROLES.SUPER_ADMIN), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    const weight = Number((req.body || {}).weight);
+    if (!id || isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+    if (!Number.isFinite(weight) || weight <= 0) return res.status(400).json({ error: 'El peso debe ser mayor a 0' });
+    const upd = await pool.query(
+      `UPDATE packages SET weight = $1, updated_at = NOW() WHERE id = $2 RETURNING id, weight`,
+      [weight, id]
+    );
+    if (upd.rowCount === 0) return res.status(404).json({ error: 'Guía no encontrada' });
+    return res.json({ success: true, message: 'Peso actualizado', id, weight: Number(upd.rows[0].weight) });
+  } catch (err: any) {
+    console.error('[packages/:id/weight]', err.message);
+    return res.status(500).json({ error: 'Error al actualizar el peso' });
+  }
+});
+
 // Actualizar cliente de un paquete (Bodega o superior)
 app.patch('/api/packages/:id/client', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updatePackageClient);
 

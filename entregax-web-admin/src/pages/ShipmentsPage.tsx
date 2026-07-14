@@ -355,6 +355,9 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   const [editingStatus, setEditingStatus] = useState(false);
   const [manualStatus, setManualStatus] = useState<PackageStatus>('received_mty');
   const [savingStatus, setSavingStatus] = useState(false);
+  const [editingWeight, setEditingWeight] = useState(false);
+  const [manualWeight, setManualWeight] = useState('');
+  const [savingWeight, setSavingWeight] = useState(false);
 
   // 🔧 SUPER ADMIN: eliminar guía
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -396,6 +399,31 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       setSnackbar({ open: true, message: err.response?.data?.error || 'Error al actualizar estado', severity: 'error' });
     } finally {
       setSavingStatus(false);
+    }
+  };
+
+  const handleManualWeightUpdate = async () => {
+    if (!selectedPackage) return;
+    const w = Number(manualWeight);
+    if (!Number.isFinite(w) || w <= 0) {
+      setSnackbar({ open: true, message: 'El peso debe ser mayor a 0', severity: 'error' });
+      return;
+    }
+    setSavingWeight(true);
+    try {
+      const resp = await axios.patch(
+        `${API_URL}/packages/${selectedPackage.id}/weight`,
+        { weight: w },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSelectedPackage({ ...selectedPackage, weight: w });
+      setPackages(prev => prev.map(p => p.id === selectedPackage.id ? { ...p, weight: w } : p));
+      setEditingWeight(false);
+      setSnackbar({ open: true, message: resp.data.message || 'Peso actualizado', severity: 'success' });
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err.response?.data?.error || 'Error al actualizar el peso', severity: 'error' });
+    } finally {
+      setSavingWeight(false);
     }
   };
 
@@ -1832,7 +1860,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                           <AddPhotoAlternateIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title={t('clients.viewDetails')}><IconButton size="small" onClick={() => { setSelectedPackage(pkg); setDetailsOpen(true); setEditingClient(false); }}><VisibilityIcon fontSize="small" /></IconButton></Tooltip>
+                      <Tooltip title={t('clients.viewDetails')}><IconButton size="small" onClick={() => { setSelectedPackage(pkg); setDetailsOpen(true); setEditingClient(false); setEditingWeight(false); }}><VisibilityIcon fontSize="small" /></IconButton></Tooltip>
                       <Tooltip title={t('shipments.printLabels')}><IconButton size="small" onClick={async () => {
                         try {
                           const response = await axios.get(`${API_URL}/packages/${pkg.id}/labels`, { headers: { Authorization: `Bearer ${getToken()}` } });
@@ -3412,7 +3440,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       </Dialog>
 
       {/* Details Dialog */}
-      <Dialog open={detailsOpen} onClose={() => { setDetailsOpen(false); setEditingStatus(false); }} maxWidth="sm" fullWidth>
+      <Dialog open={detailsOpen} onClose={() => { setDetailsOpen(false); setEditingStatus(false); setEditingWeight(false); }} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ bgcolor: BLACK, color: 'white' }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6">📦 {t('shipments.shipmentDetails')}</Typography>
@@ -3553,7 +3581,45 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                     </Box>
                   )}
                 </Grid>
-                <Grid size={6}><Typography variant="body2" color="text.secondary">{t('shipments.totalWeight')}</Typography><Typography>{selectedPackage.weight ? `${selectedPackage.weight} kg` : '-'}</Typography></Grid>
+                <Grid size={6}>
+                  <Typography variant="body2" color="text.secondary">{t('shipments.totalWeight')}</Typography>
+                  {isSuperAdmin && editingWeight ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.3 }}>
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={manualWeight}
+                        onChange={(e) => setManualWeight(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleManualWeightUpdate(); if (e.key === 'Escape') setEditingWeight(false); }}
+                        disabled={savingWeight}
+                        autoFocus
+                        InputProps={{ endAdornment: <InputAdornment position="end">kg</InputAdornment> }}
+                        sx={{ width: 120 }}
+                      />
+                      <Tooltip title="Guardar">
+                        <span>
+                          <IconButton size="small" color="warning" onClick={handleManualWeightUpdate} disabled={savingWeight}>
+                            {savingWeight ? <CircularProgress size={16} /> : <SaveIcon sx={{ fontSize: 18 }} />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      <IconButton size="small" onClick={() => setEditingWeight(false)} disabled={savingWeight}>
+                        <span style={{ fontSize: 16 }}>✕</span>
+                      </IconButton>
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Typography>{selectedPackage.weight ? `${selectedPackage.weight} kg` : '-'}</Typography>
+                      {isSuperAdmin && (
+                        <Tooltip title="🔧 Super Admin: editar peso">
+                          <IconButton size="small" onClick={() => { setManualWeight(String(selectedPackage.weight || '')); setEditingWeight(true); }}>
+                            <EditIcon sx={{ fontSize: 16, color: 'warning.main' }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Box>
+                  )}
+                </Grid>
                 <Grid size={6}><Typography variant="body2" color="text.secondary">{t('shipments.boxes')}</Typography><Typography>{selectedPackage.totalBoxes || 1}</Typography></Grid>
                 <Grid size={12}><Typography variant="body2" color="text.secondary">{t('common.description')}</Typography><Typography>{selectedPackage.description}</Typography></Grid>
                 {selectedPackage.trackingProvider && <Grid size={12}><Typography variant="body2" color="text.secondary">{t('shipments.trackingProvider')}</Typography><Typography fontFamily="monospace">{selectedPackage.trackingProvider}</Typography></Grid>}
