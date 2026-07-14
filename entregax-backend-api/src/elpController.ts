@@ -16,6 +16,11 @@ import crypto from 'crypto';
 import { pool } from './db';
 import { AuthRequest } from './authController';
 import { sendEmail } from './emailService';
+import { signS3UrlIfNeeded } from './s3Service';
+
+// El bucket S3 es privado, así que las URLs de documentos se entregan FIRMADAS
+// (válidas 7 días). El proveedor puede volver a hacer GET para refrescarlas.
+const ELP_DOC_URL_TTL = 7 * 24 * 3600;
 
 const ELP_API_KEY = process.env.ELP_API_KEY || '';
 const ELP_NOTIFY_EMAIL = process.env.ELP_NOTIFY_EMAIL || 'aldocampos@entregax.com';
@@ -80,6 +85,19 @@ const buildDocuments = (row: any) => {
     invoice: ed.invoice_url || null,
     packing_list: row.draft_summary || ed.summary_excel_url || null,
   };
+};
+
+// Igual que buildDocuments pero firmando cada URL de S3 (bucket privado).
+const buildSignedDocuments = async (row: any) => {
+  const d = buildDocuments(row);
+  const [bl, telex_isf, isf_word, invoice, packing_list] = await Promise.all([
+    signS3UrlIfNeeded(d.bl, ELP_DOC_URL_TTL),
+    signS3UrlIfNeeded(d.telex_isf, ELP_DOC_URL_TTL),
+    signS3UrlIfNeeded(d.isf_word, ELP_DOC_URL_TTL),
+    signS3UrlIfNeeded(d.invoice, ELP_DOC_URL_TTL),
+    signS3UrlIfNeeded(d.packing_list, ELP_DOC_URL_TTL),
+  ]);
+  return { bl, telex_isf, isf_word, invoice, packing_list };
 };
 
 const getContainerRowByNumber = async (containerNumber: string) => {
@@ -194,7 +212,7 @@ export const elpGetDocuments = async (req: Request, res: Response): Promise<any>
       await logElpEvent(row.id, row.container_number, 'outbound_docs', 'route_not_elp', null, 403);
       return res.status(403).json({ error: 'La ruta de este contenedor no está habilitada para ELP' });
     }
-    const documents = buildDocuments(row);
+    const documents = await buildSignedDocuments(row);
     await logElpEvent(row.id, row.container_number, 'outbound_docs', 'documents_fetched', null, 200);
     res.json({
       ok: true,
@@ -269,8 +287,8 @@ export const elpAdminListContainers = async (_req: AuthRequest, res: Response): 
       ORDER BY c.created_at DESC NULLS LAST, c.id DESC
       LIMIT 1000
     `);
-    const containers = r.rows.map((row: any) => {
-      const documents = buildDocuments(row);
+    const containers = await Promise.all(r.rows.map(async (row: any) => {
+      const documents = await buildSignedDocuments(row);
       const docCount = Object.values(documents).filter(Boolean).length;
       return {
         id: row.id,
@@ -286,7 +304,7 @@ export const elpAdminListContainers = async (_req: AuthRequest, res: Response): 
         doc_count: docCount,
         documents,
       };
-    });
+    }));
     res.json({ ok: true, count: containers.length, containers });
   } catch (e: any) {
     console.error('[ELP] elpAdminListContainers error:', e.message);

@@ -1148,6 +1148,41 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 AND status::text = 'received'`
         );
 
+        // Listos para salida (PO Box / Hidalgo): mismo criterio que
+        // getOutboundReadyPackages() pero solo el count. Se muestra en el
+        // dashboard de Mostrador Hidalgo TX reemplazando "Entregas Hoy".
+        // No aplica filtro por sucursal porque PO Box USA vive solo en Hidalgo.
+        let requirePoboxInstructions = false;
+        try {
+            const cfg = await pool.query(
+                `SELECT config_value FROM system_configurations
+                 WHERE config_key = 'require_instructions_to_load_pobox' AND is_active = TRUE LIMIT 1`
+            );
+            requirePoboxInstructions = cfg.rows[0]?.config_value?.enabled === true;
+        } catch { /* tabla puede no existir */ }
+        const outboundInstructionsFilter = requirePoboxInstructions
+            ? `AND (
+                COALESCE(p.needs_instructions, TRUE) = FALSE
+                OR p.instructions_assigned_at IS NOT NULL
+                OR p.delivery_address_id IS NOT NULL
+                OR p.assigned_address_id IS NOT NULL
+              )`
+            : '';
+        const outboundReadyResult = await pool.query(
+            `SELECT COUNT(*)::int AS total
+               FROM packages p
+               LEFT JOIN packages master ON p.master_id = master.id
+              WHERE p.tracking_internal LIKE 'US-%'
+                AND p.status IN ('received', 'reempacado')
+                ${outboundInstructionsFilter}
+                AND (
+                  p.tracking_internal LIKE 'US-REPACK-%'
+                  OR (p.master_id IS NOT NULL AND master.tracking_internal NOT LIKE 'US-REPACK-%')
+                  OR (p.is_master = FALSE AND p.master_id IS NULL)
+                  OR (p.is_master = TRUE AND COALESCE(p.total_boxes, 1) <= 1 AND p.tracking_internal NOT LIKE 'US-REPACK-%')
+                )`
+        );
+
         // Financiero real (si existen tablas de tesorería)
         let ingresosHoy = 0;
         let ingresosMes = 0;
@@ -1294,6 +1329,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 entregados_hoy: parseInt(deliveredTodayResult.rows[0]?.total || 0) || 0,
                 pendientes_cobro: parseInt(pendingChargeResult.rows[0]?.total || 0) || 0,
                 repacks_pendientes: parseInt(repacksPendientesResult.rows[0]?.total || 0) || 0,
+                listos_salida: parseInt(outboundReadyResult.rows[0]?.total || 0) || 0,
             },
             financiero: {
                 ingresos_hoy: ingresosHoy,

@@ -891,15 +891,29 @@ export default function DashboardBranchManager() {
       </Stack>
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
-          <KpiCard
-            icon={<CheckCircleIcon sx={{ fontSize: 22 }} />}
-            label="Entregas Hoy"
-            value={stats?.paquetes.entregados_hoy ?? 0}
-            sub={`completadas · ${stats?.sucursal.nombre || ''}`}
-            tone="success"
-          />
-        </Grid>
+        {isHidalgo ? (
+          <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+            <KpiCard
+              icon={<LocalShippingIcon sx={{ fontSize: 22 }} />}
+              label="Listos para salida"
+              value={(stats?.paquetes as any)?.listos_salida ?? 0}
+              sub={((stats?.paquetes as any)?.listos_salida ?? 0) === 1 ? 'guía lista para cargar' : 'guías listas para cargar'}
+              tone="info"
+              accentBar="#0288D1"
+              onClick={() => handleQuickAction('outbound')}
+            />
+          </Grid>
+        ) : (
+          <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+            <KpiCard
+              icon={<CheckCircleIcon sx={{ fontSize: 22 }} />}
+              label="Entregas Hoy"
+              value={stats?.paquetes.entregados_hoy ?? 0}
+              sub={`completadas · ${stats?.sucursal.nombre || ''}`}
+              tone="success"
+            />
+          </Grid>
+        )}
 
         {stats?.sucursal.codigo === 'MTY' && (
           <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>

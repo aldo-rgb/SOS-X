@@ -794,6 +794,16 @@ function App() {
         return;
       }
 
+      // Widget "Listos para salida" del dashboard → abre PO Box USA en el módulo
+      // de Control de Salidas (submenu 'exit').
+      if (action === 'outbound') {
+        openOperations('usa_pobox');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('open-pobox-tool', { detail: { tool: 'exit' } }));
+        }, 200);
+        return;
+      }
+
       if (action === 'branch_inventory') {
         openOperations('inventario_sucursal', true);
         return;

@@ -297,6 +297,17 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMount = false }: Props) {
     const { t } = useTranslation();
     const [selectedOption, setSelectedOption] = useState<string | null>(null);
+
+    // Permite abrir directamente un submenu (ej. Control de Salidas 'exit') desde
+    // el dashboard cuando el usuario hace clic en el widget "Listos para salida".
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const tool = (e as CustomEvent<{ tool?: string }>).detail?.tool;
+            if (tool) setSelectedOption(tool);
+        };
+        window.addEventListener('open-pobox-tool', handler as EventListener);
+        return () => window.removeEventListener('open-pobox-tool', handler as EventListener);
+    }, []);
     
     // Permisos de módulos (hook compartido)
     const { allowedModules, loading: permissionsLoading } = useModulePermissions('ops_usa_pobox', POBOX_MODULES);
