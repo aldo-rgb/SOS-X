@@ -42,6 +42,7 @@ export interface EntangledRequestDetail {
   es_pesos?: boolean | null;
   es_hibrida?: boolean | null;
   raw_response?: any;
+  op_conceptos?: unknown;
   empresas_asignadas?: unknown;
   factura_url?: string | null;
   comprobante_proveedor_url?: string | null;
@@ -85,6 +86,14 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
       try { return JSON.parse(v); } catch { return null; }
     }
     return v;
+  })();
+
+  // Conceptos capturados por el cliente: clave SAT, cantidad de piezas y precio.
+  const conceptos: any[] = (() => {
+    const v = row.op_conceptos;
+    if (!v) return [];
+    if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; } }
+    return Array.isArray(v) ? v : [];
   })();
 
   // 🩹 Carril Pesos MX: el monto ya está en MXN y el TC NO aplica (=1). Para
@@ -206,6 +215,43 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
               </Stack>
             </Paper>
           </Grid>
+
+          {/* Conceptos capturados por el cliente: clave SAT + piezas + precio */}
+          {conceptos.length > 0 && (
+            <Grid size={{ xs: 12 }}>
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Typography variant="overline" color="text.secondary">Claves SAT / Conceptos del cliente</Typography>
+                <Box sx={{ overflowX: 'auto', mt: 1 }}>
+                  <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', minWidth: 480, '& th, & td': { textAlign: 'left', py: 0.6, px: 1, borderBottom: '1px solid', borderColor: 'divider', fontSize: '0.8rem' }, '& th': { color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' } }}>
+                    <Box component="thead">
+                      <Box component="tr">
+                        <Box component="th">Clave SAT</Box>
+                        <Box component="th">Descripción</Box>
+                        <Box component="th" sx={{ textAlign: 'right !important' }}>Cantidad</Box>
+                        <Box component="th" sx={{ textAlign: 'right !important' }}>P. unitario</Box>
+                        <Box component="th" sx={{ textAlign: 'right !important' }}>Subtotal</Box>
+                      </Box>
+                    </Box>
+                    <Box component="tbody">
+                      {conceptos.map((c: any, i: number) => {
+                        const cant = Number(c.cantidad) || 0;
+                        const pu = Number(c.valor_unitario ?? c.precio_unitario) || 0;
+                        return (
+                          <Box component="tr" key={i}>
+                            <Box component="td" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{c.clave_prodserv || c.clave || '—'}</Box>
+                            <Box component="td" sx={{ color: 'text.secondary' }}>{c.descripcion || '—'}</Box>
+                            <Box component="td" sx={{ textAlign: 'right !important' }}>{cant ? fmtMoney(cant, 0) : '—'}</Box>
+                            <Box component="td" sx={{ textAlign: 'right !important', fontFamily: 'monospace' }}>{pu ? `$${fmtMoney(pu)}` : '—'}</Box>
+                            <Box component="td" sx={{ textAlign: 'right !important', fontFamily: 'monospace', fontWeight: 700 }}>{cant && pu ? `$${fmtMoney(cant * pu)}` : '—'}</Box>
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  </Box>
+                </Box>
+              </Paper>
+            </Grid>
+          )}
 
           {/* Utilidad XPAY */}
           <Grid size={{ xs: 12 }}>
