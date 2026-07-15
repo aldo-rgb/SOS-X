@@ -99,6 +99,9 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [snack, setSnack] = useState<{ sev: 'success' | 'error'; msg: string } | null>(null);
 
+  // Tipo de producto editable inline
+  const [typeBusyId, setTypeBusyId] = useState<number | null>(null);
+
   // Fotos de recepción
   const [photoBusyId, setPhotoBusyId] = useState<number | null>(null);
   const [photoViewer, setPhotoViewer] = useState<{ open: boolean; photos: string[]; idx: number }>({ open: false, photos: [], idx: 0 });
@@ -218,6 +221,27 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const shipmentDims = (s: Shipment) =>
     Number(s.dim_variants || 0) > 1 ? t('tdiExpress.table.mixed')
       : (s.first_dims ? `${s.first_dims} cm` : '—');
+
+  // Key del tipo de producto actual (vacío si el envío mezcla tipos).
+  const currentProductKey = (s: Shipment) => {
+    const uniq = [...new Set((s.child_tariff_types || '').split(',').filter(Boolean))];
+    return uniq.length === 1 ? (TARIFF_TO_PRODUCT[uniq[0]] || '') : '';
+  };
+
+  // Cambia el tipo de producto del envío (PATCH → recalcula tarifa/precio de todas las cajas).
+  const changeProductType = async (id: number, key: string) => {
+    if (!key || key === '__mixed__') return;
+    setTypeBusyId(id);
+    try {
+      await axios.patch(`${API_URL}/api/tdi-express/shipments/${id}`, { productType: key }, { headers: authHeaders });
+      await loadAll();
+      setSnack({ sev: 'success', msg: t('tdiExpress.typeUpdated') });
+    } catch (e: any) {
+      setSnack({ sev: 'error', msg: e?.response?.data?.error || 'Error' });
+    } finally {
+      setTypeBusyId(null);
+    }
+  };
 
   // ---- Wizard ----
   const openWizard = () => {
@@ -589,7 +613,24 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                 <TableCell><Chip size="small" icon={<InventoryIcon />} label={`${s.captured_boxes}/${s.total_boxes ?? 1}`} /></TableCell>
                 <TableCell>{Number(s.weight || 0).toFixed(2)}</TableCell>
                 <TableCell>{shipmentDims(s)}</TableCell>
-                <TableCell>{shipmentTypes(s)}</TableCell>
+                <TableCell>
+                  <TextField
+                    select
+                    size="small"
+                    variant="standard"
+                    value={currentProductKey(s) || '__mixed__'}
+                    onChange={(e) => changeProductType(s.id, e.target.value)}
+                    disabled={typeBusyId === s.id}
+                    sx={{ minWidth: 108, '& .MuiInput-input': { fontSize: '0.8rem', py: 0.25 } }}
+                  >
+                    {!currentProductKey(s) && (
+                      <MenuItem value="__mixed__" disabled>{t('tdiExpress.table.mixed')}</MenuItem>
+                    )}
+                    {productTypes.map((p) => (
+                      <MenuItem key={p.key} value={p.key}>{t(`tdiExpress.productTypes.${p.key}`)}</MenuItem>
+                    ))}
+                  </TextField>
+                </TableCell>
                 <TableCell sx={{ fontWeight: 600, color: Number(s.extra_charges_usd || 0) > 0 ? '#C62828' : '#999' }}>
                   {Number(s.extra_charges_usd || 0) > 0 ? `$${Number(s.extra_charges_usd).toFixed(2)}` : '—'}
                 </TableCell>
