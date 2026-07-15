@@ -2415,13 +2415,20 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             }
             const pkg = result.rows[0];
 
-            // Rechazar si es un MASTER con cajas hijas — escanear cada caja individual
-            const childCount = await pool.query(
-                `SELECT COUNT(*) as cnt FROM packages WHERE master_id = $1`, [pkg.id]
+            // Rechazar si es un MASTER con cajas hijas — escanear cada caja individual.
+            // EXCEPCIÓN REPACK (US-REPACK-*): es UNA sola caja física consolidada; se
+            // escanea el master como una única unidad (no existen guías -0001 por caja).
+            const masterInfo = await pool.query(
+                `SELECT (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id) AS cnt,
+                        p.tracking_internal
+                   FROM packages p WHERE p.id = $1`,
+                [pkg.id]
             );
-            if (parseInt(childCount.rows[0]?.cnt) > 0) {
+            const childCnt = parseInt(masterInfo.rows[0]?.cnt) || 0;
+            const isRepackMaster = /^US-REPACK-/i.test(String(masterInfo.rows[0]?.tracking_internal || ''));
+            if (childCnt > 0 && !isRepackMaster) {
                 return res.status(400).json({
-                    error: `⚠️ ${pkg.tracking_number} es un embarque con ${childCount.rows[0].cnt} cajas. Escanea cada caja individual (${pkg.tracking_number}-0001, -0002, etc.)`
+                    error: `⚠️ ${pkg.tracking_number} es un embarque con ${childCnt} cajas. Escanea cada caja individual (${pkg.tracking_number}-0001, -0002, etc.)`
                 });
             }
 
@@ -2450,6 +2457,14 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                     `UPDATE packages SET ${setParts.join(', ')} WHERE id = $2`,
                     hasAssignedDriver ? [outStatus, pkg.id, String(driverId)] : [outStatus, pkg.id]
                 );
+                // REPACK: las hijas viajan DENTRO del master → propagarles el mismo
+                // estado para que no queden rezagadas en received_mty.
+                if (isRepackMaster && childCnt > 0) {
+                    await pool.query(
+                        `UPDATE packages SET ${setParts.join(', ')} WHERE master_id = $2`,
+                        hasAssignedDriver ? [outStatus, pkg.id, String(driverId)] : [outStatus, pkg.id]
+                    );
+                }
                 return res.json({
                     success: true, phase: 'complete', mode, packageId: pkg.id,
                     tracking: pkg.tracking_number, newStatus: outStatus,
@@ -2494,9 +2509,17 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             // en sentStatus para actualizar también el master
             try {
                 const pkgRow = await pool.query(
-                    `SELECT to_jsonb(p)->>'master_id' as master_id FROM packages p WHERE id = $1`, [confirmedId]
+                    `SELECT to_jsonb(p)->>'master_id' as master_id, p.tracking_internal FROM packages p WHERE id = $1`, [confirmedId]
                 );
                 const masterId = pkgRow.rows[0]?.master_id;
+                // REPACK master enviado → propagar el estado a sus hijas (viajan dentro).
+                if (/^US-REPACK-/i.test(String(pkgRow.rows[0]?.tracking_internal || ''))) {
+                    const statusColRp = await getPackageStatusColumn();
+                    await pool.query(
+                        `UPDATE packages SET ${statusColRp} = $1, updated_at = NOW() WHERE master_id = $2`,
+                        [sentStatus, confirmedId]
+                    );
+                }
                 if (masterId) {
                     // Contar hermanos que ya tienen el sentStatus
                     const sibRes = await pool.query(
