@@ -299,7 +299,8 @@ export const createPaymentRequestV2 = async (
          ADD COLUMN IF NOT EXISTS op_beneficiario_nombre VARCHAR(200),
          ADD COLUMN IF NOT EXISTS payment_deadline_at TIMESTAMPTZ,
          ADD COLUMN IF NOT EXISTS subservicio VARCHAR(20),
-         ADD COLUMN IF NOT EXISTS es_hibrida BOOLEAN`
+         ADD COLUMN IF NOT EXISTS es_hibrida BOOLEAN,
+         ADD COLUMN IF NOT EXISTS es_pesos BOOLEAN`
     ).catch(() => {});
     // Nombre del beneficiario (proveedor final al que se le envía
     // el dinero) — se persiste para mostrarlo en Últimos envíos.
@@ -452,6 +453,9 @@ export const createPaymentRequestV2 = async (
     const notasObj: any = {
       proveedor_envio: {
         pais: paisDestino,
+        // 🏦 Moneda del banco destino: define el carril en ENTANGLED.
+        //    "MXN" → carril Pesos MX (sin TC). "USD"/"RMB" → extranjero.
+        moneda: String(divisa).toUpperCase(),
         nombre_beneficiario: benefSnap?.nombre || benefNombre || '',
         nombre_chino: benefSnap?.nombre_chino || '',
         numero_cuenta: benefSnap?.cuenta || '',
@@ -635,6 +639,7 @@ export const createPaymentRequestV2 = async (
             comision_entregax = $9,
             comision_asesor = $10,
             es_hibrida = COALESCE($11, es_hibrida),
+            es_pesos = COALESCE($12, es_pesos),
             updated_at = NOW()
       WHERE id = $7
       RETURNING *`,
@@ -650,6 +655,7 @@ export const createPaymentRequestV2 = async (
       pctEntregax,
       pctAsesor,
       remote.es_hibrida ?? null,
+      remote.es_pesos ?? null,
     ]
   )).rows[0];
 
@@ -1020,6 +1026,7 @@ export async function sendPendingRequestToEntangled(
             comision_entregax = $8,
             comision_asesor = $9,
             es_hibrida = COALESCE($10, es_hibrida),
+            es_pesos = COALESCE($11, es_pesos),
             updated_at = NOW()
       WHERE id = $7
       RETURNING *`,
@@ -1034,6 +1041,7 @@ export async function sendPendingRequestToEntangled(
       pctEntregaxP,
       pctAsesorP,
       remote.es_hibrida ?? null,
+      remote.es_pesos ?? null,
     ]
   );
 
@@ -1794,11 +1802,13 @@ export const webhookFacturaGeneradaV2 = async (
               END,
               raw_response = COALESCE(raw_response, '{}'::jsonb) || jsonb_build_object('factura_xml_url', $3::text),
               es_hibrida = COALESCE($5, es_hibrida),
+              es_pesos = COALESCE($6, es_pesos),
               last_webhook_at = NOW(),
               updated_at = NOW()
         WHERE id = $4`,
       [facturaUrl, docs.nombre_archivo || null, facturaXmlUrl, requestId,
-       payload.es_hibrida != null ? Boolean(payload.es_hibrida) : null]
+       payload.es_hibrida != null ? Boolean(payload.es_hibrida) : null,
+       payload.es_pesos != null ? Boolean(payload.es_pesos) : null]
     );
 
     await logWebhook(transaccionId, evento, payload, requestId);
@@ -1866,10 +1876,12 @@ export const webhookPagoProveedorV2 = async (
                   ELSE 'solicitada'
                 END,
                 es_hibrida = COALESCE($2, es_hibrida),
+                es_pesos = COALESCE($3, es_pesos),
                 last_webhook_at = NOW(),
                 updated_at = NOW()
           WHERE id = $1`,
-        [requestId, payload.es_hibrida != null ? Boolean(payload.es_hibrida) : null]
+        [requestId, payload.es_hibrida != null ? Boolean(payload.es_hibrida) : null,
+         payload.es_pesos != null ? Boolean(payload.es_pesos) : null]
       );
       await logWebhook(transaccionId, evento, payload, requestId);
       return res.status(200).json({ ok: true, estatus: 'solicitada' });
@@ -1892,11 +1904,13 @@ export const webhookPagoProveedorV2 = async (
                 ELSE 'en_proceso'
               END,
               es_hibrida = COALESCE($8, es_hibrida),
+              es_pesos = COALESCE($9, es_pesos),
               last_webhook_at = NOW(),
               updated_at = NOW()
         WHERE id = $7`,
       [estatus, comprobanteUrl, moneda, monto, cuenta, servicio, requestId,
-       payload.es_hibrida != null ? Boolean(payload.es_hibrida) : null]
+       payload.es_hibrida != null ? Boolean(payload.es_hibrida) : null,
+       payload.es_pesos != null ? Boolean(payload.es_pesos) : null]
     );
 
     await logWebhook(transaccionId, evento, payload, requestId);
@@ -2065,22 +2079,23 @@ const mergeComisionesHibridas = async (proveedores: any[]): Promise<void> => {
   const resp = await listComisionesRemote();
   if (!resp.ok) return;
   const norm = (s: string) => String(s || '').trim().toUpperCase();
-  const map: Record<string, Record<string, { normal: any; hibrida: any }>> = {};
+  const map: Record<string, Record<string, { normal: any; hibrida: any; pesos: any }>> = {};
   for (const cp of resp.proveedores || []) {
-    const m: Record<string, { normal: any; hibrida: any }> = {};
+    const m: Record<string, { normal: any; hibrida: any; pesos: any }> = {};
     for (const s of cp.servicios || []) {
-      m[norm(s.servicio)] = { normal: s.comision_normal_porcentaje, hibrida: s.comision_hibrida_porcentaje };
+      m[norm(s.servicio)] = { normal: s.comision_normal_porcentaje, hibrida: s.comision_hibrida_porcentaje, pesos: s.comision_pesos_porcentaje };
     }
     map[norm(cp.proveedor)] = m;
   }
   for (const p of proveedores) {
     const svc = map[norm(p.nombre)] || {};
     p.tarifas = ((p.tarifas as any[]) || []).map((t: any) => {
-      const hit: { normal?: any; hibrida?: any } = svc[norm(t.servicio_codigo)] || {};
+      const hit: { normal?: any; hibrida?: any; pesos?: any } = svc[norm(t.servicio_codigo)] || {};
       return {
         ...t,
         comision_normal_porcentaje: hit.normal !== undefined ? hit.normal : t.comision_cliente_porcentaje,
         comision_hibrida_porcentaje: hit.hibrida !== undefined ? hit.hibrida : null,
+        comision_pesos_porcentaje: hit.pesos !== undefined ? hit.pesos : null,
       };
     });
   }

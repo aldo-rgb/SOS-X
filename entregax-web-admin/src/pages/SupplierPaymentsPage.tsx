@@ -1634,6 +1634,11 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                               label={`Híbrida: ${t.comision_hibrida_porcentaje === 'inactivo' ? 'inactivo' : t.comision_hibrida_porcentaje != null ? Number(t.comision_hibrida_porcentaje).toFixed(2) + '%' : '—'}`}
                               sx={{ fontSize: 11, fontWeight: 700, bgcolor: 'rgba(94,53,177,0.14)', color: '#5E35B1' }}
                             />
+                            <Chip
+                              size="small"
+                              label={`Pesos: ${t.comision_pesos_porcentaje === 'inactivo' ? 'inactivo' : t.comision_pesos_porcentaje != null ? Number(t.comision_pesos_porcentaje).toFixed(2) + '%' : '—'}`}
+                              sx={{ fontSize: 11, fontWeight: 700, bgcolor: 'rgba(22,163,74,0.14)', color: '#16a34a' }}
+                            />
                           </Box>
                           <Box sx={{ mt: 0.75, display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
                             <Chip
