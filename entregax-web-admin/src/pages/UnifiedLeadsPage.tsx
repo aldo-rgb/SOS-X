@@ -86,17 +86,25 @@ const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/
 
 // CRM Lead (usuario registrado)
 interface Lead {
-  request_id: number;
+  request_id: number | null;
   created_at: string;
   status: string;
   admin_notes: string | null;
   updated_at: string | null;
-  user_id: number;
+  user_id: number | null;
   full_name: string;
   email: string;
   box_id: string;
   phone: string | null;
   assigned_advisor_name: string | null;
+  // Origen del lead: 'crm' (usuario app) | 'chartback' (reactivación legacy_clients)
+  source?: 'crm' | 'chartback';
+  lead_key?: string;
+  // Solo chartback: sub-estatus de reactivación + respuesta/actividad del asesor
+  chartback_status?: string | null;
+  advisor_response?: string | null;
+  activity?: Array<{ ts?: string; type?: string; advisor?: string; note?: string; callback_at?: string }> | null;
+  next_contact_at?: string | null;
 }
 
 // Prospecto externo
@@ -218,6 +226,20 @@ export default function UnifiedLeadsPage() {
       case 'contacted': return t('leads.contacted');
       case 'converted': return t('leads.converted');
       default: return status;
+    }
+  };
+
+  // Sub-estatus de reactivación (chartback) → etiqueta legible en español.
+  const getChartbackSubLabel = (s?: string | null): string => {
+    switch (String(s || '').toLowerCase().trim()) {
+      case 'pending': return 'Sin reclamar';
+      case 'chartback_i': return 'Chartback I';
+      case 'no_answer': return 'No contestó';
+      case 'callback': return 'Callback agendado';
+      case 'retention': return 'En retención';
+      case 'recovered': return 'Recuperado ✅';
+      case 'not_interested': return 'No interesado';
+      default: return String(s || '');
     }
   };
 
@@ -839,7 +861,7 @@ export default function UnifiedLeadsPage() {
                 </TableHead>
                 <TableBody>
                   {leads.map((lead) => (
-                    <TableRow key={lead.request_id} hover>
+                    <TableRow key={lead.lead_key || String(lead.request_id)} hover>
                       <TableCell>
                         <Box>
                           <Typography variant="body2">{formatDateTime(lead.created_at)}</Typography>
@@ -851,6 +873,15 @@ export default function UnifiedLeadsPage() {
                       </TableCell>
                       <TableCell>
                         <Typography variant="body1" fontWeight={600}>{lead.full_name}</Typography>
+                        {lead.source === 'chartback' && (
+                          <Chip
+                            label="🔁 Reactivación"
+                            size="small"
+                            color="warning"
+                            variant="outlined"
+                            sx={{ mt: 0.5, height: 18, fontSize: 10 }}
+                          />
+                        )}
                       </TableCell>
                       <TableCell>
                         <Chip label={lead.box_id} size="small" variant="outlined" color="primary" />
@@ -875,6 +906,49 @@ export default function UnifiedLeadsPage() {
                           color={getLeadStatusColor(lead.status) as 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning'}
                           size="small"
                         />
+                        {lead.source === 'chartback' && lead.chartback_status && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                            {getChartbackSubLabel(lead.chartback_status)}
+                          </Typography>
+                        )}
+                        {lead.source === 'chartback' && lead.advisor_response && (
+                          <Tooltip
+                            arrow
+                            title={
+                              <Box sx={{ maxWidth: 320 }}>
+                                <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>
+                                  Respuesta del asesor
+                                </Typography>
+                                <Typography variant="caption" sx={{ display: 'block', mb: (lead.activity && lead.activity.length > 0) ? 1 : 0 }}>
+                                  {lead.advisor_response}
+                                </Typography>
+                                {Array.isArray(lead.activity) && lead.activity.length > 0 && (
+                                  <>
+                                    <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>
+                                      Historial
+                                    </Typography>
+                                    {lead.activity.slice(-6).map((a, i) => (
+                                      <Typography key={i} variant="caption" sx={{ display: 'block' }}>
+                                        • {getChartbackSubLabel(a.type)}{a.note ? `: ${a.note}` : ''}{a.advisor ? ` — ${a.advisor}` : ''}
+                                      </Typography>
+                                    ))}
+                                  </>
+                                )}
+                              </Box>
+                            }
+                          >
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden', mt: 0.5, fontStyle: 'italic', color: 'text.primary',
+                                maxWidth: 260, cursor: 'help',
+                              }}
+                            >
+                              💬 {lead.advisor_response}
+                            </Typography>
+                          </Tooltip>
+                        )}
                       </TableCell>
                       <TableCell>
                         {lead.assigned_advisor_name || (
@@ -884,39 +958,49 @@ export default function UnifiedLeadsPage() {
                         )}
                       </TableCell>
                       <TableCell align="right">
-                        {lead.status === 'pending' && (
-                          <Button
-                            variant="contained"
-                            size="small"
-                            startIcon={<PersonAddIcon />}
-                            onClick={() => {
-                              setSelectedLead(lead);
-                              setOpenLeadModal(true);
-                            }}
-                            sx={{ bgcolor: '#111' }}
-                          >
-                            {t('leads.assign')}
-                          </Button>
-                        )}
-                        {lead.status === 'assigned' && (
-                          <Tooltip title="Marcar como contactado">
-                            <IconButton
-                              color="primary"
-                              onClick={() => handleUpdateLeadStatus(lead, 'contacted')}
-                            >
-                              <PhoneIcon />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {lead.status === 'contacted' && (
-                          <Tooltip title="Marcar como convertido">
-                            <IconButton
-                              color="success"
-                              onClick={() => handleUpdateLeadStatus(lead, 'converted')}
-                            >
-                              <CheckCircleIcon />
-                            </IconButton>
-                          </Tooltip>
+                        {lead.source === 'chartback' ? (
+                          // Reactivación: el asesor la gestiona desde su panel (móvil).
+                          // Aquí es solo lectura.
+                          <Typography variant="caption" color="text.secondary" fontStyle="italic">
+                            Gestión del asesor
+                          </Typography>
+                        ) : (
+                          <>
+                            {lead.status === 'pending' && (
+                              <Button
+                                variant="contained"
+                                size="small"
+                                startIcon={<PersonAddIcon />}
+                                onClick={() => {
+                                  setSelectedLead(lead);
+                                  setOpenLeadModal(true);
+                                }}
+                                sx={{ bgcolor: '#111' }}
+                              >
+                                {t('leads.assign')}
+                              </Button>
+                            )}
+                            {lead.status === 'assigned' && (
+                              <Tooltip title="Marcar como contactado">
+                                <IconButton
+                                  color="primary"
+                                  onClick={() => handleUpdateLeadStatus(lead, 'contacted')}
+                                >
+                                  <PhoneIcon />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            {lead.status === 'contacted' && (
+                              <Tooltip title="Marcar como convertido">
+                                <IconButton
+                                  color="success"
+                                  onClick={() => handleUpdateLeadStatus(lead, 'converted')}
+                                >
+                                  <CheckCircleIcon />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </>
                         )}
                       </TableCell>
                     </TableRow>

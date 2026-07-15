@@ -987,7 +987,7 @@
     "subtitle": "Gestión unificada de leads internos y prospectos externos",
     "crmLeads": "CRM Leads",
     "externalProspects": "Prospectos Externos",
-    "crmLeadsDescription": "Usuarios ya registrados en la app que solicitaron atención de un asesor. Ya tienen cuenta y casillero asignado.",
+    "crmLeadsDescription": "Usuarios de la app que solicitaron asesor + clientes en Reactivación (Chartback). Funnel: Pendientes (sin reclamar) → Asignados → Contactados (con respuesta del asesor) → Convertidos (recuperados).",
     "pending": "Pendientes",
     "assigned": "Asignados",
     "contacted": "Contactados",

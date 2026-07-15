@@ -137,55 +137,96 @@ export const lookupAdvisor = async (req: Request, res: Response): Promise<any> =
 };
 
 // �🖥️ ADMIN: VER TODOS LOS LEADS (Para el CRM Web)
+// Fusiona DOS fuentes en el mismo funnel (pending/assigned/contacted/converted):
+//   1) crm_requests  → usuarios de la app que pidieron asesor.
+//   2) legacy_clients (chartback) → clientes en reactivación. Se mapea su
+//      chartback_status al funnel:
+//        recovered                       → converted
+//        no_answer/callback/retention    → contacted (muestra la respuesta del asesor)
+//        recovery_advisor_id NOT NULL    → assigned (con asesor, aún no contactado)
+//        (resto, sin asesor)             → pending (aún no reclamado)
+//   Se excluye 'not_interested' (cliente perdido, no está en el funnel).
 export const getCrmLeads = async (req: Request, res: Response): Promise<any> => {
   try {
     const { status } = req.query;
-    
-    let query = `
-      SELECT 
-        r.id as request_id,
-        r.created_at,
-        r.status,
-        r.admin_notes,
-        r.updated_at,
-        u.id as user_id,
-        u.full_name,
-        u.email,
-        u.box_id,
-        u.phone,
-        a.full_name as assigned_advisor_name
-      FROM crm_requests r
-      JOIN users u ON r.user_id = u.id
-      LEFT JOIN users a ON r.assigned_advisor_id = a.id
+
+    // Consulta combinada. Ambas fuentes proyectan el MISMO set de columnas.
+    const combinedQuery = `
+      WITH combined AS (
+        -- Fuente 1: CRM requests (usuarios app)
+        SELECT
+          r.id AS request_id,
+          'crm'::text AS source,
+          ('crm_' || r.id::text) AS lead_key,
+          r.created_at,
+          r.status,
+          r.admin_notes,
+          r.updated_at,
+          u.id AS user_id,
+          u.full_name,
+          u.email,
+          u.box_id,
+          u.phone,
+          a.full_name AS assigned_advisor_name,
+          NULL::text AS chartback_status,
+          NULL::text AS advisor_response,
+          NULL::jsonb AS activity,
+          NULL::timestamptz AS next_contact_at
+        FROM crm_requests r
+        JOIN users u ON r.user_id = u.id
+        LEFT JOIN users a ON r.assigned_advisor_id = a.id
+
+        UNION ALL
+
+        -- Fuente 2: Chartback / Reactivación (legacy_clients)
+        SELECT
+          NULL::int AS request_id,
+          'chartback'::text AS source,
+          ('lc_' || lc.id::text) AS lead_key,
+          COALESCE(lc.chartback_i_since, lc.created_at) AS created_at,
+          CASE
+            WHEN LOWER(TRIM(COALESCE(lc.chartback_status, ''))) = 'recovered' THEN 'converted'
+            WHEN LOWER(TRIM(COALESCE(lc.chartback_status, ''))) IN ('no_answer','callback','retention') THEN 'contacted'
+            WHEN lc.recovery_advisor_id IS NOT NULL THEN 'assigned'
+            ELSE 'pending'
+          END AS status,
+          lc.chartback_notes AS admin_notes,
+          COALESCE(lc.next_contact_at, lc.chartback_i_since, lc.created_at) AS updated_at,
+          lc.claimed_by_user_id AS user_id,
+          lc.full_name,
+          lc.email,
+          lc.box_id,
+          lc.phone,
+          adv.full_name AS assigned_advisor_name,
+          lc.chartback_status,
+          lc.chartback_notes AS advisor_response,
+          lc.chartback_activity AS activity,
+          lc.next_contact_at
+        FROM legacy_clients lc
+        LEFT JOIN users adv ON lc.recovery_advisor_id = adv.id
+        WHERE lc.chartback = true OR LOWER(TRIM(COALESCE(lc.chartback_status, ''))) = 'recovered'
+      )
+      SELECT * FROM combined ORDER BY created_at DESC NULLS LAST
     `;
-    
-    const params: any[] = [];
-    if (status && status !== 'all') {
-      query += ' WHERE r.status = $1';
-      params.push(status);
+
+    const all = await pool.query(combinedQuery);
+
+    // Stats sobre AMBAS fuentes (funnel combinado)
+    const stats = { pending: 0, assigned: 0, contacted: 0, converted: 0 };
+    for (const row of all.rows) {
+      if (row.status && Object.prototype.hasOwnProperty.call(stats, row.status)) {
+        stats[row.status as keyof typeof stats]++;
+      }
     }
-    
-    query += ' ORDER BY r.created_at DESC';
 
-    const leads = await pool.query(query, params);
-    
-    // Contar por estado
-    const statsRes = await pool.query(`
-      SELECT status, COUNT(*) as count FROM crm_requests GROUP BY status
-    `);
-    const stats = {
-      pending: 0,
-      assigned: 0,
-      contacted: 0,
-      converted: 0
-    };
-    statsRes.rows.forEach((row: any) => {
-      stats[row.status as keyof typeof stats] = parseInt(row.count);
-    });
+    // Filtrar por la pestaña activa (o todo)
+    const leads = (status && status !== 'all')
+      ? all.rows.filter((r: any) => r.status === status)
+      : all.rows;
 
-    res.json({ 
+    res.json({
       success: true,
-      leads: leads.rows,
+      leads,
       stats
     });
   } catch (error) {
