@@ -1932,7 +1932,17 @@
     "pendingPackingChina": "Received in China pending Packing List",
     "tabAll": "All LOGs",
     "tabNoContainer": "No Container",
-    "tabAssigned": "Assigned"
+    "tabAssigned": "Assigned",
+    "filters": {
+      "searchPlaceholder": "Search by LOG or Shipping Mark...",
+      "merchandiseType": "Merchandise Type",
+      "packingList": "Packing List",
+      "all": "All",
+      "generic": "Generic",
+      "branded": "Branded",
+      "withPackingList": "With Packing List",
+      "withoutPackingList": "Without Packing List"
+    }
   },
   "labelingModule": {
     "title": "Labeling module",

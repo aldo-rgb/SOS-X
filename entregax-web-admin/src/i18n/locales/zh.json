@@ -1792,7 +1792,17 @@
     "pendingPackingChina": "已在中国接收、待上传装箱单",
     "tabAll": "所有 LOG",
     "tabNoContainer": "未装柜",
-    "tabAssigned": "已分配"
+    "tabAssigned": "已分配",
+    "filters": {
+      "searchPlaceholder": "按 LOG 或唛头搜索...",
+      "merchandiseType": "货物类型",
+      "packingList": "装箱单",
+      "all": "全部",
+      "generic": "普货",
+      "branded": "有牌",
+      "withPackingList": "有装箱单",
+      "withoutPackingList": "无装箱单"
+    }
   },
   "labelingModule": {
     "title": "标签模块",

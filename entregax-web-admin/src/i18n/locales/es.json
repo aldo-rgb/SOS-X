@@ -2145,7 +2145,17 @@
     "pendingPackingChina": "Recibidos en China pendientes de Packing List",
     "tabAll": "Todos los LOGs",
     "tabNoContainer": "Sin Contenedor",
-    "tabAssigned": "Asignados"
+    "tabAssigned": "Asignados",
+    "filters": {
+      "searchPlaceholder": "Buscar por LOG o Shipping Mark...",
+      "merchandiseType": "Tipo Mercancía",
+      "packingList": "Packing List",
+      "all": "Todos",
+      "generic": "Genérico",
+      "branded": "Logotipo",
+      "withPackingList": "Con Packing List",
+      "withoutPackingList": "Sin Packing List"
+    }
   },
   "labelingModule": {
     "title": "Módulo de etiquetado",

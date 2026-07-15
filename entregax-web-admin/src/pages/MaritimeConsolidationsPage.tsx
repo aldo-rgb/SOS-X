@@ -174,7 +174,6 @@ const MaritimeConsolidationsPage: React.FC = () => {
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterContainer, setFilterContainer] = useState<string>('all');
   const [filterMerchandiseType, setFilterMerchandiseType] = useState<string>('all');
   const [filterHasPackingList, setFilterHasPackingList] = useState<string>('all');
 
@@ -532,10 +531,6 @@ const MaritimeConsolidationsPage: React.FC = () => {
     if (isBodegaChina && order.status !== 'received_china') return false;
     if (searchTerm && !order.ordersn.toLowerCase().includes(searchTerm.toLowerCase()) &&
         !order.shipping_mark?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    if (filterContainer !== 'all') {
-      if (filterContainer === 'unassigned' && order.container_id) return false;
-      if (filterContainer !== 'unassigned' && order.container_id !== parseInt(filterContainer)) return false;
-    }
     if (filterMerchandiseType !== 'all' && order.merchandise_type !== filterMerchandiseType) return false;
     if (filterHasPackingList === 'with' && !order.packing_list_url) return false;
     if (filterHasPackingList === 'without' && order.packing_list_url) return false;
@@ -654,11 +649,11 @@ const MaritimeConsolidationsPage: React.FC = () => {
       {/* Filtros */}
       <Paper sx={{ p: 2, mb: 2 }}>
         <Grid container spacing={2} alignItems="center">
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <TextField
               fullWidth
               size="small"
-              placeholder="Buscar por LOG o Shipping Mark..."
+              placeholder={t('maritimeConsolidations.filters.searchPlaceholder')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
@@ -666,50 +661,31 @@ const MaritimeConsolidationsPage: React.FC = () => {
               }}
             />
           </Grid>
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <FormControl fullWidth size="small">
-              <InputLabel>Contenedor</InputLabel>
-              <Select
-                value={filterContainer}
-                label="Contenedor"
-                onChange={(e) => setFilterContainer(e.target.value)}
-              >
-                <MenuItem value="all">Todos</MenuItem>
-                <MenuItem value="unassigned">Sin asignar</MenuItem>
-                <Divider />
-                {containers.map(c => (
-                  <MenuItem key={c.id} value={c.id.toString()}>
-                    {c.container_number} ({c.status})
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid size={{ xs: 12, md: 3 }}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Tipo Mercancía</InputLabel>
+              <InputLabel>{t('maritimeConsolidations.filters.merchandiseType')}</InputLabel>
               <Select
                 value={filterMerchandiseType}
-                label="Tipo Mercancía"
+                label={t('maritimeConsolidations.filters.merchandiseType')}
                 onChange={(e) => setFilterMerchandiseType(e.target.value)}
               >
-                <MenuItem value="all">Todos</MenuItem>
-                <MenuItem value="generic">Genérico</MenuItem>
-                <MenuItem value="branded">Logotipo</MenuItem>
+                <MenuItem value="all">{t('maritimeConsolidations.filters.all')}</MenuItem>
+                <MenuItem value="generic">{t('maritimeConsolidations.filters.generic')}</MenuItem>
+                <MenuItem value="branded">{t('maritimeConsolidations.filters.branded')}</MenuItem>
               </Select>
             </FormControl>
           </Grid>
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <FormControl fullWidth size="small">
-              <InputLabel>Packing List</InputLabel>
+              <InputLabel>{t('maritimeConsolidations.filters.packingList')}</InputLabel>
               <Select
                 value={filterHasPackingList}
-                label="Packing List"
+                label={t('maritimeConsolidations.filters.packingList')}
                 onChange={(e) => setFilterHasPackingList(e.target.value)}
               >
-                <MenuItem value="all">Todos</MenuItem>
-                <MenuItem value="with">Con Packing List</MenuItem>
-                <MenuItem value="without">Sin Packing List</MenuItem>
+                <MenuItem value="all">{t('maritimeConsolidations.filters.all')}</MenuItem>
+                <MenuItem value="with">{t('maritimeConsolidations.filters.withPackingList')}</MenuItem>
+                <MenuItem value="without">{t('maritimeConsolidations.filters.withoutPackingList')}</MenuItem>
               </Select>
             </FormControl>
           </Grid>
