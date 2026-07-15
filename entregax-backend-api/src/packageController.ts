@@ -2138,6 +2138,20 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             }
         }
 
+        // Piezas REALES de la guía nacional PQTX. Para REPACK la guía es de 1 sola
+        // pieza (una caja física) aunque el master tenga N guías consolidadas
+        // (total_boxes). El frontend usa esto para no mostrar/imprimir N etiquetas.
+        let nationalPieces: number | null = null;
+        if (pkg.national_tracking) {
+            try {
+                const npr = await pool.query(
+                    `SELECT pieces FROM pqtx_shipments WHERE tracking_number = $1 ORDER BY id DESC LIMIT 1`,
+                    [pkg.national_tracking]
+                );
+                if (npr.rows[0]?.pieces != null) nationalPieces = Number(npr.rows[0].pieces);
+            } catch { /* tabla pqtx_shipments opcional / no crítico */ }
+        }
+
         res.json({
             success: true,
             shipment: {
@@ -2174,6 +2188,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     nationalCarrier: pkg.national_carrier || null,
                     nationalTracking: pkg.national_tracking || null,
                     nationalLabelUrl: pkg.national_label_url || null,
+                    nationalPieces,
                     internationalTracking: pkg.international_tracking || null,
                     // 🎯 Si el usuario rastreó una guía hija (pkg.master_id existe),
                     //   exponemos scannedBox para que el frontend oculte costos agregados

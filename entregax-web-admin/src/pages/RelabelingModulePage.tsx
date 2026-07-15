@@ -77,6 +77,10 @@ interface ShipmentData {
         nationalCarrier?: string | null;
         nationalTracking?: string | null;
         nationalLabelUrl?: string | null;
+        // Nº de piezas REAL de la guía nacional (pqtx_shipments.pieces). Para
+        // REPACK la guía es de 1 sola pieza (una caja física), aunque el master
+        // tenga N guías consolidadas (totalBoxes). Se usa para la tarjeta PQTX.
+        nationalPieces?: number | null;
         paymentStatus?: string | null;
         clientPaid?: boolean;
         clientPaidAt?: string | null;
@@ -913,16 +917,19 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         const masterTnCompact = String(masterTn || '').toUpperCase();
         const today = new Date().toLocaleDateString('es-MX');
         const svc = getServiceInfo(masterTn);
+        // REPACK = una sola caja física con N guías consolidadas → 1 sola etiqueta.
+        const isRepack = /^US-REPACK-/i.test(masterTnCompact);
         const totalBoxes = shipment.master.totalBoxes || 1;
+        const showBoxBadges = !isRepack && totalBoxes > 1;
         // EVISA Prepagado: dispersión CDMX→MTY (ver isEvisaMtyDispersion). Solo
         // cambia el branding de la etiqueta; la dirección impresa sigue siendo la
         // final del cliente.
         const evisaMode = isEvisaMtyDispersion(shipment);
         const deliveryBadge = evisaMode ? '🚚 eVISA PRE' : '📍 ENTREGA LOCAL';
 
-        // Generar una página por caja
+        // Generar una página por caja (REPACK → una sola)
         const boxes: Array<{ boxNum: number; tn: string; tnCompact: string; weight: number | null }> = [];
-        if (totalBoxes > 1 && shipment.children && shipment.children.length > 0) {
+        if (showBoxBadges && shipment.children && shipment.children.length > 0) {
             const sorted = [...shipment.children].sort((a, b) => (a.boxNumber || 0) - (b.boxNumber || 0));
             sorted.forEach(c => boxes.push({
                 boxNum: c.boxNumber,
@@ -943,7 +950,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
       <div class="logo">Entrega<span>X</span></div>
       <div class="brand-right">
         <div class="badge"${evisaMode ? ' style="background:#00695C"' : ''}>${deliveryBadge}</div>
-        ${totalBoxes > 1 ? `<div class="box-badge">CAJA ${box.boxNum} / ${totalBoxes}</div>` : ''}
+        ${showBoxBadges ? `<div class="box-badge">CAJA ${box.boxNum} / ${totalBoxes}</div>` : (isRepack ? `<div class="box-badge">REPACK · ${totalBoxes} GUÍAS</div>` : '')}
       </div>
     </div>
 
@@ -973,7 +980,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
     <div class="pkg-info">
       <div class="cell"><div class="lbl">CLIENTE</div><div class="val">${shipment.client.boxId}</div></div>
       <div class="cell"><div class="lbl">PESO</div><div class="val">${box.weight ? Number(box.weight).toFixed(1) + ' kg' : '—'}</div></div>
-      <div class="cell"><div class="lbl">CAJA</div><div class="val">${totalBoxes > 1 ? `${box.boxNum}/${totalBoxes}` : '1/1'}</div></div>
+      <div class="cell"><div class="lbl">${isRepack ? 'GUÍAS' : 'CAJA'}</div><div class="val">${isRepack ? `${totalBoxes} 📦` : (showBoxBadges ? `${box.boxNum}/${totalBoxes}` : '1/1')}</div></div>
     </div>
 
     <div class="footer">
@@ -1325,6 +1332,13 @@ ${body}
 
     const handleConfirmReprintRange = async () => {
         if (!reprintLabel) return;
+        // REPACK = una sola caja física; imprime UNA etiqueta con el tracking del
+        // master tal cual (sin reconstruir sufijos -NN por caja).
+        if (/^US-REPACK-/i.test(String(reprintLabel.tracking || ''))) {
+            openPrintWindow([{ ...reprintLabel, boxNumber: 1, totalBoxes: 1 }]);
+            setReprintOpen(false);
+            return;
+        }
         const total = reprintLabel.totalBoxes;
         const from = Math.max(1, Math.min(total, Math.floor(reprintFrom || 1)));
         const to = Math.max(from, Math.min(total, Math.floor(reprintTo || from)));
@@ -1347,6 +1361,9 @@ ${body}
 
     const assignedCarrier = getAssignedCarrier(shipment);
     const hasAssignedCarrier = Boolean(assignedCarrier);
+    // REPACK: 1 caja física con N guías consolidadas dentro. Todas las impresiones
+    // (master, carrier, local, PQTX) deben producir UNA sola etiqueta/guía.
+    const isRepackShipment = Boolean(shipment && /^US-REPACK-/i.test(String(shipment.master.tracking || '')));
     const isPaqueteExpressAssigned = Boolean(assignedCarrier && isPaqueteExpressCarrier(assignedCarrier.normalized));
     const isEntregaxLocalAssigned = Boolean(assignedCarrier && isEntregaxLocalCarrier(assignedCarrier.normalized));
     const isEntregaxNacionalAssigned = Boolean(assignedCarrier && isEntregaxNacionalCarrier(assignedCarrier.normalized));
@@ -1450,9 +1467,13 @@ ${body}
         const masterTnCompact = String(masterTn || '').toUpperCase();
         const today = new Date().toLocaleDateString('es-MX');
         const svc = getServiceInfo(masterTn);
+        // REPACK = una sola caja física que contiene N guías consolidadas.
+        // Debe imprimir UNA sola etiqueta (el master), nunca una por hija.
+        const isRepack = /^US-REPACK-/i.test(masterTnCompact);
         const totalBoxes = shipment.master.totalBoxes || 1;
+        const showBoxBadges = !isRepack && totalBoxes > 1;
         const boxes: Array<{ boxNum: number; tn: string; tnCompact: string; weight: number | null }> = [];
-        if (totalBoxes > 1 && shipment.children?.length > 0) {
+        if (showBoxBadges && shipment.children?.length > 0) {
             const sorted = [...shipment.children].sort((a, b) => (a.boxNumber || 0) - (b.boxNumber || 0));
             sorted.forEach(c => boxes.push({ boxNum: c.boxNumber, tn: c.tracking || masterTn, tnCompact: String(c.tracking || masterTn).toUpperCase(), weight: c.weight || null }));
         } else {
@@ -1466,7 +1487,7 @@ ${body}
       <div class="logo">Entrega<span>X</span></div>
       <div class="brand-right">
         <div class="badge">${carrierLabel}</div>
-        ${totalBoxes > 1 ? `<div class="box-badge">CAJA ${box.boxNum} / ${totalBoxes}</div>` : ''}
+        ${showBoxBadges ? `<div class="box-badge">CAJA ${box.boxNum} / ${totalBoxes}</div>` : ''}
       </div>
     </div>
     <div class="tracking-row">
@@ -1490,7 +1511,7 @@ ${body}
     <div class="pkg-info">
       <div class="cell"><div class="lbl">CLIENTE</div><div class="val">${shipment.client.boxId}</div></div>
       <div class="cell"><div class="lbl">PESO</div><div class="val">${box.weight ? Number(box.weight).toFixed(1) + ' kg' : '—'}</div></div>
-      <div class="cell"><div class="lbl">CAJA</div><div class="val">${totalBoxes > 1 ? `${box.boxNum}/${totalBoxes}` : '1/1'}</div></div>
+      <div class="cell"><div class="lbl">${isRepack ? 'GUÍAS' : 'CAJA'}</div><div class="val">${isRepack ? `${totalBoxes} 📦` : (showBoxBadges ? `${box.boxNum}/${totalBoxes}` : '1/1')}</div></div>
     </div>
     <div class="footer">
       <div class="qr-box">
@@ -1591,7 +1612,12 @@ ${labelsHtml}
     // Una sola guía PQTX (multipieza). Si hay hijas comparten el mismo national_tracking.
     const pqtxGuides: Array<{ tracking: string; pieces: number; childId: number | null }> = (() => {
         if (!shipment) return [];
-        const totalPieces = Math.max(1, shipment.master.totalBoxes || (shipment.children || []).length || 1);
+        // Piezas REALES de la guía nacional. Para REPACK la guía es de 1 pieza
+        // (una caja física) aunque el master tenga N guías consolidadas → usamos
+        // nationalPieces (pqtx_shipments.pieces) y solo caemos a totalBoxes si no
+        // viene. Así la guía ya generada del 2294 (2 piezas) sigue mostrando 2 y
+        // los repacks nuevos (1 pieza) muestran 1.
+        const totalPieces = Math.max(1, shipment.master.nationalPieces || shipment.master.totalBoxes || (shipment.children || []).length || 1);
         if (shipment.master.nationalTracking) {
             return [{ tracking: shipment.master.nationalTracking, pieces: totalPieces, childId: null }];
         }
@@ -1756,7 +1782,9 @@ ${labelsHtml}
                                 <Chip label={shipment.master.statusLabel} variant="outlined" />
                                 {shipment.master.totalBoxes > 1 && (
                                     <Chip
-                                        label={`${shipment.master.totalBoxes} cajas`}
+                                        label={isRepackShipment
+                                            ? `📦 1 caja · ${shipment.master.totalBoxes} guías consolidadas`
+                                            : `${shipment.master.totalBoxes} cajas`}
                                         color="primary"
                                         variant="outlined"
                                     />
@@ -2004,6 +2032,17 @@ ${labelsHtml}
                                                 </Button>
                                             </Stack>
                                         )
+                                    ) : label.isMaster && /^US-REPACK-/i.test(String(label.tracking || '')) ? (
+                                        // REPACK: 1 caja física con N guías dentro → UNA sola etiqueta.
+                                        <Button
+                                            fullWidth
+                                            variant="contained"
+                                            startIcon={<PrintIcon />}
+                                            onClick={() => handlePrintLabel({ ...label, boxNumber: 1, totalBoxes: 1 })}
+                                            sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
+                                        >
+                                            Imprimir etiqueta repack
+                                        </Button>
                                     ) : label.isMaster && label.totalBoxes > 1 ? (
                                         <Stack spacing={1}>
                                             <Button

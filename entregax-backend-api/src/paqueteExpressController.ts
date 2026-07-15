@@ -1795,6 +1795,10 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     );
     const children = childrenRes.rows;
 
+    // REPACK (US-REPACK-*): las N guías se consolidaron en UNA sola caja física →
+    // la guía PQTX es de 1 sola pieza (no una por hija).
+    const isRepack = String(pkg.tracking_internal || '').toUpperCase().startsWith('US-REPACK-');
+
     // Si ya tiene guía nacional, devolverla (una sola guía multipieza para master + hijas)
     if (pkg.national_tracking) {
       const labelUrl = pkg.national_label_url || `/api/admin/paquete-express/label/pdf/${pkg.national_tracking}`;
@@ -1820,7 +1824,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
         alreadyExists: true,
         trackingNumber: pkg.national_tracking,
         labelUrl,
-        pieces: Math.max(1, children.length || 1),
+        pieces: isRepack ? 1 : Math.max(1, children.length || 1),
         trackings,
       });
       return;
@@ -1868,7 +1872,9 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     }
     const evenWeight = useMasterEvenSplit ? masterWeight / children.length : 0;
 
-    const piecesData = children.length > 0
+    // REPACK: guía de 1 sola pieza (peso/dims del master). Las hijas igual
+    // comparten el national_tracking abajo (isRepack declarado arriba).
+    const piecesData = (!isRepack && children.length > 0)
       ? children.map((c: any) => ({
           weight: useMasterEvenSplit ? evenWeight : (Number(c.weight) || Number(pkg.weight) || 1),
           pkgLength: Number(c.pkg_length) || Number(pkg.pkg_length) || 30,
