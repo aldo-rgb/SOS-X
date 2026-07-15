@@ -1753,7 +1753,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                     />
                   )}
                   <TextField
-                    label="% EntregaX (comisión fija)"
+                    label="% Venta fija"
                     type="number"
                     value={editingEntProvider.override_porcentaje_compra ?? ''}
                     onChange={(e) => setEditingEntProvider({
@@ -1761,9 +1761,9 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                       override_porcentaje_compra: e.target.value === '' ? null : e.target.value,
                     })}
                     placeholder="0.00"
-                    helperText="Porcentaje fijo que cobra EntregaX. El resto del margen (arriba) es la comisión del asesor."
+                    helperText="Tasa de venta de EntregaX. Utilidad EntregaX = Venta fija − Costo proveedor. Comisión asesor = Cliente − Venta fija."
                     slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
-                    sx={{ width: 320 }}
+                    sx={{ width: 340 }}
                   />
                   <TextField
                     label="% Compra Híbrida"

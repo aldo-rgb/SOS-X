@@ -245,15 +245,14 @@ export const createPaymentRequestV2 = async (
   // Comisión que XPAY le cobra al cliente
   const commission = await resolveClientFinalCommission(userId, servicio);
 
-  // Desglose de la comisión cobrada al cliente — se conoce desde la config del
-  // proveedor default (p.ej. TRÉBOL) y se guarda desde la creación:
-  //   - Cliente  = commission.porcentaje (lo que XPAY cobra al cliente, p.ej. 6%)
-  //   - Entangled= porcentaje_compra del proveedor (lo que cobra ENTANGLED, p.ej. 3.5%)
-  //   - Entregax = override_porcentaje_compra del proveedor (el "Incremento %
-  //                de compra / Comisión EntregaX" configurable, p.ej. 1%)
-  //   - Asesor   = lo que sobra (cliente − entangled − entregax)
+  // Desglose de la comisión cobrada al cliente. Modelo de VENTA FIJA:
+  //   - Cliente     = commission.porcentaje (lo que XPAY cobra al cliente, p.ej. 5.5%)
+  //   - Entangled   = porcentaje_compra / comision_cobrada (costo del proveedor, p.ej. 2.8%)
+  //   - Venta fija  = override_porcentaje_compra (la tasa a la que EntregaX "vende", p.ej. 4.5%)
+  //   - EntregaX gana = Venta fija − Costo proveedor  (4.5 − 2.8 = 1.7%)
+  //   - Asesor gana   = Cliente − Venta fija          (5.5 − 4.5 = 1.0%)
   let proveedorPctEntangled = 0; // porcentaje_compra (API) — lo que cobra ENTANGLED
-  let proveedorPctEntregax = 0;  // override_porcentaje_compra — incremento configurado de EntregaX
+  let proveedorVentaFija = 0;    // override_porcentaje_compra — % VENTA FIJA de EntregaX
   try {
     const pr = await pool.query(
       `SELECT COALESCE(porcentaje_compra, 0) AS base,
@@ -263,13 +262,15 @@ export const createPaymentRequestV2 = async (
         ORDER BY id ASC LIMIT 1`
     );
     proveedorPctEntangled = Number(pr.rows[0]?.base ?? 0) || 0;
-    proveedorPctEntregax = Number(pr.rows[0]?.override_pct ?? 0) || 0;
+    proveedorVentaFija = Number(pr.rows[0]?.override_pct ?? 0) || 0;
   } catch (e) {
     console.warn('[ENTANGLED v2] No se pudo resolver % de compra del proveedor default:', e);
   }
   const pctClienteIns = Number(commission.porcentaje) || 0;
-  const pctEntregaxIns = Math.min(proveedorPctEntregax, Math.max(0, pctClienteIns - proveedorPctEntangled));
-  const pctAsesorIns = Math.max(0, pctClienteIns - proveedorPctEntangled - pctEntregaxIns);
+  // Si no hay venta fija configurada, EntregaX toma todo el margen (asesor 0).
+  const ventaFijaIns = proveedorVentaFija > 0 ? proveedorVentaFija : pctClienteIns;
+  const pctEntregaxIns = Math.max(0, ventaFijaIns - proveedorPctEntangled);
+  const pctAsesorIns = Math.max(0, pctClienteIns - ventaFijaIns);
 
   // Asesor: si la operación la crea un asesor a nombre del cliente, se usa ese
   // asesor; si no, se resuelve del asesor asignado del cliente (informativo).
@@ -616,16 +617,16 @@ export const createPaymentRequestV2 = async (
       ? new Date(Math.min(entangledDeadline.getTime(), nuestroDeadline.getTime()))
       : nuestroDeadline;
 
-  // Desglose de la comisión cobrada al cliente. Ya se calculó en la creación con
-  // el % de compra del proveedor default; aquí se reafina con el % real que
-  // devolvió ENTANGLED (si vino), cayendo al de la config si no.
-  //  - Cliente paga   = commission.porcentaje (p.ej. 6%)
-  //  - Entangled cobra= remote.comision_cobrada_porcentaje ?? porcentaje_compra (3.5%)
-  //  - Entregax gana  = override_porcentaje_compra del proveedor (incremento configurado, p.ej. 1%)
-  //  - Asesor gana    = lo que sobra (cliente − entangled − entregax)
+  // Desglose (modelo VENTA FIJA). Se reafina con el % real que devolvió ENTANGLED.
+  //  - Cliente paga    = commission.porcentaje (p.ej. 5.5%)
+  //  - Entangled cobra = remote.comision_cobrada_porcentaje ?? porcentaje_compra (costo, p.ej. 2.8%)
+  //  - Venta fija      = override_porcentaje_compra (tasa de venta de EntregaX, p.ej. 4.0%)
+  //  - EntregaX gana   = Venta fija − Costo   (4.0 − 2.8 = 1.2%)
+  //  - Asesor gana     = Cliente − Venta fija (5.5 − 4.0 = 1.5%)
   const pctEntangled = Number(remote.comision_cobrada_porcentaje ?? proveedorPctEntangled) || 0;
-  const pctEntregax = Math.min(proveedorPctEntregax, Math.max(0, pctClienteIns - pctEntangled));
-  const pctAsesor = Math.max(0, pctClienteIns - pctEntangled - pctEntregax);
+  const ventaFija = proveedorVentaFija > 0 ? proveedorVentaFija : pctClienteIns;
+  const pctEntregax = Math.max(0, ventaFija - pctEntangled);
+  const pctAsesor = Math.max(0, pctClienteIns - ventaFija);
 
   let updated = (await pool.query(
     `UPDATE entangled_payment_requests

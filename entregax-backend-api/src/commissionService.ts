@@ -324,9 +324,12 @@ export async function generateXpayCommission(eprId: number): Promise<void> {
           (COALESCE(epr.op_monto,0) * COALESCE(epr.tc_cliente_final, epr.tc_aplicado_usd, 0)) AS base_c,
           COALESCE(epr.comision_cliente_final_porcentaje,0) AS ccf,
           COALESCE(epr.comision_cobrada_porcentaje,0) AS cco,
+          -- Modelo venta fija: EntregaX = venta_fija − costo. Usa el comision_entregax
+          -- guardado; si no hay, lo deriva de (override = venta_fija) − costo.
           LEAST(
             COALESCE(NULLIF(epr.comision_entregax,0),
-                     (SELECT COALESCE(override_porcentaje_compra,0) FROM entangled_providers WHERE is_active=true AND is_default=true ORDER BY id ASC LIMIT 1), 0),
+                     GREATEST(0, (SELECT COALESCE(override_porcentaje_compra,0) FROM entangled_providers WHERE is_active=true AND is_default=true ORDER BY id ASC LIMIT 1)
+                                 - COALESCE(epr.comision_cobrada_porcentaje,0)), 0),
             GREATEST(0, COALESCE(epr.comision_cliente_final_porcentaje,0) - COALESCE(epr.comision_cobrada_porcentaje,0))
           ) AS pct_egx
         FROM entangled_payment_requests epr
