@@ -20,7 +20,10 @@
       "pendingDhlTracking": "待 DHL 单号",
       "logPendingPacking": "已在中国收货 · 待装箱单",
       "pendingSupplierPay": "待付供应商"
-    }
+    },
+    "readyToMexicoTitle": "待发往墨西哥",
+    "noReadyBoxes": "没有可发货的单号",
+    "noPending": "太好了！没有待处理包裹"
   },
   "entangled": {
     "title": "国际供应商付款",

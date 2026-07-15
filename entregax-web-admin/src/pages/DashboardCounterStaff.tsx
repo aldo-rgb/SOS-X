@@ -111,6 +111,7 @@ export default function DashboardCounterStaff() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<CounterStats | null>(null);
   const [pendingDeliveries, setPendingDeliveries] = useState<PendingDelivery[]>([]);
+  const [dhlReadyBoxes, setDhlReadyBoxes] = useState<Array<{ id: number; tracking: string; box_id: string | null; client_name: string | null; weight: number }>>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [userName, setUserName] = useState('');
   
@@ -169,6 +170,7 @@ export default function DashboardCounterStaff() {
       if (response.data) {
         setStats(response.data.stats);
         setPendingDeliveries(response.data.pendingDeliveries || []);
+        setDhlReadyBoxes(response.data.dhlReadyBoxes || []);
       }
     } catch (error) {
       console.error('Error cargando dashboard:', error);
@@ -635,7 +637,50 @@ export default function DashboardCounterStaff() {
         ))}
       </Grid>
 
-      {/* Paquetes Listos para Entrega */}
+      {/* Bodega China: listado de guías listas para envío a México (DHL).
+          Resto de mostradores: PickUp listos para entrega. */}
+      {isBodegaChina ? (
+      <Paper sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h6" fontWeight="bold">
+            📦 {t('counterDash.readyToMexicoTitle')}
+          </Typography>
+          <Chip label={t('counterDash.waiting', { n: dhlReadyBoxes.length })} color="primary" />
+        </Box>
+
+        <List>
+          {dhlReadyBoxes.map((b, index) => (
+            <Box key={b.id}>
+              <ListItem sx={{ py: 1.5, borderRadius: 2, '&:hover': { bgcolor: 'action.hover' } }}
+                secondaryAction={<Chip label={`${b.weight.toFixed(1)} kg`} size="small" color="info" />}>
+                <ListItemAvatar>
+                  <Avatar sx={{ bgcolor: 'success.main' }}><InventoryIcon /></Avatar>
+                </ListItemAvatar>
+                <ListItemText
+                  primary={<Typography variant="subtitle2" fontWeight="bold" sx={{ fontFamily: 'monospace' }}>{b.tracking}</Typography>}
+                  secondary={
+                    <Typography variant="body2" component="span" color="text.secondary">
+                      <PersonIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
+                      {(b.client_name || '—')}{b.box_id ? ` • ${b.box_id}` : ''}
+                    </Typography>
+                  }
+                />
+              </ListItem>
+              {index < dhlReadyBoxes.length - 1 && <Divider variant="inset" component="li" />}
+            </Box>
+          ))}
+        </List>
+
+        {dhlReadyBoxes.length === 0 && (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <CheckCircleIcon sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
+            <Typography variant="h6" color="text.secondary">
+              {t('counterDash.noReadyBoxes')}
+            </Typography>
+          </Box>
+        )}
+      </Paper>
+      ) : (
       <Paper sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6" fontWeight="bold">
@@ -643,7 +688,7 @@ export default function DashboardCounterStaff() {
           </Typography>
           <Chip label={t('counterDash.waiting', { n: pendingDeliveries.length })} color="primary" />
         </Box>
-        
+
         <List>
           {pendingDeliveries.map((delivery, index) => (
             <Box key={delivery.id}>
@@ -700,11 +745,12 @@ export default function DashboardCounterStaff() {
           <Box sx={{ textAlign: 'center', py: 4 }}>
             <CheckCircleIcon sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
             <Typography variant="h6" color="text.secondary">
-              ¡Excelente! No hay paquetes pendientes
+              {t('counterDash.noPending')}
             </Typography>
           </Box>
         )}
       </Paper>
+      )}
 
       {/* ============ MODAL DE ENTREGA PICK UP ============ */}
       <Dialog 

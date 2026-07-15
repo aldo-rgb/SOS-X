@@ -2054,6 +2054,35 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
         `);
         const tdiStats = tdiStatsResult.rows[0];
 
+        // Lista de cajas TDI listas para envío a México (received_china CON
+        // instrucciones) — para el panel de bodega China.
+        let dhlReadyBoxes: any[] = [];
+        try {
+            const dr = await pool.query(`
+                SELECT c.id, c.tracking_internal AS tracking, c.box_id,
+                       u.full_name AS client_name,
+                       COALESCE(c.air_chargeable_weight, c.weight, 0) AS weight,
+                       c.received_at
+                FROM packages c
+                LEFT JOIN packages m ON m.id = c.master_id
+                LEFT JOIN users u ON u.id = c.user_id
+                WHERE c.air_source = 'tdi_express' AND COALESCE(c.is_master, false) = false
+                  AND c.status::text = 'received_china'
+                  AND (c.assigned_address_id IS NOT NULL OR m.assigned_address_id IS NOT NULL)
+                ORDER BY c.received_at DESC NULLS LAST, c.id DESC
+                LIMIT 100
+            `);
+            dhlReadyBoxes = dr.rows.map((r: any) => ({
+                id: r.id,
+                tracking: r.tracking,
+                box_id: r.box_id || null,
+                client_name: r.client_name || null,
+                weight: parseFloat(r.weight) || 0,
+            }));
+        } catch (e: any) {
+            console.warn('[getCounterStaffDashboard] dhlReadyBoxes:', e?.message);
+        }
+
         // Bodega China: LOG marítimos "Recibido en China" pendientes de Packing List
         // y operaciones XPay híbridas en estado "solicitada" (pendientes de pago a proveedor).
         let bodegaChinaStats = { log_pdte_packing: 0, xpay_pdte_proveedor: 0 };
@@ -2142,6 +2171,7 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
                     llegada: row.llegada,
                 };
             }),
+            dhlReadyBoxes,
         });
     } catch (error) {
         console.error('Error al obtener dashboard counter staff:', error);

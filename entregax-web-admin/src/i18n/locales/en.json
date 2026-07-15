@@ -20,7 +20,10 @@
       "pendingDhlTracking": "Pending DHL tracking",
       "logPendingPacking": "LOG received in China · pending Packing List",
       "pendingSupplierPay": "Pending supplier payment"
-    }
+    },
+    "readyToMexicoTitle": "Ready to ship to Mexico",
+    "noReadyBoxes": "No guides ready to ship",
+    "noPending": "Great! No pending packages"
   },
   "entangled": {
     "title": "International Supplier Payments",
