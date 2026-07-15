@@ -10,6 +10,7 @@ import {
   Paper,
   Grid,
   Card,
+  CardContent,
   CardActionArea,
   CircularProgress,
   Avatar,
@@ -75,6 +76,10 @@ interface CounterStats {
     hoy: number;
     por_registrar: number;
   };
+  tdi?: {
+    listas_envio: number;
+    pdte_tracking: number;
+  };
 }
 
 interface PendingDelivery {
@@ -98,7 +103,7 @@ export default function DashboardCounterStaff() {
   const isBodegaChina = branchId === 8;
 
   const [loading, setLoading] = useState(true);
-  const [, setStats] = useState<CounterStats | null>(null);
+  const [stats, setStats] = useState<CounterStats | null>(null);
   const [pendingDeliveries, setPendingDeliveries] = useState<PendingDelivery[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [userName, setUserName] = useState('');
@@ -600,6 +605,24 @@ export default function DashboardCounterStaff() {
           ))}
         </Grid>
       </Paper>
+
+      {/* Indicadores TDI Express (bodega China) */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        {[
+          { label: 'Listas para envío', value: stats?.tdi?.listas_envio ?? 0, color: '#2E7D32' },
+          { label: 'Pendiente de tracking DHL', value: stats?.tdi?.pdte_tracking ?? 0, color: '#C1272D' },
+        ].map((w) => (
+          <Grid size={{ xs: 6 }} key={w.label}>
+            <Card sx={{ borderRadius: 2, border: '1px solid #ECECEC', overflow: 'hidden' }}>
+              <Box sx={{ height: 4, bgcolor: w.color }} />
+              <CardContent>
+                <Typography variant="caption" sx={{ color: '#6B7280', fontWeight: 600 }}>{w.label}</Typography>
+                <Typography variant="h4" fontWeight="bold" sx={{ color: w.color }}>{w.value}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
 
       {/* Paquetes Listos para Entrega */}
       <Paper sx={{ p: 3 }}>

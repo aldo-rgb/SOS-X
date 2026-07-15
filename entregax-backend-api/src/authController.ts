@@ -2037,6 +2037,23 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
         `);
         const recepcionStats = recepcionStatsResult.rows[0];
 
+        // Stats TDI Express para bodega China: cajas listas para envío
+        // (received_china con instrucciones) y guías pendientes de tracking DHL
+        // (en tránsito sin AWB asignado).
+        const tdiStatsResult = await pool.query(`
+            SELECT
+              (SELECT COUNT(*) FROM packages c LEFT JOIN packages m ON m.id = c.master_id
+                 WHERE c.air_source = 'tdi_express' AND COALESCE(c.is_master, false) = false
+                   AND c.status::text = 'received_china'
+                   AND (c.assigned_address_id IS NOT NULL OR m.assigned_address_id IS NOT NULL)) AS listas_envio,
+              (SELECT COUNT(*) FROM packages m
+                 WHERE m.air_source = 'tdi_express' AND m.is_master = true
+                   AND (m.status::text = 'in_transit'
+                        OR EXISTS (SELECT 1 FROM packages c WHERE c.master_id = m.id AND c.status::text = 'in_transit'))
+                   AND NULLIF(TRIM(COALESCE(m.international_tracking, '')), '') IS NULL) AS pdte_tracking
+        `);
+        const tdiStats = tdiStatsResult.rows[0];
+
         // Paquetes listos para entrega (ready_pickup)
         const pendingDeliveriesResult = await pool.query(`
             SELECT 
@@ -2080,6 +2097,10 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
                 recepciones: {
                     hoy: parseInt(recepcionStats.hoy) || 0,
                     por_registrar: parseInt(recepcionStats.por_registrar) || 0,
+                },
+                tdi: {
+                    listas_envio: parseInt(tdiStats.listas_envio) || 0,
+                    pdte_tracking: parseInt(tdiStats.pdte_tracking) || 0,
                 },
             },
             pendingDeliveries: pendingDeliveriesResult.rows.map(row => {
