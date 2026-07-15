@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import bcrypt from 'bcrypt';
 import { generateBoxId } from './authController';
+import { sendTemplate } from './whatsappService';
 
 // ============================================================================
 // FUNCIONES ORIGINALES (APP Y CRM BÁSICO)
@@ -302,6 +303,138 @@ export const updateLeadStatus = async (req: Request, res: Response): Promise<any
   } catch (error) {
     console.error('Error en updateLeadStatus:', error);
     res.status(500).json({ success: false, error: 'Error al actualizar estado' });
+  }
+};
+
+// ============================================================================
+// 📣 ENVÍO MASIVO DE WHATSAPP A LEADS (plantillas predefinidas de Meta)
+// ============================================================================
+// Nombres de plantilla configurables por env para calzar con lo aprobado en Meta.
+const WA_TPL_INVITE = process.env.WHATSAPP_INVITE_TEMPLATE || 'invitacion_registro_entregax';
+const WA_TPL_XPAY = process.env.WHATSAPP_XPAY_WEEKLY_TEMPLATE || 'xpay_tc_semanal';
+const WA_TPL_TARIFAS = process.env.WHATSAPP_TARIFAS_TEMPLATE || 'tarifas_maritimo_aereo';
+
+// Lee los valores vigentes de la BD para prellenar las plantillas 2 y 3.
+async function getCurrentBulkValues(): Promise<{ tc: number | null; comision: number | null; cbm: number | null; kg: number | null }> {
+  const out = { tc: null as number | null, comision: null as number | null, cbm: null as number | null, kg: null as number | null };
+  // TC X-Pay (proveedor default activo). Efectivo = base + override (el override
+  // es un ajuste que se SUMA, no un reemplazo). Redondeado a 2 decimales.
+  try {
+    const r = await pool.query(`SELECT (tipo_cambio_usd + COALESCE(override_tipo_cambio_usd, 0)) AS tc FROM entangled_providers WHERE is_active = true ORDER BY is_default DESC, sort_order, id LIMIT 1`);
+    if (r.rows[0]?.tc != null) out.tc = Math.round(Number(r.rows[0].tc) * 100) / 100;
+  } catch { /* tabla opcional */ }
+  // Comisión X-Pay (sin factura como base)
+  try {
+    const r = await pool.query(`SELECT comision_pago_sin_factura FROM entangled_service_config WHERE id = 1`);
+    if (r.rows[0]?.comision_pago_sin_factura != null) out.comision = Number(r.rows[0].comision_pago_sin_factura);
+  } catch { /* tabla opcional */ }
+  // Costo marítimo por CBM (tarifa activa representativa, la más baja no-flat)
+  try {
+    const r = await pool.query(`SELECT price FROM pricing_tiers WHERE is_active = true AND COALESCE(is_flat_fee, false) = false AND price > 0 ORDER BY price ASC LIMIT 1`);
+    if (r.rows[0]?.price != null) out.cbm = Number(r.rows[0].price);
+  } catch { /* tabla opcional */ }
+  // Costo aéreo por kg (tarifa activa representativa)
+  try {
+    const r = await pool.query(`SELECT price_per_kg FROM air_tariffs WHERE is_active = true AND price_per_kg > 0 ORDER BY price_per_kg ASC LIMIT 1`);
+    if (r.rows[0]?.price_per_kg != null) out.kg = Number(r.rows[0].price_per_kg);
+  } catch { /* tabla opcional */ }
+  return out;
+}
+
+// GET /api/admin/crm/bulk-whatsapp/defaults → valores vigentes para prellenar el form
+export const getBulkWhatsappDefaults = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    const values = await getCurrentBulkValues();
+    res.json({ success: true, values });
+  } catch (error) {
+    console.error('Error en getBulkWhatsappDefaults:', error);
+    res.status(500).json({ success: false, error: 'Error al obtener valores vigentes' });
+  }
+};
+
+// POST /api/admin/crm/bulk-whatsapp
+// Body: { messageType: 'invite'|'xpay'|'tarifas', leadKeys: string[], values?: {tc,comision,cbm,kg} }
+export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { messageType, leadKeys, values } = req.body || {};
+    if (!['invite', 'xpay', 'tarifas'].includes(messageType)) {
+      return res.status(400).json({ success: false, error: 'Tipo de mensaje inválido' });
+    }
+    if (!Array.isArray(leadKeys) || leadKeys.length === 0) {
+      return res.status(400).json({ success: false, error: 'Selecciona al menos un lead' });
+    }
+    if (leadKeys.length > 500) {
+      return res.status(400).json({ success: false, error: 'Máximo 500 destinatarios por envío' });
+    }
+
+    // Valores globales (mismos para todos): editados por el usuario o vigentes.
+    const norm = (v: any) => (v != null && String(v).trim() !== '' ? String(v).trim() : null);
+    const tc = norm(values?.tc);
+    const comision = norm(values?.comision);
+    const cbm = norm(values?.cbm);
+    const kg = norm(values?.kg);
+    if (messageType === 'xpay' && (!tc || !comision)) {
+      return res.status(400).json({ success: false, error: 'Falta el tipo de cambio o la comisión' });
+    }
+    if (messageType === 'tarifas' && (!cbm || !kg)) {
+      return res.status(400).json({ success: false, error: 'Falta el costo por CBM o por kg' });
+    }
+
+    // Resolver nombre + teléfono de los leads seleccionados (ambas fuentes).
+    const rowsRes = await pool.query(
+      `SELECT ('crm_' || r.id::text) AS lead_key, u.full_name, u.phone
+         FROM crm_requests r JOIN users u ON r.user_id = u.id
+        WHERE ('crm_' || r.id::text) = ANY($1::text[])
+       UNION ALL
+       SELECT ('lc_' || lc.id::text) AS lead_key, lc.full_name, lc.phone
+         FROM legacy_clients lc
+        WHERE ('lc_' || lc.id::text) = ANY($1::text[])`,
+      [leadKeys]
+    );
+
+    const template = messageType === 'invite' ? WA_TPL_INVITE : messageType === 'xpay' ? WA_TPL_XPAY : WA_TPL_TARIFAS;
+    const seenPhones = new Set<string>();
+    const results = { total: rowsRes.rows.length, sent: 0, skipped: 0, failed: 0, details: [] as any[] };
+
+    for (const row of rowsRes.rows) {
+      const nombre = String(row.full_name || 'Cliente').trim().split(/\s+/)[0] || 'Cliente';
+      const phone = row.phone;
+      if (!phone || String(phone).trim() === '') {
+        results.skipped++;
+        results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'skipped', reason: 'Sin teléfono' });
+        continue;
+      }
+      const compact = String(phone).replace(/\D/g, '');
+      if (seenPhones.has(compact)) {
+        results.skipped++;
+        results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'skipped', reason: 'Teléfono duplicado' });
+        continue;
+      }
+      seenPhones.add(compact);
+
+      const parameters =
+        messageType === 'invite' ? [nombre]
+        : messageType === 'xpay' ? [nombre, tc as string, comision as string]
+        : [nombre, cbm as string, kg as string];
+
+      const r = await sendTemplate({ to: phone, template, languageCode: 'es_MX', parameters });
+      if (r.ok) {
+        results.sent++;
+        results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'sent' });
+      } else if (r.skipped) {
+        results.skipped++;
+        results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'skipped', reason: 'WhatsApp no configurado' });
+      } else {
+        results.failed++;
+        results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'failed', reason: r.error || 'Error' });
+      }
+    }
+
+    console.log(`[CRM] Envío masivo WhatsApp "${template}": ${results.sent} enviados, ${results.skipped} omitidos, ${results.failed} fallidos (de ${leadKeys.length} seleccionados)`);
+    res.json({ success: true, template, ...results });
+  } catch (error: any) {
+    console.error('Error en bulkWhatsapp:', error);
+    res.status(500).json({ success: false, error: error.message || 'Error al enviar' });
   }
 };
 

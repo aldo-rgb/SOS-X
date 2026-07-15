@@ -590,6 +590,8 @@ import {
   assignAdvisorManually,
   updateLeadStatus,
   createLeadFromSupport,
+  bulkWhatsapp,
+  getBulkWhatsappDefaults,
   // Nuevos módulos CRM
   getCRMClients,
   exportCRMClients,
@@ -7002,6 +7004,9 @@ app.post('/api/admin/crm/assign', authenticateToken, requireMinLevel(ROLES.COUNT
 
 // Admin: Actualizar estado de un lead
 app.put('/api/admin/crm/leads/:id/status', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateLeadStatus);
+// Envío masivo de WhatsApp a leads (plantillas predefinidas). Send gateado a DIRECTOR+.
+app.get('/api/admin/crm/bulk-whatsapp/defaults', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBulkWhatsappDefaults);
+app.post('/api/admin/crm/bulk-whatsapp', authenticateToken, requireMinLevel(ROLES.DIRECTOR), bulkWhatsapp);
 
 // App: Crear lead desde chat de soporte (solicitud de llamada)
 app.post('/api/crm/leads', authenticateToken, createLeadFromSupport);

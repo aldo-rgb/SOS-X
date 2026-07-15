@@ -46,6 +46,7 @@ import {
   FormControl,
   InputLabel,
   Snackbar,
+  Checkbox,
   Card,
   CardContent,
   Avatar,
@@ -274,6 +275,76 @@ export default function UnifiedLeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [leadNotes, setLeadNotes] = useState('');
   const [assigningLead, setAssigningLead] = useState(false);
+
+  // ============ ENVÍO MASIVO WHATSAPP ============
+  const [selectedLeadKeys, setSelectedLeadKeys] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkType, setBulkType] = useState<'invite' | 'xpay' | 'tarifas'>('invite');
+  const [bulkValues, setBulkValues] = useState<{ tc: string; comision: string; cbm: string; kg: string }>({ tc: '', comision: '', cbm: '', kg: '' });
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkResults, setBulkResults] = useState<{ sent: number; skipped: number; failed: number; total: number } | null>(null);
+
+  // Clave única de cada lead (para selección). El backend la devuelve como lead_key.
+  const leadKeyOf = (l: Lead): string => l.lead_key || `crm_${l.request_id}`;
+
+  const toggleLeadSelected = (key: string) => {
+    setSelectedLeadKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    const visibleKeys = leads.map(leadKeyOf);
+    const allSelected = visibleKeys.length > 0 && visibleKeys.every(k => selectedLeadKeys.has(k));
+    setSelectedLeadKeys(prev => {
+      const next = new Set(prev);
+      if (allSelected) visibleKeys.forEach(k => next.delete(k));
+      else visibleKeys.forEach(k => next.add(k));
+      return next;
+    });
+  };
+
+  // Abrir diálogo de envío masivo: precarga los valores vigentes (editables).
+  const openBulkDialog = async () => {
+    setBulkResults(null);
+    setBulkType('invite');
+    setBulkOpen(true);
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/bulk-whatsapp/defaults`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const v = res.data?.values || {};
+      setBulkValues({
+        tc: v.tc != null ? String(v.tc) : '',
+        comision: v.comision != null ? String(v.comision) : '',
+        cbm: v.cbm != null ? String(v.cbm) : '',
+        kg: v.kg != null ? String(v.kg) : '',
+      });
+    } catch { /* si falla, quedan campos vacíos y el usuario los llena */ }
+  };
+
+  const sendBulkWhatsapp = async () => {
+    const leadKeys = Array.from(selectedLeadKeys);
+    if (leadKeys.length === 0) return;
+    setBulkSending(true);
+    setBulkResults(null);
+    try {
+      const res = await axios.post(`${API_URL}/admin/crm/bulk-whatsapp`, {
+        messageType: bulkType,
+        leadKeys,
+        values: bulkValues,
+      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      const d = res.data || {};
+      setBulkResults({ sent: d.sent || 0, skipped: d.skipped || 0, failed: d.failed || 0, total: d.total || 0 });
+      setSnackbar({ open: true, message: `WhatsApp: ${d.sent || 0} enviados, ${d.skipped || 0} omitidos, ${d.failed || 0} fallidos`, severity: (d.failed > 0 ? 'error' : 'success') });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al enviar', severity: 'error' });
+    } finally {
+      setBulkSending(false);
+    }
+  };
 
   // ============ PROSPECTS STATE ============
   const [prospects, setProspects] = useState<Prospect[]>([]);
@@ -840,6 +911,27 @@ export default function UnifiedLeadsPage() {
             </Alert>
           )}
 
+          {/* Barra de envío masivo por WhatsApp */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              startIcon={<WhatsAppIcon />}
+              disabled={selectedLeadKeys.size === 0}
+              onClick={openBulkDialog}
+              sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' } }}
+            >
+              Enviar WhatsApp ({selectedLeadKeys.size})
+            </Button>
+            {selectedLeadKeys.size > 0 && (
+              <Button size="small" color="inherit" onClick={() => setSelectedLeadKeys(new Set())}>
+                Limpiar selección
+              </Button>
+            )}
+            <Typography variant="caption" color="text.secondary">
+              Marca leads con los checkboxes para enviarles un mensaje predefinido por WhatsApp.
+            </Typography>
+          </Box>
+
           {/* Leads Table */}
           {leadsLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
@@ -850,6 +942,14 @@ export default function UnifiedLeadsPage() {
               <Table>
                 <TableHead>
                   <TableRow>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={leads.length > 0 && leads.every(l => selectedLeadKeys.has(leadKeyOf(l)))}
+                        indeterminate={leads.some(l => selectedLeadKeys.has(leadKeyOf(l))) && !leads.every(l => selectedLeadKeys.has(leadKeyOf(l)))}
+                        onChange={toggleSelectAllVisible}
+                      />
+                    </TableCell>
                     <TableCell>{t('leads.requestDate')}</TableCell>
                     <TableCell>{t('leads.client')}</TableCell>
                     <TableCell>{t('leads.boxId')}</TableCell>
@@ -861,7 +961,14 @@ export default function UnifiedLeadsPage() {
                 </TableHead>
                 <TableBody>
                   {leads.map((lead) => (
-                    <TableRow key={lead.lead_key || String(lead.request_id)} hover>
+                    <TableRow key={lead.lead_key || String(lead.request_id)} hover selected={selectedLeadKeys.has(leadKeyOf(lead))}>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          size="small"
+                          checked={selectedLeadKeys.has(leadKeyOf(lead))}
+                          onChange={() => toggleLeadSelected(leadKeyOf(lead))}
+                        />
+                      </TableCell>
                       <TableCell>
                         <Box>
                           <Typography variant="body2">{formatDateTime(lead.created_at)}</Typography>
@@ -1007,7 +1114,7 @@ export default function UnifiedLeadsPage() {
                   ))}
                   {leads.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 5 }}>
+                      <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
                         <Typography variant="body1" color="text.secondary">
                           {leadTabValue === 'pending'
                             ? `${t('leads.noRequests')} 🎉`
@@ -1393,6 +1500,76 @@ export default function UnifiedLeadsPage() {
         <DialogActions>
           <Button onClick={() => setOpenLeadModal(false)} disabled={assigningLead}>
             {t('common.cancel')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Bulk WhatsApp Dialog */}
+      <Dialog open={bulkOpen} onClose={() => !bulkSending && setBulkOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WhatsAppIcon sx={{ color: '#25D366' }} /> Enviar WhatsApp masivo
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Se enviará a <strong>{selectedLeadKeys.size}</strong> lead(s) seleccionado(s). Se omiten los que no tengan teléfono y los teléfonos duplicados.
+          </Typography>
+
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel id="bulk-type-label">Plantilla</InputLabel>
+            <Select
+              labelId="bulk-type-label"
+              label="Plantilla"
+              value={bulkType}
+              onChange={(e) => setBulkType(e.target.value as 'invite' | 'xpay' | 'tarifas')}
+              disabled={bulkSending}
+            >
+              <MenuItem value="invite">📲 Invitación a registrarse en la app</MenuItem>
+              <MenuItem value="xpay">💱 TC + comisión X-Pay (semanal)</MenuItem>
+              <MenuItem value="tarifas">📦 Tarifas marítimo/aéreo (CBM y kg)</MenuItem>
+            </Select>
+          </FormControl>
+
+          {bulkType === 'xpay' && (
+            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+              <TextField label="Tipo de cambio (MXN/USD)" value={bulkValues.tc} onChange={(e) => setBulkValues(v => ({ ...v, tc: e.target.value }))} fullWidth size="small" disabled={bulkSending} />
+              <TextField label="Comisión X-Pay (%)" value={bulkValues.comision} onChange={(e) => setBulkValues(v => ({ ...v, comision: e.target.value }))} fullWidth size="small" disabled={bulkSending} />
+            </Box>
+          )}
+          {bulkType === 'tarifas' && (
+            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+              <TextField label="Marítimo (USD/m³ CBM)" value={bulkValues.cbm} onChange={(e) => setBulkValues(v => ({ ...v, cbm: e.target.value }))} fullWidth size="small" disabled={bulkSending} />
+              <TextField label="Aéreo (USD/kg)" value={bulkValues.kg} onChange={(e) => setBulkValues(v => ({ ...v, kg: e.target.value }))} fullWidth size="small" disabled={bulkSending} />
+            </Box>
+          )}
+
+          {/* Vista previa del mensaje */}
+          <Paper variant="outlined" sx={{ p: 1.5, bgcolor: '#f0f7f0', borderColor: '#25D366' }}>
+            <Typography variant="caption" color="text.secondary">Vista previa</Typography>
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-line', mt: 0.5 }}>
+              {bulkType === 'invite'
+                ? '¡Hola [Nombre]! 👋 Te damos la bienvenida a EntregaX Paquetería.\nRegístrate y obtén tu casillero para importar desde China 🇨🇳 y USA 🇺🇸 con las mejores tarifas. 📦'
+                : bulkType === 'xpay'
+                  ? `💱 EntregaX X-Pay — Tipo de cambio de la semana\nHola [Nombre]:\n• TC: $${bulkValues.tc || '—'} MXN/USD\n• Comisión X-Pay: ${bulkValues.comision || '—'}%`
+                  : `📦 EntregaX — Tarifas de importación vigentes\nHola [Nombre]:\n🚢 Marítimo: $${bulkValues.cbm || '—'} USD/m³ (CBM)\n✈️ Aéreo: $${bulkValues.kg || '—'} USD/kg`}
+            </Typography>
+          </Paper>
+
+          {bulkResults && (
+            <Alert severity={bulkResults.failed > 0 ? 'warning' : 'success'} sx={{ mt: 2 }}>
+              Enviados: {bulkResults.sent} · Omitidos: {bulkResults.skipped} · Fallidos: {bulkResults.failed} (de {bulkResults.total})
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkOpen(false)} disabled={bulkSending}>Cerrar</Button>
+          <Button
+            variant="contained"
+            startIcon={bulkSending ? <CircularProgress size={16} color="inherit" /> : <WhatsAppIcon />}
+            onClick={sendBulkWhatsapp}
+            disabled={bulkSending || selectedLeadKeys.size === 0}
+            sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' } }}
+          >
+            {bulkSending ? 'Enviando…' : `Enviar (${selectedLeadKeys.size})`}
           </Button>
         </DialogActions>
       </Dialog>
