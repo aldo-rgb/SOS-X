@@ -1623,6 +1623,18 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                           <Typography variant="caption" sx={{ color: TEXT_MUTED }}>
                             Comisión cliente · código: {t.servicio_codigo}
                           </Typography>
+                          <Box sx={{ mt: 0.75, display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <Chip
+                              size="small"
+                              label={`Normal: ${t.comision_normal_porcentaje === 'inactivo' ? 'inactivo' : t.comision_normal_porcentaje != null ? Number(t.comision_normal_porcentaje).toFixed(2) + '%' : Number(t.comision_cliente_porcentaje ?? 0).toFixed(2) + '%'}`}
+                              sx={{ fontSize: 11, fontWeight: 700, bgcolor: 'rgba(255,102,0,0.12)', color: ORANGE }}
+                            />
+                            <Chip
+                              size="small"
+                              label={`Híbrida: ${t.comision_hibrida_porcentaje === 'inactivo' ? 'inactivo' : t.comision_hibrida_porcentaje != null ? Number(t.comision_hibrida_porcentaje).toFixed(2) + '%' : '—'}`}
+                              sx={{ fontSize: 11, fontWeight: 700, bgcolor: 'rgba(94,53,177,0.14)', color: '#5E35B1' }}
+                            />
+                          </Box>
                           <Box sx={{ mt: 0.75, display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
                             <Chip
                               size="small"

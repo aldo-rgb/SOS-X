@@ -45,6 +45,7 @@ import {
   EntangledDivisa,
   EntangledSolicitudPayloadV2,
   listProveedoresRemote,
+  listComisionesRemote,
   callAsignacion,
 } from './entangledServiceV2';
 import { generateXpayCommission } from './commissionService';
@@ -2056,6 +2057,35 @@ export const rotateApiKeyAdmin = async (req: Request, res: Response): Promise<an
 // nombre/descripcion/tarifas y desactiva los proveedores que ya no existen
 // en el remoto.
 // ===========================================================================
+// Fusiona las comisiones normal/híbrida (endpoint /v1/comisiones) dentro de las
+// tarifas de cada proveedor remoto (mutación in-place de p.tarifas), matcheando
+// por nombre de proveedor + servicio_codigo. El valor puede ser número o
+// "inactivo". Se usa en el sync manual y en el cron.
+const mergeComisionesHibridas = async (proveedores: any[]): Promise<void> => {
+  const resp = await listComisionesRemote();
+  if (!resp.ok) return;
+  const norm = (s: string) => String(s || '').trim().toUpperCase();
+  const map: Record<string, Record<string, { normal: any; hibrida: any }>> = {};
+  for (const cp of resp.proveedores || []) {
+    const m: Record<string, { normal: any; hibrida: any }> = {};
+    for (const s of cp.servicios || []) {
+      m[norm(s.servicio)] = { normal: s.comision_normal_porcentaje, hibrida: s.comision_hibrida_porcentaje };
+    }
+    map[norm(cp.proveedor)] = m;
+  }
+  for (const p of proveedores) {
+    const svc = map[norm(p.nombre)] || {};
+    p.tarifas = ((p.tarifas as any[]) || []).map((t: any) => {
+      const hit: { normal?: any; hibrida?: any } = svc[norm(t.servicio_codigo)] || {};
+      return {
+        ...t,
+        comision_normal_porcentaje: hit.normal !== undefined ? hit.normal : t.comision_cliente_porcentaje,
+        comision_hibrida_porcentaje: hit.hibrida !== undefined ? hit.hibrida : null,
+      };
+    });
+  }
+};
+
 export const syncProveedoresFromRemote = async (req: Request, res: Response): Promise<any> => {
   if (!isAdminRole(req)) return res.status(403).json({ error: 'Sin permisos' });
   if (!isEntangledConfigured()) return res.status(400).json({ error: 'ENTANGLED_API_KEY no configurada' });
@@ -2070,6 +2100,9 @@ export const syncProveedoresFromRemote = async (req: Request, res: Response): Pr
   const tcRmb = tcRmbRes.ok && tcRmbRes.tipo_cambio != null ? Number(tcRmbRes.tipo_cambio) : 0;
 
   const proveedores = remote.proveedores || [];
+  // Fusiona comisiones normal/híbrida (endpoint /v1/comisiones) en p.tarifas.
+  await mergeComisionesHibridas(proveedores);
+
   const summary = {
     total_remotos: proveedores.length,
     inserted: 0,
@@ -2264,6 +2297,7 @@ export const syncEntangledForCron = async (): Promise<{ ok: boolean; updated: nu
   const tcRmb = tcRmbRes.ok && tcRmbRes.tipo_cambio != null ? Number(tcRmbRes.tipo_cambio) : 0;
 
   const proveedores = remote.proveedores || [];
+  await mergeComisionesHibridas(proveedores);
   let inserted = 0; let updated = 0;
   const activosExternos: string[] = [];
 

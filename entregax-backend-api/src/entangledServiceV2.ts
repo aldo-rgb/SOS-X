@@ -787,3 +787,26 @@ export const listProveedoresRemote = async (): Promise<{
     };
   }
 };
+
+// GET /api/v1/comisiones — tabla vigente de comisiones normal vs híbrida por
+// proveedor y servicio. Cada servicio: { servicio, nombre,
+// comision_normal_porcentaje, comision_hibrida_porcentaje } donde el valor
+// puede ser un número o el string "inactivo".
+export const listComisionesRemote = async (): Promise<{
+  ok: boolean;
+  proveedores?: Array<{ proveedor: string; servicios: any[] }>;
+  error?: string;
+}> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
+  try {
+    const res = await axios.get(buildUrl('/comisiones'), {
+      timeout: ENTANGLED_TIMEOUT_MS,
+      headers: authHeaders(),
+    });
+    const data = res.data || {};
+    return { ok: true, proveedores: Array.isArray(data.proveedores) ? data.proveedores : [] };
+  } catch (err) {
+    const ax = err as AxiosError;
+    return { ok: false, error: (ax.response?.data as any)?.error || ax.message || 'Error consultando comisiones' };
+  }
+};
