@@ -202,7 +202,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       SELECT COUNT(*) as total FROM packages p
       WHERE p.user_id IS NULL
         AND (p.box_id IS NULL OR p.box_id = '')
-        AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
+        AND (p.service_type = 'POBOX_USA' OR p.service_type = 'tdi_express' OR p.air_source = 'tdi_express' OR p.tracking_internal LIKE 'US-%')
         AND p.status::text NOT IN ('delivered', 'lost', 'returned_to_warehouse')
         AND (p.is_master = true OR p.master_id IS NULL)
     `);
@@ -503,7 +503,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         FROM packages p
         WHERE p.user_id IS NULL
           AND (p.box_id IS NULL OR p.box_id = '')
-          AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
+          AND (p.service_type = 'POBOX_USA' OR p.service_type = 'tdi_express' OR p.air_source = 'tdi_express' OR p.tracking_internal LIKE 'US-%')
           AND p.status::text NOT IN ('delivered', 'lost', 'returned_to_warehouse')
           AND (p.is_master = true OR p.master_id IS NULL)
         ORDER BY p.created_at DESC
@@ -513,7 +513,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         SELECT COUNT(*) AS total FROM packages p
         WHERE p.user_id IS NULL
           AND (p.box_id IS NULL OR p.box_id = '')
-          AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
+          AND (p.service_type = 'POBOX_USA' OR p.service_type = 'tdi_express' OR p.air_source = 'tdi_express' OR p.tracking_internal LIKE 'US-%')
           AND p.status::text NOT IN ('delivered', 'lost', 'returned_to_warehouse')
           AND (p.is_master = true OR p.master_id IS NULL)
       `;

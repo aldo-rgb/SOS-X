@@ -1083,6 +1083,8 @@ export const getUnassignedPackages = async (_req: Request, res: Response): Promi
                 AND (
                     p.service_type = 'POBOX_USA'
                     OR p.service_type = 'air'
+                    OR p.service_type = 'tdi_express'
+                    OR p.air_source = 'tdi_express'
                     OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%')
                 )
                 AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
