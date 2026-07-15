@@ -252,6 +252,11 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
                       <Typography fontWeight={800} fontSize={18} color="warning.dark">
                         {comAsesorMxn != null ? `$${fmtMoney(comAsesorMxn)} MXN` : '—'}
                       </Typography>
+                      {pctAsesor != null && (
+                        <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace', color: 'text.secondary' }}>
+                          {fmtMoney(monto)} × {pctAsesor.toFixed(2)}%{esPesos ? '' : ` × ${tcEff != null ? fmtMoney(tcEff, 4) : '?'}`}
+                        </Typography>
+                      )}
                     </Box>
                     <Box>
                       <Typography variant="caption" color="text.secondary">
@@ -260,6 +265,12 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
                       <Typography fontWeight={800} fontSize={18} color="success.main">
                         {utilNetaMxn != null ? `$${fmtMoney(utilNetaMxn)} MXN` : '—'}
                       </Typography>
+                      {pctEgx != null && (
+                        <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace', color: 'text.secondary' }}>
+                          {fmtMoney(monto)} × {pctEgx.toFixed(2)}%{esPesos ? '' : ` × ${tcEff != null ? fmtMoney(tcEff, 4) : '?'}`}
+                          {comAsesorMxn != null && utilNetaMxn != null ? `  ·  Margen − Asesor` : ''}
+                        </Typography>
+                      )}
                     </Box>
                   </Stack>
                 </>
