@@ -260,6 +260,24 @@ export default function SupportChatScreen({ navigation, route }: Props) {
     Alert.alert('Solicitud Recibida', 'Un asesor se pondrá en contacto contigo en las próximas 24 a 48 horas.', [{ text: 'Entendido', style: 'default' }]);
   };
 
+  // Terminar la conversación con Cajito: confirma y regresa a la pantalla anterior.
+  // El chat es conversacional; si se escaló a ticket, éste sigue abierto para el
+  // equipo de atención — aquí solo cerramos la sesión de chat del cliente.
+  const handleEndConversation = () => {
+    Alert.alert(
+      t('support.endConfirmTitle', 'Terminar conversación'),
+      t('support.endConfirmBody', '¿Ya terminaste de hablar con Cajito? Puedes volver a abrir el chat cuando quieras.'),
+      [
+        { text: t('common.cancel', 'Cancelar'), style: 'cancel' },
+        {
+          text: t('support.endConfirmOk', 'Terminar'),
+          style: 'destructive',
+          onPress: () => navigation.goBack(),
+        },
+      ]
+    );
+  };
+
   // Mostrar sugerencias solo mientras el cliente no haya escrito nada
   const showQuickReplies = !messages.some(m => m.type === 'user') && !isTyping;
   const quickReplies = QUICK_REPLIES[currentLang] || QUICK_REPLIES.es;
@@ -322,6 +340,7 @@ export default function SupportChatScreen({ navigation, route }: Props) {
           subtitleStyle={[styles.headerSubtitle, isTyping && styles.typingSubtitle]}
         />
         <Appbar.Action icon="phone" color="white" onPress={handleCall} />
+        <Appbar.Action icon="check-circle-outline" color="white" onPress={handleEndConversation} />
       </Appbar.Header>
 
       {/* Chat */}

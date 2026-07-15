@@ -11,6 +11,7 @@ import fs from 'fs';
 import { uploadToS3, isS3Configured, getSignedDownloadUrl, signS3UrlIfNeeded } from './s3Service';
 import { sendPushToUsers } from './pushService';
 import { sendTicketConfirmation, sendTicketResolved, sendQuoteRequestConfirmation, sendAdvisorQuotePending } from './whatsappService';
+import { quotePqtxClientPrice } from './paqueteExpressController';
 
 // ============================================================
 // CONFIGURACIÓN DE MULTER PARA IMÁGENES DE SOPORTE
@@ -68,12 +69,13 @@ CONTEXTO: Estás chateando por la app móvil con un cliente de EntregaX que nece
 - Ejemplo: si preguntan "¿dónde está mi paquete?" y en el contexto ves sus guías activas, dile el status real de cada una en vez de pedir el TRN. Solo pide el TRN si tiene muchos paquetes o no está claro cuál.
 - Si preguntan por su saldo/pago, usa el monto real del contexto.
 - Si preguntan "¿a qué dirección envío?" / "¿cuál es mi dirección de PO Box/casillero?", DA la dirección de envío del contexto (bodega + su casillero como Suite/Apt o Shipping Mark). Ya tienes esa dirección, NO digas que no tienes acceso. SIEMPRE que des una dirección, incluye también en el mismo mensaje las "Instrucciones de empaque" y "Cómo enviar" de ESE servicio (vienen en el contexto). Preséntalo claro y ordenado.
-- Nunca inventes datos que no estén en el contexto. Si no tienes el dato, dilo y ofrece escalarlo.
+- Nunca inventes datos que no estén en el contexto ni en tus herramientas. NO inventes límites (p.ej. "X guías mensuales"), tarifas, ni topes de peso. Si no tienes el dato, dilo con honestidad, usa una herramienta si aplica, u ofrece escalarlo.
 
 📦 CONOCIMIENTO DE ENTREGAX:
 - Aéreo China → México (TDI Aéreo): 7-12 días hábiles. TDI Express (aéreo directo a MTY): más rápido.
 - Marítimo China → México: 35-45 días. Se cobra por CBM (cada 500 kg = 1 CBM; se cobra el mayor entre volumen y peso).
 - Aéreo USA / PO Box → México: 5-8 días hábiles. Se cobra por peso volumétrico.
+- Envío nacional en México (última milla): lo mueve Paquete Express desde nuestro CEDIS en Monterrey hasta el domicilio del cliente, típicamente 2-4 días hábiles. ⚠️ NO existe ningún "límite de guías mensuales" ni un tope de peso inventado; NO menciones límites que no te consten. Para el COSTO del envío nacional usa SIEMPRE la herramienta cotizar_envio_nacional (necesitas el CP destino de 5 dígitos y el peso; si falta el CP, pídeselo). NUNCA inventes tarifas por kg, precios ni límites para el envío nacional.
 - Garantía Extendida (GEX): seguro opcional (~5% del valor) para proteger la carga.
 - X-Pay: servicio para pagar a proveedores en China desde la app. En el contexto tienes el TIPO DE CAMBIO y la comisión vigentes de X-Pay: si preguntan "¿cuál es el TC de X-Pay?" o "¿cuánto pago por X USD?", RESPONDE con el tipo de cambio real y calcula el estimado con la fórmula del contexto. NO digas que no tienes acceso al tipo de cambio.
 - Facturación: se solicita en la app, sección Mi Perfil > Datos Fiscales.
@@ -96,7 +98,8 @@ Cuando ya tengas la categoría y la descripción, resume lo que registraste y PR
 
 💡 RESPUESTAS TÍPICAS:
 - "¿Dónde está mi paquete?" → Revisa el contexto y da el status real; si no, pide el TRN.
-- "¿Cuánto cuesta?" → DA UN ESTIMADO con las TARIFAS del contexto (TODAS en USD). Marítimo: el CBM cobrable es el mayor entre volumen (m³) y peso÷500; multiplica por la tarifa USD/CBM del rango — si el cliente no dio el peso, PÍDESELO (lo necesitas por la regla 500 kg = 1 CBM). Aéreo: por peso volumétrico (USD/kg). Da el estimado en USD, aclara que es aproximado y que el exacto sale del Cotizador.
+- "¿Cuánto cuesta?" (internacional China/USA) → DA UN ESTIMADO con las TARIFAS del contexto (TODAS en USD). Marítimo: el CBM cobrable es el mayor entre volumen (m³) y peso÷500; multiplica por la tarifa USD/CBM del rango — si el cliente no dio el peso, PÍDESELO (lo necesitas por la regla 500 kg = 1 CBM). Aéreo: por peso volumétrico (USD/kg). Da el estimado en USD, aclara que es aproximado y que el exacto sale del Cotizador.
+- "¿Cuánto cuesta el envío NACIONAL / Paquete Express?" → NO inventes tarifas. Usa la herramienta cotizar_envio_nacional. Si el cliente no te dio el CP destino, PÍDESELO (5 dígitos); pide también el peso y cuántas cajas. Con el resultado, dale el precio en MXN (por caja y total) y los días estimados. Si no hay cobertura, díselo y ofrece escalarlo.
 - "Necesito factura" → Se solicita en Mi Perfil > Datos Fiscales.
 - "Mi paquete llegó roto" → Pide fotos y ofrece abrir reclamación (o escala).
 
@@ -474,6 +477,66 @@ async function buildClientContext(userId: number | string): Promise<string> {
 /**
  * Llama a OpenAI para generar respuesta
  */
+// ============================================================
+// HERRAMIENTAS (function-calling) — permiten a Cajito consultar datos reales
+// en vez de inventarlos. Hoy: cotización de envío nacional (Paquete Express).
+// ============================================================
+const SUPPORT_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'cotizar_envio_nacional',
+      description:
+        'Cotiza el costo REAL del envío nacional en México con Paquete Express (última milla desde el CEDIS de Monterrey al domicilio del cliente). Úsala SIEMPRE que el cliente pregunte cuánto cuesta un envío nacional / Paquete Express. Requiere el código postal (CP) destino de 5 dígitos; si el cliente no lo dio, pídeselo antes de llamar la herramienta.',
+      parameters: {
+        type: 'object',
+        properties: {
+          destZipCode: { type: 'string', description: 'Código postal destino en México (5 dígitos)' },
+          weight: { type: 'number', description: 'Peso de la caja en kg (si el cliente lo dio; default 1)' },
+          packageCount: { type: 'integer', description: 'Número de cajas/guías a enviar (default 1)' },
+        },
+        required: ['destZipCode'],
+      },
+    },
+  },
+];
+
+// Ejecuta una herramienta y devuelve un JSON (string) para inyectar como rol 'tool'.
+async function runSupportTool(name: string, args: any): Promise<string> {
+  try {
+    if (name === 'cotizar_envio_nacional') {
+      const destZipCode = String(args?.destZipCode || '').replace(/\D/g, '').slice(0, 5);
+      if (!/^\d{5}$/.test(destZipCode)) {
+        return JSON.stringify({ error: 'CP destino inválido; pide al cliente su código postal de 5 dígitos.', requiereCP: true });
+      }
+      const q = await quotePqtxClientPrice({
+        destZipCode,
+        weight: Number(args?.weight) || 1,
+        packageCount: Math.max(1, Number(args?.packageCount) || 1),
+      });
+      if (!q?.success) {
+        return JSON.stringify({ disponible: false, motivo: q?.error || 'No se pudo cotizar en este momento' });
+      }
+      if (q.available === false) {
+        return JSON.stringify({ disponible: false, motivo: q.noCoverage ? 'Paquete Express no tiene cobertura en ese CP' : 'No disponible para ese destino', cp_destino: destZipCode });
+      }
+      return JSON.stringify({
+        disponible: true,
+        carrier: 'Paquete Express',
+        cp_destino: destZipCode,
+        cajas: q.packageCount,
+        precio_por_caja_mxn: q.pricePerBox,
+        precio_total_mxn: q.clientPrice,
+        moneda: 'MXN',
+        dias_estimados: q.estimatedDays,
+      });
+    }
+  } catch (e: any) {
+    return JSON.stringify({ error: e?.message || 'Error ejecutando la herramienta' });
+  }
+  return JSON.stringify({ error: 'herramienta desconocida' });
+}
+
 async function getAIResponse(userMessage: string, chatHistory: any[], clientContext: string = ''): Promise<{ response: string; shouldEscalate: boolean }> {
   // Si no hay API key, usar respuesta de fallback
   if (!OPENAI_API_KEY) {
@@ -493,42 +556,64 @@ async function getAIResponse(userMessage: string, chatHistory: any[], clientCont
       contextInfo = await checkPackageStatus(trackingMatch[0]);
     }
 
-    const messages = [
+    const messages: any[] = [
       { role: 'system', content: SYSTEM_PROMPT },
       ...(clientContext ? [{ role: 'system', content: `[CONTEXTO DEL CLIENTE (datos reales, úsalos para responder):\n${clientContext}\n]` }] : []),
       ...chatHistory.slice(-6).map((m: any) => ({
         role: m.sender_type === 'client' ? 'user' : 'assistant',
         content: m.message
       })),
-      { 
-        role: 'user', 
-        content: contextInfo 
+      {
+        role: 'user',
+        content: contextInfo
           ? `[CONTEXTO DEL SISTEMA: ${contextInfo}]\n\nMensaje del cliente: ${userMessage}`
-          : userMessage 
+          : userMessage
       }
     ];
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini', // Más económico que gpt-4o
-        messages,
-        max_tokens: 500,
-        temperature: 0.7,
-      }),
-    });
+    // Bucle de function-calling: si el modelo pide una herramienta, la ejecutamos
+    // y le devolvemos el resultado para que redacte la respuesta final. Máx 3 vueltas.
+    let aiText = 'Lo siento, hubo un error procesando tu solicitud.';
+    for (let iter = 0; iter < 3; iter++) {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini', // Más económico que gpt-4o
+          messages,
+          tools: SUPPORT_TOOLS,
+          max_tokens: 500,
+          temperature: 0.7,
+        }),
+      });
 
-    if (!response.ok) {
-      throw new Error(`OpenAI error: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`OpenAI error: ${response.status}`);
+      }
+
+      const data = await response.json() as { choices: Array<{ message: any; finish_reason?: string }> };
+      const msg = data.choices?.[0]?.message;
+      if (!msg) break;
+
+      // El modelo pidió ejecutar herramienta(s)
+      if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+        messages.push(msg); // mensaje del assistant con los tool_calls
+        for (const tc of msg.tool_calls) {
+          let toolArgs: any = {};
+          try { toolArgs = JSON.parse(tc.function?.arguments || '{}'); } catch { /* args inválidos */ }
+          const toolResult = await runSupportTool(tc.function?.name, toolArgs);
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
+        }
+        continue; // volver a llamar al modelo con los resultados
+      }
+
+      aiText = msg.content || aiText;
+      break;
     }
 
-    const data = await response.json() as { choices: Array<{ message: { content: string } }> };
-    const aiText = data.choices[0]?.message?.content || 'Lo siento, hubo un error procesando tu solicitud.';
-    
     const shouldEscalate = aiText.includes('[ESCALAR]');
     const cleanResponse = aiText.replace('[ESCALAR]', '').trim();
 
