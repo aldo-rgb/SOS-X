@@ -32,7 +32,14 @@ export interface EntangledRequestDetail {
   estatus_proveedor: string;
   comision_cliente_final_porcentaje?: number | string | null;
   comision_cobrada_porcentaje?: number | string | null;
+  comision_asesor?: number | string | null;
+  comision_entregax?: number | string | null;
+  advisor_name?: string | null;
   tc_aplicado_usd?: number | string | null;
+  tc_cliente_final?: number | string | null;
+  es_pesos?: boolean | null;
+  es_hibrida?: boolean | null;
+  raw_response?: any;
   empresas_asignadas?: unknown;
   factura_url?: string | null;
   comprobante_proveedor_url?: string | null;
@@ -69,14 +76,6 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
   const pctCobrada = row.comision_cobrada_porcentaje != null ? Number(row.comision_cobrada_porcentaje) : null;
   const tcUsd = row.tc_aplicado_usd != null ? Number(row.tc_aplicado_usd) : null;
 
-  // Utilidad XPAY = monto × (pctCliente - pctCobrada) / 100 × tc_aplicado_usd  (en MXN)
-  let utilidadMxn: number | null = null;
-  let utilidadDivisa: number | null = null;
-  if (pctCliente != null && pctCobrada != null) {
-    utilidadDivisa = monto * (pctCliente - pctCobrada) / 100;
-    if (tcUsd != null) utilidadMxn = utilidadDivisa * tcUsd;
-  }
-
   const empresas = (() => {
     const v = row.empresas_asignadas;
     if (!v) return null;
@@ -85,6 +84,36 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
     }
     return v;
   })();
+
+  // 🩹 Carril Pesos MX: el monto ya está en MXN y el TC NO aplica (=1). Para
+  //    USD/RMB usamos tc_aplicado_usd. (Antes multiplicaba pesos × 18.2 → bug.)
+  const esPesos = String(row.op_divisa_destino || '').toUpperCase() === 'MXN' || row.es_pesos === true;
+  const tcEff: number | null = esPesos ? 1 : tcUsd;
+
+  // Utilidad XPAY = monto × (pctCliente - pctCobrada) / 100 × tcEff  (en MXN)
+  let utilidadMxn: number | null = null;
+  let utilidadDivisa: number | null = null;
+  if (pctCliente != null && pctCobrada != null) {
+    utilidadDivisa = monto * (pctCliente - pctCobrada) / 100;
+    if (tcEff != null) utilidadMxn = utilidadDivisa * tcEff;
+  }
+
+  // Reparto de la utilidad: margen total = % asesor + % EntregaX (neto).
+  const pctAsesor = row.comision_asesor != null ? Number(row.comision_asesor) : null;
+  const pctEgx = row.comision_entregax != null ? Number(row.comision_entregax) : null;
+  const comAsesorDivisa = pctAsesor != null ? monto * pctAsesor / 100 : null;
+  const comAsesorMxn = comAsesorDivisa != null && tcEff != null ? comAsesorDivisa * tcEff : null;
+  const utilNetaDivisa = pctEgx != null ? monto * pctEgx / 100 : null;
+  const utilNetaMxn = utilNetaDivisa != null && tcEff != null ? utilNetaDivisa * tcEff : null;
+
+  // Envío del dinero: comercializadora (depósito del cliente) + banco destino (proveedor final).
+  const rawResp: any = row.raw_response || {};
+  const bancoDestino: any = rawResp.banco_destino || null;
+  const empArr: any[] = Array.isArray(empresas) ? empresas : [];
+  const comercializadora: any = empArr[0]?.empresa || null;
+  const cuentaComercializadora: any = empArr[0]?.cuenta_bancaria || null;
+  const paisDestino: string = bancoDestino?.pais
+    || (esPesos ? 'México' : String(row.op_divisa_destino || '').toUpperCase() === 'RMB' ? 'China' : 'Estados Unidos');
 
   const comprobanteUrl = row.comprobante_cliente_url || row.url_comprobante_cliente;
 
@@ -205,10 +234,34 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
                   <Box>
                     <Typography variant="caption" color="text.secondary">Fórmula</Typography>
                     <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace' }}>
-                      {fmtMoney(monto)} × ({pctCliente.toFixed(2)}% − {pctCobrada.toFixed(2)}%) × {tcUsd != null ? fmtMoney(tcUsd, 4) : '?'}
+                      {fmtMoney(monto)} × ({pctCliente.toFixed(2)}% − {pctCobrada.toFixed(2)}%){esPesos ? '' : ` × ${tcEff != null ? fmtMoney(tcEff, 4) : '?'}`}
                     </Typography>
                   </Box>
                 </Stack>
+              )}
+              {/* Reparto de la utilidad: cuánto es del asesor y cuánto neto para EntregaX */}
+              {(pctAsesor != null || pctEgx != null) && (
+                <>
+                  <Divider sx={{ my: 1.5 }} />
+                  <Stack direction="row" spacing={4} flexWrap="wrap">
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Comisión asesor{pctAsesor != null ? ` (${pctAsesor.toFixed(2)}%)` : ''}{row.advisor_name ? ` · ${row.advisor_name}` : ''}
+                      </Typography>
+                      <Typography fontWeight={800} fontSize={18} color="warning.dark">
+                        {comAsesorMxn != null ? `$${fmtMoney(comAsesorMxn)} MXN` : '—'}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Utilidad neta EntregaX{pctEgx != null ? ` (${pctEgx.toFixed(2)}%)` : ''}
+                      </Typography>
+                      <Typography fontWeight={800} fontSize={18} color="success.main">
+                        {utilNetaMxn != null ? `$${fmtMoney(utilNetaMxn)} MXN` : '—'}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </>
               )}
             </Paper>
           </Grid>
@@ -224,14 +277,59 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
             </Stack>
           </Grid>
 
-          {/* Empresas asignadas */}
-          {empresas != null && (
+          {/* Envío del dinero: comercializadora (depósito) + banco destino (proveedor final) */}
+          {(comercializadora || cuentaComercializadora || bancoDestino) && (
             <Grid size={{ xs: 12 }}>
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Typography variant="overline" color="text.secondary">Empresas asignadas</Typography>
-                <Box component="pre" sx={{ m: 0, mt: 1, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {JSON.stringify(empresas, null, 2)}
-                </Box>
+                <Typography variant="overline" color="text.secondary">Envío del dinero</Typography>
+                <Stack direction="row" spacing={4} flexWrap="wrap" sx={{ mt: 1, mb: 1.5 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">País destino</Typography>
+                    <Typography fontWeight={700}>{paisDestino || '—'}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Comercializadora asignada</Typography>
+                    <Typography fontWeight={700}>{comercializadora?.razon_social || '—'}</Typography>
+                    {comercializadora?.rfc && (
+                      <Typography variant="caption" color="text.secondary">RFC {comercializadora.rfc}</Typography>
+                    )}
+                  </Box>
+                </Stack>
+
+                <Grid container spacing={1.5}>
+                  {/* Cuenta 1: donde el cliente DEPOSITA (comercializadora) */}
+                  {cuentaComercializadora && (
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'grey.50', height: '100%' }}>
+                        <Typography variant="caption" fontWeight={700} color="primary.main">1) Cuenta de depósito (cliente → comercializadora)</Typography>
+                        <Box sx={{ mt: 0.5 }}>
+                          <Typography variant="body2"><b>Banco:</b> {cuentaComercializadora.banco || '—'}</Typography>
+                          {cuentaComercializadora.clabe && <Typography variant="body2" fontFamily="monospace"><b>CLABE:</b> {cuentaComercializadora.clabe}</Typography>}
+                          {cuentaComercializadora.cuenta && <Typography variant="body2" fontFamily="monospace"><b>Cuenta:</b> {cuentaComercializadora.cuenta}</Typography>}
+                          <Typography variant="body2"><b>Moneda:</b> {cuentaComercializadora.moneda || '—'}</Typography>
+                          {cuentaComercializadora.titular && <Typography variant="body2"><b>Titular:</b> {cuentaComercializadora.titular}</Typography>}
+                        </Box>
+                      </Paper>
+                    </Grid>
+                  )}
+                  {/* Cuenta 2: a donde ENTANGLED ENVÍA el dinero (proveedor final) */}
+                  {bancoDestino && (
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'success.50', height: '100%' }}>
+                        <Typography variant="caption" fontWeight={700} color="success.dark">2) Cuenta destino (envío al proveedor final)</Typography>
+                        <Box sx={{ mt: 0.5 }}>
+                          {bancoDestino.beneficiario && <Typography variant="body2"><b>Beneficiario:</b> {bancoDestino.beneficiario}</Typography>}
+                          <Typography variant="body2"><b>Banco:</b> {bancoDestino.banco || '—'}</Typography>
+                          {bancoDestino.cuenta && <Typography variant="body2" fontFamily="monospace"><b>Cuenta:</b> {bancoDestino.cuenta}</Typography>}
+                          {bancoDestino.swift && <Typography variant="body2" fontFamily="monospace"><b>SWIFT:</b> {bancoDestino.swift}</Typography>}
+                          {bancoDestino.aba && <Typography variant="body2" fontFamily="monospace"><b>ABA:</b> {bancoDestino.aba}</Typography>}
+                          <Typography variant="body2"><b>Moneda:</b> {bancoDestino.moneda || row.op_divisa_destino || '—'}</Typography>
+                          {bancoDestino.pais && <Typography variant="body2"><b>País:</b> {bancoDestino.pais}</Typography>}
+                        </Box>
+                      </Paper>
+                    </Grid>
+                  )}
+                </Grid>
               </Paper>
             </Grid>
           )}
