@@ -2168,6 +2168,9 @@
     "stats": {
       "total": "Total",
       "capturadoChina": "Capturado en China",
+      "listasEnvio": "Listas para envío",
+      "pdteFoto": "Pendientes de fotografía",
+      "pdteTracking": "Pendiente de tracking DHL",
       "enTransito": "En tránsito",
       "recibidoMty": "Recibido en MTY",
       "enReenvio": "En reenvío nacional",

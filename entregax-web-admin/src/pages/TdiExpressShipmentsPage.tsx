@@ -533,12 +533,11 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         <Grid container spacing={2} sx={{ mb: 3 }}>
           {[
             { k: 'capturado_china', label: t('tdiExpress.stats.capturadoChina'), color: ORANGE },
-            { k: 'en_transito', label: t('tdiExpress.stats.enTransito'), color: '#C1272D' },
-            { k: 'recibido_mty', label: t('tdiExpress.stats.recibidoMty'), color: BLACK },
-            { k: 'en_reenvio', label: t('tdiExpress.stats.enReenvio'), color: '#6B7280' },
-            { k: 'entregado', label: t('tdiExpress.stats.entregado'), color: '#2E7D32' },
+            { k: 'listas_envio', label: t('tdiExpress.stats.listasEnvio'), color: '#2E7D32' },
+            { k: 'pdte_foto', label: t('tdiExpress.stats.pdteFoto'), color: '#00897B' },
+            { k: 'pdte_tracking', label: t('tdiExpress.stats.pdteTracking'), color: '#C1272D' },
           ].map((c) => (
-            <Grid size={{ xs: 6, md: 2.4 }} key={c.k}>
+            <Grid size={{ xs: 6, md: 3 }} key={c.k}>
               <Card sx={{ borderRadius: 2, border: '1px solid #ECECEC', overflow: 'hidden' }}>
                 <Box sx={{ height: 4, bgcolor: c.color }} />
                 <CardContent>

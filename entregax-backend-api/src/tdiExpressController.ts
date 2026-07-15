@@ -102,25 +102,44 @@ export const getTdiProductTypes = async (_req: Request, res: Response): Promise<
 // =====================================================================
 export const getTdiStats = async (_req: Request, res: Response): Promise<any> => {
   try {
-    const r = await pool.query(`
-      SELECT status, COUNT(*) AS c
-      FROM packages
-      WHERE air_source = 'tdi_express' AND COALESCE(is_master, false) = false
-      GROUP BY status
+    // Conteos por CAJA (children): capturado en China y listas para envío
+    // (received_china que YA tienen instrucciones — child o master).
+    const boxes = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE c.status::text = 'received_china') AS capturado_china,
+        COUNT(*) FILTER (
+          WHERE c.status::text = 'received_china'
+            AND (c.assigned_address_id IS NOT NULL OR m.assigned_address_id IS NOT NULL)
+        ) AS listas_envio
+      FROM packages c
+      LEFT JOIN packages m ON m.id = c.master_id
+      WHERE c.air_source = 'tdi_express' AND COALESCE(c.is_master, false) = false
     `);
-    const byStatus: Record<string, number> = {};
-    let total = 0;
-    for (const row of r.rows) {
-      byStatus[row.status] = Number(row.c);
-      total += Number(row.c);
-    }
+
+    // Conteos por GUÍA (master): pendientes de foto (aún en China sin foto de
+    // recepción) y pendiente de tracking DHL (en tránsito sin AWB asignado).
+    const masters = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (
+          WHERE COALESCE(m.reception_photos, '[]'::jsonb) = '[]'::jsonb
+            AND EXISTS (SELECT 1 FROM packages c WHERE c.master_id = m.id AND c.status::text = 'received_china')
+        ) AS pdte_foto,
+        COUNT(*) FILTER (
+          WHERE (m.status::text = 'in_transit'
+                 OR EXISTS (SELECT 1 FROM packages c WHERE c.master_id = m.id AND c.status::text = 'in_transit'))
+            AND NULLIF(TRIM(COALESCE(m.international_tracking, '')), '') IS NULL
+        ) AS pdte_tracking
+      FROM packages m
+      WHERE m.air_source = 'tdi_express' AND m.is_master = true
+    `);
+
+    const b = boxes.rows[0] || {};
+    const mm = masters.rows[0] || {};
     return res.json({
-      total,
-      capturado_china: byStatus['received_china'] || 0,
-      en_transito: byStatus['in_transit'] || 0,
-      recibido_mty: byStatus['received_mty'] || 0,
-      en_reenvio: byStatus['dispatched_national'] || 0,
-      entregado: byStatus['delivered'] || 0,
+      capturado_china: Number(b.capturado_china) || 0,
+      listas_envio: Number(b.listas_envio) || 0,
+      pdte_foto: Number(mm.pdte_foto) || 0,
+      pdte_tracking: Number(mm.pdte_tracking) || 0,
     });
   } catch (err: any) {
     console.error('getTdiStats error', err);
