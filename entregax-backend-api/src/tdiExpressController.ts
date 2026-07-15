@@ -559,6 +559,8 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
 
     const countRes = await client.query('SELECT COUNT(*) AS c FROM packages WHERE master_id = $1', [masterId]);
     let boxNumber = Number(countRes.rows[0].c);
+    // ¿Es la primera caja del master? (para notificar "sin identificar" una sola vez)
+    const wasEmptyMaster = boxNumber === 0;
 
     // Validar que no se exceda el total de cajas esperado. Antes se permitía
     // agregar más cajas de las declaradas (ej. total_boxes=1 pero se
@@ -646,6 +648,31 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
     );
 
     await client.query('COMMIT');
+
+    // Notificar a TODOS los asesores si la guía se recibió SIN cliente.
+    // Solo en la primera caja del master (para no duplicar la notificación).
+    if (wasEmptyMaster) {
+      const noClient = !String(boxId || '').trim() && !String(master.box_id || '').trim() && !master.user_id;
+      if (noClient) {
+        try {
+          const origenStr = originGuide ? ` · Guía origen: ${originGuide}` : '';
+          const notifTitle = '📦 Guía sin identificar · TDI Express';
+          const notifBody = `${master.tracking_internal}${origenStr} — Sin cliente asignado`;
+          const notifData = { screen: 'AdvisorPackages', filter: 'unidentified', tracking: master.tracking_internal, guia_origen: originGuide || null };
+          const nr = await pool.query(`SELECT id FROM users WHERE role IN ('asesor','sub_advisor','advisor')`);
+          const { createCustomNotification } = await import('./notificationController');
+          await Promise.all(nr.rows.map((row: any) =>
+            createCustomNotification(row.id, notifTitle, notifBody, 'info', 'search', notifData)
+          )).catch(() => {});
+          import('./pushService').then(({ sendPushToRole }) => {
+            sendPushToRole(['asesor', 'sub_advisor', 'advisor'], { title: notifTitle, body: notifBody, data: notifData }).catch(() => {});
+          }).catch(() => {});
+        } catch (notifErr: any) {
+          console.warn('[addTdiBox] no se pudo notificar guía sin identificar:', notifErr.message);
+        }
+      }
+    }
+
     return res.json({
       success: true,
       created,
