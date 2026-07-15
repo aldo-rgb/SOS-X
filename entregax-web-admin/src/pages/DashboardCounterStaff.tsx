@@ -617,8 +617,8 @@ export default function DashboardCounterStaff() {
         {[
           { label: t('counterDash.widgets.readyDhl'), value: stats?.tdi?.listas_envio ?? 0, color: '#F9A825', action: 'tdi_outbound' },
           { label: t('counterDash.widgets.pendingDhlTracking'), value: stats?.tdi?.pdte_tracking ?? 0, color: '#C1272D', action: 'awb_update' },
-          { label: t('counterDash.widgets.logPendingPacking'), value: stats?.bodegaChina?.log_pdte_packing ?? 0, color: '#B8860B', action: undefined as string | undefined },
-          { label: t('counterDash.widgets.pendingSupplierPay'), value: stats?.bodegaChina?.xpay_pdte_proveedor ?? 0, color: '#1565C0', action: undefined as string | undefined },
+          { label: t('counterDash.widgets.logPendingPacking'), value: stats?.bodegaChina?.log_pdte_packing ?? 0, color: '#B8860B', action: 'maritime_consolidations' as string | undefined },
+          { label: t('counterDash.widgets.pendingSupplierPay'), value: stats?.bodegaChina?.xpay_pdte_proveedor ?? 0, color: '#1565C0', action: 'supplier_payments' as string | undefined },
         ].map((w) => (
           <Grid size={{ xs: 6, md: 3 }} key={w.label}>
             <Card

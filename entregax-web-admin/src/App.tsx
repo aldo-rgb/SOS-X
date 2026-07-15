@@ -839,6 +839,20 @@ function App() {
         return;
       }
 
+      // Acceso directo a Pagos a Proveedor (Administración → Paneles Admin → Proveedores)
+      if (action === 'supplier_payments') {
+        const adminSubIndex = subItems.findIndex((s) => s.key === 'panelsAdmin');
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(adminSubIndex >= 0 ? adminSubIndex : null);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('open-admin-panel', {
+            detail: { service: 'usa_pobox', module: 'suppliers' },
+          }));
+        }, 120);
+        return;
+      }
+
       // Acceso directo a Costeo Marítimo con el filtro "Solo sin referencia"
       // activo (desde el widget "Contenedores sin referencia" del dashboard).
       if (action === 'maritime_costing_no_ref') {

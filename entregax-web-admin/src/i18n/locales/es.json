@@ -2168,13 +2168,34 @@
     "subtitle": "Recepción y control de inventario del servicio aéreo China → México",
     "noPermissions": "No tienes permisos para ningún módulo de Aéreo China. Contacta a tu supervisor.",
     "options": {
-      "reception": { "title": "Recibir AWB", "desc": "Escanea las guías que llegaron en una AWB y registra la recepción en MTY" },
-      "inventory": { "title": "Inventario Aéreo", "desc": "Consulta los paquetes del servicio aéreo (AIR) en bodega y su estado" },
-      "tdx_inventory": { "title": "Inventario TDX", "desc": "Consulta los paquetes DHL Express (TDX) en bodega y su estado" },
-      "tdi_express": { "title": "Recibir DHL Express", "desc": "Captura en serie de envíos de la ruta DHL Express China → Monterrey" },
-      "tdi_outbound": { "title": "Enviar DHL Express", "desc": "Da salida a las cajas DHL Express listas para salir de China" },
-      "tdi_cedis_mty": { "title": "Recibir en CEDIS MTY", "desc": "Escanea guías TDX que llegaron a Monterrey para marcarlas como Recibido MTY" },
-      "awb_update": { "title": "Actualizar Guía AWB DHL", "desc": "Asigna el AWB a las cajas TDX en tránsito para que aparezcan en inventario" }
+      "reception": {
+        "title": "Recibir AWB",
+        "desc": "Escanea las guías que llegaron en una AWB y registra la recepción en MTY"
+      },
+      "inventory": {
+        "title": "Inventario Aéreo",
+        "desc": "Consulta los paquetes del servicio aéreo (AIR) en bodega y su estado"
+      },
+      "tdx_inventory": {
+        "title": "Inventario TDX",
+        "desc": "Consulta los paquetes DHL Express (TDX) en bodega y su estado"
+      },
+      "tdi_express": {
+        "title": "Recibir DHL Express",
+        "desc": "Captura en serie de envíos de la ruta DHL Express China → Monterrey"
+      },
+      "tdi_outbound": {
+        "title": "Enviar DHL Express",
+        "desc": "Da salida a las cajas DHL Express listas para salir de China"
+      },
+      "tdi_cedis_mty": {
+        "title": "Recibir en CEDIS MTY",
+        "desc": "Escanea guías TDX que llegaron a Monterrey para marcarlas como Recibido MTY"
+      },
+      "awb_update": {
+        "title": "Actualizar Guía AWB DHL",
+        "desc": "Asigna el AWB a las cajas TDX en tránsito para que aparezcan en inventario"
+      }
     }
   },
   "tdiExpress": {
@@ -2297,7 +2318,37 @@
     "photosTitle": "Fotos de recepción",
     "photoUploaded": "Foto(s) subida(s) correctamente",
     "editClient": "Editar número de cliente",
-    "save": "Guardar"
+    "save": "Guardar",
+    "outbound": {
+      "label": "DHL EXPRESS",
+      "title": "Enviar DHL Express",
+      "subtitle": "Da salida a las cajas listas para salir de China. Solo se despachan las que tienen instrucciones de envío.",
+      "refresh": "Actualizar",
+      "newDispatch": "Nueva Salida",
+      "readyForDispatch": "Listas para salida",
+      "noInstructions": "Sin instrucciones",
+      "totalWeight": "Peso total",
+      "colGuide": "GUÍA",
+      "colClient": "CLIENTE",
+      "colDims": "MEDIDAS",
+      "colWeight": "PESO",
+      "colInstructions": "INSTRUCCIONES",
+      "origin": "Origen:",
+      "withInstructions": "Con instrucciones",
+      "emptyBlocked": "No hay cajas listas para salida. {{n}} caja(s) esperan instrucciones de envío.",
+      "empty": "No hay cajas DHL Express listas para salida",
+      "wizardTitle": "Nueva Salida DHL Express",
+      "wizardSubtitle": "Escanea las guías de las cajas que salen de China",
+      "wizardInfo": "Solo se pueden despachar cajas con instrucciones de envío. Las cajas sin instrucciones serán rechazadas al escanear.",
+      "scanPlaceholder": "Escanear guía TDX-...",
+      "scannedBoxes": "Cajas Escaneadas",
+      "totalWeightShort": "Peso Total",
+      "boxesInDispatch": "Cajas en esta salida:",
+      "scanToAdd": "Escanea una guía para agregarla",
+      "cancel": "Cancelar",
+      "processing": "Procesando...",
+      "confirmDispatch": "Confirmar Salida"
+    }
   },
   "pp": {
     "declined": "Tu tarjeta fue rechazada. Prueba con otra tarjeta o método de pago.",

@@ -1955,13 +1955,34 @@
     "subtitle": "Reception and inventory control for the China → Mexico air service",
     "noPermissions": "You don't have permission for any China Air module. Contact your supervisor.",
     "options": {
-      "reception": { "title": "Receive AWB", "desc": "Scan the packages that arrived in an AWB and register the reception in MTY" },
-      "inventory": { "title": "Air Inventory", "desc": "Check air service (AIR) packages in the warehouse and their status" },
-      "tdx_inventory": { "title": "TDX Inventory", "desc": "Check DHL Express (TDX) packages in the warehouse and their status" },
-      "tdi_express": { "title": "Receive DHL Express", "desc": "Batch capture of shipments on the DHL Express China → Monterrey route" },
-      "tdi_outbound": { "title": "Send DHL Express", "desc": "Dispatch the boxes ready to leave China" },
-      "tdi_cedis_mty": { "title": "Receive at CEDIS MTY", "desc": "Scan TDX packages that arrived in Monterrey to mark them as Received MTY" },
-      "awb_update": { "title": "Update DHL AWB", "desc": "Assign the AWB to in-transit TDX boxes so they appear in inventory" }
+      "reception": {
+        "title": "Receive AWB",
+        "desc": "Scan the packages that arrived in an AWB and register the reception in MTY"
+      },
+      "inventory": {
+        "title": "Air Inventory",
+        "desc": "Check air service (AIR) packages in the warehouse and their status"
+      },
+      "tdx_inventory": {
+        "title": "TDX Inventory",
+        "desc": "Check DHL Express (TDX) packages in the warehouse and their status"
+      },
+      "tdi_express": {
+        "title": "Receive DHL Express",
+        "desc": "Batch capture of shipments on the DHL Express China → Monterrey route"
+      },
+      "tdi_outbound": {
+        "title": "Send DHL Express",
+        "desc": "Dispatch the boxes ready to leave China"
+      },
+      "tdi_cedis_mty": {
+        "title": "Receive at CEDIS MTY",
+        "desc": "Scan TDX packages that arrived in Monterrey to mark them as Received MTY"
+      },
+      "awb_update": {
+        "title": "Update DHL AWB",
+        "desc": "Assign the AWB to in-transit TDX boxes so they appear in inventory"
+      }
     }
   },
   "tdiExpress": {
@@ -2084,7 +2105,37 @@
     "photosTitle": "Reception photos",
     "photoUploaded": "Photo(s) uploaded successfully",
     "editClient": "Edit client number",
-    "save": "Save"
+    "save": "Save",
+    "outbound": {
+      "label": "DHL EXPRESS",
+      "title": "Send DHL Express",
+      "subtitle": "Dispatch the boxes ready to leave China. Only those with shipping instructions are dispatched.",
+      "refresh": "Refresh",
+      "newDispatch": "New Dispatch",
+      "readyForDispatch": "Ready to dispatch",
+      "noInstructions": "No instructions",
+      "totalWeight": "Total weight",
+      "colGuide": "GUIDE",
+      "colClient": "CLIENT",
+      "colDims": "DIMENSIONS",
+      "colWeight": "WEIGHT",
+      "colInstructions": "INSTRUCTIONS",
+      "origin": "Origin:",
+      "withInstructions": "With instructions",
+      "emptyBlocked": "No boxes ready to dispatch. {{n}} box(es) awaiting shipping instructions.",
+      "empty": "No DHL Express boxes ready to dispatch",
+      "wizardTitle": "New DHL Express Dispatch",
+      "wizardSubtitle": "Scan the guides of the boxes leaving China",
+      "wizardInfo": "Only boxes with shipping instructions can be dispatched. Boxes without instructions will be rejected when scanned.",
+      "scanPlaceholder": "Scan guide TDX-...",
+      "scannedBoxes": "Scanned Boxes",
+      "totalWeightShort": "Total Weight",
+      "boxesInDispatch": "Boxes in this dispatch:",
+      "scanToAdd": "Scan a guide to add it",
+      "cancel": "Cancel",
+      "processing": "Processing...",
+      "confirmDispatch": "Confirm Dispatch"
+    }
   },
   "pp": {
     "declined": "Your card was declined. Try another card or payment method.",

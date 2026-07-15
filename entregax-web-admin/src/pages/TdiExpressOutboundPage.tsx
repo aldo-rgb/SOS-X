@@ -5,6 +5,7 @@
 // REGLA: solo las cajas con instrucciones de envío pueden despacharse.
 // ============================================
 import { useEffect, useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import {
   Box,
@@ -83,6 +84,7 @@ interface ScannedBox {
 }
 
 export default function TdiExpressOutboundPage({ onBack }: Props) {
+  const { t } = useTranslation();
   const [boxes, setBoxes] = useState<TdiBox[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -306,15 +308,15 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
                 DHL EXPRESS
               </Typography>
               <Typography variant="h4" sx={{ fontWeight: 800 }}>
-                Enviar DHL Express
+                {t('tdiExpress.outbound.title')}
               </Typography>
               <Typography variant="body2" sx={{ color: '#BDBDBD', mt: 0.5 }}>
-                Da salida a las cajas listas para salir de China. Solo se despachan las que tienen instrucciones de envío.
+                {t('tdiExpress.outbound.subtitle')}
               </Typography>
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Tooltip title="Actualizar">
+            <Tooltip title={t('tdiExpress.outbound.refresh')}>
               <IconButton onClick={loadBoxes} sx={{ color: '#FFF' }}>
                 <RefreshIcon />
               </IconButton>
@@ -325,7 +327,7 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
               onClick={openWizard}
               sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A2B' }, fontWeight: 600 }}
             >
-              Nueva Salida
+              {t('tdiExpress.outbound.newDispatch')}
             </Button>
           </Box>
         </Box>
@@ -338,7 +340,7 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
             {readyCount}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Listas para salida
+            {t('tdiExpress.outbound.readyForDispatch')}
           </Typography>
         </Paper>
         <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'rgba(211, 47, 47, 0.06)', borderRadius: 2 }}>
@@ -346,7 +348,7 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
             {blockedCount}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Sin instrucciones
+            {t('tdiExpress.outbound.noInstructions')}
           </Typography>
         </Paper>
         <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'rgba(33, 150, 243, 0.06)', borderRadius: 2 }}>
@@ -354,7 +356,7 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
             {Number(boxes.reduce((s, b) => s + Number(b.air_chargeable_weight || b.weight || 0), 0)).toFixed(1)} kg
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Peso total
+            {t('tdiExpress.outbound.totalWeight')}
           </Typography>
         </Paper>
       </Box>
@@ -369,11 +371,11 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
           <Table>
             <TableHead>
               <TableRow sx={{ bgcolor: '#1a1a2e' }}>
-                <TableCell sx={{ color: 'white', fontWeight: 600 }}>GUÍA</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 600 }}>CLIENTE</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 600 }}>MEDIDAS</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 600 }}>PESO</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 600 }}>INSTRUCCIONES</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 600 }}>{t('tdiExpress.outbound.colGuide')}</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 600 }}>{t('tdiExpress.outbound.colClient')}</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 600 }}>{t('tdiExpress.outbound.colDims')}</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 600 }}>{t('tdiExpress.outbound.colWeight')}</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 600 }}>{t('tdiExpress.outbound.colInstructions')}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -386,7 +388,7 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
                     </Typography>
                     {b.tracking_provider && (
                       <Typography variant="caption" color="text.secondary">
-                        Origen: {b.tracking_provider}
+                        {t('tdiExpress.outbound.origin')} {b.tracking_provider}
                       </Typography>
                     )}
                   </TableCell>
@@ -414,12 +416,12 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
                         title={
                           [b.delivery_alias, b.delivery_address, b.delivery_city]
                             .filter(Boolean)
-                            .join(' · ') || 'Con instrucciones'
+                            .join(' · ') || t('tdiExpress.outbound.withInstructions')
                         }
                       >
                         <Chip
                           icon={<LocationOnIcon sx={{ fontSize: 16 }} />}
-                          label="Con instrucciones"
+                          label={t('tdiExpress.outbound.withInstructions')}
                           size="small"
                           color="success"
                           variant="outlined"
@@ -428,7 +430,7 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
                     ) : (
                       <Chip
                         icon={<BlockIcon sx={{ fontSize: 16 }} />}
-                        label="Sin instrucciones"
+                        label={t('tdiExpress.outbound.noInstructions')}
                         size="small"
                         color="error"
                         variant="outlined"
@@ -443,8 +445,8 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
                     <InboxIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
                     <Typography color="text.secondary">
                       {blockedCount > 0
-                        ? `No hay cajas listas para salida. ${blockedCount} caja(s) esperan instrucciones de envío.`
-                        : 'No hay cajas DHL Express listas para salida'}
+                        ? t('tdiExpress.outbound.emptyBlocked', { n: blockedCount })
+                        : t('tdiExpress.outbound.empty')}
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -466,23 +468,23 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
           <QrCodeScannerIcon sx={{ fontSize: 32 }} />
           <Box>
             <Typography variant="h6" fontWeight={700}>
-              Nueva Salida DHL Express
+              {t('tdiExpress.outbound.wizardTitle')}
             </Typography>
             <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              Escanea las guías de las cajas que salen de China
+              {t('tdiExpress.outbound.wizardSubtitle')}
             </Typography>
           </Box>
         </Box>
 
         <DialogContent sx={{ p: 3 }}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Solo se pueden despachar cajas con instrucciones de envío. Las cajas sin instrucciones serán rechazadas al escanear.
+            {t('tdiExpress.outbound.wizardInfo')}
           </Alert>
 
           <TextField
             inputRef={scanInputRef}
             fullWidth
-            placeholder="Escanear guía TDX-..."
+            placeholder={t('tdiExpress.outbound.scanPlaceholder')}
             value={scanInput}
             onChange={(e) => setScanInput(e.target.value)}
             onKeyDown={handleScan}
@@ -501,7 +503,7 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
                   {scannedBoxes.length}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Cajas Escaneadas
+                  {t('tdiExpress.outbound.scannedBoxes')}
                 </Typography>
               </CardContent>
             </Card>
@@ -511,21 +513,21 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
                   {Number(totalScannedWeight).toFixed(1)} kg
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Peso Total
+                  {t('tdiExpress.outbound.totalWeightShort')}
                 </Typography>
               </CardContent>
             </Card>
           </Box>
 
           <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-            Cajas en esta salida:
+            {t('tdiExpress.outbound.boxesInDispatch')}
           </Typography>
 
           <Paper variant="outlined" sx={{ maxHeight: 300, overflow: 'auto' }}>
             {scannedBoxes.length === 0 ? (
               <Box sx={{ p: 4, textAlign: 'center' }}>
                 <QrCodeScannerIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                <Typography color="text.secondary">Escanea una guía para agregarla</Typography>
+                <Typography color="text.secondary">{t('tdiExpress.outbound.scanToAdd')}</Typography>
               </Box>
             ) : (
               <List dense>
@@ -565,7 +567,7 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
 
         <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5' }}>
           <Button onClick={closeWizard} disabled={processing}>
-            Cancelar
+            {t('tdiExpress.outbound.cancel')}
           </Button>
           <Button
             variant="contained"
@@ -574,7 +576,7 @@ export default function TdiExpressOutboundPage({ onBack }: Props) {
             startIcon={processing ? <CircularProgress size={20} color="inherit" /> : <CheckCircleIcon />}
             sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#256628' }, minWidth: 180 }}
           >
-            {processing ? 'Procesando...' : 'Confirmar Salida'}
+            {processing ? t('tdiExpress.outbound.processing') : t('tdiExpress.outbound.confirmDispatch')}
           </Button>
         </DialogActions>
       </Dialog>

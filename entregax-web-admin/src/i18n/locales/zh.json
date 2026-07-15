@@ -1815,13 +1815,34 @@
     "subtitle": "中国 → 墨西哥 空运服务的接收与库存管理",
     "noPermissions": "您没有任何中国空运模块的权限。请联系主管。",
     "options": {
-      "reception": { "title": "接收 AWB", "desc": "扫描随 AWB 到达的包裹并在 MTY 登记接收" },
-      "inventory": { "title": "空运库存", "desc": "查看仓库中空运（AIR）包裹及其状态" },
-      "tdx_inventory": { "title": "TDX 库存", "desc": "查看仓库中 DHL Express（TDX）包裹及其状态" },
-      "tdi_express": { "title": "接收 DHL Express", "desc": "批量登记 DHL Express 中国 → 蒙特雷 线路的货件" },
-      "tdi_outbound": { "title": "发出 DHL Express", "desc": "发出已准备好离开中国的箱子" },
-      "tdi_cedis_mty": { "title": "在 CEDIS MTY 接收", "desc": "扫描到达蒙特雷的 TDX 包裹，标记为已在 MTY 接收" },
-      "awb_update": { "title": "更新 DHL AWB", "desc": "为在途 TDX 箱子分配 AWB，使其显示在库存中" }
+      "reception": {
+        "title": "接收 AWB",
+        "desc": "扫描随 AWB 到达的包裹并在 MTY 登记接收"
+      },
+      "inventory": {
+        "title": "空运库存",
+        "desc": "查看仓库中空运（AIR）包裹及其状态"
+      },
+      "tdx_inventory": {
+        "title": "TDX 库存",
+        "desc": "查看仓库中 DHL Express（TDX）包裹及其状态"
+      },
+      "tdi_express": {
+        "title": "接收 DHL Express",
+        "desc": "批量登记 DHL Express 中国 → 蒙特雷 线路的货件"
+      },
+      "tdi_outbound": {
+        "title": "发出 DHL Express",
+        "desc": "发出已准备好离开中国的箱子"
+      },
+      "tdi_cedis_mty": {
+        "title": "在 CEDIS MTY 接收",
+        "desc": "扫描到达蒙特雷的 TDX 包裹，标记为已在 MTY 接收"
+      },
+      "awb_update": {
+        "title": "更新 DHL AWB",
+        "desc": "为在途 TDX 箱子分配 AWB，使其显示在库存中"
+      }
     }
   },
   "tdiExpress": {
@@ -1944,7 +1965,37 @@
     "photosTitle": "收货照片",
     "photoUploaded": "照片上传成功",
     "editClient": "编辑客户编号",
-    "save": "保存"
+    "save": "保存",
+    "outbound": {
+      "label": "DHL EXPRESS",
+      "title": "发货 DHL Express",
+      "subtitle": "发出可离开中国的箱子。仅发出已有配送说明的箱子。",
+      "refresh": "刷新",
+      "newDispatch": "新建发货",
+      "readyForDispatch": "可发货",
+      "noInstructions": "无说明",
+      "totalWeight": "总重量",
+      "colGuide": "单号",
+      "colClient": "客户",
+      "colDims": "尺寸",
+      "colWeight": "重量",
+      "colInstructions": "配送说明",
+      "origin": "原单号：",
+      "withInstructions": "有配送说明",
+      "emptyBlocked": "没有可发货的箱子。{{n}} 个箱子等待配送说明。",
+      "empty": "没有可发货的 DHL Express 箱子",
+      "wizardTitle": "新建 DHL Express 发货",
+      "wizardSubtitle": "扫描离开中国的箱子单号",
+      "wizardInfo": "仅可发出有配送说明的箱子。无说明的箱子扫描时将被拒绝。",
+      "scanPlaceholder": "扫描单号 TDX-...",
+      "scannedBoxes": "已扫描箱数",
+      "totalWeightShort": "总重量",
+      "boxesInDispatch": "本次发货的箱子：",
+      "scanToAdd": "扫描单号以添加",
+      "cancel": "取消",
+      "processing": "处理中...",
+      "confirmDispatch": "确认发货"
+    }
   },
   "pp": {
     "declined": "您的卡被拒绝。请尝试其他卡或付款方式。",
