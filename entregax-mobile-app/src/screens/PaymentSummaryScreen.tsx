@@ -119,8 +119,15 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     const pp = p as any;
     const gex = parseFloat(pp.gex_total_cost) || 0;
     const ship = parseFloat(pp.national_shipping_cost) || 0;
-    const poboxMxn = parseFloat(pp.pobox_service_cost) || 0;
     const extra = parseFloat(pp.extra_charges_total) || 0;
+    // 🩹 REPACK: cobrar el precio consolidado (venta USD × TC), NO pobox_service_cost
+    // (que es stale para repacks y provocaba cobrar de menos). Igual que el portal web.
+    const isRepack = String(pp.tracking_internal || pp.tracking || pp.trackingInternal || '')
+      .toUpperCase().startsWith('US-REPACK-');
+    const poboxUsd = parseFloat(pp.pobox_venta_usd) || 0;
+    const tc = parseFloat(pp.registered_exchange_rate) || 0;
+    let poboxMxn = parseFloat(pp.pobox_service_cost) || 0;
+    if (isRepack) poboxMxn = (poboxUsd > 0 && tc > 0) ? poboxUsd * tc : poboxMxn;
     return sum + poboxMxn + gex + ship + extra;
   }, 0);
   const totalWeight = packages.reduce((sum, p) => sum + parseFloat(String(p.weight || 0)), 0);
@@ -887,8 +894,13 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 const extra = parseFloat(pp.extra_charges_total) || 0;
                 const extraDesc = pp.extra_charges_desc || '';
                 const pagado = parseFloat(pp.monto_pagado) || 0;
-                let poboxMxn = poboxServ > 0 ? poboxServ : (poboxUsd > 0 && tc > 0 ? poboxUsd * tc : 0);
-                if (pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0) {
+                // 🩹 REPACK: precio consolidado (venta USD × TC), NO service_cost ni Σ hijas.
+                const isRepack = String(pp.tracking_internal || pp.tracking || pp.trackingInternal || '')
+                  .toUpperCase().startsWith('US-REPACK-');
+                let poboxMxn = isRepack
+                  ? ((poboxUsd > 0 && tc > 0) ? poboxUsd * tc : poboxServ)
+                  : (poboxServ > 0 ? poboxServ : (poboxUsd > 0 && tc > 0 ? poboxUsd * tc : 0));
+                if (!isRepack && pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0) {
                   const sumHijas = pp.child_packages.reduce((s: number, c: any) => {
                     const cServ = parseFloat(c.pobox_service_cost) || 0;
                     if (cServ > 0) return s + cServ;
