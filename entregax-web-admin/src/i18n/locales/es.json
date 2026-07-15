@@ -2177,7 +2177,11 @@
     },
     "pending": "Pendiente",
     "viewPackingList": "Ver Packing List",
-    "uploadPackingList": "Subir Packing List"
+    "uploadPackingList": "Subir Packing List",
+    "assignment": "Asignación",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "editMarkClient": "Editar MARK/Cliente"
   },
   "labelingModule": {
     "title": "Módulo de etiquetado",

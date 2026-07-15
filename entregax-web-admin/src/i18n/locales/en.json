@@ -1964,7 +1964,11 @@
     },
     "pending": "Pending",
     "viewPackingList": "View Packing List",
-    "uploadPackingList": "Upload Packing List"
+    "uploadPackingList": "Upload Packing List",
+    "assignment": "Assignment",
+    "save": "Save",
+    "cancel": "Cancel",
+    "editMarkClient": "Edit MARK/Client"
   },
   "labelingModule": {
     "title": "Labeling module",

@@ -1824,7 +1824,11 @@
     },
     "pending": "待处理",
     "viewPackingList": "查看装箱单",
-    "uploadPackingList": "上传装箱单"
+    "uploadPackingList": "上传装箱单",
+    "assignment": "分配",
+    "save": "保存",
+    "cancel": "取消",
+    "editMarkClient": "编辑唛头/客户"
   },
   "labelingModule": {
     "title": "标签模块",

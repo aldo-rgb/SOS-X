@@ -980,12 +980,12 @@ const MaritimeConsolidationsPage: React.FC = () => {
                 <TableCell align="center">
                   {editingOrderId === order.id ? (
                     <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      <Tooltip title="Guardar">
+                      <Tooltip title={t('maritimeConsolidations.save')}>
                         <IconButton size="small" color="success" onClick={() => saveMarkClient(order)}>
                           <SaveIcon />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Cancelar">
+                      <Tooltip title={t('maritimeConsolidations.cancel')}>
                         <IconButton size="small" color="error" onClick={cancelEditing}>
                           <CloseIcon />
                         </IconButton>
@@ -993,16 +993,18 @@ const MaritimeConsolidationsPage: React.FC = () => {
                     </Box>
                   ) : (
                     <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      <Tooltip title="Editar MARK/Cliente">
+                      <Tooltip title={t('maritimeConsolidations.editMarkClient')}>
                         <IconButton size="small" color="warning" onClick={() => startEditing(order)}>
                           <EditIcon />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Asignación">
-                        <IconButton size="small" color="primary" onClick={() => handleEditOrder(order)}>
-                          <AssignmentIcon />
-                        </IconButton>
-                      </Tooltip>
+                      {isSuperAdmin && (
+                        <Tooltip title={t('maritimeConsolidations.assignment')}>
+                          <IconButton size="small" color="primary" onClick={() => handleEditOrder(order)}>
+                            <AssignmentIcon />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </Box>
                   )}
                 </TableCell>
