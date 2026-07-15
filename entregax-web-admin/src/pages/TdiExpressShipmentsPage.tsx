@@ -213,11 +213,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       });
     } catch { return s; }
   };
-  // Tipo(s) de producto de un envío a partir de los air_tariff_type de sus cajas
-  const shipmentTypes = (s: Shipment) =>
-    (s.child_tariff_types || '').split(',').filter(Boolean)
-      .map((tt) => t(`tdiExpress.productTypes.${TARIFF_TO_PRODUCT[tt] || 'generico'}`))
-      .join(', ') || '—';
   const shipmentDims = (s: Shipment) =>
     Number(s.dim_variants || 0) > 1 ? t('tdiExpress.table.mixed')
       : (s.first_dims ? `${s.first_dims} cm` : '—');
