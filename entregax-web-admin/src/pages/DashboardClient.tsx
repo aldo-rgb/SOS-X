@@ -253,6 +253,8 @@ interface IncludedGuide {
   national_shipping_cost?: number;
   gex_total_cost?: number;
   air_sale_price?: number;
+  air_price_per_kg?: number;
+  air_chargeable_weight?: number;
   extra_charges_total?: number;
   extra_charges?: Array<{ tipo: string; monto: number; concepto?: string; moneda?: string; monto_mxn?: number; tc?: number | null }>;
   pobox_venta_usd?: number;
@@ -9792,11 +9794,15 @@ export default function DashboardClient() {
                                       <Typography variant="caption" sx={{ fontWeight: 600, color: ORANGE, display: 'block' }}>
                                         {guide.air_sale_price != null ? `$${Number(guide.air_sale_price).toFixed(2)}` : '—'}
                                       </Typography>
-                                      {guide.air_sale_price != null && Number(guide.weight) > 0 && (
-                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
-                                          ${(Number(guide.air_sale_price) / Number(guide.weight)).toFixed(2)}/kg
-                                        </Typography>
-                                      )}
+                                      {guide.air_sale_price != null && (() => {
+                                        const gBill = Number((guide as any).air_chargeable_weight) || Number(guide.weight) || 0;
+                                        const gPpk = Number((guide as any).air_price_per_kg) || (gBill > 0 ? Number(guide.air_sale_price) / gBill : 0);
+                                        return gPpk > 0 ? (
+                                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                                            ${gPpk.toFixed(2)}/kg
+                                          </Typography>
+                                        ) : null;
+                                      })()}
                                     </Box>
                                   ) : (
                                     <Typography variant="caption" sx={{ textAlign: 'right' }}>
