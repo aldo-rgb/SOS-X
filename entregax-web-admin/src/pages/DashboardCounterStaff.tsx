@@ -619,13 +619,17 @@ export default function DashboardCounterStaff() {
         {[
           { label: t('counterDash.widgets.readyDhl'), value: stats?.tdi?.listas_envio ?? 0, color: '#F9A825', action: 'tdi_outbound' },
           { label: t('counterDash.widgets.pendingDhlTracking'), value: stats?.tdi?.pdte_tracking ?? 0, color: '#C1272D', action: 'awb_update' },
-          { label: t('counterDash.widgets.logPendingPacking'), value: stats?.bodegaChina?.log_pdte_packing ?? 0, color: '#B8860B', action: 'maritime_consolidations' as string | undefined },
-          { label: t('counterDash.widgets.pendingSupplierPay'), value: stats?.bodegaChina?.xpay_pdte_proveedor ?? 0, color: '#1565C0', action: 'supplier_payments' as string | undefined },
+          { label: t('counterDash.widgets.logPendingPacking'), value: stats?.bodegaChina?.log_pdte_packing ?? 0, color: '#B8860B', action: 'maritime_consolidations' as string | undefined, url: undefined as string | undefined },
+          { label: t('counterDash.widgets.pendingSupplierPay'), value: stats?.bodegaChina?.xpay_pdte_proveedor ?? 0, color: '#1565C0', action: undefined as string | undefined, url: 'https://wireusd.tcmanual.mx/loginchino' as string | undefined },
         ].map((w) => (
           <Grid size={{ xs: 6, md: 3 }} key={w.label}>
             <Card
-              sx={{ borderRadius: 2, border: '1px solid #ECECEC', overflow: 'hidden', cursor: w.action ? 'pointer' : 'default', transition: 'box-shadow .15s', ...(w.action ? { '&:hover': { boxShadow: 3 } } : {}) }}
-              onClick={w.action ? () => window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: w.action } })) : undefined}
+              sx={{ borderRadius: 2, border: '1px solid #ECECEC', overflow: 'hidden', cursor: (w.action || w.url) ? 'pointer' : 'default', transition: 'box-shadow .15s', ...((w.action || w.url) ? { '&:hover': { boxShadow: 3 } } : {}) }}
+              onClick={
+                w.url ? () => window.open(w.url, '_blank', 'noopener,noreferrer')
+                : w.action ? () => window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: w.action } }))
+                : undefined
+              }
             >
               <Box sx={{ height: 4, bgcolor: w.color }} />
               <CardContent>
