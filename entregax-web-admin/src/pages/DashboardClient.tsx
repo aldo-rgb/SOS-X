@@ -200,6 +200,7 @@ interface PackageTracking {
   // Campos de precio aéreo China
   air_sale_price?: number;
   air_price_per_kg?: number;
+  air_chargeable_weight?: number;
   air_tariff_type?: string;
   pro_name?: string;
   // Campos DHL
@@ -9712,11 +9713,17 @@ export default function DashboardClient() {
                               Total USD
                             </Typography>
                             <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>${tdxUsd.toFixed(2)}</Typography>
-                            {Number(pkg.weight) > 0 && (
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
-                                ${(tdxUsd / Number(pkg.weight)).toFixed(2)} USD/kg
-                              </Typography>
-                            )}
+                            {(() => {
+                              // Tarifa/kg sobre peso COBRABLE (o air_price_per_kg) para
+                              // que coincida con la publicada (no dividir entre peso real).
+                              const billKg = Number((pkg as any).air_chargeable_weight) || Number(pkg.weight) || 0;
+                              const ppk = Number((pkg as any).air_price_per_kg) || (billKg > 0 ? tdxUsd / billKg : 0);
+                              return ppk > 0 ? (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
+                                  ${ppk.toFixed(2)} USD/kg
+                                </Typography>
+                              ) : null;
+                            })()}
                           </Box>
                         )}
                         {!isTdxPkg && pkg.cbm && (
@@ -11788,11 +11795,13 @@ export default function DashboardClient() {
                       costoUSD = Number(selectedPackage.air_sale_price);
                       montoMXN = costoUSD * tcConfig;
                       tcToShow = tcConfig;
-                      // TDX no guarda air_price_per_kg; se deriva del precio congelado / peso.
-                      const wKg = Number(selectedPackage.weight || 0);
-                      const effectivePpk = airPricePerKg > 0 ? airPricePerKg : (wKg > 0 ? costoUSD / wKg : 0);
+                      // La tarifa/kg y el precio congelado se calculan sobre el PESO COBRABLE
+                      // (air_chargeable_weight), no el peso real → así la tarifa mostrada
+                      // coincide con la publicada (ej. 428.78 / 22 = 19.49, no /22.2 = 19.31).
+                      const billKg = Number(selectedPackage.air_chargeable_weight) || Number(selectedPackage.weight || 0);
+                      const effectivePpk = airPricePerKg > 0 ? airPricePerKg : (billKg > 0 ? costoUSD / billKg : 0);
                       const tariffSuffix = tariffLabel ? ` (${tariffLabel})` : '';
-                      detailLine = `${wKg.toFixed(1)} kg × $${effectivePpk.toFixed(2)} USD/kg${tariffSuffix}`;
+                      detailLine = `${billKg.toFixed(1)} kg × $${effectivePpk.toFixed(2)} USD/kg${tariffSuffix}`;
                     } else if (isAirChina && selectedPackage.weight && Number(selectedPackage.weight) > 0) {
                       // AÉREO CHINA estimado
                       costoUSD = Number(selectedPackage.weight) * 21;

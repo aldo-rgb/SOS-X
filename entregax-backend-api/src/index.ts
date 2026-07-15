@@ -3442,6 +3442,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         destination_contact,
         air_sale_price,
         air_price_per_kg,
+        air_chargeable_weight,
         air_tariff_type,
         pro_name,
         pobox_venta_usd,
