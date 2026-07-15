@@ -153,6 +153,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
     override_tipo_cambio_usd: number | string | null;
     override_tipo_cambio_rmb: number | string | null;
     override_porcentaje_compra: number | string | null;
+    porcentaje_compra_hibrida: number | string | null;
     override_costo_operacion_usd: number | string | null;
     asesor_pct: number | string | null;
     over_pct: number | string | null;
@@ -336,6 +337,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
         override_tipo_cambio_usd: toNullable(editingEntProvider.override_tipo_cambio_usd),
         override_tipo_cambio_rmb: toNullable(editingEntProvider.override_tipo_cambio_rmb),
         override_porcentaje_compra: toNullable(editingEntProvider.override_porcentaje_compra),
+        porcentaje_compra_hibrida: toNullable(editingEntProvider.porcentaje_compra_hibrida),
         override_costo_operacion_usd: toNullable(editingEntProvider.override_costo_operacion_usd),
         asesor_pct: toNullable(editingEntProvider.asesor_pct),
         over_pct: toNullable(editingEntProvider.over_pct),
@@ -1083,7 +1085,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ bgcolor: HEADER_BG }}>
-                  {['Nombre','TC USD efectivo','TC RMB efectivo','% compra efectivo','Empresas activas','Activo','Default','Acciones'].map((h) => (
+                  {['Nombre','TC USD efectivo','TC RMB efectivo','% compra efectivo','% compra híbrida','Empresas activas','Activo','Default','Acciones'].map((h) => (
                     <TableCell key={h} sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>{h}</TableCell>
                   ))}
                 </TableRow>
@@ -1113,6 +1115,11 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                     <TableCell align="center" sx={{ color: TEXT_SECONDARY, borderBottom: `1px solid ${BORDER}` }}>
                       {apiPct > 0 ? `${effPct.toFixed(2)}%` : <span style={{ color: TEXT_DIMMER, fontStyle: 'italic' }}>No disponible</span>}
                       {ovPct && <Chip size="small" sx={{ ml: 0.5, bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)` }} label="OV" />}
+                    </TableCell>
+                    <TableCell align="center" sx={{ color: TEXT_SECONDARY, borderBottom: `1px solid ${BORDER}` }}>
+                      {p.porcentaje_compra_hibrida != null && Number(p.porcentaje_compra_hibrida) > 0
+                        ? `${Number(p.porcentaje_compra_hibrida).toFixed(2)}%`
+                        : <span style={{ color: TEXT_DIMMER, fontStyle: 'italic' }}>—</span>}
                     </TableCell>
                     <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Chip
@@ -1743,6 +1750,19 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                       sx={{ width: 280 }}
                     />
                   )}
+                  <TextField
+                    label="% Compra Híbrida"
+                    type="number"
+                    value={editingEntProvider.porcentaje_compra_hibrida ?? ''}
+                    onChange={(e) => setEditingEntProvider({
+                      ...editingEntProvider,
+                      porcentaje_compra_hibrida: e.target.value === '' ? null : e.target.value,
+                    })}
+                    placeholder="0.00"
+                    helperText="Costo del carril China (híbrida) — para calcular comisión del asesor"
+                    slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+                    sx={{ width: 280 }}
+                  />
                   <TextField
                     label="Comisión Asesor %"
                     type="number"

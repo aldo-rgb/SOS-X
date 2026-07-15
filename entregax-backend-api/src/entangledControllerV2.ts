@@ -297,7 +297,8 @@ export const createPaymentRequestV2 = async (
          ADD COLUMN IF NOT EXISTS instructions_snapshot JSONB,
          ADD COLUMN IF NOT EXISTS op_beneficiario_nombre VARCHAR(200),
          ADD COLUMN IF NOT EXISTS payment_deadline_at TIMESTAMPTZ,
-         ADD COLUMN IF NOT EXISTS subservicio VARCHAR(20)`
+         ADD COLUMN IF NOT EXISTS subservicio VARCHAR(20),
+         ADD COLUMN IF NOT EXISTS es_hibrida BOOLEAN`
     ).catch(() => {});
     // Nombre del beneficiario (proveedor final al que se le envía
     // el dinero) — se persiste para mostrarlo en Últimos envíos.
@@ -632,6 +633,7 @@ export const createPaymentRequestV2 = async (
             payment_deadline_at = $8,
             comision_entregax = $9,
             comision_asesor = $10,
+            es_hibrida = COALESCE($11, es_hibrida),
             updated_at = NOW()
       WHERE id = $7
       RETURNING *`,
@@ -646,6 +648,7 @@ export const createPaymentRequestV2 = async (
       paymentDeadline.toISOString(),
       pctEntregax,
       pctAsesor,
+      remote.es_hibrida ?? null,
     ]
   )).rows[0];
 
@@ -1015,6 +1018,7 @@ export async function sendPendingRequestToEntangled(
             raw_response = $6::jsonb,
             comision_entregax = $8,
             comision_asesor = $9,
+            es_hibrida = COALESCE($10, es_hibrida),
             updated_at = NOW()
       WHERE id = $7
       RETURNING *`,
@@ -1028,6 +1032,7 @@ export async function sendPendingRequestToEntangled(
       requestId,
       pctEntregaxP,
       pctAsesorP,
+      remote.es_hibrida ?? null,
     ]
   );
 
@@ -1787,10 +1792,12 @@ export const webhookFacturaGeneradaV2 = async (
                 ELSE 'en_proceso'
               END,
               raw_response = COALESCE(raw_response, '{}'::jsonb) || jsonb_build_object('factura_xml_url', $3::text),
+              es_hibrida = COALESCE($5, es_hibrida),
               last_webhook_at = NOW(),
               updated_at = NOW()
         WHERE id = $4`,
-      [facturaUrl, docs.nombre_archivo || null, facturaXmlUrl, requestId]
+      [facturaUrl, docs.nombre_archivo || null, facturaXmlUrl, requestId,
+       payload.es_hibrida != null ? Boolean(payload.es_hibrida) : null]
     );
 
     await logWebhook(transaccionId, evento, payload, requestId);
@@ -1857,10 +1864,11 @@ export const webhookPagoProveedorV2 = async (
                   WHEN estatus_global IN ('completado', 'cancelado', 'rechazado') THEN estatus_global
                   ELSE 'solicitada'
                 END,
+                es_hibrida = COALESCE($2, es_hibrida),
                 last_webhook_at = NOW(),
                 updated_at = NOW()
           WHERE id = $1`,
-        [requestId]
+        [requestId, payload.es_hibrida != null ? Boolean(payload.es_hibrida) : null]
       );
       await logWebhook(transaccionId, evento, payload, requestId);
       return res.status(200).json({ ok: true, estatus: 'solicitada' });
@@ -1882,10 +1890,12 @@ export const webhookPagoProveedorV2 = async (
                 WHEN $1 = 'rechazado' THEN 'rechazado'
                 ELSE 'en_proceso'
               END,
+              es_hibrida = COALESCE($8, es_hibrida),
               last_webhook_at = NOW(),
               updated_at = NOW()
         WHERE id = $7`,
-      [estatus, comprobanteUrl, moneda, monto, cuenta, servicio, requestId]
+      [estatus, comprobanteUrl, moneda, monto, cuenta, servicio, requestId,
+       payload.es_hibrida != null ? Boolean(payload.es_hibrida) : null]
     );
 
     await logWebhook(transaccionId, evento, payload, requestId);

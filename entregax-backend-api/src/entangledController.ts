@@ -1272,6 +1272,11 @@ const isAdminRole = (req: Request) => {
 
 export const listProviders = async (_req: Request, res: Response): Promise<any> => {
   try {
+    // Migración idempotente: % de compra híbrida (carril China), captura manual;
+    // se usa para calcular la comisión de los asesores en operaciones híbridas.
+    await pool.query(
+      `ALTER TABLE entangled_providers ADD COLUMN IF NOT EXISTS porcentaje_compra_hibrida NUMERIC(5,2)`
+    ).catch(() => {});
     const r = await pool.query(
       `SELECT *,
         (tipo_cambio_usd   + COALESCE(override_tipo_cambio_usd, 0))   AS effective_tipo_cambio_usd,
@@ -1349,6 +1354,7 @@ export const updateProvider = async (req: Request, res: Response): Promise<any> 
          over_split_asesor = COALESCE($12, over_split_asesor),
          cancellation_fee_usd = COALESCE($13, cancellation_fee_usd),
          code = COALESCE($14, code),
+         porcentaje_compra_hibrida = $16,
          updated_at = NOW()
        WHERE id = $15 RETURNING *,
          (tipo_cambio_usd   + COALESCE(override_tipo_cambio_usd, 0))   AS effective_tipo_cambio_usd,
@@ -1371,6 +1377,7 @@ export const updateProvider = async (req: Request, res: Response): Promise<any> 
         b.cancellation_fee_usd !== undefined && b.cancellation_fee_usd !== '' ? Number(b.cancellation_fee_usd) : null,
         b.code !== undefined && b.code !== null ? String(b.code).toUpperCase().slice(0, 16).replace(/[^A-Z0-9]/g, '') || null : null,
         id,
+        b.porcentaje_compra_hibrida === '' || b.porcentaje_compra_hibrida == null ? null : Number(b.porcentaje_compra_hibrida),
       ]
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'No encontrado' });

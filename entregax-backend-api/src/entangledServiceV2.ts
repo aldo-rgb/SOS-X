@@ -120,6 +120,8 @@ export interface EntangledSolicitudResponseV2 {
   cuenta_deposito?: any;
   // Carril confirmado por ENTANGLED (transfer/efectivo) — nuevo contrato.
   servicio_codigo?: string | undefined;
+  // Tipo de operación: true = carril prioritario China (liquidación acelerada).
+  es_hibrida?: boolean | undefined;
   status?: number | undefined; // HTTP status del upstream (para mapear 409, etc.)
   raw?: any;
   error?: string | undefined;
@@ -215,6 +217,7 @@ export const sendSolicitudPago = async (
       cuenta_deposito:
         data.cuenta_deposito || data.cuenta_bancaria || undefined,
       servicio_codigo: data.servicio_codigo || undefined,
+      es_hibrida: data.es_hibrida != null ? Boolean(data.es_hibrida) : undefined,
       raw: data,
     };
   } catch (err) {
