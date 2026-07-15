@@ -560,7 +560,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                 </TableCell>
                 <TableCell>
                   <Chip size="small" label={t(`tdiExpress.statusLabels.${s.status}`)}
-                    sx={{ bgcolor: STATUS_COLOR[s.status] || '#999', color: '#FFF', fontWeight: 600 }} />
+                    sx={{ bgcolor: STATUS_COLOR[s.status] || '#999', color: '#FFF', fontWeight: 600, height: 20, fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 } }} />
                 </TableCell>
                 <TableCell>{fmtChina(s.received_at)}</TableCell>
                 <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
