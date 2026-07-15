@@ -2140,7 +2140,7 @@
     "refresh": "Actualizar",
     "totalLogs": "Total LOGs",
     "inContainer": "En Contenedor",
-    "unassigned": "Sin Asignar",
+    "unassigned": "Sin asignar",
     "withPackingList": "Con Packing List",
     "pendingPackingChina": "Recibidos en China pendientes de Packing List",
     "tabAll": "Todos los LOGs",
@@ -2155,7 +2155,29 @@
       "branded": "Logotipo",
       "withPackingList": "Con Packing List",
       "withoutPackingList": "Sin Packing List"
-    }
+    },
+    "cols": {
+      "client": "CLIENTE",
+      "merchandise": "Mercancía",
+      "weightVol": "Peso / Vol",
+      "container": "Contenedor",
+      "route": "Ruta",
+      "type": "Tipo",
+      "status": "Status",
+      "special": "Especial",
+      "packingList": "Packing List",
+      "actions": "Acciones"
+    },
+    "plModal": {
+      "title": "Subir Packing List",
+      "formats": "Formatos aceptados: PDF, XLS, XLSX (máx. 10MB)",
+      "selectFile": "Seleccionar archivo",
+      "cancel": "Cancelar",
+      "upload": "Subir"
+    },
+    "pending": "Pendiente",
+    "viewPackingList": "Ver Packing List",
+    "uploadPackingList": "Subir Packing List"
   },
   "labelingModule": {
     "title": "Módulo de etiquetado",

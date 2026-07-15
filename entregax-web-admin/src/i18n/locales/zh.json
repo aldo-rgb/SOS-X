@@ -1802,7 +1802,29 @@
       "branded": "有牌",
       "withPackingList": "有装箱单",
       "withoutPackingList": "无装箱单"
-    }
+    },
+    "cols": {
+      "client": "客户",
+      "merchandise": "货物",
+      "weightVol": "重量 / 体积",
+      "container": "货柜",
+      "route": "路线",
+      "type": "类型",
+      "status": "状态",
+      "special": "特殊",
+      "packingList": "装箱单",
+      "actions": "操作"
+    },
+    "plModal": {
+      "title": "上传装箱单",
+      "formats": "接受格式：PDF、XLS、XLSX（最大 10MB）",
+      "selectFile": "选择文件",
+      "cancel": "取消",
+      "upload": "上传"
+    },
+    "pending": "待处理",
+    "viewPackingList": "查看装箱单",
+    "uploadPackingList": "上传装箱单"
   },
   "labelingModule": {
     "title": "标签模块",

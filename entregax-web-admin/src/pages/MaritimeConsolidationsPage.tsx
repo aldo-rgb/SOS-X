@@ -699,16 +699,16 @@ const MaritimeConsolidationsPage: React.FC = () => {
             <TableRow sx={{ bgcolor: 'grey.100' }}>
               <TableCell sx={{ fontWeight: 'bold' }}>LOG</TableCell>
               <TableCell sx={{ fontWeight: 'bold' }}>MARK (API)</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>CLIENTE</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Mercancía</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Peso / Vol</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Contenedor</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Ruta</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Tipo</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Especial</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Packing List</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }} align="center">Acciones</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>{t('maritimeConsolidations.cols.client')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>{t('maritimeConsolidations.cols.merchandise')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>{t('maritimeConsolidations.cols.weightVol')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>{t('maritimeConsolidations.cols.container')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>{t('maritimeConsolidations.cols.route')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>{t('maritimeConsolidations.cols.type')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>{t('maritimeConsolidations.cols.status')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>{t('maritimeConsolidations.cols.special')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>{t('maritimeConsolidations.cols.packingList')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }} align="center">{t('maritimeConsolidations.cols.actions')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -833,7 +833,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
                     />
                   ) : (
                     <>
-                      <Typography variant="body2">{order.bl_client_name || 'Sin asignar'}</Typography>
+                      <Typography variant="body2">{order.bl_client_name || t('maritimeConsolidations.unassigned')}</Typography>
                       <Typography variant="caption" color="text.secondary">{order.bl_client_code || ''}</Typography>
                     </>
                   )}
@@ -859,7 +859,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
                       variant="outlined"
                     />
                   ) : (
-                    <Chip size="small" label="Sin asignar" color="warning" />
+                    <Chip size="small" label={t('maritimeConsolidations.unassigned')} color="warning" />
                   )}
                 </TableCell>
                 <TableCell>
@@ -876,7 +876,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
                     const arrivedStatuses = ['received_china', 'received', 'in_transit', 'customs_mx', 'customs', 'consolidated', 'at_port', 'delivered'];
                     const hasArrived = arrivedStatuses.includes(order.status);
                     if (!hasArrived) {
-                      return <Chip size="small" label="Pendiente" color="warning" />;
+                      return <Chip size="small" label={t('maritimeConsolidations.pending')} color="warning" />;
                     }
                     return (
                       <Chip
@@ -957,7 +957,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
                 </TableCell>
                 <TableCell>
                   {order.packing_list_url ? (
-                    <Tooltip title="Ver Packing List">
+                    <Tooltip title={t('maritimeConsolidations.viewPackingList')}>
                       <IconButton 
                         size="small" 
                         color="primary"
@@ -967,7 +967,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
                       </IconButton>
                     </Tooltip>
                   ) : (
-                    <Tooltip title="Subir Packing List">
+                    <Tooltip title={t('maritimeConsolidations.uploadPackingList')}>
                       <IconButton 
                         size="small" 
                         onClick={() => setPackingListDialog({ open: true, order, file: null })}
@@ -1190,13 +1190,13 @@ const MaritimeConsolidationsPage: React.FC = () => {
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
             <UploadFileIcon sx={{ mr: 1 }} />
-            Subir Packing List - {packingListDialog.order?.ordersn}
+            {t('maritimeConsolidations.plModal.title')} - {packingListDialog.order?.ordersn}
           </Box>
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Alert severity="info">
-              Formatos aceptados: PDF, XLS, XLSX (máx. 10MB)
+              {t('maritimeConsolidations.plModal.formats')}
             </Alert>
             <Button
               variant="outlined"
@@ -1205,7 +1205,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
               fullWidth
               sx={{ py: 3, border: '2px dashed', borderColor: 'primary.main' }}
             >
-              {packingListDialog.file ? packingListDialog.file.name : 'Seleccionar archivo'}
+              {packingListDialog.file ? packingListDialog.file.name : t('maritimeConsolidations.plModal.selectFile')}
               <input
                 type="file"
                 hidden
@@ -1221,13 +1221,13 @@ const MaritimeConsolidationsPage: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPackingListDialog({ ...packingListDialog, open: false })}>Cancelar</Button>
-          <Button 
-            variant="contained" 
+          <Button onClick={() => setPackingListDialog({ ...packingListDialog, open: false })}>{t('maritimeConsolidations.plModal.cancel')}</Button>
+          <Button
+            variant="contained"
             onClick={handleUploadPackingList}
             disabled={!packingListDialog.file}
           >
-            Subir
+            {t('maritimeConsolidations.plModal.upload')}
           </Button>
         </DialogActions>
       </Dialog>

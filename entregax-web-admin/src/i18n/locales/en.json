@@ -1942,7 +1942,29 @@
       "branded": "Branded",
       "withPackingList": "With Packing List",
       "withoutPackingList": "Without Packing List"
-    }
+    },
+    "cols": {
+      "client": "CLIENT",
+      "merchandise": "Merchandise",
+      "weightVol": "Weight / Vol",
+      "container": "Container",
+      "route": "Route",
+      "type": "Type",
+      "status": "Status",
+      "special": "Special",
+      "packingList": "Packing List",
+      "actions": "Actions"
+    },
+    "plModal": {
+      "title": "Upload Packing List",
+      "formats": "Accepted formats: PDF, XLS, XLSX (max 10MB)",
+      "selectFile": "Select file",
+      "cancel": "Cancel",
+      "upload": "Upload"
+    },
+    "pending": "Pending",
+    "viewPackingList": "View Packing List",
+    "uploadPackingList": "Upload Packing List"
   },
   "labelingModule": {
     "title": "Labeling module",
