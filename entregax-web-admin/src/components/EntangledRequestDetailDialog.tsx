@@ -36,6 +36,7 @@ export interface EntangledRequestDetail {
   comision_entregax?: number | string | null;
   advisor_name?: string | null;
   provider_inferred?: string | null;
+  costo_default_pct?: number | string | null;
   tc_aplicado_usd?: number | string | null;
   tc_cliente_final?: number | string | null;
   es_pesos?: boolean | null;
@@ -188,6 +189,14 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
                     {pctCobrada != null ? `${pctCobrada.toFixed(2)}%` : '—'}
                   </Typography>
                 </Box>
+                {row.costo_default_pct != null && Number(row.costo_default_pct) > 0 && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Costo default asignado</Typography>
+                    <Typography fontWeight={700} fontSize={18} color="text.secondary">
+                      {Number(row.costo_default_pct).toFixed(2)}%
+                    </Typography>
+                  </Box>
+                )}
                 <Box>
                   <Typography variant="caption" color="text.secondary">TC aplicado USD</Typography>
                   <Typography fontWeight={700} fontSize={18}>
