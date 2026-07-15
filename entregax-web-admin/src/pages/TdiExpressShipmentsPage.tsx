@@ -115,13 +115,15 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
 
   const onPhotoFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const id = photoTargetId.current;
-    const files = e.target.files;
+    // Copiar los File a un array ESTABLE antes de limpiar el input: e.target.files
+    // es una FileList viva y al hacer value='' se vacía, perdiendo la selección.
+    const fileArr = e.target.files ? Array.from(e.target.files) : [];
     if (e.target) e.target.value = ''; // permitir re-seleccionar los mismos archivos
-    if (!id || !files || files.length === 0) return;
+    if (!id || fileArr.length === 0) return;
     setPhotoBusyId(id);
     try {
       const fd = new FormData();
-      Array.from(files).forEach((f) => fd.append('photos', f));
+      fileArr.forEach((f) => fd.append('photos', f));
       await axios.post(`${API_URL}/api/tdi-express/shipments/${id}/photos`, fd, {
         headers: { ...authHeaders, 'Content-Type': 'multipart/form-data' },
       });
