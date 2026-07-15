@@ -1955,6 +1955,9 @@
     "stats": {
       "total": "Total",
       "capturadoChina": "Captured in China",
+      "listasEnvio": "Ready to ship",
+      "pdteFoto": "Pending photo",
+      "pdteTracking": "Pending DHL tracking",
       "enTransito": "In transit",
       "recibidoMty": "Received in MTY",
       "enReenvio": "In national re-ship",
@@ -1973,6 +1976,7 @@
       "dimensions": "Dimensions",
       "productType": "Type",
       "extraCharge": "Extra charge",
+      "photos": "Photo",
       "mixed": "Mixed"
     },
     "wizard": {
@@ -2051,6 +2055,11 @@
     "confirmDeleteTitle": "Delete shipment",
     "deleteBtn": "Delete",
     "reprintLabels": "Reprint labels",
+    "typeUpdated": "Product type updated",
+    "uploadPhoto": "Upload photo(s)",
+    "viewPhotos": "View photos",
+    "photosTitle": "Reception photos",
+    "photoUploaded": "Photo(s) uploaded successfully",
     "editClient": "Edit client number",
     "save": "Save"
   },

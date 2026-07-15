@@ -1815,6 +1815,9 @@
     "stats": {
       "total": "总计",
       "capturadoChina": "已在中国录入",
+      "listasEnvio": "可发货",
+      "pdteFoto": "待拍照",
+      "pdteTracking": "待DHL单号",
       "enTransito": "运输中",
       "recibidoMty": "已在蒙特雷收货",
       "enReenvio": "国内转运中",
@@ -1833,6 +1836,7 @@
       "dimensions": "尺寸",
       "productType": "类型",
       "extraCharge": "额外费用",
+      "photos": "照片",
       "mixed": "多种"
     },
     "wizard": {
@@ -1911,6 +1915,11 @@
     "confirmDeleteTitle": "删除货件",
     "deleteBtn": "删除",
     "reprintLabels": "重新打印标签",
+    "typeUpdated": "产品类型已更新",
+    "uploadPhoto": "上传照片",
+    "viewPhotos": "查看照片",
+    "photosTitle": "收货照片",
+    "photoUploaded": "照片上传成功",
     "editClient": "编辑客户编号",
     "save": "保存"
   },
