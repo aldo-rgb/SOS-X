@@ -100,10 +100,23 @@ const HAS_LABEL_SQL = `(
     OR EXISTS (SELECT 1 FROM package_documents pd WHERE pd.package_id = p.id AND pd.doc_type = 'guia_externa')
 )`;
 
-// Incluir: paquetes no-master, O masters sin hijos (standalone como US-1379808951 con PQTX)
+// Incluir: paquetes no-master, O masters sin hijos (standalone como US-1379808951 con PQTX).
+// EXCEPCIÓN REPACK: un REPACK (US-REPACK-*) es una sola caja física consolidada; debe salir
+// como UNA sola guía (el master), no como sus N guías hijas. Por eso:
+//   1) se OCULTAN siempre las hijas de un master REPACK, y
+//   2) se MUESTRA siempre el master REPACK (aunque tenga hijos).
+// El resto de casos (no-repack) conserva exactamente la regla original.
 const NOT_MASTER_WITH_CHILDREN_SQL = `(
-    COALESCE(p.is_master, false) = false
-    OR NOT EXISTS (SELECT 1 FROM packages c WHERE c.master_id = p.id LIMIT 1)
+    NOT EXISTS (
+        SELECT 1 FROM packages rp
+        WHERE rp.id = p.master_id
+          AND rp.tracking_internal LIKE 'US-REPACK-%'
+    )
+    AND (
+        p.tracking_internal LIKE 'US-REPACK-%'
+        OR COALESCE(p.is_master, false) = false
+        OR NOT EXISTS (SELECT 1 FROM packages c WHERE c.master_id = p.id LIMIT 1)
+    )
 )`;
 
 let packageStatusColumnCache: 'delivery_status' | 'status' | null = null;
