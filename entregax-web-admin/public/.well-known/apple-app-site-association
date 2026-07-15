@@ -1,0 +1,19 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "A7AFHCB62Z.com.entregax.mobile",
+        "paths": [
+          "/instrucciones",
+          "/instrucciones/*",
+          "/register",
+          "/r/*"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["A7AFHCB62Z.com.entregax.mobile"]
+  }
+}

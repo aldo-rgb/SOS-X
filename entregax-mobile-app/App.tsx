@@ -270,10 +270,26 @@ const theme = {
   },
 };
 
+// Universal Links (iOS) / App Links (Android): cuando el usuario abre un link
+// https://www.entregax.app/... (p.ej. el botón "Asignar instrucciones" de WhatsApp),
+// el SO abre ESTA app si está instalada. Los archivos de verificación viven en
+// entregax.app/.well-known/ (apple-app-site-association / assetlinks.json).
+// Rutas conocidas se mapean a pantallas; cualquier otra abre la app en Bootstrap
+// (que resuelve sesión y ruta). El deep-routing a la guía específica (con sesión)
+// queda como mejora posterior.
+const linking = {
+  prefixes: ['https://www.entregax.app', 'https://entregax.app', 'entregax://'],
+  config: {
+    screens: {
+      Register: 'register',
+    },
+  },
+};
+
 function App() {
   return (
     <PaperProvider theme={theme}>
-      <NavigationContainer>
+      <NavigationContainer linking={linking}>
         <Stack.Navigator
           initialRouteName="Bootstrap"
           screenOptions={{

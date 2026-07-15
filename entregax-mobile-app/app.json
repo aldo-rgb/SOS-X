@@ -18,6 +18,10 @@
       "bundleIdentifier": "com.entregax.mobile",
       "buildNumber": "4",
       "usesAppleSignIn": true,
+      "associatedDomains": [
+        "applinks:www.entregax.app",
+        "applinks:entregax.app"
+      ],
       "infoPlist": {
         "NSCameraUsageDescription": "EntregaX usa la cámara para escanear guías, códigos QR y tomar fotos de paquetes.",
         "NSPhotoLibraryUsageDescription": "EntregaX accede a tu galería para adjuntar fotos de paquetes o comprobantes.",
@@ -44,6 +48,17 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "www.entregax.app" },
+            { "scheme": "https", "host": "entregax.app" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "pan",
