@@ -499,7 +499,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           COALESCE(p.pkg_height, 0) AS height_cm,
           p.description,
           p.tracking_provider AS carrier_tracking,
-          COALESCE(p.carrier, '') AS carrier_name
+          -- Paquetería de origen real (USPS/UPS/FedEx…); 'carrier' suele ser 'BODEGA' (ubicación).
+          COALESCE(NULLIF(p.origin_carrier, ''), NULLIF(p.national_carrier, ''), NULLIF(NULLIF(p.carrier, 'BODEGA'), ''), '') AS carrier_name
         FROM packages p
         WHERE p.user_id IS NULL
           AND (p.box_id IS NULL OR p.box_id = '')
