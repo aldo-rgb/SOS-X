@@ -5,6 +5,7 @@
 // aparece en el Inventario TDX).
 // ============================================
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     Box, Paper, Typography, IconButton, Stack, TextField, Button, Chip,
     Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -53,6 +54,7 @@ interface InTransitMaster {
 interface Props { onBack: () => void; }
 
 export default function TdiAwbUpdatePage({ onBack }: Props) {
+    const { t } = useTranslation();
     const token = localStorage.getItem('token');
     const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -93,9 +95,9 @@ export default function TdiAwbUpdatePage({ onBack }: Props) {
             setMasters((prev) => prev.map((m) => (m.id === masterId
                 ? { ...m, awb: awb || null, children: m.children.map((c) => ({ ...c, awb: awb || null })) }
                 : m)));
-            setSnack({ sev: 'success', msg: awb ? `AWB asignado a todas las cajas del envío` : 'AWB removido' });
+            setSnack({ sev: 'success', msg: awb ? t('tdiExpress.awb.snackAssigned') : t('tdiExpress.awb.snackRemoved') });
         } catch (e: any) {
-            setSnack({ sev: 'error', msg: e?.response?.data?.error || 'Error al guardar AWB' });
+            setSnack({ sev: 'error', msg: e?.response?.data?.error || t('tdiExpress.awb.snackError') });
         } finally {
             setSavingId(null);
         }
@@ -112,9 +114,9 @@ export default function TdiAwbUpdatePage({ onBack }: Props) {
                     <FlightTakeoffIcon sx={{ fontSize: 40, color: DHL_YELLOW }} />
                     <Box sx={{ flex: 1 }}>
                         <Typography variant="overline" sx={{ color: DHL_YELLOW, fontWeight: 700, letterSpacing: 2 }}>DHL EXPRESS</Typography>
-                        <Typography variant="h4" sx={{ fontWeight: 800 }}>Actualizar Guía AWB DHL</Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 800 }}>{t('tdiExpress.awb.title')}</Typography>
                         <Typography variant="body2" sx={{ color: '#BDBDBD', mt: 0.5 }}>
-                            Asigna el AWB a cada envío TDX en tránsito. Se aplica a todas las cajas del envío y aparece en el Inventario TDX.
+                            {t('tdiExpress.awb.subtitle')}
                         </Typography>
                     </Box>
                     <IconButton onClick={load} sx={{ color: '#FFF' }} disabled={loading}>
@@ -124,7 +126,7 @@ export default function TdiAwbUpdatePage({ onBack }: Props) {
             </Paper>
 
             <TextField
-                fullWidth size="small" placeholder="Buscar por guía, AWB, cliente o casillero..."
+                fullWidth size="small" placeholder={t('tdiExpress.awb.searchPlaceholder')}
                 value={search} onChange={(e) => setSearch(e.target.value)}
                 sx={{ mb: 2, maxWidth: 480 }}
                 InputProps={{ startAdornment: <InputAdornment position="start"><QrCodeIcon color="action" /></InputAdornment> }}
@@ -138,11 +140,11 @@ export default function TdiAwbUpdatePage({ onBack }: Props) {
                         <TableHead>
                             <TableRow sx={{ bgcolor: '#1a1a2e' }}>
                                 <TableCell sx={{ color: 'white', fontWeight: 600, width: 40 }} />
-                                <TableCell sx={{ color: 'white', fontWeight: 600 }}>ENVÍO (MASTER)</TableCell>
-                                <TableCell sx={{ color: 'white', fontWeight: 600 }}>CLIENTE</TableCell>
-                                <TableCell sx={{ color: 'white', fontWeight: 600 }}>CAJAS</TableCell>
-                                <TableCell sx={{ color: 'white', fontWeight: 600 }}>PESO</TableCell>
-                                <TableCell sx={{ color: 'white', fontWeight: 600, minWidth: 300 }}>AWB (aplica a todas)</TableCell>
+                                <TableCell sx={{ color: 'white', fontWeight: 600 }}>{t('tdiExpress.awb.colShipment')}</TableCell>
+                                <TableCell sx={{ color: 'white', fontWeight: 600 }}>{t('tdiExpress.awb.colClient')}</TableCell>
+                                <TableCell sx={{ color: 'white', fontWeight: 600 }}>{t('tdiExpress.awb.colBoxes')}</TableCell>
+                                <TableCell sx={{ color: 'white', fontWeight: 600 }}>{t('tdiExpress.awb.colWeight')}</TableCell>
+                                <TableCell sx={{ color: 'white', fontWeight: 600, minWidth: 300 }}>{t('tdiExpress.awb.colAwb')}</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
@@ -170,14 +172,14 @@ export default function TdiAwbUpdatePage({ onBack }: Props) {
                                         <TableCell>
                                             <Stack direction="row" spacing={1} alignItems="center">
                                                 <TextField
-                                                    size="small" placeholder="Número de AWB" value={draft}
+                                                    size="small" placeholder={t('tdiExpress.awb.awbPlaceholder')} value={draft}
                                                     onChange={(e) => setDrafts((d) => ({ ...d, [m.id]: e.target.value.toUpperCase() }))}
                                                     onKeyDown={(e) => { if (e.key === 'Enter' && dirty) saveAwb(m.id); }}
                                                     sx={{ flex: 1 }} InputProps={{ sx: { fontFamily: 'monospace' } }}
                                                 />
                                                 <Button variant="contained" size="small" disabled={!dirty || savingId === m.id} onClick={() => saveAwb(m.id)}
                                                     startIcon={savingId === m.id ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
-                                                    sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A28' }, minWidth: 100 }}>Guardar</Button>
+                                                    sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A28' }, minWidth: 100 }}>{t('tdiExpress.awb.save')}</Button>
                                             </Stack>
                                         </TableCell>
                                     </TableRow>,
@@ -188,11 +190,11 @@ export default function TdiAwbUpdatePage({ onBack }: Props) {
                                                     <Table size="small">
                                                         <TableHead>
                                                             <TableRow>
-                                                                <TableCell sx={{ fontWeight: 700 }}>Caja</TableCell>
-                                                                <TableCell sx={{ fontWeight: 700 }}>Guía</TableCell>
-                                                                <TableCell sx={{ fontWeight: 700 }}>Medidas</TableCell>
-                                                                <TableCell sx={{ fontWeight: 700 }}>Peso</TableCell>
-                                                                <TableCell sx={{ fontWeight: 700 }}>AWB</TableCell>
+                                                                <TableCell sx={{ fontWeight: 700 }}>{t('tdiExpress.awb.childBox')}</TableCell>
+                                                                <TableCell sx={{ fontWeight: 700 }}>{t('tdiExpress.awb.childGuide')}</TableCell>
+                                                                <TableCell sx={{ fontWeight: 700 }}>{t('tdiExpress.awb.childDims')}</TableCell>
+                                                                <TableCell sx={{ fontWeight: 700 }}>{t('tdiExpress.awb.childWeight')}</TableCell>
+                                                                <TableCell sx={{ fontWeight: 700 }}>{t('tdiExpress.awb.childAwb')}</TableCell>
                                                             </TableRow>
                                                         </TableHead>
                                                         <TableBody>
@@ -221,7 +223,7 @@ export default function TdiAwbUpdatePage({ onBack }: Props) {
                                 <TableRow>
                                     <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
                                         <InboxIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
-                                        <Typography color="text.secondary">No hay envíos TDX en tránsito</Typography>
+                                        <Typography color="text.secondary">{t('tdiExpress.awb.empty')}</Typography>
                                     </TableCell>
                                 </TableRow>
                             )}

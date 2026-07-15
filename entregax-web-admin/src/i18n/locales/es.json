@@ -2348,6 +2348,27 @@
       "cancel": "Cancelar",
       "processing": "Procesando...",
       "confirmDispatch": "Confirmar Salida"
+    },
+    "awb": {
+      "title": "Actualizar Guía AWB DHL",
+      "subtitle": "Asigna el AWB a cada envío TDX en tránsito. Se aplica a todas las cajas del envío y aparece en el Inventario TDX.",
+      "searchPlaceholder": "Buscar por guía, AWB, cliente o casillero...",
+      "colShipment": "ENVÍO (MASTER)",
+      "colClient": "CLIENTE",
+      "colBoxes": "CAJAS",
+      "colWeight": "PESO",
+      "colAwb": "AWB (aplica a todas)",
+      "awbPlaceholder": "Número de AWB",
+      "save": "Guardar",
+      "childBox": "Caja",
+      "childGuide": "Guía",
+      "childDims": "Medidas",
+      "childWeight": "Peso",
+      "childAwb": "AWB",
+      "empty": "No hay envíos TDX en tránsito",
+      "snackAssigned": "AWB asignado a todas las cajas del envío",
+      "snackRemoved": "AWB removido",
+      "snackError": "Error al guardar AWB"
     }
   },
   "pp": {

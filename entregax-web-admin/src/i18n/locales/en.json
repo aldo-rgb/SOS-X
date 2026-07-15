@@ -2135,6 +2135,27 @@
       "cancel": "Cancel",
       "processing": "Processing...",
       "confirmDispatch": "Confirm Dispatch"
+    },
+    "awb": {
+      "title": "Update DHL AWB",
+      "subtitle": "Assign the AWB to each TDX shipment in transit. It applies to all boxes in the shipment and appears in the TDX Inventory.",
+      "searchPlaceholder": "Search by guide, AWB, client or mailbox...",
+      "colShipment": "SHIPMENT (MASTER)",
+      "colClient": "CLIENT",
+      "colBoxes": "BOXES",
+      "colWeight": "WEIGHT",
+      "colAwb": "AWB (applies to all)",
+      "awbPlaceholder": "AWB number",
+      "save": "Save",
+      "childBox": "Box",
+      "childGuide": "Guide",
+      "childDims": "Dimensions",
+      "childWeight": "Weight",
+      "childAwb": "AWB",
+      "empty": "No TDX shipments in transit",
+      "snackAssigned": "AWB assigned to all boxes in the shipment",
+      "snackRemoved": "AWB removed",
+      "snackError": "Error saving AWB"
     }
   },
   "pp": {

@@ -1995,6 +1995,27 @@
       "cancel": "取消",
       "processing": "处理中...",
       "confirmDispatch": "确认发货"
+    },
+    "awb": {
+      "title": "更新 DHL AWB 单号",
+      "subtitle": "为每个在途 TDX 运单分配 AWB。适用于运单的所有箱子并显示在 TDX 库存中。",
+      "searchPlaceholder": "按单号、AWB、客户或 casillero 搜索...",
+      "colShipment": "运单（主单）",
+      "colClient": "客户",
+      "colBoxes": "箱数",
+      "colWeight": "重量",
+      "colAwb": "AWB（适用于全部）",
+      "awbPlaceholder": "AWB 编号",
+      "save": "保存",
+      "childBox": "箱",
+      "childGuide": "单号",
+      "childDims": "尺寸",
+      "childWeight": "重量",
+      "childAwb": "AWB",
+      "empty": "没有在途的 TDX 运单",
+      "snackAssigned": "AWB 已分配给运单所有箱子",
+      "snackRemoved": "AWB 已移除",
+      "snackError": "保存 AWB 出错"
     }
   },
   "pp": {
