@@ -1752,21 +1752,19 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                       sx={{ width: 220 }}
                     />
                   )}
-                  {Number(editingEntProvider.porcentaje_compra) > 0 && (
-                    <TextField
-                      label="Incremento % de compra (Comisión EntregaX)"
-                      type="number"
-                      value={editingEntProvider.override_porcentaje_compra ?? ''}
-                      onChange={(e) => setEditingEntProvider({
-                        ...editingEntProvider,
-                        override_porcentaje_compra: e.target.value === '' ? null : e.target.value,
-                      })}
-                      placeholder="0.00"
-                      helperText={`API: ${Number(editingEntProvider.porcentaje_compra).toFixed(2)}% · Lo que cobra EntregaX`}
-                      slotProps={{ input: { startAdornment: <InputAdornment position="start">+</InputAdornment>, endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
-                      sx={{ width: 280 }}
-                    />
-                  )}
+                  <TextField
+                    label="% EntregaX (comisión fija)"
+                    type="number"
+                    value={editingEntProvider.override_porcentaje_compra ?? ''}
+                    onChange={(e) => setEditingEntProvider({
+                      ...editingEntProvider,
+                      override_porcentaje_compra: e.target.value === '' ? null : e.target.value,
+                    })}
+                    placeholder="0.00"
+                    helperText="Porcentaje fijo que cobra EntregaX. El resto del margen (arriba) es la comisión del asesor."
+                    slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+                    sx={{ width: 320 }}
+                  />
                   <TextField
                     label="% Compra Híbrida"
                     type="number"
