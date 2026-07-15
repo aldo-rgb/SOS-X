@@ -266,6 +266,22 @@ export const createPaymentRequestV2 = async (
   } catch (e) {
     console.warn('[ENTANGLED v2] No se pudo resolver % de compra del proveedor default:', e);
   }
+
+  // 🎯 Override del asesor: SOLO en modo asesor puede subir el % que XPAY cobra
+  //    al cliente, pero NUNCA por debajo de la venta fija (precio fijo asignado).
+  const advisorPctRaw = body.comision_cliente_final_porcentaje;
+  if (opts?.advisorId && advisorPctRaw != null && String(advisorPctRaw).trim() !== '') {
+    const custom = Number(advisorPctRaw);
+    if (Number.isFinite(custom) && custom > 0) {
+      const minPct = proveedorVentaFija > 0 ? proveedorVentaFija : 0;
+      if (custom < minPct - 0.001) {
+        return res.status(400).json({
+          error: `La comisión al cliente (${custom.toFixed(2)}%) no puede ser menor a la venta fija (${minPct.toFixed(2)}%).`,
+        });
+      }
+      commission.porcentaje = custom;
+    }
+  }
   const pctClienteIns = Number(commission.porcentaje) || 0;
   // Si no hay venta fija configurada, EntregaX toma todo el margen (asesor 0).
   const ventaFijaIns = proveedorVentaFija > 0 ? proveedorVentaFija : pctClienteIns;

@@ -413,6 +413,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     pago_con_factura: { comision_porcentaje: number; es_override: boolean };
     pago_sin_factura: { comision_porcentaje: number; es_override: boolean };
   } | null>(null);
+  // 🎯 Override del % de comisión al cliente — SOLO asesores. Vacío = usar el
+  //    configurado. No puede ser menor a la venta fija del proveedor.
+  const [advisorCommissionPct, setAdvisorCommissionPct] = useState<string>('');
   type EntProviderPub = {
     id: number;
     name: string;
@@ -420,6 +423,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     tipo_cambio_usd: number | string;
     tipo_cambio_rmb: number | string;
     porcentaje_compra: number | string;
+    venta_fija?: number | string;
     costo_operacion_usd: number | string;
     bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }>;
     is_default: boolean;
@@ -428,6 +432,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   type RateSnapshot = { t: number; usd_mxn: number; rmb_mxn: number };
   const [providers, setProviders] = useState<EntProviderPub[]>([]);
   const defaultProvider = providers.find(p => p.is_default) || providers[0] || null;
+  // 🎯 Venta fija = mínimo que el asesor puede cobrarle al cliente.
+  const ventaFijaPct = Number(defaultProvider?.venta_fija ?? 0) || 0;
+  const xpayBelowMin = !!advisorClientId && advisorCommissionPct.trim() !== ''
+    && Number.isFinite(Number(advisorCommissionPct)) && Number(advisorCommissionPct) > 0
+    && Number(advisorCommissionPct) < ventaFijaPct - 0.001;
   const [rateHistory, setRateHistory] = useState<RateSnapshot[]>(() => {
     try {
       const raw = localStorage.getItem(RATE_HISTORY_KEY);
@@ -1768,13 +1777,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     const base = m * tc;
     // Tasa para el cliente: configuración XPAY → Cliente final (con/sin factura).
     // Si el endpoint no respondió, caemos al % del proveedor para no romper la UI.
-    const clientPct = clientCommissionCfg
+    const configPct = clientCommissionCfg
       ? Number(
           requiereFactura
             ? clientCommissionCfg.pago_con_factura.comision_porcentaje
             : clientCommissionCfg.pago_sin_factura.comision_porcentaje
         )
-      : pricing.porcentaje_compra;
+      : Number(pricing.porcentaje_compra);
+    // 🎯 En modo asesor, si capturó un % válido, ese manda (mínimo = venta fija).
+    const advisorCustom = advisorClientId && advisorCommissionPct.trim() !== '' ? Number(advisorCommissionPct) : NaN;
+    const clientPct = Number.isFinite(advisorCustom) && advisorCustom > 0 ? advisorCustom : configPct;
     const comision = base * (clientPct / 100);
     // Costo de operación del pricing (ya incluye override si existe)
     const costoOpUsd = pricing.costo_operacion_usd;
@@ -1789,7 +1801,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       monto_mxn_costo_op: Number(costoOpMxn.toFixed(2)),
       monto_mxn_total: Number(total.toFixed(2)),
     });
-  }, [form.monto, form.divisa_destino, pricing, selectedProviderId, providers, requiereFactura, clientCommissionCfg]);
+  }, [form.monto, form.divisa_destino, pricing, selectedProviderId, providers, requiereFactura, clientCommissionCfg, advisorClientId, advisorCommissionPct]);
 
   const handleSubmit = async () => {
     const err = validateForm();
@@ -1856,6 +1868,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       // Tipo de cambio que XPAY le cobra al cliente final (ENTANGLED lo exige)
       if (quote?.tipo_cambio) {
         fd.append('tc_cliente_final', String(quote.tipo_cambio));
+      }
+      // 🎯 % de comisión al cliente que capturó el asesor (el backend valida ≥ venta fija).
+      if (advisorClientId && quote?.porcentaje_compra != null) {
+        fd.append('comision_cliente_final_porcentaje', String(quote.porcentaje_compra));
       }
       const conceptosArr = requiereFactura
         ? computeLineItems(selectedConceptos, facturaTotalMxn).map((c) => ({
@@ -2038,6 +2054,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       if (!form.monto || Number(form.monto) <= 0) return 'Captura un monto válido';
       if (!['USD', 'RMB', 'MXN'].includes(form.divisa_destino)) return 'Selecciona una divisa válida';
       if (!quote) return 'No se pudo calcular la cotización';
+      if (xpayBelowMin) return `La comisión al cliente no puede ser menor a la venta fija (${ventaFijaPct.toFixed(2)}%)`;
       return null;
     }
     if (step === 2) {
@@ -3133,15 +3150,38 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                           ${formatMoney(quote.monto_mxn_base)} MXN
                         </Typography>
                       </Box>
-                      {/* Comisión XPAY (porcentaje) */}
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Typography variant="body2" sx={{ color: C.textSecondary, fontSize: '0.85rem' }}>
-                          Comisión XPAY ({quote.porcentaje_compra.toFixed(2)}%)
-                        </Typography>
+                      {/* Comisión XPAY — editable SOLO para asesor (mínimo = venta fija) */}
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        {advisorClientId ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Typography variant="body2" sx={{ color: C.textSecondary, fontSize: '0.85rem' }}>Comisión XPAY</Typography>
+                            <TextField
+                              type="number"
+                              size="small"
+                              value={advisorCommissionPct}
+                              placeholder={quote.porcentaje_compra.toFixed(2)}
+                              onChange={(e) => setAdvisorCommissionPct(e.target.value)}
+                              error={xpayBelowMin}
+                              inputProps={{ min: ventaFijaPct, step: 0.1, style: { width: 64 } }}
+                              InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+                            />
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" sx={{ color: C.textSecondary, fontSize: '0.85rem' }}>
+                            Comisión XPAY ({quote.porcentaje_compra.toFixed(2)}%)
+                          </Typography>
+                        )}
                         <Typography variant="body2" sx={{ color: C.textPrimary, fontFamily: 'monospace', fontSize: '0.85rem' }}>
                           ${formatMoney(quote.monto_mxn_comision)} MXN
                         </Typography>
                       </Box>
+                      {advisorClientId && ventaFijaPct > 0 && (
+                        <Typography variant="caption" sx={{ color: xpayBelowMin ? '#d32f2f' : C.textMuted, fontSize: '0.7rem', display: 'block' }}>
+                          {xpayBelowMin
+                            ? `No puedes cobrar menos que la venta fija (${ventaFijaPct.toFixed(2)}%)`
+                            : `Mínimo (venta fija): ${ventaFijaPct.toFixed(2)}% · puedes cobrar más`}
+                        </Typography>
+                      )}
                       {/* Costo de operación */}
                       {quote.monto_mxn_costo_op > 0 && (
                         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>

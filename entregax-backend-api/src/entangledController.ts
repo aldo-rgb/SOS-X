@@ -1320,6 +1320,7 @@ export const listActiveProvidersPublic = async (_req: Request, res: Response): P
         (tipo_cambio_usd   + COALESCE(override_tipo_cambio_usd, 0))   AS tipo_cambio_usd,
         (tipo_cambio_rmb   + COALESCE(override_tipo_cambio_rmb, 0))   AS tipo_cambio_rmb,
         (porcentaje_compra + COALESCE(override_porcentaje_compra, 0)) AS porcentaje_compra,
+        COALESCE(override_porcentaje_compra, 0) AS venta_fija,
         (COALESCE(costo_operacion_usd, 0) + COALESCE(override_costo_operacion_usd, 0)) AS costo_operacion_usd,
         COALESCE(cancellation_fee_usd, 1) AS cancellation_fee_usd,
         COALESCE(costo_operacion_usd, 0) as base_costo,
