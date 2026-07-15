@@ -194,6 +194,9 @@ export default function CajitoFab({ user, token }: Props) {
     const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
     const saldo = m.saldoPendiente ?? m.saldo_pendiente ?? null;
     const hasCosts = lastMile != null || provMxn != null || ventaUsd != null || totalCost != null;
+    // 🩹 Si ya está pagada, no mostrar saldo pendiente fantasma (assigned_cost_mxn=0).
+    const dispMontoPagado = paid && totalCost != null ? totalCost : (montoPagado != null ? Number(montoPagado) : null);
+    const dispSaldo = paid ? 0 : (saldo != null ? Number(saldo) : null);
     const img = resolveUrl(m.imageUrl || m.image_url);
     const guia = m.airTracking || m.tracking || m.tracking_internal || tracking.searched;
 
@@ -297,8 +300,8 @@ export default function CajitoFab({ user, token }: Props) {
             {provMxn != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Costo proveedor</Text><Text style={styles.costVal}>{fmtMoney(Number(provMxn))}{provUsd ? ` (${fmtMoney(Number(provUsd), 'USD')})` : ''}</Text></View> : null}
             {ventaUsd != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Venta al cliente</Text><Text style={[styles.costVal, { color: '#16a34a' }]}>{fmtMoney(ventaUsd, 'USD')}</Text></View> : null}
             {totalCost != null ? <View style={[styles.costRow, styles.costTotal]}><Text style={[styles.costLbl, { fontWeight: '800', color: DARK }]}>Total a cobrar</Text><Text style={[styles.costVal, { color: '#b45309', fontWeight: '800' }]}>{fmtMoney(totalCost)}</Text></View> : null}
-            {montoPagado != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Monto pagado{clientPaidAt ? ` · ${fmtDT(clientPaidAt)}` : ''}</Text><Text style={[styles.costVal, { color: '#16a34a' }]}>{fmtMoney(Number(montoPagado))}</Text></View> : null}
-            {saldo != null && Number(saldo) > 0 ? <View style={styles.costRow}><Text style={styles.costLbl}>Saldo pendiente</Text><Text style={[styles.costVal, { color: '#dc2626' }]}>{fmtMoney(Number(saldo))}</Text></View> : null}
+            {dispMontoPagado != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Monto pagado{clientPaidAt ? ` · ${fmtDT(clientPaidAt)}` : ''}</Text><Text style={[styles.costVal, { color: '#16a34a' }]}>{fmtMoney(dispMontoPagado)}</Text></View> : null}
+            {dispSaldo != null && dispSaldo > 0 ? <View style={styles.costRow}><Text style={styles.costLbl}>Saldo pendiente</Text><Text style={[styles.costVal, { color: '#dc2626' }]}>{fmtMoney(dispSaldo)}</Text></View> : null}
           </View>
         ) : null}
 

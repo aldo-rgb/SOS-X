@@ -253,6 +253,11 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
   const saldoPendiente = m.saldoPendiente ?? m.saldo_pendiente ?? null;
   const hasCosts = lastMileCost != null || providerCostMxn != null || ventaUsd != null || totalCost != null || (importTax != null && importTax > 0);
+  // 🩹 Si la guía ya está marcada como pagada, el desglose NO debe mostrar saldo
+  // pendiente fantasma (caso: costo nunca congelado → assigned_cost_mxn=0 pero
+  // pagada). Cuando está pagada: pagado = total y saldo = 0.
+  const dispMontoPagado = clientPaid && totalCost != null ? totalCost : (montoPagado != null ? Number(montoPagado) : null);
+  const dispSaldoPendiente = clientPaid ? 0 : (saldoPendiente != null ? Number(saldoPendiente) : null);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -611,18 +616,18 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
                 <Typography variant="caption" fontWeight={700} color="warning.dark">{fmtMoney(totalCost)}</Typography>
               </Box>
             )}
-            {montoPagado != null && (
+            {dispMontoPagado != null && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Typography variant="caption" color="text.secondary">
                   Monto pagado{clientPaidAt ? ` · ${fmtDate(clientPaidAt)}` : ''}
                 </Typography>
-                <Typography variant="caption" fontWeight={600} color="success.main">{fmtMoney(Number(montoPagado))}</Typography>
+                <Typography variant="caption" fontWeight={600} color="success.main">{fmtMoney(dispMontoPagado)}</Typography>
               </Box>
             )}
-            {saldoPendiente != null && Number(saldoPendiente) > 0 && (
+            {dispSaldoPendiente != null && dispSaldoPendiente > 0 && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Typography variant="caption" color="text.secondary">Saldo pendiente</Typography>
-                <Typography variant="caption" fontWeight={600} color="error.main">{fmtMoney(Number(saldoPendiente))}</Typography>
+                <Typography variant="caption" fontWeight={600} color="error.main">{fmtMoney(dispSaldoPendiente)}</Typography>
               </Box>
             )}
           </Box>
