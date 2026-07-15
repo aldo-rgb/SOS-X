@@ -35,6 +35,7 @@ export interface EntangledRequestDetail {
   comision_asesor?: number | string | null;
   comision_entregax?: number | string | null;
   advisor_name?: string | null;
+  provider_inferred?: string | null;
   tc_aplicado_usd?: number | string | null;
   tc_cliente_final?: number | string | null;
   es_pesos?: boolean | null;
@@ -283,6 +284,13 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                 <Typography variant="overline" color="text.secondary">Envío del dinero</Typography>
                 <Stack direction="row" spacing={4} flexWrap="wrap" sx={{ mt: 1, mb: 1.5 }}>
+                  {row.provider_inferred && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Proveedor</Typography>
+                      <Typography fontWeight={700} color="secondary.main">{row.provider_inferred}</Typography>
+                      <Typography variant="caption" color="text.secondary">inferido por % costo</Typography>
+                    </Box>
+                  )}
                   <Box>
                     <Typography variant="caption" color="text.secondary">País destino</Typography>
                     <Typography fontWeight={700}>{paisDestino || '—'}</Typography>

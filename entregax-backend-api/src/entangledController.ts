@@ -655,10 +655,28 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
               END AS cancellation_fee_usd,
              u.full_name AS client_name, u.email AS client_email,
              u.box_id AS client_box_id,
-             a.full_name AS advisor_name
+             a.full_name AS advisor_name,
+             prov.provider_name AS provider_inferred
       FROM entangled_payment_requests r
       LEFT JOIN users u ON r.user_id = u.id
       LEFT JOIN users a ON r.advisor_id = a.id
+      -- 🔎 Inferir el proveedor (BTX/TRÉBOL) cruzando el % costo cobrado con la
+      --    tabla de comisiones por servicio y carril (normal/híbrida/pesos).
+      LEFT JOIN LATERAL (
+        SELECT ep.name AS provider_name
+          FROM entangled_providers ep,
+               jsonb_array_elements(COALESCE(ep.tarifas, '[]'::jsonb)) tf
+         WHERE ep.is_active = true
+           AND r.comision_cobrada_porcentaje IS NOT NULL
+           AND tf->>'servicio_codigo' = r.servicio
+           AND NULLIF(
+                 CASE
+                   WHEN (r.raw_response->>'es_pesos') = 'true'  THEN tf->>'comision_pesos_porcentaje'
+                   WHEN (r.raw_response->>'es_hibrida') = 'true' THEN tf->>'comision_hibrida_porcentaje'
+                   ELSE tf->>'comision_normal_porcentaje'
+                 END, 'inactivo')::numeric = r.comision_cobrada_porcentaje
+         LIMIT 1
+      ) prov ON true
       ${where}
       ORDER BY r.created_at DESC
       LIMIT 200
