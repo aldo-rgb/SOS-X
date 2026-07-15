@@ -170,6 +170,7 @@ export const listTdiShipments = async (req: Request, res: Response): Promise<any
          m.id, m.tracking_internal, m.box_id, m.status, m.is_master,
          m.total_boxes, m.weight, m.air_chargeable_weight, m.air_sale_price,
          m.description, m.notes, m.received_at, m.created_at,
+         COALESCE(m.reception_photos, '[]'::jsonb) AS reception_photos,
          u.full_name AS client_name,
          (SELECT COUNT(*) FROM packages c WHERE c.master_id = m.id) AS captured_boxes,
          (SELECT string_agg(DISTINCT c.air_tariff_type, ',')
@@ -198,10 +199,64 @@ export const listTdiShipments = async (req: Request, res: Response): Promise<any
        LIMIT 300`,
       params
     );
+
+    // Firmar URLs de fotos de recepción (bucket privado S3)
+    try {
+      const { signS3UrlIfNeeded } = await import('./s3Service');
+      for (const row of r.rows) {
+        const raw = Array.isArray(row.reception_photos) ? row.reception_photos : [];
+        row.reception_photos = await Promise.all(
+          raw.filter(Boolean).map((u: string) => signS3UrlIfNeeded(u))
+        );
+      }
+    } catch (signErr: any) {
+      console.warn('[listTdiShipments] sign photos warning:', signErr?.message);
+    }
+
     return res.json({ shipments: r.rows });
   } catch (err: any) {
     console.error('listTdiShipments error', err);
     return res.status(500).json({ error: 'Error', details: err.message });
+  }
+};
+
+// =====================================================================
+// SUBIR una o más fotos de recepción a un envío TDI Express (master)
+// =====================================================================
+export const uploadTdiPhotos = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const files = ((req as any).files || []) as any[];
+    if (!files.length) return res.status(400).json({ error: 'No se enviaron fotos' });
+
+    await pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS reception_photos JSONB DEFAULT '[]'::jsonb`).catch(() => {});
+
+    const { uploadToS3, signS3UrlIfNeeded } = await import('./s3Service');
+    const newUrls: string[] = [];
+    for (const f of files) {
+      const ext = f.mimetype === 'image/png' ? 'png' : 'jpg';
+      const key = `reception-photos/tdi_${id}_${Date.now()}_${newUrls.length}.${ext}`;
+      const url = await uploadToS3(f.buffer, key, f.mimetype || 'image/jpeg');
+      newUrls.push(url);
+    }
+
+    // Append al arreglo existente; también set image_url si estaba vacío (compat).
+    const upd = await pool.query(
+      `UPDATE packages
+          SET reception_photos = COALESCE(reception_photos, '[]'::jsonb) || $2::jsonb,
+              image_url = COALESCE(NULLIF(image_url, ''), $3),
+              updated_at = NOW()
+        WHERE id = $1
+        RETURNING reception_photos`,
+      [id, JSON.stringify(newUrls), newUrls[0]]
+    );
+    const stored: string[] = Array.isArray(upd.rows[0]?.reception_photos) ? upd.rows[0].reception_photos : [];
+    const signed = await Promise.all(stored.filter(Boolean).map((u: string) => signS3UrlIfNeeded(u)));
+    return res.json({ success: true, photos: signed });
+  } catch (err: any) {
+    console.error('uploadTdiPhotos error', err);
+    return res.status(500).json({ error: err.message || 'Error al subir fotos' });
   }
 };
 

@@ -24,6 +24,8 @@ import {
   ContentCopy as CopyIcon,
   Print as PrintIcon,
   Edit as EditIcon,
+  PhotoCamera as PhotoCameraIcon,
+  Collections as CollectionsIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -56,6 +58,7 @@ interface Shipment {
   first_dims?: string | null;
   origin_guides?: string | null;
   extra_charges_usd?: string | number | null;
+  reception_photos?: string[];
 }
 interface ProductType { key: string; tariffType: string; pricePerKg: number; }
 interface BoxRow {
@@ -95,6 +98,38 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [snack, setSnack] = useState<{ sev: 'success' | 'error'; msg: string } | null>(null);
+
+  // Fotos de recepción
+  const [photoBusyId, setPhotoBusyId] = useState<number | null>(null);
+  const [photoViewer, setPhotoViewer] = useState<{ open: boolean; photos: string[]; idx: number }>({ open: false, photos: [], idx: 0 });
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const photoTargetId = useRef<number | null>(null);
+
+  const openPhotoPicker = (id: number) => {
+    photoTargetId.current = id;
+    photoInputRef.current?.click();
+  };
+
+  const onPhotoFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const id = photoTargetId.current;
+    const files = e.target.files;
+    if (e.target) e.target.value = ''; // permitir re-seleccionar los mismos archivos
+    if (!id || !files || files.length === 0) return;
+    setPhotoBusyId(id);
+    try {
+      const fd = new FormData();
+      Array.from(files).forEach((f) => fd.append('photos', f));
+      await axios.post(`${API_URL}/api/tdi-express/shipments/${id}/photos`, fd, {
+        headers: { ...authHeaders, 'Content-Type': 'multipart/form-data' },
+      });
+      await loadAll();
+      setSnack({ sev: 'success', msg: t('tdiExpress.photoUploaded') });
+    } catch (err: any) {
+      setSnack({ sev: 'error', msg: err?.response?.data?.error || 'Error al subir foto' });
+    } finally {
+      setPhotoBusyId(null);
+    }
+  };
 
   // Wizard
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -536,13 +571,14 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
               {['tracking', 'originGuide', 'client', 'boxes', 'weight', 'dimensions', 'productType', 'extraCharge', 'status', 'received'].map((c) => (
                 <TableCell key={c} sx={{ color: '#FFF', fontWeight: 700 }}>{t(`tdiExpress.table.${c}`)}</TableCell>
               ))}
+              <TableCell align="center" sx={{ color: '#FFF', fontWeight: 700 }}>{t('tdiExpress.table.photos')}</TableCell>
               <TableCell align="center" sx={{ color: '#FFF', fontWeight: 700 }}>{t('tdiExpress.table.actions')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={11} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={12} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
             {!loading && shipments.length === 0 && (
-              <TableRow><TableCell colSpan={11} align="center" sx={{ py: 4, color: '#999' }}>
+              <TableRow><TableCell colSpan={12} align="center" sx={{ py: 4, color: '#999' }}>
                 {t('tdiExpress.noShipments')}
               </TableCell></TableRow>
             )}
@@ -563,7 +599,30 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                     sx={{ bgcolor: STATUS_COLOR[s.status] || '#999', color: '#FFF', fontWeight: 600, height: 20, fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 } }} />
                 </TableCell>
                 <TableCell>{fmtChina(s.received_at)}</TableCell>
+                <TableCell align="center">
+                  {Array.isArray(s.reception_photos) && s.reception_photos.length > 0 ? (
+                    <Box
+                      onClick={() => setPhotoViewer({ open: true, photos: s.reception_photos || [], idx: 0 })}
+                      sx={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+                      title={t('tdiExpress.viewPhotos')}
+                    >
+                      <img src={s.reception_photos[0]} alt="foto"
+                        style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid #ddd' }} />
+                      {s.reception_photos.length > 1 && (
+                        <Box sx={{ position: 'absolute', bottom: -4, right: -4, bgcolor: BLACK, color: '#fff', borderRadius: '10px', px: 0.6, fontSize: '0.6rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.2 }}>
+                          <CollectionsIcon sx={{ fontSize: 10 }} />{s.reception_photos.length}
+                        </Box>
+                      )}
+                    </Box>
+                  ) : (
+                    <Typography variant="caption" color="text.disabled">—</Typography>
+                  )}
+                </TableCell>
                 <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                  <IconButton size="small" title={t('tdiExpress.uploadPhoto')} disabled={photoBusyId === s.id}
+                    onClick={() => openPhotoPicker(s.id)} sx={{ color: '#00897B' }}>
+                    {photoBusyId === s.id ? <CircularProgress size={16} /> : <PhotoCameraIcon fontSize="small" />}
+                  </IconButton>
                   <IconButton size="small" title={t('tdiExpress.reprintLabels')}
                     onClick={() => reprintLabels(s)} sx={{ color: ORANGE }}>
                     <PrintIcon fontSize="small" />
@@ -589,6 +648,42 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Input oculto para subir una o más fotos */}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        multiple
+        style={{ display: 'none' }}
+        onChange={onPhotoFilesSelected}
+      />
+
+      {/* Visor de fotos de recepción */}
+      <Dialog open={photoViewer.open} onClose={() => setPhotoViewer({ open: false, photos: [], idx: 0 })} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: BLACK, color: '#FFF', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {t('tdiExpress.photosTitle')} ({photoViewer.idx + 1}/{photoViewer.photos.length})
+          <IconButton size="small" onClick={() => setPhotoViewer({ open: false, photos: [], idx: 0 })} sx={{ color: '#FFF', fontSize: 16 }}>
+            ✕
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 2, textAlign: 'center' }}>
+          {photoViewer.photos[photoViewer.idx] && (
+            <img src={photoViewer.photos[photoViewer.idx]} alt="foto"
+              style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: 8 }} />
+          )}
+          {photoViewer.photos.length > 1 && (
+            <Stack direction="row" spacing={1} justifyContent="center" sx={{ mt: 2, flexWrap: 'wrap', gap: 1 }}>
+              {photoViewer.photos.map((p, i) => (
+                <img key={i} src={p} alt={`min-${i}`}
+                  onClick={() => setPhotoViewer((v) => ({ ...v, idx: i }))}
+                  style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', border: i === photoViewer.idx ? `2px solid ${ORANGE}` : '1px solid #ddd' }} />
+              ))}
+            </Stack>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ===== WIZARD ===== */}
       <Dialog open={wizardOpen} onClose={() => !busy && cancelWizard()} maxWidth="md" fullWidth>

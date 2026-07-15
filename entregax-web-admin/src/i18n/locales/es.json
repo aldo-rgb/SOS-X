@@ -2186,6 +2186,7 @@
       "dimensions": "Medidas",
       "productType": "Tipo",
       "extraCharge": "Cargo extra",
+      "photos": "Foto",
       "mixed": "Varias"
     },
     "wizard": {
@@ -2264,6 +2265,10 @@
     "confirmDeleteTitle": "Eliminar envío",
     "deleteBtn": "Eliminar",
     "reprintLabels": "Reimprimir etiquetas",
+    "uploadPhoto": "Subir foto(s)",
+    "viewPhotos": "Ver fotos",
+    "photosTitle": "Fotos de recepción",
+    "photoUploaded": "Foto(s) subida(s) correctamente",
     "editClient": "Editar número de cliente",
     "save": "Guardar"
   },

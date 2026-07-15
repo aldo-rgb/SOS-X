@@ -840,6 +840,7 @@ import {
   getTdiProductTypes,
   getTdiStats,
   listTdiShipments,
+  uploadTdiPhotos,
   getTdiShipmentDetail,
   deleteTdiShipment,
   updateTdiShipment,
@@ -11198,6 +11199,8 @@ app.patch('/api/awb-costs/:id/reference', authenticateToken, requireMinLevel(ROL
 app.get('/api/tdi-express/product-types', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getTdiProductTypes);
 app.get('/api/tdi-express/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getTdiStats);
 app.get('/api/tdi-express/shipments', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listTdiShipments);
+const tdiPhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 10 } });
+app.post('/api/tdi-express/shipments/:id/photos', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), tdiPhotoUpload.array('photos', 10), uploadTdiPhotos);
 app.get('/api/tdi-express/shipments/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getTdiShipmentDetail);
 app.delete('/api/tdi-express/shipments/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), deleteTdiShipment);
 app.patch('/api/tdi-express/shipments/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateTdiShipment);
