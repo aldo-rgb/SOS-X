@@ -657,7 +657,7 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
              u.box_id AS client_box_id,
              a.full_name AS advisor_name,
              prov.provider_name AS provider_inferred,
-             (SELECT COALESCE(porcentaje_compra, 0) FROM entangled_providers
+             (SELECT COALESCE(override_porcentaje_compra, 0) FROM entangled_providers
                WHERE is_active = true AND is_default = true ORDER BY id ASC LIMIT 1) AS costo_default_pct
       FROM entangled_payment_requests r
       LEFT JOIN users u ON r.user_id = u.id
