@@ -1,4 +1,27 @@
 {
+  "counterDash": {
+    "greetingPre": "Ready to serve, ",
+    "greetingPost": "!",
+    "searchPlaceholder": "Search by tracking, mailbox or client name...",
+    "scan": "Scan",
+    "quickActions": "Quick Actions",
+    "pickupTitle": "PickUp Ready for Delivery",
+    "waiting": "{{n}} waiting",
+    "backToDashboard": "Back to Dashboard",
+    "actions": {
+      "labeling": "Labeling",
+      "multiScanner": "Multi-Branch Scanner",
+      "dhlExpress": "DHL Express",
+      "maritime": "Maritime Consolidations",
+      "supplierPay": "Supplier Payments"
+    },
+    "widgets": {
+      "readyDhl": "Ready to ship DHL",
+      "pendingDhlTracking": "Pending DHL tracking",
+      "logPendingPacking": "LOG received in China · pending Packing List",
+      "pendingSupplierPay": "Pending supplier payment"
+    }
+  },
   "entangled": {
     "title": "International Supplier Payments",
     "subtitle": "Triangulated payment & invoicing for overseas suppliers",

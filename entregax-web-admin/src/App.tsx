@@ -815,6 +815,16 @@ function App() {
         return;
       }
 
+      // Acceso directo a un panel específico del hub Aéreo China (Enviar DHL /
+      // Actualizar AWB) desde los widgets del dashboard de bodega China.
+      if (action === 'tdi_outbound' || action === 'awb_update') {
+        openOperations('china_air');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('open-china-air-panel', { detail: { panel: action } }));
+        }, 150);
+        return;
+      }
+
       // Acceso directo a Consolidaciones Marítimas LCL (Administración → Marítimo China)
       if (action === 'maritime_consolidations') {
         const adminSubIndex = subItems.findIndex((s) => s.key === 'panelsAdmin');

@@ -3,7 +3,7 @@
 // Menú con 2 accesos: Recibir AWB + Inventario
 // ============================================
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
     Box,
     Typography,
@@ -103,6 +103,18 @@ const AIR_HUB_MODULES = OPTIONS.map((o) => o.key);
 export default function ChinaAirHubPage({ onBack }: Props) {
     const { t } = useTranslation();
     const [panel, setPanel] = useState<Panel>('menu');
+    // Permite abrir directo un panel (Enviar DHL / Actualizar AWB) desde los
+    // widgets del dashboard de bodega China vía evento global.
+    useEffect(() => {
+      const handler = (e: Event) => {
+        const p = (e as CustomEvent).detail?.panel as Panel | undefined;
+        if (p && ['tdi_express', 'tdi_outbound', 'awb_update', 'inventory', 'tdx_inventory', 'tdi_cedis_mty', 'reception'].includes(p)) {
+          setPanel(p);
+        }
+      };
+      window.addEventListener('open-china-air-panel', handler as EventListener);
+      return () => window.removeEventListener('open-china-air-panel', handler as EventListener);
+    }, []);
     const { allowedModules, loading: permLoading } = useModulePermissions('ops_china_air', AIR_HUB_MODULES);
     const visibleOptions = OPTIONS.filter((opt) => allowedModules.includes(opt.key));
 

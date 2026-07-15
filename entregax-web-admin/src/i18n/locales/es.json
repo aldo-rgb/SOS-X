@@ -1,4 +1,27 @@
 {
+  "counterDash": {
+    "greetingPre": "¡Listo para atender, ",
+    "greetingPost": "!",
+    "searchPlaceholder": "Buscar por tracking, casillero o nombre del cliente...",
+    "scan": "Escanear",
+    "quickActions": "Acciones Rápidas",
+    "pickupTitle": "PickUp Listos para Entrega",
+    "waiting": "{{n}} en espera",
+    "backToDashboard": "Volver al Dashboard",
+    "actions": {
+      "labeling": "Etiquetado",
+      "multiScanner": "Escáner Multi-Sucursal",
+      "dhlExpress": "DHL Express",
+      "maritime": "Consolidaciones Marítimas",
+      "supplierPay": "Pagos a Proveedor"
+    },
+    "widgets": {
+      "readyDhl": "Listas para envío DHL",
+      "pendingDhlTracking": "Pendiente de tracking DHL",
+      "logPendingPacking": "LOG recibidos en China · pdtes de Packing List",
+      "pendingSupplierPay": "Pendientes de pago a proveedor"
+    }
+  },
   "entangled": {
     "title": "Pago a Proveedores Internacionales",
     "subtitle": "ago y facturación a proveedores en el extranjero",

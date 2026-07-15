@@ -2054,6 +2054,26 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
         `);
         const tdiStats = tdiStatsResult.rows[0];
 
+        // Bodega China: LOG marítimos "Recibido en China" pendientes de Packing List
+        // y operaciones XPay híbridas en estado "solicitada" (pendientes de pago a proveedor).
+        let bodegaChinaStats = { log_pdte_packing: 0, xpay_pdte_proveedor: 0 };
+        try {
+            const bc = await pool.query(`
+                SELECT
+                  (SELECT COUNT(*) FROM maritime_orders
+                     WHERE status = 'received_china'
+                       AND (packing_list_url IS NULL OR packing_list_url = '')) AS log_pdte_packing,
+                  (SELECT COUNT(*) FROM entangled_payment_requests
+                     WHERE estatus_global = 'solicitada' AND es_hibrida IS TRUE) AS xpay_pdte_proveedor
+            `);
+            bodegaChinaStats = {
+                log_pdte_packing: parseInt(bc.rows[0].log_pdte_packing) || 0,
+                xpay_pdte_proveedor: parseInt(bc.rows[0].xpay_pdte_proveedor) || 0,
+            };
+        } catch (e: any) {
+            console.warn('[getCounterStaffDashboard] bodega china stats:', e?.message);
+        }
+
         // Paquetes listos para entrega (ready_pickup)
         const pendingDeliveriesResult = await pool.query(`
             SELECT 
@@ -2102,6 +2122,7 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
                     listas_envio: parseInt(tdiStats.listas_envio) || 0,
                     pdte_tracking: parseInt(tdiStats.pdte_tracking) || 0,
                 },
+                bodegaChina: bodegaChinaStats,
             },
             pendingDeliveries: pendingDeliveriesResult.rows.map(row => {
                 // Determinar si es Pick Up basado en el carrier

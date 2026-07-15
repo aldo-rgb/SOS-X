@@ -1,4 +1,27 @@
 {
+  "counterDash": {
+    "greetingPre": "准备就绪，",
+    "greetingPost": "！",
+    "searchPlaceholder": "按单号、casillero 或客户名称搜索...",
+    "scan": "扫描",
+    "quickActions": "快捷操作",
+    "pickupTitle": "待自提交付",
+    "waiting": "{{n}} 待处理",
+    "backToDashboard": "返回仪表板",
+    "actions": {
+      "labeling": "贴标",
+      "multiScanner": "多网点扫描",
+      "dhlExpress": "DHL Express",
+      "maritime": "海运拼柜",
+      "supplierPay": "供应商付款"
+    },
+    "widgets": {
+      "readyDhl": "可发货 DHL",
+      "pendingDhlTracking": "待 DHL 单号",
+      "logPendingPacking": "已在中国收货 · 待装箱单",
+      "pendingSupplierPay": "待付供应商"
+    }
+  },
   "entangled": {
     "title": "国际供应商付款",
     "subtitle": "向海外供应商三角付款并开票",

@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Box,
   Typography,
@@ -80,6 +81,10 @@ interface CounterStats {
     listas_envio: number;
     pdte_tracking: number;
   };
+  bodegaChina?: {
+    log_pdte_packing: number;
+    xpay_pdte_proveedor: number;
+  };
 }
 
 interface PendingDelivery {
@@ -93,6 +98,7 @@ interface PendingDelivery {
 }
 
 export default function DashboardCounterStaff() {
+  const { t } = useTranslation();
   // Permisos por módulo para mostrar accesos directos según lo que el usuario puede ver.
   const { allowedModules: airModules } = useModulePermissions('ops_china_air', ['tdi_express', 'tdi_outbound']);
   const { allowedModules: seaAdminModules } = useModulePermissions('admin_china_sea', ['consolidations']);
@@ -186,14 +192,14 @@ export default function DashboardCounterStaff() {
   };
 
   const quickActions = [
-    { icon: <PrintIcon sx={{ fontSize: 48 }} />, title: 'Etiquetado', color: '#F05A28', action: 'relabeling' },
+    { icon: <PrintIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.labeling'), color: '#F05A28', action: 'relabeling' },
     // Escáner Multi-Sucursal: oculto para Bodega China (no aplica a su operación).
-    ...(!isBodegaChina ? [{ icon: <ScannerIcon sx={{ fontSize: 48 }} />, title: 'Escáner Multi-Sucursal', color: '#2196F3', action: 'scanner_multi' }] : []),
+    ...(!isBodegaChina ? [{ icon: <ScannerIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.multiScanner'), color: '#2196F3', action: 'scanner_multi' }] : []),
     // Accesos directos según permisos del usuario
-    ...(canTdiExpress ? [{ icon: <ShippingIcon sx={{ fontSize: 48 }} />, title: 'DHL Express', color: '#FFCC00', iconColor: '#D40511', action: 'tdi_express' }] : []),
-    ...(canMaritimeConsolidations ? [{ icon: <BoatIcon sx={{ fontSize: 48 }} />, title: 'Consolidaciones Marítimas', color: '#0277BD', action: 'maritime_consolidations' }] : []),
+    ...(canTdiExpress ? [{ icon: <ShippingIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.dhlExpress'), color: '#FFCC00', iconColor: '#D40511', action: 'tdi_express' }] : []),
+    ...(canMaritimeConsolidations ? [{ icon: <BoatIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.maritime'), color: '#0277BD', action: 'maritime_consolidations' }] : []),
     // Exclusivo Bodega China: acceso a la plataforma de pagos a proveedor (tcmanual).
-    ...(isBodegaChina ? [{ icon: <PaymentsIcon sx={{ fontSize: 48 }} />, title: 'Pagos a Proveedor', color: '#2E7D32', action: 'proveedor_tcmanual' }] : []),
+    ...(isBodegaChina ? [{ icon: <PaymentsIcon sx={{ fontSize: 48 }} />, title: t('counterDash.actions.supplierPay'), color: '#2E7D32', action: 'proveedor_tcmanual' }] : []),
   ];
 
   // Handler para acciones rápidas
@@ -352,7 +358,7 @@ export default function DashboardCounterStaff() {
         <Box sx={{ mb: 2 }}>
           <Chip
             icon={<BackIcon />}
-            label="Volver al Dashboard"
+            label={t('counterDash.backToDashboard')}
             onClick={handleBackToDashboard}
             sx={{ cursor: 'pointer' }}
             color="primary"
@@ -387,7 +393,7 @@ export default function DashboardCounterStaff() {
         <Box sx={{ mb: 2 }}>
           <Chip
             icon={<BackIcon />}
-            label="Volver al Dashboard"
+            label={t('counterDash.backToDashboard')}
             onClick={handleBackToDashboard}
             sx={{ cursor: 'pointer' }}
             color="primary"
@@ -409,7 +415,7 @@ export default function DashboardCounterStaff() {
         <Box sx={{ mb: 2 }}>
           <Chip
             icon={<BackIcon />}
-            label="Volver al Dashboard"
+            label={t('counterDash.backToDashboard')}
             onClick={handleBackToDashboard}
             sx={{ cursor: 'pointer' }}
             color="primary"
@@ -527,14 +533,14 @@ export default function DashboardCounterStaff() {
       {/* Header con Buscador */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" fontWeight={700} gutterBottom>
-          ¡Listo para atender, <span style={{ color: '#F05A28' }}>{userName}</span>! 🎯
+          {t('counterDash.greetingPre')}<span style={{ color: '#F05A28' }}>{userName}</span>{t('counterDash.greetingPost')} 🎯
         </Typography>
-        
+
         {/* Buscador Principal */}
         <Paper sx={{ p: 2, mt: 2 }}>
           <TextField
             fullWidth
-            placeholder="Buscar por tracking, casillero o nombre del cliente..."
+            placeholder={t('counterDash.searchPlaceholder')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             InputProps={{
@@ -546,7 +552,7 @@ export default function DashboardCounterStaff() {
               endAdornment: (
                 <InputAdornment position="end">
                   <Button variant="contained" size="small" startIcon={<ScannerIcon />}>
-                    Escanear
+                    {t('counterDash.scan')}
                   </Button>
                 </InputAdornment>
               ),
@@ -566,7 +572,7 @@ export default function DashboardCounterStaff() {
       {/* Acciones Rápidas */}
       <Paper sx={{ p: 3, mb: 4 }}>
         <Typography variant="h6" fontWeight="bold" gutterBottom>
-          ⚡ Acciones Rápidas
+          ⚡ {t('counterDash.quickActions')}
         </Typography>
         <Grid container spacing={2}>
           {quickActions.map((action, index) => (
@@ -609,11 +615,16 @@ export default function DashboardCounterStaff() {
       {/* Indicadores TDI Express (bodega China) */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
         {[
-          { label: 'Listas para envío', value: stats?.tdi?.listas_envio ?? 0, color: '#2E7D32' },
-          { label: 'Pendiente de tracking DHL', value: stats?.tdi?.pdte_tracking ?? 0, color: '#C1272D' },
+          { label: t('counterDash.widgets.readyDhl'), value: stats?.tdi?.listas_envio ?? 0, color: '#F9A825', action: 'tdi_outbound' },
+          { label: t('counterDash.widgets.pendingDhlTracking'), value: stats?.tdi?.pdte_tracking ?? 0, color: '#C1272D', action: 'awb_update' },
+          { label: t('counterDash.widgets.logPendingPacking'), value: stats?.bodegaChina?.log_pdte_packing ?? 0, color: '#B8860B', action: undefined as string | undefined },
+          { label: t('counterDash.widgets.pendingSupplierPay'), value: stats?.bodegaChina?.xpay_pdte_proveedor ?? 0, color: '#1565C0', action: undefined as string | undefined },
         ].map((w) => (
-          <Grid size={{ xs: 6 }} key={w.label}>
-            <Card sx={{ borderRadius: 2, border: '1px solid #ECECEC', overflow: 'hidden' }}>
+          <Grid size={{ xs: 6, md: 3 }} key={w.label}>
+            <Card
+              sx={{ borderRadius: 2, border: '1px solid #ECECEC', overflow: 'hidden', cursor: w.action ? 'pointer' : 'default', transition: 'box-shadow .15s', ...(w.action ? { '&:hover': { boxShadow: 3 } } : {}) }}
+              onClick={w.action ? () => window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: w.action } })) : undefined}
+            >
               <Box sx={{ height: 4, bgcolor: w.color }} />
               <CardContent>
                 <Typography variant="caption" sx={{ color: '#6B7280', fontWeight: 600 }}>{w.label}</Typography>
@@ -628,9 +639,9 @@ export default function DashboardCounterStaff() {
       <Paper sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6" fontWeight="bold">
-            📦 PickUp Listos para Entrega
+            📦 {t('counterDash.pickupTitle')}
           </Typography>
-          <Chip label={`${pendingDeliveries.length} en espera`} color="primary" />
+          <Chip label={t('counterDash.waiting', { n: pendingDeliveries.length })} color="primary" />
         </Box>
         
         <List>
