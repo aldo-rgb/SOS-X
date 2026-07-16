@@ -53,6 +53,7 @@ interface SendTemplateOptions {
     languageCode?: string;
     parameters?: string[];   // body params en orden ({{1}}, {{2}}, ...)
     headerParameters?: string[]; // header params si la plantilla tiene header con vars
+    headerImageUrl?: string; // URL pública HTTPS si la plantilla tiene encabezado IMAGEN
 }
 
 const isEnabled = (): boolean => {
@@ -99,7 +100,14 @@ export const sendTemplate = async (opts: SendTemplateOptions): Promise<{ ok: boo
 
     const components: any[] = [];
 
-    if (opts.headerParameters && opts.headerParameters.length > 0) {
+    if (opts.headerImageUrl && String(opts.headerImageUrl).trim()) {
+        // Encabezado de IMAGEN: Meta exige el componente header con la imagen en
+        // cada envío (URL pública HTTPS; la de la plantilla es solo la muestra).
+        components.push({
+            type: 'header',
+            parameters: [{ type: 'image', image: { link: String(opts.headerImageUrl).trim() } }],
+        });
+    } else if (opts.headerParameters && opts.headerParameters.length > 0) {
         components.push({
             type: 'header',
             parameters: opts.headerParameters.map(v => ({ type: 'text', text: String(v) })),

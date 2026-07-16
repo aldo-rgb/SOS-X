@@ -415,6 +415,8 @@ async function ensureBulkTemplatesSchema(): Promise<void> {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  // URL pública de la imagen del encabezado (si la plantilla tiene header IMAGEN).
+  await pool.query(`ALTER TABLE bulk_wa_templates ADD COLUMN IF NOT EXISTS header_image_url TEXT`).catch(() => {});
   // Seed inicial (solo si la tabla está vacía) con las 4 plantillas actuales.
   const cnt = await pool.query(`SELECT COUNT(*)::int AS n FROM bulk_wa_templates`);
   if ((cnt.rows[0]?.n || 0) === 0) {
@@ -448,7 +450,7 @@ async function ensureBulkTemplatesSchema(): Promise<void> {
 export const getBulkTemplates = async (_req: Request, res: Response): Promise<any> => {
   try {
     await ensureBulkTemplatesSchema();
-    const r = await pool.query(`SELECT id, label, template_name, language_code, variables, preview FROM bulk_wa_templates WHERE is_active = true ORDER BY sort_order ASC, id ASC`);
+    const r = await pool.query(`SELECT id, label, template_name, language_code, variables, preview, header_image_url FROM bulk_wa_templates WHERE is_active = true ORDER BY sort_order ASC, id ASC`);
     const values = await getCurrentBulkValues();
     res.json({ success: true, templates: r.rows, values });
   } catch (error) {
@@ -461,16 +463,16 @@ export const getBulkTemplates = async (_req: Request, res: Response): Promise<an
 export const createBulkTemplate = async (req: Request, res: Response): Promise<any> => {
   try {
     await ensureBulkTemplatesSchema();
-    const { label, template_name, language_code, variables, preview } = req.body || {};
+    const { label, template_name, language_code, variables, preview, header_image_url } = req.body || {};
     if (!String(label || '').trim() || !String(template_name || '').trim()) {
       return res.status(400).json({ success: false, error: 'Falta la etiqueta o el nombre de la plantilla' });
     }
     const vars = Array.isArray(variables) ? variables : [];
     const maxSort = await pool.query(`SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM bulk_wa_templates`);
     const r = await pool.query(
-      `INSERT INTO bulk_wa_templates (label, template_name, language_code, variables, preview, sort_order)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6) RETURNING id`,
-      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, maxSort.rows[0].n]
+      `INSERT INTO bulk_wa_templates (label, template_name, language_code, variables, preview, header_image_url, sort_order)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7) RETURNING id`,
+      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, (String(header_image_url || '').trim() || null), maxSort.rows[0].n]
     );
     res.json({ success: true, id: r.rows[0].id });
   } catch (error) {
@@ -484,15 +486,15 @@ export const updateBulkTemplate = async (req: Request, res: Response): Promise<a
   try {
     await ensureBulkTemplatesSchema();
     const id = parseInt(String(req.params.id), 10);
-    const { label, template_name, language_code, variables, preview } = req.body || {};
+    const { label, template_name, language_code, variables, preview, header_image_url } = req.body || {};
     if (!id) return res.status(400).json({ success: false, error: 'id inválido' });
     if (!String(label || '').trim() || !String(template_name || '').trim()) {
       return res.status(400).json({ success: false, error: 'Falta la etiqueta o el nombre de la plantilla' });
     }
     const vars = Array.isArray(variables) ? variables : [];
     await pool.query(
-      `UPDATE bulk_wa_templates SET label = $1, template_name = $2, language_code = $3, variables = $4::jsonb, preview = $5 WHERE id = $6`,
-      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, id]
+      `UPDATE bulk_wa_templates SET label = $1, template_name = $2, language_code = $3, variables = $4::jsonb, preview = $5, header_image_url = $6 WHERE id = $7`,
+      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, (String(header_image_url || '').trim() || null), id]
     );
     res.json({ success: true });
   } catch (error) {
@@ -540,7 +542,7 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
 
     // Cargar la plantilla seleccionada (administrable desde la UI).
     await ensureBulkTemplatesSchema();
-    const tplRes = await pool.query(`SELECT template_name, language_code, variables FROM bulk_wa_templates WHERE id = $1`, [parseInt(String(templateId), 10) || 0]);
+    const tplRes = await pool.query(`SELECT template_name, language_code, variables, header_image_url FROM bulk_wa_templates WHERE id = $1`, [parseInt(String(templateId), 10) || 0]);
     if (!tplRes.rows[0]) return res.status(404).json({ success: false, error: 'Plantilla no encontrada' });
     const tpl = tplRes.rows[0];
     const tplVars: Array<{ label?: string }> = Array.isArray(tpl.variables) ? tpl.variables : [];
@@ -595,7 +597,7 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
       // El nombre es siempre {{1}}; los campos manuales de la plantilla son {{2}}...
       const parameters = [nombre, ...vals.slice(0, tplVars.length)];
 
-      const r = await sendTemplate({ to: phone, template, languageCode: langCode, parameters });
+      const r = await sendTemplate({ to: phone, template, languageCode: langCode, parameters, headerImageUrl: tpl.header_image_url || undefined });
       if (r.ok) {
         results.sent++;
         results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'sent' });
@@ -608,8 +610,10 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
       }
     }
 
-    console.log(`[CRM] Envío masivo WhatsApp "${template}": ${results.sent} enviados, ${results.skipped} omitidos, ${results.failed} fallidos (de ${leadKeys.length} seleccionados)`);
-    res.json({ success: true, template, ...results });
+    // Motivo del primer fallo (para diagnosticar desde la UI, ej. imagen faltante).
+    const firstError = results.details.find((d: any) => d.status === 'failed')?.reason || null;
+    console.log(`[CRM] Envío masivo WhatsApp "${template}": ${results.sent} enviados, ${results.skipped} omitidos, ${results.failed} fallidos (de ${leadKeys.length} seleccionados)${firstError ? ' | 1er error: ' + firstError : ''}`);
+    res.json({ success: true, template, firstError, ...results });
   } catch (error: any) {
     console.error('Error en bulkWhatsapp:', error);
     res.status(500).json({ success: false, error: error.message || 'Error al enviar' });

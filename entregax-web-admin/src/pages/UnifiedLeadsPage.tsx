@@ -132,6 +132,7 @@ interface BulkTemplate {
   language_code: string;
   variables: BulkTemplateVar[];
   preview: string | null;
+  header_image_url?: string | null;
 }
 
 // Prospecto externo
@@ -310,7 +311,7 @@ export default function UnifiedLeadsPage() {
   const [bulkTemplateId, setBulkTemplateId] = useState<number | ''>('');
   const [bulkVarValues, setBulkVarValues] = useState<string[]>([]);
   const [bulkSending, setBulkSending] = useState(false);
-  const [bulkResults, setBulkResults] = useState<{ sent: number; skipped: number; failed: number; total: number } | null>(null);
+  const [bulkResults, setBulkResults] = useState<{ sent: number; skipped: number; failed: number; total: number; firstError?: string | null } | null>(null);
   // Administración de plantillas
   const [tplManagerOpen, setTplManagerOpen] = useState(false);
   const [tplEditing, setTplEditing] = useState<BulkTemplate | null>(null);
@@ -562,7 +563,7 @@ export default function UnifiedLeadsPage() {
         varValues: bulkVarValues,
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
       const d = res.data || {};
-      setBulkResults({ sent: d.sent || 0, skipped: d.skipped || 0, failed: d.failed || 0, total: d.total || 0 });
+      setBulkResults({ sent: d.sent || 0, skipped: d.skipped || 0, failed: d.failed || 0, total: d.total || 0, firstError: d.firstError || null });
       setSnackbar({ open: true, message: `WhatsApp: ${d.sent || 0} enviados, ${d.skipped || 0} omitidos, ${d.failed || 0} fallidos`, severity: (d.failed > 0 ? 'error' : 'success') });
     } catch (e: any) {
       setSnackbar({ open: true, message: e.response?.data?.error || 'Error al enviar', severity: 'error' });
@@ -579,7 +580,7 @@ export default function UnifiedLeadsPage() {
     }
     setSavingTpl(true);
     try {
-      const payload = { label: tpl.label.trim(), template_name: tpl.template_name.trim(), language_code: tpl.language_code || 'es_MX', variables: tpl.variables || [], preview: tpl.preview };
+      const payload = { label: tpl.label.trim(), template_name: tpl.template_name.trim(), language_code: tpl.language_code || 'es_MX', variables: tpl.variables || [], preview: tpl.preview, header_image_url: tpl.header_image_url || null };
       if (tpl.id) await axios.put(`${API_URL}/admin/crm/bulk-templates/${tpl.id}`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
       else await axios.post(`${API_URL}/admin/crm/bulk-templates`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
       setTplEditing(null);
@@ -2003,6 +2004,11 @@ export default function UnifiedLeadsPage() {
           {bulkResults && (
             <Alert severity={bulkResults.failed > 0 ? 'warning' : 'success'} sx={{ mt: 2 }}>
               Enviados: {bulkResults.sent} · Omitidos: {bulkResults.skipped} · Fallidos: {bulkResults.failed} (de {bulkResults.total})
+              {bulkResults.failed > 0 && bulkResults.firstError && (
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                  Motivo: {bulkResults.firstError}
+                </Typography>
+              )}
             </Alert>
           )}
         </DialogContent>
@@ -2044,7 +2050,7 @@ export default function UnifiedLeadsPage() {
                 ))}
                 {bulkTemplates.length === 0 && <ListItem><ListItemText secondary="No hay plantillas." /></ListItem>}
               </List>
-              <Button startIcon={<AddIcon />} onClick={() => setTplEditing({ id: 0, label: '', template_name: '', language_code: 'es_MX', variables: [], preview: '' })}>
+              <Button startIcon={<AddIcon />} onClick={() => setTplEditing({ id: 0, label: '', template_name: '', language_code: 'es_MX', variables: [], preview: '', header_image_url: '' })}>
                 Nueva plantilla
               </Button>
             </>
@@ -2053,6 +2059,7 @@ export default function UnifiedLeadsPage() {
               <TextField label="Etiqueta (nombre visible en el selector)" value={tplEditing.label} onChange={e => setTplEditing({ ...tplEditing, label: e.target.value })} size="small" fullWidth disabled={savingTpl} />
               <TextField label="Nombre de la plantilla en Meta" value={tplEditing.template_name} onChange={e => setTplEditing({ ...tplEditing, template_name: e.target.value })} size="small" fullWidth disabled={savingTpl} helperText="Debe coincidir EXACTAMENTE con el nombre aprobado en WhatsApp Manager." />
               <TextField label="Idioma" value={tplEditing.language_code} onChange={e => setTplEditing({ ...tplEditing, language_code: e.target.value })} size="small" fullWidth disabled={savingTpl} helperText="Ej. es_MX, es, en" />
+              <TextField label="URL de imagen del encabezado (opcional)" value={tplEditing.header_image_url || ''} onChange={e => setTplEditing({ ...tplEditing, header_image_url: e.target.value })} size="small" fullWidth disabled={savingTpl} helperText="Solo si la plantilla tiene encabezado de IMAGEN en Meta. Debe ser una URL pública HTTPS (JPG/PNG). Se envía en cada mensaje." />
               <Box>
                 <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>Variables manuales (van después del nombre)</Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
