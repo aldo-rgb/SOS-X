@@ -140,6 +140,7 @@ interface BulkTemplate {
   header_image_key?: string | null;
   header_image_display?: string | null;
   use_mm_lite?: boolean;
+  uses_name?: boolean;
 }
 
 // Prospecto externo
@@ -623,7 +624,7 @@ export default function UnifiedLeadsPage() {
     }
     setSavingTpl(true);
     try {
-      const payload = { label: tpl.label.trim(), template_name: tpl.template_name.trim(), language_code: tpl.language_code || 'es_MX', variables: tpl.variables || [], preview: tpl.preview, header_image_url: tpl.header_image_url || null, header_image_key: tpl.header_image_key || null, use_mm_lite: !!tpl.use_mm_lite };
+      const payload = { label: tpl.label.trim(), template_name: tpl.template_name.trim(), language_code: tpl.language_code || 'es_MX', variables: tpl.variables || [], preview: tpl.preview, header_image_url: tpl.header_image_url || null, header_image_key: tpl.header_image_key || null, use_mm_lite: !!tpl.use_mm_lite, uses_name: tpl.uses_name !== false };
       if (tpl.id) await axios.put(`${API_URL}/admin/crm/bulk-templates/${tpl.id}`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
       else await axios.post(`${API_URL}/admin/crm/bulk-templates`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
       setTplEditing(null);
@@ -2256,7 +2257,7 @@ export default function UnifiedLeadsPage() {
                 ))}
                 {bulkTemplates.length === 0 && <ListItem><ListItemText secondary="No hay plantillas." /></ListItem>}
               </List>
-              <Button startIcon={<AddIcon />} onClick={() => setTplEditing({ id: 0, label: '', template_name: '', language_code: 'es_MX', variables: [], preview: '', header_image_url: '', use_mm_lite: false })}>
+              <Button startIcon={<AddIcon />} onClick={() => setTplEditing({ id: 0, label: '', template_name: '', language_code: 'es_MX', variables: [], preview: '', header_image_url: '', use_mm_lite: false, uses_name: true })}>
                 Nueva plantilla
               </Button>
             </>
@@ -2294,14 +2295,23 @@ export default function UnifiedLeadsPage() {
                   <Typography variant="caption" color="text.secondary">Envía por el endpoint de marketing de Meta (hasta ~9% más de entregas). Actívalo solo para plantillas de MARKETING y después de completar el onboarding de MM Lite en Meta. Las de UTILITY déjalo apagado.</Typography>
                 </Box>
               </Box>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5, bgcolor: '#e8f5e9', p: 1, borderRadius: 1 }}>
+                <Checkbox size="small" checked={tplEditing.uses_name !== false} onChange={e => setTplEditing({ ...tplEditing, uses_name: e.target.checked })} disabled={savingTpl} sx={{ p: 0.5 }} />
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>Incluir el nombre del cliente como {'{{1}}'}</Typography>
+                  <Typography variant="caption" color="text.secondary">Actívalo si tu plantilla en Meta empieza con {'{{1}}'} (el nombre). <b>Desactívalo si la plantilla NO tiene variables</b> (texto fijo), o Meta rechaza el envío con "Number of parameters does not match".</Typography>
+                </Box>
+              </Box>
               <Box>
-                <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>Variables manuales (van después del nombre)</Typography>
+                <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>Variables manuales {tplEditing.uses_name !== false ? '(van después del nombre)' : '(la plantilla NO usa nombre)'}</Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                  El nombre del cliente es siempre {'{{1}}'}. Estas son {'{{2}}'}, {'{{3}}'}… en orden.
+                  {tplEditing.uses_name !== false
+                    ? <>El nombre del cliente es siempre {'{{1}}'}. Estas son {'{{2}}'}, {'{{3}}'}… en orden.</>
+                    : <>Sin nombre. Estas variables son {'{{1}}'}, {'{{2}}'}… en orden. Si no agregas ninguna, la plantilla se envía sin parámetros.</>}
                 </Typography>
                 {(tplEditing.variables || []).map((v, i) => (
                   <Box key={i} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
-                    <TextField label={`Var {${i + 2}} — etiqueta`} value={v.label} onChange={e => { const vs = [...tplEditing.variables]; vs[i] = { ...vs[i], label: e.target.value }; setTplEditing({ ...tplEditing, variables: vs }); }} size="small" sx={{ flex: 2 }} disabled={savingTpl} />
+                    <TextField label={`Var {${i + (tplEditing.uses_name !== false ? 2 : 1)}} — etiqueta`} value={v.label} onChange={e => { const vs = [...tplEditing.variables]; vs[i] = { ...vs[i], label: e.target.value }; setTplEditing({ ...tplEditing, variables: vs }); }} size="small" sx={{ flex: 2 }} disabled={savingTpl} />
                     <FormControl size="small" sx={{ flex: 1, minWidth: 130 }}>
                       <InputLabel>Prellenar con</InputLabel>
                       <Select label="Prellenar con" value={v.defaultKey || ''} onChange={e => { const vs = [...tplEditing.variables]; vs[i] = { ...vs[i], defaultKey: (e.target.value as string) || undefined }; setTplEditing({ ...tplEditing, variables: vs }); }} disabled={savingTpl}>

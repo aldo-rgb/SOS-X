@@ -466,6 +466,9 @@ async function ensureBulkTemplatesSchema(): Promise<void> {
   await pool.query(`ALTER TABLE bulk_wa_templates ADD COLUMN IF NOT EXISTS header_image_key TEXT`).catch(() => {});
   // Usar la API de Marketing (MM Lite) en vez de la Cloud API para esta plantilla.
   await pool.query(`ALTER TABLE bulk_wa_templates ADD COLUMN IF NOT EXISTS use_mm_lite BOOLEAN DEFAULT false`).catch(() => {});
+  // Si la plantilla incluye el nombre del cliente como {{1}}. Las plantillas SIN
+  // variables (ninguna) deben tener uses_name=false para no mandar parámetros de más.
+  await pool.query(`ALTER TABLE bulk_wa_templates ADD COLUMN IF NOT EXISTS uses_name BOOLEAN DEFAULT true`).catch(() => {});
   // Seed inicial (solo si la tabla está vacía) con las 4 plantillas actuales.
   const cnt = await pool.query(`SELECT COUNT(*)::int AS n FROM bulk_wa_templates`);
   if ((cnt.rows[0]?.n || 0) === 0) {
@@ -499,7 +502,7 @@ async function ensureBulkTemplatesSchema(): Promise<void> {
 export const getBulkTemplates = async (_req: Request, res: Response): Promise<any> => {
   try {
     await ensureBulkTemplatesSchema();
-    const r = await pool.query(`SELECT id, label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite FROM bulk_wa_templates WHERE is_active = true ORDER BY sort_order ASC, id ASC`);
+    const r = await pool.query(`SELECT id, label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name FROM bulk_wa_templates WHERE is_active = true ORDER BY sort_order ASC, id ASC`);
     // Si la imagen fue subida a S3 (bucket privado), firmar una URL para la vista previa en la UI.
     const templates = await Promise.all(r.rows.map(async (t: any) => {
       let displayUrl = t.header_image_url || null;
@@ -520,16 +523,16 @@ export const getBulkTemplates = async (_req: Request, res: Response): Promise<an
 export const createBulkTemplate = async (req: Request, res: Response): Promise<any> => {
   try {
     await ensureBulkTemplatesSchema();
-    const { label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite } = req.body || {};
+    const { label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name } = req.body || {};
     if (!String(label || '').trim() || !String(template_name || '').trim()) {
       return res.status(400).json({ success: false, error: 'Falta la etiqueta o el nombre de la plantilla' });
     }
     const vars = Array.isArray(variables) ? variables : [];
     const maxSort = await pool.query(`SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM bulk_wa_templates`);
     const r = await pool.query(
-      `INSERT INTO bulk_wa_templates (label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, sort_order)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9) RETURNING id`,
-      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, (String(header_image_url || '').trim() || null), (String(header_image_key || '').trim() || null), !!use_mm_lite, maxSort.rows[0].n]
+      `INSERT INTO bulk_wa_templates (label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name, sort_order)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10) RETURNING id`,
+      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, (String(header_image_url || '').trim() || null), (String(header_image_key || '').trim() || null), !!use_mm_lite, uses_name !== false, maxSort.rows[0].n]
     );
     res.json({ success: true, id: r.rows[0].id });
   } catch (error) {
@@ -543,15 +546,15 @@ export const updateBulkTemplate = async (req: Request, res: Response): Promise<a
   try {
     await ensureBulkTemplatesSchema();
     const id = parseInt(String(req.params.id), 10);
-    const { label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite } = req.body || {};
+    const { label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name } = req.body || {};
     if (!id) return res.status(400).json({ success: false, error: 'id inválido' });
     if (!String(label || '').trim() || !String(template_name || '').trim()) {
       return res.status(400).json({ success: false, error: 'Falta la etiqueta o el nombre de la plantilla' });
     }
     const vars = Array.isArray(variables) ? variables : [];
     await pool.query(
-      `UPDATE bulk_wa_templates SET label = $1, template_name = $2, language_code = $3, variables = $4::jsonb, preview = $5, header_image_url = $6, header_image_key = $7, use_mm_lite = $8 WHERE id = $9`,
-      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, (String(header_image_url || '').trim() || null), (String(header_image_key || '').trim() || null), !!use_mm_lite, id]
+      `UPDATE bulk_wa_templates SET label = $1, template_name = $2, language_code = $3, variables = $4::jsonb, preview = $5, header_image_url = $6, header_image_key = $7, use_mm_lite = $8, uses_name = $9 WHERE id = $10`,
+      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, (String(header_image_url || '').trim() || null), (String(header_image_key || '').trim() || null), !!use_mm_lite, uses_name !== false, id]
     );
     res.json({ success: true });
   } catch (error) {
@@ -628,7 +631,7 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
 
     // Cargar la plantilla seleccionada (administrable desde la UI).
     await ensureBulkTemplatesSchema();
-    const tplRes = await pool.query(`SELECT template_name, language_code, variables, header_image_url, header_image_key, use_mm_lite FROM bulk_wa_templates WHERE id = $1`, [parseInt(String(templateId), 10) || 0]);
+    const tplRes = await pool.query(`SELECT template_name, language_code, variables, header_image_url, header_image_key, use_mm_lite, uses_name FROM bulk_wa_templates WHERE id = $1`, [parseInt(String(templateId), 10) || 0]);
     if (!tplRes.rows[0]) return res.status(404).json({ success: false, error: 'Plantilla no encontrada' });
     const tpl = tplRes.rows[0];
     // Resolver la imagen del encabezado: si se subió a S3 (bucket privado), firmar una
@@ -695,8 +698,12 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
       }
       seenPhones.add(compact);
 
-      // El nombre es siempre {{1}}; los campos manuales de la plantilla son {{2}}...
-      const parameters = [nombre, ...vals.slice(0, tplVars.length)];
+      // Si la plantilla usa el nombre, va como {{1}} y los campos manuales siguen.
+      // Si NO usa nombre (uses_name=false), solo van los campos manuales (o ninguno).
+      const usesName = tpl.uses_name !== false;
+      const parameters = usesName
+        ? [nombre, ...vals.slice(0, tplVars.length)]
+        : vals.slice(0, tplVars.length);
 
       const r = await sendTemplate({ to: phone, template, languageCode: langCode, parameters, ...(headerImageUrl ? { headerImageUrl } : {}), useMarketingApi: !!tpl.use_mm_lite });
       if (r.ok) {
