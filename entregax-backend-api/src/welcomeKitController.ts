@@ -241,6 +241,28 @@ export const getWelcomeKits = async (req: Request, res: Response): Promise<any> 
   }
 };
 
+// GET /api/admin/welcome-kit/search-client?q=... → busca clientes por nombre/Box ID/teléfono/correo
+export const searchKitClient = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ success: true, data: [] });
+    const like = `%${q}%`;
+    const r = await pool.query(
+      `SELECT id, full_name, box_id, phone, email
+         FROM users
+        WHERE role = 'client'
+          AND (full_name ILIKE $1 OR box_id ILIKE $1 OR phone ILIKE $1 OR email ILIKE $1)
+        ORDER BY (box_id ILIKE $1) DESC, full_name ASC
+        LIMIT 20`,
+      [like]
+    );
+    res.json({ success: true, data: r.rows });
+  } catch (error: any) {
+    console.error('Error searchKitClient:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 // POST /api/admin/welcome-kit → crear (agregar manualmente a alguien)
 export const createWelcomeKit = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -248,6 +270,22 @@ export const createWelcomeKit = async (req: Request, res: Response): Promise<any
     const b = req.body || {};
     if (!String(b.full_name || '').trim()) {
       return res.status(400).json({ success: false, error: 'Falta el nombre' });
+    }
+    // Evitar duplicados: si ese cliente (por user_id, Box ID o lead_key) ya está en la
+    // lista y no está cancelado, no se agrega otra vez.
+    if (b.user_id || b.box_id || b.lead_key) {
+      const dup = await pool.query(
+        `SELECT id FROM welcome_kit_requests
+          WHERE status <> 'cancelado'
+            AND ( ($1::int IS NOT NULL AND user_id = $1)
+               OR (NULLIF($2,'') IS NOT NULL AND UPPER(TRIM(box_id)) = UPPER(TRIM($2)))
+               OR (NULLIF($3,'') IS NOT NULL AND lead_key = $3) )
+          LIMIT 1`,
+        [b.user_id || null, b.box_id || null, b.lead_key || null]
+      );
+      if (dup.rows[0]) {
+        return res.status(409).json({ success: false, error: 'Ese cliente ya está en la lista del kit' });
+      }
     }
     const r = await pool.query(
       `INSERT INTO welcome_kit_requests

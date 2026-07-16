@@ -67,11 +67,6 @@ const STATUSES: { value: string; label: string; color: 'default' | 'info' | 'war
 ];
 const statusInfo = (s: string) => STATUSES.find(x => x.value === s) || { value: s, label: s, color: 'default' as const };
 
-const emptyForm: Partial<KitRequest> = {
-  full_name: '', phone: '', email: '', box_id: '',
-  ship_name: '', ship_phone: '', ship_address: '', ship_city: '', ship_state: '', ship_zip: '', ship_references: '',
-  status: 'solicitado', usa_tracking: '', estafeta_tracking: '', notes: '',
-};
 
 interface KitPhoto { key: string; url: string | null }
 interface KitProduct {
@@ -104,6 +99,12 @@ export default function WelcomeKitPage() {
   const [editingProd, setEditingProd] = useState<Partial<KitProduct> | null>(null);
   const [savingProd, setSavingProd] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  // Buscador de cliente para agregar a la lista
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [clientQuery, setClientQuery] = useState('');
+  const [clientResults, setClientResults] = useState<Array<{ id: number; full_name: string; box_id: string | null; phone: string | null; email: string | null }>>([]);
+  const [searchingClients, setSearchingClients] = useState(false);
+  const [addingClientId, setAddingClientId] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -133,6 +134,32 @@ export default function WelcomeKitPage() {
   }, []);
 
   useEffect(() => { if (tab === 'catalog') fetchProducts(); }, [tab, fetchProducts]);
+
+  // ===== Buscador de cliente =====
+  useEffect(() => {
+    if (!searchDialogOpen) return;
+    if (clientQuery.trim().length < 2) { setClientResults([]); return; }
+    const t = setTimeout(async () => {
+      setSearchingClients(true);
+      try {
+        const res = await axios.get(`${API_URL}/admin/welcome-kit/search-client?q=${encodeURIComponent(clientQuery.trim())}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        setClientResults(res.data.data || []);
+      } catch { setClientResults([]); } finally { setSearchingClients(false); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [clientQuery, searchDialogOpen]);
+
+  const addClientToKit = async (c: { id: number; full_name: string; box_id: string | null; phone: string | null; email: string | null }) => {
+    setAddingClientId(c.id);
+    try {
+      await axios.post(`${API_URL}/admin/welcome-kit`, { user_id: c.id, full_name: c.full_name, phone: c.phone, email: c.email, box_id: c.box_id }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({ open: true, message: `${c.full_name} agregado a la lista del kit`, severity: 'success' });
+      setSearchDialogOpen(false); setClientQuery(''); setClientResults([]);
+      fetchData();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al agregar', severity: 'error' });
+    } finally { setAddingClientId(null); }
+  };
 
   const uploadProductPhoto = async (file: File) => {
     if (!editingProd) return;
@@ -261,8 +288,8 @@ export default function WelcomeKitPage() {
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           {tab === 'requests' ? (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditing({ ...emptyForm }); setFormOpen(true); }} sx={{ background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)' }}>
-              Nueva solicitud
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setClientQuery(''); setClientResults([]); setSearchDialogOpen(true); }} sx={{ background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)' }}>
+              Agregar cliente
             </Button>
           ) : (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditingProd({ ...emptyProduct }); setProdFormOpen(true); }} sx={{ background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)' }}>
@@ -429,6 +456,61 @@ export default function WelcomeKitPage() {
           )}
         </Box>
       )}
+
+      {/* Buscador de cliente para agregar a la lista del kit */}
+      <Dialog open={searchDialogOpen} onClose={() => setSearchDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Agregar cliente al kit</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Escribe el <strong>nombre</strong> o el <strong>número de cliente (Box ID)</strong>. Si lo encontramos, agrégalo a la lista.
+          </Typography>
+          <TextField
+            autoFocus fullWidth size="small"
+            placeholder="Nombre, Box ID, teléfono o correo…"
+            value={clientQuery}
+            onChange={e => setClientQuery(e.target.value)}
+            InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>), endAdornment: searchingClients ? <CircularProgress size={18} /> : null }}
+          />
+          <Box sx={{ mt: 2 }}>
+            {clientQuery.trim().length < 2 ? (
+              <Typography variant="caption" color="text.secondary">Escribe al menos 2 caracteres.</Typography>
+            ) : clientResults.length === 0 && !searchingClients ? (
+              <Typography variant="caption" color="text.secondary">Sin resultados para "{clientQuery}".</Typography>
+            ) : (
+              <TableContainer sx={{ maxHeight: 340 }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell><strong>Cliente</strong></TableCell>
+                      <TableCell><strong>Box ID</strong></TableCell>
+                      <TableCell><strong>Contacto</strong></TableCell>
+                      <TableCell align="right"></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {clientResults.map(c => (
+                      <TableRow key={c.id} hover>
+                        <TableCell>{c.full_name}</TableCell>
+                        <TableCell>{c.box_id ? <Chip size="small" label={c.box_id} variant="outlined" color="primary" /> : '—'}</TableCell>
+                        <TableCell>
+                          <Typography variant="caption" display="block">{c.phone || '—'}</Typography>
+                          <Typography variant="caption" color="text.secondary">{c.email || ''}</Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Button size="small" variant="contained" startIcon={addingClientId === c.id ? <CircularProgress size={14} color="inherit" /> : <AddIcon />} disabled={addingClientId !== null} onClick={() => addClientToKit(c)}>Agregar</Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSearchDialogOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Formulario de producto */}
       <Dialog open={prodFormOpen} onClose={() => !savingProd && setProdFormOpen(false)} maxWidth="sm" fullWidth>

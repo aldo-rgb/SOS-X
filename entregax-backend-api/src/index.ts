@@ -636,6 +636,7 @@ import {
 } from './crmController';
 import {
   getWelcomeKits,
+  searchKitClient,
   createWelcomeKit,
   updateWelcomeKit,
   deleteWelcomeKit,
@@ -7118,6 +7119,7 @@ app.get('/r/:token', trackClickRedirect);
 
 // 🎁 Control de Kit de Bienvenida
 app.get('/api/admin/welcome-kit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getWelcomeKits);
+app.get('/api/admin/welcome-kit/search-client', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), searchKitClient);
 app.post('/api/admin/welcome-kit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createWelcomeKit);
 app.put('/api/admin/welcome-kit/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateWelcomeKit);
 app.delete('/api/admin/welcome-kit/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteWelcomeKit);

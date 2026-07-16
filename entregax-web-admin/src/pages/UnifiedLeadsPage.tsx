@@ -86,6 +86,7 @@ import ImageIcon from '@mui/icons-material/Image';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
+import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import * as XLSX from 'xlsx';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
@@ -174,6 +175,8 @@ interface Prospect {
   seq_status?: string | null;
   seq_step?: number | null;
   seq_next_send_at?: string | null;
+  // Kit de bienvenida
+  has_kit?: boolean;
 }
 
 interface WaSequence {
@@ -701,6 +704,7 @@ export default function UnifiedLeadsPage() {
   const [prospectsLoading, setProspectsLoading] = useState(true);
   const [prospectStats, setProspectStats] = useState<ProspectStats | null>(null);
   const [uploadingProspects, setUploadingProspects] = useState(false);
+  const [markingKitId, setMarkingKitId] = useState<number | null>(null);
   // Secuencias automáticas
   const [sequences, setSequences] = useState<WaSequence[]>([]);
   const [seqDialogOpen, setSeqDialogOpen] = useState(false);
@@ -854,6 +858,24 @@ export default function UnifiedLeadsPage() {
     } catch (e: any) {
       setSnackbar({ open: true, message: e.response?.data?.error || 'Error al inscribir', severity: 'error' });
     } finally { setSeqSaving(false); }
+  };
+
+  // Marcar un prospecto para el Kit de Bienvenida (aparece en la lista del Kit).
+  const markProspectKit = async (prospect: Prospect) => {
+    setMarkingKitId(prospect.id);
+    try {
+      await axios.post(`${API_URL}/admin/welcome-kit`, {
+        lead_key: `pr_${prospect.id}`,
+        full_name: prospect.full_name,
+        phone: prospect.whatsapp,
+        email: prospect.email,
+      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({ open: true, message: `🎁 ${prospect.full_name} agregado a la lista del Kit`, severity: 'success' });
+      fetchProspects();
+    } catch (e: any) {
+      const msg = e.response?.status === 409 ? 'Ya está en la lista del Kit' : (e.response?.data?.error || 'Error al marcar kit');
+      setSnackbar({ open: true, message: msg, severity: e.response?.status === 409 ? 'success' : 'error' });
+    } finally { setMarkingKitId(null); }
   };
 
   // Descargar la plantilla de Excel para carga masiva de prospectos
@@ -1928,6 +1950,11 @@ export default function UnifiedLeadsPage() {
                                     <Chip size="small" variant="outlined" label={`🔄 Paso ${(prospect.seq_step ?? 0) + 1}`} sx={{ height: 20, borderColor: '#7b1fa2', color: '#7b1fa2', '& .MuiChip-label': { px: 0.75, fontSize: 11 } }} />
                                   </Tooltip>
                                 )}
+                                {prospect.has_kit && (
+                                  <Tooltip title="En la lista del Kit de Bienvenida">
+                                    <Chip size="small" variant="outlined" label="🎁 Kit" sx={{ height: 20, borderColor: '#F59E0B', color: '#B45309', '& .MuiChip-label': { px: 0.75, fontSize: 11 } }} />
+                                  </Tooltip>
+                                )}
                               </Box>
                               <Typography variant="caption" color="text.secondary">
                                 {formatDate(prospect.created_at)}
@@ -2032,6 +2059,13 @@ export default function UnifiedLeadsPage() {
                                 </IconButton>
                               </Tooltip>
                             )}
+                            <Tooltip title={prospect.has_kit ? 'Ya está en la lista del Kit' : 'Marcar para Kit de Bienvenida'}>
+                              <span>
+                                <IconButton size="small" sx={{ color: prospect.has_kit ? '#F59E0B' : undefined }} disabled={prospect.has_kit || markingKitId === prospect.id} onClick={() => markProspectKit(prospect)}>
+                                  <CardGiftcardIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
                             <Tooltip title="Editar">
                               <IconButton size="small" onClick={() => handleOpenProspectForm(prospect)}>
                                 <EditIcon fontSize="small" />

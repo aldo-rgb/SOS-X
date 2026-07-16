@@ -5,7 +5,7 @@ import { generateBoxId } from './authController';
 import { sendTemplate } from './whatsappService';
 import { uploadToS3, isS3Configured, getSignedUrlForKey } from './s3Service';
 import { stopSequenceByLeadKey, ensureSequenceSchema } from './waSequenceController';
-import { createKitRequestFromClick } from './welcomeKitController';
+import { createKitRequestFromClick, ensureWelcomeKitSchema } from './welcomeKitController';
 
 // ============================================================================
 // FUNCIONES ORIGINALES (APP Y CRM BÁSICO)
@@ -1587,6 +1587,7 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
     await reconcileRegisteredProspects();
     await ensureClickLinksSchema();
     await ensureSequenceSchema();
+    await ensureWelcomeKitSchema();
     const { status, advisorId, channel, search, page = 1, limit = 50 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
@@ -1633,6 +1634,7 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
         se.status AS seq_status,
         se.current_step AS seq_step,
         se.next_send_at AS seq_next_send_at,
+        EXISTS(SELECT 1 FROM welcome_kit_requests wk WHERE wk.lead_key = ('pr_' || p.id::text) AND wk.status <> 'cancelado') AS has_kit,
         CASE
           WHEN p.follow_up_date::date = CURRENT_DATE THEN true
           ELSE false
