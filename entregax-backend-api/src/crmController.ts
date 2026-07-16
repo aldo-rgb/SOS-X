@@ -579,6 +579,28 @@ export const debugMetaTemplate = async (req: Request, res: Response): Promise<an
     const token = process.env.WHATSAPP_ACCESS_TOKEN;
     const ver = process.env.WHATSAPP_API_VERSION || 'v23.0';
     if (!token) return res.status(500).json({ error: 'sin token' });
+
+    // Modo B: ?tid=N → muestra el payload que NUESTRO sistema construiría (firma de imagen incluida).
+    if (req.query.tid) {
+      const tid = parseInt(String(req.query.tid), 10);
+      const tr = await pool.query(`SELECT * FROM bulk_wa_templates WHERE id=$1`, [tid]);
+      const tpl = tr.rows[0];
+      if (!tpl) return res.json({ error: 'template no encontrado en BD' });
+      let signedImg: string | null = null; let signErr: string | null = null;
+      if (tpl.header_image_key) {
+        try { signedImg = await getSignedUrlForKey(tpl.header_image_key, 3600); }
+        catch (e: any) { signErr = e.message; }
+      }
+      let imgFetch: any = null;
+      if (signedImg) {
+        try { const rr = await fetch(signedImg, { method: 'HEAD' }); imgFetch = { status: rr.status, contentType: rr.headers.get('content-type') }; }
+        catch (e: any) { imgFetch = { error: e.message }; }
+      }
+      return res.json({
+        template: { id: tpl.id, template_name: tpl.template_name, language_code: tpl.language_code, uses_name: tpl.uses_name, link_dest: tpl.link_dest, header_image_key: tpl.header_image_key, header_image_url: tpl.header_image_url, s3_configured: isS3Configured() },
+        signed_image: { url: signedImg ? signedImg.slice(0, 80) + '...' : null, sign_error: signErr, head_fetch: imgFetch },
+      });
+    }
     const url = `https://graph.facebook.com/${ver}/${WABA}/message_templates?name=${encodeURIComponent(name)}&access_token=${token}`;
     const r = await fetch(url);
     const j: any = await r.json();
