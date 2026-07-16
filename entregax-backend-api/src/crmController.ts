@@ -175,7 +175,8 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
           NULL::text AS chartback_status,
           NULL::text AS advisor_response,
           NULL::jsonb AS activity,
-          NULL::timestamptz AS next_contact_at
+          NULL::timestamptz AS next_contact_at,
+          true AS reclamado
         FROM crm_requests r
         JOIN users u ON r.user_id = u.id
         LEFT JOIN users a ON r.assigned_advisor_id = a.id
@@ -192,6 +193,9 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
             WHEN LOWER(TRIM(COALESCE(lc.chartback_status, ''))) = 'recovered' THEN 'converted'
             WHEN LOWER(TRIM(COALESCE(lc.chartback_status, ''))) IN ('no_answer','callback','retention') THEN 'contacted'
             WHEN lc.recovery_advisor_id IS NOT NULL THEN 'assigned'
+            -- Reclamado = ya existe un usuario en el sistema (match por Box ID) →
+            -- sale de Pendientes. Pendientes = SOLO los que no tienen usuario.
+            WHEN mu.id IS NOT NULL THEN 'assigned'
             ELSE 'pending'
           END AS status,
           lc.chartback_notes AS admin_notes,
@@ -203,11 +207,14 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
           lc.box_id,
           -- Teléfono: SIEMPRE prioriza el del usuario dado de alta; si no, el de legacy.
           COALESCE(NULLIF(TRIM(mu.phone), ''), lc.phone) AS phone,
-          adv.full_name AS assigned_advisor_name,
+          -- Asesor: el de recuperación (recovery_advisor_id); si no, el asesor
+          -- original del cliente legacy (campo texto lc.asesor).
+          COALESCE(adv.full_name, NULLIF(TRIM(lc.asesor), '')) AS assigned_advisor_name,
           lc.chartback_status,
           lc.chartback_notes AS advisor_response,
           lc.chartback_activity AS activity,
-          lc.next_contact_at
+          lc.next_contact_at,
+          (mu.id IS NOT NULL) AS reclamado
         FROM legacy_clients lc
         LEFT JOIN users adv ON lc.recovery_advisor_id = adv.id
         LEFT JOIN LATERAL (

@@ -106,6 +106,8 @@ interface Lead {
   advisor_response?: string | null;
   activity?: Array<{ ts?: string; type?: string; advisor?: string; note?: string; callback_at?: string }> | null;
   next_contact_at?: string | null;
+  // Reclamado = ya existe un usuario en el sistema (match por Box ID)
+  reclamado?: boolean;
   // Grupos a los que pertenece el lead
   groups?: Array<{ id: number; name: string; color: string }>;
 }
@@ -298,6 +300,7 @@ export default function UnifiedLeadsPage() {
   // ============ GRUPOS DE LEADS ============
   const [groups, setGroups] = useState<LeadGroup[]>([]);
   const [activeGroupFilter, setActiveGroupFilter] = useState<number | null>(null);
+  const [leadSearch, setLeadSearch] = useState('');
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupColor, setNewGroupColor] = useState('#1976d2');
@@ -306,10 +309,22 @@ export default function UnifiedLeadsPage() {
   // Clave única de cada lead (para selección). El backend la devuelve como lead_key.
   const leadKeyOf = (l: Lead): string => l.lead_key || `crm_${l.request_id}`;
 
-  // Leads visibles = pestaña actual, filtrados por el grupo activo (si hay).
-  const displayedLeads = activeGroupFilter
-    ? leads.filter(l => (l.groups || []).some(g => g.id === activeGroupFilter))
-    : leads;
+  // Leads visibles = pestaña actual, filtrados por grupo activo y por búsqueda
+  // (número de cliente / nombre / asesor asignado).
+  const displayedLeads = (() => {
+    let list = activeGroupFilter
+      ? leads.filter(l => (l.groups || []).some(g => g.id === activeGroupFilter))
+      : leads;
+    const q = leadSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter(l =>
+        String(l.box_id || '').toLowerCase().includes(q) ||
+        String(l.full_name || '').toLowerCase().includes(q) ||
+        String(l.assigned_advisor_name || '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  })();
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -1057,6 +1072,29 @@ export default function UnifiedLeadsPage() {
             </Typography>
           </Box>
 
+          {/* Buscador */}
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Buscar por número de cliente, nombre o asesor asignado…"
+            value={leadSearch}
+            onChange={(e) => setLeadSearch(e.target.value)}
+            sx={{ mb: 2 }}
+            InputProps={{
+              startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
+              endAdornment: leadSearch ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setLeadSearch('')}>✕</IconButton>
+                </InputAdornment>
+              ) : null,
+            }}
+          />
+          {leadSearch.trim() && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              {displayedLeads.length} resultado(s) para “{leadSearch.trim()}”
+            </Typography>
+          )}
+
           {/* Leads Table */}
           {leadsLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
@@ -1149,11 +1187,20 @@ export default function UnifiedLeadsPage() {
                           color={getLeadStatusColor(lead.status) as 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning'}
                           size="small"
                         />
-                        {lead.source === 'chartback' && lead.chartback_status && (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                            {getChartbackSubLabel(lead.chartback_status)}
-                          </Typography>
-                        )}
+                        {lead.source === 'chartback' && (() => {
+                          const st = String(lead.chartback_status || '').toLowerCase().trim();
+                          const meaningful = ['recovered', 'no_answer', 'callback', 'retention', 'not_interested'].includes(st);
+                          // Si tiene actividad de reactivación real, muestra ese sub-estatus;
+                          // si no, muestra si está reclamado (tiene usuario) o no.
+                          const label = meaningful
+                            ? getChartbackSubLabel(lead.chartback_status)
+                            : (lead.reclamado ? 'Reclamado ✅' : 'Sin reclamar');
+                          return (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                              {label}
+                            </Typography>
+                          );
+                        })()}
                         {lead.source === 'chartback' && lead.advisor_response && (
                           <Tooltip
                             arrow
