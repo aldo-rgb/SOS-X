@@ -140,13 +140,15 @@ export const lookupAdvisor = async (req: Request, res: Response): Promise<any> =
 // �🖥️ ADMIN: VER TODOS LOS LEADS (Para el CRM Web)
 // Fusiona DOS fuentes en el mismo funnel (pending/assigned/contacted/converted):
 //   1) crm_requests  → usuarios de la app que pidieron asesor.
-//   2) legacy_clients (chartback) → clientes en reactivación. Se mapea su
-//      chartback_status al funnel:
+//   2) legacy_clients → TODOS los clientes legacy (chartback + histórico).
+//      Se mapea su chartback_status al funnel:
 //        recovered                       → converted
 //        no_answer/callback/retention    → contacted (muestra la respuesta del asesor)
 //        recovery_advisor_id NOT NULL    → assigned (con asesor, aún no contactado)
 //        (resto, sin asesor)             → pending (aún no reclamado)
 //   Se excluye 'not_interested' (cliente perdido, no está en el funnel).
+//   Se dedupe contra crm_requests para no duplicar cuando el legacy_client
+//   ya reclamó su cuenta y ya está en el pipeline moderno.
 export const getCrmLeads = async (req: Request, res: Response): Promise<any> => {
   try {
     const { status } = req.query;
@@ -194,11 +196,13 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
           END AS status,
           lc.chartback_notes AS admin_notes,
           COALESCE(lc.next_contact_at, lc.chartback_i_since, lc.created_at) AS updated_at,
-          lc.claimed_by_user_id AS user_id,
-          lc.full_name,
-          lc.email,
+          COALESCE(lc.claimed_by_user_id, mu.id) AS user_id,
+          -- Nombre: legacy; si viene vacío, el del usuario dado de alta (por Box ID).
+          COALESCE(NULLIF(TRIM(lc.full_name), ''), mu.full_name) AS full_name,
+          COALESCE(NULLIF(TRIM(lc.email), ''), mu.email) AS email,
           lc.box_id,
-          lc.phone,
+          -- Teléfono: SIEMPRE prioriza el del usuario dado de alta; si no, el de legacy.
+          COALESCE(NULLIF(TRIM(mu.phone), ''), lc.phone) AS phone,
           adv.full_name AS assigned_advisor_name,
           lc.chartback_status,
           lc.chartback_notes AS advisor_response,
@@ -206,7 +210,19 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
           lc.next_contact_at
         FROM legacy_clients lc
         LEFT JOIN users adv ON lc.recovery_advisor_id = adv.id
-        WHERE lc.chartback = true OR LOWER(TRIM(COALESCE(lc.chartback_status, ''))) = 'recovered'
+        LEFT JOIN LATERAL (
+          SELECT u2.id, u2.full_name, u2.email, u2.phone
+            FROM users u2
+           WHERE lc.box_id IS NOT NULL AND UPPER(TRIM(u2.box_id)) = UPPER(TRIM(lc.box_id))
+           ORDER BY u2.id ASC
+           LIMIT 1
+        ) mu ON true
+        WHERE LOWER(TRIM(COALESCE(lc.chartback_status, ''))) <> 'not_interested'
+          AND NOT EXISTS (
+            SELECT 1 FROM crm_requests cr
+             WHERE cr.user_id IS NOT NULL
+               AND cr.user_id = lc.claimed_by_user_id
+          )
       )
       SELECT c.*,
              COALESCE(gr.groups, '[]'::jsonb) AS groups
@@ -400,8 +416,15 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
          FROM crm_requests r JOIN users u ON r.user_id = u.id
         WHERE ('crm_' || r.id::text) = ANY($1::text[])
        UNION ALL
-       SELECT ('lc_' || lc.id::text) AS lead_key, lc.full_name, lc.phone
+       SELECT ('lc_' || lc.id::text) AS lead_key,
+              COALESCE(NULLIF(TRIM(lc.full_name), ''), mu.full_name) AS full_name,
+              COALESCE(NULLIF(TRIM(mu.phone), ''), lc.phone) AS phone
          FROM legacy_clients lc
+         LEFT JOIN LATERAL (
+           SELECT u2.full_name, u2.phone FROM users u2
+            WHERE lc.box_id IS NOT NULL AND UPPER(TRIM(u2.box_id)) = UPPER(TRIM(lc.box_id))
+            ORDER BY u2.id ASC LIMIT 1
+         ) mu ON true
         WHERE ('lc_' || lc.id::text) = ANY($1::text[])`,
       [leadKeys]
     );
