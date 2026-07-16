@@ -1619,12 +1619,16 @@ export const bulkCreateProspects = async (req: Request, res: Response): Promise<
     }
     const createdById = (req as any).user?.id || null;
 
+    // Normalizadores para comparar duplicados.
+    const normPhone = (p: any): string => { const d = String(p ?? '').replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d; };
+    const normEmail = (e: any): string => String(e ?? '').trim().toLowerCase();
+
     // Limpiar/normalizar. Se omiten filas sin nombre.
     const clean: Array<{ full_name: string; whatsapp: string | null; email: string | null; channel: string }> = [];
-    let skipped = 0;
+    let skippedNoName = 0;
     for (const r of rows) {
       const full_name = String(r?.full_name ?? r?.nombre ?? '').trim();
-      if (!full_name) { skipped++; continue; }
+      if (!full_name) { skippedNoName++; continue; }
       const whatsapp = String(r?.whatsapp ?? r?.telefono ?? r?.phone ?? '').trim() || null;
       const email = String(r?.email ?? r?.correo ?? '').trim() || null;
       const channel = normalizeProspectChannel(r?.acquisition_channel ?? r?.canal);
@@ -1635,11 +1639,44 @@ export const bulkCreateProspects = async (req: Request, res: Response): Promise<
       return res.status(400).json({ success: false, error: 'Ninguna fila tiene "Nombre completo"' });
     }
 
+    // Cargar teléfonos y correos existentes (users + legacy_clients + prospects previos).
+    const existingPhones = new Set<string>();
+    const existingEmails = new Set<string>();
+    const existingRes = await pool.query(`
+      SELECT phone, email FROM users
+      UNION ALL
+      SELECT phone, email FROM legacy_clients
+      UNION ALL
+      SELECT whatsapp AS phone, email FROM prospects
+    `);
+    for (const row of existingRes.rows) {
+      const np = normPhone(row.phone);
+      if (np) existingPhones.add(np);
+      const ne = normEmail(row.email);
+      if (ne) existingEmails.add(ne);
+    }
+
+    // Filtrar: se omite la fila si su teléfono o correo ya existe (en BD o dentro del mismo Excel).
+    const toInsert: typeof clean = [];
+    let skippedDuplicate = 0;
+    const seenPhones = new Set<string>();
+    const seenEmails = new Set<string>();
+    for (const c of clean) {
+      const np = normPhone(c.whatsapp);
+      const ne = normEmail(c.email);
+      const dupPhone = !!np && (existingPhones.has(np) || seenPhones.has(np));
+      const dupEmail = !!ne && (existingEmails.has(ne) || seenEmails.has(ne));
+      if (dupPhone || dupEmail) { skippedDuplicate++; continue; }
+      if (np) seenPhones.add(np);
+      if (ne) seenEmails.add(ne);
+      toInsert.push(c);
+    }
+
     // Insert por lotes de 500 (fecha = hoy, sin asesor, sin notas, status 'new').
     let inserted = 0;
     const CHUNK = 500;
-    for (let i = 0; i < clean.length; i += CHUNK) {
-      const slice = clean.slice(i, i + CHUNK);
+    for (let i = 0; i < toInsert.length; i += CHUNK) {
+      const slice = toInsert.slice(i, i + CHUNK);
       const valuesSql: string[] = [];
       const params: any[] = [];
       let p = 1;
@@ -1655,8 +1692,9 @@ export const bulkCreateProspects = async (req: Request, res: Response): Promise<
       inserted += slice.length;
     }
 
-    console.log(`[CRM] Carga masiva de prospectos: ${inserted} importados, ${skipped} omitidos (de ${rows.length} filas)`);
-    res.json({ success: true, inserted, skipped, total: rows.length, message: `${inserted} prospectos importados` });
+    const skipped = skippedNoName + skippedDuplicate;
+    console.log(`[CRM] Carga masiva de prospectos: ${inserted} importados, ${skippedDuplicate} duplicados, ${skippedNoName} sin nombre (de ${rows.length} filas)`);
+    res.json({ success: true, inserted, skipped, skippedDuplicate, skippedNoName, total: rows.length, message: `${inserted} prospectos importados` });
   } catch (error: any) {
     console.error('Error bulkCreateProspects:', error);
     res.status(500).json({ success: false, error: error.message });

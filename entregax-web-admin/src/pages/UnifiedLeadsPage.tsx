@@ -808,8 +808,12 @@ export default function UnifiedLeadsPage() {
       const res = await axios.post(`${API_URL}/admin/crm/prospects/bulk`, { rows }, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
-      const { inserted = 0, skipped = 0 } = res.data || {};
-      setSnackbar({ open: true, message: `✅ ${inserted} prospectos importados${skipped ? ` · ${skipped} omitidos (sin nombre)` : ''}`, severity: 'success' });
+      const { inserted = 0, skippedDuplicate = 0, skippedNoName = 0 } = res.data || {};
+      const parts: string[] = [];
+      if (skippedDuplicate) parts.push(`${skippedDuplicate} duplicados (tel/correo ya existe)`);
+      if (skippedNoName) parts.push(`${skippedNoName} sin nombre`);
+      const detail = parts.length ? ` · omitidos: ${parts.join(', ')}` : '';
+      setSnackbar({ open: true, message: `✅ ${inserted} prospectos importados${detail}`, severity: inserted > 0 ? 'success' : 'error' });
       setProspectPage(0);
       fetchProspects();
     } catch (e: any) {
