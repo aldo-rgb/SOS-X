@@ -469,6 +469,10 @@ async function ensureBulkTemplatesSchema(): Promise<void> {
   // Si la plantilla incluye el nombre del cliente como {{1}}. Las plantillas SIN
   // variables (ninguna) deben tener uses_name=false para no mandar parámetros de más.
   await pool.query(`ALTER TABLE bulk_wa_templates ADD COLUMN IF NOT EXISTS uses_name BOOLEAN DEFAULT true`).catch(() => {});
+  // URL destino del botón de acción (rastreo de clics). Si está seteada, la plantilla
+  // tiene un botón de URL DINÁMICA en Meta (https://api.entregax.app/r/{{1}}) y al enviar
+  // se genera un token por destinatario para saber quién hizo clic.
+  await pool.query(`ALTER TABLE bulk_wa_templates ADD COLUMN IF NOT EXISTS link_dest TEXT`).catch(() => {});
   // Seed inicial (solo si la tabla está vacía) con las 4 plantillas actuales.
   const cnt = await pool.query(`SELECT COUNT(*)::int AS n FROM bulk_wa_templates`);
   if ((cnt.rows[0]?.n || 0) === 0) {
@@ -498,11 +502,75 @@ async function ensureBulkTemplatesSchema(): Promise<void> {
   bulkTemplatesReady = true;
 }
 
+// ============================================================================
+// 🔗 RASTREO DE CLICS EN BOTONES DE URL (WhatsApp)
+// ============================================================================
+// Cada envío con botón de URL dinámica genera un token por destinatario. La
+// plantilla en Meta apunta a https://api.entregax.app/r/{{1}} y {{1}} = token.
+// Al hacer clic, /r/:token registra el clic y redirige al destino real.
+let clickLinksReady = false;
+async function ensureClickLinksSchema(): Promise<void> {
+  if (clickLinksReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wa_click_links (
+      id SERIAL PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      lead_key TEXT NOT NULL,
+      template_id INTEGER,
+      destination TEXT NOT NULL,
+      name TEXT,
+      phone TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      first_click_at TIMESTAMPTZ,
+      last_click_at TIMESTAMPTZ,
+      click_count INTEGER DEFAULT 0
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_wa_click_links_lead ON wa_click_links(lead_key);`).catch(() => {});
+  clickLinksReady = true;
+}
+
+// GET /r/:token → registra el clic y redirige al destino real.
+export const trackClickRedirect = async (req: Request, res: Response): Promise<any> => {
+  const fallback = (process.env.WEB_BASE_URL || 'https://www.entregax.app').replace(/\/$/, '');
+  try {
+    await ensureClickLinksSchema();
+    const token = String(req.params.token || '').trim();
+    if (!token) return res.redirect(302, fallback);
+    const r = await pool.query(
+      `UPDATE wa_click_links
+          SET click_count = click_count + 1,
+              last_click_at = NOW(),
+              first_click_at = COALESCE(first_click_at, NOW())
+        WHERE token = $1
+      RETURNING lead_key, destination`,
+      [token]
+    );
+    const row = r.rows[0];
+    if (!row) return res.redirect(302, fallback);
+    // Reflejar el clic en el prospecto (si aplica): un prospecto 'new' pasa a 'interested'.
+    if (String(row.lead_key || '').startsWith('pr_')) {
+      const pid = parseInt(String(row.lead_key).slice(3), 10);
+      if (pid) {
+        await pool.query(
+          `UPDATE prospects SET status = 'interested', updated_at = NOW()
+            WHERE id = $1 AND status = 'new'`,
+          [pid]
+        ).catch(() => {});
+      }
+    }
+    return res.redirect(302, row.destination || fallback);
+  } catch (e) {
+    console.warn('[CRM] trackClickRedirect:', (e as Error).message);
+    return res.redirect(302, fallback);
+  }
+};
+
 // GET /api/admin/crm/bulk-templates → plantillas + valores vigentes para prellenar
 export const getBulkTemplates = async (_req: Request, res: Response): Promise<any> => {
   try {
     await ensureBulkTemplatesSchema();
-    const r = await pool.query(`SELECT id, label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name FROM bulk_wa_templates WHERE is_active = true ORDER BY sort_order ASC, id ASC`);
+    const r = await pool.query(`SELECT id, label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name, link_dest FROM bulk_wa_templates WHERE is_active = true ORDER BY sort_order ASC, id ASC`);
     // Si la imagen fue subida a S3 (bucket privado), firmar una URL para la vista previa en la UI.
     const templates = await Promise.all(r.rows.map(async (t: any) => {
       let displayUrl = t.header_image_url || null;
@@ -523,16 +591,16 @@ export const getBulkTemplates = async (_req: Request, res: Response): Promise<an
 export const createBulkTemplate = async (req: Request, res: Response): Promise<any> => {
   try {
     await ensureBulkTemplatesSchema();
-    const { label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name } = req.body || {};
+    const { label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name, link_dest } = req.body || {};
     if (!String(label || '').trim() || !String(template_name || '').trim()) {
       return res.status(400).json({ success: false, error: 'Falta la etiqueta o el nombre de la plantilla' });
     }
     const vars = Array.isArray(variables) ? variables : [];
     const maxSort = await pool.query(`SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM bulk_wa_templates`);
     const r = await pool.query(
-      `INSERT INTO bulk_wa_templates (label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name, sort_order)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10) RETURNING id`,
-      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, (String(header_image_url || '').trim() || null), (String(header_image_key || '').trim() || null), !!use_mm_lite, uses_name !== false, maxSort.rows[0].n]
+      `INSERT INTO bulk_wa_templates (label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name, link_dest, sort_order)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, (String(header_image_url || '').trim() || null), (String(header_image_key || '').trim() || null), !!use_mm_lite, uses_name !== false, (String(link_dest || '').trim() || null), maxSort.rows[0].n]
     );
     res.json({ success: true, id: r.rows[0].id });
   } catch (error) {
@@ -546,15 +614,15 @@ export const updateBulkTemplate = async (req: Request, res: Response): Promise<a
   try {
     await ensureBulkTemplatesSchema();
     const id = parseInt(String(req.params.id), 10);
-    const { label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name } = req.body || {};
+    const { label, template_name, language_code, variables, preview, header_image_url, header_image_key, use_mm_lite, uses_name, link_dest } = req.body || {};
     if (!id) return res.status(400).json({ success: false, error: 'id inválido' });
     if (!String(label || '').trim() || !String(template_name || '').trim()) {
       return res.status(400).json({ success: false, error: 'Falta la etiqueta o el nombre de la plantilla' });
     }
     const vars = Array.isArray(variables) ? variables : [];
     await pool.query(
-      `UPDATE bulk_wa_templates SET label = $1, template_name = $2, language_code = $3, variables = $4::jsonb, preview = $5, header_image_url = $6, header_image_key = $7, use_mm_lite = $8, uses_name = $9 WHERE id = $10`,
-      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, (String(header_image_url || '').trim() || null), (String(header_image_key || '').trim() || null), !!use_mm_lite, uses_name !== false, id]
+      `UPDATE bulk_wa_templates SET label = $1, template_name = $2, language_code = $3, variables = $4::jsonb, preview = $5, header_image_url = $6, header_image_key = $7, use_mm_lite = $8, uses_name = $9, link_dest = $10 WHERE id = $11`,
+      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, (String(header_image_url || '').trim() || null), (String(header_image_key || '').trim() || null), !!use_mm_lite, uses_name !== false, (String(link_dest || '').trim() || null), id]
     );
     res.json({ success: true });
   } catch (error) {
@@ -631,7 +699,7 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
 
     // Cargar la plantilla seleccionada (administrable desde la UI).
     await ensureBulkTemplatesSchema();
-    const tplRes = await pool.query(`SELECT template_name, language_code, variables, header_image_url, header_image_key, use_mm_lite, uses_name FROM bulk_wa_templates WHERE id = $1`, [parseInt(String(templateId), 10) || 0]);
+    const tplRes = await pool.query(`SELECT id, template_name, language_code, variables, header_image_url, header_image_key, use_mm_lite, uses_name, link_dest FROM bulk_wa_templates WHERE id = $1`, [parseInt(String(templateId), 10) || 0]);
     if (!tplRes.rows[0]) return res.status(404).json({ success: false, error: 'Plantilla no encontrada' });
     const tpl = tplRes.rows[0];
     // Resolver la imagen del encabezado: si se subió a S3 (bucket privado), firmar una
@@ -682,6 +750,13 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
     const seenPhones = new Set<string>();
     const results = { total: rowsRes.rows.length, sent: 0, skipped: 0, failed: 0, details: [] as any[] };
 
+    // Rastreo de clics: si la plantilla tiene destino de botón, generamos un token
+    // por destinatario y armamos la URL de redirect (botón de URL dinámica en Meta).
+    const linkDest = String(tpl.link_dest || '').trim();
+    const trackClicks = !!linkDest;
+    if (trackClicks) await ensureClickLinksSchema();
+    const { randomBytes } = await import('crypto');
+
     for (const row of rowsRes.rows) {
       const nombre = String(row.full_name || 'Cliente').trim().split(/\s+/)[0] || 'Cliente';
       const phone = row.phone;
@@ -705,7 +780,21 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
         ? [nombre, ...vals.slice(0, tplVars.length)]
         : vals.slice(0, tplVars.length);
 
-      const r = await sendTemplate({ to: phone, template, languageCode: langCode, parameters, ...(headerImageUrl ? { headerImageUrl } : {}), useMarketingApi: !!tpl.use_mm_lite });
+      // Token de rastreo para el botón de URL (si la plantilla lo tiene configurado).
+      let urlButtonParam: string | undefined;
+      if (trackClicks) {
+        try {
+          const token = randomBytes(9).toString('base64url');
+          await pool.query(
+            `INSERT INTO wa_click_links (token, lead_key, template_id, destination, name, phone)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [token, row.lead_key, tpl.id, linkDest, row.full_name || null, String(phone)]
+          );
+          urlButtonParam = token;
+        } catch (e) { console.warn('[CRM] no se pudo crear token de rastreo:', (e as Error).message); }
+      }
+
+      const r = await sendTemplate({ to: phone, template, languageCode: langCode, parameters, ...(headerImageUrl ? { headerImageUrl } : {}), ...(urlButtonParam ? { urlButtonParam } : {}), useMarketingApi: !!tpl.use_mm_lite });
       if (r.ok) {
         results.sent++;
         results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'sent' });
@@ -1478,6 +1567,7 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
   try {
     // Marcar como convertidos los prospectos que ya se registraron como usuarios.
     await reconcileRegisteredProspects();
+    await ensureClickLinksSchema();
     const { status, advisorId, channel, search, page = 1, limit = 50 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
@@ -1515,21 +1605,28 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     const query = `
-      SELECT 
+      SELECT
         p.*,
         advisor.full_name as advisor_name,
         creator.full_name as created_by_name,
-        CASE 
-          WHEN p.follow_up_date::date = CURRENT_DATE THEN true 
-          ELSE false 
+        cl.clicks AS link_clicks,
+        cl.last_click_at AS last_click_at,
+        CASE
+          WHEN p.follow_up_date::date = CURRENT_DATE THEN true
+          ELSE false
         END as follow_up_today,
-        CASE 
-          WHEN p.follow_up_date < NOW() THEN true 
-          ELSE false 
+        CASE
+          WHEN p.follow_up_date < NOW() THEN true
+          ELSE false
         END as follow_up_overdue
       FROM prospects p
       LEFT JOIN users advisor ON p.assigned_advisor_id = advisor.id
       LEFT JOIN users creator ON p.created_by_id = creator.id
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(SUM(click_count), 0)::int AS clicks, MAX(last_click_at) AS last_click_at
+          FROM wa_click_links wl
+         WHERE wl.lead_key = ('pr_' || p.id::text) AND wl.click_count > 0
+      ) cl ON true
       ${whereClause}
       ORDER BY 
         CASE WHEN p.follow_up_date::date = CURRENT_DATE THEN 0 ELSE 1 END,

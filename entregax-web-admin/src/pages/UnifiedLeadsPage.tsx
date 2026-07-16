@@ -141,6 +141,7 @@ interface BulkTemplate {
   header_image_display?: string | null;
   use_mm_lite?: boolean;
   uses_name?: boolean;
+  link_dest?: string | null;
 }
 
 // Prospecto externo
@@ -165,6 +166,9 @@ interface Prospect {
   facebook_psid: string | null;
   last_interaction_fb: string | null;
   is_ai_active: boolean;
+  // Rastreo de clics en botones de WhatsApp
+  link_clicks?: number | null;
+  last_click_at?: string | null;
 }
 
 // Mensaje de chat de Facebook
@@ -624,7 +628,7 @@ export default function UnifiedLeadsPage() {
     }
     setSavingTpl(true);
     try {
-      const payload = { label: tpl.label.trim(), template_name: tpl.template_name.trim(), language_code: tpl.language_code || 'es_MX', variables: tpl.variables || [], preview: tpl.preview, header_image_url: tpl.header_image_url || null, header_image_key: tpl.header_image_key || null, use_mm_lite: !!tpl.use_mm_lite, uses_name: tpl.uses_name !== false };
+      const payload = { label: tpl.label.trim(), template_name: tpl.template_name.trim(), language_code: tpl.language_code || 'es_MX', variables: tpl.variables || [], preview: tpl.preview, header_image_url: tpl.header_image_url || null, header_image_key: tpl.header_image_key || null, use_mm_lite: !!tpl.use_mm_lite, uses_name: tpl.uses_name !== false, link_dest: tpl.link_dest || null };
       if (tpl.id) await axios.put(`${API_URL}/admin/crm/bulk-templates/${tpl.id}`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
       else await axios.post(`${API_URL}/admin/crm/bulk-templates`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
       setTplEditing(null);
@@ -1842,6 +1846,11 @@ export default function UnifiedLeadsPage() {
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <Typography variant="body2" fontWeight={500}>{prospect.full_name}</Typography>
                                 {prospect.follow_up_today && <EventIcon fontSize="small" color="warning" />}
+                                {!!(prospect.link_clicks && prospect.link_clicks > 0) && (
+                                  <Tooltip title={`Hizo clic en el botón de WhatsApp${prospect.last_click_at ? ` · ${formatDate(prospect.last_click_at)}` : ''}${prospect.link_clicks > 1 ? ` · ${prospect.link_clicks} clics` : ''}`}>
+                                    <Chip size="small" color="success" variant="outlined" label={`🔗 Clic${prospect.link_clicks > 1 ? ` ×${prospect.link_clicks}` : ''}`} sx={{ height: 20, '& .MuiChip-label': { px: 0.75, fontSize: 11 } }} />
+                                  </Tooltip>
+                                )}
                               </Box>
                               <Typography variant="caption" color="text.secondary">
                                 {formatDate(prospect.created_at)}
@@ -2257,7 +2266,7 @@ export default function UnifiedLeadsPage() {
                 ))}
                 {bulkTemplates.length === 0 && <ListItem><ListItemText secondary="No hay plantillas." /></ListItem>}
               </List>
-              <Button startIcon={<AddIcon />} onClick={() => setTplEditing({ id: 0, label: '', template_name: '', language_code: 'es_MX', variables: [], preview: '', header_image_url: '', use_mm_lite: false, uses_name: true })}>
+              <Button startIcon={<AddIcon />} onClick={() => setTplEditing({ id: 0, label: '', template_name: '', language_code: 'es_MX', variables: [], preview: '', header_image_url: '', use_mm_lite: false, uses_name: true, link_dest: '' })}>
                 Nueva plantilla
               </Button>
             </>
@@ -2294,6 +2303,18 @@ export default function UnifiedLeadsPage() {
                   <Typography variant="body2" fontWeight={600}>Usar API de Marketing (MM Lite) ✨</Typography>
                   <Typography variant="caption" color="text.secondary">Envía por el endpoint de marketing de Meta (hasta ~9% más de entregas). Actívalo solo para plantillas de MARKETING y después de completar el onboarding de MM Lite en Meta. Las de UTILITY déjalo apagado.</Typography>
                 </Box>
+              </Box>
+              {/* Rastreo de clics en el botón de URL */}
+              <Box sx={{ bgcolor: '#e3f2fd', p: 1.5, borderRadius: 1 }}>
+                <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>🔗 Rastreo de clics (botón de URL)</Typography>
+                <TextField
+                  label="URL destino del botón (para rastrear clics)"
+                  value={tplEditing.link_dest || ''}
+                  onChange={e => setTplEditing({ ...tplEditing, link_dest: e.target.value })}
+                  size="small" fullWidth disabled={savingTpl}
+                  placeholder="https://entregax.app/descargar-app"
+                  helperText='Si lo llenas, cada envío genera un enlace único por persona para saber quién hizo clic. REQUIERE que el botón de tu plantilla en Meta sea de "URL dinámica" con la URL: https://api.entregax.app/r/{{1}}'
+                />
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5, bgcolor: '#e8f5e9', p: 1, borderRadius: 1 }}>
                 <Checkbox size="small" checked={tplEditing.uses_name !== false} onChange={e => setTplEditing({ ...tplEditing, uses_name: e.target.checked })} disabled={savingTpl} sx={{ p: 0.5 }} />

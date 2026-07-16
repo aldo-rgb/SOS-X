@@ -55,6 +55,7 @@ interface SendTemplateOptions {
     headerParameters?: string[]; // header params si la plantilla tiene header con vars
     headerImageUrl?: string; // URL pública HTTPS si la plantilla tiene encabezado IMAGEN
     useMarketingApi?: boolean; // usar el endpoint MM Lite (/marketing_messages) para marketing
+    urlButtonParam?: string; // sufijo dinámico del botón de URL (índice 0) para rastreo de clics
 }
 
 const isEnabled = (): boolean => {
@@ -119,6 +120,17 @@ export const sendTemplate = async (opts: SendTemplateOptions): Promise<{ ok: boo
         components.push({
             type: 'body',
             parameters: opts.parameters.map(v => ({ type: 'text', text: String(v) })),
+        });
+    }
+
+    // Botón de URL DINÁMICA (índice 0): el sufijo (token) se anexa a la URL base
+    // configurada en la plantilla de Meta (ej. https://api.entregax.app/r/{{1}}).
+    if (opts.urlButtonParam && String(opts.urlButtonParam).trim()) {
+        components.push({
+            type: 'button',
+            sub_type: 'url',
+            index: 0,
+            parameters: [{ type: 'text', text: String(opts.urlButtonParam).trim() }],
         });
     }
 

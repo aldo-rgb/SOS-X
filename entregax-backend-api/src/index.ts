@@ -607,6 +607,7 @@ import {
   updateBulkTemplate,
   deleteBulkTemplate,
   uploadBulkTemplateImage,
+  trackClickRedirect,
   // Nuevos módulos CRM
   getCRMClients,
   exportCRMClients,
@@ -7030,6 +7031,8 @@ app.put('/api/admin/crm/bulk-templates/:id', authenticateToken, requireMinLevel(
 app.delete('/api/admin/crm/bulk-templates/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteBulkTemplate);
 const bulkTemplateImageUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB (límite de WhatsApp)
 app.post('/api/admin/crm/bulk-templates/upload-image', authenticateToken, requireMinLevel(ROLES.DIRECTOR), bulkTemplateImageUpload.single('file'), uploadBulkTemplateImage);
+// Rastreo de clics en botones de URL de WhatsApp: registra y redirige (público, sin auth).
+app.get('/r/:token', trackClickRedirect);
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);
