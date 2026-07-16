@@ -1899,7 +1899,7 @@ export default function UnifiedLeadsPage() {
               labelId="bulk-type-label"
               label="Plantilla"
               value={bulkType}
-              onChange={(e) => setBulkType(e.target.value as 'invite' | 'xpay' | 'xpay_solo' | 'tarifas')}
+              onChange={(e) => { setBulkType(e.target.value as 'invite' | 'xpay' | 'xpay_solo' | 'tarifas'); setBulkResults(null); }}
               disabled={bulkSending}
             >
               <MenuItem value="invite">📲 Invitación a registrarse en la app</MenuItem>
@@ -1945,15 +1945,17 @@ export default function UnifiedLeadsPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setBulkOpen(false)} disabled={bulkSending}>Cerrar</Button>
+          <Button onClick={() => setBulkOpen(false)} disabled={bulkSending}>
+            {bulkResults ? 'Cerrar' : 'Cancelar'}
+          </Button>
           <Button
             variant="contained"
-            startIcon={bulkSending ? <CircularProgress size={16} color="inherit" /> : <WhatsAppIcon />}
+            startIcon={bulkSending ? <CircularProgress size={16} color="inherit" /> : (bulkResults ? <CheckCircleIcon /> : <WhatsAppIcon />)}
             onClick={sendBulkWhatsapp}
-            disabled={bulkSending || selectedLeadKeys.size === 0}
-            sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' } }}
+            disabled={bulkSending || selectedLeadKeys.size === 0 || !!bulkResults}
+            sx={{ bgcolor: bulkResults ? '#9e9e9e' : '#25D366', '&:hover': { bgcolor: bulkResults ? '#9e9e9e' : '#1da851' } }}
           >
-            {bulkSending ? 'Enviando…' : `Enviar (${selectedLeadKeys.size})`}
+            {bulkSending ? 'Enviando…' : (bulkResults ? 'Enviado ✓' : `Enviar (${selectedLeadKeys.size})`)}
           </Button>
         </DialogActions>
       </Dialog>
