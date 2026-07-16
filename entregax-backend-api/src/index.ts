@@ -641,6 +641,16 @@ import {
   deleteWelcomeKit,
 } from './welcomeKitController';
 import {
+  getSequences,
+  updateSequence,
+  enrollInSequence,
+  unenrollFromSequence,
+} from './waSequenceController';
+import {
+  verifyWhatsappWebhook,
+  handleWhatsappWebhook,
+} from './whatsappWebhookController';
+import {
   handleSupportMessage,
   getMyTickets,
   getTicketMessages,
@@ -7045,6 +7055,16 @@ app.get('/api/admin/welcome-kit', authenticateToken, requireMinLevel(ROLES.COUNT
 app.post('/api/admin/welcome-kit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createWelcomeKit);
 app.put('/api/admin/welcome-kit/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateWelcomeKit);
 app.delete('/api/admin/welcome-kit/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteWelcomeKit);
+
+// 🔄 Secuencias automáticas de WhatsApp (cadencia Día 1/3/7)
+app.get('/api/admin/crm/sequences', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSequences);
+app.put('/api/admin/crm/sequences/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateSequence);
+app.post('/api/admin/crm/sequences/:id/enroll', authenticateToken, requireMinLevel(ROLES.DIRECTOR), enrollInSequence);
+app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel(ROLES.DIRECTOR), unenrollFromSequence);
+
+// 📩 Webhook entrante de WhatsApp (verificación + eventos). Público (Meta lo llama).
+app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
+app.post('/api/webhooks/whatsapp', handleWhatsappWebhook);
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);

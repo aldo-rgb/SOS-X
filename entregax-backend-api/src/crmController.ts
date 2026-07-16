@@ -4,6 +4,7 @@ import bcrypt from 'bcrypt';
 import { generateBoxId } from './authController';
 import { sendTemplate } from './whatsappService';
 import { uploadToS3, isS3Configured, getSignedUrlForKey } from './s3Service';
+import { stopSequenceByLeadKey, ensureSequenceSchema } from './waSequenceController';
 
 // ============================================================================
 // FUNCIONES ORIGINALES (APP Y CRM BÁSICO)
@@ -548,6 +549,8 @@ export const trackClickRedirect = async (req: Request, res: Response): Promise<a
     );
     const row = r.rows[0];
     if (!row) return res.redirect(302, fallback);
+    // El clic saca al lead de la secuencia automatizada (interactuó).
+    if (row.lead_key) await stopSequenceByLeadKey(String(row.lead_key), 'clicked');
     // Reflejar el clic en el prospecto (si aplica): un prospecto 'new' pasa a 'interested'.
     if (String(row.lead_key || '').startsWith('pr_')) {
       const pid = parseInt(String(row.lead_key).slice(3), 10);
@@ -1568,6 +1571,7 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
     // Marcar como convertidos los prospectos que ya se registraron como usuarios.
     await reconcileRegisteredProspects();
     await ensureClickLinksSchema();
+    await ensureSequenceSchema();
     const { status, advisorId, channel, search, page = 1, limit = 50 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
@@ -1611,6 +1615,9 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
         creator.full_name as created_by_name,
         cl.clicks AS link_clicks,
         cl.last_click_at AS last_click_at,
+        se.status AS seq_status,
+        se.current_step AS seq_step,
+        se.next_send_at AS seq_next_send_at,
         CASE
           WHEN p.follow_up_date::date = CURRENT_DATE THEN true
           ELSE false
@@ -1627,6 +1634,12 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
           FROM wa_click_links wl
          WHERE wl.lead_key = ('pr_' || p.id::text) AND wl.click_count > 0
       ) cl ON true
+      LEFT JOIN LATERAL (
+        SELECT status, current_step, next_send_at
+          FROM wa_sequence_enrollments en
+         WHERE en.lead_key = ('pr_' || p.id::text)
+         ORDER BY en.updated_at DESC LIMIT 1
+      ) se ON true
       ${whereClause}
       ORDER BY 
         CASE WHEN p.follow_up_date::date = CURRENT_DATE THEN 0 ELSE 1 END,

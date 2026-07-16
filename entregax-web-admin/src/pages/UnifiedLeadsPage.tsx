@@ -85,6 +85,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ImageIcon from '@mui/icons-material/Image';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import AutorenewIcon from '@mui/icons-material/Autorenew';
 import * as XLSX from 'xlsx';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
@@ -169,6 +170,18 @@ interface Prospect {
   // Rastreo de clics en botones de WhatsApp
   link_clicks?: number | null;
   last_click_at?: string | null;
+  // Secuencia automática
+  seq_status?: string | null;
+  seq_step?: number | null;
+  seq_next_send_at?: string | null;
+}
+
+interface WaSequence {
+  id: number;
+  name: string;
+  active: boolean;
+  steps: { day_offset: number; template_id: number | null }[];
+  stats?: { active: number; completed: number; responded: number; stopped: number } | null;
 }
 
 // Mensaje de chat de Facebook
@@ -688,6 +701,11 @@ export default function UnifiedLeadsPage() {
   const [prospectsLoading, setProspectsLoading] = useState(true);
   const [prospectStats, setProspectStats] = useState<ProspectStats | null>(null);
   const [uploadingProspects, setUploadingProspects] = useState(false);
+  // Secuencias automáticas
+  const [sequences, setSequences] = useState<WaSequence[]>([]);
+  const [seqDialogOpen, setSeqDialogOpen] = useState(false);
+  const [seqEditing, setSeqEditing] = useState<WaSequence | null>(null);
+  const [seqSaving, setSeqSaving] = useState(false);
 
   // Filtros prospectos
   const [prospectStatusFilter, setProspectStatusFilter] = useState('all');
@@ -791,6 +809,52 @@ export default function UnifiedLeadsPage() {
       setProspectsLoading(false);
     }
   }, [prospectStatusFilter, prospectAdvisorFilter, prospectChannelFilter, prospectSearch, prospectPage, prospectRowsPerPage]);
+
+  // ===== Secuencias automáticas =====
+  const fetchSequences = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/sequences`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSequences(res.data?.sequences || []);
+    } catch { /* silencioso */ }
+  }, []);
+
+  const openSequenceConfig = async () => {
+    await fetchSequences();
+    await loadBulkTemplates().catch(() => {});
+    setSeqDialogOpen(true);
+  };
+  // Cuando ya cargaron las secuencias y se abrió el diálogo, preparar la 1ª para editar.
+  useEffect(() => {
+    if (seqDialogOpen && !seqEditing && sequences.length > 0) setSeqEditing({ ...sequences[0], steps: sequences[0].steps.map(s => ({ ...s })) });
+  }, [seqDialogOpen, sequences, seqEditing]);
+
+  const saveSequence = async () => {
+    if (!seqEditing) return;
+    setSeqSaving(true);
+    try {
+      await axios.put(`${API_URL}/admin/crm/sequences/${seqEditing.id}`, { name: seqEditing.name, active: seqEditing.active, steps: seqEditing.steps }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      await fetchSequences();
+      setSnackbar({ open: true, message: 'Secuencia guardada', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al guardar la secuencia', severity: 'error' });
+    } finally { setSeqSaving(false); }
+  };
+
+  const enrollSelectedInSequence = async () => {
+    if (!seqEditing) return;
+    const leadKeys = Array.from(selectedProspectKeys);
+    if (leadKeys.length === 0) { setSnackbar({ open: true, message: 'Marca prospectos primero', severity: 'error' }); return; }
+    setSeqSaving(true);
+    try {
+      const res = await axios.post(`${API_URL}/admin/crm/sequences/${seqEditing.id}/enroll`, { leadKeys }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      const { enrolled = 0, skipped = 0 } = res.data || {};
+      setSnackbar({ open: true, message: `🔄 ${enrolled} inscritos en la secuencia${skipped ? ` · ${skipped} sin teléfono` : ''}`, severity: 'success' });
+      setSeqDialogOpen(false); setSeqEditing(null);
+      fetchProspects();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al inscribir', severity: 'error' });
+    } finally { setSeqSaving(false); }
+  };
 
   // Descargar la plantilla de Excel para carga masiva de prospectos
   const downloadProspectTemplate = () => {
@@ -1778,8 +1842,16 @@ export default function UnifiedLeadsPage() {
             >
               Enviar WhatsApp ({selectedProspectKeys.size})
             </Button>
+            <Button
+              variant="outlined"
+              startIcon={<AutorenewIcon />}
+              onClick={openSequenceConfig}
+              sx={{ borderColor: '#7b1fa2', color: '#7b1fa2' }}
+            >
+              Secuencia automática{selectedProspectKeys.size > 0 ? ` (${selectedProspectKeys.size})` : ''}
+            </Button>
             <Typography variant="body2" color="text.secondary">
-              Marca prospectos con los checkboxes para enviar WhatsApp masivo.
+              Marca prospectos para enviar WhatsApp o inscribirlos en la secuencia Día 1/3/7.
             </Typography>
           </Box>
 
@@ -1849,6 +1921,11 @@ export default function UnifiedLeadsPage() {
                                 {!!(prospect.link_clicks && prospect.link_clicks > 0) && (
                                   <Tooltip title={`Hizo clic en el botón de WhatsApp${prospect.last_click_at ? ` · ${formatDate(prospect.last_click_at)}` : ''}${prospect.link_clicks > 1 ? ` · ${prospect.link_clicks} clics` : ''}`}>
                                     <Chip size="small" color="success" variant="outlined" label={`🔗 Clic${prospect.link_clicks > 1 ? ` ×${prospect.link_clicks}` : ''}`} sx={{ height: 20, '& .MuiChip-label': { px: 0.75, fontSize: 11 } }} />
+                                  </Tooltip>
+                                )}
+                                {prospect.seq_status === 'active' && (
+                                  <Tooltip title={`En secuencia · paso ${(prospect.seq_step ?? 0) + 1}${prospect.seq_next_send_at ? ` · próximo ${formatDate(prospect.seq_next_send_at)}` : ''}`}>
+                                    <Chip size="small" variant="outlined" label={`🔄 Paso ${(prospect.seq_step ?? 0) + 1}`} sx={{ height: 20, borderColor: '#7b1fa2', color: '#7b1fa2', '& .MuiChip-label': { px: 0.75, fontSize: 11 } }} />
                                   </Tooltip>
                                 )}
                               </Box>
@@ -2240,6 +2317,70 @@ export default function UnifiedLeadsPage() {
             sx={{ bgcolor: bulkResults ? '#9e9e9e' : '#25D366', '&:hover': { bgcolor: bulkResults ? '#9e9e9e' : '#1da851' } }}
           >
             {bulkSending ? 'Enviando…' : (bulkResults ? 'Enviado ✓' : `Enviar (${(mainTab === 'prospects' ? selectedProspectKeys : selectedLeadKeys).size})`)}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Secuencia automática Dialog */}
+      <Dialog open={seqDialogOpen} onClose={() => { if (!seqSaving) { setSeqDialogOpen(false); setSeqEditing(null); } }} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <AutorenewIcon sx={{ color: '#7b1fa2' }} /> Secuencia automática (Día 1 / 3 / 7)
+        </DialogTitle>
+        <DialogContent dividers>
+          {seqEditing ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Configura qué plantilla se envía en cada paso. El <strong>Día 1</strong> se envía al inscribir; los demás según los días transcurridos. Si el prospecto <strong>responde</strong> o <strong>hace clic</strong> en un botón, sale automáticamente de la secuencia.
+              </Typography>
+              <TextField label="Nombre de la secuencia" value={seqEditing.name} onChange={e => setSeqEditing({ ...seqEditing, name: e.target.value })} size="small" fullWidth disabled={seqSaving} />
+              {seqEditing.steps.map((step, i) => (
+                <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'center', bgcolor: 'rgba(123,31,162,0.06)', p: 1, borderRadius: 1 }}>
+                  <Chip size="small" label={`Día ${step.day_offset + 1}`} sx={{ bgcolor: '#7b1fa2', color: '#fff', fontWeight: 700 }} />
+                  <FormControl size="small" sx={{ flex: 1 }}>
+                    <InputLabel>Plantilla del paso {i + 1}</InputLabel>
+                    <Select
+                      label={`Plantilla del paso ${i + 1}`}
+                      value={step.template_id ?? ''}
+                      onChange={e => { const steps = [...seqEditing.steps]; steps[i] = { ...steps[i], template_id: e.target.value ? Number(e.target.value) : null }; setSeqEditing({ ...seqEditing, steps }); }}
+                      disabled={seqSaving}
+                    >
+                      <MenuItem value="">— sin enviar —</MenuItem>
+                      {bulkTemplates.map(t => <MenuItem key={t.id} value={t.id}>{t.label}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    label="Día"
+                    type="number"
+                    value={step.day_offset + 1}
+                    onChange={e => { const d = Math.max(1, Number(e.target.value) || 1); const steps = [...seqEditing.steps]; steps[i] = { ...steps[i], day_offset: d - 1 }; setSeqEditing({ ...seqEditing, steps }); }}
+                    size="small" sx={{ width: 80 }} disabled={seqSaving}
+                  />
+                </Box>
+              ))}
+              {seqEditing.stats && (
+                <Typography variant="caption" color="text.secondary">
+                  Activos: {seqEditing.stats.active} · Completados: {seqEditing.stats.completed} · Respondieron: {seqEditing.stats.responded} · Detenidos: {seqEditing.stats.stopped}
+                </Typography>
+              )}
+              <Alert severity="info" sx={{ py: 0 }}>
+                Para usar botones que se puedan rastrear, configura en cada plantilla su "URL destino" y en Meta un botón de URL dinámica.
+              </Alert>
+            </Box>
+          ) : (
+            <Box sx={{ textAlign: 'center', py: 3 }}><CircularProgress size={30} /></Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setSeqDialogOpen(false); setSeqEditing(null); }} disabled={seqSaving}>Cerrar</Button>
+          <Button onClick={saveSequence} disabled={seqSaving || !seqEditing}>Guardar configuración</Button>
+          <Button
+            variant="contained"
+            startIcon={<AutorenewIcon />}
+            onClick={enrollSelectedInSequence}
+            disabled={seqSaving || !seqEditing || selectedProspectKeys.size === 0}
+            sx={{ bgcolor: '#7b1fa2', '&:hover': { bgcolor: '#6a1b9a' } }}
+          >
+            Inscribir {selectedProspectKeys.size} seleccionado(s)
           </Button>
         </DialogActions>
       </Dialog>

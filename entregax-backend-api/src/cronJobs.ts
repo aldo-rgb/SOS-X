@@ -1001,8 +1001,22 @@ export const startStaleRatesNotifyCron = () => {
   console.log('📅 [CRON] Aviso de tarifas TDI desactualizadas: lunes 08:00 (MX)');
 };
 
+// 🔄 Secuencias automáticas de WhatsApp: cada hora envía los pasos que ya vencieron.
+export const startWaSequenceCron = () => {
+  cron.schedule('10 * * * *', async () => {
+    try {
+      const { processDueSequenceSteps } = await import('./waSequenceController');
+      await processDueSequenceSteps();
+    } catch (e) {
+      console.error('[CRON] startWaSequenceCron:', (e as Error).message);
+    }
+  });
+  console.log('✅ Cron de secuencias WhatsApp activo (cada hora, min 10)');
+};
+
 export const initCronJobs = () => {
   startRecoveryCronJob();
+  startWaSequenceCron();
   startProspectFollowUpCron();
   startMaritimeOrderSyncCron();
   startMaritimeTrackingSyncCron();
