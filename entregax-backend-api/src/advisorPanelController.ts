@@ -566,11 +566,56 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
 
     // ── UNION sub-queries ──
     // 1) packages (AIR_CHN_MX, POBOX_USA) — exclude children (master_id IS NOT NULL)
+    // NOTA: para masters (POBOX_USA repack/consolidados) `p.status` puede quedar
+    // stale porque los cambios de estado de las guías hijas no propagan hacia
+    // arriba. Aquí calculamos el estado efectivo tomando la hija MENOS avanzada
+    // (regla conservadora: la master no llega a "shipped/delivered" hasta que
+    // todas sus hijas lo estén). Si el paquete no es master, o no tiene hijas,
+    // se usa su propio status.
     const pkgSelect = `
       SELECT 
         'PKG-' || p.id::text as uid,
         p.id, p.tracking_internal as tracking, COALESCE(p.tracking_provider, p.international_tracking) as international_tracking, p.child_no,
-        p.status::text as status, p.service_type,
+        COALESCE(
+          CASE WHEN COALESCE(p.is_master, false) THEN (
+            SELECT c.status::text
+              FROM packages c
+             WHERE c.master_id = p.id
+             ORDER BY
+               CASE c.status::text
+                 WHEN 'pending' THEN 0
+                 WHEN 'registered' THEN 0
+                 WHEN 'received_china' THEN 1
+                 WHEN 'received_origin' THEN 1
+                 WHEN 'received' THEN 2
+                 WHEN 'in_transit' THEN 3
+                 WHEN 'customs' THEN 3
+                 WHEN 'consolidated' THEN 3
+                 WHEN 'received_mty' THEN 4
+                 WHEN 'received_cdmx' THEN 4
+                 WHEN 'received_gdl' THEN 4
+                 WHEN 'received_qro' THEN 4
+                 WHEN 'received_pue' THEN 4
+                 WHEN 'received_tij' THEN 4
+                 WHEN 'received_mid' THEN 4
+                 WHEN 'received_cun' THEN 4
+                 WHEN 'received_leo' THEN 4
+                 WHEN 'received_hgo' THEN 4
+                 WHEN 'received_cc' THEN 4
+                 WHEN 'reempacado' THEN 4
+                 WHEN 'shipped' THEN 5
+                 WHEN 'ready_pickup' THEN 6
+                 WHEN 'out_for_delivery' THEN 7
+                 WHEN 'delivered' THEN 8
+                 WHEN 'returned_to_warehouse' THEN 9
+                 WHEN 'lost' THEN 9
+                 ELSE 99
+               END ASC,
+               c.updated_at ASC
+             LIMIT 1
+          ) END,
+          p.status::text
+        ) as status, p.service_type,
         CASE
           -- REPACK: se cobra el master consolidado (pobox_venta_usd × TC).
           -- pobox_service_cost del master puede venir stale, por eso NO se usa

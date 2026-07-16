@@ -75,7 +75,8 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
   // Cajas / CBM
   const [cbmDirecto, setCbmDirecto] = useState('');
-  const [showBlocks, setShowBlocks] = useState(false);
+  // La sección de bloques SIEMPRE se muestra debajo del CBM directo. Cuando
+  // hay datos en los bloques, tienen prioridad sobre el CBM directo.
   const [blocks, setBlocks] = useState<BoxBlock[]>([emptyBlock()]);
 
   // Producto
@@ -123,8 +124,11 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
   };
 
   const blocksCBM = blocks.reduce((s, b) => s + cbmOf(b), 0);
-  const totalCBM = showBlocks ? blocksCBM : (parseFloat(cbmDirecto) || 0);
-  const totalPcs = showBlocks ? blocks.reduce((s, b) => s + (parseInt(b.cantidad) || 0), 0) : 0;
+  // Bloques tienen prioridad si el usuario ingresó al menos algo (largo>0). Si
+  // los bloques están vacíos, se usa el CBM directo.
+  const blocksHaveData = blocks.some(b => (parseFloat(b.largo) || 0) > 0);
+  const totalCBM = blocksHaveData ? blocksCBM : (parseFloat(cbmDirecto) || 0);
+  const totalPcs = blocksHaveData ? blocks.reduce((s, b) => s + (parseInt(b.cantidad) || 0), 0) : 0;
 
   const addBlock = () => setBlocks(b => [...b, emptyBlock()]);
   const removeBlock = (i: number) => setBlocks(b => b.filter((_, j) => j !== i));
@@ -220,7 +224,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
       <tr><td>Box ID</td><td>${selectedClient?.boxId || '—'}</td></tr>
       <tr><td>Email</td><td>${selectedClient?.email || '—'}</td></tr></table>
 
-      ${showBlocks && blocks.some(b => b.largo) ? `<h2>Bloques de Cajas</h2>${blocks.map((b, i) => b.largo ? `<div class="block-row">Bloque ${i+1}: ${b.largo}×${b.ancho}×${b.alto} cm · ${b.cantidad} pza(s) · ${cbmOf(b).toFixed(4)} CBM</div>` : '').join('')}` : ''}
+      ${blocksHaveData ? `<h2>Bloques de Cajas</h2>${blocks.map((b, i) => b.largo ? `<div class="block-row">Bloque ${i+1}: ${b.largo}×${b.ancho}×${b.alto} cm · ${b.cantidad} pza(s) · ${cbmOf(b).toFixed(4)} CBM</div>` : '').join('')}` : ''}
 
       <h2>Dirección Destino</h2>
       <table><tr><td>Destino</td><td>${destination || '—'}</td></tr></table>
@@ -255,7 +259,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
     setError(''); setSelectedClient(null); setAddresses([]);
     setSelectedAddressId(null); setCustomDestination(''); setBlocks([emptyBlock()]);
     setServicio('maritimo'); setMaritimoTipo('lcl'); setPesoKg('');
-    setCbmDirecto(''); setShowBlocks(false);
+    setCbmDirecto('');
     setProductDescription(''); setHasBrand(false); setHasBrandLetter(false);
     setOriginAddress(''); setMerchandiseValue(''); setConRecoleccion(false); setDireccionRecoleccion(''); setImages([]); setDocs([]);
     onClose();
@@ -341,23 +345,21 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
         <TextField
           fullWidth size="small" label="Metros cúbicos (CBM)" type="number"
           value={cbmDirecto}
-          onChange={e => { setCbmDirecto(e.target.value); if (e.target.value) setShowBlocks(false); }}
+          onChange={e => setCbmDirecto(e.target.value)}
           placeholder="Ej: 2.5"
           sx={{ mb: 1.5 }}
-          helperText="Si ya sabes el volumen total, escríbelo aquí."
+          helperText={blocksHaveData ? 'Se está usando el total calculado por bloques (abajo).' : 'Si ya sabes el volumen total, escríbelo aquí. O calcula por bloques abajo.'}
           InputProps={{ endAdornment: <Typography sx={{ color: 'text.secondary', ml: 1, whiteSpace: 'nowrap' }}>m³</Typography> }}
         />
 
-        {/* Toggle para calcular por bloques */}
-        <Button size="small" variant="text"
-          startIcon={showBlocks ? <DeleteIcon fontSize="small" /> : <CalculateIcon fontSize="small" />}
-          onClick={() => { setShowBlocks(v => !v); if (!showBlocks) setCbmDirecto(''); }}
-          sx={{ mb: 2, color: ORANGE, textTransform: 'none' }}>
-          {showBlocks ? 'Ocultar bloques' : 'Calcular por bloques de cajas'}
-        </Button>
-
-        {showBlocks && (
-          <>
+        {/* Bloques de cajas — siempre visibles */}
+        <Box sx={{ mt: 1, mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CalculateIcon fontSize="small" sx={{ color: ORANGE }} />
+          <Typography variant="body2" fontWeight={700} sx={{ color: ORANGE }}>
+            Calcular por bloques de cajas
+          </Typography>
+        </Box>
+        <>
             {blocks.map((b, i) => (
               <Paper key={i} variant="outlined" sx={{ p: 2, mb: 1.5, borderRadius: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -387,7 +389,6 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
               Agregar bloque
             </Button>
           </>
-        )}
         <Divider sx={{ mb: 3 }} /></>
         )}
 
@@ -410,22 +411,21 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
           <TextField
             fullWidth size="small" label="Metros cúbicos (CBM) — opcional" type="number"
             value={cbmDirecto}
-            onChange={e => { setCbmDirecto(e.target.value); if (e.target.value) setShowBlocks(false); }}
+            onChange={e => setCbmDirecto(e.target.value)}
             placeholder="Ej: 2.5"
             sx={{ mb: 1.5 }}
-            helperText="Si ya sabes el volumen, escríbelo aquí."
+            helperText={blocksHaveData ? 'Se está usando el total calculado por bloques (abajo).' : 'Si ya sabes el volumen, escríbelo aquí. O calcula por bloques abajo.'}
             InputProps={{ endAdornment: <Typography sx={{ color: 'text.secondary', ml: 1, whiteSpace: 'nowrap' }}>m³</Typography> }}
           />
 
-          <Button size="small" variant="text"
-            startIcon={showBlocks ? <DeleteIcon fontSize="small" /> : <CalculateIcon fontSize="small" />}
-            onClick={() => { setShowBlocks(v => !v); if (!showBlocks) setCbmDirecto(''); }}
-            sx={{ mb: 2, color: ORANGE, textTransform: 'none' }}>
-            {showBlocks ? 'Ocultar bloques' : 'Calcular CBM por bloques de cajas'}
-          </Button>
-
-          {showBlocks && (
-            <>
+          {/* Bloques de cajas — siempre visibles */}
+          <Box sx={{ mt: 1, mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CalculateIcon fontSize="small" sx={{ color: ORANGE }} />
+            <Typography variant="body2" fontWeight={700} sx={{ color: ORANGE }}>
+              Calcular CBM por bloques de cajas
+            </Typography>
+          </Box>
+          <>
               {blocks.map((b, i) => (
                 <Paper key={i} variant="outlined" sx={{ p: 2, mb: 1.5, borderRadius: 2 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -455,7 +455,6 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
                 Agregar bloque
               </Button>
             </>
-          )}
           <Divider sx={{ mb: 3 }} />
         </>
         )}

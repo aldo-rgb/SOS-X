@@ -3,13 +3,15 @@ import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Chip, CircularProgress, IconButton, Tooltip, Button
+  TableHead, TableRow, Chip, CircularProgress, IconButton, Tooltip, Button,
+  Snackbar, Alert,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import SyncIcon from '@mui/icons-material/Sync';
 import EntangledServiceConfigCard from './EntangledServiceConfigCard';
 import EntangledUserServicePricingCard from './EntangledUserServicePricingCard';
 import EntangledRequestDetailDialog from './EntangledRequestDetailDialog';
@@ -65,6 +67,8 @@ export default function EntangledAdminTab() {
   const [rows, setRows] = useState<EntangledRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<EntangledRequestDetail | null>(null);
+  const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' | 'info' }>({ open: false, msg: '', sev: 'info' });
 
   const load = useCallback(async () => {
     try {
@@ -80,6 +84,30 @@ export default function EntangledAdminTab() {
       setLoading(false);
     }
   }, []);
+
+  const handleReconsultar = useCallback(async (r: EntangledRow) => {
+    if (!r.entangled_transaccion_id) {
+      setSnack({ open: true, sev: 'error', msg: 'Esta solicitud aún no se envió a ENTANGLED (sin transaccion_id).' });
+      return;
+    }
+    setSyncingId(r.id);
+    try {
+      const token = localStorage.getItem('token');
+      const { data } = await axios.post(
+        `${API_URL}/entangled/payment-requests/${r.id}/sync`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const remoteStatus = data?.remote?.estatus_proveedor || data?.remote?.estatus || data?.request?.estatus_global || 'sin cambios';
+      setSnack({ open: true, sev: 'success', msg: `Estado consultado en ENTANGLED: ${remoteStatus}` });
+      await load();
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Error consultando ENTANGLED';
+      setSnack({ open: true, sev: 'error', msg });
+    } finally {
+      setSyncingId(null);
+    }
+  }, [load]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -247,6 +275,20 @@ export default function EntangledAdminTab() {
                           <InfoOutlinedIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title={r.entangled_transaccion_id ? 'Reconsultar estado en ENTANGLED' : 'Aún no enviada a ENTANGLED'}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="warning"
+                            onClick={() => handleReconsultar(r)}
+                            disabled={syncingId === r.id || !r.entangled_transaccion_id}
+                          >
+                            {syncingId === r.id
+                              ? <CircularProgress size={16} />
+                              : <SyncIcon fontSize="small" />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                       {(r.comprobante_cliente_url || r.url_comprobante_cliente) && (
                         <Tooltip title="Comprobante cliente">
                           <IconButton size="small" component="a" href={r.comprobante_cliente_url || r.url_comprobante_cliente!} target="_blank">
@@ -290,6 +332,21 @@ export default function EntangledAdminTab() {
         row={detail}
         onClose={() => setDetail(null)}
       />
+      <Snackbar
+        open={snack.open}
+        autoHideDuration={5000}
+        onClose={() => setSnack(s => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setSnack(s => ({ ...s, open: false }))}
+          severity={snack.sev}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {snack.msg}
+        </Alert>
+      </Snackbar>
     </>
   );
 }

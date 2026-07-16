@@ -78,6 +78,7 @@ import FacebookIcon from '@mui/icons-material/Facebook';
 import ChatIcon from '@mui/icons-material/Chat';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
+import BlockIcon from '@mui/icons-material/Block';
 import SendIcon from '@mui/icons-material/Send';
 import CloseIcon from '@mui/icons-material/Close';
 
@@ -301,6 +302,8 @@ export default function UnifiedLeadsPage() {
   const [groups, setGroups] = useState<LeadGroup[]>([]);
   const [activeGroupFilter, setActiveGroupFilter] = useState<number | null>(null);
   const [leadSearch, setLeadSearch] = useState('');
+  const [blacklist, setBlacklist] = useState<Lead[]>([]);
+  const [blacklistView, setBlacklistView] = useState(false);
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupColor, setNewGroupColor] = useState('#1976d2');
@@ -309,12 +312,14 @@ export default function UnifiedLeadsPage() {
   // Clave única de cada lead (para selección). El backend la devuelve como lead_key.
   const leadKeyOf = (l: Lead): string => l.lead_key || `crm_${l.request_id}`;
 
-  // Leads visibles = pestaña actual, filtrados por grupo activo y por búsqueda
-  // (número de cliente / nombre / asesor asignado).
+  // Leads visibles = blacklist (si está activa) o pestaña actual, filtrados por
+  // grupo activo y por búsqueda (número de cliente / nombre / asesor asignado).
   const displayedLeads = (() => {
-    let list = activeGroupFilter
-      ? leads.filter(l => (l.groups || []).some(g => g.id === activeGroupFilter))
-      : leads;
+    let list = blacklistView
+      ? blacklist
+      : (activeGroupFilter
+          ? leads.filter(l => (l.groups || []).some(g => g.id === activeGroupFilter))
+          : leads);
     const q = leadSearch.trim().toLowerCase();
     if (q) {
       list = list.filter(l =>
@@ -380,6 +385,38 @@ export default function UnifiedLeadsPage() {
       await axios.delete(`${API_URL}/admin/crm/groups/${groupId}/members`, { headers: { Authorization: `Bearer ${getToken()}` }, data: { leadKeys: [leadKey] } });
       await fetchGroups();
       await fetchLeads();
+    } catch { /* silencioso */ }
+  };
+
+  // ============ BLACK LIST ============
+  const fetchBlacklist = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/blacklist`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setBlacklist(res.data?.blacklist || []);
+    } catch { /* silencioso */ }
+  }, []);
+
+  const blacklistSelected = async () => {
+    const leadKeys = Array.from(selectedLeadKeys);
+    if (leadKeys.length === 0) return;
+    if (!window.confirm(`¿Poner ${leadKeys.length} lead(s) en la BLACK LIST? No recibirán mensajes masivos y desaparecerán del funnel.`)) return;
+    try {
+      await axios.post(`${API_URL}/admin/crm/blacklist`, { leadKeys }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSelectedLeadKeys(new Set());
+      await fetchLeads();
+      await fetchBlacklist();
+      setSnackbar({ open: true, message: `${leadKeys.length} lead(s) en blacklist`, severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al agregar a blacklist', severity: 'error' });
+    }
+  };
+
+  const unBlacklist = async (leadKey: string) => {
+    try {
+      await axios.delete(`${API_URL}/admin/crm/blacklist`, { headers: { Authorization: `Bearer ${getToken()}` }, data: { leadKeys: [leadKey] } });
+      await fetchBlacklist();
+      await fetchLeads();
+      setSnackbar({ open: true, message: 'Quitado de blacklist', severity: 'success' });
     } catch { /* silencioso */ }
   };
 
@@ -560,10 +597,11 @@ export default function UnifiedLeadsPage() {
     if (mainTab === 'leads') {
       fetchLeads();
       fetchGroups();
+      fetchBlacklist();
     } else {
       fetchProspects();
     }
-  }, [mainTab, fetchLeads, fetchProspects, fetchGroups]);
+  }, [mainTab, fetchLeads, fetchProspects, fetchGroups, fetchBlacklist]);
 
   // ============ CRM LEADS HANDLERS ============
 
@@ -1014,28 +1052,37 @@ export default function UnifiedLeadsPage() {
             <Chip
               label={`Todos (${leads.length})`}
               size="small"
-              color={activeGroupFilter === null ? 'primary' : 'default'}
-              variant={activeGroupFilter === null ? 'filled' : 'outlined'}
-              onClick={() => setActiveGroupFilter(null)}
+              color={activeGroupFilter === null && !blacklistView ? 'primary' : 'default'}
+              variant={activeGroupFilter === null && !blacklistView ? 'filled' : 'outlined'}
+              onClick={() => { setBlacklistView(false); setActiveGroupFilter(null); }}
             />
             {groups.map(g => (
               <Chip
                 key={g.id}
                 label={`${g.name} (${g.member_count})`}
                 size="small"
-                onClick={() => setActiveGroupFilter(activeGroupFilter === g.id ? null : g.id)}
+                onClick={() => { setBlacklistView(false); setActiveGroupFilter(activeGroupFilter === g.id ? null : g.id); }}
                 onDelete={() => deleteGroup(g)}
                 sx={{
-                  bgcolor: activeGroupFilter === g.id ? g.color : 'transparent',
-                  color: activeGroupFilter === g.id ? '#fff' : g.color,
+                  bgcolor: !blacklistView && activeGroupFilter === g.id ? g.color : 'transparent',
+                  color: !blacklistView && activeGroupFilter === g.id ? '#fff' : g.color,
                   border: `1px solid ${g.color}`,
-                  '& .MuiChip-deleteIcon': { color: activeGroupFilter === g.id ? '#fff' : g.color },
+                  '& .MuiChip-deleteIcon': { color: !blacklistView && activeGroupFilter === g.id ? '#fff' : g.color },
                 }}
               />
             ))}
             <Button size="small" startIcon={<AddIcon />} onClick={() => setNewGroupOpen(true)} sx={{ ml: 0.5 }}>
               Nuevo grupo
             </Button>
+            <Box sx={{ flexGrow: 1 }} />
+            <Chip
+              label={`🚫 Blacklist (${blacklist.length})`}
+              size="small"
+              onClick={() => { setBlacklistView(v => !v); setActiveGroupFilter(null); }}
+              color={blacklistView ? 'error' : 'default'}
+              variant={blacklistView ? 'filled' : 'outlined'}
+              sx={{ borderColor: '#d32f2f', color: blacklistView ? '#fff' : '#d32f2f', fontWeight: 700 }}
+            />
           </Box>
 
           {/* Barra de acciones: envío masivo por WhatsApp + asignar a grupo */}
@@ -1062,13 +1109,20 @@ export default function UnifiedLeadsPage() {
                 </Select>
               </FormControl>
             )}
+            {selectedLeadKeys.size > 0 && !blacklistView && (
+              <Button size="small" variant="outlined" color="error" startIcon={<BlockIcon />} onClick={blacklistSelected}>
+                Blacklist
+              </Button>
+            )}
             {selectedLeadKeys.size > 0 && (
               <Button size="small" color="inherit" onClick={() => setSelectedLeadKeys(new Set())}>
                 Limpiar selección
               </Button>
             )}
             <Typography variant="caption" color="text.secondary">
-              Marca leads con los checkboxes para enviarles WhatsApp o asignarlos a un grupo.
+              {blacklistView
+                ? 'Estos leads están en blacklist: no reciben masivos ni aparecen en el funnel.'
+                : 'Marca leads con los checkboxes para WhatsApp, grupo o blacklist.'}
             </Typography>
           </Box>
 
@@ -1182,12 +1236,16 @@ export default function UnifiedLeadsPage() {
                         </Box>
                       </TableCell>
                       <TableCell>
+                        {blacklistView ? (
+                          <Chip icon={<BlockIcon />} label="Blacklist" color="error" size="small" />
+                        ) : (
                         <Chip
                           label={getLeadStatusLabel(lead.status)}
                           color={getLeadStatusColor(lead.status) as 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning'}
                           size="small"
                         />
-                        {lead.source === 'chartback' && (() => {
+                        )}
+                        {!blacklistView && lead.source === 'chartback' && (() => {
                           const st = String(lead.chartback_status || '').toLowerCase().trim();
                           const meaningful = ['recovered', 'no_answer', 'callback', 'retention', 'not_interested'].includes(st);
                           // Si tiene actividad de reactivación real, muestra ese sub-estatus;
@@ -1248,7 +1306,11 @@ export default function UnifiedLeadsPage() {
                         )}
                       </TableCell>
                       <TableCell align="right">
-                        {lead.source === 'chartback' ? (
+                        {blacklistView ? (
+                          <Button size="small" variant="outlined" color="inherit" onClick={() => unBlacklist(leadKeyOf(lead))}>
+                            Quitar
+                          </Button>
+                        ) : lead.source === 'chartback' ? (
                           // Reactivación: el asesor la gestiona desde su panel (móvil).
                           // Aquí es solo lectura.
                           <Typography variant="caption" color="text.secondary" fontStyle="italic">

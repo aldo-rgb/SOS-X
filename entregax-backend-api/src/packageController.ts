@@ -2489,6 +2489,88 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
             }
         }
 
+        // ── Propagación HIJA → MASTER ─────────────────────────────────────────
+        // Cuando la guía actualizada es una hija (pkg.master_id), recalculamos
+        // el estado efectivo del master como el estado MENOS avanzado entre sus
+        // hijas. Evita que el master quede "stale" (p.ej. 'received_mty')
+        // mientras todas sus hijas ya están 'shipped'.
+        if (pkg.master_id) {
+            try {
+                const aggRes = await client.query(
+                    `SELECT c.status::text AS status
+                       FROM packages c
+                      WHERE c.master_id = $1
+                      ORDER BY
+                        CASE c.status::text
+                          WHEN 'pending' THEN 0
+                          WHEN 'registered' THEN 0
+                          WHEN 'received_china' THEN 1
+                          WHEN 'received_origin' THEN 1
+                          WHEN 'received' THEN 2
+                          WHEN 'in_transit' THEN 3
+                          WHEN 'customs' THEN 3
+                          WHEN 'consolidated' THEN 3
+                          WHEN 'received_mty' THEN 4
+                          WHEN 'received_cdmx' THEN 4
+                          WHEN 'received_gdl' THEN 4
+                          WHEN 'received_qro' THEN 4
+                          WHEN 'received_pue' THEN 4
+                          WHEN 'received_tij' THEN 4
+                          WHEN 'received_mid' THEN 4
+                          WHEN 'received_cun' THEN 4
+                          WHEN 'received_leo' THEN 4
+                          WHEN 'received_hgo' THEN 4
+                          WHEN 'received_cc' THEN 4
+                          WHEN 'reempacado' THEN 4
+                          WHEN 'shipped' THEN 5
+                          WHEN 'ready_pickup' THEN 6
+                          WHEN 'out_for_delivery' THEN 7
+                          WHEN 'delivered' THEN 8
+                          WHEN 'returned_to_warehouse' THEN 9
+                          WHEN 'lost' THEN 9
+                          ELSE 99
+                        END ASC,
+                        c.updated_at ASC
+                      LIMIT 1`,
+                    [pkg.master_id]
+                );
+                const aggStatus: string | undefined = aggRes.rows[0]?.status;
+                if (aggStatus) {
+                    const masterRes = await client.query(
+                        `SELECT id, status::text AS status FROM packages WHERE id = $1`,
+                        [pkg.master_id]
+                    );
+                    const masterCurrentStatus = masterRes.rows[0]?.status;
+                    if (masterCurrentStatus && masterCurrentStatus !== aggStatus) {
+                        await client.query(
+                            `UPDATE packages
+                                SET status = $1::package_status,
+                                    updated_at = CURRENT_TIMESTAMP
+                                    ${aggStatus === 'delivered' ? ', delivered_at = COALESCE(delivered_at, CURRENT_TIMESTAMP)' : ''}
+                              WHERE id = $2`,
+                            [aggStatus, pkg.master_id]
+                        );
+                        try {
+                            await client.query(
+                                `INSERT INTO package_history (package_id, status, notes, created_by, created_at)
+                                 VALUES ($1, $2, $3, $4, NOW())`,
+                                [
+                                    pkg.master_id,
+                                    aggStatus,
+                                    `Estado agregado desde guías hijas: ${getStatusLabel(aggStatus)}`,
+                                    changedBy,
+                                ]
+                            );
+                        } catch (historyError) {
+                            console.warn('No se pudo registrar package_history para propagación hija→master:', historyError);
+                        }
+                    }
+                }
+            } catch (aggError) {
+                console.warn('No se pudo propagar estado hija→master:', aggError);
+            }
+        }
+
         await client.query('COMMIT');
 
         res.json({ success: true, message: `Estado: ${getStatusLabel(status)}`,

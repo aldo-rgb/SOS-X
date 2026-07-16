@@ -597,6 +597,9 @@ import {
   deleteLeadGroup,
   addLeadsToGroup,
   removeLeadsFromGroup,
+  getBlacklist,
+  addToBlacklist,
+  removeFromBlacklist,
   // Nuevos módulos CRM
   getCRMClients,
   exportCRMClients,
@@ -7018,6 +7021,10 @@ app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNT
 app.delete('/api/admin/crm/groups/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), deleteLeadGroup);
 app.post('/api/admin/crm/groups/:id/members', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), addLeadsToGroup);
 app.delete('/api/admin/crm/groups/:id/members', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), removeLeadsFromGroup);
+// Black list de leads (no reciben masivos + desaparecen del funnel)
+app.get('/api/admin/crm/blacklist', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBlacklist);
+app.post('/api/admin/crm/blacklist', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), addToBlacklist);
+app.delete('/api/admin/crm/blacklist', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), removeFromBlacklist);
 
 // App: Crear lead desde chat de soporte (solicitud de llamada)
 app.post('/api/crm/leads', authenticateToken, createLeadFromSupport);

@@ -10,7 +10,9 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../services/api';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { api, API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
 const ORANGE_LIGHT = '#FF9800';
@@ -85,9 +87,9 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const { user, token, initialTab, hideGenerate } = route.params;
   const insets = useSafeAreaInsets();
 
-  const TAB_KEYS = (hideGenerate ? ['pendientes', 'mias'] : ['pendientes', 'generar', 'mias']) as Array<'pendientes' | 'generar' | 'mias'>;
-  const [tab, setTab] = useState<'pendientes' | 'generar' | 'mias'>(
-    (initialTab === 'generar' || initialTab === 'mias' || initialTab === 'pendientes') ? initialTab : 'pendientes'
+  const TAB_KEYS = (hideGenerate ? ['pendientes', 'mias'] : ['pendientes', 'generar', 'especializada', 'mias']) as Array<'pendientes' | 'generar' | 'especializada' | 'mias'>;
+  const [tab, setTab] = useState<'pendientes' | 'generar' | 'especializada' | 'mias'>(
+    (initialTab === 'generar' || initialTab === 'mias' || initialTab === 'pendientes' || initialTab === 'especializada') ? initialTab : 'pendientes'
   );
   const [refreshing, setRefreshing] = useState(false);
 
@@ -121,6 +123,30 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const [gexCurrency, setGexCurrency] = useState<'MXN' | 'USD'>('MXN');
   const [gexFallbackTc, setGexFallbackTc] = useState<number>(0);
   const [ticketId, setTicketId] = useState<number | null>(null);
+
+  // ─── Especializada (cotización solicitada al equipo interno) ───
+  type BoxBlock = { largo: string; ancho: string; alto: string; cantidad: string };
+  type PickedFile = { uri: string; name: string; mimeType: string };
+  const emptyBlock = (): BoxBlock => ({ largo: '', ancho: '', alto: '', cantidad: '1' });
+  const [espSubmitting, setEspSubmitting] = useState(false);
+  const [espServicio, setEspServicio] = useState<'maritimo' | 'aereo'>('maritimo');
+  const [espMaritimoTipo, setEspMaritimoTipo] = useState<'lcl' | 'fcl40hq'>('lcl');
+  const [espClient, setEspClient] = useState<Client | null>(null);
+  const [espClientPickerOpen, setEspClientPickerOpen] = useState(false);
+  const [espCbmDirecto, setEspCbmDirecto] = useState('');
+  const [espShowBlocks, setEspShowBlocks] = useState(false);
+  const [espBlocks, setEspBlocks] = useState<BoxBlock[]>([emptyBlock()]);
+  const [espPesoKg, setEspPesoKg] = useState('');
+  const [espDestination, setEspDestination] = useState('');
+  const [espProductDescription, setEspProductDescription] = useState('');
+  const [espHasBrand, setEspHasBrand] = useState(false);
+  const [espHasBrandLetter, setEspHasBrandLetter] = useState(false);
+  const [espOriginAddress, setEspOriginAddress] = useState('');
+  const [espConRecoleccion, setEspConRecoleccion] = useState(false);
+  const [espDireccionRecoleccion, setEspDireccionRecoleccion] = useState('');
+  const [espMerchandiseValue, setEspMerchandiseValue] = useState('');
+  const [espImages, setEspImages] = useState<PickedFile[]>([]);
+  const [espDocs, setEspDocs] = useState<PickedFile[]>([]);
 
   // Modal "Ver ticket" — detalle inline (subject + cuerpo + metadata)
   const [ticketDetailOpen, setTicketDetailOpen] = useState(false);
@@ -215,7 +241,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   useEffect(() => { fetchPending(); }, [fetchPending]);
   useEffect(() => {
     if (tab === 'mias') fetchMyQuotes();
-    if (tab === 'generar') fetchClients();
+    if (tab === 'generar' || tab === 'especializada') fetchClients();
   }, [tab, fetchMyQuotes, fetchClients]);
 
   // TC GEX como fallback para conversión USD→MXN antes de calcular
@@ -422,6 +448,133 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
     return base + gex;
   }, [calcResult, gexEnabled, gexValor, gexCurrency, gexFallbackTc]);
 
+  // ─── Handlers Especializada ─────────────────────────────────────
+  const espCbmOf = (b: BoxBlock) => {
+    const l = parseFloat(b.largo) || 0;
+    const a = parseFloat(b.ancho) || 0;
+    const h = parseFloat(b.alto) || 0;
+    const q = parseInt(b.cantidad) || 0;
+    return (l * a * h) / 1_000_000 * q;
+  };
+  const espBlocksCBM = espBlocks.reduce((sum, b) => sum + espCbmOf(b), 0);
+  const espTotalCBM = espShowBlocks ? espBlocksCBM : (parseFloat(espCbmDirecto) || 0);
+  const espTotalPcs = espShowBlocks ? espBlocks.reduce((sum, b) => sum + (parseInt(b.cantidad) || 0), 0) : 0;
+
+  const espPickImages = async () => {
+    if (espImages.length >= 10) { Alert.alert('Límite', 'Máximo 10 fotos'); return; }
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') { Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.7,
+      allowsMultipleSelection: true,
+      selectionLimit: 10 - espImages.length,
+    });
+    if (!result.canceled && result.assets?.length) {
+      const picked: PickedFile[] = result.assets.map((a: any, i: number) => ({
+        uri: a.uri,
+        name: a.fileName || `foto_${Date.now()}_${i}.jpg`,
+        mimeType: a.mimeType || 'image/jpeg',
+      }));
+      setEspImages(prev => [...prev, ...picked].slice(0, 10));
+    }
+  };
+
+  const espPickDocs = async () => {
+    if (espDocs.length >= 5) { Alert.alert('Límite', 'Máximo 5 documentos'); return; }
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'application/vnd.ms-excel',
+             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'],
+      copyToCacheDirectory: true,
+      multiple: true,
+    });
+    if (!result.canceled && result.assets?.length) {
+      const picked: PickedFile[] = result.assets.map((a: any) => ({
+        uri: a.uri,
+        name: a.name || `doc_${Date.now()}`,
+        mimeType: a.mimeType || 'application/octet-stream',
+      }));
+      setEspDocs(prev => [...prev, ...picked].slice(0, 5));
+    }
+  };
+
+  const espResetForm = () => {
+    setEspServicio('maritimo');
+    setEspMaritimoTipo('lcl');
+    setEspClient(null);
+    setEspCbmDirecto('');
+    setEspShowBlocks(false);
+    setEspBlocks([emptyBlock()]);
+    setEspPesoKg('');
+    setEspDestination('');
+    setEspProductDescription('');
+    setEspHasBrand(false);
+    setEspHasBrandLetter(false);
+    setEspOriginAddress('');
+    setEspConRecoleccion(false);
+    setEspDireccionRecoleccion('');
+    setEspMerchandiseValue('');
+    setEspImages([]);
+    setEspDocs([]);
+  };
+
+  const espSubmit = async () => {
+    if (!espProductDescription.trim()) { Alert.alert('Falta dato', 'Describe el producto'); return; }
+    if (!espDestination.trim()) { Alert.alert('Falta dato', 'Indica la dirección destino'); return; }
+    const needsBoxes = espServicio === 'maritimo' && espMaritimoTipo === 'lcl';
+    const needsWeight = espServicio === 'aereo';
+    if (needsBoxes && espTotalCBM <= 0) { Alert.alert('Falta dato', 'Ingresa metros cúbicos o agrega bloques de cajas'); return; }
+    if (needsWeight && !espPesoKg.trim()) { Alert.alert('Falta dato', 'Ingresa el peso en kg'); return; }
+
+    setEspSubmitting(true);
+    try {
+      const fd = new FormData();
+      fd.append('client_id', espClient ? String(espClient.id) : '0');
+      fd.append('servicio', espServicio);
+      fd.append('maritimo_tipo', espServicio === 'maritimo' ? espMaritimoTipo : '');
+      fd.append('destination_address', espDestination.trim());
+      fd.append('box_blocks', needsBoxes ? JSON.stringify(espBlocks) : '[]');
+      fd.append('total_cbm', needsBoxes ? espTotalCBM.toFixed(4) : '0');
+      fd.append('total_pieces', needsBoxes ? String(espTotalPcs) : '0');
+      fd.append('peso_kg', needsWeight ? espPesoKg : '');
+      fd.append('product_description', espProductDescription.trim());
+      fd.append('has_brand', String(espHasBrand));
+      fd.append('has_brand_letter', espHasBrand ? String(espHasBrandLetter) : 'false');
+      fd.append('origin_address', espOriginAddress.trim());
+      fd.append('con_recoleccion', String(espConRecoleccion));
+      fd.append('direccion_recoleccion', espConRecoleccion ? espDireccionRecoleccion.trim() : '');
+      fd.append('merchandise_value_usd', espMerchandiseValue);
+      espImages.forEach(img => {
+        fd.append('photos', { uri: img.uri, name: img.name, type: img.mimeType } as any);
+      });
+      espDocs.forEach(doc => {
+        fd.append('documents', { uri: doc.uri, name: doc.name, type: doc.mimeType } as any);
+      });
+
+      const resp = await fetch(`${API_URL}/api/advisor/quote-requests`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err?.error || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json().catch(() => ({}));
+      Alert.alert(
+        '✅ Solicitud enviada',
+        `Folio: ${data?.ticket_folio || '(pendiente)'}\n\nEl equipo interno la cotizará y aparecerá en "Pendientes".`
+      );
+      espResetForm();
+      fetchPending();
+      setTab('pendientes');
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'No se pudo enviar la solicitud');
+    } finally {
+      setEspSubmitting(false);
+    }
+  };
+
   return (
     <SafeAreaView style={s.container} edges={['top']}>
       {/* Header */}
@@ -445,7 +598,9 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
           >
             <Text style={[s.tabLabel, tab === k && s.tabLabelActive]}>
               {k === 'pendientes' ? `Pendientes${pendingTickets.length ? ` (${pendingTickets.length})` : ''}`
-                : k === 'generar' ? 'Generar' : 'Mías'}
+                : k === 'generar' ? 'Generar'
+                : k === 'especializada' ? 'Especial'
+                : 'Mías'}
             </Text>
           </TouchableOpacity>
         ))}
@@ -727,6 +882,330 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
         </KeyboardAvoidingView>
       )}
 
+      {/* ─── TAB: Especializada (Solicitud al equipo interno) ─── */}
+      {tab === 'especializada' && (
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={80}
+        >
+          <ScrollView
+            contentContainerStyle={{ padding: 14, paddingBottom: 60 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={s.espBanner}>
+              <View style={s.espBannerIcon}>
+                <Ionicons name="briefcase" size={22} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.espBannerTitle}>Cotización Especializada</Text>
+                <Text style={s.espBannerSub}>Para marca registrada, LCL/FCL, recolección o casos con detalles particulares.</Text>
+              </View>
+            </View>
+
+            {/* 1. Tipo de Servicio */}
+            <View style={s.espSection}>
+              <View style={s.espSectionHeader}>
+                <View style={s.espStepBadge}><Text style={s.espStepBadgeText}>1</Text></View>
+                <Text style={s.espSectionTitle}>Tipo de Servicio</Text>
+              </View>
+              <View style={s.chipRow}>
+                {([['maritimo', '🚢 Marítimo'], ['aereo', '✈️ Aéreo']] as const).map(([val, label]) => (
+                  <TouchableOpacity
+                    key={val}
+                    style={[s.chipBtn, espServicio === val && s.chipBtnActive]}
+                    onPress={() => setEspServicio(val)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[s.chipBtnText, espServicio === val && s.chipBtnTextActive]}>{label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {espServicio === 'maritimo' && (
+                <View style={[s.chipRow, { marginTop: 10 }]}>
+                  {([
+                    ['lcl', '📦 LCL (consolidada)'],
+                    ['fcl40hq', "🏗️ FCL 40' HQ"],
+                  ] as const).map(([val, label]) => (
+                    <TouchableOpacity
+                      key={val}
+                      style={[s.chipBtnSm, espMaritimoTipo === val && s.chipBtnActive]}
+                      onPress={() => setEspMaritimoTipo(val)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[s.chipBtnTextSm, espMaritimoTipo === val && s.chipBtnTextActive]}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* 2. Cliente */}
+            <View style={s.espSection}>
+              <View style={s.espSectionHeader}>
+                <View style={s.espStepBadge}><Text style={s.espStepBadgeText}>2</Text></View>
+                <Text style={s.espSectionTitle}>Cliente</Text>
+                <Text style={s.espOptional}>opcional</Text>
+              </View>
+              <TouchableOpacity style={s.pickerBtn} onPress={() => { setClientSearch(''); setEspClientPickerOpen(true); }} activeOpacity={0.7}>
+                <Ionicons name="person-circle-outline" size={22} color={ORANGE} />
+                <Text style={{ flex: 1, color: espClient ? TEXT : SUB, marginLeft: 10, fontWeight: espClient ? '600' : '400' }}>
+                  {espClient ? `${espClient.full_name || espClient.name}${espClient.box_id ? ` · ${espClient.box_id}` : ''}` : 'Seleccionar cliente'}
+                </Text>
+                {espClient
+                  ? <TouchableOpacity onPress={() => setEspClient(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Ionicons name="close-circle" size={20} color={SUB} />
+                    </TouchableOpacity>
+                  : <Ionicons name="chevron-down" size={18} color={SUB} />}
+              </TouchableOpacity>
+            </View>
+
+            {/* 3. Volumen / Peso */}
+            {espServicio === 'maritimo' && espMaritimoTipo === 'lcl' && (
+              <View style={s.espSection}>
+                <View style={s.espSectionHeader}>
+                  <View style={s.espStepBadge}><Text style={s.espStepBadgeText}>3</Text></View>
+                  <Text style={s.espSectionTitle}>Metros Cúbicos</Text>
+                  {espTotalCBM > 0 && (
+                    <View style={s.espBadgeCbm}>
+                      <Text style={s.espBadgeCbmText}>
+                        {espTotalCBM.toFixed(4)} CBM{espTotalPcs > 0 ? ` · ${espTotalPcs} pzas` : ''}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <TextInput
+                  style={s.input}
+                  keyboardType="decimal-pad"
+                  placeholder="Metros cúbicos (m³)"
+                  placeholderTextColor="#999"
+                  value={espCbmDirecto}
+                  onChangeText={v => { setEspCbmDirecto(v); if (v) setEspShowBlocks(false); }}
+                />
+                <Text style={s.espHint}>Si ya sabes el volumen total, escríbelo aquí.</Text>
+                <TouchableOpacity onPress={() => { setEspShowBlocks(v => !v); if (!espShowBlocks) setEspCbmDirecto(''); }} activeOpacity={0.7}>
+                  <Text style={s.espLinkBtn}>
+                    {espShowBlocks ? '↑ Ocultar bloques' : '🧮 Calcular por bloques de cajas'}
+                  </Text>
+                </TouchableOpacity>
+                {espShowBlocks && (
+                  <View style={{ marginTop: 6 }}>
+                    {espBlocks.map((b, i) => (
+                      <View key={i} style={s.blockCard}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                          <Text style={{ fontWeight: '700', color: SUB, fontSize: 12, flex: 1 }}>Bloque {i + 1}</Text>
+                          <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 12 }}>{espCbmOf(b).toFixed(4)} CBM</Text>
+                          {espBlocks.length > 1 && (
+                            <TouchableOpacity onPress={() => setEspBlocks(bs => bs.filter((_, j) => j !== i))} style={{ marginLeft: 10 }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Ionicons name="trash-outline" size={16} color="#c62828" />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                          <TextInput style={[s.input, { flex: 1, marginBottom: 0 }]} placeholder="Largo cm" placeholderTextColor="#999" keyboardType="decimal-pad" value={b.largo}
+                            onChangeText={v => setEspBlocks(bs => bs.map((row, j) => j === i ? { ...row, largo: v } : row))} />
+                          <TextInput style={[s.input, { flex: 1, marginBottom: 0 }]} placeholder="Ancho cm" placeholderTextColor="#999" keyboardType="decimal-pad" value={b.ancho}
+                            onChangeText={v => setEspBlocks(bs => bs.map((row, j) => j === i ? { ...row, ancho: v } : row))} />
+                          <TextInput style={[s.input, { flex: 1, marginBottom: 0 }]} placeholder="Alto cm" placeholderTextColor="#999" keyboardType="decimal-pad" value={b.alto}
+                            onChangeText={v => setEspBlocks(bs => bs.map((row, j) => j === i ? { ...row, alto: v } : row))} />
+                        </View>
+                        <TextInput style={[s.input, { marginTop: 6, marginBottom: 0 }]} placeholder="Cantidad" placeholderTextColor="#999" keyboardType="number-pad" value={b.cantidad}
+                          onChangeText={v => setEspBlocks(bs => bs.map((row, j) => j === i ? { ...row, cantidad: v } : row))} />
+                      </View>
+                    ))}
+                    <TouchableOpacity onPress={() => setEspBlocks(b => [...b, emptyBlock()])} style={{ paddingVertical: 10 }} activeOpacity={0.7}>
+                      <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 13 }}>＋ Agregar bloque</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {espServicio === 'aereo' && (
+              <View style={s.espSection}>
+                <View style={s.espSectionHeader}>
+                  <View style={s.espStepBadge}><Text style={s.espStepBadgeText}>3</Text></View>
+                  <Text style={s.espSectionTitle}>Peso y Volumen</Text>
+                </View>
+                <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Peso total (kg)" placeholderTextColor="#999"
+                  value={espPesoKg} onChangeText={setEspPesoKg} />
+                <TextInput style={s.input} keyboardType="decimal-pad" placeholder="CBM (opcional)" placeholderTextColor="#999"
+                  value={espCbmDirecto} onChangeText={setEspCbmDirecto} />
+              </View>
+            )}
+
+            {/* 4. Destino */}
+            <View style={s.espSection}>
+              <View style={s.espSectionHeader}>
+                <View style={s.espStepBadge}><Text style={s.espStepBadgeText}>4</Text></View>
+                <Text style={s.espSectionTitle}>Dirección Destino</Text>
+              </View>
+              <TextInput style={[s.input, { minHeight: 70, textAlignVertical: 'top', marginBottom: 0 }]} multiline
+                placeholder="Ciudad, Estado, País o dirección completa" placeholderTextColor="#999"
+                value={espDestination} onChangeText={setEspDestination} />
+            </View>
+
+            {/* 5. Producto */}
+            <View style={s.espSection}>
+              <View style={s.espSectionHeader}>
+                <View style={s.espStepBadge}><Text style={s.espStepBadgeText}>5</Text></View>
+                <Text style={s.espSectionTitle}>Descripción del Producto</Text>
+              </View>
+              <TextInput style={[s.input, { minHeight: 90, textAlignVertical: 'top' }]} multiline
+                placeholder="Describe el producto (material, uso, características, notas)" placeholderTextColor="#999"
+                value={espProductDescription} onChangeText={setEspProductDescription} />
+              <View style={s.switchRow}>
+                <Switch
+                  value={espHasBrand}
+                  onValueChange={v => { setEspHasBrand(v); if (!v) setEspHasBrandLetter(false); }}
+                  trackColor={{ true: ORANGE, false: '#ccc' }}
+                  thumbColor="#fff"
+                />
+                <Text style={s.switchLabel}>¿Con marca registrada?</Text>
+              </View>
+              {espHasBrand && (
+                <View style={s.switchRow}>
+                  <Switch
+                    value={espHasBrandLetter}
+                    onValueChange={setEspHasBrandLetter}
+                    trackColor={{ true: ORANGE, false: '#ccc' }}
+                    thumbColor="#fff"
+                  />
+                  <Text style={s.switchLabel}>¿Tiene carta de uso de marca?</Text>
+                </View>
+              )}
+            </View>
+
+            {/* 6. Proveedor + Valor */}
+            <View style={s.espSection}>
+              <View style={s.espSectionHeader}>
+                <View style={s.espStepBadge}><Text style={s.espStepBadgeText}>6</Text></View>
+                <Text style={s.espSectionTitle}>Proveedor y Valor</Text>
+              </View>
+              <TextInput style={s.input} placeholder="Dirección del proveedor (origen)" placeholderTextColor="#999"
+                value={espOriginAddress} onChangeText={setEspOriginAddress} />
+              <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Valor total mercancía (USD)" placeholderTextColor="#999"
+                value={espMerchandiseValue} onChangeText={setEspMerchandiseValue} />
+              <View style={s.switchRow}>
+                <Switch
+                  value={espConRecoleccion}
+                  onValueChange={setEspConRecoleccion}
+                  trackColor={{ true: ORANGE, false: '#ccc' }}
+                  thumbColor="#fff"
+                />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={s.switchLabel}>Con recolección en origen</Text>
+                  <Text style={s.espHint}>
+                    {espConRecoleccion ? 'Iremos a recoger la mercancía.' : 'El proveedor la llevará al almacén.'}
+                  </Text>
+                </View>
+              </View>
+              {espConRecoleccion && (
+                <TextInput style={[s.input, { minHeight: 60, textAlignVertical: 'top', marginTop: 8 }]} multiline
+                  placeholder="Dirección de recolección" placeholderTextColor="#999"
+                  value={espDireccionRecoleccion} onChangeText={setEspDireccionRecoleccion} />
+              )}
+            </View>
+
+            {/* 7. Archivos */}
+            <View style={s.espSection}>
+              <View style={s.espSectionHeader}>
+                <View style={s.espStepBadge}><Text style={s.espStepBadgeText}>7</Text></View>
+                <Text style={s.espSectionTitle}>Archivos Adjuntos</Text>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity style={[s.attachBtn, { flex: 1 }]} onPress={espPickImages} disabled={espImages.length >= 10} activeOpacity={0.7}>
+                  <Ionicons name="image-outline" size={18} color={ORANGE} />
+                  <Text style={s.attachBtnText}>Fotos ({espImages.length}/10)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.attachBtn, { flex: 1 }]} onPress={espPickDocs} disabled={espDocs.length >= 5} activeOpacity={0.7}>
+                  <Ionicons name="document-attach-outline" size={18} color={ORANGE} />
+                  <Text style={s.attachBtnText}>Docs ({espDocs.length}/5)</Text>
+                </TouchableOpacity>
+              </View>
+              {(espImages.length > 0 || espDocs.length > 0) && (
+                <View style={s.fileList}>
+                  {espImages.map((f, i) => (
+                    <View key={`img-${i}`} style={s.fileChip}>
+                      <Text style={s.fileChipText} numberOfLines={1}>🖼 {f.name}</Text>
+                      <TouchableOpacity onPress={() => setEspImages(list => list.filter((_, j) => j !== i))} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                        <Ionicons name="close-circle" size={16} color="#c62828" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  {espDocs.map((f, i) => (
+                    <View key={`doc-${i}`} style={s.fileChip}>
+                      <Text style={s.fileChipText} numberOfLines={1}>📄 {f.name}</Text>
+                      <TouchableOpacity onPress={() => setEspDocs(list => list.filter((_, j) => j !== i))} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                        <Ionicons name="close-circle" size={16} color="#c62828" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Submit */}
+            <TouchableOpacity
+              style={[s.submitBtn, espSubmitting && { opacity: 0.6 }]}
+              onPress={espSubmit}
+              disabled={espSubmitting}
+              activeOpacity={0.85}
+            >
+              {espSubmitting
+                ? <ActivityIndicator color="#fff" />
+                : (
+                  <>
+                    <Ionicons name="paper-plane" size={18} color="#fff" />
+                    <Text style={s.submitBtnText}>Enviar Solicitud</Text>
+                  </>
+                )}
+            </TouchableOpacity>
+            <TouchableOpacity style={{ alignItems: 'center', paddingVertical: 12 }} onPress={espResetForm} disabled={espSubmitting} activeOpacity={0.7}>
+              <Text style={{ color: SUB, fontWeight: '600' }}>Limpiar formulario</Text>
+            </TouchableOpacity>
+          </ScrollView>
+
+          {/* Client picker modal — reutiliza filteredClients */}
+          <Modal visible={espClientPickerOpen} animationType="slide" transparent onRequestClose={() => setEspClientPickerOpen(false)}>
+            <View style={s.pickerOverlay}>
+              <View style={s.pickerSheet}>
+                <View style={s.pickerHeader}>
+                  <Text style={s.pickerTitle}>Seleccionar cliente</Text>
+                  <TouchableOpacity onPress={() => setEspClientPickerOpen(false)}>
+                    <Ionicons name="close" size={22} color={TEXT} />
+                  </TouchableOpacity>
+                </View>
+                <TextInput
+                  style={[s.input, { marginTop: 0, marginBottom: 8 }]}
+                  placeholder="Buscar por nombre, email o box"
+                  value={clientSearch}
+                  onChangeText={setClientSearch}
+                />
+                <FlatList
+                  data={filteredClients}
+                  keyExtractor={(i) => String(i.id)}
+                  keyboardShouldPersistTaps="handled"
+                  ListEmptyComponent={<Text style={{ color: SUB, textAlign: 'center', padding: 20 }}>Sin clientes</Text>}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={s.clientRow}
+                      onPress={() => { setEspClient(item); setEspClientPickerOpen(false); }}
+                    >
+                      <Ionicons name="person-circle-outline" size={22} color={ORANGE} />
+                      <View style={{ flex: 1, marginLeft: 8 }}>
+                        <Text style={{ fontWeight: '700', color: TEXT }}>{item.full_name || item.name}</Text>
+                        <Text style={{ color: SUB, fontSize: 12 }}>{item.box_id || item.email}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+            </View>
+          </Modal>
+        </KeyboardAvoidingView>
+      )}
+
       {/* ─── TAB: Mías ─── */}
       {tab === 'mias' && (
         loadingMyQuotes ? (
@@ -1001,4 +1480,93 @@ const s = StyleSheet.create({
   },
   clientName: { fontWeight: '700', color: TEXT },
   clientMeta: { color: SUB, fontSize: 12, marginTop: 2 },
+  // ── Especializada ────────────────────────────────
+  espBanner: {
+    backgroundColor: ORANGE, borderRadius: 14, padding: 14, marginBottom: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    shadowColor: ORANGE, shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3,
+  },
+  espBannerIcon: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  espBannerTitle: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  espBannerSub: { color: '#FFE0CC', fontSize: 12, marginTop: 3, lineHeight: 16 },
+  espSection: {
+    backgroundColor: CARD, borderRadius: 14, padding: 14, marginBottom: 12,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1,
+  },
+  espSectionHeader: {
+    flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8,
+  },
+  espStepBadge: {
+    width: 26, height: 26, borderRadius: 13, backgroundColor: '#FFF5F0',
+    borderWidth: 1.5, borderColor: ORANGE,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  espStepBadgeText: { color: ORANGE, fontWeight: '800', fontSize: 13 },
+  espSectionTitle: { fontWeight: '700', color: TEXT, fontSize: 15, flex: 1 },
+  espOptional: {
+    fontSize: 10, color: SUB, fontWeight: '600',
+    backgroundColor: '#F0F0F0', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+    overflow: 'hidden',
+  },
+  espBadgeCbm: {
+    backgroundColor: '#FFF5F0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10,
+    borderWidth: 1, borderColor: ORANGE,
+  },
+  espBadgeCbmText: { color: ORANGE, fontWeight: '700', fontSize: 11 },
+  espHint: { color: SUB, fontSize: 11, marginTop: 2, marginBottom: 4, lineHeight: 15 },
+  espLinkBtn: {
+    color: ORANGE, fontWeight: '700', fontSize: 13, marginTop: 8, marginBottom: 4, paddingVertical: 4,
+  },
+  chipBtn: {
+    paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10,
+    backgroundColor: '#fff', borderWidth: 2, borderColor: '#e0e0e0', flex: 1, alignItems: 'center',
+  },
+  chipBtnSm: {
+    paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10,
+    backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#e0e0e0', flex: 1, alignItems: 'center',
+  },
+  chipBtnActive: { backgroundColor: '#FFF5F0', borderColor: ORANGE },
+  chipBtnText: { color: SUB, fontSize: 14, fontWeight: '600' },
+  chipBtnTextSm: { color: SUB, fontSize: 12, fontWeight: '600' },
+  chipBtnTextActive: { color: ORANGE, fontWeight: '800' },
+  switchRow: {
+    flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 4,
+  },
+  switchLabel: { color: TEXT, fontSize: 14, fontWeight: '600', marginLeft: 6 },
+  blockCard: {
+    backgroundColor: BG, borderRadius: 10, padding: 10, marginBottom: 8,
+    borderWidth: 1, borderColor: '#e8e8e8',
+  },
+  attachBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 12, borderRadius: 10, borderWidth: 1.5, borderColor: ORANGE,
+    backgroundColor: '#FFF3E0',
+  },
+  attachBtnText: { color: ORANGE, fontWeight: '700', fontSize: 13 },
+  fileList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+  fileChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: '#e0e0e0', maxWidth: '100%',
+  },
+  fileChipText: { fontSize: 11, color: TEXT, maxWidth: 140 },
+  submitBtn: {
+    backgroundColor: ORANGE, borderRadius: 14, paddingVertical: 15, marginTop: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    shadowColor: ORANGE, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4,
+  },
+  submitBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  pickerSheet: {
+    backgroundColor: BG, borderTopLeftRadius: 16, borderTopRightRadius: 16,
+    maxHeight: '80%', padding: 12,
+  },
+  pickerHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 6, paddingHorizontal: 4, marginBottom: 8,
+  },
+  pickerTitle: { fontWeight: '700', fontSize: 16, color: TEXT },
 });

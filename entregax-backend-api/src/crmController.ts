@@ -240,6 +240,8 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
             JOIN lead_groups lg ON lg.id = m.group_id
            WHERE m.lead_key = c.lead_key
         ) gr ON true
+       -- Los leads en blacklist desaparecen del funnel.
+       WHERE NOT EXISTS (SELECT 1 FROM lead_blacklist b WHERE b.lead_key = c.lead_key)
        ORDER BY c.created_at DESC NULLS LAST
     `;
 
@@ -422,6 +424,7 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
       `SELECT ('crm_' || r.id::text) AS lead_key, u.full_name, u.phone
          FROM crm_requests r JOIN users u ON r.user_id = u.id
         WHERE ('crm_' || r.id::text) = ANY($1::text[])
+          AND NOT EXISTS (SELECT 1 FROM lead_blacklist bl WHERE bl.lead_key = ('crm_' || r.id::text))
        UNION ALL
        SELECT ('lc_' || lc.id::text) AS lead_key,
               COALESCE(NULLIF(TRIM(lc.full_name), ''), mu.full_name) AS full_name,
@@ -432,7 +435,8 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
             WHERE lc.box_id IS NOT NULL AND UPPER(TRIM(u2.box_id)) = UPPER(TRIM(lc.box_id))
             ORDER BY u2.id ASC LIMIT 1
          ) mu ON true
-        WHERE ('lc_' || lc.id::text) = ANY($1::text[])`,
+        WHERE ('lc_' || lc.id::text) = ANY($1::text[])
+          AND NOT EXISTS (SELECT 1 FROM lead_blacklist bl WHERE bl.lead_key = ('lc_' || lc.id::text))`,
       [leadKeys]
     );
 
@@ -516,6 +520,15 @@ async function ensureGroupsSchema(): Promise<void> {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_lgm_lead_key ON lead_group_members(lead_key);`).catch(() => {});
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS lead_blacklist (
+      id SERIAL PRIMARY KEY,
+      lead_key TEXT NOT NULL UNIQUE,
+      reason TEXT,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
   groupsSchemaReady = true;
 }
 
@@ -611,6 +624,78 @@ export const removeLeadsFromGroup = async (req: Request, res: Response): Promise
   } catch (error: any) {
     console.error('Error en removeLeadsFromGroup:', error);
     res.status(500).json({ success: false, error: 'Error al quitar del grupo' });
+  }
+};
+
+// ============================================================================
+// 🚫 BLACK LIST (no reciben mensajes masivos y desaparecen del funnel)
+// ============================================================================
+
+// GET /api/admin/crm/blacklist → leads en blacklist con su info resuelta
+export const getBlacklist = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureGroupsSchema();
+    const r = await pool.query(`
+      SELECT b.lead_key, b.reason, b.created_at,
+             'crm'::text AS source, u.full_name, u.email, u.box_id, u.phone
+        FROM lead_blacklist b
+        JOIN crm_requests r ON ('crm_' || r.id::text) = b.lead_key
+        JOIN users u ON u.id = r.user_id
+      UNION ALL
+      SELECT b.lead_key, b.reason, b.created_at,
+             'chartback'::text AS source,
+             COALESCE(NULLIF(TRIM(lc.full_name), ''), mu.full_name) AS full_name,
+             COALESCE(NULLIF(TRIM(lc.email), ''), mu.email) AS email,
+             lc.box_id,
+             COALESCE(NULLIF(TRIM(mu.phone), ''), lc.phone) AS phone
+        FROM lead_blacklist b
+        JOIN legacy_clients lc ON ('lc_' || lc.id::text) = b.lead_key
+        LEFT JOIN LATERAL (
+          SELECT u2.full_name, u2.email, u2.phone FROM users u2
+           WHERE lc.box_id IS NOT NULL AND UPPER(TRIM(u2.box_id)) = UPPER(TRIM(lc.box_id))
+           ORDER BY u2.id ASC LIMIT 1
+        ) mu ON true
+      ORDER BY created_at DESC
+    `);
+    res.json({ success: true, blacklist: r.rows, count: r.rows.length });
+  } catch (error: any) {
+    console.error('Error en getBlacklist:', error);
+    res.status(500).json({ success: false, error: 'Error al obtener blacklist' });
+  }
+};
+
+// POST /api/admin/crm/blacklist { leadKeys: string[], reason? }
+export const addToBlacklist = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureGroupsSchema();
+    const leadKeys: string[] = Array.isArray(req.body?.leadKeys) ? req.body.leadKeys.filter((k: any) => typeof k === 'string') : [];
+    const reason = req.body?.reason ? String(req.body.reason) : null;
+    if (leadKeys.length === 0) return res.status(400).json({ success: false, error: 'Selecciona al menos un lead' });
+    const createdBy = (req as any).user?.userId || (req as any).user?.id || null;
+    await pool.query(
+      `INSERT INTO lead_blacklist (lead_key, reason, created_by)
+       SELECT UNNEST($1::text[]), $2, $3
+       ON CONFLICT (lead_key) DO NOTHING`,
+      [leadKeys, reason, createdBy]
+    );
+    res.json({ success: true, added: leadKeys.length });
+  } catch (error: any) {
+    console.error('Error en addToBlacklist:', error);
+    res.status(500).json({ success: false, error: 'Error al agregar a blacklist' });
+  }
+};
+
+// DELETE /api/admin/crm/blacklist { leadKeys: string[] }
+export const removeFromBlacklist = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureGroupsSchema();
+    const leadKeys: string[] = Array.isArray(req.body?.leadKeys) ? req.body.leadKeys.filter((k: any) => typeof k === 'string') : [];
+    if (leadKeys.length === 0) return res.status(400).json({ success: false, error: 'Selecciona al menos un lead' });
+    await pool.query(`DELETE FROM lead_blacklist WHERE lead_key = ANY($1::text[])`, [leadKeys]);
+    res.json({ success: true, removed: leadKeys.length });
+  } catch (error: any) {
+    console.error('Error en removeFromBlacklist:', error);
+    res.status(500).json({ success: false, error: 'Error al quitar de blacklist' });
   }
 };
 
