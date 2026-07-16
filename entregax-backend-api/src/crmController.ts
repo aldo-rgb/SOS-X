@@ -166,7 +166,8 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
           'crm'::text AS source,
           ('crm_' || r.id::text) AS lead_key,
           r.created_at,
-          r.status,
+          -- Solicitó asesor y aún no se asigna → "En espera" (separado de los legacy).
+          CASE WHEN r.status = 'pending' THEN 'waiting' ELSE r.status END AS status,
           r.admin_notes,
           r.updated_at,
           u.id AS user_id,
@@ -285,7 +286,7 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
     const all = await pool.query(combinedQuery);
 
     // Stats sobre TODAS las fuentes (funnel combinado)
-    const stats = { prospected: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 };
+    const stats = { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 };
     for (const row of all.rows) {
       if (row.status && Object.prototype.hasOwnProperty.call(stats, row.status)) {
         stats[row.status as keyof typeof stats]++;
@@ -1451,9 +1452,10 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
     const { status, advisorId, channel, search, page = 1, limit = 50 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
-    // Los prospectos que YA se registraron pasan a CRM Leads → "Prospectados"
-    // y desaparecen de esta lista de prospectos externos.
-    let whereConditions: string[] = ['p.converted_user_id IS NULL'];
+    // Los prospectos que se registran se marcan 'converted' (reconcile) pero NO
+    // desaparecen de aquí: siguen visibles para seguir manipulando su info,
+    // y además aparecen en CRM Leads → "Prospectados".
+    let whereConditions: string[] = [];
     const params: any[] = [];
     let paramIndex = 1;
 
@@ -1525,7 +1527,6 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
         COUNT(*) FILTER (WHERE status = 'lost') as lost_count,
         COUNT(*) FILTER (WHERE follow_up_date::date = CURRENT_DATE) as follow_up_today
       FROM prospects
-      WHERE converted_user_id IS NULL
     `;
     const statsResult = await pool.query(statsQuery);
 

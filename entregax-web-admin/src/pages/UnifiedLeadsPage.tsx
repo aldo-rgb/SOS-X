@@ -184,6 +184,7 @@ interface Advisor {
 
 interface LeadStats {
   prospected: number;
+  waiting: number;
   pending: number;
   assigned: number;
   contacted: number;
@@ -204,6 +205,7 @@ interface ProspectStats {
 const getLeadStatusColor = (status: string) => {
   switch (status) {
     case 'prospected': return 'secondary';
+    case 'waiting': return 'warning';
     case 'pending': return 'warning';
     case 'assigned': return 'info';
     case 'contacted': return 'primary';
@@ -259,6 +261,7 @@ export default function UnifiedLeadsPage() {
   const getLeadStatusLabel = (status: string) => {
     switch (status) {
       case 'prospected': return 'Prospectado';
+      case 'waiting': return 'En espera';
       case 'pending': return t('leads.pending');
       case 'assigned': return t('leads.assigned');
       case 'contacted': return t('leads.contacted');
@@ -303,7 +306,7 @@ export default function UnifiedLeadsPage() {
   
   // ============ CRM LEADS STATE ============
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [leadStats, setLeadStats] = useState<LeadStats>({ prospected: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 });
+  const [leadStats, setLeadStats] = useState<LeadStats>({ prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 });
   const [leadsLoading, setLeadsLoading] = useState(true);
   const [leadTabValue, setLeadTabValue] = useState('pending');
   
@@ -720,7 +723,7 @@ export default function UnifiedLeadsPage() {
       });
       if (res.data.success) {
         setLeads(res.data.leads || []);
-        setLeadStats(res.data.stats || { prospected: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 });
+        setLeadStats(res.data.stats || { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 });
       }
     } catch {
       console.error('Error fetching leads');
@@ -1143,7 +1146,7 @@ export default function UnifiedLeadsPage() {
   };
 
   // ============ STATS TOTALS ============
-  const totalLeads = leadStats.prospected + leadStats.pending + leadStats.assigned + leadStats.contacted + leadStats.converted;
+  const totalLeads = leadStats.prospected + leadStats.waiting + leadStats.pending + leadStats.assigned + leadStats.contacted + leadStats.converted;
   const totalProspects = prospectStats
     ? Number(prospectStats.new_count) + Number(prospectStats.contacting_count) + Number(prospectStats.interested_count) + Number(prospectStats.converted_count) + Number(prospectStats.lost_count)
     : 0;
@@ -1253,10 +1256,14 @@ export default function UnifiedLeadsPage() {
       {mainTab === 'leads' && (
         <Box>
           {/* Lead Stats */}
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 2, mb: 3 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 2, mb: 3 }}>
             <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#f3e5f5', borderLeft: '4px solid #9c27b0' }}>
               <Typography variant="h4" fontWeight={700} color="#7b1fa2">{leadStats.prospected}</Typography>
               <Typography variant="body2" color="text.secondary">Prospectados 🌱</Typography>
+            </Paper>
+            <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#fffde7', borderLeft: '4px solid #fbc02d' }}>
+              <Typography variant="h4" fontWeight={700} color="#f57f17">{leadStats.waiting}</Typography>
+              <Typography variant="body2" color="text.secondary">En espera ⏳</Typography>
             </Paper>
             <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#fff3e0', borderLeft: '4px solid #ff9800' }}>
               <Typography variant="h4" fontWeight={700} color="#e65100">{leadStats.pending}</Typography>
@@ -1285,6 +1292,7 @@ export default function UnifiedLeadsPage() {
               textColor="primary"
             >
               <Tab value="prospected" label={`Prospectados (${leadStats.prospected})`} />
+              <Tab value="waiting" label={`En espera (${leadStats.waiting})`} />
               <Tab value="pending" label={`${t('leads.pending')} (${leadStats.pending})`} />
               <Tab value="assigned" label={`${t('leads.assigned')} (${leadStats.assigned})`} />
               <Tab value="contacted" label={`${t('leads.contacted')} (${leadStats.contacted})`} />
