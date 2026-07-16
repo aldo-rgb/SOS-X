@@ -260,6 +260,19 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
         FROM prospects p
         JOIN users u ON p.converted_user_id = u.id
         LEFT JOIN users padv ON p.assigned_advisor_id = padv.id
+      ),
+      -- Blacklist resuelto a nivel PERSONA (user_id + Box ID), no solo el lead_key.
+      -- Así, si un cliente aparece en varias fuentes (crm/legacy/prospecto), al
+      -- ponerlo en blacklist desaparece de TODAS.
+      bl AS (
+        SELECT r.user_id AS uid, NULL::text AS box
+          FROM lead_blacklist b JOIN crm_requests r ON ('crm_' || r.id::text) = b.lead_key
+        UNION
+        SELECT lc.claimed_by_user_id AS uid, UPPER(TRIM(lc.box_id)) AS box
+          FROM lead_blacklist b JOIN legacy_clients lc ON ('lc_' || lc.id::text) = b.lead_key
+        UNION
+        SELECT p.converted_user_id AS uid, NULL::text AS box
+          FROM lead_blacklist b JOIN prospects p ON ('pr_' || p.id::text) = b.lead_key
       )
       SELECT * FROM (
         SELECT DISTINCT ON (COALESCE(NULLIF(UPPER(TRIM(c.box_id)), ''), c.lead_key))
@@ -272,8 +285,10 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
               JOIN lead_groups lg ON lg.id = m.group_id
              WHERE m.lead_key = c.lead_key
           ) gr ON true
-         -- Los leads en blacklist desaparecen del funnel.
+         -- Los leads en blacklist desaparecen del funnel (por lead_key, por usuario y por Box ID).
          WHERE NOT EXISTS (SELECT 1 FROM lead_blacklist b WHERE b.lead_key = c.lead_key)
+           AND NOT EXISTS (SELECT 1 FROM bl WHERE bl.uid IS NOT NULL AND bl.uid = c.user_id)
+           AND NOT EXISTS (SELECT 1 FROM bl WHERE bl.box IS NOT NULL AND bl.box = UPPER(TRIM(c.box_id)))
          -- Deduplica por cliente (Box ID): si un usuario tiene varias solicitudes,
          -- se queda la fila MÁS avanzada en el funnel y, a igualdad, la más reciente.
          ORDER BY COALESCE(NULLIF(UPPER(TRIM(c.box_id)), ''), c.lead_key),
