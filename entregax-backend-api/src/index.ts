@@ -608,6 +608,7 @@ import {
   deleteBulkTemplate,
   uploadBulkTemplateImage,
   trackClickRedirect,
+  debugMetaTemplate,
   // Nuevos módulos CRM
   getCRMClients,
   exportCRMClients,
@@ -7049,6 +7050,8 @@ const bulkTemplateImageUpload = multer({ storage: multer.memoryStorage(), limits
 app.post('/api/admin/crm/bulk-templates/upload-image', authenticateToken, requireMinLevel(ROLES.DIRECTOR), bulkTemplateImageUpload.single('file'), uploadBulkTemplateImage);
 // Rastreo de clics en botones de URL de WhatsApp: registra y redirige (público, sin auth).
 app.get('/r/:token', trackClickRedirect);
+// TEMPORAL: diagnóstico de estructura de plantilla en Meta.
+app.get('/api/_diag/wa-template/:name', debugMetaTemplate);
 
 // 🎁 Control de Kit de Bienvenida
 app.get('/api/admin/welcome-kit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getWelcomeKits);

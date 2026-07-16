@@ -569,6 +569,40 @@ export const trackClickRedirect = async (req: Request, res: Response): Promise<a
   }
 };
 
+// TEMPORAL (diagnóstico): estructura real de una plantilla en Meta.
+// GET /api/_diag/wa-template/:name?k=entregax_diag_2026
+export const debugMetaTemplate = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (String(req.query.k || '') !== 'entregax_diag_2026') return res.status(403).json({ error: 'no' });
+    const name = String(req.params.name || '').trim();
+    const WABA = '1311055820410416';
+    const token = process.env.WHATSAPP_ACCESS_TOKEN;
+    const ver = process.env.WHATSAPP_API_VERSION || 'v23.0';
+    if (!token) return res.status(500).json({ error: 'sin token' });
+    const url = `https://graph.facebook.com/${ver}/${WABA}/message_templates?name=${encodeURIComponent(name)}&access_token=${token}`;
+    const r = await fetch(url);
+    const j: any = await r.json();
+    const t = (j.data || [])[0];
+    if (!t) return res.json({ found: false, raw: j });
+    // Devolver solo la estructura de componentes (sin datos sensibles).
+    res.json({
+      found: true,
+      name: t.name,
+      language: t.language,
+      status: t.status,
+      category: t.category,
+      components: (t.components || []).map((c: any) => ({
+        type: c.type,
+        format: c.format,
+        text: c.text,
+        buttons: (c.buttons || []).map((b: any) => ({ type: b.type, text: b.text, url: b.url, example: b.example })),
+      })),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
 // GET /api/admin/crm/bulk-templates → plantillas + valores vigentes para prellenar
 export const getBulkTemplates = async (_req: Request, res: Response): Promise<any> => {
   try {
