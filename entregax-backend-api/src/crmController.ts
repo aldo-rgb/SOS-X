@@ -5,6 +5,7 @@ import { generateBoxId } from './authController';
 import { sendTemplate } from './whatsappService';
 import { uploadToS3, isS3Configured, getSignedUrlForKey } from './s3Service';
 import { stopSequenceByLeadKey, ensureSequenceSchema } from './waSequenceController';
+import { createKitRequestFromClick } from './welcomeKitController';
 
 // ============================================================================
 // FUNCIONES ORIGINALES (APP Y CRM BÁSICO)
@@ -544,23 +545,28 @@ export const trackClickRedirect = async (req: Request, res: Response): Promise<a
               last_click_at = NOW(),
               first_click_at = COALESCE(first_click_at, NOW())
         WHERE token = $1
-      RETURNING lead_key, destination`,
+      RETURNING lead_key, destination, name, phone`,
       [token]
     );
     const row = r.rows[0];
     if (!row) return res.redirect(302, fallback);
     // El clic saca al lead de la secuencia automatizada (interactuó).
     if (row.lead_key) await stopSequenceByLeadKey(String(row.lead_key), 'clicked');
-    // Reflejar el clic en el prospecto (si aplica): un prospecto 'new' pasa a 'interested'.
+    // Reflejar el clic en el prospecto: cualquier funnel pasa 'new'/'contacting' → 'interested'.
+    // NO se toca si ya está 'converted'/'lost' (no se degrada ni se reactiva).
     if (String(row.lead_key || '').startsWith('pr_')) {
       const pid = parseInt(String(row.lead_key).slice(3), 10);
       if (pid) {
         await pool.query(
           `UPDATE prospects SET status = 'interested', updated_at = NOW()
-            WHERE id = $1 AND status = 'new'`,
+            WHERE id = $1 AND status IN ('new', 'contacting')`,
           [pid]
         ).catch(() => {});
       }
+    }
+    // Si el clic fue en "Reclamar Regalo" (destino del kit) → crear solicitud de kit.
+    if (/\/kit(\/|\?|#|$)/i.test(String(row.destination || ''))) {
+      await createKitRequestFromClick(String(row.lead_key || ''), row.name || null, row.phone || null);
     }
     return res.redirect(302, row.destination || fallback);
   } catch (e) {
@@ -1557,6 +1563,15 @@ const reconcileRegisteredProspects = async (): Promise<void> => {
          AND NULLIF(lower(trim(p.email)), '') IS NOT NULL
          AND lower(trim(p.email)) = lower(trim(u.email))
     `);
+    // Al convertirse (registrarse), sale del funnel: se detiene su secuencia activa.
+    await pool.query(`
+      UPDATE wa_sequence_enrollments e
+         SET status = 'stopped', stopped_reason = 'converted', updated_at = NOW()
+        FROM prospects p
+       WHERE e.status = 'active'
+         AND e.lead_key = ('pr_' || p.id::text)
+         AND p.converted_user_id IS NOT NULL
+    `).catch(() => {});
   } catch (e) {
     console.warn('[CRM] reconcileRegisteredProspects:', (e as Error).message);
   }

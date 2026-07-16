@@ -262,6 +262,22 @@ export const processDueSequenceSteps = async (): Promise<{ sent: number; advance
       await pool.query(`UPDATE wa_sequence_enrollments SET status='completed', updated_at=NOW() WHERE id=$1`, [enr.id]).catch(() => {});
       continue;
     }
+    // Elegibilidad: NO enviar si está en blacklist, o si el prospecto está
+    // convertido (se registró) o perdido → se detiene la secuencia.
+    const elig = await pool.query(
+      `SELECT
+         EXISTS(SELECT 1 FROM lead_blacklist WHERE lead_key = $1) AS blacklisted,
+         CASE WHEN $1 LIKE 'pr_%' THEN (
+           SELECT (pr.converted_user_id IS NOT NULL OR pr.status IN ('lost','converted'))
+             FROM prospects pr WHERE pr.id = NULLIF(split_part($1,'_',2),'')::int
+         ) ELSE false END AS out_of_funnel`,
+      [enr.lead_key]
+    );
+    const e0 = elig.rows[0] || {};
+    if (e0.blacklisted || e0.out_of_funnel) {
+      await pool.query(`UPDATE wa_sequence_enrollments SET status='stopped', stopped_reason=$2, updated_at=NOW() WHERE id=$1`, [enr.id, e0.blacklisted ? 'blacklist' : 'out_of_funnel']).catch(() => {});
+      continue;
+    }
     // Enviar si el paso tiene plantilla configurada.
     if (step.template_id) {
       try { if (await sendStep(enr, step)) sent++; } catch (e) { console.warn('[SEQ] sendStep:', (e as Error).message); }

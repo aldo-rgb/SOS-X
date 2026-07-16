@@ -16,6 +16,19 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 
 let schemaReady = false;
+export async function ensureWelcomeKitSchema(): Promise<void> { return ensureSchema(); }
+// Crea una solicitud de kit desde un clic en "Reclamar Regalo" (idempotente por lead_key).
+export async function createKitRequestFromClick(leadKey: string, name: string | null, phone: string | null): Promise<void> {
+  try {
+    await ensureSchema();
+    await pool.query(
+      `INSERT INTO welcome_kit_requests (lead_key, full_name, phone, status)
+       SELECT $1, $2, $3, 'solicitado'
+        WHERE NOT EXISTS (SELECT 1 FROM welcome_kit_requests WHERE lead_key = $1)`,
+      [leadKey, name || 'Cliente', phone]
+    );
+  } catch (e) { console.warn('[KIT] createKitRequestFromClick:', (e as Error).message); }
+}
 async function ensureSchema(): Promise<void> {
   if (schemaReady) return;
   await pool.query(`
