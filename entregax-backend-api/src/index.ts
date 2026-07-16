@@ -620,6 +620,7 @@ import {
   updateProspect,
   convertProspectToClient,
   deleteProspect,
+  bulkCreateProspects,
   getSalesReport,
   getSalesReportByAdvisor,
   getSalesReportServiceItems,
@@ -7069,6 +7070,7 @@ app.patch('/api/admin/crm/clients/:id/toggle-broker', authenticateToken, require
 // Módulo 3: Prospectos (Leads mejorado)
 app.get('/api/admin/crm/prospects', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProspects);
 app.post('/api/admin/crm/prospects', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createProspect);
+app.post('/api/admin/crm/prospects/bulk', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), bulkCreateProspects);
 app.put('/api/admin/crm/prospects/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateProspect);
 app.post('/api/admin/crm/prospects/:id/convert', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), convertProspectToClient);
 app.delete('/api/admin/crm/prospects/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), deleteProspect);

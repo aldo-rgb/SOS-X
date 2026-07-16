@@ -83,6 +83,9 @@ import BlockIcon from '@mui/icons-material/Block';
 import SendIcon from '@mui/icons-material/Send';
 import CloseIcon from '@mui/icons-material/Close';
 import ImageIcon from '@mui/icons-material/Image';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
+import * as XLSX from 'xlsx';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
@@ -644,6 +647,7 @@ export default function UnifiedLeadsPage() {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [prospectsLoading, setProspectsLoading] = useState(true);
   const [prospectStats, setProspectStats] = useState<ProspectStats | null>(null);
+  const [uploadingProspects, setUploadingProspects] = useState(false);
 
   // Filtros prospectos
   const [prospectStatusFilter, setProspectStatusFilter] = useState('all');
@@ -747,6 +751,73 @@ export default function UnifiedLeadsPage() {
       setProspectsLoading(false);
     }
   }, [prospectStatusFilter, prospectAdvisorFilter, prospectChannelFilter, prospectSearch, prospectPage, prospectRowsPerPage]);
+
+  // Descargar la plantilla de Excel para carga masiva de prospectos
+  const downloadProspectTemplate = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Nombre completo', 'Telefono', 'Email', 'Canal'],
+      ['Juan Pérez', '5512345678', 'juan@correo.com', 'Facebook'],
+      ['María López', '5598765432', 'maria@correo.com', 'Web'],
+      ['', '', '', ''],
+    ]);
+    ws['!cols'] = [{ wch: 28 }, { wch: 16 }, { wch: 26 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Prospectos');
+    // Hoja de ayuda con los canales válidos
+    const help = XLSX.utils.aoa_to_sheet([
+      ['CANALES VÁLIDOS (columna "Canal")'],
+      ['Facebook'], ['Instagram'], ['WhatsApp'], ['Web'], ['Referido'], ['Otro'],
+      [''],
+      ['Notas:'],
+      ['• Solo "Nombre completo" es obligatorio.'],
+      ['• La fecha de seguimiento se pone automática (día de la carga).'],
+      ['• Todos se cargan sin asesor y sin notas.'],
+    ]);
+    help['!cols'] = [{ wch: 50 }];
+    XLSX.utils.book_append_sheet(wb, help, 'Instrucciones');
+    XLSX.writeFile(wb, 'plantilla_prospectos.xlsx');
+  };
+
+  // Subir Excel y crear prospectos masivamente
+  const handleUploadProspectsExcel = async (file: File) => {
+    setUploadingProspects(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0] as string];
+      if (!sheet) { setSnackbar({ open: true, message: 'El archivo no tiene hojas', severity: 'error' }); return; }
+      const json = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '', raw: false });
+      const norm = (s: any) => String(s || '').trim().toLowerCase();
+      const rows = json.map((obj) => {
+        const get = (...keys: string[]) => {
+          for (const k of Object.keys(obj)) { if (keys.includes(norm(k))) return obj[k]; }
+          return '';
+        };
+        return {
+          full_name: String(get('nombre completo', 'nombre', 'nombre_completo', 'name')).trim(),
+          whatsapp: String(get('telefono', 'teléfono', 'whatsapp', 'celular', 'phone', 'tel')).trim(),
+          email: String(get('email', 'correo', 'e-mail', 'correo electronico', 'correo electrónico')).trim(),
+          acquisition_channel: String(get('canal', 'canal de adquisicion', 'canal de adquisición', 'channel')).trim(),
+        };
+      }).filter((r) => r.full_name);
+
+      if (rows.length === 0) {
+        setSnackbar({ open: true, message: 'No se encontraron filas con "Nombre completo". Usa la plantilla.', severity: 'error' });
+        return;
+      }
+      const res = await axios.post(`${API_URL}/admin/crm/prospects/bulk`, { rows }, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const { inserted = 0, skipped = 0 } = res.data || {};
+      setSnackbar({ open: true, message: `✅ ${inserted} prospectos importados${skipped ? ` · ${skipped} omitidos (sin nombre)` : ''}`, severity: 'success' });
+      setProspectPage(0);
+      fetchProspects();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al importar el Excel', severity: 'error' });
+    } finally {
+      setUploadingProspects(false);
+    }
+  };
 
   // Effects
   useEffect(() => {
@@ -1086,14 +1157,37 @@ export default function UnifiedLeadsPage() {
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           {mainTab === 'prospects' && (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => handleOpenProspectForm()}
-              sx={{ background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)' }}
-            >
-              {t('leads.newProspect')}
-            </Button>
+            <>
+              <Button
+                variant="outlined"
+                startIcon={<FileDownloadIcon />}
+                onClick={downloadProspectTemplate}
+              >
+                Descargar plantilla
+              </Button>
+              <Button
+                component="label"
+                variant="outlined"
+                startIcon={<UploadFileIcon />}
+                disabled={uploadingProspects}
+              >
+                {uploadingProspects ? 'Importando…' : 'Subir Excel'}
+                <input
+                  type="file"
+                  hidden
+                  accept=".xlsx,.xls,.csv"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadProspectsExcel(f); (e.target as HTMLInputElement).value = ''; }}
+                />
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => handleOpenProspectForm()}
+                sx={{ background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)' }}
+              >
+                {t('leads.newProspect')}
+              </Button>
+            </>
           )}
           <Button
             variant="outlined"

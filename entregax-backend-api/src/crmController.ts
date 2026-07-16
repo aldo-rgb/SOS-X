@@ -1589,6 +1589,80 @@ export const deleteProspect = async (req: Request, res: Response): Promise<any> 
   }
 };
 
+/**
+ * Carga masiva de prospectos desde Excel
+ * POST /api/admin/crm/prospects/bulk
+ * Body: { rows: [{ full_name, whatsapp, email, acquisition_channel }] }
+ * Reglas: fecha de seguimiento = hoy, sin asesor, sin notas, status 'new'.
+ */
+const normalizeProspectChannel = (raw: any): string => {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (!s) return 'OTHER';
+  if (['facebook', 'fb', 'face'].includes(s)) return 'FACEBOOK';
+  if (['instagram', 'ig', 'insta'].includes(s)) return 'IG';
+  if (['whatsapp', 'wa', 'wsp', 'whats', 'wpp'].includes(s)) return 'WA';
+  if (['web', 'pagina web', 'página web', 'sitio web', 'website', 'page', 'landing'].includes(s)) return 'WEB';
+  if (['referido', 'referral', 'ref', 'recomendacion', 'recomendación', 'recomendado'].includes(s)) return 'REF';
+  if (['otro', 'other', 'otros'].includes(s)) return 'OTHER';
+  const up = s.toUpperCase();
+  return ['FACEBOOK', 'FB', 'IG', 'WA', 'WEB', 'REF', 'OTHER'].includes(up) ? up : 'OTHER';
+};
+
+export const bulkCreateProspects = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'No se recibieron filas para importar' });
+    }
+    if (rows.length > 20000) {
+      return res.status(400).json({ success: false, error: 'Máximo 20,000 filas por carga' });
+    }
+    const createdById = (req as any).user?.id || null;
+
+    // Limpiar/normalizar. Se omiten filas sin nombre.
+    const clean: Array<{ full_name: string; whatsapp: string | null; email: string | null; channel: string }> = [];
+    let skipped = 0;
+    for (const r of rows) {
+      const full_name = String(r?.full_name ?? r?.nombre ?? '').trim();
+      if (!full_name) { skipped++; continue; }
+      const whatsapp = String(r?.whatsapp ?? r?.telefono ?? r?.phone ?? '').trim() || null;
+      const email = String(r?.email ?? r?.correo ?? '').trim() || null;
+      const channel = normalizeProspectChannel(r?.acquisition_channel ?? r?.canal);
+      clean.push({ full_name, whatsapp, email, channel });
+    }
+
+    if (clean.length === 0) {
+      return res.status(400).json({ success: false, error: 'Ninguna fila tiene "Nombre completo"' });
+    }
+
+    // Insert por lotes de 500 (fecha = hoy, sin asesor, sin notas, status 'new').
+    let inserted = 0;
+    const CHUNK = 500;
+    for (let i = 0; i < clean.length; i += CHUNK) {
+      const slice = clean.slice(i, i + CHUNK);
+      const valuesSql: string[] = [];
+      const params: any[] = [];
+      let p = 1;
+      for (const c of slice) {
+        valuesSql.push(`($${p++}, $${p++}, $${p++}, $${p++}, 'new', $${p++}, CURRENT_DATE)`);
+        params.push(c.full_name, c.whatsapp, c.email, c.channel, createdById);
+      }
+      await pool.query(
+        `INSERT INTO prospects (full_name, whatsapp, email, acquisition_channel, status, created_by_id, follow_up_date)
+         VALUES ${valuesSql.join(', ')}`,
+        params
+      );
+      inserted += slice.length;
+    }
+
+    console.log(`[CRM] Carga masiva de prospectos: ${inserted} importados, ${skipped} omitidos (de ${rows.length} filas)`);
+    res.json({ success: true, inserted, skipped, total: rows.length, message: `${inserted} prospectos importados` });
+  } catch (error: any) {
+    console.error('Error bulkCreateProspects:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 // ============================================================================
 // MÓDULO 4: REPORTES HISTÓRICOS
 // ============================================================================
