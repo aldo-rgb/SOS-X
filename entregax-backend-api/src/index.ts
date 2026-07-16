@@ -592,6 +592,11 @@ import {
   createLeadFromSupport,
   bulkWhatsapp,
   getBulkWhatsappDefaults,
+  getLeadGroups,
+  createLeadGroup,
+  deleteLeadGroup,
+  addLeadsToGroup,
+  removeLeadsFromGroup,
   // Nuevos módulos CRM
   getCRMClients,
   exportCRMClients,
@@ -7007,6 +7012,12 @@ app.put('/api/admin/crm/leads/:id/status', authenticateToken, requireMinLevel(RO
 // Envío masivo de WhatsApp a leads (plantillas predefinidas). Send gateado a DIRECTOR+.
 app.get('/api/admin/crm/bulk-whatsapp/defaults', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBulkWhatsappDefaults);
 app.post('/api/admin/crm/bulk-whatsapp', authenticateToken, requireMinLevel(ROLES.DIRECTOR), bulkWhatsapp);
+// Grupos de leads (segmentación manual; reglas automáticas después)
+app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
+app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);
+app.delete('/api/admin/crm/groups/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), deleteLeadGroup);
+app.post('/api/admin/crm/groups/:id/members', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), addLeadsToGroup);
+app.delete('/api/admin/crm/groups/:id/members', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), removeLeadsFromGroup);
 
 // App: Crear lead desde chat de soporte (solicitud de llamada)
 app.post('/api/crm/leads', authenticateToken, createLeadFromSupport);

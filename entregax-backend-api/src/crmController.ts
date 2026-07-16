@@ -150,6 +150,7 @@ export const lookupAdvisor = async (req: Request, res: Response): Promise<any> =
 export const getCrmLeads = async (req: Request, res: Response): Promise<any> => {
   try {
     const { status } = req.query;
+    await ensureGroupsSchema();
 
     // Consulta combinada. Ambas fuentes proyectan el MISMO set de columnas.
     const combinedQuery = `
@@ -207,7 +208,16 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
         LEFT JOIN users adv ON lc.recovery_advisor_id = adv.id
         WHERE lc.chartback = true OR LOWER(TRIM(COALESCE(lc.chartback_status, ''))) = 'recovered'
       )
-      SELECT * FROM combined ORDER BY created_at DESC NULLS LAST
+      SELECT c.*,
+             COALESCE(gr.groups, '[]'::jsonb) AS groups
+        FROM combined c
+        LEFT JOIN LATERAL (
+          SELECT jsonb_agg(jsonb_build_object('id', lg.id, 'name', lg.name, 'color', lg.color) ORDER BY lg.name) AS groups
+            FROM lead_group_members m
+            JOIN lead_groups lg ON lg.id = m.group_id
+           WHERE m.lead_key = c.lead_key
+        ) gr ON true
+       ORDER BY c.created_at DESC NULLS LAST
     `;
 
     const all = await pool.query(combinedQuery);
@@ -443,6 +453,134 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
   } catch (error: any) {
     console.error('Error en bulkWhatsapp:', error);
     res.status(500).json({ success: false, error: error.message || 'Error al enviar' });
+  }
+};
+
+// ============================================================================
+// 👥 GRUPOS DE LEADS (para segmentar y automatizar mensajes por grupo)
+// ============================================================================
+// Un lead se identifica por lead_key ('crm_<id>' | 'lc_<id>'), la misma llave que
+// devuelve getCrmLeads. La membresía vive en lead_group_members con ON DELETE
+// CASCADE sobre el grupo: al borrar un grupo, los leads NO se borran, solo pierden
+// la membresía.
+let groupsSchemaReady = false;
+async function ensureGroupsSchema(): Promise<void> {
+  if (groupsSchemaReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS lead_groups (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      color TEXT DEFAULT '#1976d2',
+      description TEXT,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS lead_group_members (
+      id SERIAL PRIMARY KEY,
+      group_id INTEGER NOT NULL REFERENCES lead_groups(id) ON DELETE CASCADE,
+      lead_key TEXT NOT NULL,
+      added_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (group_id, lead_key)
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_lgm_lead_key ON lead_group_members(lead_key);`).catch(() => {});
+  groupsSchemaReady = true;
+}
+
+// GET /api/admin/crm/groups → grupos + conteo de miembros
+export const getLeadGroups = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureGroupsSchema();
+    const r = await pool.query(`
+      SELECT g.id, g.name, g.color, g.description, g.created_at,
+             COUNT(m.id)::int AS member_count
+        FROM lead_groups g
+        LEFT JOIN lead_group_members m ON m.group_id = g.id
+       GROUP BY g.id
+       ORDER BY g.name ASC
+    `);
+    res.json({ success: true, groups: r.rows });
+  } catch (error: any) {
+    console.error('Error en getLeadGroups:', error);
+    res.status(500).json({ success: false, error: 'Error al obtener grupos' });
+  }
+};
+
+// POST /api/admin/crm/groups { name, color? }
+export const createLeadGroup = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureGroupsSchema();
+    const name = String(req.body?.name || '').trim();
+    const color = String(req.body?.color || '#1976d2').trim() || '#1976d2';
+    if (!name) return res.status(400).json({ success: false, error: 'El nombre del grupo es obligatorio' });
+    const createdBy = (req as any).user?.userId || (req as any).user?.id || null;
+    const r = await pool.query(
+      `INSERT INTO lead_groups (name, color, created_by) VALUES ($1, $2, $3) RETURNING id, name, color, description, created_at`,
+      [name, color, createdBy]
+    );
+    res.json({ success: true, group: { ...r.rows[0], member_count: 0 } });
+  } catch (error: any) {
+    console.error('Error en createLeadGroup:', error);
+    res.status(500).json({ success: false, error: 'Error al crear grupo' });
+  }
+};
+
+// DELETE /api/admin/crm/groups/:id → borra el grupo (membresías en cascada; leads intactos)
+export const deleteLeadGroup = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureGroupsSchema();
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) return res.status(400).json({ success: false, error: 'id inválido' });
+    await pool.query(`DELETE FROM lead_groups WHERE id = $1`, [id]);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error en deleteLeadGroup:', error);
+    res.status(500).json({ success: false, error: 'Error al eliminar grupo' });
+  }
+};
+
+// POST /api/admin/crm/groups/:id/members { leadKeys: string[] }
+export const addLeadsToGroup = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureGroupsSchema();
+    const groupId = parseInt(String(req.params.id), 10);
+    const leadKeys: string[] = Array.isArray(req.body?.leadKeys) ? req.body.leadKeys.filter((k: any) => typeof k === 'string') : [];
+    if (!groupId) return res.status(400).json({ success: false, error: 'grupo inválido' });
+    if (leadKeys.length === 0) return res.status(400).json({ success: false, error: 'Selecciona al menos un lead' });
+    const grp = await pool.query(`SELECT id FROM lead_groups WHERE id = $1`, [groupId]);
+    if (grp.rows.length === 0) return res.status(404).json({ success: false, error: 'Grupo no encontrado' });
+    // Insertar en bloque, ignorando duplicados
+    await pool.query(
+      `INSERT INTO lead_group_members (group_id, lead_key)
+       SELECT $1, UNNEST($2::text[])
+       ON CONFLICT (group_id, lead_key) DO NOTHING`,
+      [groupId, leadKeys]
+    );
+    res.json({ success: true, added: leadKeys.length });
+  } catch (error: any) {
+    console.error('Error en addLeadsToGroup:', error);
+    res.status(500).json({ success: false, error: 'Error al asignar al grupo' });
+  }
+};
+
+// DELETE /api/admin/crm/groups/:id/members { leadKeys: string[] }
+export const removeLeadsFromGroup = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureGroupsSchema();
+    const groupId = parseInt(String(req.params.id), 10);
+    const leadKeys: string[] = Array.isArray(req.body?.leadKeys) ? req.body.leadKeys.filter((k: any) => typeof k === 'string') : [];
+    if (!groupId) return res.status(400).json({ success: false, error: 'grupo inválido' });
+    if (leadKeys.length === 0) return res.status(400).json({ success: false, error: 'Selecciona al menos un lead' });
+    await pool.query(
+      `DELETE FROM lead_group_members WHERE group_id = $1 AND lead_key = ANY($2::text[])`,
+      [groupId, leadKeys]
+    );
+    res.json({ success: true, removed: leadKeys.length });
+  } catch (error: any) {
+    console.error('Error en removeLeadsFromGroup:', error);
+    res.status(500).json({ success: false, error: 'Error al quitar del grupo' });
   }
 };
 

@@ -106,6 +106,17 @@ interface Lead {
   advisor_response?: string | null;
   activity?: Array<{ ts?: string; type?: string; advisor?: string; note?: string; callback_at?: string }> | null;
   next_contact_at?: string | null;
+  // Grupos a los que pertenece el lead
+  groups?: Array<{ id: number; name: string; color: string }>;
+}
+
+// Grupo de leads
+interface LeadGroup {
+  id: number;
+  name: string;
+  color: string;
+  description?: string | null;
+  member_count: number;
 }
 
 // Prospecto externo
@@ -284,8 +295,78 @@ export default function UnifiedLeadsPage() {
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResults, setBulkResults] = useState<{ sent: number; skipped: number; failed: number; total: number } | null>(null);
 
+  // ============ GRUPOS DE LEADS ============
+  const [groups, setGroups] = useState<LeadGroup[]>([]);
+  const [activeGroupFilter, setActiveGroupFilter] = useState<number | null>(null);
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupColor, setNewGroupColor] = useState('#1976d2');
+  const [savingGroup, setSavingGroup] = useState(false);
+
   // Clave única de cada lead (para selección). El backend la devuelve como lead_key.
   const leadKeyOf = (l: Lead): string => l.lead_key || `crm_${l.request_id}`;
+
+  // Leads visibles = pestaña actual, filtrados por el grupo activo (si hay).
+  const displayedLeads = activeGroupFilter
+    ? leads.filter(l => (l.groups || []).some(g => g.id === activeGroupFilter))
+    : leads;
+
+  const fetchGroups = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/groups`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setGroups(res.data?.groups || []);
+    } catch { /* silencioso */ }
+  }, []);
+
+  const createGroup = async () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    setSavingGroup(true);
+    try {
+      await axios.post(`${API_URL}/admin/crm/groups`, { name, color: newGroupColor }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setNewGroupOpen(false); setNewGroupName(''); setNewGroupColor('#1976d2');
+      await fetchGroups();
+      setSnackbar({ open: true, message: `Grupo "${name}" creado`, severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al crear grupo', severity: 'error' });
+    } finally { setSavingGroup(false); }
+  };
+
+  const deleteGroup = async (g: LeadGroup) => {
+    if (!window.confirm(`¿Eliminar el grupo "${g.name}"? Los ${g.member_count} usuario(s) NO se borran, solo quedan sin este grupo.`)) return;
+    try {
+      await axios.delete(`${API_URL}/admin/crm/groups/${g.id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (activeGroupFilter === g.id) setActiveGroupFilter(null);
+      await fetchGroups();
+      await fetchLeads();
+      setSnackbar({ open: true, message: `Grupo "${g.name}" eliminado`, severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al eliminar grupo', severity: 'error' });
+    }
+  };
+
+  const assignSelectedToGroup = async (groupId: number) => {
+    const leadKeys = Array.from(selectedLeadKeys);
+    if (leadKeys.length === 0) return;
+    try {
+      await axios.post(`${API_URL}/admin/crm/groups/${groupId}/members`, { leadKeys }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSelectedLeadKeys(new Set());
+      await fetchGroups();
+      await fetchLeads();
+      const gName = groups.find(g => g.id === groupId)?.name || 'grupo';
+      setSnackbar({ open: true, message: `${leadKeys.length} lead(s) agregados a "${gName}"`, severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al asignar al grupo', severity: 'error' });
+    }
+  };
+
+  const removeLeadFromGroup = async (groupId: number, leadKey: string) => {
+    try {
+      await axios.delete(`${API_URL}/admin/crm/groups/${groupId}/members`, { headers: { Authorization: `Bearer ${getToken()}` }, data: { leadKeys: [leadKey] } });
+      await fetchGroups();
+      await fetchLeads();
+    } catch { /* silencioso */ }
+  };
 
   const toggleLeadSelected = (key: string) => {
     setSelectedLeadKeys(prev => {
@@ -296,7 +377,7 @@ export default function UnifiedLeadsPage() {
   };
 
   const toggleSelectAllVisible = () => {
-    const visibleKeys = leads.map(leadKeyOf);
+    const visibleKeys = displayedLeads.map(leadKeyOf);
     const allSelected = visibleKeys.length > 0 && visibleKeys.every(k => selectedLeadKeys.has(k));
     setSelectedLeadKeys(prev => {
       const next = new Set(prev);
@@ -463,10 +544,11 @@ export default function UnifiedLeadsPage() {
   useEffect(() => {
     if (mainTab === 'leads') {
       fetchLeads();
+      fetchGroups();
     } else {
       fetchProspects();
     }
-  }, [mainTab, fetchLeads, fetchProspects]);
+  }, [mainTab, fetchLeads, fetchProspects, fetchGroups]);
 
   // ============ CRM LEADS HANDLERS ============
 
@@ -911,7 +993,37 @@ export default function UnifiedLeadsPage() {
             </Alert>
           )}
 
-          {/* Barra de envío masivo por WhatsApp */}
+          {/* Barra de GRUPOS: filtrar, crear y eliminar */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+            <Typography variant="body2" fontWeight={700} sx={{ mr: 0.5 }}>👥 Grupos:</Typography>
+            <Chip
+              label={`Todos (${leads.length})`}
+              size="small"
+              color={activeGroupFilter === null ? 'primary' : 'default'}
+              variant={activeGroupFilter === null ? 'filled' : 'outlined'}
+              onClick={() => setActiveGroupFilter(null)}
+            />
+            {groups.map(g => (
+              <Chip
+                key={g.id}
+                label={`${g.name} (${g.member_count})`}
+                size="small"
+                onClick={() => setActiveGroupFilter(activeGroupFilter === g.id ? null : g.id)}
+                onDelete={() => deleteGroup(g)}
+                sx={{
+                  bgcolor: activeGroupFilter === g.id ? g.color : 'transparent',
+                  color: activeGroupFilter === g.id ? '#fff' : g.color,
+                  border: `1px solid ${g.color}`,
+                  '& .MuiChip-deleteIcon': { color: activeGroupFilter === g.id ? '#fff' : g.color },
+                }}
+              />
+            ))}
+            <Button size="small" startIcon={<AddIcon />} onClick={() => setNewGroupOpen(true)} sx={{ ml: 0.5 }}>
+              Nuevo grupo
+            </Button>
+          </Box>
+
+          {/* Barra de acciones: envío masivo por WhatsApp + asignar a grupo */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
             <Button
               variant="contained"
@@ -922,13 +1034,26 @@ export default function UnifiedLeadsPage() {
             >
               Enviar WhatsApp ({selectedLeadKeys.size})
             </Button>
+            {selectedLeadKeys.size > 0 && groups.length > 0 && (
+              <FormControl size="small" sx={{ minWidth: 190 }}>
+                <InputLabel id="assign-grp-label">Asignar a grupo</InputLabel>
+                <Select
+                  labelId="assign-grp-label"
+                  label="Asignar a grupo"
+                  value=""
+                  onChange={(e) => assignSelectedToGroup(Number(e.target.value))}
+                >
+                  {groups.map(g => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+                </Select>
+              </FormControl>
+            )}
             {selectedLeadKeys.size > 0 && (
               <Button size="small" color="inherit" onClick={() => setSelectedLeadKeys(new Set())}>
                 Limpiar selección
               </Button>
             )}
             <Typography variant="caption" color="text.secondary">
-              Marca leads con los checkboxes para enviarles un mensaje predefinido por WhatsApp.
+              Marca leads con los checkboxes para enviarles WhatsApp o asignarlos a un grupo.
             </Typography>
           </Box>
 
@@ -945,8 +1070,8 @@ export default function UnifiedLeadsPage() {
                     <TableCell padding="checkbox">
                       <Checkbox
                         size="small"
-                        checked={leads.length > 0 && leads.every(l => selectedLeadKeys.has(leadKeyOf(l)))}
-                        indeterminate={leads.some(l => selectedLeadKeys.has(leadKeyOf(l))) && !leads.every(l => selectedLeadKeys.has(leadKeyOf(l)))}
+                        checked={displayedLeads.length > 0 && displayedLeads.every(l => selectedLeadKeys.has(leadKeyOf(l)))}
+                        indeterminate={displayedLeads.some(l => selectedLeadKeys.has(leadKeyOf(l))) && !displayedLeads.every(l => selectedLeadKeys.has(leadKeyOf(l)))}
                         onChange={toggleSelectAllVisible}
                       />
                     </TableCell>
@@ -960,7 +1085,7 @@ export default function UnifiedLeadsPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {leads.map((lead) => (
+                  {displayedLeads.map((lead) => (
                     <TableRow key={lead.lead_key || String(lead.request_id)} hover selected={selectedLeadKeys.has(leadKeyOf(lead))}>
                       <TableCell padding="checkbox">
                         <Checkbox
@@ -980,15 +1105,26 @@ export default function UnifiedLeadsPage() {
                       </TableCell>
                       <TableCell>
                         <Typography variant="body1" fontWeight={600}>{lead.full_name}</Typography>
-                        {lead.source === 'chartback' && (
-                          <Chip
-                            label="🔁 Reactivación"
-                            size="small"
-                            color="warning"
-                            variant="outlined"
-                            sx={{ mt: 0.5, height: 18, fontSize: 10 }}
-                          />
-                        )}
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                          {lead.source === 'chartback' && (
+                            <Chip
+                              label="🔁 Reactivación"
+                              size="small"
+                              color="warning"
+                              variant="outlined"
+                              sx={{ height: 18, fontSize: 10 }}
+                            />
+                          )}
+                          {(lead.groups || []).map(g => (
+                            <Chip
+                              key={g.id}
+                              label={g.name}
+                              size="small"
+                              onDelete={() => removeLeadFromGroup(g.id, leadKeyOf(lead))}
+                              sx={{ height: 18, fontSize: 10, bgcolor: g.color, color: '#fff', '& .MuiChip-deleteIcon': { color: '#fff', fontSize: 13 } }}
+                            />
+                          ))}
+                        </Box>
                       </TableCell>
                       <TableCell>
                         <Chip label={lead.box_id} size="small" variant="outlined" color="primary" />
@@ -1112,7 +1248,7 @@ export default function UnifiedLeadsPage() {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {leads.length === 0 && (
+                  {displayedLeads.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
                         <Typography variant="body1" color="text.secondary">
@@ -1505,6 +1641,38 @@ export default function UnifiedLeadsPage() {
       </Dialog>
 
       {/* Bulk WhatsApp Dialog */}
+      {/* Nuevo grupo Dialog */}
+      <Dialog open={newGroupOpen} onClose={() => !savingGroup && setNewGroupOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>👥 Nuevo grupo</DialogTitle>
+        <DialogContent dividers>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Nombre del grupo"
+            value={newGroupName}
+            onChange={(e) => setNewGroupName(e.target.value)}
+            size="small"
+            sx={{ mb: 2 }}
+            disabled={savingGroup}
+            onKeyDown={(e) => { if (e.key === 'Enter') createGroup(); }}
+          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="body2">Color:</Typography>
+            <input
+              type="color"
+              value={newGroupColor}
+              onChange={(e) => setNewGroupColor(e.target.value)}
+              style={{ width: 44, height: 30, border: 'none', background: 'none', cursor: 'pointer' }}
+              disabled={savingGroup}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNewGroupOpen(false)} disabled={savingGroup}>Cancelar</Button>
+          <Button variant="contained" onClick={createGroup} disabled={savingGroup || !newGroupName.trim()}>Crear</Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={bulkOpen} onClose={() => !bulkSending && setBulkOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <WhatsAppIcon sx={{ color: '#25D366' }} /> Enviar WhatsApp masivo
