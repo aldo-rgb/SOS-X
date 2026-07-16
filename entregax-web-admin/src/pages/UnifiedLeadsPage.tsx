@@ -304,6 +304,11 @@ export default function UnifiedLeadsPage() {
   const [leadSearch, setLeadSearch] = useState('');
   const [blacklist, setBlacklist] = useState<Lead[]>([]);
   const [blacklistView, setBlacklistView] = useState(false);
+  // Diálogo de confirmación reutilizable (blacklist, borrar grupo, etc.)
+  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; message: string; confirmLabel: string; danger: boolean; onConfirm: () => void }>({ open: false, title: '', message: '', confirmLabel: 'Aceptar', danger: false, onConfirm: () => {} });
+  const askConfirm = (opts: { title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void }) => {
+    setConfirmDialog({ open: true, title: opts.title, message: opts.message, confirmLabel: opts.confirmLabel || 'Aceptar', danger: !!opts.danger, onConfirm: opts.onConfirm });
+  };
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupColor, setNewGroupColor] = useState('#1976d2');
@@ -352,17 +357,24 @@ export default function UnifiedLeadsPage() {
     } finally { setSavingGroup(false); }
   };
 
-  const deleteGroup = async (g: LeadGroup) => {
-    if (!window.confirm(`¿Eliminar el grupo "${g.name}"? Los ${g.member_count} usuario(s) NO se borran, solo quedan sin este grupo.`)) return;
-    try {
-      await axios.delete(`${API_URL}/admin/crm/groups/${g.id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
-      if (activeGroupFilter === g.id) setActiveGroupFilter(null);
-      await fetchGroups();
-      await fetchLeads();
-      setSnackbar({ open: true, message: `Grupo "${g.name}" eliminado`, severity: 'success' });
-    } catch (e: any) {
-      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al eliminar grupo', severity: 'error' });
-    }
+  const deleteGroup = (g: LeadGroup) => {
+    askConfirm({
+      title: `Eliminar grupo "${g.name}"`,
+      message: `Los ${g.member_count} usuario(s) NO se borran, solo quedan sin este grupo.`,
+      confirmLabel: 'Eliminar grupo',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API_URL}/admin/crm/groups/${g.id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+          if (activeGroupFilter === g.id) setActiveGroupFilter(null);
+          await fetchGroups();
+          await fetchLeads();
+          setSnackbar({ open: true, message: `Grupo "${g.name}" eliminado`, severity: 'success' });
+        } catch (e: any) {
+          setSnackbar({ open: true, message: e.response?.data?.error || 'Error al eliminar grupo', severity: 'error' });
+        }
+      },
+    });
   };
 
   const assignSelectedToGroup = async (groupId: number) => {
@@ -396,19 +408,26 @@ export default function UnifiedLeadsPage() {
     } catch { /* silencioso */ }
   }, []);
 
-  const blacklistSelected = async () => {
+  const blacklistSelected = () => {
     const leadKeys = Array.from(selectedLeadKeys);
     if (leadKeys.length === 0) return;
-    if (!window.confirm(`¿Poner ${leadKeys.length} lead(s) en la BLACK LIST? No recibirán mensajes masivos y desaparecerán del funnel.`)) return;
-    try {
-      await axios.post(`${API_URL}/admin/crm/blacklist`, { leadKeys }, { headers: { Authorization: `Bearer ${getToken()}` } });
-      setSelectedLeadKeys(new Set());
-      await fetchLeads();
-      await fetchBlacklist();
-      setSnackbar({ open: true, message: `${leadKeys.length} lead(s) en blacklist`, severity: 'success' });
-    } catch (e: any) {
-      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al agregar a blacklist', severity: 'error' });
-    }
+    askConfirm({
+      title: 'Poner en Black List',
+      message: `¿Poner ${leadKeys.length} lead(s) en la black list? No recibirán mensajes masivos y desaparecerán del funnel.`,
+      confirmLabel: 'Sí, poner en blacklist',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await axios.post(`${API_URL}/admin/crm/blacklist`, { leadKeys }, { headers: { Authorization: `Bearer ${getToken()}` } });
+          setSelectedLeadKeys(new Set());
+          await fetchLeads();
+          await fetchBlacklist();
+          setSnackbar({ open: true, message: `${leadKeys.length} lead(s) en blacklist`, severity: 'success' });
+        } catch (e: any) {
+          setSnackbar({ open: true, message: e.response?.data?.error || 'Error al agregar a blacklist', severity: 'error' });
+        }
+      },
+    });
   };
 
   const unBlacklist = async (leadKey: string) => {
@@ -1750,6 +1769,27 @@ export default function UnifiedLeadsPage() {
       </Dialog>
 
       {/* Bulk WhatsApp Dialog */}
+      {/* Diálogo de confirmación reutilizable */}
+      <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog(s => ({ ...s, open: false }))} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, color: confirmDialog.danger ? 'error.main' : 'inherit' }}>
+          {confirmDialog.danger && <BlockIcon color="error" />}
+          {confirmDialog.title}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">{confirmDialog.message}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDialog(s => ({ ...s, open: false }))}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color={confirmDialog.danger ? 'error' : 'primary'}
+            onClick={() => { confirmDialog.onConfirm(); setConfirmDialog(s => ({ ...s, open: false })); }}
+          >
+            {confirmDialog.confirmLabel}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Nuevo grupo Dialog */}
       <Dialog open={newGroupOpen} onClose={() => !savingGroup && setNewGroupOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>👥 Nuevo grupo</DialogTitle>
