@@ -129,7 +129,7 @@ export const sendTemplate = async (opts: SendTemplateOptions): Promise<{ ok: boo
         components.push({
             type: 'button',
             sub_type: 'url',
-            index: 0,
+            index: '0', // Meta espera el índice como string
             parameters: [{ type: 'text', text: String(opts.urlButtonParam).trim() }],
         });
     }

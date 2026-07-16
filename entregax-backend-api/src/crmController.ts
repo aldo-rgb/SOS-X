@@ -600,6 +600,21 @@ export const debugMetaTemplate = async (req: Request, res: Response): Promise<an
         }
         catch (e: any) { imgFetch = { error: e.message }; }
       }
+      // Modo C: ?send=<telefono> → envía de verdad usando el mismo camino que el masivo.
+      if (req.query.send) {
+        const to = String(req.query.send);
+        let headerImageUrl: string | undefined = signedImg || tpl.header_image_url || undefined;
+        const usesName = tpl.uses_name !== false;
+        const parameters = usesName ? ['Prueba'] : [];
+        let urlButtonParam: string | undefined;
+        if (tpl.link_dest) {
+          const { randomBytes } = await import('crypto');
+          urlButtonParam = randomBytes(9).toString('base64url');
+          await pool.query(`INSERT INTO wa_click_links (token, lead_key, template_id, destination, name, phone) VALUES ($1,'diag',$2,$3,'diag',$4)`, [urlButtonParam, tpl.id, tpl.link_dest, to]).catch(() => {});
+        }
+        const sendRes = await sendTemplate({ to, template: tpl.template_name, languageCode: tpl.language_code || 'es_MX', parameters, ...(headerImageUrl ? { headerImageUrl } : {}), ...(urlButtonParam ? { urlButtonParam } : {}), useMarketingApi: !!tpl.use_mm_lite });
+        return res.json({ sent: sendRes, template_name: tpl.template_name });
+      }
       return res.json({
         template: { id: tpl.id, template_name: tpl.template_name, language_code: tpl.language_code, uses_name: tpl.uses_name, link_dest: tpl.link_dest, header_image_key: tpl.header_image_key, header_image_url: tpl.header_image_url, s3_configured: isS3Configured() },
         signed_image: { url: signedImg ? signedImg.slice(0, 80) + '...' : null, sign_error: signErr, head_fetch: imgFetch },
