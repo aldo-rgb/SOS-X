@@ -1001,17 +1001,19 @@ export const startStaleRatesNotifyCron = () => {
   console.log('📅 [CRON] Aviso de tarifas TDI desactualizadas: lunes 08:00 (MX)');
 };
 
-// 🔄 Secuencias automáticas de WhatsApp: cada hora envía los pasos que ya vencieron.
+// 🔄 Secuencias automáticas de WhatsApp: 12:06 PM de Lunes a Viernes (hora México).
+// Envía todos los pasos con fecha vencida. Si un lead se inscribe después de las
+// 12:06 (o en fin de semana), su Día 1 sale en la siguiente corrida hábil.
 export const startWaSequenceCron = () => {
-  cron.schedule('10 * * * *', async () => {
+  cron.schedule('6 12 * * 1-5', async () => {
     try {
       const { processDueSequenceSteps } = await import('./waSequenceController');
       await processDueSequenceSteps();
     } catch (e) {
       console.error('[CRON] startWaSequenceCron:', (e as Error).message);
     }
-  });
-  console.log('✅ Cron de secuencias WhatsApp activo (cada hora, min 10)');
+  }, { timezone: 'America/Monterrey' });
+  console.log('✅ Cron de secuencias WhatsApp activo (12:06 PM, Lun-Vie, hora México)');
 };
 
 export const initCronJobs = () => {

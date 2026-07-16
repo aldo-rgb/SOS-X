@@ -2330,7 +2330,7 @@ export default function UnifiedLeadsPage() {
           {seqEditing ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Typography variant="body2" color="text.secondary">
-                Configura qué plantilla se envía en cada paso. El <strong>Día 1</strong> se envía al inscribir; los demás según los días transcurridos. Si el prospecto <strong>responde</strong> o <strong>hace clic</strong> en un botón, sale automáticamente de la secuencia.
+                Configura qué plantilla se envía en cada paso. Los envíos salen a las <strong>12:06 PM (Lun-Vie)</strong>: si inscribes antes de esa hora, el Día 1 sale ese mismo día; si inscribes después (o en fin de semana), sale el siguiente día hábil. Si el prospecto <strong>responde</strong> o <strong>hace clic</strong> en un botón, sale automáticamente de la secuencia.
               </Typography>
               <TextField label="Nombre de la secuencia" value={seqEditing.name} onChange={e => setSeqEditing({ ...seqEditing, name: e.target.value })} size="small" fullWidth disabled={seqSaving} />
               {seqEditing.steps.map((step, i) => (
