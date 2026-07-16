@@ -286,6 +286,7 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
     // cajas ya llegaron a esta sucursal, para que el rastreo del cliente avance
     // (antes el master quedaba en 'received_origin' y el cliente veía "En Bodega
     // China" aunque las cajas ya estuvieran en CEDIS) y registrar el movimiento.
+    let completedCrId: number | null = null;
     try {
       const crRes = await client.query(
         `SELECT cr.id, cr.fno, cr.status
@@ -301,6 +302,7 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
         );
         if (remaining.rows.length === 0) {
           await client.query(`UPDATE china_receipts SET status = $1, updated_at = NOW() WHERE id = $2`, [receivedStatus, cr.id]);
+          completedCrId = cr.id; // guía completa recibida → notificar al cliente tras COMMIT
           try {
             await client.query(
               `INSERT INTO china_status_history (china_receipt_id, fno, old_status, new_status, source, notes, created_at)
@@ -317,6 +319,35 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
     }
 
     await client.query('COMMIT');
+
+    // Guía AIR completa recibida → avisar al cliente por WhatsApp (una sola vez,
+    // cuando la última caja completa el recibo). guiaOrigen = AWB.
+    if (completedCrId) {
+      try {
+        const info = await pool.query(
+          `SELECT user_id, tracking_internal, child_no,
+                  (SELECT COUNT(*) FROM packages WHERE china_receipt_id = $1) AS cajas
+             FROM packages
+            WHERE china_receipt_id = $1 AND user_id IS NOT NULL
+            ORDER BY (master_id IS NULL) DESC, id ASC LIMIT 1`,
+          [completedCrId]
+        );
+        const info0 = info.rows[0];
+        if (info0?.user_id) {
+          const trk = (info0.child_no && /^AIR/i.test(String(info0.child_no))) ? info0.child_no : info0.tracking_internal;
+          const { notifyArrivalWhatsApp } = await import('./whatsappService');
+          await notifyArrivalWhatsApp(info0.user_id, {
+            tracking: trk,
+            servicio: 'TDI Aéreo',
+            cajas: parseInt(info0.cajas) || 1,
+            guiaOrigen: awb.awb_number || null,
+            serviceKey: 'notif_air',
+          });
+        }
+      } catch (waErr: any) {
+        console.warn('✈️ [AWB-RX] No se pudo notificar WhatsApp al cliente:', waErr?.message);
+      }
+    }
 
     res.json({
       success: true,

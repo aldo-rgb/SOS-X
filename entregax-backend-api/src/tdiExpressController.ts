@@ -670,6 +670,30 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
         } catch (notifErr: any) {
           console.warn('[addTdiBox] no se pudo notificar guía sin identificar:', notifErr.message);
         }
+      } else {
+        // Cliente asignado → avisarle por WhatsApp que su guía TDI Express llegó
+        // (una sola vez, en la primera caja del master).
+        try {
+          const mRow = await pool.query(
+            `SELECT user_id, tracking_internal,
+                    (SELECT COUNT(*) FROM packages WHERE master_id = $1) AS cajas
+               FROM packages WHERE id = $1`,
+            [masterId]
+          );
+          const mm = mRow.rows[0];
+          if (mm?.user_id) {
+            const { notifyArrivalWhatsApp } = await import('./whatsappService');
+            await notifyArrivalWhatsApp(mm.user_id, {
+              tracking: mm.tracking_internal,
+              servicio: 'TDI Express',
+              cajas: parseInt(mm.cajas) || 1,
+              guiaOrigen: originGuide || null,
+              serviceKey: 'notif_air',
+            });
+          }
+        } catch (waErr: any) {
+          console.warn('[addTdiBox] no se pudo notificar WhatsApp al cliente:', waErr.message);
+        }
       }
     }
 

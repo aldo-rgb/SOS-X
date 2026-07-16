@@ -38,6 +38,7 @@
  */
 
 import axios from 'axios';
+import { pool } from './db';
 
 const API_VERSION = process.env.WHATSAPP_API_VERSION || 'v23.0';
 
@@ -426,59 +427,101 @@ export const sendPackageArrival = async (phone: string, nombre: string, tracking
 };
 
 /**
- * Notificación PO Box — paquete recibido en bodega.
- * Plantilla: "paquete_recibido_pobox"  (4 variables, categoría UTILITY)
+ * Notificación de paquete recibido en bodega (DETALLADA, para TODOS los servicios:
+ * PO Box, Marítimo, Aéreo, DHL, TDI Express, etc.).
+ * Plantilla: "paquete_recibido_pobox"  (5 variables, categoría UTILITY)
  *
  *   Body del template a aprobar en Meta:
  *   ————————————————————————————————————————
  *   📦 ¡Hola {{1}}! Tu paquete ha llegado.
  *
  *   🔎 Tracking: {{2}}
- *   🚚 Servicio: PO Box USA
- *   📦 Cajas: {{3}}
- *   🏷️ Guía origen: {{4}}
+ *   🚚 Servicio: {{3}}
+ *   📦 Cajas: {{4}}
+ *   🏷️ Guía origen: {{5}}
  *
  *   ✅ Tu paquete fue recibido exitosamente en nuestra bodega y ya está disponible para asignación de instrucciones de entrega.
  *   ————————————————————————————————————————
  *
  *   {{1}} = nombre (first name del cliente)
- *   {{2}} = tracking interno master (US-XXXXXXXXXX)
- *   {{3}} = número de cajas (ej. "1", "3")
- *   {{4}} = guía de origen cuando es 1 caja (ej. "1Z999AA10123456784")
+ *   {{2}} = tracking interno master (US-/TDX-/LOG-/AIR-/DHL numérico)
+ *   {{3}} = servicio (PO Box USA / Marítimo / Aéreo / DHL / TDI Express…)
+ *   {{4}} = número de cajas (ej. "1", "3")
+ *   {{5}} = guía de origen (ej. "1Z999AA10123456784")
  *           o "Múltiples (ver en portal)" cuando son varias cajas
  *
- * Si no existe la plantilla avanzada, cae al template básico como fallback.
+ * Si no existe la plantilla avanzada, cae al template básico (3 vars) como fallback.
  */
 export const sendPoboxReceptionNotification = async (
     phone: string,
     nombre: string,
     trackingMaster: string,
     totalCajas: number,
-    guiaOrigen: string | null
+    guiaOrigen: string | null,
+    servicio: string = 'PO Box USA'
 ): Promise<void> => {
     const templateName = process.env.WHATSAPP_POBOX_RECEPTION_TEMPLATE || 'paquete_recibido_pobox';
     const basicTemplate = process.env.WHATSAPP_PACKAGE_TEMPLATE || 'paquete_recibido';
     const firstName = nombre.split(' ')[0] ?? nombre;
+    const servicioParam = servicio || 'EntregaX';
     const guiaParam = guiaOrigen || (totalCajas > 1 ? 'Múltiples (ver en portal)' : 'No registrada');
     try {
         await sendTemplate({
             to: phone,
             template: templateName,
             languageCode: process.env.WHATSAPP_POBOX_TEMPLATE_LANG || 'en',
-            parameters: [firstName, trackingMaster, String(totalCajas), guiaParam],
+            parameters: [firstName, trackingMaster, servicioParam, String(totalCajas), guiaParam],
         });
     } catch {
-        // Fallback al template básico si la plantilla nueva no está aprobada aún
+        // Fallback al template básico si la plantilla detallada no está aprobada aún
         try {
             await sendTemplate({
                 to: phone,
                 template: basicTemplate,
                 languageCode: 'es_MX',
-                parameters: [firstName, trackingMaster, 'PO Box USA'],
+                parameters: [firstName, trackingMaster, servicioParam],
             });
         } catch (e) {
             console.error('[WHATSAPP] Error enviando notificación PO Box recepción:', e);
         }
+    }
+};
+
+/**
+ * Helper reutilizable: notifica al CLIENTE por WhatsApp que su paquete llegó a
+ * bodega (plantilla detallada), buscando su teléfono y respetando preferencias
+ * (notif_whatsapp + notif_<servicio> + teléfono/whatsapp verificado). Pensado
+ * para llamarse desde CUALQUIER flujo de recepción (TDX, aéreo, marítimo, etc.).
+ * La idempotencia (no enviar 2 veces) es responsabilidad del que llama.
+ *
+ * serviceKey: 'notif_pobox' | 'notif_air' | 'notif_maritime' | 'notif_dhl' | null
+ */
+export const notifyArrivalWhatsApp = async (
+    userId: number | null | undefined,
+    opts: { tracking: string; servicio: string; cajas?: number; guiaOrigen?: string | null; serviceKey?: string | null }
+): Promise<void> => {
+    if (!userId) return;
+    try {
+        const allowedKeys = ['notif_pobox', 'notif_air', 'notif_maritime', 'notif_dhl'];
+        const serviceCol = opts.serviceKey && allowedKeys.includes(opts.serviceKey) ? opts.serviceKey : null;
+        const selectCols = ['notif_whatsapp', 'phone', 'phone_verified', 'whatsapp_verified', 'full_name'];
+        if (serviceCol) selectCols.push(`${serviceCol} AS notif_service`);
+        const r = await pool.query(`SELECT ${selectCols.join(', ')} FROM users WHERE id = $1`, [userId]);
+        const u = r.rows[0];
+        if (!u || !u.phone) return;
+        const wantWhatsapp = u.notif_whatsapp !== false && (u.phone_verified === true || u.whatsapp_verified === true);
+        const wantService = serviceCol ? (u.notif_service !== false) : true;
+        if (!wantWhatsapp || !wantService) return;
+        await sendPoboxReceptionNotification(
+            u.phone,
+            u.full_name || 'Cliente',
+            opts.tracking,
+            opts.cajas ?? 1,
+            opts.guiaOrigen ?? null,
+            opts.servicio,
+        );
+    } catch (e: any) {
+        console.warn('[WHATSAPP] notifyArrivalWhatsApp falló:', e?.message);
     }
 };
 

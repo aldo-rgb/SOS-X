@@ -334,6 +334,20 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
                 'ferry',
                 JSON.stringify({ ordersn: order.ordersn, goods_num: order.goods_num, autoAssignedAddress: !!defaultAddressId })
             ]);
+
+            // Avisar también al cliente por WhatsApp (plantilla detallada).
+            try {
+                const { notifyArrivalWhatsApp } = await import('./whatsappService');
+                await notifyArrivalWhatsApp(userId, {
+                    tracking: order.ordersn,
+                    servicio: 'Marítimo',
+                    cajas: Number(order.goods_num) || 1,
+                    guiaOrigen: order.shipping_mark || null,
+                    serviceKey: 'notif_maritime',
+                });
+            } catch (waErr: any) {
+                console.warn('[maritime] No se pudo notificar WhatsApp al cliente:', waErr?.message);
+            }
         }
     }
 };

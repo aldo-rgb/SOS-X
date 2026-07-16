@@ -908,11 +908,12 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       }
 
       if (wantWhatsapp && wantService && prefs.phone) {
-        const { sendPackageArrival } = await import('./whatsappService').catch(() => ({ sendPackageArrival: undefined })) as any;
-        if (typeof sendPackageArrival === 'function') {
-          await sendPackageArrival(prefs.phone, prefs.full_name || 'Cliente', masterTracking, 'DHL').catch((e: any) => console.warn('[DHL/whatsapp] failed:', e?.message));
+        const { sendPoboxReceptionNotification } = await import('./whatsappService').catch(() => ({ sendPoboxReceptionNotification: undefined })) as any;
+        if (typeof sendPoboxReceptionNotification === 'function') {
+          // DHL: 1 caja; guía origen = tracking DHL de entrada (inbound_tracking)
+          await sendPoboxReceptionNotification(prefs.phone, prefs.full_name || 'Cliente', masterTracking, 1, inbound_tracking || masterTracking, 'DHL').catch((e: any) => console.warn('[DHL/whatsapp] failed:', e?.message));
         } else {
-          console.warn('[DHL/whatsapp] sendPackageArrival no disponible');
+          console.warn('[DHL/whatsapp] sendPoboxReceptionNotification no disponible');
         }
       } else {
         console.log('[DHL/whatsapp] skip — wantWhatsapp:', wantWhatsapp, 'wantService:', wantService, 'phone:', !!prefs.phone);
