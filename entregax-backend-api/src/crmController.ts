@@ -372,15 +372,23 @@ async function getCurrentBulkValues(): Promise<{ tc: number | null; comision: nu
     const r = await pool.query(`SELECT comision_pago_sin_factura FROM entangled_service_config WHERE id = 1`);
     if (r.rows[0]?.comision_pago_sin_factura != null) out.comision = Number(r.rows[0].comision_pago_sin_factura);
   } catch { /* tabla opcional */ }
-  // Costo marítimo por CBM (tarifa activa representativa, la más baja no-flat)
+  // Costo marítimo por CBM — MISMA fuente que el widget de tarifas (/api/public/rates):
+  // el tier de categoría 'Generico' con menor min_cbm (tarifa base 1–3 m³ = $899).
   try {
-    const r = await pool.query(`SELECT price FROM pricing_tiers WHERE is_active = true AND COALESCE(is_flat_fee, false) = false AND price > 0 ORDER BY price ASC LIMIT 1`);
+    const r = await pool.query(`
+      SELECT pt.price FROM pricing_tiers pt
+      JOIN pricing_categories pc ON pt.category_id = pc.id
+      WHERE pc.name = 'Generico' AND pt.is_active = true
+      ORDER BY pt.min_cbm ASC LIMIT 1
+    `);
     if (r.rows[0]?.price != null) out.cbm = Number(r.rows[0].price);
   } catch { /* tabla opcional */ }
-  // Costo aéreo por kg (tarifa activa representativa)
+  // Costo aéreo por kg — MISMA fuente que el widget: air_routes.cost_per_kg_usd + 8
+  // (markup fijo) de la primera ruta activa no-express.
   try {
-    const r = await pool.query(`SELECT price_per_kg FROM air_tariffs WHERE is_active = true AND price_per_kg > 0 ORDER BY price_per_kg ASC LIMIT 1`);
-    if (r.rows[0]?.price_per_kg != null) out.kg = Number(r.rows[0].price_per_kg);
+    const r = await pool.query(`SELECT cost_per_kg_usd FROM air_routes WHERE is_active = true AND code <> 'TDI-EXPRES' ORDER BY id ASC LIMIT 1`);
+    const base = Number(r.rows[0]?.cost_per_kg_usd) || 0;
+    out.kg = base > 0 ? Math.round((base + 8) * 100) / 100 : 8;
   } catch { /* tabla opcional */ }
   return out;
 }

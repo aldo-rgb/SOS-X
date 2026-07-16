@@ -287,7 +287,7 @@ export default function UnifiedLeadsPage() {
   
   // Modal asignación lead
   const [openLeadModal, setOpenLeadModal] = useState(false);
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [selectedLead] = useState<Lead | null>(null);
   const [leadNotes, setLeadNotes] = useState('');
   const [assigningLead, setAssigningLead] = useState(false);
 
@@ -690,19 +690,6 @@ export default function UnifiedLeadsPage() {
       setSnackbar({ open: true, message: t('leads.errorAssigning'), severity: 'error' });
     } finally {
       setAssigningLead(false);
-    }
-  };
-
-  const handleUpdateLeadStatus = async (lead: Lead, newStatus: string) => {
-    try {
-      await axios.put(
-        `${API_URL}/admin/crm/leads/${lead.request_id}/status`,
-        { requestId: lead.request_id, status: newStatus },
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
-      fetchLeads();
-    } catch {
-      setSnackbar({ open: true, message: t('leads.errorUpdatingStatus'), severity: 'error' });
     }
   };
 
