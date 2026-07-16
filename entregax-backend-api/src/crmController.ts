@@ -372,14 +372,14 @@ async function getCurrentBulkValues(): Promise<{ tc: number | null; comision: nu
     const r = await pool.query(`SELECT comision_pago_sin_factura FROM entangled_service_config WHERE id = 1`);
     if (r.rows[0]?.comision_pago_sin_factura != null) out.comision = Number(r.rows[0].comision_pago_sin_factura);
   } catch { /* tabla opcional */ }
-  // Costo marítimo por CBM — MISMA fuente que el widget de tarifas (/api/public/rates):
-  // el tier de categoría 'Generico' con menor min_cbm (tarifa base 1–3 m³ = $899).
+  // Costo marítimo por CBM — tarifa de MAYOR volumen (20+ m³) de categoría
+  // 'Generico', la más competitiva (el tier no-flat de menor precio = $649).
   try {
     const r = await pool.query(`
       SELECT pt.price FROM pricing_tiers pt
       JOIN pricing_categories pc ON pt.category_id = pc.id
-      WHERE pc.name = 'Generico' AND pt.is_active = true
-      ORDER BY pt.min_cbm ASC LIMIT 1
+      WHERE pc.name = 'Generico' AND pt.is_active = true AND COALESCE(pt.is_flat_fee, false) = false
+      ORDER BY pt.price ASC LIMIT 1
     `);
     if (r.rows[0]?.price != null) out.cbm = Number(r.rows[0].price);
   } catch { /* tabla opcional */ }
