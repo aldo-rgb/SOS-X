@@ -53,12 +53,21 @@ async function resolveLeadKeyByPhone(phone: string): Promise<string | null> {
   return r.rows[0]?.lead_key || null;
 }
 
+let logReady = false;
+async function ensureLog(): Promise<void> {
+  if (logReady) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_webhook_log (id SERIAL PRIMARY KEY, payload JSONB, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+  logReady = true;
+}
+
 // POST /api/webhooks/whatsapp → eventos entrantes
 export const handleWhatsappWebhook = async (req: Request, res: Response): Promise<any> => {
   // Responder 200 rápido (Meta reintenta si no).
   res.sendStatus(200);
   try {
     const body = req.body;
+    // LOG TEMPORAL: registrar TODO lo que llega para diagnóstico.
+    try { await ensureLog(); await pool.query(`INSERT INTO wa_webhook_log (payload) VALUES ($1::jsonb)`, [JSON.stringify(body || {})]); } catch { /* ignore */ }
     if (!body || body.object !== 'whatsapp_business_account') return;
     for (const entry of body.entry || []) {
       for (const change of entry.changes || []) {
