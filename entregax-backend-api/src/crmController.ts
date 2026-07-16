@@ -600,6 +600,20 @@ export const debugMetaTemplate = async (req: Request, res: Response): Promise<an
         }
         catch (e: any) { imgFetch = { error: e.message }; }
       }
+      // Modo D: ?raw=<telefono>&mode=full|noimg|nobtn|onlybody → postea directo a Meta y
+      // devuelve el error COMPLETO (error_data.details dice qué parámetro falla).
+      if (req.query.raw) {
+        const to = String(req.query.raw).replace(/\D/g, '');
+        const mode = String(req.query.mode || 'full');
+        const comps: any[] = [];
+        if (mode !== 'noimg' && signedImg) comps.push({ type: 'header', parameters: [{ type: 'image', image: { link: signedImg } }] });
+        if (mode !== 'nobtn' && tpl.link_dest) comps.push({ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: 'diagtoken123' }] });
+        const payload: any = { messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'template', template: { name: tpl.template_name, language: { code: String(req.query.lang || tpl.language_code || 'es_MX') }, ...(comps.length ? { components: comps } : {}) } };
+        const rr = await fetch(`https://graph.facebook.com/${ver}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const jj = await rr.json();
+        return res.json({ sent_payload: payload, meta_status: rr.status, meta_response: jj });
+      }
+
       // Modo C: ?send=<telefono> → envía de verdad usando el mismo camino que el masivo.
       if (req.query.send) {
         const to = String(req.query.send);
