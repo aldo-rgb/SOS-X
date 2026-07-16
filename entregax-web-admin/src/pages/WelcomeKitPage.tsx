@@ -387,6 +387,89 @@ export default function WelcomeKitPage() {
           </Table>
         </TableContainer>
       </Paper>
+      </>)}
+
+      {/* ===== TAB CATÁLOGO DE REGALOS ===== */}
+      {tab === 'catalog' && (
+        <Box>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Estos son los regalos que el cliente podrá elegir. Sube hasta <strong>5 fotos</strong>, define el <strong>stock</strong> disponible, descripción y un <strong>video</strong> opcional.
+          </Alert>
+          {productsLoading ? (
+            <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>
+          ) : products.length === 0 ? (
+            <Paper sx={{ p: 6, textAlign: 'center', borderRadius: 2 }}>
+              <Inventory2Icon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+              <Typography color="text.secondary">Aún no hay productos. Agrega el primer regalo con "Nuevo producto".</Typography>
+            </Paper>
+          ) : (
+            <Grid container spacing={2}>
+              {products.map(p => (
+                <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={p.id}>
+                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', opacity: p.is_active ? 1 : 0.55 }}>
+                    <Box sx={{ position: 'relative' }}>
+                      <CardMedia component="img" height="160" image={p.photos?.[0]?.url || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22200%22><rect fill=%22%23eee%22 width=%22400%22 height=%22200%22/></svg>'} alt={p.name} sx={{ objectFit: 'cover', bgcolor: '#f5f5f5' }} />
+                      <Chip size="small" label={`Stock: ${p.stock}`} color={p.stock > 0 ? 'success' : 'error'} sx={{ position: 'absolute', top: 8, left: 8, fontWeight: 700 }} />
+                      {(p.photos?.length || 0) > 1 && <Chip size="small" icon={<PhotoCameraIcon />} label={p.photos.length} sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'rgba(0,0,0,0.6)', color: '#fff' }} />}
+                      {!p.is_active && <Chip size="small" label="Inactivo" sx={{ position: 'absolute', bottom: 8, left: 8, bgcolor: 'rgba(0,0,0,0.6)', color: '#fff' }} />}
+                    </Box>
+                    <CardContent sx={{ flex: 1, pb: 1 }}>
+                      <Typography variant="subtitle1" fontWeight={700} noWrap>{p.name}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.description || 'Sin descripción'}</Typography>
+                      {p.video_url && <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, color: 'primary.main' }}><VideocamIcon fontSize="small" /> Video</Typography>}
+                    </CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, pb: 1 }}>
+                      <IconButton size="small" onClick={() => { setEditingProd({ ...p, photos: [...(p.photos || [])] }); setProdFormOpen(true); }}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" color="error" onClick={() => removeProduct(p.id)}><DeleteIcon fontSize="small" /></IconButton>
+                    </Box>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          )}
+        </Box>
+      )}
+
+      {/* Formulario de producto */}
+      <Dialog open={prodFormOpen} onClose={() => !savingProd && setProdFormOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingProd?.id ? 'Editar producto' : 'Nuevo producto'}</DialogTitle>
+        <DialogContent dividers>
+          {editingProd && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+              <TextField label="Nombre del producto *" value={editingProd.name || ''} onChange={e => setEditingProd({ ...editingProd, name: e.target.value })} size="small" fullWidth />
+              <TextField label="Descripción" value={editingProd.description || ''} onChange={e => setEditingProd({ ...editingProd, description: e.target.value })} size="small" fullWidth multiline minRows={3} />
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField label="Cantidad en stock" type="number" value={editingProd.stock ?? 0} onChange={e => setEditingProd({ ...editingProd, stock: Math.max(0, Number(e.target.value) || 0) })} size="small" sx={{ width: 160 }} />
+                <FormControlLabel control={<Switch checked={editingProd.is_active !== false} onChange={e => setEditingProd({ ...editingProd, is_active: e.target.checked })} />} label="Activo (visible)" />
+              </Box>
+              <TextField label="URL del video (opcional)" value={editingProd.video_url || ''} onChange={e => setEditingProd({ ...editingProd, video_url: e.target.value })} size="small" fullWidth placeholder="https://youtube.com/... o enlace directo" InputProps={{ startAdornment: (<InputAdornment position="start"><VideocamIcon fontSize="small" /></InputAdornment>) }} />
+
+              <Box>
+                <Typography variant="body2" fontWeight={700} sx={{ mb: 1 }}>Fotos ({(editingProd.photos?.length || 0)}/5)</Typography>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  {(editingProd.photos || []).map(ph => (
+                    <Box key={ph.key} sx={{ position: 'relative', width: 88, height: 88, borderRadius: 1, overflow: 'hidden', border: '1px solid #ddd' }}>
+                      <img src={ph.url || ''} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <IconButton size="small" onClick={() => removeProductPhoto(ph.key)} sx={{ position: 'absolute', top: 2, right: 2, bgcolor: 'rgba(0,0,0,0.6)', color: '#fff', p: '2px', '&:hover': { bgcolor: 'rgba(0,0,0,0.8)' } }}><CloseIcon sx={{ fontSize: 14 }} /></IconButton>
+                    </Box>
+                  ))}
+                  {(editingProd.photos?.length || 0) < 5 && (
+                    <Button component="label" variant="outlined" disabled={uploadingPhoto} sx={{ width: 88, height: 88, minWidth: 88, flexDirection: 'column', gap: 0.5 }}>
+                      {uploadingPhoto ? <CircularProgress size={20} /> : <><PhotoCameraIcon /><Typography variant="caption">Subir</Typography></>}
+                      <input type="file" hidden accept="image/jpeg,image/png,image/webp" onChange={e => { const f = e.target.files?.[0]; if (f) uploadProductPhoto(f); (e.target as HTMLInputElement).value = ''; }} />
+                    </Button>
+                  )}
+                </Box>
+                <Typography variant="caption" color="text.secondary">JPG, PNG o WEBP. La primera foto es la portada.</Typography>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setProdFormOpen(false)} disabled={savingProd}>Cancelar</Button>
+          <Button variant="contained" onClick={saveProduct} disabled={savingProd || uploadingPhoto || !String(editingProd?.name || '').trim()}>{savingProd ? 'Guardando…' : 'Guardar'}</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Formulario */}
       <Dialog open={formOpen} onClose={() => !saving && setFormOpen(false)} maxWidth="sm" fullWidth>
