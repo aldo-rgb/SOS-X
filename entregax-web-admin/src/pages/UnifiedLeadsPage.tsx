@@ -42,6 +42,7 @@ import {
   CircularProgress,
   Alert,
   MenuItem,
+  Menu,
   Select,
   FormControl,
   InputLabel,
@@ -304,6 +305,14 @@ export default function UnifiedLeadsPage() {
   const [leadSearch, setLeadSearch] = useState('');
   const [blacklist, setBlacklist] = useState<Lead[]>([]);
   const [blacklistView, setBlacklistView] = useState(false);
+  const [noPhoneFilter, setNoPhoneFilter] = useState(false);
+  // Diálogo agregar teléfono
+  const [phoneDialogLead, setPhoneDialogLead] = useState<Lead | null>(null);
+  const [phoneInput, setPhoneInput] = useState('');
+  const [savingPhone, setSavingPhone] = useState(false);
+  // Menú asignar asesor
+  const [advisorMenuAnchor, setAdvisorMenuAnchor] = useState<null | HTMLElement>(null);
+  const [advisorMenuLead, setAdvisorMenuLead] = useState<Lead | null>(null);
   // Diálogo de confirmación reutilizable (blacklist, borrar grupo, etc.)
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; message: string; confirmLabel: string; danger: boolean; onConfirm: () => void }>({ open: false, title: '', message: '', confirmLabel: 'Aceptar', danger: false, onConfirm: () => {} });
   const askConfirm = (opts: { title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void }) => {
@@ -325,6 +334,9 @@ export default function UnifiedLeadsPage() {
       : (activeGroupFilter
           ? leads.filter(l => (l.groups || []).some(g => g.id === activeGroupFilter))
           : leads);
+    if (noPhoneFilter) {
+      list = list.filter(l => String(l.phone || '').trim() === '');
+    }
     const q = leadSearch.trim().toLowerCase();
     if (q) {
       list = list.filter(l =>
@@ -437,6 +449,36 @@ export default function UnifiedLeadsPage() {
       await fetchLeads();
       setSnackbar({ open: true, message: 'Quitado de blacklist', severity: 'success' });
     } catch { /* silencioso */ }
+  };
+
+  // ============ ACCIONES POR LEAD: teléfono / asesor ============
+  const openPhoneDialog = (lead: Lead) => { setPhoneDialogLead(lead); setPhoneInput(lead.phone || ''); };
+  const savePhone = async () => {
+    if (!phoneDialogLead) return;
+    const phone = phoneInput.trim();
+    if (!phone) return;
+    setSavingPhone(true);
+    try {
+      await axios.post(`${API_URL}/admin/crm/leads/phone`, { leadKey: leadKeyOf(phoneDialogLead), phone }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setPhoneDialogLead(null); setPhoneInput('');
+      await fetchLeads();
+      setSnackbar({ open: true, message: 'Teléfono guardado', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al guardar teléfono', severity: 'error' });
+    } finally { setSavingPhone(false); }
+  };
+
+  const assignAdvisorToLead = async (advisorId: number) => {
+    const lead = advisorMenuLead;
+    setAdvisorMenuAnchor(null); setAdvisorMenuLead(null);
+    if (!lead) return;
+    try {
+      const res = await axios.post(`${API_URL}/admin/crm/leads/assign-advisor`, { leadKey: leadKeyOf(lead), advisorId }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      await fetchLeads();
+      setSnackbar({ open: true, message: `Asesor asignado: ${res.data?.advisorName || ''}`, severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al asignar asesor', severity: 'error' });
+    }
   };
 
   const toggleLeadSelected = (key: string) => {
@@ -1095,6 +1137,14 @@ export default function UnifiedLeadsPage() {
             </Button>
             <Box sx={{ flexGrow: 1 }} />
             <Chip
+              label="📵 Sin teléfono"
+              size="small"
+              onClick={() => setNoPhoneFilter(v => !v)}
+              color={noPhoneFilter ? 'warning' : 'default'}
+              variant={noPhoneFilter ? 'filled' : 'outlined'}
+              sx={{ fontWeight: 700 }}
+            />
+            <Chip
               label={`🚫 Blacklist (${blacklist.length})`}
               size="small"
               onClick={() => { setBlacklistView(v => !v); setActiveGroupFilter(null); }}
@@ -1329,49 +1379,21 @@ export default function UnifiedLeadsPage() {
                           <Button size="small" variant="outlined" color="inherit" onClick={() => unBlacklist(leadKeyOf(lead))}>
                             Quitar
                           </Button>
-                        ) : lead.source === 'chartback' ? (
-                          // Reactivación: el asesor la gestiona desde su panel (móvil).
-                          // Aquí es solo lectura.
-                          <Typography variant="caption" color="text.secondary" fontStyle="italic">
-                            Gestión del asesor
-                          </Typography>
                         ) : (
-                          <>
-                            {lead.status === 'pending' && (
-                              <Button
-                                variant="contained"
-                                size="small"
-                                startIcon={<PersonAddIcon />}
-                                onClick={() => {
-                                  setSelectedLead(lead);
-                                  setOpenLeadModal(true);
-                                }}
-                                sx={{ bgcolor: '#111' }}
-                              >
-                                {t('leads.assign')}
-                              </Button>
-                            )}
-                            {lead.status === 'assigned' && (
-                              <Tooltip title="Marcar como contactado">
-                                <IconButton
-                                  color="primary"
-                                  onClick={() => handleUpdateLeadStatus(lead, 'contacted')}
-                                >
-                                  <PhoneIcon />
+                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                            {!String(lead.phone || '').trim() && (
+                              <Tooltip title="Agregar teléfono">
+                                <IconButton size="small" color="warning" onClick={() => openPhoneDialog(lead)}>
+                                  <PhoneIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
                             )}
-                            {lead.status === 'contacted' && (
-                              <Tooltip title="Marcar como convertido">
-                                <IconButton
-                                  color="success"
-                                  onClick={() => handleUpdateLeadStatus(lead, 'converted')}
-                                >
-                                  <CheckCircleIcon />
-                                </IconButton>
-                              </Tooltip>
-                            )}
-                          </>
+                            <Tooltip title="Asignar / cambiar asesor">
+                              <IconButton size="small" color="primary" onClick={(e) => { setAdvisorMenuAnchor(e.currentTarget); setAdvisorMenuLead(lead); }}>
+                                <PersonAddIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
                         )}
                       </TableCell>
                     </TableRow>
@@ -1789,6 +1811,46 @@ export default function UnifiedLeadsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Agregar teléfono Dialog */}
+      <Dialog open={!!phoneDialogLead} onClose={() => !savingPhone && setPhoneDialogLead(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <PhoneIcon fontSize="small" /> Teléfono de {phoneDialogLead?.full_name || 'cliente'}
+        </DialogTitle>
+        <DialogContent dividers>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Teléfono (WhatsApp)"
+            placeholder="Ej. 528112345678 o 8112345678"
+            value={phoneInput}
+            onChange={(e) => setPhoneInput(e.target.value)}
+            size="small"
+            disabled={savingPhone}
+            onKeyDown={(e) => { if (e.key === 'Enter') savePhone(); }}
+            helperText="Si son 10 dígitos se le antepone 52 (México) al enviar."
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPhoneDialogLead(null)} disabled={savingPhone}>Cancelar</Button>
+          <Button variant="contained" onClick={savePhone} disabled={savingPhone || !phoneInput.trim()}>Guardar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Menú asignar asesor */}
+      <Menu
+        anchorEl={advisorMenuAnchor}
+        open={!!advisorMenuAnchor}
+        onClose={() => { setAdvisorMenuAnchor(null); setAdvisorMenuLead(null); }}
+        PaperProps={{ style: { maxHeight: 360 } }}
+      >
+        <MenuItem disabled sx={{ fontWeight: 700, opacity: 1 }}>Asignar asesor a {advisorMenuLead?.full_name || ''}</MenuItem>
+        <Divider />
+        {advisors.length === 0 && <MenuItem disabled>No hay asesores</MenuItem>}
+        {advisors.map(a => (
+          <MenuItem key={a.id} onClick={() => assignAdvisorToLead(a.id)}>{a.full_name}</MenuItem>
+        ))}
+      </Menu>
 
       {/* Nuevo grupo Dialog */}
       <Dialog open={newGroupOpen} onClose={() => !savingGroup && setNewGroupOpen(false)} maxWidth="xs" fullWidth>

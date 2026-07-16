@@ -600,6 +600,8 @@ import {
   getBlacklist,
   addToBlacklist,
   removeFromBlacklist,
+  updateLeadPhone,
+  assignLeadAdvisor,
   // Nuevos módulos CRM
   getCRMClients,
   exportCRMClients,
@@ -7025,6 +7027,9 @@ app.delete('/api/admin/crm/groups/:id/members', authenticateToken, requireMinLev
 app.get('/api/admin/crm/blacklist', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBlacklist);
 app.post('/api/admin/crm/blacklist', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), addToBlacklist);
 app.delete('/api/admin/crm/blacklist', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), removeFromBlacklist);
+// Acciones por lead: agregar teléfono / asignar asesor
+app.post('/api/admin/crm/leads/phone', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateLeadPhone);
+app.post('/api/admin/crm/leads/assign-advisor', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignLeadAdvisor);
 
 // App: Crear lead desde chat de soporte (solicitud de llamada)
 app.post('/api/crm/leads', authenticateToken, createLeadFromSupport);

@@ -231,18 +231,26 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
                AND cr.user_id = lc.claimed_by_user_id
           )
       )
-      SELECT c.*,
-             COALESCE(gr.groups, '[]'::jsonb) AS groups
-        FROM combined c
-        LEFT JOIN LATERAL (
-          SELECT jsonb_agg(jsonb_build_object('id', lg.id, 'name', lg.name, 'color', lg.color) ORDER BY lg.name) AS groups
-            FROM lead_group_members m
-            JOIN lead_groups lg ON lg.id = m.group_id
-           WHERE m.lead_key = c.lead_key
-        ) gr ON true
-       -- Los leads en blacklist desaparecen del funnel.
-       WHERE NOT EXISTS (SELECT 1 FROM lead_blacklist b WHERE b.lead_key = c.lead_key)
-       ORDER BY c.created_at DESC NULLS LAST
+      SELECT * FROM (
+        SELECT DISTINCT ON (COALESCE(NULLIF(UPPER(TRIM(c.box_id)), ''), c.lead_key))
+               c.*,
+               COALESCE(gr.groups, '[]'::jsonb) AS groups
+          FROM combined c
+          LEFT JOIN LATERAL (
+            SELECT jsonb_agg(jsonb_build_object('id', lg.id, 'name', lg.name, 'color', lg.color) ORDER BY lg.name) AS groups
+              FROM lead_group_members m
+              JOIN lead_groups lg ON lg.id = m.group_id
+             WHERE m.lead_key = c.lead_key
+          ) gr ON true
+         -- Los leads en blacklist desaparecen del funnel.
+         WHERE NOT EXISTS (SELECT 1 FROM lead_blacklist b WHERE b.lead_key = c.lead_key)
+         -- Deduplica por cliente (Box ID): si un usuario tiene varias solicitudes,
+         -- se queda la fila MÁS avanzada en el funnel y, a igualdad, la más reciente.
+         ORDER BY COALESCE(NULLIF(UPPER(TRIM(c.box_id)), ''), c.lead_key),
+                  CASE c.status WHEN 'converted' THEN 4 WHEN 'contacted' THEN 3 WHEN 'assigned' THEN 2 ELSE 1 END DESC,
+                  c.created_at DESC NULLS LAST
+      ) dedup
+      ORDER BY dedup.created_at DESC NULLS LAST
     `;
 
     const all = await pool.query(combinedQuery);
@@ -696,6 +704,64 @@ export const removeFromBlacklist = async (req: Request, res: Response): Promise<
   } catch (error: any) {
     console.error('Error en removeFromBlacklist:', error);
     res.status(500).json({ success: false, error: 'Error al quitar de blacklist' });
+  }
+};
+
+// Helper: extrae el id numérico de un lead_key ('crm_123' | 'lc_45')
+const leadKeyId = (leadKey: string): number | null => {
+  const m = String(leadKey || '').match(/^(crm|lc)_(\d+)$/);
+  return m && m[2] ? parseInt(m[2], 10) : null;
+};
+
+// POST /api/admin/crm/leads/phone { leadKey, phone } → agrega/edita el teléfono
+export const updateLeadPhone = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { leadKey, phone } = req.body || {};
+    const p = String(phone || '').trim();
+    const id = leadKeyId(String(leadKey || ''));
+    if (!id || !p) return res.status(400).json({ success: false, error: 'Falta lead o teléfono' });
+    if (String(leadKey).startsWith('crm_')) {
+      await pool.query(`UPDATE users SET phone = $1 WHERE id = (SELECT user_id FROM crm_requests WHERE id = $2)`, [p, id]);
+    } else {
+      // Legacy: guarda en legacy_clients y, si tiene usuario vinculado por Box ID
+      // sin teléfono, también en ese usuario (para que priorice el correcto).
+      await pool.query(`UPDATE legacy_clients SET phone = $1 WHERE id = $2`, [p, id]);
+      await pool.query(
+        `UPDATE users u SET phone = $1
+           FROM legacy_clients lc
+          WHERE lc.id = $2
+            AND lc.box_id IS NOT NULL
+            AND UPPER(TRIM(u.box_id)) = UPPER(TRIM(lc.box_id))
+            AND COALESCE(NULLIF(TRIM(u.phone), ''), '') = ''`,
+        [p, id]
+      );
+    }
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error en updateLeadPhone:', error);
+    res.status(500).json({ success: false, error: 'Error al guardar el teléfono' });
+  }
+};
+
+// POST /api/admin/crm/leads/assign-advisor { leadKey, advisorId }
+export const assignLeadAdvisor = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { leadKey, advisorId } = req.body || {};
+    const id = leadKeyId(String(leadKey || ''));
+    const advId = parseInt(String(advisorId), 10);
+    if (!id || !advId) return res.status(400).json({ success: false, error: 'Falta lead o asesor' });
+    if (String(leadKey).startsWith('crm_')) {
+      await pool.query(`UPDATE users SET referred_by_id = $1 WHERE id = (SELECT user_id FROM crm_requests WHERE id = $2)`, [advId, id]);
+      await pool.query(`UPDATE crm_requests SET status = 'assigned', assigned_advisor_id = $1, updated_at = NOW() WHERE id = $2`, [advId, id]);
+    } else {
+      // Legacy → asesor de recuperación (recovery_advisor_id)
+      await pool.query(`UPDATE legacy_clients SET recovery_advisor_id = $1 WHERE id = $2`, [advId, id]);
+    }
+    const adv = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [advId]);
+    res.json({ success: true, advisorName: adv.rows[0]?.full_name || null });
+  } catch (error: any) {
+    console.error('Error en assignLeadAdvisor:', error);
+    res.status(500).json({ success: false, error: 'Error al asignar asesor' });
   }
 };
 
