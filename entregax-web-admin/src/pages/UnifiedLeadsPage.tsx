@@ -1066,8 +1066,8 @@ export default function UnifiedLeadsPage() {
 
   // ============ STATS TOTALS ============
   const totalLeads = leadStats.pending + leadStats.assigned + leadStats.contacted + leadStats.converted;
-  const totalProspects = prospectStats 
-    ? prospectStats.new_count + prospectStats.contacting_count + prospectStats.interested_count + prospectStats.converted_count + prospectStats.lost_count 
+  const totalProspects = prospectStats
+    ? Number(prospectStats.new_count) + Number(prospectStats.contacting_count) + Number(prospectStats.interested_count) + Number(prospectStats.converted_count) + Number(prospectStats.lost_count)
     : 0;
 
   // ============ RENDER ============
