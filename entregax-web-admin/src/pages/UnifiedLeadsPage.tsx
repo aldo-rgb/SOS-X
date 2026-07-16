@@ -279,7 +279,7 @@ export default function UnifiedLeadsPage() {
   // ============ ENVÍO MASIVO WHATSAPP ============
   const [selectedLeadKeys, setSelectedLeadKeys] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkType, setBulkType] = useState<'invite' | 'xpay' | 'tarifas'>('invite');
+  const [bulkType, setBulkType] = useState<'invite' | 'xpay' | 'xpay_solo' | 'tarifas'>('invite');
   const [bulkValues, setBulkValues] = useState<{ tc: string; comision: string; cbm: string; kg: string }>({ tc: '', comision: '', cbm: '', kg: '' });
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResults, setBulkResults] = useState<{ sent: number; skipped: number; failed: number; total: number } | null>(null);
@@ -1520,19 +1520,22 @@ export default function UnifiedLeadsPage() {
               labelId="bulk-type-label"
               label="Plantilla"
               value={bulkType}
-              onChange={(e) => setBulkType(e.target.value as 'invite' | 'xpay' | 'tarifas')}
+              onChange={(e) => setBulkType(e.target.value as 'invite' | 'xpay' | 'xpay_solo' | 'tarifas')}
               disabled={bulkSending}
             >
               <MenuItem value="invite">📲 Invitación a registrarse en la app</MenuItem>
               <MenuItem value="xpay">💱 TC + comisión X-Pay (semanal)</MenuItem>
+              <MenuItem value="xpay_solo">💱 Solo tipo de cambio X-Pay</MenuItem>
               <MenuItem value="tarifas">📦 Tarifas marítimo/aéreo (CBM y kg)</MenuItem>
             </Select>
           </FormControl>
 
-          {bulkType === 'xpay' && (
+          {(bulkType === 'xpay' || bulkType === 'xpay_solo') && (
             <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
               <TextField label="Tipo de cambio (MXN/USD)" value={bulkValues.tc} onChange={(e) => setBulkValues(v => ({ ...v, tc: e.target.value }))} fullWidth size="small" disabled={bulkSending} />
-              <TextField label="Comisión X-Pay (%)" value={bulkValues.comision} onChange={(e) => setBulkValues(v => ({ ...v, comision: e.target.value }))} fullWidth size="small" disabled={bulkSending} />
+              {bulkType === 'xpay' && (
+                <TextField label="Comisión X-Pay (%)" value={bulkValues.comision} onChange={(e) => setBulkValues(v => ({ ...v, comision: e.target.value }))} fullWidth size="small" disabled={bulkSending} />
+              )}
             </Box>
           )}
           {bulkType === 'tarifas' && (
@@ -1550,7 +1553,9 @@ export default function UnifiedLeadsPage() {
                 ? '¡Hola [Nombre]! 👋 Te damos la bienvenida a EntregaX Paquetería.\nRegístrate y obtén tu casillero para importar desde China 🇨🇳 y USA 🇺🇸 con las mejores tarifas. 📦'
                 : bulkType === 'xpay'
                   ? `💱 EntregaX X-Pay — Tipo de cambio de la semana\nHola [Nombre]:\n• TC: $${bulkValues.tc || '—'} MXN/USD\n• Comisión X-Pay: ${bulkValues.comision || '—'}%`
-                  : `📦 EntregaX — Tarifas de importación vigentes\nHola [Nombre]:\n🚢 Marítimo: $${bulkValues.cbm || '—'} USD/m³ (CBM)\n✈️ Aéreo: $${bulkValues.kg || '—'} USD/kg`}
+                  : bulkType === 'xpay_solo'
+                    ? `💱 EntregaX X-Pay — Tipo de cambio\nHola [Nombre]:\n• Tipo de cambio: $${bulkValues.tc || '—'} MXN / USD`
+                    : `📦 EntregaX — Tarifas de importación vigentes\nHola [Nombre]:\n🚢 Marítimo: $${bulkValues.cbm || '—'} USD/m³ (CBM)\n✈️ Aéreo: $${bulkValues.kg || '—'} USD/kg`}
             </Typography>
           </Paper>
 

@@ -311,7 +311,8 @@ export const updateLeadStatus = async (req: Request, res: Response): Promise<any
 // ============================================================================
 // Nombres de plantilla configurables por env para calzar con lo aprobado en Meta.
 const WA_TPL_INVITE = process.env.WHATSAPP_INVITE_TEMPLATE || 'invitacion_registro_entregax';
-const WA_TPL_XPAY = process.env.WHATSAPP_XPAY_WEEKLY_TEMPLATE || 'xpay_tc_semanal';
+const WA_TPL_XPAY = process.env.WHATSAPP_XPAY_WEEKLY_TEMPLATE || 'xpay_tc';           // TC + comisión
+const WA_TPL_XPAY_TC = process.env.WHATSAPP_XPAY_TC_TEMPLATE || 'xpay_solo_tc';       // solo TC
 const WA_TPL_TARIFAS = process.env.WHATSAPP_TARIFAS_TEMPLATE || 'tarifas_maritimo_aereo';
 
 // Lee los valores vigentes de la BD para prellenar las plantillas 2 y 3.
@@ -357,7 +358,7 @@ export const getBulkWhatsappDefaults = async (_req: Request, res: Response): Pro
 export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> => {
   try {
     const { messageType, leadKeys, values } = req.body || {};
-    if (!['invite', 'xpay', 'tarifas'].includes(messageType)) {
+    if (!['invite', 'xpay', 'xpay_solo', 'tarifas'].includes(messageType)) {
       return res.status(400).json({ success: false, error: 'Tipo de mensaje inválido' });
     }
     if (!Array.isArray(leadKeys) || leadKeys.length === 0) {
@@ -373,6 +374,9 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
     const comision = norm(values?.comision);
     const cbm = norm(values?.cbm);
     const kg = norm(values?.kg);
+    if (messageType === 'xpay_solo' && !tc) {
+      return res.status(400).json({ success: false, error: 'Falta el tipo de cambio' });
+    }
     if (messageType === 'xpay' && (!tc || !comision)) {
       return res.status(400).json({ success: false, error: 'Falta el tipo de cambio o la comisión' });
     }
@@ -392,7 +396,10 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
       [leadKeys]
     );
 
-    const template = messageType === 'invite' ? WA_TPL_INVITE : messageType === 'xpay' ? WA_TPL_XPAY : WA_TPL_TARIFAS;
+    const template = messageType === 'invite' ? WA_TPL_INVITE
+      : messageType === 'xpay' ? WA_TPL_XPAY
+      : messageType === 'xpay_solo' ? WA_TPL_XPAY_TC
+      : WA_TPL_TARIFAS;
     const seenPhones = new Set<string>();
     const results = { total: rowsRes.rows.length, sent: 0, skipped: 0, failed: 0, details: [] as any[] };
 
@@ -415,6 +422,7 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
       const parameters =
         messageType === 'invite' ? [nombre]
         : messageType === 'xpay' ? [nombre, tc as string, comision as string]
+        : messageType === 'xpay_solo' ? [nombre, tc as string]
         : [nombre, cbm as string, kg as string];
 
       const r = await sendTemplate({ to: phone, template, languageCode: 'es_MX', parameters });
