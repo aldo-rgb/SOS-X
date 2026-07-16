@@ -154,8 +154,10 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
   try {
     const { status } = req.query;
     await ensureGroupsSchema();
+    // Los prospectos que ya se registraron pasan a "Prospectados" (abajo).
+    await reconcileRegisteredProspects();
 
-    // Consulta combinada. Ambas fuentes proyectan el MISMO set de columnas.
+    // Consulta combinada. Todas las fuentes proyectan el MISMO set de columnas.
     const combinedQuery = `
       WITH combined AS (
         -- Fuente 1: CRM requests (usuarios app)
@@ -231,6 +233,32 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
              WHERE cr.user_id IS NOT NULL
                AND cr.user_id = lc.claimed_by_user_id
           )
+
+        UNION ALL
+
+        -- Fuente 3: Prospectos externos que se REGISTRARON → "Prospectados"
+        SELECT
+          NULL::int AS request_id,
+          'prospect'::text AS source,
+          ('pr_' || p.id::text) AS lead_key,
+          u.created_at,
+          'prospected'::text AS status,
+          p.notes AS admin_notes,
+          u.created_at AS updated_at,
+          u.id AS user_id,
+          u.full_name,
+          u.email,
+          u.box_id,
+          u.phone,
+          padv.full_name AS assigned_advisor_name,
+          NULL::text AS chartback_status,
+          NULL::text AS advisor_response,
+          NULL::jsonb AS activity,
+          NULL::timestamptz AS next_contact_at,
+          true AS reclamado
+        FROM prospects p
+        JOIN users u ON p.converted_user_id = u.id
+        LEFT JOIN users padv ON p.assigned_advisor_id = padv.id
       )
       SELECT * FROM (
         SELECT DISTINCT ON (COALESCE(NULLIF(UPPER(TRIM(c.box_id)), ''), c.lead_key))
@@ -256,8 +284,8 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
 
     const all = await pool.query(combinedQuery);
 
-    // Stats sobre AMBAS fuentes (funnel combinado)
-    const stats = { pending: 0, assigned: 0, contacted: 0, converted: 0 };
+    // Stats sobre TODAS las fuentes (funnel combinado)
+    const stats = { prospected: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 };
     for (const row of all.rows) {
       if (row.status && Object.prototype.hasOwnProperty.call(stats, row.status)) {
         stats[row.status as keyof typeof stats]++;
@@ -1380,15 +1408,52 @@ export const detectAtRiskClients = async (_req: Request, res: Response): Promise
 // ============================================================================
 
 /**
+ * Reconciliar prospectos que ya se registraron como usuarios.
+ * Si un prospecto (no convertido) coincide por teléfono (últimos 10 dígitos) o
+ * correo con un usuario real, se marca 'converted' y se enlaza converted_user_id.
+ * Así desaparece del pipeline activo (Nuevos/Contactando/Interesados) al registrarse.
+ * Se ejecuta al cargar la lista (idempotente). Se hace en 2 UPDATEs (hash join eficiente).
+ */
+const reconcileRegisteredProspects = async (): Promise<void> => {
+  try {
+    // Por teléfono (normalizado a últimos 10 dígitos, ambos lados con ≥10 dígitos).
+    await pool.query(`
+      UPDATE prospects p
+         SET status = 'converted', converted_user_id = u.id, updated_at = NOW()
+        FROM users u
+       WHERE p.status <> 'converted'
+         AND length(regexp_replace(COALESCE(p.whatsapp, ''), '\\D', '', 'g')) >= 10
+         AND length(regexp_replace(COALESCE(u.phone, ''), '\\D', '', 'g')) >= 10
+         AND right(regexp_replace(p.whatsapp, '\\D', '', 'g'), 10) = right(regexp_replace(u.phone, '\\D', '', 'g'), 10)
+    `);
+    // Por correo (minúsculas, sin espacios).
+    await pool.query(`
+      UPDATE prospects p
+         SET status = 'converted', converted_user_id = u.id, updated_at = NOW()
+        FROM users u
+       WHERE p.status <> 'converted'
+         AND NULLIF(lower(trim(p.email)), '') IS NOT NULL
+         AND lower(trim(p.email)) = lower(trim(u.email))
+    `);
+  } catch (e) {
+    console.warn('[CRM] reconcileRegisteredProspects:', (e as Error).message);
+  }
+};
+
+/**
  * Obtener todos los prospectos
  * GET /api/admin/crm/prospects
  */
 export const getProspects = async (req: Request, res: Response): Promise<any> => {
   try {
+    // Marcar como convertidos los prospectos que ya se registraron como usuarios.
+    await reconcileRegisteredProspects();
     const { status, advisorId, channel, search, page = 1, limit = 50 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
-    let whereConditions: string[] = [];
+    // Los prospectos que YA se registraron pasan a CRM Leads → "Prospectados"
+    // y desaparecen de esta lista de prospectos externos.
+    let whereConditions: string[] = ['p.converted_user_id IS NULL'];
     const params: any[] = [];
     let paramIndex = 1;
 
@@ -1460,6 +1525,7 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
         COUNT(*) FILTER (WHERE status = 'lost') as lost_count,
         COUNT(*) FILTER (WHERE follow_up_date::date = CURRENT_DATE) as follow_up_today
       FROM prospects
+      WHERE converted_user_id IS NULL
     `;
     const statsResult = await pool.query(statsQuery);
 
