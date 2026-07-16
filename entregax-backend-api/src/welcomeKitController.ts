@@ -14,6 +14,142 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { uploadToS3, isS3Configured, getSignedUrlForKey } from './s3Service';
+
+// ============================================================================
+// 🛍️ CATÁLOGO DE REGALOS (mini-tienda con inventario)
+// ============================================================================
+let productsReady = false;
+async function ensureProductsSchema(): Promise<void> {
+  if (productsReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS welcome_kit_products (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      video_url TEXT,
+      stock INTEGER DEFAULT 0,
+      photos JSONB DEFAULT '[]'::jsonb,   -- array de keys de S3 (máx. 5)
+      is_active BOOLEAN DEFAULT true,
+      sort_order INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  productsReady = true;
+}
+
+// Firma cada key de S3 → URL visible. Acepta keys o {key,url}.
+async function signPhotos(photos: any): Promise<Array<{ key: string; url: string | null }>> {
+  const arr: any[] = Array.isArray(photos) ? photos : [];
+  const out: Array<{ key: string; url: string | null }> = [];
+  for (const p of arr) {
+    const key = typeof p === 'string' ? p : (p?.key || '');
+    if (!key) continue;
+    let url: string | null = null;
+    try { url = await getSignedUrlForKey(key, 6 * 3600); } catch { /* ignore */ }
+    out.push({ key, url });
+  }
+  return out;
+}
+
+// GET /api/admin/welcome-kit/products
+export const getKitProducts = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureProductsSchema();
+    const onlyActive = String(req.query.active || '') === '1';
+    const r = await pool.query(
+      `SELECT * FROM welcome_kit_products ${onlyActive ? 'WHERE is_active = true' : ''} ORDER BY sort_order ASC, id DESC`
+    );
+    const data = await Promise.all(r.rows.map(async (p: any) => ({ ...p, photos: await signPhotos(p.photos) })));
+    res.json({ success: true, data });
+  } catch (error: any) {
+    console.error('Error getKitProducts:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// POST /api/admin/welcome-kit/products/upload-photo (multipart "file")
+export const uploadKitProductPhoto = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file || !file.buffer) return res.status(400).json({ success: false, error: 'No se recibió imagen' });
+    const mime = (file.mimetype || '').toLowerCase();
+    if (mime !== 'image/jpeg' && mime !== 'image/png' && mime !== 'image/webp') {
+      return res.status(400).json({ success: false, error: 'La imagen debe ser JPG, PNG o WEBP' });
+    }
+    if (!isS3Configured()) return res.status(500).json({ success: false, error: 'Almacenamiento no configurado (S3)' });
+    const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+    const key = `kit-products/foto-${Date.now()}-${Math.round(Math.random() * 1e6)}.${ext}`;
+    await uploadToS3(file.buffer, key, mime);
+    let url: string | null = null;
+    try { url = await getSignedUrlForKey(key, 6 * 3600); } catch { /* ignore */ }
+    res.json({ success: true, key, url });
+  } catch (error: any) {
+    console.error('Error uploadKitProductPhoto:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+const cleanPhotos = (photos: any): string[] => {
+  const arr = Array.isArray(photos) ? photos : [];
+  return arr.map((p: any) => (typeof p === 'string' ? p : p?.key)).filter(Boolean).slice(0, 5);
+};
+
+// POST /api/admin/welcome-kit/products
+export const createKitProduct = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureProductsSchema();
+    const b = req.body || {};
+    if (!String(b.name || '').trim()) return res.status(400).json({ success: false, error: 'Falta el nombre del producto' });
+    const r = await pool.query(
+      `INSERT INTO welcome_kit_products (name, description, video_url, stock, photos, is_active, sort_order)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7) RETURNING id`,
+      [String(b.name).trim(), b.description || null, b.video_url || null, parseInt(String(b.stock), 10) || 0,
+       JSON.stringify(cleanPhotos(b.photos)), b.is_active !== false, parseInt(String(b.sort_order), 10) || 0]
+    );
+    res.json({ success: true, id: r.rows[0].id });
+  } catch (error: any) {
+    console.error('Error createKitProduct:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// PUT /api/admin/welcome-kit/products/:id
+export const updateKitProduct = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureProductsSchema();
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) return res.status(400).json({ success: false, error: 'id inválido' });
+    const b = req.body || {};
+    if (!String(b.name || '').trim()) return res.status(400).json({ success: false, error: 'Falta el nombre del producto' });
+    await pool.query(
+      `UPDATE welcome_kit_products
+          SET name=$1, description=$2, video_url=$3, stock=$4, photos=$5::jsonb, is_active=$6, sort_order=$7, updated_at=NOW()
+        WHERE id=$8`,
+      [String(b.name).trim(), b.description || null, b.video_url || null, parseInt(String(b.stock), 10) || 0,
+       JSON.stringify(cleanPhotos(b.photos)), b.is_active !== false, parseInt(String(b.sort_order), 10) || 0, id]
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error updateKitProduct:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// DELETE /api/admin/welcome-kit/products/:id
+export const deleteKitProduct = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureProductsSchema();
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) return res.status(400).json({ success: false, error: 'id inválido' });
+    await pool.query(`DELETE FROM welcome_kit_products WHERE id=$1`, [id]);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error deleteKitProduct:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
 
 let schemaReady = false;
 export async function ensureWelcomeKitSchema(): Promise<void> { return ensureSchema(); }

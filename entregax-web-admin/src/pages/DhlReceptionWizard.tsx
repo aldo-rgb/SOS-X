@@ -396,6 +396,38 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
     }
   };
 
+  // Verifica que la guía CORTA (master) pertenezca a DHL y no a otro servicio
+  // (típicamente TDX / tdi_express, que también usa 10 dígitos numéricos).
+  // Si detecta que el master es de otro servicio, bloquea el avance.
+  const checkMasterServiceType = async (value: string) => {
+    const clean = value.trim();
+    if (clean.length < 4) return;
+    setCheckingDuplicate(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/api/admin/shipments/lookup-master`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { code: clean },
+      });
+      const svc = String(res.data?.service_type || '').toLowerCase();
+      if (svc === 'tdi_express') {
+        setTracking2Warning(
+          `❌ Esta guía (${clean}) pertenece a TDX (TDI Express), no a DHL Express. Verifica el paquete o cambia de proceso.`
+        );
+        playErrorBeep();
+        // NO limpiamos automáticamente: es una condición real de negocio,
+        // no un typo. El operador debe leer la alerta y decidir.
+      } else if (svc && svc !== 'dhl' && svc !== 'unknown') {
+        setTracking2Warning(
+          `❌ Esta guía (${clean}) pertenece al servicio "${svc.toUpperCase()}", no a DHL Express.`
+        );
+        playErrorBeep();
+      }
+    } catch { /* ignorar — no bloquear por error de red */ } finally {
+      setCheckingDuplicate(false);
+    }
+  };
+
   // Campo 1: LARGA (JJD) — debe ser larga, única, no 2LMX, no corta
   const handleTrackingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = normalizeTracking(e.target.value);
@@ -480,6 +512,8 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
       }
       if (value.length >= 6) {
         playSuccessBeep();
+        // Verificar contra backend si el master pertenece a otro servicio (TDX, etc.)
+        checkMasterServiceType(value);
         // No auto-advance — user must click Continuar after reviewing both fields
       }
     }, 220);
@@ -503,7 +537,14 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
       setTimeout(() => { setTracking2(''); setTracking2Warning(null); lastEvalTracking2Ref.current = ''; tracking2InputRef.current?.focus(); }, 1100);
       return;
     }
-    if (tracking.trim().length >= 5 && value.length >= 4 && !trackingWarning) {
+    // Verificación asíncrona TDX/servicio antes de avanzar. Si el master ya
+    // fue evaluado por el debounce y hay warning, el botón Continuar no
+    // avanza (mismo guard); aquí forzamos check síncrono en Enter para el
+    // caso en que el operador pulse Enter antes del debounce.
+    if (value.length >= 6 && !tracking2Warning) {
+      checkMasterServiceType(value);
+    }
+    if (tracking.trim().length >= 5 && value.length >= 4 && !trackingWarning && !tracking2Warning) {
       setActiveStep(2);
     }
   };
@@ -1017,7 +1058,10 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                   }}
                 />
                 {tracking2Warning && (
-                  <Alert severity="warning" sx={{ mt: 1, maxWidth: 420, mx: 'auto', textAlign: 'left' }}>
+                  <Alert
+                    severity={tracking2Warning.startsWith('❌') ? 'error' : 'warning'}
+                    sx={{ mt: 1, maxWidth: 420, mx: 'auto', textAlign: 'left', fontWeight: 600 }}
+                  >
                     {tracking2Warning}
                   </Alert>
                 )}

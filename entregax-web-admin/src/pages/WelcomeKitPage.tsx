@@ -12,7 +12,8 @@ import {
   Box, Paper, Typography, Table, TableBody, TableCell, TableContainer, TableHead,
   TableRow, Chip, IconButton, Button, TextField, InputAdornment, CircularProgress,
   FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent,
-  DialogActions, Snackbar, Alert, Tooltip, Grid,
+  DialogActions, Snackbar, Alert, Tooltip, Grid, Tabs, Tab, Card, CardMedia,
+  CardContent, Switch, FormControlLabel,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -20,6 +21,10 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
+import Inventory2Icon from '@mui/icons-material/Inventory2';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import VideocamIcon from '@mui/icons-material/Videocam';
+import CloseIcon from '@mui/icons-material/Close';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -68,7 +73,21 @@ const emptyForm: Partial<KitRequest> = {
   status: 'solicitado', usa_tracking: '', estafeta_tracking: '', notes: '',
 };
 
+interface KitPhoto { key: string; url: string | null }
+interface KitProduct {
+  id: number;
+  name: string;
+  description: string | null;
+  video_url: string | null;
+  stock: number;
+  photos: KitPhoto[];
+  is_active: boolean;
+  sort_order: number;
+}
+const emptyProduct: Partial<KitProduct> = { name: '', description: '', video_url: '', stock: 0, photos: [], is_active: true, sort_order: 0 };
+
 export default function WelcomeKitPage() {
+  const [tab, setTab] = useState<'requests' | 'catalog'>('requests');
   const [rows, setRows] = useState<KitRequest[]>([]);
   const [stats, setStats] = useState<KitStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,6 +97,13 @@ export default function WelcomeKitPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<KitRequest> | null>(null);
   const [saving, setSaving] = useState(false);
+  // Catálogo de regalos
+  const [products, setProducts] = useState<KitProduct[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [prodFormOpen, setProdFormOpen] = useState(false);
+  const [editingProd, setEditingProd] = useState<Partial<KitProduct> | null>(null);
+  const [savingProd, setSavingProd] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -94,6 +120,79 @@ export default function WelcomeKitPage() {
   }, [statusFilter, search]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // ===== Catálogo de regalos =====
+  const fetchProducts = useCallback(async () => {
+    setProductsLoading(true);
+    try {
+      const res = await axios.get(`${API_URL}/admin/welcome-kit/products`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setProducts(res.data.data || []);
+    } catch {
+      setSnackbar({ open: true, message: 'Error al cargar el catálogo', severity: 'error' });
+    } finally { setProductsLoading(false); }
+  }, []);
+
+  useEffect(() => { if (tab === 'catalog') fetchProducts(); }, [tab, fetchProducts]);
+
+  const uploadProductPhoto = async (file: File) => {
+    if (!editingProd) return;
+    if ((editingProd.photos?.length || 0) >= 5) {
+      setSnackbar({ open: true, message: 'Máximo 5 fotos por producto', severity: 'error' });
+      return;
+    }
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
+      setSnackbar({ open: true, message: 'La imagen debe ser JPG, PNG o WEBP', severity: 'error' });
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await axios.post(`${API_URL}/admin/welcome-kit/products/upload-photo`, fd, {
+        headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'multipart/form-data' },
+      });
+      setEditingProd(prev => prev ? { ...prev, photos: [...(prev.photos || []), { key: res.data.key, url: res.data.url }] } : prev);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al subir la foto', severity: 'error' });
+    } finally { setUploadingPhoto(false); }
+  };
+
+  const removeProductPhoto = (key: string) => {
+    setEditingProd(prev => prev ? { ...prev, photos: (prev.photos || []).filter(p => p.key !== key) } : prev);
+  };
+
+  const saveProduct = async () => {
+    if (!editingProd) return;
+    if (!String(editingProd.name || '').trim()) {
+      setSnackbar({ open: true, message: 'Falta el nombre del producto', severity: 'error' });
+      return;
+    }
+    setSavingProd(true);
+    try {
+      const payload = {
+        name: editingProd.name, description: editingProd.description, video_url: editingProd.video_url,
+        stock: editingProd.stock, is_active: editingProd.is_active !== false, sort_order: editingProd.sort_order,
+        photos: (editingProd.photos || []).map(p => p.key),
+      };
+      if (editingProd.id) await axios.put(`${API_URL}/admin/welcome-kit/products/${editingProd.id}`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
+      else await axios.post(`${API_URL}/admin/welcome-kit/products`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setProdFormOpen(false); setEditingProd(null);
+      fetchProducts();
+      setSnackbar({ open: true, message: 'Producto guardado', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al guardar', severity: 'error' });
+    } finally { setSavingProd(false); }
+  };
+
+  const removeProduct = async (id: number) => {
+    if (!window.confirm('¿Eliminar este producto del catálogo?')) return;
+    try {
+      await axios.delete(`${API_URL}/admin/welcome-kit/products/${id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      fetchProducts();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al eliminar', severity: 'error' });
+    }
+  };
 
   const changeStatus = async (id: number, status: string) => {
     try {
@@ -161,13 +260,29 @@ export default function WelcomeKitPage() {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditing({ ...emptyForm }); setFormOpen(true); }} sx={{ background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)' }}>
-            Nuevo
-          </Button>
-          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchData}>Actualizar</Button>
+          {tab === 'requests' ? (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditing({ ...emptyForm }); setFormOpen(true); }} sx={{ background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)' }}>
+              Nueva solicitud
+            </Button>
+          ) : (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditingProd({ ...emptyProduct }); setProdFormOpen(true); }} sx={{ background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)' }}>
+              Nuevo producto
+            </Button>
+          )}
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => tab === 'requests' ? fetchData() : fetchProducts()}>Actualizar</Button>
         </Box>
       </Box>
 
+      {/* Tabs */}
+      <Paper sx={{ mb: 3 }}>
+        <Tabs value={tab} onChange={(_, v) => setTab(v)} indicatorColor="primary" textColor="primary">
+          <Tab value="requests" icon={<CardGiftcardIcon fontSize="small" />} iconPosition="start" label="Solicitudes" />
+          <Tab value="catalog" icon={<Inventory2Icon fontSize="small" />} iconPosition="start" label="Catálogo de regalos" />
+        </Tabs>
+      </Paper>
+
+      {/* ===== TAB SOLICITUDES ===== */}
+      {tab === 'requests' && (<>
       {/* Stats */}
       {stats && (
         <Grid container spacing={2} sx={{ mb: 3 }}>

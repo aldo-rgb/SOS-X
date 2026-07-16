@@ -639,6 +639,11 @@ import {
   createWelcomeKit,
   updateWelcomeKit,
   deleteWelcomeKit,
+  getKitProducts,
+  createKitProduct,
+  updateKitProduct,
+  deleteKitProduct,
+  uploadKitProductPhoto,
 } from './welcomeKitController';
 import {
   getSequences,
@@ -6527,6 +6532,66 @@ app.put('/api/admin/dhl/client-pricing/:userId', authenticateToken, requireMinLe
 // Operaciones de bodega
 app.get('/api/admin/dhl/shipments', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDhlShipments);
 app.post('/api/admin/dhl/receive', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), receiveDhlPackage);
+// Lookup del master corto (secondary_tracking / international_tracking) para
+// detectar si la guía escaneada en el wizard DHL corresponde a otro servicio
+// (p.ej. TDX / tdi_express). Devuelve el service_type detectado o 'unknown'.
+app.get('/api/admin/shipments/lookup-master', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const raw = String(req.query.code || '').trim();
+    if (!raw) return res.status(400).json({ error: 'code requerido' });
+    if (raw.length < 4) return res.json({ service_type: 'unknown', found: false, code: raw });
+
+    // 1) Match en packages por international_tracking / tracking_internal / tracking_provider
+    const pkg = await pool.query(
+      `SELECT id, tracking_internal, international_tracking, tracking_provider,
+              service_type::text AS service_type, air_source, is_master, master_id
+         FROM packages
+        WHERE international_tracking = $1
+           OR tracking_internal = $1
+           OR tracking_provider = $1
+        ORDER BY is_master DESC NULLS LAST, id ASC
+        LIMIT 1`,
+      [raw]
+    );
+    if (pkg.rows.length > 0) {
+      const row = pkg.rows[0];
+      const svc = String(row.air_source || row.service_type || '').toLowerCase();
+      return res.json({
+        service_type: svc || 'unknown',
+        source_table: 'packages',
+        found: true,
+        code: raw,
+        tracking_internal: row.tracking_internal,
+        international_tracking: row.international_tracking,
+        is_master: row.is_master === true,
+      });
+    }
+
+    // 2) Match en dhl_shipments por secondary_tracking / inbound_tracking
+    const dhl = await pool.query(
+      `SELECT id, inbound_tracking, secondary_tracking
+         FROM dhl_shipments
+        WHERE secondary_tracking = $1 OR inbound_tracking = $1
+        LIMIT 1`,
+      [raw]
+    );
+    if (dhl.rows.length > 0) {
+      return res.json({
+        service_type: 'dhl',
+        source_table: 'dhl_shipments',
+        found: true,
+        code: raw,
+        inbound_tracking: dhl.rows[0].inbound_tracking,
+        secondary_tracking: dhl.rows[0].secondary_tracking,
+      });
+    }
+
+    return res.json({ service_type: 'unknown', found: false, code: raw });
+  } catch (e: any) {
+    console.error('[shipments/lookup-master] error:', e?.message);
+    return res.status(500).json({ error: 'Error consultando lookup', details: e?.message });
+  }
+});
 app.post('/api/admin/dhl/quote', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), quoteDhlShipment);
 app.post('/api/admin/dhl/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchDhlShipment);
 app.get('/api/admin/dhl/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDhlStats);
@@ -7056,6 +7121,13 @@ app.get('/api/admin/welcome-kit', authenticateToken, requireMinLevel(ROLES.COUNT
 app.post('/api/admin/welcome-kit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createWelcomeKit);
 app.put('/api/admin/welcome-kit/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateWelcomeKit);
 app.delete('/api/admin/welcome-kit/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteWelcomeKit);
+// 🛍️ Catálogo de regalos (inventario)
+const kitPhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+app.get('/api/admin/welcome-kit/products', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getKitProducts);
+app.post('/api/admin/welcome-kit/products', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createKitProduct);
+app.put('/api/admin/welcome-kit/products/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateKitProduct);
+app.delete('/api/admin/welcome-kit/products/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteKitProduct);
+app.post('/api/admin/welcome-kit/products/upload-photo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), kitPhotoUpload.single('file'), uploadKitProductPhoto);
 
 // 🔄 Secuencias automáticas de WhatsApp (cadencia Día 1/3/7)
 app.get('/api/admin/crm/sequences', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSequences);
