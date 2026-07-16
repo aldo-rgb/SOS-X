@@ -649,6 +649,7 @@ import {
 import {
   verifyWhatsappWebhook,
   handleWhatsappWebhook,
+  debugWabaSubs,
 } from './whatsappWebhookController';
 import {
   handleSupportMessage,
@@ -7065,6 +7066,7 @@ app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel
 // 📩 Webhook entrante de WhatsApp (verificación + eventos). Público (Meta lo llama).
 app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
 app.post('/api/webhooks/whatsapp', handleWhatsappWebhook);
+app.get('/api/_diag/wa-subs', debugWabaSubs);
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);

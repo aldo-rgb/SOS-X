@@ -22,6 +22,28 @@ const STOP_WORDS = ['stop', 'baja', 'no', 'cancelar', 'unsubscribe', 'dar de baj
 
 const normPhone = (p: any): string => { const d = String(p ?? '').replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d; };
 
+// TEMPORAL: ver/forzar la suscripción de la WABA a la app.
+// GET /api/_diag/wa-subs?k=entregax_diag_2026[&fix=1]
+export const debugWabaSubs = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (String(req.query.k || '') !== 'entregax_diag_2026') return res.status(403).json({ error: 'no' });
+    const WABA = '1311055820410416';
+    const token = process.env.WHATSAPP_ACCESS_TOKEN;
+    const ver = process.env.WHATSAPP_API_VERSION || 'v23.0';
+    if (!token) return res.status(500).json({ error: 'sin token' });
+    if (req.query.fix) {
+      const rr = await fetch(`https://graph.facebook.com/${ver}/${WABA}/subscribed_apps`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const jj = await rr.json();
+      return res.json({ action: 'subscribe', status: rr.status, response: jj });
+    }
+    const rr = await fetch(`https://graph.facebook.com/${ver}/${WABA}/subscribed_apps`, { headers: { Authorization: `Bearer ${token}` } });
+    const jj = await rr.json();
+    return res.json({ subscribed_apps: jj });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+};
+
 // GET /api/webhooks/whatsapp → verificación de Meta
 export const verifyWhatsappWebhook = (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
