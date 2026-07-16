@@ -54,6 +54,7 @@ interface SendTemplateOptions {
     parameters?: string[];   // body params en orden ({{1}}, {{2}}, ...)
     headerParameters?: string[]; // header params si la plantilla tiene header con vars
     headerImageUrl?: string; // URL pública HTTPS si la plantilla tiene encabezado IMAGEN
+    useMarketingApi?: boolean; // usar el endpoint MM Lite (/marketing_messages) para marketing
 }
 
 const isEnabled = (): boolean => {
@@ -130,6 +131,7 @@ export const sendTemplate = async (opts: SendTemplateOptions): Promise<{ ok: boo
 
     const payload = {
         messaging_product: 'whatsapp',
+        recipient_type: 'individual',
         to: normalized,
         type: 'template',
         template: {
@@ -140,7 +142,10 @@ export const sendTemplate = async (opts: SendTemplateOptions): Promise<{ ok: boo
     };
 
     try {
-        const url = `https://graph.facebook.com/${API_VERSION}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+        // MM Lite (API de Mensajes de Marketing): mismo payload y plantillas, pero
+        // el endpoint /marketing_messages, optimizado para entrega de marketing.
+        const endpoint = opts.useMarketingApi ? 'marketing_messages' : 'messages';
+        const url = `https://graph.facebook.com/${API_VERSION}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/${endpoint}`;
         const { data } = await axios.post(url, payload, {
             headers: {
                 Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,

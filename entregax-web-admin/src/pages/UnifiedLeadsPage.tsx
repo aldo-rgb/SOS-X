@@ -133,6 +133,7 @@ interface BulkTemplate {
   variables: BulkTemplateVar[];
   preview: string | null;
   header_image_url?: string | null;
+  use_mm_lite?: boolean;
 }
 
 // Prospecto externo
@@ -580,7 +581,7 @@ export default function UnifiedLeadsPage() {
     }
     setSavingTpl(true);
     try {
-      const payload = { label: tpl.label.trim(), template_name: tpl.template_name.trim(), language_code: tpl.language_code || 'es_MX', variables: tpl.variables || [], preview: tpl.preview, header_image_url: tpl.header_image_url || null };
+      const payload = { label: tpl.label.trim(), template_name: tpl.template_name.trim(), language_code: tpl.language_code || 'es_MX', variables: tpl.variables || [], preview: tpl.preview, header_image_url: tpl.header_image_url || null, use_mm_lite: !!tpl.use_mm_lite };
       if (tpl.id) await axios.put(`${API_URL}/admin/crm/bulk-templates/${tpl.id}`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
       else await axios.post(`${API_URL}/admin/crm/bulk-templates`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
       setTplEditing(null);
@@ -2050,7 +2051,7 @@ export default function UnifiedLeadsPage() {
                 ))}
                 {bulkTemplates.length === 0 && <ListItem><ListItemText secondary="No hay plantillas." /></ListItem>}
               </List>
-              <Button startIcon={<AddIcon />} onClick={() => setTplEditing({ id: 0, label: '', template_name: '', language_code: 'es_MX', variables: [], preview: '', header_image_url: '' })}>
+              <Button startIcon={<AddIcon />} onClick={() => setTplEditing({ id: 0, label: '', template_name: '', language_code: 'es_MX', variables: [], preview: '', header_image_url: '', use_mm_lite: false })}>
                 Nueva plantilla
               </Button>
             </>
@@ -2060,6 +2061,13 @@ export default function UnifiedLeadsPage() {
               <TextField label="Nombre de la plantilla en Meta" value={tplEditing.template_name} onChange={e => setTplEditing({ ...tplEditing, template_name: e.target.value })} size="small" fullWidth disabled={savingTpl} helperText="Debe coincidir EXACTAMENTE con el nombre aprobado en WhatsApp Manager." />
               <TextField label="Idioma" value={tplEditing.language_code} onChange={e => setTplEditing({ ...tplEditing, language_code: e.target.value })} size="small" fullWidth disabled={savingTpl} helperText="Ej. es_MX, es, en" />
               <TextField label="URL de imagen del encabezado (opcional)" value={tplEditing.header_image_url || ''} onChange={e => setTplEditing({ ...tplEditing, header_image_url: e.target.value })} size="small" fullWidth disabled={savingTpl} helperText="Solo si la plantilla tiene encabezado de IMAGEN en Meta. Debe ser una URL pública HTTPS (JPG/PNG). Se envía en cada mensaje." />
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5, bgcolor: '#f3f0ff', p: 1, borderRadius: 1 }}>
+                <Checkbox size="small" checked={!!tplEditing.use_mm_lite} onChange={e => setTplEditing({ ...tplEditing, use_mm_lite: e.target.checked })} disabled={savingTpl} sx={{ p: 0.5 }} />
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>Usar API de Marketing (MM Lite) ✨</Typography>
+                  <Typography variant="caption" color="text.secondary">Envía por el endpoint de marketing de Meta (hasta ~9% más de entregas). Actívalo solo para plantillas de MARKETING y después de completar el onboarding de MM Lite en Meta. Las de UTILITY déjalo apagado.</Typography>
+                </Box>
+              </Box>
               <Box>
                 <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>Variables manuales (van después del nombre)</Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
