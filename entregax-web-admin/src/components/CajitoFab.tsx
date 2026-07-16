@@ -75,14 +75,37 @@ const getCurrentUser = () => {
   try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
 };
 
-const statusLabel = (s?: string): string => {
+const statusLabel = (s?: string, ctx?: { warehouseLocation?: string | null; serviceType?: string | null }): string => {
+  // 'received' es ambiguo — depende de la ubicación física del paquete:
+  //   - En origen USA (POBOX)    → "Recibido Hidalgo TX"
+  //   - En origen China (aéreo/marítimo) → "Recibido China"
+  //   - En sucursal MX (default) → "Recibido MX"
+  const key = (s || '').toLowerCase();
+  if (key === 'received') {
+    const wh = String(ctx?.warehouseLocation || '').toLowerCase();
+    const svc = String(ctx?.serviceType || '').toLowerCase();
+    if (wh.includes('hidalgo') || wh.includes('pobox') || wh === 'usa_pobox' || svc === 'pobox_usa' || svc === 'tdi_express') {
+      // POBOX_USA y TDI_EXPRESS reciben en Hidalgo TX antes de mover a MTY.
+      if (!wh.includes('mty') && !wh.includes('cedis') && !wh.includes('monterrey')) {
+        return 'Recibido Hidalgo TX';
+      }
+    }
+    if (wh.includes('china') || wh.includes('chn') || svc === 'air_chn_mx' || svc === 'sea_chn_mx') {
+      return 'Recibido China';
+    }
+    return 'Recibido MX';
+  }
   const map: Record<string, string> = {
     in_transit: 'En tránsito', received: 'Recibido MX', shipped: 'Enviado a destino',
     delivered: 'Entregado', ready_pickup: 'Listo para recoger', customs: 'En aduana',
     received_china: 'Recibido China', consolidated: 'Consolidado', at_port: 'En puerto',
+    received_mty: 'Recibido MTY', received_cdmx: 'Recibido CDMX',
+    received_gdl: 'Recibido GDL', received_qro: 'Recibido QRO',
+    received_pue: 'Recibido PUE', received_tij: 'Recibido TIJ',
+    out_for_delivery: 'En ruta de entrega',
     returned_to_warehouse: 'Devuelto a almacén', lost: 'Perdido',
   };
-  return map[s || ''] || s || '—';
+  return map[key] || s || '—';
 };
 
 const statusColor = (s?: string): 'default' | 'success' | 'warning' | 'info' | 'error' | 'primary' => {
@@ -228,7 +251,9 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
     carrierNorm.includes('local') || carrierNorm.includes('entregax') ||
     carrierNorm.includes('pickup') || carrierNorm.includes('bodega')
   );
-  const displayStatusLabel = (status === 'delivered' && isExternalCarrier) ? 'Enviado' : statusLabel(status);
+  const displayStatusLabel = (status === 'delivered' && isExternalCarrier)
+    ? 'Enviado'
+    : statusLabel(status, { warehouseLocation: m.warehouseLocation || m.warehouse_location, serviceType: m.serviceType || m.service_type });
 
   // Nombre legible de la paquetería (evita mostrar la clave cruda 'evisa_pre').
   const carrierDisplay = /evisa/.test(carrierNorm)
@@ -569,7 +594,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
               <Typography variant="caption" fontFamily="monospace" sx={{ flex: 1, fontSize: 11 }}>
                 {c.tracking || c.trackingInternal || `Caja ${c.boxNumber || i + 1}`}
               </Typography>
-              <Chip label={statusLabel(c.status)} size="small" color={statusColor(c.status)} sx={{ height: 18, fontSize: 10 }} />
+              <Chip label={statusLabel(c.status, { warehouseLocation: c.warehouseLocation || c.warehouse_location, serviceType: c.serviceType || c.service_type })} size="small" color={statusColor(c.status)} sx={{ height: 18, fontSize: 10 }} />
             </Box>
           ))}
           {children.length > 5 && (
@@ -806,7 +831,7 @@ function ClientLookupResult({ data }: { data: PackageData }) {
                   {p.container_eta && (
                     <Chip size="small" label={`🚢 ETA ${fmtDate(p.container_eta)}`} color="info" variant="outlined" sx={{ flexShrink: 0 }} />
                   )}
-                  <Chip size="small" label={statusLabel(p.status)} color={statusColor(p.status)} sx={{ flexShrink: 0 }} />
+                  <Chip size="small" label={statusLabel(p.status, { warehouseLocation: p.warehouse_location, serviceType: p.service_type })} color={statusColor(p.status)} sx={{ flexShrink: 0 }} />
                 </Box>
               </Box>
               <Box sx={{ display: 'flex', gap: 1.5, mt: 0.5, color: 'text.secondary', flexWrap: 'wrap' }}>
@@ -842,7 +867,7 @@ function ClientLookupResult({ data }: { data: PackageData }) {
                     <Typography variant="caption" color="text.secondary" fontFamily="monospace">Guía corta: {p.tracking_internal}</Typography>
                   )}
                 </Box>
-                <Chip size="small" label={statusLabel(p.status)} color={statusColor(p.status)} />
+                <Chip size="small" label={statusLabel(p.status, { warehouseLocation: p.warehouse_location, serviceType: p.service_type })} color={statusColor(p.status)} />
               </Box>
               <Box sx={{ display: 'flex', gap: 1.5, mt: 0.5, color: 'text.secondary', flexWrap: 'wrap' }}>
                 {p.service_type && <Typography variant="caption">{p.service_type}</Typography>}
@@ -907,7 +932,7 @@ function ClientLookupResult({ data }: { data: PackageData }) {
               <HistoryIcon sx={{ fontSize: 16, color: CAJITO_RING, mt: 0.25 }} />
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="caption" fontWeight={600}>
-                  {statusLabel(mv.status)} {mv.branch_name ? `· ${mv.branch_name}` : ''}
+                  {statusLabel(mv.status, { warehouseLocation: mv.warehouse_location })} {mv.branch_name ? `· ${mv.branch_name}` : ''}
                 </Typography>
                 {mv.tracking_internal && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} fontFamily="monospace">

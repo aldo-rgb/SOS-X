@@ -641,6 +641,8 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
                 COALESCE(to_jsonb(p)->>'national_carrier', to_jsonb(p)->>'carrier', to_jsonb(m)->>'national_carrier', to_jsonb(m)->>'carrier') as national_carrier,
                 COALESCE(to_jsonb(p)->>'assigned_address_id', to_jsonb(m)->>'assigned_address_id') as assigned_address_id,
                 ${packageBranchSql} as package_branch_id,
+                COALESCE(to_jsonb(p)->>'warehouse_location', to_jsonb(m)->>'warehouse_location') as warehouse_location,
+                COALESCE(to_jsonb(p)->>'service_type', to_jsonb(m)->>'service_type') as service_type,
                 NULL::text as driver_name,
                 NULL::text as client_name,
                 NULL::text as client_email
@@ -658,6 +660,25 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         }
 
         const pkg = pkgRes.rows[0];
+
+        // 1.a UBICACIÓN FÍSICA: si el paquete aún está en origen (USA / China)
+        // no puede cargarse en la unidad de un chofer de MX. Esto detecta
+        // errores humanos comunes (escanear guía equivocada en app de chofer).
+        {
+            const wh = String(pkg.warehouse_location || '').toLowerCase();
+            const inOrigin =
+                wh === 'usa_pobox' || wh === 'hidalgo_tx' ||
+                wh === 'china_air' || wh === 'china_sea' || wh === 'china' ||
+                (wh && wh.startsWith('china'));
+            if (inOrigin) {
+                return res.status(400).json({
+                    error: `⛔ Este paquete aún está en ${wh.includes('china') ? 'China' : 'Hidalgo TX (USA)'}. No puede cargarse en tu unidad porque no ha llegado a México.`,
+                    warehouseLocation: pkg.warehouse_location,
+                    serviceType: pkg.service_type,
+                    barcode
+                });
+            }
+        }
 
         // 1.b RECHAZAR MASTER: el master es lógico, no es una caja física.
         // El chofer debe escanear cada hija (caja real).
