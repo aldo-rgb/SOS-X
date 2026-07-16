@@ -593,7 +593,11 @@ export const debugMetaTemplate = async (req: Request, res: Response): Promise<an
       }
       let imgFetch: any = null;
       if (signedImg) {
-        try { const rr = await fetch(signedImg, { method: 'HEAD' }); imgFetch = { status: rr.status, contentType: rr.headers.get('content-type') }; }
+        try {
+          const rr = await fetch(signedImg, { method: 'GET', headers: { Range: 'bytes=0-0' } });
+          const bodyStart = (await rr.text()).slice(0, 200);
+          imgFetch = { status: rr.status, contentType: rr.headers.get('content-type'), contentLength: rr.headers.get('content-length'), bodyStart: rr.status >= 400 ? bodyStart : '(binario ok)' };
+        }
         catch (e: any) { imgFetch = { error: e.message }; }
       }
       return res.json({
