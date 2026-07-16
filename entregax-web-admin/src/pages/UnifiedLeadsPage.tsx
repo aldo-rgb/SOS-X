@@ -123,6 +123,17 @@ interface LeadGroup {
   member_count: number;
 }
 
+// Plantilla de envío masivo (administrable)
+interface BulkTemplateVar { label: string; defaultKey?: string }
+interface BulkTemplate {
+  id: number;
+  label: string;
+  template_name: string;
+  language_code: string;
+  variables: BulkTemplateVar[];
+  preview: string | null;
+}
+
 // Prospecto externo
 interface Prospect {
   id: number;
@@ -294,10 +305,16 @@ export default function UnifiedLeadsPage() {
   // ============ ENVÍO MASIVO WHATSAPP ============
   const [selectedLeadKeys, setSelectedLeadKeys] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkType, setBulkType] = useState<'invite' | 'xpay' | 'xpay_solo' | 'tarifas'>('invite');
-  const [bulkValues, setBulkValues] = useState<{ tc: string; comision: string; cbm: string; kg: string }>({ tc: '', comision: '', cbm: '', kg: '' });
+  const [bulkTemplates, setBulkTemplates] = useState<BulkTemplate[]>([]);
+  const [bulkDefaults, setBulkDefaults] = useState<Record<string, any>>({});
+  const [bulkTemplateId, setBulkTemplateId] = useState<number | ''>('');
+  const [bulkVarValues, setBulkVarValues] = useState<string[]>([]);
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResults, setBulkResults] = useState<{ sent: number; skipped: number; failed: number; total: number } | null>(null);
+  // Administración de plantillas
+  const [tplManagerOpen, setTplManagerOpen] = useState(false);
+  const [tplEditing, setTplEditing] = useState<BulkTemplate | null>(null);
+  const [savingTpl, setSavingTpl] = useState(false);
 
   // ============ GRUPOS DE LEADS ============
   const [groups, setGroups] = useState<LeadGroup[]>([]);
@@ -500,35 +517,49 @@ export default function UnifiedLeadsPage() {
     });
   };
 
-  // Abrir diálogo de envío masivo: precarga los valores vigentes (editables).
+  // Valores prellenados de una plantilla: cada campo manual toma su defaultKey de
+  // los valores vigentes (tc/comision/cbm/kg) o queda vacío.
+  const varValuesForTemplate = (tpl: BulkTemplate | undefined, defaults: Record<string, any>): string[] =>
+    (tpl?.variables || []).map(v => (v.defaultKey && defaults[v.defaultKey] != null ? String(defaults[v.defaultKey]) : ''));
+
+  const loadBulkTemplates = async (): Promise<{ tpls: BulkTemplate[]; defs: Record<string, any> }> => {
+    const res = await axios.get(`${API_URL}/admin/crm/bulk-templates`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    const tpls: BulkTemplate[] = res.data?.templates || [];
+    const defs = res.data?.values || {};
+    setBulkTemplates(tpls);
+    setBulkDefaults(defs);
+    return { tpls, defs };
+  };
+
+  // Abrir diálogo de envío masivo: carga plantillas + valores vigentes.
   const openBulkDialog = async () => {
     setBulkResults(null);
-    setBulkType('invite');
     setBulkOpen(true);
     try {
-      const res = await axios.get(`${API_URL}/admin/crm/bulk-whatsapp/defaults`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      const v = res.data?.values || {};
-      setBulkValues({
-        tc: v.tc != null ? String(v.tc) : '',
-        comision: v.comision != null ? String(v.comision) : '',
-        cbm: v.cbm != null ? String(v.cbm) : '',
-        kg: v.kg != null ? String(v.kg) : '',
-      });
-    } catch { /* si falla, quedan campos vacíos y el usuario los llena */ }
+      const { tpls, defs } = await loadBulkTemplates();
+      const first = tpls[0];
+      setBulkTemplateId(first ? first.id : '');
+      setBulkVarValues(varValuesForTemplate(first, defs));
+    } catch { /* si falla, quedan vacíos */ }
+  };
+
+  const selectBulkTemplate = (id: number) => {
+    setBulkTemplateId(id);
+    setBulkResults(null);
+    const tpl = bulkTemplates.find(t => t.id === id);
+    setBulkVarValues(varValuesForTemplate(tpl, bulkDefaults));
   };
 
   const sendBulkWhatsapp = async () => {
     const leadKeys = Array.from(selectedLeadKeys);
-    if (leadKeys.length === 0) return;
+    if (leadKeys.length === 0 || !bulkTemplateId) return;
     setBulkSending(true);
     setBulkResults(null);
     try {
       const res = await axios.post(`${API_URL}/admin/crm/bulk-whatsapp`, {
-        messageType: bulkType,
+        templateId: bulkTemplateId,
         leadKeys,
-        values: bulkValues,
+        varValues: bulkVarValues,
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
       const d = res.data || {};
       setBulkResults({ sent: d.sent || 0, skipped: d.skipped || 0, failed: d.failed || 0, total: d.total || 0 });
@@ -538,6 +569,43 @@ export default function UnifiedLeadsPage() {
     } finally {
       setBulkSending(false);
     }
+  };
+
+  // ============ ADMINISTRAR PLANTILLAS ============
+  const saveTemplate = async (tpl: BulkTemplate) => {
+    if (!tpl.label.trim() || !tpl.template_name.trim()) {
+      setSnackbar({ open: true, message: 'Falta la etiqueta o el nombre de la plantilla', severity: 'error' });
+      return;
+    }
+    setSavingTpl(true);
+    try {
+      const payload = { label: tpl.label.trim(), template_name: tpl.template_name.trim(), language_code: tpl.language_code || 'es_MX', variables: tpl.variables || [], preview: tpl.preview };
+      if (tpl.id) await axios.put(`${API_URL}/admin/crm/bulk-templates/${tpl.id}`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
+      else await axios.post(`${API_URL}/admin/crm/bulk-templates`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setTplEditing(null);
+      await loadBulkTemplates();
+      setSnackbar({ open: true, message: 'Plantilla guardada', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al guardar', severity: 'error' });
+    } finally { setSavingTpl(false); }
+  };
+
+  const deleteTemplate = (tpl: BulkTemplate) => {
+    askConfirm({
+      title: `Eliminar plantilla "${tpl.label}"`,
+      message: 'Se quita de las opciones de envío masivo. No borra la plantilla en Meta.',
+      confirmLabel: 'Eliminar',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API_URL}/admin/crm/bulk-templates/${tpl.id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+          await loadBulkTemplates();
+          setSnackbar({ open: true, message: 'Plantilla eliminada', severity: 'success' });
+        } catch (e: any) {
+          setSnackbar({ open: true, message: e.response?.data?.error || 'Error al eliminar', severity: 'error' });
+        }
+      },
+    });
   };
 
   // ============ PROSPECTS STATE ============
@@ -1880,48 +1948,55 @@ export default function UnifiedLeadsPage() {
             Se enviará a <strong>{selectedLeadKeys.size}</strong> lead(s) seleccionado(s). Se omiten los que no tengan teléfono y los teléfonos duplicados.
           </Typography>
 
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel id="bulk-type-label">Plantilla</InputLabel>
-            <Select
-              labelId="bulk-type-label"
-              label="Plantilla"
-              value={bulkType}
-              onChange={(e) => { setBulkType(e.target.value as 'invite' | 'xpay' | 'xpay_solo' | 'tarifas'); setBulkResults(null); }}
-              disabled={bulkSending}
-            >
-              <MenuItem value="invite">📲 Invitación a registrarse en la app</MenuItem>
-              <MenuItem value="xpay">💱 TC + comisión X-Pay (semanal)</MenuItem>
-              <MenuItem value="xpay_solo">💱 Solo tipo de cambio X-Pay</MenuItem>
-              <MenuItem value="tarifas">📦 Tarifas marítimo/aéreo (CBM y kg)</MenuItem>
-            </Select>
-          </FormControl>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <FormControl fullWidth>
+              <InputLabel id="bulk-tpl-label">Plantilla</InputLabel>
+              <Select
+                labelId="bulk-tpl-label"
+                label="Plantilla"
+                value={bulkTemplateId}
+                onChange={(e) => selectBulkTemplate(Number(e.target.value))}
+                disabled={bulkSending}
+              >
+                {bulkTemplates.map(t => <MenuItem key={t.id} value={t.id}>{t.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <Button size="small" startIcon={<EditIcon />} onClick={() => setTplManagerOpen(true)} disabled={bulkSending} sx={{ whiteSpace: 'nowrap' }}>
+              Administrar
+            </Button>
+          </Box>
 
-          {(bulkType === 'xpay' || bulkType === 'xpay_solo') && (
-            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-              <TextField label="Tipo de cambio (MXN/USD)" value={bulkValues.tc} onChange={(e) => setBulkValues(v => ({ ...v, tc: e.target.value }))} fullWidth size="small" disabled={bulkSending} />
-              {bulkType === 'xpay' && (
-                <TextField label="Comisión X-Pay (%)" value={bulkValues.comision} onChange={(e) => setBulkValues(v => ({ ...v, comision: e.target.value }))} fullWidth size="small" disabled={bulkSending} />
-              )}
-            </Box>
-          )}
-          {bulkType === 'tarifas' && (
-            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-              <TextField label="Marítimo (USD/m³ CBM)" value={bulkValues.cbm} onChange={(e) => setBulkValues(v => ({ ...v, cbm: e.target.value }))} fullWidth size="small" disabled={bulkSending} />
-              <TextField label="Aéreo (USD/kg)" value={bulkValues.kg} onChange={(e) => setBulkValues(v => ({ ...v, kg: e.target.value }))} fullWidth size="small" disabled={bulkSending} />
-            </Box>
-          )}
+          {/* Campos manuales de la plantilla seleccionada */}
+          {(() => {
+            const tpl = bulkTemplates.find(t => t.id === bulkTemplateId);
+            if (!tpl || (tpl.variables || []).length === 0) return null;
+            return (
+              <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+                {tpl.variables.map((v, i) => (
+                  <TextField
+                    key={i}
+                    label={v.label}
+                    value={bulkVarValues[i] ?? ''}
+                    onChange={(e) => setBulkVarValues(prev => { const n = [...prev]; n[i] = e.target.value; return n; })}
+                    size="small"
+                    sx={{ flex: '1 1 45%' }}
+                    disabled={bulkSending}
+                  />
+                ))}
+              </Box>
+            );
+          })()}
 
           {/* Vista previa del mensaje */}
           <Paper variant="outlined" sx={{ p: 1.5, bgcolor: '#f0f7f0', borderColor: '#25D366' }}>
             <Typography variant="caption" color="text.secondary">Vista previa</Typography>
             <Typography variant="body2" sx={{ whiteSpace: 'pre-line', mt: 0.5 }}>
-              {bulkType === 'invite'
-                ? '¡Hola [Nombre]! 👋 Te damos la bienvenida a EntregaX Paquetería.\nRegístrate y obtén tu casillero para importar desde China 🇨🇳 y USA 🇺🇸 con las mejores tarifas. 📦'
-                : bulkType === 'xpay'
-                  ? `💱 EntregaX X-Pay — Tipo de cambio de la semana\nHola [Nombre]:\n• TC: $${bulkValues.tc || '—'} MXN/USD\n• Comisión X-Pay: ${bulkValues.comision || '—'}%`
-                  : bulkType === 'xpay_solo'
-                    ? `💱 EntregaX X-Pay — Tipo de cambio\nHola [Nombre]:\n• Tipo de cambio: $${bulkValues.tc || '—'} MXN / USD`
-                    : `📦 EntregaX — Tarifas de importación vigentes\nHola [Nombre]:\n🚢 Marítimo: $${bulkValues.cbm || '—'} USD/m³ (CBM)\n✈️ Aéreo: $${bulkValues.kg || '—'} USD/kg`}
+              {(() => {
+                const tpl = bulkTemplates.find(t => t.id === bulkTemplateId);
+                let p = tpl?.preview || '';
+                (bulkVarValues || []).forEach((val, i) => { p = p.split(`{${i + 1}}`).join(val || '—'); });
+                return p || '(sin vista previa)';
+              })()}
             </Typography>
           </Paper>
 
@@ -1939,11 +2014,81 @@ export default function UnifiedLeadsPage() {
             variant="contained"
             startIcon={bulkSending ? <CircularProgress size={16} color="inherit" /> : (bulkResults ? <CheckCircleIcon /> : <WhatsAppIcon />)}
             onClick={sendBulkWhatsapp}
-            disabled={bulkSending || selectedLeadKeys.size === 0 || !!bulkResults}
+            disabled={bulkSending || selectedLeadKeys.size === 0 || !!bulkResults || !bulkTemplateId}
             sx={{ bgcolor: bulkResults ? '#9e9e9e' : '#25D366', '&:hover': { bgcolor: bulkResults ? '#9e9e9e' : '#1da851' } }}
           >
             {bulkSending ? 'Enviando…' : (bulkResults ? 'Enviado ✓' : `Enviar (${selectedLeadKeys.size})`)}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Administrar plantillas Dialog */}
+      <Dialog open={tplManagerOpen} onClose={() => { if (!savingTpl) { setTplManagerOpen(false); setTplEditing(null); } }} maxWidth="sm" fullWidth>
+        <DialogTitle>🗂️ Administrar plantillas</DialogTitle>
+        <DialogContent dividers>
+          {!tplEditing ? (
+            <>
+              <List dense>
+                {bulkTemplates.map(t => (
+                  <ListItem
+                    key={t.id}
+                    secondaryAction={
+                      <Box>
+                        <IconButton size="small" onClick={() => setTplEditing({ ...t, variables: (t.variables || []).map(v => ({ ...v })) })}><EditIcon fontSize="small" /></IconButton>
+                        <IconButton size="small" color="error" onClick={() => deleteTemplate(t)}><DeleteIcon fontSize="small" /></IconButton>
+                      </Box>
+                    }
+                  >
+                    <ListItemText primary={t.label} secondary={`Meta: ${t.template_name} · ${(t.variables || []).length} variable(s)`} />
+                  </ListItem>
+                ))}
+                {bulkTemplates.length === 0 && <ListItem><ListItemText secondary="No hay plantillas." /></ListItem>}
+              </List>
+              <Button startIcon={<AddIcon />} onClick={() => setTplEditing({ id: 0, label: '', template_name: '', language_code: 'es_MX', variables: [], preview: '' })}>
+                Nueva plantilla
+              </Button>
+            </>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <TextField label="Etiqueta (nombre visible en el selector)" value={tplEditing.label} onChange={e => setTplEditing({ ...tplEditing, label: e.target.value })} size="small" fullWidth disabled={savingTpl} />
+              <TextField label="Nombre de la plantilla en Meta" value={tplEditing.template_name} onChange={e => setTplEditing({ ...tplEditing, template_name: e.target.value })} size="small" fullWidth disabled={savingTpl} helperText="Debe coincidir EXACTAMENTE con el nombre aprobado en WhatsApp Manager." />
+              <TextField label="Idioma" value={tplEditing.language_code} onChange={e => setTplEditing({ ...tplEditing, language_code: e.target.value })} size="small" fullWidth disabled={savingTpl} helperText="Ej. es_MX, es, en" />
+              <Box>
+                <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>Variables manuales (van después del nombre)</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  El nombre del cliente es siempre {'{{1}}'}. Estas son {'{{2}}'}, {'{{3}}'}… en orden.
+                </Typography>
+                {(tplEditing.variables || []).map((v, i) => (
+                  <Box key={i} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
+                    <TextField label={`Var {${i + 2}} — etiqueta`} value={v.label} onChange={e => { const vs = [...tplEditing.variables]; vs[i] = { ...vs[i], label: e.target.value }; setTplEditing({ ...tplEditing, variables: vs }); }} size="small" sx={{ flex: 2 }} disabled={savingTpl} />
+                    <FormControl size="small" sx={{ flex: 1, minWidth: 130 }}>
+                      <InputLabel>Prellenar con</InputLabel>
+                      <Select label="Prellenar con" value={v.defaultKey || ''} onChange={e => { const vs = [...tplEditing.variables]; vs[i] = { ...vs[i], defaultKey: (e.target.value as string) || undefined }; setTplEditing({ ...tplEditing, variables: vs }); }} disabled={savingTpl}>
+                        <MenuItem value="">— ninguno —</MenuItem>
+                        <MenuItem value="tc">TC vigente</MenuItem>
+                        <MenuItem value="comision">Comisión</MenuItem>
+                        <MenuItem value="cbm">Costo CBM</MenuItem>
+                        <MenuItem value="kg">Costo kg</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <IconButton size="small" color="error" onClick={() => { const vs = tplEditing.variables.filter((_, j) => j !== i); setTplEditing({ ...tplEditing, variables: vs }); }} disabled={savingTpl}><DeleteIcon fontSize="small" /></IconButton>
+                  </Box>
+                ))}
+                <Button size="small" startIcon={<AddIcon />} onClick={() => setTplEditing({ ...tplEditing, variables: [...(tplEditing.variables || []), { label: '' }] })} disabled={savingTpl}>Agregar variable</Button>
+              </Box>
+              <TextField label="Vista previa (texto de referencia)" value={tplEditing.preview || ''} onChange={e => setTplEditing({ ...tplEditing, preview: e.target.value })} size="small" fullWidth multiline minRows={3} disabled={savingTpl} helperText="Usa [Nombre] y {1}, {2}… donde van las variables. Solo es referencia visual (el texto real vive en Meta)." />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {tplEditing ? (
+            <>
+              <Button onClick={() => setTplEditing(null)} disabled={savingTpl}>Volver</Button>
+              <Button variant="contained" onClick={() => saveTemplate(tplEditing)} disabled={savingTpl || !tplEditing.label.trim() || !tplEditing.template_name.trim()}>Guardar</Button>
+            </>
+          ) : (
+            <Button onClick={() => setTplManagerOpen(false)}>Cerrar</Button>
+          )}
         </DialogActions>
       </Dialog>
 

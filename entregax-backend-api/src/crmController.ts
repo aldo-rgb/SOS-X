@@ -393,6 +393,128 @@ async function getCurrentBulkValues(): Promise<{ tc: number | null; comision: nu
   return out;
 }
 
+// ============================================================================
+// PLANTILLAS DE ENVÍO MASIVO (administrables desde la UI)
+// ============================================================================
+// variables JSONB = campos MANUALES en orden: [{ label, defaultKey? }]. El nombre
+// del cliente es SIEMPRE la primera variable ({{1}}) y se llena solo; los campos
+// manuales son {{2}}, {{3}}, ... El preview usa [Nombre] y {1},{2}... como marcadores.
+let bulkTemplatesReady = false;
+async function ensureBulkTemplatesSchema(): Promise<void> {
+  if (bulkTemplatesReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bulk_wa_templates (
+      id SERIAL PRIMARY KEY,
+      label TEXT NOT NULL,
+      template_name TEXT NOT NULL,
+      language_code TEXT DEFAULT 'es_MX',
+      variables JSONB DEFAULT '[]'::jsonb,
+      preview TEXT,
+      is_active BOOLEAN DEFAULT true,
+      sort_order INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  // Seed inicial (solo si la tabla está vacía) con las 4 plantillas actuales.
+  const cnt = await pool.query(`SELECT COUNT(*)::int AS n FROM bulk_wa_templates`);
+  if ((cnt.rows[0]?.n || 0) === 0) {
+    const seed = [
+      { label: '📲 Invitación a registrarse en la app', name: WA_TPL_INVITE, vars: [],
+        preview: '¡Hola [Nombre]! 👋 Te damos la bienvenida a EntregaX Paquetería.\nRegístrate y obtén tu casillero para importar desde China 🇨🇳 y USA 🇺🇸 con las mejores tarifas. 📦' },
+      { label: '💱 TC + comisión X-Pay (semanal)', name: WA_TPL_XPAY,
+        vars: [{ label: 'Tipo de cambio (MXN/USD)', defaultKey: 'tc' }, { label: 'Comisión X-Pay (%)', defaultKey: 'comision' }],
+        preview: '💱 EntregaX X-Pay — Tipo de cambio de la semana\nHola [Nombre]:\n• TC: ${1} MXN/USD\n• Comisión X-Pay: {2}%' },
+      { label: '💱 Solo tipo de cambio X-Pay', name: WA_TPL_XPAY_TC,
+        vars: [{ label: 'Tipo de cambio (MXN/USD)', defaultKey: 'tc' }],
+        preview: '💱 EntregaX X-Pay — Tipo de cambio\nHola [Nombre]:\n• Tipo de cambio: ${1} MXN / USD' },
+      { label: '📦 Tarifas marítimo/aéreo (CBM y kg)', name: WA_TPL_TARIFAS,
+        vars: [{ label: 'Marítimo (USD/m³ CBM)', defaultKey: 'cbm' }, { label: 'Aéreo (USD/kg)', defaultKey: 'kg' }],
+        preview: '📦 EntregaX — Tarifas de importación vigentes\nHola [Nombre]:\n🚢 Marítimo: ${1} USD/m³ (CBM)\n✈️ Aéreo: ${2} USD/kg' },
+    ];
+    for (let i = 0; i < seed.length; i++) {
+      const s = seed[i];
+      if (!s) continue;
+      await pool.query(
+        `INSERT INTO bulk_wa_templates (label, template_name, language_code, variables, preview, sort_order)
+         VALUES ($1, $2, 'es_MX', $3::jsonb, $4, $5)`,
+        [s.label, s.name, JSON.stringify(s.vars), s.preview, i]
+      );
+    }
+  }
+  bulkTemplatesReady = true;
+}
+
+// GET /api/admin/crm/bulk-templates → plantillas + valores vigentes para prellenar
+export const getBulkTemplates = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureBulkTemplatesSchema();
+    const r = await pool.query(`SELECT id, label, template_name, language_code, variables, preview FROM bulk_wa_templates WHERE is_active = true ORDER BY sort_order ASC, id ASC`);
+    const values = await getCurrentBulkValues();
+    res.json({ success: true, templates: r.rows, values });
+  } catch (error) {
+    console.error('Error en getBulkTemplates:', error);
+    res.status(500).json({ success: false, error: 'Error al obtener plantillas' });
+  }
+};
+
+// POST /api/admin/crm/bulk-templates { label, template_name, language_code?, variables?, preview? }
+export const createBulkTemplate = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureBulkTemplatesSchema();
+    const { label, template_name, language_code, variables, preview } = req.body || {};
+    if (!String(label || '').trim() || !String(template_name || '').trim()) {
+      return res.status(400).json({ success: false, error: 'Falta la etiqueta o el nombre de la plantilla' });
+    }
+    const vars = Array.isArray(variables) ? variables : [];
+    const maxSort = await pool.query(`SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM bulk_wa_templates`);
+    const r = await pool.query(
+      `INSERT INTO bulk_wa_templates (label, template_name, language_code, variables, preview, sort_order)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6) RETURNING id`,
+      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, maxSort.rows[0].n]
+    );
+    res.json({ success: true, id: r.rows[0].id });
+  } catch (error) {
+    console.error('Error en createBulkTemplate:', error);
+    res.status(500).json({ success: false, error: 'Error al crear plantilla' });
+  }
+};
+
+// PUT /api/admin/crm/bulk-templates/:id
+export const updateBulkTemplate = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureBulkTemplatesSchema();
+    const id = parseInt(String(req.params.id), 10);
+    const { label, template_name, language_code, variables, preview } = req.body || {};
+    if (!id) return res.status(400).json({ success: false, error: 'id inválido' });
+    if (!String(label || '').trim() || !String(template_name || '').trim()) {
+      return res.status(400).json({ success: false, error: 'Falta la etiqueta o el nombre de la plantilla' });
+    }
+    const vars = Array.isArray(variables) ? variables : [];
+    await pool.query(
+      `UPDATE bulk_wa_templates SET label = $1, template_name = $2, language_code = $3, variables = $4::jsonb, preview = $5 WHERE id = $6`,
+      [String(label).trim(), String(template_name).trim(), String(language_code || 'es_MX'), JSON.stringify(vars), preview || null, id]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error en updateBulkTemplate:', error);
+    res.status(500).json({ success: false, error: 'Error al actualizar plantilla' });
+  }
+};
+
+// DELETE /api/admin/crm/bulk-templates/:id
+export const deleteBulkTemplate = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureBulkTemplatesSchema();
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) return res.status(400).json({ success: false, error: 'id inválido' });
+    await pool.query(`DELETE FROM bulk_wa_templates WHERE id = $1`, [id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error en deleteBulkTemplate:', error);
+    res.status(500).json({ success: false, error: 'Error al eliminar plantilla' });
+  }
+};
+
 // GET /api/admin/crm/bulk-whatsapp/defaults → valores vigentes para prellenar el form
 export const getBulkWhatsappDefaults = async (_req: Request, res: Response): Promise<any> => {
   try {
@@ -408,10 +530,7 @@ export const getBulkWhatsappDefaults = async (_req: Request, res: Response): Pro
 // Body: { messageType: 'invite'|'xpay'|'tarifas', leadKeys: string[], values?: {tc,comision,cbm,kg} }
 export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { messageType, leadKeys, values } = req.body || {};
-    if (!['invite', 'xpay', 'xpay_solo', 'tarifas'].includes(messageType)) {
-      return res.status(400).json({ success: false, error: 'Tipo de mensaje inválido' });
-    }
+    const { templateId, leadKeys, varValues } = req.body || {};
     if (!Array.isArray(leadKeys) || leadKeys.length === 0) {
       return res.status(400).json({ success: false, error: 'Selecciona al menos un lead' });
     }
@@ -419,20 +538,16 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
       return res.status(400).json({ success: false, error: 'Máximo 500 destinatarios por envío' });
     }
 
-    // Valores globales (mismos para todos): editados por el usuario o vigentes.
-    const norm = (v: any) => (v != null && String(v).trim() !== '' ? String(v).trim() : null);
-    const tc = norm(values?.tc);
-    const comision = norm(values?.comision);
-    const cbm = norm(values?.cbm);
-    const kg = norm(values?.kg);
-    if (messageType === 'xpay_solo' && !tc) {
-      return res.status(400).json({ success: false, error: 'Falta el tipo de cambio' });
-    }
-    if (messageType === 'xpay' && (!tc || !comision)) {
-      return res.status(400).json({ success: false, error: 'Falta el tipo de cambio o la comisión' });
-    }
-    if (messageType === 'tarifas' && (!cbm || !kg)) {
-      return res.status(400).json({ success: false, error: 'Falta el costo por CBM o por kg' });
+    // Cargar la plantilla seleccionada (administrable desde la UI).
+    await ensureBulkTemplatesSchema();
+    const tplRes = await pool.query(`SELECT template_name, language_code, variables FROM bulk_wa_templates WHERE id = $1`, [parseInt(String(templateId), 10) || 0]);
+    if (!tplRes.rows[0]) return res.status(404).json({ success: false, error: 'Plantilla no encontrada' });
+    const tpl = tplRes.rows[0];
+    const tplVars: Array<{ label?: string }> = Array.isArray(tpl.variables) ? tpl.variables : [];
+    const vals: string[] = Array.isArray(varValues) ? varValues.map((v: any) => String(v ?? '').trim()) : [];
+    // Todos los campos manuales de la plantilla deben tener valor.
+    for (let i = 0; i < tplVars.length; i++) {
+      if (!vals[i]) return res.status(400).json({ success: false, error: `Falta el valor de "${tplVars[i]?.label || `campo ${i + 1}`}"` });
     }
 
     // Resolver nombre + teléfono de los leads seleccionados (ambas fuentes).
@@ -456,10 +571,8 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
       [leadKeys]
     );
 
-    const template = messageType === 'invite' ? WA_TPL_INVITE
-      : messageType === 'xpay' ? WA_TPL_XPAY
-      : messageType === 'xpay_solo' ? WA_TPL_XPAY_TC
-      : WA_TPL_TARIFAS;
+    const template = tpl.template_name;
+    const langCode = tpl.language_code || 'es_MX';
     const seenPhones = new Set<string>();
     const results = { total: rowsRes.rows.length, sent: 0, skipped: 0, failed: 0, details: [] as any[] };
 
@@ -479,13 +592,10 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
       }
       seenPhones.add(compact);
 
-      const parameters =
-        messageType === 'invite' ? [nombre]
-        : messageType === 'xpay' ? [nombre, tc as string, comision as string]
-        : messageType === 'xpay_solo' ? [nombre, tc as string]
-        : [nombre, cbm as string, kg as string];
+      // El nombre es siempre {{1}}; los campos manuales de la plantilla son {{2}}...
+      const parameters = [nombre, ...vals.slice(0, tplVars.length)];
 
-      const r = await sendTemplate({ to: phone, template, languageCode: 'es_MX', parameters });
+      const r = await sendTemplate({ to: phone, template, languageCode: langCode, parameters });
       if (r.ok) {
         results.sent++;
         results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'sent' });
