@@ -228,6 +228,9 @@ export default function UnifiedLeadsPage() {
       case 'WA': return t('facebook.channels.whatsapp');
       case 'WEB': return t('facebook.channels.web');
       case 'REF': return t('facebook.channels.referral');
+      case 'UPS': return 'UPS';
+      case 'DHL': return 'DHL';
+      case 'FEDEX': return 'FedEx';
       case 'OTHER': return t('facebook.channels.other');
       default: return channel;
     }
@@ -241,6 +244,9 @@ export default function UnifiedLeadsPage() {
     { value: 'WA', label: t('facebook.channels.whatsapp'), icon: 'whatsapp' },
     { value: 'WEB', label: t('facebook.channels.web'), icon: 'web' },
     { value: 'REF', label: t('facebook.channels.referral'), icon: 'referral' },
+    { value: 'UPS', label: 'UPS', icon: 'other' },
+    { value: 'DHL', label: 'DHL', icon: 'other' },
+    { value: 'FEDEX', label: 'FedEx', icon: 'other' },
     { value: 'OTHER', label: t('facebook.channels.other'), icon: 'other' },
   ];
 
@@ -795,7 +801,7 @@ export default function UnifiedLeadsPage() {
     // Hoja de ayuda con los canales válidos
     const help = XLSX.utils.aoa_to_sheet([
       ['CANALES VÁLIDOS (columna "Canal")'],
-      ['Facebook'], ['Instagram'], ['WhatsApp'], ['Web'], ['Referido'], ['Otro'],
+      ['Facebook'], ['Instagram'], ['WhatsApp'], ['Web'], ['Referido'], ['UPS'], ['DHL'], ['FedEx'], ['Otro'],
       [''],
       ['Notas:'],
       ['• Solo "Nombre completo" es obligatorio.'],

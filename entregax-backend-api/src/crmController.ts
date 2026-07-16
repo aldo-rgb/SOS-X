@@ -1692,9 +1692,12 @@ const normalizeProspectChannel = (raw: any): string => {
   if (['whatsapp', 'wa', 'wsp', 'whats', 'wpp'].includes(s)) return 'WA';
   if (['web', 'pagina web', 'página web', 'sitio web', 'website', 'page', 'landing'].includes(s)) return 'WEB';
   if (['referido', 'referral', 'ref', 'recomendacion', 'recomendación', 'recomendado'].includes(s)) return 'REF';
+  if (['ups'].includes(s)) return 'UPS';
+  if (['dhl'].includes(s)) return 'DHL';
+  if (['fedex', 'fed ex', 'federal express'].includes(s)) return 'FEDEX';
   if (['otro', 'other', 'otros'].includes(s)) return 'OTHER';
   const up = s.toUpperCase();
-  return ['FACEBOOK', 'FB', 'IG', 'WA', 'WEB', 'REF', 'OTHER'].includes(up) ? up : 'OTHER';
+  return ['FACEBOOK', 'FB', 'IG', 'WA', 'WEB', 'REF', 'UPS', 'DHL', 'FEDEX', 'OTHER'].includes(up) ? up : 'OTHER';
 };
 
 export const bulkCreateProspects = async (req: Request, res: Response): Promise<any> => {
