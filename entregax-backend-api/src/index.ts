@@ -635,6 +635,12 @@ import {
   toggleClientBroker
 } from './crmController';
 import {
+  getWelcomeKits,
+  createWelcomeKit,
+  updateWelcomeKit,
+  deleteWelcomeKit,
+} from './welcomeKitController';
+import {
   handleSupportMessage,
   getMyTickets,
   getTicketMessages,
@@ -7033,6 +7039,12 @@ const bulkTemplateImageUpload = multer({ storage: multer.memoryStorage(), limits
 app.post('/api/admin/crm/bulk-templates/upload-image', authenticateToken, requireMinLevel(ROLES.DIRECTOR), bulkTemplateImageUpload.single('file'), uploadBulkTemplateImage);
 // Rastreo de clics en botones de URL de WhatsApp: registra y redirige (público, sin auth).
 app.get('/r/:token', trackClickRedirect);
+
+// 🎁 Control de Kit de Bienvenida
+app.get('/api/admin/welcome-kit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getWelcomeKits);
+app.post('/api/admin/welcome-kit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createWelcomeKit);
+app.put('/api/admin/welcome-kit/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateWelcomeKit);
+app.delete('/api/admin/welcome-kit/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteWelcomeKit);
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);

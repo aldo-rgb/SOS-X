@@ -32,6 +32,8 @@ import AssignClientPage from './AssignClientPage';
 import ReferidosAdminPage from './ReferidosAdminPage';
 import LegacyClientsPage from './LegacyClientsPage';
 import ChartbackManagementPage from './ChartbackManagementPage';
+import WelcomeKitPage from './WelcomeKitPage';
+import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -61,7 +63,7 @@ interface CustomerServiceHubPageProps {
   onViewApplied?: () => void;
 }
 
-type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback';
+type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback' | 'welcome_kit';
 
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh, pendingView, onViewApplied }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
@@ -291,6 +293,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       color: '#00897B',
       bgColor: 'rgba(0, 137, 123, 0.1)',
     },
+    {
+      key: 'welcome_kit',
+      title: 'Kit de Bienvenida',
+      description: 'Quién solicitó su kit (báscula + PO Box) y a dónde enviarlo',
+      icon: <CardGiftcardIcon sx={{ fontSize: 40 }} />,
+      color: '#F59E0B',
+      bgColor: 'rgba(245, 158, 11, 0.1)',
+    },
   ];
 
   // Renderizar página activa
@@ -441,6 +451,20 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           <Typography variant="h5" fontWeight={700}>Chartback — Reactivación</Typography>
         </Box>
         <ChartbackManagementPage />
+      </Box>
+    );
+  }
+
+  if (activeView === 'welcome_kit') {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>Kit de Bienvenida</Typography>
+        </Box>
+        <WelcomeKitPage />
       </Box>
     );
   }
