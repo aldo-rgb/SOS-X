@@ -82,6 +82,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import BlockIcon from '@mui/icons-material/Block';
 import SendIcon from '@mui/icons-material/Send';
 import CloseIcon from '@mui/icons-material/Close';
+import ImageIcon from '@mui/icons-material/Image';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
@@ -133,6 +134,8 @@ interface BulkTemplate {
   variables: BulkTemplateVar[];
   preview: string | null;
   header_image_url?: string | null;
+  header_image_key?: string | null;
+  header_image_display?: string | null;
   use_mm_lite?: boolean;
 }
 
@@ -317,6 +320,7 @@ export default function UnifiedLeadsPage() {
   const [tplManagerOpen, setTplManagerOpen] = useState(false);
   const [tplEditing, setTplEditing] = useState<BulkTemplate | null>(null);
   const [savingTpl, setSavingTpl] = useState(false);
+  const [uploadingTplImage, setUploadingTplImage] = useState(false);
 
   // ============ GRUPOS DE LEADS ============
   const [groups, setGroups] = useState<LeadGroup[]>([]);
@@ -581,7 +585,7 @@ export default function UnifiedLeadsPage() {
     }
     setSavingTpl(true);
     try {
-      const payload = { label: tpl.label.trim(), template_name: tpl.template_name.trim(), language_code: tpl.language_code || 'es_MX', variables: tpl.variables || [], preview: tpl.preview, header_image_url: tpl.header_image_url || null, use_mm_lite: !!tpl.use_mm_lite };
+      const payload = { label: tpl.label.trim(), template_name: tpl.template_name.trim(), language_code: tpl.language_code || 'es_MX', variables: tpl.variables || [], preview: tpl.preview, header_image_url: tpl.header_image_url || null, header_image_key: tpl.header_image_key || null, use_mm_lite: !!tpl.use_mm_lite };
       if (tpl.id) await axios.put(`${API_URL}/admin/crm/bulk-templates/${tpl.id}`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
       else await axios.post(`${API_URL}/admin/crm/bulk-templates`, payload, { headers: { Authorization: `Bearer ${getToken()}` } });
       setTplEditing(null);
@@ -590,6 +594,32 @@ export default function UnifiedLeadsPage() {
     } catch (e: any) {
       setSnackbar({ open: true, message: e.response?.data?.error || 'Error al guardar', severity: 'error' });
     } finally { setSavingTpl(false); }
+  };
+
+  // Sube la imagen del encabezado a S3 y guarda la key en el editor de la plantilla.
+  const uploadTemplateImage = async (file: File) => {
+    if (!tplEditing) return;
+    if (!/^image\/(jpeg|png)$/.test(file.type)) {
+      setSnackbar({ open: true, message: 'La imagen debe ser JPG o PNG', severity: 'error' });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setSnackbar({ open: true, message: 'La imagen no debe pesar más de 5 MB', severity: 'error' });
+      return;
+    }
+    setUploadingTplImage(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await axios.post(`${API_URL}/admin/crm/bulk-templates/upload-image`, fd, {
+        headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'multipart/form-data' },
+      });
+      // Al subir una imagen, se usa la key de S3 (se limpia la URL manual para evitar ambigüedad).
+      setTplEditing(prev => prev ? { ...prev, header_image_key: res.data.key, header_image_display: res.data.url, header_image_url: '' } : prev);
+      setSnackbar({ open: true, message: 'Imagen subida', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al subir la imagen', severity: 'error' });
+    } finally { setUploadingTplImage(false); }
   };
 
   const deleteTemplate = (tpl: BulkTemplate) => {
@@ -2060,7 +2090,28 @@ export default function UnifiedLeadsPage() {
               <TextField label="Etiqueta (nombre visible en el selector)" value={tplEditing.label} onChange={e => setTplEditing({ ...tplEditing, label: e.target.value })} size="small" fullWidth disabled={savingTpl} />
               <TextField label="Nombre de la plantilla en Meta" value={tplEditing.template_name} onChange={e => setTplEditing({ ...tplEditing, template_name: e.target.value })} size="small" fullWidth disabled={savingTpl} helperText="Debe coincidir EXACTAMENTE con el nombre aprobado en WhatsApp Manager." />
               <TextField label="Idioma" value={tplEditing.language_code} onChange={e => setTplEditing({ ...tplEditing, language_code: e.target.value })} size="small" fullWidth disabled={savingTpl} helperText="Ej. es_MX, es, en" />
-              <TextField label="URL de imagen del encabezado (opcional)" value={tplEditing.header_image_url || ''} onChange={e => setTplEditing({ ...tplEditing, header_image_url: e.target.value })} size="small" fullWidth disabled={savingTpl} helperText="Solo si la plantilla tiene encabezado de IMAGEN en Meta. Debe ser una URL pública HTTPS (JPG/PNG). Se envía en cada mensaje." />
+              {/* Imagen del encabezado (upload directo a S3) */}
+              <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
+                <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>🖼️ Imagen del encabezado (opcional)</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Solo si la plantilla tiene encabezado de <b>IMAGEN</b> en Meta. Sube el mismo banner aprobado (JPG/PNG, máx. 5 MB). Se envía en cada mensaje.
+                </Typography>
+                {(tplEditing.header_image_display || tplEditing.header_image_url) && (
+                  <Box sx={{ mb: 1 }}>
+                    <img src={tplEditing.header_image_display || tplEditing.header_image_url || ''} alt="Encabezado" style={{ maxWidth: '100%', maxHeight: 140, borderRadius: 6, display: 'block' }} />
+                  </Box>
+                )}
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Button component="label" size="small" variant="outlined" startIcon={<ImageIcon />} disabled={savingTpl || uploadingTplImage}>
+                    {uploadingTplImage ? 'Subiendo…' : ((tplEditing.header_image_key || tplEditing.header_image_url) ? 'Cambiar imagen' : 'Subir imagen')}
+                    <input type="file" hidden accept="image/jpeg,image/png" onChange={e => { const f = e.target.files?.[0]; if (f) uploadTemplateImage(f); (e.target as HTMLInputElement).value = ''; }} />
+                  </Button>
+                  {(tplEditing.header_image_key || tplEditing.header_image_url) && (
+                    <Button size="small" color="error" onClick={() => setTplEditing({ ...tplEditing, header_image_key: null, header_image_url: '', header_image_display: null })} disabled={savingTpl || uploadingTplImage}>Quitar</Button>
+                  )}
+                </Box>
+                <TextField label="…o pega una URL pública (avanzado)" value={tplEditing.header_image_url || ''} onChange={e => setTplEditing({ ...tplEditing, header_image_url: e.target.value, header_image_key: e.target.value ? null : tplEditing.header_image_key, header_image_display: e.target.value || null })} size="small" fullWidth disabled={savingTpl || uploadingTplImage || !!tplEditing.header_image_key} sx={{ mt: 1 }} helperText={tplEditing.header_image_key ? 'Usando la imagen subida. Pulsa "Quitar" para pegar una URL manual.' : 'URL HTTPS directa a un archivo JPG/PNG.'} />
+              </Box>
               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5, bgcolor: '#f3f0ff', p: 1, borderRadius: 1 }}>
                 <Checkbox size="small" checked={!!tplEditing.use_mm_lite} onChange={e => setTplEditing({ ...tplEditing, use_mm_lite: e.target.checked })} disabled={savingTpl} sx={{ p: 0.5 }} />
                 <Box>

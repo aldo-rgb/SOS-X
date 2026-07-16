@@ -606,6 +606,7 @@ import {
   createBulkTemplate,
   updateBulkTemplate,
   deleteBulkTemplate,
+  uploadBulkTemplateImage,
   // Nuevos módulos CRM
   getCRMClients,
   exportCRMClients,
@@ -7026,6 +7027,8 @@ app.get('/api/admin/crm/bulk-templates', authenticateToken, requireMinLevel(ROLE
 app.post('/api/admin/crm/bulk-templates', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createBulkTemplate);
 app.put('/api/admin/crm/bulk-templates/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateBulkTemplate);
 app.delete('/api/admin/crm/bulk-templates/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteBulkTemplate);
+const bulkTemplateImageUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB (límite de WhatsApp)
+app.post('/api/admin/crm/bulk-templates/upload-image', authenticateToken, requireMinLevel(ROLES.DIRECTOR), bulkTemplateImageUpload.single('file'), uploadBulkTemplateImage);
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);
