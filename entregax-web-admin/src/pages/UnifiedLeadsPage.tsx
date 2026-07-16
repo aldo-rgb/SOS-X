@@ -318,6 +318,8 @@ export default function UnifiedLeadsPage() {
 
   // ============ ENVÍO MASIVO WHATSAPP ============
   const [selectedLeadKeys, setSelectedLeadKeys] = useState<Set<string>>(new Set());
+  // Selección de PROSPECTOS externos para envío masivo (lead_key = 'pr_<id>').
+  const [selectedProspectKeys, setSelectedProspectKeys] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkTemplates, setBulkTemplates] = useState<BulkTemplate[]>([]);
   const [bulkDefaults, setBulkDefaults] = useState<Record<string, any>>({});
@@ -532,6 +534,26 @@ export default function UnifiedLeadsPage() {
     });
   };
 
+  // ===== Selección de PROSPECTOS externos (mismo sistema, key 'pr_<id>') =====
+  const prospectKeyOf = (p: Prospect): string => `pr_${p.id}`;
+  const toggleProspectSelected = (key: string) => {
+    setSelectedProspectKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  const toggleSelectAllProspects = () => {
+    const visibleKeys = prospects.map(prospectKeyOf);
+    const allSelected = visibleKeys.length > 0 && visibleKeys.every(k => selectedProspectKeys.has(k));
+    setSelectedProspectKeys(prev => {
+      const next = new Set(prev);
+      if (allSelected) visibleKeys.forEach(k => next.delete(k));
+      else visibleKeys.forEach(k => next.add(k));
+      return next;
+    });
+  };
+
   // Valores prellenados de una plantilla: cada campo manual toma su defaultKey de
   // los valores vigentes (tc/comision/cbm/kg) o queda vacío.
   const varValuesForTemplate = (tpl: BulkTemplate | undefined, defaults: Record<string, any>): string[] =>
@@ -566,7 +588,8 @@ export default function UnifiedLeadsPage() {
   };
 
   const sendBulkWhatsapp = async () => {
-    const leadKeys = Array.from(selectedLeadKeys);
+    // Según la pestaña activa se usan los leads del CRM o los prospectos externos.
+    const leadKeys = Array.from(mainTab === 'prospects' ? selectedProspectKeys : selectedLeadKeys);
     if (leadKeys.length === 0 || !bulkTemplateId) return;
     setBulkSending(true);
     setBulkResults(null);
@@ -1733,12 +1756,36 @@ export default function UnifiedLeadsPage() {
             </Box>
           </Paper>
 
+          {/* Envío masivo de WhatsApp a prospectos seleccionados */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              startIcon={<WhatsAppIcon />}
+              disabled={selectedProspectKeys.size === 0}
+              onClick={openBulkDialog}
+              sx={{ background: 'linear-gradient(90deg, #128C7E 0%, #25D366 100%)' }}
+            >
+              Enviar WhatsApp ({selectedProspectKeys.size})
+            </Button>
+            <Typography variant="body2" color="text.secondary">
+              Marca prospectos con los checkboxes para enviar WhatsApp masivo.
+            </Typography>
+          </Box>
+
           {/* Prospects Table */}
           <Paper sx={{ borderRadius: 2, overflow: 'hidden' }}>
             <TableContainer>
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ bgcolor: 'rgba(0,0,0,0.03)' }}>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={prospects.length > 0 && prospects.every(p => selectedProspectKeys.has(prospectKeyOf(p)))}
+                        indeterminate={prospects.some(p => selectedProspectKeys.has(prospectKeyOf(p))) && !prospects.every(p => selectedProspectKeys.has(prospectKeyOf(p)))}
+                        onChange={toggleSelectAllProspects}
+                      />
+                    </TableCell>
                     <TableCell><strong>{t('leads.prospect')}</strong></TableCell>
                     <TableCell><strong>{t('leads.contact')}</strong></TableCell>
                     <TableCell><strong>{t('leads.channelLabel')}</strong></TableCell>
@@ -1751,13 +1798,13 @@ export default function UnifiedLeadsPage() {
                 <TableBody>
                   {prospectsLoading ? (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                         <CircularProgress size={40} />
                       </TableCell>
                     </TableRow>
                   ) : prospects.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                         <Typography color="text.secondary">{t('leads.noProspectsToShow')}</Typography>
                       </TableCell>
                     </TableRow>
@@ -1770,7 +1817,15 @@ export default function UnifiedLeadsPage() {
                                    prospect.follow_up_overdue ? 'rgba(211, 47, 47, 0.05)' : 'transparent',
                           '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' }
                         }}
+                        selected={selectedProspectKeys.has(prospectKeyOf(prospect))}
                       >
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            size="small"
+                            checked={selectedProspectKeys.has(prospectKeyOf(prospect))}
+                            onChange={() => toggleProspectSelected(prospectKeyOf(prospect))}
+                          />
+                        </TableCell>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <Avatar sx={{ width: 32, height: 32, fontSize: 12, bgcolor: 'primary.main' }}>
@@ -2091,7 +2146,7 @@ export default function UnifiedLeadsPage() {
         </DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Se enviará a <strong>{selectedLeadKeys.size}</strong> lead(s) seleccionado(s). Se omiten los que no tengan teléfono y los teléfonos duplicados.
+            Se enviará a <strong>{(mainTab === 'prospects' ? selectedProspectKeys : selectedLeadKeys).size}</strong> {mainTab === 'prospects' ? 'prospecto(s)' : 'lead(s)'} seleccionado(s). Se omiten los que no tengan teléfono y los teléfonos duplicados.
           </Typography>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
@@ -2165,10 +2220,10 @@ export default function UnifiedLeadsPage() {
             variant="contained"
             startIcon={bulkSending ? <CircularProgress size={16} color="inherit" /> : (bulkResults ? <CheckCircleIcon /> : <WhatsAppIcon />)}
             onClick={sendBulkWhatsapp}
-            disabled={bulkSending || selectedLeadKeys.size === 0 || !!bulkResults || !bulkTemplateId}
+            disabled={bulkSending || (mainTab === 'prospects' ? selectedProspectKeys : selectedLeadKeys).size === 0 || !!bulkResults || !bulkTemplateId}
             sx={{ bgcolor: bulkResults ? '#9e9e9e' : '#25D366', '&:hover': { bgcolor: bulkResults ? '#9e9e9e' : '#1da851' } }}
           >
-            {bulkSending ? 'Enviando…' : (bulkResults ? 'Enviado ✓' : `Enviar (${selectedLeadKeys.size})`)}
+            {bulkSending ? 'Enviando…' : (bulkResults ? 'Enviado ✓' : `Enviar (${(mainTab === 'prospects' ? selectedProspectKeys : selectedLeadKeys).size})`)}
           </Button>
         </DialogActions>
       </Dialog>

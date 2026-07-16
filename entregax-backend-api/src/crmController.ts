@@ -663,7 +663,14 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
             ORDER BY u2.id ASC LIMIT 1
          ) mu ON true
         WHERE ('lc_' || lc.id::text) = ANY($1::text[])
-          AND NOT EXISTS (SELECT 1 FROM lead_blacklist bl WHERE bl.lead_key = ('lc_' || lc.id::text))`,
+          AND NOT EXISTS (SELECT 1 FROM lead_blacklist bl WHERE bl.lead_key = ('lc_' || lc.id::text))
+       UNION ALL
+       SELECT ('pr_' || p.id::text) AS lead_key,
+              COALESCE(NULLIF(TRIM(p.full_name), ''), '') AS full_name,
+              p.whatsapp AS phone
+         FROM prospects p
+        WHERE ('pr_' || p.id::text) = ANY($1::text[])
+          AND NOT EXISTS (SELECT 1 FROM lead_blacklist bl WHERE bl.lead_key = ('pr_' || p.id::text))`,
       [leadKeys]
     );
 
