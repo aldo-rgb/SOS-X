@@ -157,12 +157,21 @@ export async function ensureWelcomeKitSchema(): Promise<void> { return ensureSch
 export async function createKitRequestFromClick(leadKey: string, name: string | null, phone: string | null): Promise<void> {
   try {
     await ensureSchema();
-    await pool.query(
+    const ins = await pool.query(
       `INSERT INTO welcome_kit_requests (lead_key, full_name, phone, status)
        SELECT $1, $2, $3, 'solicitado'
-        WHERE NOT EXISTS (SELECT 1 FROM welcome_kit_requests WHERE lead_key = $1)`,
+        WHERE NOT EXISTS (SELECT 1 FROM welcome_kit_requests WHERE lead_key = $1)
+       RETURNING id`,
       [leadKey, name || 'Cliente', phone]
     );
+    // Si es un prospecto ya registrado (pr_<id> con converted_user_id), notificar en la app.
+    if (ins.rows[0] && leadKey.startsWith('pr_')) {
+      const pid = parseInt(leadKey.slice(3), 10);
+      if (pid) {
+        const u = await pool.query(`SELECT converted_user_id FROM prospects WHERE id = $1`, [pid]);
+        await notifyKitReady(u.rows[0]?.converted_user_id || null, name);
+      }
+    }
   } catch (e) { console.warn('[KIT] createKitRequestFromClick:', (e as Error).message); }
 }
 async function ensureSchema(): Promise<void> {
@@ -197,7 +206,26 @@ async function ensureSchema(): Promise<void> {
   schemaReady = true;
 }
 
-const VALID_STATUSES = ['solicitado', 'instrucciones', 'por_enviar', 'enviado', 'entregado', 'cancelado'];
+const VALID_STATUSES = ['solicitado', 'seleccionado', 'instrucciones', 'por_enviar', 'enviado', 'entregado', 'cancelado'];
+
+// Notifica en la app al usuario que su Kit de Bienvenida está listo (regalo pendiente).
+async function notifyKitReady(userId: number | null | undefined, name?: string | null): Promise<void> {
+  if (!userId) return;
+  try {
+    await pool.query(
+      `INSERT INTO notifications (user_id, title, message, type, icon, data)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+      [
+        userId,
+        '🎁 ¡Tienes un regalo!',
+        `${name ? name.split(' ')[0] + ', t' : 'T'}ienes un Kit de Bienvenida listo para ser enviado. Elige tu regalo y captura tus datos de envío.`,
+        'success',
+        '🎁',
+        JSON.stringify({ kind: 'welcome_kit' }),
+      ]
+    );
+  } catch (e) { console.warn('[KIT] notifyKitReady:', (e as Error).message); }
+}
 
 // GET /api/admin/welcome-kit → lista + stats
 export const getWelcomeKits = async (req: Request, res: Response): Promise<any> => {
@@ -224,6 +252,7 @@ export const getWelcomeKits = async (req: Request, res: Response): Promise<any> 
     const statsRes = await pool.query(`
       SELECT
         COUNT(*) FILTER (WHERE status = 'solicitado')   AS solicitado,
+        COUNT(*) FILTER (WHERE status = 'seleccionado') AS seleccionado,
         COUNT(*) FILTER (WHERE status = 'instrucciones') AS instrucciones,
         COUNT(*) FILTER (WHERE status = 'por_enviar')    AS por_enviar,
         COUNT(*) FILTER (WHERE status = 'enviado')       AS enviado,
@@ -297,6 +326,13 @@ export const createWelcomeKit = async (req: Request, res: Response): Promise<any
         VALID_STATUSES.includes(b.status) ? b.status : 'solicitado', b.notes || null,
       ]
     );
+    // Notificar en la app: si no viene user_id, intentar resolverlo por Box ID.
+    let notifyUserId: number | null = b.user_id || null;
+    if (!notifyUserId && b.box_id) {
+      const u = await pool.query(`SELECT id FROM users WHERE UPPER(TRIM(box_id)) = UPPER(TRIM($1)) LIMIT 1`, [b.box_id]);
+      notifyUserId = u.rows[0]?.id || null;
+    }
+    await notifyKitReady(notifyUserId, b.full_name);
     res.json({ success: true, data: r.rows[0] });
   } catch (error: any) {
     console.error('Error createWelcomeKit:', error);

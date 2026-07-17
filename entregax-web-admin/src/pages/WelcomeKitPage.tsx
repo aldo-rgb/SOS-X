@@ -53,12 +53,13 @@ interface KitRequest {
 }
 
 interface KitStats {
-  solicitado: number; instrucciones: number; por_enviar: number;
+  solicitado: number; seleccionado: number; instrucciones: number; por_enviar: number;
   enviado: number; entregado: number; cancelado: number; total: number;
 }
 
-const STATUSES: { value: string; label: string; color: 'default' | 'info' | 'warning' | 'primary' | 'success' | 'error' }[] = [
+const STATUSES: { value: string; label: string; color: 'default' | 'info' | 'warning' | 'primary' | 'success' | 'error' | 'secondary' }[] = [
   { value: 'solicitado', label: 'Solicitado', color: 'info' },
+  { value: 'seleccionado', label: 'Regalo seleccionado', color: 'secondary' },
   { value: 'instrucciones', label: 'Con instrucciones', color: 'warning' },
   { value: 'por_enviar', label: 'Por enviar', color: 'primary' },
   { value: 'enviado', label: 'Enviado', color: 'success' },
@@ -268,6 +269,7 @@ export default function WelcomeKitPage() {
 
   const statCards: { key: keyof KitStats; label: string; color: string }[] = [
     { key: 'solicitado', label: 'Solicitados', color: '#0288d1' },
+    { key: 'seleccionado', label: 'Seleccionaron', color: '#7b1fa2' },
     { key: 'instrucciones', label: 'Con instrucciones', color: '#ed6c02' },
     { key: 'por_enviar', label: 'Por enviar', color: '#7b1fa2' },
     { key: 'enviado', label: 'Enviados', color: '#2e7d32' },
