@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { AuthRequest } from './authController';
 import { createNotification } from './notificationController';
+import { procesarReferidoVerificado } from './referralService';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -555,9 +556,15 @@ export const approveVerification = async (req: Request, res: Response): Promise<
             { verifiedAt: new Date().toISOString(), isEmployee }
         );
 
-        res.json({ 
-            success: true, 
-            message: isEmployee ? '✅ Empleado verificado y habilitado' : '✅ Usuario verificado manualmente' 
+        // Si es un referido con premio configurado como "Kit", entregarlo YA
+        // (el Kit no espera al primer envío). Best-effort, no bloquea la respuesta.
+        if (!isEmployee) {
+            await procesarReferidoVerificado(parseInt(String(userId)));
+        }
+
+        res.json({
+            success: true,
+            message: isEmployee ? '✅ Empleado verificado y habilitado' : '✅ Usuario verificado manualmente'
         });
     } catch (error) {
         console.error('Error aprobando verificación:', error);
@@ -680,6 +687,9 @@ export const verifyLegacyTerms = async (req: Request, res: Response): Promise<an
             'VERIFICATION_APPROVED',
             '¡Bienvenido a EntregaX! Tu cuenta ha sido activada. Ya puedes gestionar tus paquetes.',
         );
+
+        // Kit de referido (si aplica) disponible desde la verificación.
+        await procesarReferidoVerificado(Number(userId));
 
         return res.json({ success: true, message: 'Cuenta verificada exitosamente' });
     } catch (error) {

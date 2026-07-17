@@ -343,11 +343,20 @@ export const getSettings = async (req: Request, res: Response): Promise<any> => 
       success: true,
       data: {
         is_active: settings.is_active,
+        // Llaves en español (compatibilidad con la app / consumidores previos)
         bono_al_referir: settings.referrer_bonus,
         bono_al_registrarse: settings.referred_bonus,
         moneda: settings.currency,
         monto_minimo_primer_envio: settings.minimum_order_amount,
         expiracion_dias: settings.bonus_expiry_days,
+        // Llaves en inglés que consume el panel admin (para prellenar el form)
+        referrer_bonus: settings.referrer_bonus,
+        referred_bonus: settings.referred_bonus,
+        minimum_order_amount: settings.minimum_order_amount,
+        currency: settings.currency,
+        bonus_expiry_days: settings.bonus_expiry_days,
+        referrer_reward_type: settings.referrer_reward_type || 'money',
+        referred_reward_type: settings.referred_reward_type || 'money',
       },
     });
   } catch (error) {

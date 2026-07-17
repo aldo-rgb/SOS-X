@@ -61,29 +61,33 @@ export interface AntifraudCheck {
 // OBTENER CONFIGURACIÓN
 // ============================================
 
+const DEFAULT_REFERRAL_SETTINGS: ReferralSettings = {
+  referrer_bonus: 500,
+  referred_bonus: 500,
+  currency: 'MXN',
+  minimum_order_amount: 1000,
+  is_active: true,
+  require_first_payment: true,
+  max_referrals_per_user: 100,
+  bonus_expiry_days: 365,
+  referrer_reward_type: 'money',
+  referred_reward_type: 'money',
+};
+
 export const getReferralSettings = async (): Promise<ReferralSettings> => {
   try {
     const result = await pool.query(
       "SELECT config_value FROM system_configurations WHERE config_key = 'referral_settings' AND is_active = TRUE"
     );
-    
+
     if (result.rows.length > 0) {
-      return result.rows[0].config_value as ReferralSettings;
+      // Fusionar con defaults para que llaves faltantes (p.ej. reward_type)
+      // siempre estén presentes al leer configs guardadas antes de esa columna.
+      const stored = result.rows[0].config_value as Partial<ReferralSettings>;
+      return { ...DEFAULT_REFERRAL_SETTINGS, ...stored };
     }
-    
-    // Valores por defecto
-    return {
-      referrer_bonus: 500,
-      referred_bonus: 500,
-      currency: 'MXN',
-      minimum_order_amount: 1000,
-      is_active: true,
-      require_first_payment: true,
-      max_referrals_per_user: 100,
-      bonus_expiry_days: 365,
-      referrer_reward_type: 'money',
-      referred_reward_type: 'money',
-    };
+
+    return { ...DEFAULT_REFERRAL_SETTINGS };
   } catch (error) {
     console.error('Error obteniendo configuración de referidos:', error);
     throw error;
@@ -540,6 +544,9 @@ export const procesarPrimerPago = async (
     }
     // Referido
     if (referredType === 'kit') {
+      // El Kit del referido se entrega al VERIFICARSE (ver procesarReferidoVerificado),
+      // no espera al primer envío. Aquí solo actúa como red de seguridad: addUserToKit
+      // deduplica por usuario y NO re-notifica si ya estaba en la lista.
       await addUserToKit(usuarioId);
     } else {
       await walletService.depositar(
@@ -573,6 +580,28 @@ export const procesarPrimerPago = async (
   } catch (error: any) {
     console.error('Error procesando primer pago:', error);
     return { bonos_activados: false, razon_rechazo: error.message };
+  }
+};
+
+// ============================================================================
+// Al VERIFICARSE un usuario: si es un referido y el premio del referido está
+// configurado como "kit", se agrega a la lista del Kit de Bienvenida de una vez
+// (el Kit NO espera al primer envío — está disponible desde la verificación).
+// Best-effort: nunca lanza, para no bloquear la aprobación de verificación.
+// ============================================================================
+export const procesarReferidoVerificado = async (usuarioId: number): Promise<void> => {
+  try {
+    const settings = await getReferralSettings();
+    if ((settings.referred_reward_type || 'money') !== 'kit') return; // solo si el premio del referido es Kit
+    const r = await pool.query(
+      `SELECT id FROM referidos WHERE referido_id = $1 AND estado NOT IN ('rechazado','expirado') LIMIT 1`,
+      [usuarioId]
+    );
+    if (r.rows.length === 0) return; // no es referido
+    // addUserToKit deduplica por usuario y notifica "tienes un regalo listo".
+    await addUserToKit(usuarioId);
+  } catch (error) {
+    console.error('procesarReferidoVerificado error:', error);
   }
 };
 
@@ -770,6 +799,7 @@ export default {
   registrarReferido,
   runAntifraudChecks,
   procesarPrimerPago,
+  procesarReferidoVerificado,
   getMisReferidos,
   getMiReferidor,
 };
