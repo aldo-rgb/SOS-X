@@ -342,7 +342,7 @@ export default function UnifiedLeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [leadStats, setLeadStats] = useState<LeadStats>({ prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 });
   const [leadsLoading, setLeadsLoading] = useState(true);
-  const [leadTabValue, setLeadTabValue] = useState('assigned');
+  const [leadTabValue, setLeadTabValue] = useState('prospected');
   
   // Modal asignación lead
   const [openLeadModal, setOpenLeadModal] = useState(false);
@@ -1467,13 +1467,6 @@ export default function UnifiedLeadsPage() {
               <Tab value="all" label={t('leads.all')} />
             </Tabs>
           </Paper>
-
-          {/* Alert */}
-          {leadTabValue === 'pending' && leadStats.pending > 0 && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              ⚡ {t('leads.pending')}: <strong>{leadStats.pending}</strong>
-            </Alert>
-          )}
 
           {/* Barra de GRUPOS: filtrar, crear y eliminar */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
