@@ -230,6 +230,10 @@ const CARRIER_DISPLAY_NAMES: Record<string, string> = {
     'paqueteexpress': 'Paquete Express',
     'fedex': 'FedEx',
     'estafeta': 'Estafeta',
+    'sendex': 'Sendex',
+    'pitic': 'PITIC',
+    'tresguerras': 'Tres Guerras',
+    'tres guerras': 'Tres Guerras',
     'dhl': 'DHL',
     'ups': 'UPS',
     'pickup_hidalgo': 'Recoger en Sucursal',
@@ -250,33 +254,65 @@ const prettifyCarrier = (raw: string): string => {
 const getAssignedCarrier = (shipment: ShipmentData | null): { displayName: string; normalized: string } | null => {
     if (!shipment) return null;
 
-    const byMaster = normalizeCarrierText(shipment.master.nationalCarrier);
-    if (byMaster) {
+    // Etiquetas "genéricas" que NO son una marca real de paquetería: usualmente
+    // llegan como `national_carrier` = "Por Cobrar" cuando el asesor eligió una
+    // paquetería COD pero el brand real quedó guardado en `assigned_address.carrier_config`.
+    // Detectarlas para poder buscar la marca real más adelante.
+    const GENERIC_LABELS = new Set(['', 'por cobrar', 'cod', 'collect', 'pc', 'pending', '--']);
+
+    const rawNat = String(shipment.master.nationalCarrier || '').trim();
+    const rawNatNorm = normalizeCarrierText(rawNat);
+    const isGenericCollect = rawNatNorm ? GENERIC_LABELS.has(rawNatNorm) : true;
+
+    // 1) Si nationalCarrier trae una marca real (no genérica), la usamos directo.
+    if (rawNatNorm && !isGenericCollect) {
         return {
-            displayName: prettifyCarrier(String(shipment.master.nationalCarrier)),
-            normalized: byMaster,
+            displayName: prettifyCarrier(rawNat),
+            normalized: rawNatNorm,
         };
     }
 
+    // 2) Buscar el brand real en `carrier_config` de la dirección. Puede tener
+    //    varias claves por servicio (usa_pobox, china_air, dhl, tdi_express…).
+    //    Tomamos la primera con valor.
     const cfg = shipment.master.assignedAddress?.carrierConfig;
-    if (!cfg || typeof cfg !== 'object') return null;
+    if (cfg && typeof cfg === 'object') {
+        const candidates = [
+            (cfg as any).usa_pobox,
+            (cfg as any).china_air,
+            (cfg as any).china_sea,
+            (cfg as any).dhl,
+            (cfg as any).tdi_express,
+            (cfg as any).aa_dhl,
+            (cfg as any).carrier,
+            (cfg as any).carrier_name,
+            (cfg as any).provider,
+            (cfg as any).provider_name,
+            (cfg as any).name,
+            (cfg as any).slug,
+            (cfg as any).code,
+        ].filter((v): v is string => typeof v === 'string' && v.trim() !== '');
 
-    const candidates = [
-        (cfg as any).carrier,
-        (cfg as any).carrier_name,
-        (cfg as any).provider,
-        (cfg as any).provider_name,
-        (cfg as any).name,
-        (cfg as any).slug,
-        (cfg as any).code,
-    ].filter(Boolean);
+        if (candidates.length > 0) {
+            const brand = String(candidates[0]).trim();
+            const brandNorm = normalizeCarrierText(brand);
+            const brandDisplay = prettifyCarrier(brand);
+            // Si el national_carrier decía explícitamente "Por Cobrar" (genérico
+            // de COD), el brand real es de COD → sufijamos "Por Cobrar" para que
+            // la etiqueta impresa diga p.ej. "SENDEX POR COBRAR".
+            const shouldAppendCod = isGenericCollect && rawNatNorm.includes('por cobrar');
+            return {
+                displayName: shouldAppendCod ? `${brandDisplay} Por Cobrar` : brandDisplay,
+                normalized: shouldAppendCod ? `${brandNorm} por cobrar` : brandNorm,
+            };
+        }
+    }
 
-    if (!candidates.length) return null;
-    const selected = String(candidates[0]).trim();
-    return {
-        displayName: prettifyCarrier(selected),
-        normalized: normalizeCarrierText(selected),
-    };
+    // 3) Fallback final: mantener el label genérico si no hay carrier_config.
+    if (rawNatNorm) {
+        return { displayName: prettifyCarrier(rawNat), normalized: rawNatNorm };
+    }
+    return null;
 };
 
 // Paquetería "por cobrar" / COD (p.ej. pqtx_cod). NO se cotiza ni se genera guía
