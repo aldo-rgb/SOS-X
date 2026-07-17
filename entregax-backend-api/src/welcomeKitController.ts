@@ -300,10 +300,11 @@ export const getWelcomeKits = async (req: Request, res: Response): Promise<any> 
   try {
     await ensureSchema();
 
-    // Auto-avance: un kit cuya guía USK ya tiene instrucciones Y está pagada
-    // (EntregaX Local se paga solo; paquetería tras pagar el cliente) pasa a
-    // 'por_enviar'. Se resuelve aquí para cubrir todos los caminos de pago.
+    // Auto-avance del estado del kit según el estado real de su guía USK.
+    // Cubre todos los caminos (pago, carga, entrega) al cargar la lista.
     try {
+      // 1) por_enviar: con instrucciones + pagada (EntregaX Local se paga solo;
+      //    paquetería tras pagar el cliente).
       await pool.query(`
         UPDATE welcome_kit_requests k
            SET status = 'por_enviar', updated_at = NOW()
@@ -314,8 +315,28 @@ export const getWelcomeKits = async (req: Request, res: Response): Promise<any> 
            AND p.needs_instructions = FALSE
            AND (p.client_paid = TRUE OR p.payment_status = 'paid')
       `);
+      // 2) enviado: la guía va en ruta / cargada al repartidor.
+      await pool.query(`
+        UPDATE welcome_kit_requests k
+           SET status = 'enviado', updated_at = NOW()
+          FROM packages p
+         WHERE p.tracking_internal = k.usa_tracking
+           AND k.usa_tracking IS NOT NULL
+           AND k.status IN ('seleccionado', 'instrucciones', 'por_enviar')
+           AND p.status IN ('out_for_delivery', 'en_ruta_entrega', 'shipped', 'sent')
+      `);
+      // 3) entregado: la guía se entregó.
+      await pool.query(`
+        UPDATE welcome_kit_requests k
+           SET status = 'entregado', updated_at = NOW()
+          FROM packages p
+         WHERE p.tracking_internal = k.usa_tracking
+           AND k.usa_tracking IS NOT NULL
+           AND k.status IN ('seleccionado', 'instrucciones', 'por_enviar', 'enviado')
+           AND p.status = 'delivered'
+      `);
     } catch (e: any) {
-      console.warn('[welcome-kit] auto-avance por_enviar falló:', e?.message);
+      console.warn('[welcome-kit] auto-avance de estado falló:', e?.message);
     }
 
     const { status, search } = req.query;
