@@ -299,6 +299,25 @@ export async function addUserToKit(userId: number): Promise<boolean> {
 export const getWelcomeKits = async (req: Request, res: Response): Promise<any> => {
   try {
     await ensureSchema();
+
+    // Auto-avance: un kit cuya guía USK ya tiene instrucciones Y está pagada
+    // (EntregaX Local se paga solo; paquetería tras pagar el cliente) pasa a
+    // 'por_enviar'. Se resuelve aquí para cubrir todos los caminos de pago.
+    try {
+      await pool.query(`
+        UPDATE welcome_kit_requests k
+           SET status = 'por_enviar', updated_at = NOW()
+          FROM packages p
+         WHERE p.tracking_internal = k.usa_tracking
+           AND k.usa_tracking IS NOT NULL
+           AND k.status IN ('seleccionado', 'instrucciones')
+           AND p.needs_instructions = FALSE
+           AND (p.client_paid = TRUE OR p.payment_status = 'paid')
+      `);
+    } catch (e: any) {
+      console.warn('[welcome-kit] auto-avance por_enviar falló:', e?.message);
+    }
+
     const { status, search } = req.query;
     const conditions: string[] = [];
     const params: any[] = [];

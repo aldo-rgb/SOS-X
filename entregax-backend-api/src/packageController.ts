@@ -4901,7 +4901,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                     const carrierNormUsk = String(carrierName || carrier || '').toLowerCase().replace(/[\s_]+/g, '');
                     const isLocalMty = carrierNormUsk.includes('entregaxlocal') || carrierNormUsk === 'local';
                     if (isLocalMty) {
-                        await pool.query(
+                        const uskUpd = await pool.query(
                             `UPDATE packages
                                 SET client_paid = TRUE,
                                     client_paid_at = COALESCE(client_paid_at, NOW()),
@@ -4909,9 +4909,18 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                                     payment_status = 'paid',
                                     monto_pagado = COALESCE(assigned_cost_mxn, 0),
                                     updated_at = NOW()
-                              WHERE id = $1 AND tracking_internal LIKE 'USK-%'`,
+                              WHERE id = $1 AND tracking_internal LIKE 'USK-%'
+                          RETURNING tracking_internal`,
                             [packageId]
                         );
+                        // Pagada + con instrucciones → el kit pasa a 'por_enviar'.
+                        if ((uskUpd.rowCount || 0) > 0 && uskUpd.rows[0]?.tracking_internal) {
+                            await pool.query(
+                                `UPDATE welcome_kit_requests SET status='por_enviar', updated_at=NOW()
+                                  WHERE usa_tracking = $1 AND status IN ('seleccionado','instrucciones')`,
+                                [uskUpd.rows[0].tracking_internal]
+                            );
+                        }
                     }
                 } catch (uskErr) {
                     console.warn('[USK auto-paid] No se pudo marcar pagada la guía USK:', uskErr);
