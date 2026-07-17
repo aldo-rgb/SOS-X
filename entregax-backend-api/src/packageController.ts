@@ -2179,7 +2179,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     // 📋 Evidencia de entrega (capturada por el repartidor al confirmar)
                     deliveryRecipientName: pkg.delivery_recipient_name || null,
                     deliverySignature: pkg.delivery_signature || null,
-                    deliveryPhoto: pkg.delivery_photo || null,
+                    // delivery_photo puede ser base64 (legacy) o URL de S3 (migrado):
+                    // signImg presigna las URLs de S3 y deja pasar el base64 intacto.
+                    deliveryPhoto: (await signImg(pkg.delivery_photo)) || null,
                     deliveryNotes: pkg.delivery_notes || null,
                     driverName: pkg.driver_full_name || null,
                     vehicleNumber: pkg.vehicle_economic_number || null,

@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { persistBase64ToS3 } from './s3Service';
 
 // Compatibilidad de esquema: algunos entornos no tienen tracking_number o tracking_provider.
 // Con to_jsonb(p)->>'campo' evitamos errores SQL cuando el campo no existe.
@@ -1644,7 +1645,9 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
         }
 
         if (hasDeliveryPhotoColumn && photoBase64) {
-            values.push(photoBase64);
+            // Subir la foto a S3 y guardar la URL (no el base64) para no inflar la DB.
+            const storedPhoto = await persistBase64ToS3(photoBase64, `packages/${pkg.id}/delivery-photo`);
+            values.push(storedPhoto);
             setParts.push(`delivery_photo = $${values.length}`);
         }
 
@@ -1883,7 +1886,9 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                 }
 
                 if (hasDeliveryPhotoColumn && photoBase64) {
-                    values.push(photoBase64);
+                    // Subir a S3 y guardar la URL (no base64) para no inflar la DB.
+                    const storedPhoto = await persistBase64ToS3(photoBase64, `packages/${packageId}/delivery-photo`);
+                    values.push(storedPhoto);
                     setParts.push(`delivery_photo = $${values.length}`);
                 }
 

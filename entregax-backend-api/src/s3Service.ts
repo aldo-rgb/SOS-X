@@ -197,6 +197,36 @@ export const isS3Configured = (): boolean => {
 export { s3Client, BUCKET_NAME };
 
 /**
+ * Si `value` es un data URI base64 (data:image/...;base64,...) y S3 está
+ * configurado, lo sube a S3 y devuelve la URL estática del objeto. Para
+ * cualquier otro valor (URL http, null, vacío) lo devuelve intacto.
+ * Idempotente y seguro: si S3 no está configurado deja el valor tal cual
+ * (no rompe), y un valor ya migrado (URL) pasa sin cambios.
+ */
+export const persistBase64ToS3 = async (
+  value: string | null | undefined,
+  keyPrefix: string
+): Promise<string | null | undefined> => {
+  if (!value || typeof value !== 'string') return value;
+  const m = value.match(/^data:([^;]+);base64,(.+)$/s);
+  if (!m || !m[2]) return value; // no es base64 → ya es URL o texto: dejar intacto
+  if (!isS3Configured()) return value; // sin S3 no rompemos: conservar base64
+  try {
+    const mime = m[1] || 'image/jpeg';
+    const buffer = Buffer.from(m[2], 'base64');
+    if (buffer.length === 0) return value;
+    const subtype = mime.split('/')[1] || 'jpg';
+    const ext = (subtype.split('+')[0] || 'jpg').split(';')[0] || 'jpg';
+    const rand = Math.random().toString(36).slice(2, 8);
+    const key = `${keyPrefix}-${Date.now()}-${rand}.${ext}`;
+    return await uploadToS3(buffer, key, mime);
+  } catch (err: any) {
+    console.error('[persistBase64ToS3] error, se conserva el valor original:', err?.message || err);
+    return value; // ante cualquier fallo, no perder el dato
+  }
+};
+
+/**
  * Verifica si un objeto existe en S3 (HEAD).
  */
 export const headS3Object = async (key: string): Promise<{ exists: boolean; size?: number }> => {
