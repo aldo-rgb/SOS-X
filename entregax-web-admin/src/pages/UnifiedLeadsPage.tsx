@@ -203,6 +203,7 @@ interface Advisor {
   email: string;
   referral_code?: string;
   box_id?: string;
+  phone?: string;
 }
 
 interface LeadStats {
@@ -630,15 +631,18 @@ export default function UnifiedLeadsPage() {
   };
 
   const sendBulkWhatsapp = async () => {
-    // Según la pestaña activa se usan los leads del CRM o los prospectos externos.
+    // Pestaña "Asesores": se envía a los asesores seleccionados (por su teléfono).
+    const advisorsMode = mainTab === 'leads' && leadTabValue === 'advisors';
     const leadKeys = Array.from(mainTab === 'prospects' ? selectedProspectKeys : selectedLeadKeys);
-    if (leadKeys.length === 0 || !bulkTemplateId) return;
+    const advisorIds = Array.from(selectedAdvisorIds);
+    if (!bulkTemplateId) return;
+    if (advisorsMode ? advisorIds.length === 0 : leadKeys.length === 0) return;
     setBulkSending(true);
     setBulkResults(null);
     try {
       const res = await axios.post(`${API_URL}/admin/crm/bulk-whatsapp`, {
         templateId: bulkTemplateId,
-        leadKeys,
+        ...(advisorsMode ? { advisorIds } : { leadKeys }),
         varValues: bulkVarValues,
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
       const d = res.data || {};
@@ -1519,11 +1523,11 @@ export default function UnifiedLeadsPage() {
             <Button
               variant="contained"
               startIcon={<WhatsAppIcon />}
-              disabled={selectedLeadKeys.size === 0}
+              disabled={leadTabValue === 'advisors' ? selectedAdvisorIds.size === 0 : selectedLeadKeys.size === 0}
               onClick={openBulkDialog}
               sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' } }}
             >
-              Enviar WhatsApp ({selectedLeadKeys.size})
+              Enviar WhatsApp ({leadTabValue === 'advisors' ? selectedAdvisorIds.size : selectedLeadKeys.size})
             </Button>
             {selectedLeadKeys.size > 0 && groups.length > 0 && (
               <FormControl size="small" sx={{ minWidth: 190 }}>
@@ -1602,7 +1606,7 @@ export default function UnifiedLeadsPage() {
                     <TableCell>Asesor</TableCell>
                     <TableCell>Correo</TableCell>
                     <TableCell>Código de referido</TableCell>
-                    <TableCell>Box ID</TableCell>
+                    <TableCell>Teléfono</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1630,7 +1634,7 @@ export default function UnifiedLeadsPage() {
                         </TableCell>
                         <TableCell><Typography variant="caption">{a.email || '—'}</Typography></TableCell>
                         <TableCell>{a.referral_code ? <Chip label={a.referral_code} size="small" color="primary" variant="outlined" /> : '—'}</TableCell>
-                        <TableCell>{a.box_id ? <Chip label={a.box_id} size="small" /> : '—'}</TableCell>
+                        <TableCell><Typography variant="caption">{a.phone || '—'}</Typography></TableCell>
                       </TableRow>
                     ))}
                   {filteredAdvisors.length === 0 && (

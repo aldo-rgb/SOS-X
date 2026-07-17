@@ -338,8 +338,8 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
 export const getAvailableAdvisors = async (req: Request, res: Response): Promise<any> => {
   try {
     const advisors = await pool.query(`
-      SELECT id, full_name, email, referral_code, box_id
-      FROM users 
+      SELECT id, full_name, email, referral_code, box_id, phone
+      FROM users
       WHERE role IN ('advisor', 'asesor', 'asesor_lider', 'sub_advisor')
       ORDER BY full_name
     `);
@@ -706,11 +706,13 @@ export const getBulkWhatsappDefaults = async (_req: Request, res: Response): Pro
 // Body: { messageType: 'invite'|'xpay'|'tarifas', leadKeys: string[], values?: {tc,comision,cbm,kg} }
 export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { templateId, leadKeys, varValues } = req.body || {};
-    if (!Array.isArray(leadKeys) || leadKeys.length === 0) {
-      return res.status(400).json({ success: false, error: 'Selecciona al menos un lead' });
+    const { templateId, leadKeys, advisorIds, varValues } = req.body || {};
+    const isAdvisors = Array.isArray(advisorIds) && advisorIds.length > 0;
+    if (!isAdvisors && (!Array.isArray(leadKeys) || leadKeys.length === 0)) {
+      return res.status(400).json({ success: false, error: 'Selecciona al menos un destinatario' });
     }
-    if (leadKeys.length > 500) {
+    const recipientCount = isAdvisors ? advisorIds.length : leadKeys.length;
+    if (recipientCount > 500) {
       return res.status(400).json({ success: false, error: 'Máximo 500 destinatarios por envío' });
     }
 
@@ -734,8 +736,16 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
       if (!vals[i]) return res.status(400).json({ success: false, error: `Falta el valor de "${tplVars[i]?.label || `campo ${i + 1}`}"` });
     }
 
-    // Resolver nombre + teléfono de los leads seleccionados (ambas fuentes).
-    const rowsRes = await pool.query(
+    // Resolver nombre + teléfono de los destinatarios.
+    const rowsRes = isAdvisors
+      ? await pool.query(
+          `SELECT ('adv_' || u.id::text) AS lead_key, u.full_name, u.phone
+             FROM users u
+            WHERE u.id = ANY($1::int[])
+              AND u.role IN ('advisor','asesor','asesor_lider','sub_advisor')`,
+          [advisorIds.map((x: any) => parseInt(String(x), 10)).filter((n: number) => Number.isFinite(n))]
+        )
+      : await pool.query(
       `SELECT ('crm_' || r.id::text) AS lead_key, u.full_name, u.phone
          FROM crm_requests r JOIN users u ON r.user_id = u.id
         WHERE ('crm_' || r.id::text) = ANY($1::text[])
@@ -826,7 +836,7 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
 
     // Motivo del primer fallo (para diagnosticar desde la UI, ej. imagen faltante).
     const firstError = results.details.find((d: any) => d.status === 'failed')?.reason || null;
-    console.log(`[CRM] Envío masivo WhatsApp "${template}": ${results.sent} enviados, ${results.skipped} omitidos, ${results.failed} fallidos (de ${leadKeys.length} seleccionados)${firstError ? ' | 1er error: ' + firstError : ''}`);
+    console.log(`[CRM] Envío masivo WhatsApp "${template}": ${results.sent} enviados, ${results.skipped} omitidos, ${results.failed} fallidos (de ${recipientCount} seleccionados)${firstError ? ' | 1er error: ' + firstError : ''}`);
     res.json({ success: true, template, firstError, ...results });
   } catch (error: any) {
     console.error('Error en bulkWhatsapp:', error);
