@@ -590,7 +590,7 @@ export const selectKitGift = async (req: Request, res: Response): Promise<any> =
          (user_id, box_id, tracking_internal, tracking_provider, description, weight,
           pkg_length, pkg_width, pkg_height, status, is_master, box_number, total_boxes,
           carrier, service_type, image_url, notes, needs_instructions, warehouse_location)
-       VALUES ($1,$2,$3,NULL,$4,1, 10,20,25,'received', true, 0, 1, 'EntregaX','POBOX_USA',$5,$6, true, 'usa_pobox')
+       VALUES ($1,$2,$3,NULL,$4,1, 10,20,25,'received', false, 1, 1, 'EntregaX','POBOX_USA',$5,$6, true, 'usa_pobox')
        RETURNING id, tracking_internal`,
       [
         userId, user.box_id || null, tracking, `Kit de Bienvenida — ${product.name}`,
