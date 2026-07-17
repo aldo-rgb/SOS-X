@@ -311,7 +311,10 @@ export const getWelcomeKits = async (req: Request, res: Response): Promise<any> 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const listRes = await pool.query(
       `SELECT k.*, adv.full_name AS advisor_name,
-              pr.name AS selected_product_name, pr.photos AS selected_product_photos
+              pr.name AS selected_product_name, pr.photos AS selected_product_photos,
+              (SELECT p.status::text FROM packages p
+                WHERE p.tracking_internal = k.usa_tracking
+                ORDER BY p.id DESC LIMIT 1) AS guide_status
          FROM welcome_kit_requests k
          LEFT JOIN users adv ON k.user_id = adv.id
          LEFT JOIN welcome_kit_products pr ON pr.id = k.selected_product_id

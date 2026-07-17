@@ -53,7 +53,39 @@ interface KitRequest {
   selected_product_id: number | null;
   selected_product_name: string | null;
   selected_product_photo: string | null;
+  guide_status: string | null;
 }
+
+// Estado del envío físico de la guía USK (paquete POBOX_USA)
+const guideStatusLabel = (s: string | null): string => {
+  switch (s) {
+    case 'received': return 'Recibido CEDIS Hidalgo TX';
+    case 'in_transit': return 'En tránsito a MTY';
+    case 'received_mty':
+    case 'received_cedis': return 'Recibido CEDIS MTY';
+    case 'processing': return 'Procesando';
+    case 'ready_pickup':
+    case 'out_for_delivery':
+    case 'en_ruta_entrega': return 'En ruta';
+    case 'shipped':
+    case 'sent':
+    case 'enviado': return 'Enviado';
+    case 'delivered': return 'Entregado';
+    case null:
+    case undefined: return 'Sin guía';
+    default: return s;
+  }
+};
+const guideStatusColor = (s: string | null): 'default' | 'info' | 'warning' | 'primary' | 'success' | 'error' => {
+  switch (s) {
+    case 'delivered': return 'success';
+    case 'shipped': case 'sent': case 'enviado':
+    case 'ready_pickup': case 'out_for_delivery': case 'en_ruta_entrega': return 'primary';
+    case 'in_transit': case 'received_mty': case 'received_cedis': return 'info';
+    case 'received': case 'processing': return 'warning';
+    default: return 'default';
+  }
+};
 
 interface KitStats {
   solicitado: number; seleccionado: number; instrucciones: number; por_enviar: number;
@@ -293,11 +325,6 @@ export default function WelcomeKitPage() {
     }
   };
 
-  const shipSummary = (r: KitRequest) => {
-    const parts = [r.ship_address, r.ship_city, r.ship_state, r.ship_zip].filter(Boolean);
-    return parts.length ? parts.join(', ') : null;
-  };
-
   const statCards: { key: keyof KitStats; label: string; color: string }[] = [
     { key: 'solicitado', label: 'Solicitados', color: '#0288d1' },
     { key: 'seleccionado', label: 'Seleccionaron', color: '#7b1fa2' },
@@ -381,8 +408,8 @@ export default function WelcomeKitPage() {
                 <TableCell><strong>Solicitante</strong></TableCell>
                 <TableCell><strong>Contacto</strong></TableCell>
                 <TableCell><strong>Regalo elegido</strong></TableCell>
-                <TableCell><strong>Dirección de envío</strong></TableCell>
                 <TableCell><strong>Guías</strong></TableCell>
+                <TableCell><strong>Estatus de guía</strong></TableCell>
                 <TableCell><strong>Estado</strong></TableCell>
                 <TableCell align="center"><strong>Acciones</strong></TableCell>
               </TableRow>
@@ -393,7 +420,6 @@ export default function WelcomeKitPage() {
               ) : rows.length === 0 ? (
                 <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4 }}><Typography color="text.secondary">No hay solicitudes de kit todavía.</Typography></TableCell></TableRow>
               ) : rows.map(r => {
-                const ship = shipSummary(r);
                 return (
                   <TableRow key={r.id} hover>
                     <TableCell>
@@ -418,20 +444,17 @@ export default function WelcomeKitPage() {
                         <Typography variant="caption" color="text.secondary">Sin elegir</Typography>
                       )}
                     </TableCell>
-                    <TableCell sx={{ maxWidth: 260 }}>
-                      {ship ? (
-                        <Box>
-                          <Typography variant="caption" display="block">{r.ship_name || r.full_name}</Typography>
-                          <Typography variant="caption" color="text.secondary">{ship}</Typography>
-                        </Box>
-                      ) : (
-                        <Chip size="small" label="Sin instrucciones" variant="outlined" color="warning" />
-                      )}
-                    </TableCell>
                     <TableCell>
                       {r.usa_tracking && <Typography variant="caption" display="block">🇺🇸 {r.usa_tracking}</Typography>}
                       {r.estafeta_tracking && <Typography variant="caption" display="block">📦 {r.estafeta_tracking}</Typography>}
                       {!r.usa_tracking && !r.estafeta_tracking && <Typography variant="caption" color="text.secondary">—</Typography>}
+                    </TableCell>
+                    <TableCell>
+                      {r.usa_tracking ? (
+                        <Chip size="small" label={guideStatusLabel(r.guide_status)} color={guideStatusColor(r.guide_status)} variant="outlined" />
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">—</Typography>
+                      )}
                     </TableCell>
                     <TableCell>
                       <FormControl size="small" variant="standard" sx={{ minWidth: 130 }}>
