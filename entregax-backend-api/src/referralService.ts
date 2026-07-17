@@ -487,13 +487,10 @@ export const procesarPrimerPago = async (
       // Ya tenía primer pago, no procesar bonos
       return { bonos_activados: false, razon_rechazo: 'Ya se procesó el primer pago anteriormente' };
     }
-    
-    // Registrar primer pago en usuario
-    await client.query(
-      'UPDATE users SET first_payment_date = NOW(), first_payment_amount = $1 WHERE id = $2',
-      [montoPago, usuarioId]
-    );
-    
+    // NOTA: el UPDATE de first_payment_date se hace AL FINAL (después de los depósitos)
+    // para no mantener bloqueada la fila de users mientras walletService.depositar
+    // (que corre en otra conexión) intenta actualizar wallet_balance del mismo usuario.
+
     // Buscar registro de referido
     const referidoRes = await client.query(
       `SELECT r.*, u.full_name as nombre_referidor
@@ -601,9 +598,16 @@ export const procesarPrimerPago = async (
       { tipo: 'bono_referido', referidor_id: referido.referidor_id }
     );
     
+    // Registrar el primer pago del usuario (ya después de los depósitos, para no
+    // bloquear la fila durante walletService.depositar).
+    await client.query(
+      'UPDATE users SET first_payment_date = NOW(), first_payment_amount = $1 WHERE id = $2',
+      [montoPago, usuarioId]
+    );
+
     // Actualizar estado a validado
     await client.query(
-      `UPDATE referidos SET 
+      `UPDATE referidos SET
          estado = 'validado',
          fecha_validacion = NOW(),
          bonos_pagados = TRUE,
