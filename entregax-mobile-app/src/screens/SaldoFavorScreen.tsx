@@ -125,7 +125,13 @@ export default function SaldoFavorScreen({ navigation }: any) {
         const kitData = await kitRes.json();
         if (kitData.success) {
           setHasPendingKit(!!kitData.has_pending_kit);
-          setKitProducts(kitData.products || []);
+          const prods = kitData.products || [];
+          setKitProducts(prods);
+          // Precargar TODAS las fotos de los regalos en caché para que el detalle
+          // abra al instante (sin la sensación de lento).
+          prods.forEach((p: any) => (p.photos || []).forEach((ph: any) => {
+            if (ph?.url) { Image.prefetch(ph.url).catch(() => {}); }
+          }));
         }
       }
 
@@ -461,7 +467,12 @@ export default function SaldoFavorScreen({ navigation }: any) {
                     isLooping={false}
                   />
                 ) : (kitDetail.photos?.[mainImgIndex]?.url) ? (
-                  <Image source={{ uri: kitDetail.photos[mainImgIndex].url }} style={styles.kitDetailImg} resizeMode="cover" />
+                  <View style={styles.kitDetailImg}>
+                    <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+                      <ActivityIndicator color={SEA_COLOR} />
+                    </View>
+                    <Image source={{ uri: kitDetail.photos[mainImgIndex].url }} style={[styles.kitDetailImg, { position: 'absolute' }]} resizeMode="cover" fadeDuration={0} />
+                  </View>
                 ) : (
                   <View style={[styles.kitDetailImg, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#eee' }]}>
                     <Text style={{ fontSize: 50 }}>🎁</Text>
