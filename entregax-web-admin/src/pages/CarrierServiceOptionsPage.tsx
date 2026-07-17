@@ -59,6 +59,7 @@ interface CarrierOption {
   allows_collect: boolean;
   priority: number;
   service_types: string[];
+  max_weight_kg: number | string | null;
   created_at: string;
   updated_at: string;
 }
@@ -73,6 +74,7 @@ interface CarrierFormData {
   priority: number;
   allows_collect: boolean;
   service_types: string[];
+  max_weight_kg: string; // string en el form; se convierte a número o null al guardar
 }
 
 const SERVICE_TYPE_OPTIONS = [
@@ -93,6 +95,7 @@ const emptyForm: CarrierFormData = {
   priority: 0,
   allows_collect: false,
   service_types: [],
+  max_weight_kg: '',
 };
 
 export default function CarrierServiceOptionsPage() {
@@ -185,6 +188,7 @@ export default function CarrierServiceOptionsPage() {
       priority: carrier.priority,
       allows_collect: carrier.allows_collect || false,
       service_types: carrier.service_types || [],
+      max_weight_kg: carrier.max_weight_kg != null ? String(carrier.max_weight_kg) : '',
     });
     setDialogOpen(true);
   };
@@ -195,11 +199,16 @@ export default function CarrierServiceOptionsPage() {
         ? `${API_URL}/api/admin/carrier-options/${editingId}`
         : `${API_URL}/api/admin/carrier-options`;
       const method = editingId ? 'PUT' : 'POST';
-      
+
+      // max_weight_kg: blank -> null (sin límite); si trae valor, convertir a número.
+      const trimmedMax = String(form.max_weight_kg || '').trim();
+      const maxWeightPayload =
+        trimmedMax === '' ? null : (Number.isFinite(Number(trimmedMax)) ? Number(trimmedMax) : null);
+
       const res = await fetch(url, {
         method,
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, carrier_type: carrierType }),
+        body: JSON.stringify({ ...form, max_weight_kg: maxWeightPayload, carrier_type: carrierType }),
       });
       const data = await res.json();
       
@@ -543,6 +552,19 @@ export default function CarrierServiceOptionsPage() {
               size="small"
               fullWidth
               placeholder="ej: $350 x 1 caja"
+            />
+
+            {/* Peso máximo permitido por paquete (opcional) */}
+            <TextField
+              label={t('carrierOptions.maxWeightLabel', 'Peso máximo permitido (kg)')}
+              type="number"
+              value={form.max_weight_kg}
+              onChange={e => setForm(prev => ({ ...prev, max_weight_kg: e.target.value }))}
+              size="small"
+              fullWidth
+              placeholder={t('carrierOptions.maxWeightPlaceholder', 'Dejar en blanco = sin límite')}
+              helperText={t('carrierOptions.maxWeightHelper', 'Si se ingresa, el sistema no permitirá asignar esta paquetería a cajas que excedan este peso.')}
+              slotProps={{ htmlInput: { min: 0, step: 0.5 } }}
             />
 
             {/* Permite por cobrar */}

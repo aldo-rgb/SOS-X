@@ -153,7 +153,7 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
 // =========================================
 export const createCarrierOption = async (req: Request, res: Response) => {
   try {
-    const { carrier_key, name, description, price_label, subtext, icon, priority, service_types, allows_collect, carrier_type } = req.body;
+    const { carrier_key, name, description, price_label, subtext, icon, priority, service_types, allows_collect, carrier_type, max_weight_kg } = req.body;
 
     if (!carrier_key || !name) {
       return res.status(400).json({ success: false, error: 'carrier_key y name son requeridos' });
@@ -166,11 +166,16 @@ export const createCarrierOption = async (req: Request, res: Response) => {
     }
 
     const cType = carrier_type === 'collect' ? 'collect' : 'standard';
+    // max_weight_kg: null / undefined / '' / valores no numéricos = sin límite (NULL).
+    const maxWeightNormalized =
+      max_weight_kg == null || max_weight_kg === '' || !Number.isFinite(Number(max_weight_kg))
+        ? null
+        : Number(max_weight_kg);
     const result = await pool.query(`
-      INSERT INTO carrier_service_options (carrier_key, name, description, price_label, subtext, icon, priority, allows_collect, carrier_type)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO carrier_service_options (carrier_key, name, description, price_label, subtext, icon, priority, allows_collect, carrier_type, max_weight_kg)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
-    `, [carrier_key, name, description || null, price_label || null, subtext || null, icon || '🚛', priority || 0, allows_collect === true, cType]);
+    `, [carrier_key, name, description || null, price_label || null, subtext || null, icon || '🚛', priority || 0, allows_collect === true, cType, maxWeightNormalized]);
 
     const carrierId = result.rows[0].id;
 
@@ -212,7 +217,7 @@ export const createCarrierOption = async (req: Request, res: Response) => {
 export const updateCarrierOption = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { carrier_key, name, description, price_label, subtext, icon, is_active, priority, service_types, allows_collect, carrier_type } = req.body;
+    const { carrier_key, name, description, price_label, subtext, icon, is_active, priority, service_types, allows_collect, carrier_type, max_weight_kg } = req.body;
 
     // Verificar que exista
     const existing = await pool.query('SELECT id FROM carrier_service_options WHERE id = $1', [id]);
@@ -232,6 +237,18 @@ export const updateCarrierOption = async (req: Request, res: Response) => {
     }
 
     const cType = carrier_type === 'collect' ? 'collect' : carrier_type === 'standard' ? 'standard' : undefined;
+    // max_weight_kg: si viene explícitamente en el body lo usamos (null = sin límite,
+    // número = tope). Si el key NO viene, no tocamos la columna (COALESCE).
+    let maxWeightForUpdate: number | null | undefined;
+    if (Object.prototype.hasOwnProperty.call(req.body, 'max_weight_kg')) {
+      if (max_weight_kg == null || max_weight_kg === '' || !Number.isFinite(Number(max_weight_kg))) {
+        maxWeightForUpdate = null; // borrar límite explícitamente
+      } else {
+        maxWeightForUpdate = Number(max_weight_kg);
+      }
+    } else {
+      maxWeightForUpdate = undefined; // no tocar
+    }
 
     await pool.query(`
       UPDATE carrier_service_options SET
@@ -245,9 +262,17 @@ export const updateCarrierOption = async (req: Request, res: Response) => {
         priority = COALESCE($8, priority),
         allows_collect = COALESCE($9, allows_collect),
         carrier_type = COALESCE($10, carrier_type),
+        max_weight_kg = CASE WHEN $12::boolean THEN $11::numeric ELSE max_weight_kg END,
         updated_at = NOW()
-      WHERE id = $11
-    `, [carrier_key, name, description, price_label, subtext !== undefined ? subtext : null, icon, is_active, priority, allows_collect, cType, id]);
+      WHERE id = $13
+    `, [
+      carrier_key, name, description, price_label,
+      subtext !== undefined ? subtext : null, icon, is_active, priority,
+      allows_collect, cType,
+      maxWeightForUpdate === undefined ? null : maxWeightForUpdate,
+      maxWeightForUpdate !== undefined, // sólo actualizar cuando el campo vino en el body
+      id,
+    ]);
 
     // Actualizar mapeo de servicios si se proporcionan
     if (service_types && Array.isArray(service_types)) {
