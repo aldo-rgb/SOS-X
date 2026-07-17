@@ -32,15 +32,11 @@ const GREEN = '#4CAF50';
 const YELLOW = '#FF9800';
 
 interface WalletSaldo {
-  saldo_disponible: number;
-  saldo_pendiente: number;
-  saldo_total: number;
+  // El backend (/api/billetera/resumen) devuelve estos nombres:
+  disponible: number;
+  pendiente: number;
+  total: number;
   moneda: string;
-  formatted: {
-    disponible: string;
-    pendiente: string;
-    total: string;
-  };
 }
 
 interface Transaccion {
@@ -217,11 +213,14 @@ export default function SaldoFavorScreen({ navigation }: any) {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
+    // Forzar hora de México (los timestamps llegan en UTC). Sin esto, en
+    // simuladores/dispositivos con otra zona horaria se muestra la hora UTC.
     return date.toLocaleDateString('es-MX', {
       day: 'numeric',
       month: 'short',
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: 'America/Mexico_City',
     });
   };
 
@@ -293,15 +292,15 @@ export default function SaldoFavorScreen({ navigation }: any) {
         >
           <Text style={styles.balanceLabel}>{ST.available}</Text>
           <Text style={styles.balanceAmount}>
-            {saldo ? formatMoney(saldo.saldo_disponible) : '$0.00'}
+            {saldo ? formatMoney(saldo.disponible) : '$0.00'}
           </Text>
           <Text style={styles.balanceCurrency}>{saldo?.moneda || 'MXN'}</Text>
-          
-          {saldo && saldo.saldo_pendiente > 0 && (
+
+          {saldo && saldo.pendiente > 0 && (
             <View style={styles.pendingBadge}>
               <Ionicons name="time-outline" size={14} color="#FFF" />
               <Text style={styles.pendingText}>
-                {formatMoney(saldo.saldo_pendiente)} {ST.pending}
+                {formatMoney(saldo.pendiente)} {ST.pending}
               </Text>
             </View>
           )}
