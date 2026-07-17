@@ -1907,24 +1907,28 @@ export const webhookPagoProveedorV2 = async (
     // El estatus global se completa cuando:
     //  - servicio sin factura: con que llegue este webhook con estatus 'completado'
     //  - servicio con factura: cuando ADEMÁS factura ya está emitida
+    // NOTA: se usan casts explícitos ($1::text, $6::text, $8::boolean, $9::boolean)
+    // porque el mismo parámetro se usa en SET y en CASE WHEN. Sin cast,
+    // node-pg envía el tipo inferido inicialmente y Postgres rechaza con
+    // "inconsistent types deduced for parameter $1".
     await pool.query(
       `UPDATE entangled_payment_requests
-          SET estatus_proveedor = $1,
-              comprobante_proveedor_url = COALESCE($2, comprobante_proveedor_url),
-              proveedor_moneda_enviada = COALESCE($3, proveedor_moneda_enviada),
-              proveedor_monto_enviado = COALESCE($4, proveedor_monto_enviado),
-              proveedor_cuenta_destino = COALESCE($5, proveedor_cuenta_destino),
+          SET estatus_proveedor = $1::text,
+              comprobante_proveedor_url = COALESCE($2::text, comprobante_proveedor_url),
+              proveedor_moneda_enviada = COALESCE($3::text, proveedor_moneda_enviada),
+              proveedor_monto_enviado = COALESCE($4::numeric, proveedor_monto_enviado),
+              proveedor_cuenta_destino = COALESCE($5::text, proveedor_cuenta_destino),
               proveedor_pagado_at = NOW(),
               estatus_global = CASE
-                WHEN $1 = 'completado' AND ($6 = 'pago_sin_factura' OR estatus_factura = 'emitida') THEN 'completado'
-                WHEN $1 = 'rechazado' THEN 'rechazado'
+                WHEN $1::text = 'completado' AND ($6::text = 'pago_sin_factura' OR estatus_factura = 'emitida') THEN 'completado'
+                WHEN $1::text = 'rechazado' THEN 'rechazado'
                 ELSE 'en_proceso'
               END,
-              es_hibrida = COALESCE($8, es_hibrida),
-              es_pesos = COALESCE($9, es_pesos),
+              es_hibrida = COALESCE($8::boolean, es_hibrida),
+              es_pesos = COALESCE($9::boolean, es_pesos),
               last_webhook_at = NOW(),
               updated_at = NOW()
-        WHERE id = $7`,
+        WHERE id = $7::int`,
       [estatus, comprobanteUrl, moneda, monto, cuenta, servicio, requestId,
        payload.es_hibrida != null ? Boolean(payload.es_hibrida) : null,
        payload.es_pesos != null ? Boolean(payload.es_pesos) : null]
