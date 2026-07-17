@@ -774,6 +774,8 @@ export default function UnifiedLeadsPage() {
 
   // Cargar CRM Leads
   const fetchLeads = useCallback(async () => {
+    // La pestaña "Asesores" muestra la lista de asesores, no leads.
+    if (leadTabValue === 'advisors') return;
     setLeadsLoading(true);
     try {
       const res = await axios.get(`${API_URL}/admin/crm/leads?status=${leadTabValue}`, {
@@ -1440,6 +1442,7 @@ export default function UnifiedLeadsPage() {
               <Tab value="assigned" label={`${t('leads.assigned')} (${leadStats.assigned})`} />
               <Tab value="contacted" label={`${t('leads.contacted')} (${leadStats.contacted})`} />
               <Tab value="converted" label={`${t('leads.converted')} (${leadStats.converted})`} />
+              <Tab value="advisors" label={`Asesores (${advisors.length})`} />
               <Tab value="all" label={t('leads.all')} />
             </Tabs>
           </Paper>
@@ -1562,8 +1565,54 @@ export default function UnifiedLeadsPage() {
             </Typography>
           )}
 
-          {/* Leads Table */}
-          {leadsLoading ? (
+          {/* Tabla de Asesores */}
+          {leadTabValue === 'advisors' ? (
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Asesor</TableCell>
+                    <TableCell>Correo</TableCell>
+                    <TableCell>Código de referido</TableCell>
+                    <TableCell>Box ID</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {advisors
+                    .filter(a => {
+                      const q = leadSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return (a.full_name || '').toLowerCase().includes(q)
+                        || (a.email || '').toLowerCase().includes(q)
+                        || (a.referral_code || '').toLowerCase().includes(q)
+                        || (a.box_id || '').toLowerCase().includes(q);
+                    })
+                    .map((a) => (
+                      <TableRow key={a.id} hover>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                            <Avatar sx={{ bgcolor: '#F05A28', width: 32, height: 32, fontSize: 14 }}>
+                              {(a.full_name || '?').charAt(0)}
+                            </Avatar>
+                            <Typography variant="body2" fontWeight={600}>{a.full_name}</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell><Typography variant="caption">{a.email || '—'}</Typography></TableCell>
+                        <TableCell>{a.referral_code ? <Chip label={a.referral_code} size="small" color="primary" variant="outlined" /> : '—'}</TableCell>
+                        <TableCell>{a.box_id ? <Chip label={a.box_id} size="small" /> : '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                  {advisors.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                        <Typography color="text.secondary">No hay asesores registrados.</Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : leadsLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
               <CircularProgress />
             </Box>
