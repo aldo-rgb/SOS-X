@@ -3,6 +3,7 @@ import { pool } from './db';
 import { AuthRequest } from './authController';
 import { createNotification } from './notificationController';
 import { procesarReferidoVerificado } from './referralService';
+import { persistBase64ToS3, signS3UrlIfNeeded } from './s3Service';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -91,14 +92,16 @@ Reglas:
                         {
                             type: "image_url",
                             image_url: {
-                                url: selfieBase64.startsWith('data:') ? selfieBase64 : `data:image/jpeg;base64,${selfieBase64}`,
+                                // Acepta: URL http(s) (p.ej. S3 presignada) tal cual,
+                                // data: URI tal cual, o base64 crudo → se envuelve.
+                                url: /^https?:\/\//i.test(selfieBase64) ? selfieBase64 : (selfieBase64.startsWith('data:') ? selfieBase64 : `data:image/jpeg;base64,${selfieBase64}`),
                                 detail: "high"
                             }
                         },
                         {
                             type: "image_url",
                             image_url: {
-                                url: ineBase64.startsWith('data:') ? ineBase64 : `data:image/jpeg;base64,${ineBase64}`,
+                                url: /^https?:\/\//i.test(ineBase64) ? ineBase64 : (ineBase64.startsWith('data:') ? ineBase64 : `data:image/jpeg;base64,${ineBase64}`),
                                 detail: "high"
                             }
                         }
@@ -210,25 +213,31 @@ export const uploadVerificationDocuments = async (req: Request, res: Response): 
             isVerified = false;
         }
 
-        // Guardar documentos (base64) y actualizar estado de verificación
+        // Subir INE/selfie a S3 y guardar la URL (no base64) para no inflar la DB.
+        // La IA ya corrió arriba con el base64 fresco. La firma se conserva tal cual
+        // (se embebe en PDFs de RRHH/legales). Si S3 no está, persistBase64ToS3
+        // devuelve el base64 intacto (fallback seguro, no rompe).
         const timestamp = Date.now();
+        const ineFrontStored = await persistBase64ToS3(ineFrontBase64, `users/${userId}/ine-front`);
+        const ineBackStored = await persistBase64ToS3(ineBackBase64, `users/${userId}/ine-back`);
+        const selfieStored = await persistBase64ToS3(selfieBase64, `users/${userId}/selfie`);
         await pool.query(
-            `UPDATE users 
-             SET ine_front_url = $1, 
-                 ine_back_url = $2, 
-                 selfie_url = $3, 
-                 signature_url = $4, 
-                 verification_status = $5, 
+            `UPDATE users
+             SET ine_front_url = $1,
+                 ine_back_url = $2,
+                 selfie_url = $3,
+                 signature_url = $4,
+                 verification_status = $5,
                  is_verified = $6,
                  verification_submitted_at = NOW(),
                  ai_verification_reason = $8
              WHERE id = $7`,
             [
-                ineFrontBase64, 
-                ineBackBase64, 
-                selfieBase64, 
-                signatureBase64, 
-                verificationStatus, 
+                ineFrontStored,
+                ineBackStored,
+                selfieStored,
+                signatureBase64,
+                verificationStatus,
                 isVerified,
                 userId,
                 aiAnalysis.reason
@@ -509,7 +518,19 @@ export const getVerificationDetails = async (req: Request, res: Response): Promi
             console.warn('No se pudo cargar constancia fiscal:', (e as any)?.message);
         }
 
-        res.json(result.rows[0]);
+        // Presignar las imágenes/documentos que estén en S3 (bucket privado).
+        // signS3UrlIfNeeded deja intactos los base64/data: (docs aún no migrados).
+        const row = result.rows[0];
+        const urlFields = [
+            'ine_front_url', 'ine_back_url', 'selfie_url', 'signature_url',
+            'privacy_signature_url', 'profile_photo_url',
+            'driver_license_front_url', 'driver_license_back_url', 'constancia_fiscal_url',
+        ];
+        await Promise.all(urlFields.map(async (f) => {
+            if (row[f]) row[f] = await signS3UrlIfNeeded(row[f], 3600);
+        }));
+
+        res.json(row);
     } catch (error) {
         console.error('Error obteniendo detalle de verificación:', error);
         res.status(500).json({ error: 'Error al obtener detalle' });
@@ -597,7 +618,11 @@ export const reanalyzeVerification = async (req: Request, res: Response): Promis
             return;
         }
 
-        const ai = await compareFacesWithAI(selfie_url, ine_front_url);
+        // Si están en S3 (privado), presignar para que OpenAI pueda descargarlas.
+        // Si son base64 (legacy), signS3UrlIfNeeded las deja intactas.
+        const selfieForAI = (await signS3UrlIfNeeded(selfie_url, 600)) || selfie_url;
+        const ineForAI = (await signS3UrlIfNeeded(ine_front_url, 600)) || ine_front_url;
+        const ai = await compareFacesWithAI(selfieForAI, ineForAI);
         const newStatus = ai.match && ai.confidence !== 'low' ? 'verified' : 'pending_review';
         const newVerified = newStatus === 'verified';
 
