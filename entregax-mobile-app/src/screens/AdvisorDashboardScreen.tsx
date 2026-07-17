@@ -207,7 +207,8 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
       }
       if (notifRes.status === 'fulfilled' && notifRes.value.ok) {
         const nd = await notifRes.value.json();
-        setUnreadNotif(nd.count || nd.unread || 0);
+        // El backend devuelve { unreadCount }. Se leía count/unread (inexistentes) → 0.
+        setUnreadNotif(nd.unreadCount ?? nd.count ?? nd.unread ?? 0);
       }
       if (ratesRes.status === 'fulfilled' && ratesRes.value.ok) {
         const rd = await ratesRes.value.json();

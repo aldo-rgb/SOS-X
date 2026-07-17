@@ -604,7 +604,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       });
       if (response.ok) {
         const data = await response.json();
-        if (isMounted.current) setUnreadNotifications(data.count || 0);
+        // El backend devuelve { unreadCount }. Se leía data.count (inexistente) → siempre 0.
+        if (isMounted.current) setUnreadNotifications(data.unreadCount ?? data.count ?? 0);
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
