@@ -236,7 +236,10 @@ export default function POBoxInventoryPage({ onBack }: Props) {
             const res = await axios.get(`${API_URL}/api/packages?${params.toString()}`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
-            setPackages(res.data.packages || []);
+            // Excluir guías del Kit de Bienvenida (USK-...): no son inventario PO Box.
+            setPackages((res.data.packages || []).filter(
+                (p: { tracking?: string }) => !String(p?.tracking || '').toUpperCase().startsWith('USK-')
+            ));
         } catch (e) {
             const err = e as { response?: { data?: { error?: string } }; message?: string };
             setError(err.response?.data?.error || err.message || 'Error');

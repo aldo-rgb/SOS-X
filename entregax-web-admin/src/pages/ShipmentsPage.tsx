@@ -434,7 +434,10 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         headers: { Authorization: `Bearer ${getToken()}` },
         params: { limit: 1000, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) }
       });
-      setPackages(response.data.packages || []);
+      // Excluir guías del Kit de Bienvenida (USK-...): no son envíos PO Box de esta gestión.
+      setPackages((response.data.packages || []).filter(
+        (p: Package) => !String(p.tracking || '').toUpperCase().startsWith('USK-')
+      ));
     } catch {
       setSnackbar({ open: true, message: t('errors.loadPackages'), severity: 'error' });
     } finally {
