@@ -154,7 +154,7 @@ export const lookupAdvisor = async (req: Request, res: Response): Promise<any> =
 //   ya reclamó su cuenta y ya está en el pipeline moderno.
 export const getCrmLeads = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { status } = req.query;
+    const { status, search } = req.query;
     await ensureGroupsSchema();
     await ensureWelcomeKitSchema();
     // Los prospectos que ya se registraron pasan a "Prospectados" (abajo).
@@ -318,15 +318,35 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
       }
     }
 
-    // Filtrar por la pestaña activa (o todo)
-    const leads = (status && status !== 'all')
-      ? all.rows.filter((r: any) => r.status === status)
-      : all.rows;
+    // Búsqueda global: si viene `search`, busca en TODAS las listas (ignora la
+    // pestaña) para poder llevar al usuario a donde esté. Cada lead conserva su
+    // `status` (la lista donde vive), que la UI muestra en la columna Estado.
+    const q = String(search || '').trim().toLowerCase();
+    let leads;
+    if (q) {
+      const qDigits = q.replace(/\D/g, '');
+      leads = all.rows.filter((r: any) => {
+        const box = String(r.box_id || '').toLowerCase();
+        const boxWithS = box.startsWith('s') ? box : ('s' + box);
+        const name = String(r.full_name || '').toLowerCase();
+        const email = String(r.email || '').toLowerCase();
+        const adv = String(r.assigned_advisor_name || '').toLowerCase();
+        const phone = String(r.phone || '').replace(/\D/g, '');
+        return box.includes(q) || boxWithS.includes(q)
+          || name.includes(q) || email.includes(q) || adv.includes(q)
+          || (qDigits.length >= 4 && phone.includes(qDigits));
+      });
+    } else {
+      leads = (status && status !== 'all')
+        ? all.rows.filter((r: any) => r.status === status)
+        : all.rows;
+    }
 
     res.json({
       success: true,
       leads,
-      stats
+      stats,
+      isSearch: !!q,
     });
   } catch (error) {
     console.error('Error en getCrmLeads:', error);

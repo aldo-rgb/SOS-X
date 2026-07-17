@@ -413,6 +413,12 @@ export default function UnifiedLeadsPage() {
     return list;
   })();
 
+  // Pestaña "Asesores" activa (envío por asesor en vez de por lead).
+  const advisorsMode = mainTab === 'leads' && leadTabValue === 'advisors';
+  const bulkRecipientCount = advisorsMode
+    ? selectedAdvisorIds.size
+    : (mainTab === 'prospects' ? selectedProspectKeys : selectedLeadKeys).size;
+
   // Asesores filtrados por el buscador (para la pestaña "Asesores").
   const filteredAdvisors = (() => {
     const q = leadSearch.trim().toLowerCase();
@@ -632,7 +638,6 @@ export default function UnifiedLeadsPage() {
 
   const sendBulkWhatsapp = async () => {
     // Pestaña "Asesores": se envía a los asesores seleccionados (por su teléfono).
-    const advisorsMode = mainTab === 'leads' && leadTabValue === 'advisors';
     const leadKeys = Array.from(mainTab === 'prospects' ? selectedProspectKeys : selectedLeadKeys);
     const advisorIds = Array.from(selectedAdvisorIds);
     if (!bulkTemplateId) return;
@@ -2461,10 +2466,10 @@ export default function UnifiedLeadsPage() {
             variant="contained"
             startIcon={bulkSending ? <CircularProgress size={16} color="inherit" /> : (bulkResults ? <CheckCircleIcon /> : <WhatsAppIcon />)}
             onClick={sendBulkWhatsapp}
-            disabled={bulkSending || (mainTab === 'prospects' ? selectedProspectKeys : selectedLeadKeys).size === 0 || !!bulkResults || !bulkTemplateId}
+            disabled={bulkSending || bulkRecipientCount === 0 || !!bulkResults || !bulkTemplateId}
             sx={{ bgcolor: bulkResults ? '#9e9e9e' : '#25D366', '&:hover': { bgcolor: bulkResults ? '#9e9e9e' : '#1da851' } }}
           >
-            {bulkSending ? 'Enviando…' : (bulkResults ? 'Enviado ✓' : `Enviar (${(mainTab === 'prospects' ? selectedProspectKeys : selectedLeadKeys).size})`)}
+            {bulkSending ? 'Enviando…' : (bulkResults ? 'Enviado ✓' : `Enviar (${bulkRecipientCount})`)}
           </Button>
         </DialogActions>
       </Dialog>
