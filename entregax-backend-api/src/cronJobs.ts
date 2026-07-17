@@ -1030,11 +1030,53 @@ export const startReferralFirstShipmentCron = () => {
   console.log('✅ Cron de bonos de referido (primer envío) activo (cada 20 min)');
 };
 
+// Progresión simulada de las guías USK (Kit de Bienvenida):
+//   - 12 h después de asignar instrucciones: Recibido CEDIS Hidalgo → En tránsito
+//   - 24 h después de entrar en tránsito: En tránsito → Recibido en CEDIS MTY
+// (En CEDIS MTY + pagada + con instrucciones ya puede aparecer en Asignados Hoy.)
+export const startUskGuideProgressionCron = () => {
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      const toTransit = await pool.query(`
+        UPDATE packages
+           SET status = 'in_transit', dispatched_at = NOW(), updated_at = NOW()
+         WHERE tracking_internal LIKE 'USK-%'
+           AND service_type = 'POBOX_USA'
+           AND status = 'received'
+           AND needs_instructions = FALSE
+           AND instructions_assigned_at IS NOT NULL
+           AND instructions_assigned_at <= NOW() - INTERVAL '12 hours'
+        RETURNING id`);
+      // CEDIS MTY = branch 1 (los POBOX recibidos en MTY viven en current_branch_id=1).
+      // Al llegar a MTY se asigna esa sucursal para que aparezca en Asignados Hoy
+      // del repartidor local.
+      const toMty = await pool.query(`
+        UPDATE packages
+           SET status = 'received_mty',
+               current_branch_id = COALESCE(current_branch_id, 1),
+               updated_at = NOW()
+         WHERE tracking_internal LIKE 'USK-%'
+           AND service_type = 'POBOX_USA'
+           AND status = 'in_transit'
+           AND dispatched_at IS NOT NULL
+           AND dispatched_at <= NOW() - INTERVAL '24 hours'
+        RETURNING id`);
+      if ((toTransit.rowCount || 0) + (toMty.rowCount || 0) > 0) {
+        console.log(`[CRON USK] a tránsito: ${toTransit.rowCount}, a CEDIS MTY: ${toMty.rowCount}`);
+      }
+    } catch (e) {
+      console.error('[CRON] startUskGuideProgressionCron:', (e as Error).message);
+    }
+  });
+  console.log('✅ Cron de progresión de guías USK activo (cada 30 min)');
+};
+
 export const initCronJobs = () => {
   startRecoveryCronJob();
   startWaSequenceCron();
   // Reactivado: procesarPrimerPago ya no usa transacción anidada (no puede colgar el pool).
   startReferralFirstShipmentCron();
+  startUskGuideProgressionCron();
   startProspectFollowUpCron();
   startMaritimeOrderSyncCron();
   startMaritimeTrackingSyncCron();

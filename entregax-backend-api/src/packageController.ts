@@ -4866,6 +4866,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                             SET assigned_address_id = $1,
                                 notes = COALESCE($2, notes),
                                 needs_instructions = false,
+                                instructions_assigned_at = COALESCE(instructions_assigned_at, NOW()),
                                 national_carrier = $4,
                                 national_shipping_cost = $5,
                                 assigned_cost_mxn = $6,
