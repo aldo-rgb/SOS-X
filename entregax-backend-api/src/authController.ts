@@ -624,6 +624,16 @@ function normalizeRoleForHierarchy(role: string): string {
     return roleMapping[role] || role;
 }
 
+/**
+ * Devuelve el nivel jerárquico numérico a partir del rol.
+ * El JWT solo trae { userId, email, role } (sin `level`), así que
+ * cualquier chequeo tipo `req.user.level` es siempre 0. Usar esto.
+ */
+export function getRoleLevel(role?: string | null): number {
+    if (!role) return 0;
+    return ROLE_HIERARCHY[normalizeRoleForHierarchy(role)] || ROLE_HIERARCHY[role] || 0;
+}
+
 // Permisos por rol
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
     [ROLES.SUPER_ADMIN]: ['*'], // Acceso total

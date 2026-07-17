@@ -6,6 +6,7 @@
 import { Request, Response } from 'express';
 import * as walletService from './walletService';
 import * as referralService from './referralService';
+import { getRoleLevel } from './authController';
 
 // ============================================
 // INTERFACES
@@ -373,7 +374,7 @@ export const adminDeposit = async (req: AuthRequest, res: Response): Promise<any
     }
     
     // Verificar permisos de admin (level >= 80)
-    if ((req.user?.level || 0) < 80) {
+    if (getRoleLevel(req.user?.role) < 80) {
       return res.status(403).json({ error: 'Sin permisos de administrador' });
     }
     
@@ -424,7 +425,7 @@ export const adminWithdraw = async (req: AuthRequest, res: Response): Promise<an
       return res.status(401).json({ error: 'No autorizado' });
     }
     
-    if ((req.user?.level || 0) < 80) {
+    if (getRoleLevel(req.user?.role) < 80) {
       return res.status(403).json({ error: 'Sin permisos de administrador' });
     }
     
@@ -468,7 +469,7 @@ export const adminWithdraw = async (req: AuthRequest, res: Response): Promise<an
  */
 export const getTopReferrers = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    if ((req.user?.level || 0) < 50) {
+    if (getRoleLevel(req.user?.role) < 50) {
       return res.status(403).json({ error: 'Sin permisos' });
     }
     
@@ -494,7 +495,7 @@ export const getTopReferrers = async (req: AuthRequest, res: Response): Promise<
  */
 export const getAllReferidos = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    if ((req.user?.level || 0) < 50) {
+    if (getRoleLevel(req.user?.role) < 50) {
       return res.status(403).json({ error: 'Sin permisos' });
     }
 
@@ -535,7 +536,7 @@ export const getAllReferidos = async (req: AuthRequest, res: Response): Promise<
  */
 export const updateReferralSettings = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    if ((req.user?.level || 0) < 80) {
+    if (getRoleLevel(req.user?.role) < 80) {
       return res.status(403).json({ error: 'Sin permisos' });
     }
 
