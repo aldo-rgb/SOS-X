@@ -7149,6 +7149,15 @@ app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel
 app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
 app.post('/api/webhooks/whatsapp', handleWhatsappWebhook);
 app.get('/api/_diag/wa-subs', debugWabaSubs);
+// TEMPORAL: procesar bonos de referido por primer envío bajo demanda.
+app.get('/api/_diag/referral-process', async (req, res) => {
+  if (String(req.query.k || '') !== 'entregax_diag_2026') return res.status(403).json({ error: 'no' });
+  try {
+    const { procesarReferidosPrimerEnvio } = await import('./referralService');
+    const r = await procesarReferidosPrimerEnvio();
+    res.json({ success: true, ...r });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);

@@ -649,28 +649,41 @@ export const procesarPrimerPago = async (
 export const procesarReferidosPrimerEnvio = async (): Promise<{ procesados: number; activados: number }> => {
   let procesados = 0, activados = 0;
   try {
+    // Primer envío PAGADO real, en cualquier fuente de pago:
+    //  - pobox_payments (POBOX/US, donde vive el monto real), excluyendo guías 'USK-%'.
+    //  - packages con costo propio (AIR/otros), excluyendo 'USK-%'.
     const cand = await pool.query(
-      `SELECT r.referido_id, p.id AS package_id, COALESCE(p.assigned_cost_mxn, 0)::numeric AS monto
+      `SELECT r.referido_id, cand.monto, cand.orden_id
          FROM referidos r
          JOIN users u ON u.id = r.referido_id
          JOIN LATERAL (
-           SELECT id, assigned_cost_mxn
-             FROM packages
-            WHERE user_id = r.referido_id
-              AND payment_status = 'paid'
-              AND tracking_internal NOT LIKE 'USK-%'    -- el Kit de Bienvenida NO cuenta
-              AND COALESCE(is_master, true) = true
-              AND COALESCE(assigned_cost_mxn, 0) > 0
-            ORDER BY created_at ASC
-            LIMIT 1
-         ) p ON true
+           SELECT s.amount AS monto, s.orden_id, s.ts FROM (
+             SELECT pp.amount::numeric AS amount, pp.id AS orden_id, pp.paid_at AS ts
+               FROM pobox_payments pp
+              WHERE pp.user_id = r.referido_id AND pp.status = 'paid' AND pp.amount::numeric > 0
+                AND NOT EXISTS (
+                  SELECT 1 FROM packages pk
+                   WHERE pk.tracking_internal LIKE 'USK-%'
+                     AND pk.id IN (SELECT (jsonb_array_elements_text(pp.package_ids))::int)
+                )
+             UNION ALL
+             SELECT pk.assigned_cost_mxn::numeric, pk.id, pk.created_at
+               FROM packages pk
+              WHERE pk.user_id = r.referido_id AND pk.payment_status = 'paid'
+                AND COALESCE(pk.is_master, true) = true
+                AND pk.tracking_internal NOT LIKE 'USK-%'
+                AND COALESCE(pk.assigned_cost_mxn, 0) > 0
+           ) s
+           ORDER BY s.ts ASC NULLS LAST
+           LIMIT 1
+         ) cand ON true
         WHERE r.estado = 'registrado' AND u.first_payment_date IS NULL
         LIMIT 200`
     );
     for (const row of cand.rows) {
       procesados++;
       try {
-        const res = await procesarPrimerPago(Number(row.referido_id), Number(row.monto), Number(row.package_id));
+        const res = await procesarPrimerPago(Number(row.referido_id), Number(row.monto), Number(row.orden_id) || 0);
         if (res.bonos_activados) activados++;
       } catch (e) { console.warn('[REFERIDOS] primer envío:', (e as Error).message); }
     }
