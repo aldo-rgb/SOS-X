@@ -667,10 +667,18 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         // errores humanos comunes (escanear guía equivocada en app de chofer).
         {
             const wh = String(pkg.warehouse_location || '').toLowerCase();
-            const inOrigin =
+            const ds = String(pkg.delivery_status || '').toLowerCase();
+            // warehouse_location es un marcador ESTÁTICO de origen (nunca se actualiza).
+            // Si el paquete ya está recibido en MTY (o después), NO está en origen:
+            // no debe bloquearse por el marcador. Esto cubre POBOX/USK que ya llegaron.
+            const alreadyAtMty = [
+                'received_mty', 'received_cedis', 'ready_pickup', 'ready_for_pickup',
+                'assigned', 'out_for_delivery', 'en_ruta_entrega',
+            ].includes(ds);
+            const inOrigin = !alreadyAtMty && (
                 wh === 'usa_pobox' || wh === 'hidalgo_tx' ||
                 wh === 'china_air' || wh === 'china_sea' || wh === 'china' ||
-                (wh && wh.startsWith('china'));
+                (wh && wh.startsWith('china')));
             if (inOrigin) {
                 return res.status(400).json({
                     error: `⛔ Este paquete aún está en ${wh.includes('china') ? 'China' : 'Hidalgo TX (USA)'}. No puede cargarse en tu unidad porque no ha llegado a México.`,
