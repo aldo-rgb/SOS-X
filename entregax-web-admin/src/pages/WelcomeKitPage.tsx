@@ -119,6 +119,9 @@ interface KitProduct {
 const emptyProduct: Partial<KitProduct> = { name: '', description: '', video_url: '', video_key: null, stock: 0, photos: [], is_active: true, sort_order: 0 };
 
 export default function WelcomeKitPage() {
+  // Eliminar solo para director+ (director / admin / super_admin).
+  const currentRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; } })();
+  const canDelete = ['super_admin', 'admin', 'director'].includes(currentRole);
   const [tab, setTab] = useState<'requests' | 'catalog'>('requests');
   const [rows, setRows] = useState<KitRequest[]>([]);
   const [stats, setStats] = useState<KitStats | null>(null);
@@ -472,9 +475,11 @@ export default function WelcomeKitPage() {
                       <Tooltip title="Editar / instrucciones de envío">
                         <IconButton size="small" onClick={() => { setEditing({ ...r }); setFormOpen(true); }}><EditIcon fontSize="small" /></IconButton>
                       </Tooltip>
-                      <Tooltip title="Eliminar">
-                        <IconButton size="small" color="error" onClick={() => remove(r.id)}><DeleteIcon fontSize="small" /></IconButton>
-                      </Tooltip>
+                      {canDelete && (
+                        <Tooltip title="Eliminar">
+                          <IconButton size="small" color="error" onClick={() => remove(r.id)}><DeleteIcon fontSize="small" /></IconButton>
+                        </Tooltip>
+                      )}
                     </TableCell>
                   </TableRow>
                 );

@@ -579,9 +579,10 @@ export const selectKitGift = async (req: Request, res: Response): Promise<any> =
       ]
     );
 
-    // Actualizar el kit: seleccionado + guía + producto. Descontar stock.
+    // Al elegir el regalo se genera la guía USK con sus instrucciones de envío,
+    // así que el kit avanza directo a 'instrucciones' (Con instrucciones).
     await pool.query(
-      `UPDATE welcome_kit_requests SET status='seleccionado', selected_product_id=$2, usa_tracking=$3, updated_at=NOW() WHERE id=$1`,
+      `UPDATE welcome_kit_requests SET status='instrucciones', selected_product_id=$2, usa_tracking=$3, updated_at=NOW() WHERE id=$1`,
       [kit.id, productId, tracking]
     );
     await pool.query(`UPDATE welcome_kit_products SET stock = GREATEST(stock - 1, 0), updated_at=NOW() WHERE id=$1`, [productId]);

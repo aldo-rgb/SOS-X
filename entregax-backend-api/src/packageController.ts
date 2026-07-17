@@ -4893,6 +4893,29 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                 } catch (propErr) {
                     console.warn('[bulkAssignDelivery] No se pudo propagar dirección a hijas:', propErr);
                 }
+
+                // 🎁 Guía USK (Kit de Bienvenida) entregada por EntregaX Local MTY:
+                // es entrega local sin costo, así que al asignar instrucciones se
+                // marca como PAGADA automáticamente. SOLO aplica a guías USK-*.
+                try {
+                    const carrierNormUsk = String(carrierName || carrier || '').toLowerCase().replace(/[\s_]+/g, '');
+                    const isLocalMty = carrierNormUsk.includes('entregaxlocal') || carrierNormUsk === 'local';
+                    if (isLocalMty) {
+                        await pool.query(
+                            `UPDATE packages
+                                SET client_paid = TRUE,
+                                    client_paid_at = COALESCE(client_paid_at, NOW()),
+                                    saldo_pendiente = 0,
+                                    payment_status = 'paid',
+                                    monto_pagado = COALESCE(assigned_cost_mxn, 0),
+                                    updated_at = NOW()
+                              WHERE id = $1 AND tracking_internal LIKE 'USK-%'`,
+                            [packageId]
+                        );
+                    }
+                } catch (uskErr) {
+                    console.warn('[USK auto-paid] No se pudo marcar pagada la guía USK:', uskErr);
+                }
                 break;
 
             case 'maritime':
