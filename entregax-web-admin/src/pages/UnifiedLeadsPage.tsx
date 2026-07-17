@@ -349,6 +349,7 @@ export default function UnifiedLeadsPage() {
   const [selectedLeadKeys, setSelectedLeadKeys] = useState<Set<string>>(new Set());
   // Selección de PROSPECTOS externos para envío masivo (lead_key = 'pr_<id>').
   const [selectedProspectKeys, setSelectedProspectKeys] = useState<Set<string>>(new Set());
+  const [selectedAdvisorIds, setSelectedAdvisorIds] = useState<Set<number>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkTemplates, setBulkTemplates] = useState<BulkTemplate[]>([]);
   const [bulkDefaults, setBulkDefaults] = useState<Record<string, any>>({});
@@ -409,6 +410,18 @@ export default function UnifiedLeadsPage() {
       );
     }
     return list;
+  })();
+
+  // Asesores filtrados por el buscador (para la pestaña "Asesores").
+  const filteredAdvisors = (() => {
+    const q = leadSearch.trim().toLowerCase();
+    if (!q) return advisors;
+    return advisors.filter(a =>
+      (a.full_name || '').toLowerCase().includes(q) ||
+      (a.email || '').toLowerCase().includes(q) ||
+      (a.referral_code || '').toLowerCase().includes(q) ||
+      (a.box_id || '').toLowerCase().includes(q)
+    );
   })();
 
   const fetchGroups = useCallback(async () => {
@@ -1571,6 +1584,21 @@ export default function UnifiedLeadsPage() {
               <Table>
                 <TableHead>
                   <TableRow>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={filteredAdvisors.length > 0 && filteredAdvisors.every(a => selectedAdvisorIds.has(a.id))}
+                        indeterminate={filteredAdvisors.some(a => selectedAdvisorIds.has(a.id)) && !filteredAdvisors.every(a => selectedAdvisorIds.has(a.id))}
+                        onChange={(e) => {
+                          setSelectedAdvisorIds(prev => {
+                            const next = new Set(prev);
+                            if (e.target.checked) filteredAdvisors.forEach(a => next.add(a.id));
+                            else filteredAdvisors.forEach(a => next.delete(a.id));
+                            return next;
+                          });
+                        }}
+                      />
+                    </TableCell>
                     <TableCell>Asesor</TableCell>
                     <TableCell>Correo</TableCell>
                     <TableCell>Código de referido</TableCell>
@@ -1578,17 +1606,20 @@ export default function UnifiedLeadsPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {advisors
-                    .filter(a => {
-                      const q = leadSearch.trim().toLowerCase();
-                      if (!q) return true;
-                      return (a.full_name || '').toLowerCase().includes(q)
-                        || (a.email || '').toLowerCase().includes(q)
-                        || (a.referral_code || '').toLowerCase().includes(q)
-                        || (a.box_id || '').toLowerCase().includes(q);
-                    })
+                  {filteredAdvisors
                     .map((a) => (
-                      <TableRow key={a.id} hover>
+                      <TableRow key={a.id} hover selected={selectedAdvisorIds.has(a.id)}>
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            size="small"
+                            checked={selectedAdvisorIds.has(a.id)}
+                            onChange={() => setSelectedAdvisorIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(a.id)) next.delete(a.id); else next.add(a.id);
+                              return next;
+                            })}
+                          />
+                        </TableCell>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                             <Avatar sx={{ bgcolor: '#F05A28', width: 32, height: 32, fontSize: 14 }}>
@@ -1602,10 +1633,10 @@ export default function UnifiedLeadsPage() {
                         <TableCell>{a.box_id ? <Chip label={a.box_id} size="small" /> : '—'}</TableCell>
                       </TableRow>
                     ))}
-                  {advisors.length === 0 && (
+                  {filteredAdvisors.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
-                        <Typography color="text.secondary">No hay asesores registrados.</Typography>
+                      <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
+                        <Typography color="text.secondary">No hay asesores.</Typography>
                       </TableCell>
                     </TableRow>
                   )}
