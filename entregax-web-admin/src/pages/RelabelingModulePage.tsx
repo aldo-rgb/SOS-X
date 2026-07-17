@@ -1447,11 +1447,10 @@ ${body}
         if (!shipment?.master.assignedAddress) return;
         const a = shipment.master.assignedAddress;
         let carrierLabel = assignedCarrier?.displayName?.toUpperCase() || 'PAQUETERÍA ASIGNADA';
-        // En la etiqueta impresa, las paqueterías "por cobrar" muestran solo el
-        // nombre base (p.ej. "PAQUETE EXPRESS", sin "POR COBRAR").
-        if (assignedCarrier && isCollectCarrier(assignedCarrier.normalized)) {
-            carrierLabel = carrierLabel.replace(/\s*POR COBRAR\s*/i, ' ').trim();
-        }
+        // Detecta si es una guía "por cobrar" (COD). Se mantiene el sufijo
+        // "POR COBRAR" en la etiqueta impresa para que el repartidor no se le
+        // olvide cobrar en la entrega.
+        const isCod = !!(assignedCarrier && isCollectCarrier(assignedCarrier.normalized));
         // TDI Aéreo/Marítimo → zona metro MTY con EntregaX local: el tramo CDMX→MTY
         // lo mueve EVISA prepagado (ver isEvisaMtyDispersion). La etiqueta se marca
         // "EVISA PRE" arriba (badge) y abajo (SERVICIO), con la dirección final.
@@ -1486,10 +1485,11 @@ ${body}
     <div class="brand">
       <div class="logo">Entrega<span>X</span></div>
       <div class="brand-right">
-        <div class="badge">${carrierLabel}</div>
+        <div class="badge${isCod ? ' badge-cod' : ''}">${carrierLabel}</div>
         ${showBoxBadges ? `<div class="box-badge">CAJA ${box.boxNum} / ${totalBoxes}</div>` : ''}
       </div>
     </div>
+    ${isCod ? `<div class="cod-banner">💰 POR COBRAR — COBRAR AL ENTREGAR</div>` : ''}
     <div class="tracking-row">
       <div class="tn">${box.tnCompact}</div>
       <div class="date">${today}</div>
@@ -1541,7 +1541,14 @@ ${body}
   .brand .logo span { color: #000; }
   .brand-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
   .badge { background: #000; color: #fff; padding: 4px 10px; font-size: 10px; font-weight: 800; border-radius: 4px; letter-spacing: 1px; }
+  .badge-cod { background: #c62828; color: #fff; }
   .box-badge { background: #000; color: #fff; padding: 3px 8px; font-size: 12px; font-weight: 900; border-radius: 4px; letter-spacing: 1px; }
+  .cod-banner {
+    background: #c62828; color: #fff;
+    text-align: center; font-weight: 900; font-size: 13px; letter-spacing: 1px;
+    padding: 6px 8px; border-radius: 4px; margin: 4px 0;
+    border: 2px dashed #fff; outline: 2px solid #c62828;
+  }
   .tracking-row { display: flex; justify-content: space-between; align-items: center; margin: 4px 0; }
   .tracking-row .tn { font-family: 'Courier New', monospace; font-size: 16px; font-weight: 900; color: #000; }
   .tracking-row .date { font-size: 10px; color: #000; }
