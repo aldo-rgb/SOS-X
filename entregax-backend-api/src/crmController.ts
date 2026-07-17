@@ -807,8 +807,10 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
     if (trackClicks) await ensureClickLinksSchema();
     const { randomBytes } = await import('crypto');
 
+    // 1) Pre-filtrar (rápido, sin red): descartar sin teléfono y duplicados.
+    const usesName = tpl.uses_name !== false;
+    const toSend: any[] = [];
     for (const row of rowsRes.rows) {
-      const nombre = String(row.full_name || 'Cliente').trim().split(/\s+/)[0] || 'Cliente';
       const phone = row.phone;
       if (!phone || String(phone).trim() === '') {
         results.skipped++;
@@ -822,15 +824,16 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
         continue;
       }
       seenPhones.add(compact);
+      toSend.push(row);
+    }
 
-      // Si la plantilla usa el nombre, va como {{1}} y los campos manuales siguen.
-      // Si NO usa nombre (uses_name=false), solo van los campos manuales (o ninguno).
-      const usesName = tpl.uses_name !== false;
+    // Envío de UN destinatario (token de rastreo + plantilla).
+    const sendOne = async (row: any) => {
+      const nombre = String(row.full_name || 'Cliente').trim().split(/\s+/)[0] || 'Cliente';
+      const phone = row.phone;
       const parameters = usesName
         ? [nombre, ...vals.slice(0, tplVars.length)]
         : vals.slice(0, tplVars.length);
-
-      // Token de rastreo para el botón de URL (si la plantilla lo tiene configurado).
       let urlButtonParam: string | undefined;
       if (trackClicks) {
         try {
@@ -843,18 +846,30 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
           urlButtonParam = token;
         } catch (e) { console.warn('[CRM] no se pudo crear token de rastreo:', (e as Error).message); }
       }
-
-      const r = await sendTemplate({ to: phone, template, languageCode: langCode, parameters, ...(headerImageUrl ? { headerImageUrl } : {}), ...(urlButtonParam ? { urlButtonParam } : {}), useMarketingApi: !!tpl.use_mm_lite });
-      if (r.ok) {
-        results.sent++;
-        results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'sent' });
-      } else if (r.skipped) {
-        results.skipped++;
-        results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'skipped', reason: 'WhatsApp no configurado' });
-      } else {
+      try {
+        const r = await sendTemplate({ to: phone, template, languageCode: langCode, parameters, ...(headerImageUrl ? { headerImageUrl } : {}), ...(urlButtonParam ? { urlButtonParam } : {}), useMarketingApi: !!tpl.use_mm_lite });
+        if (r.ok) {
+          results.sent++;
+          results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'sent' });
+        } else if (r.skipped) {
+          results.skipped++;
+          results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'skipped', reason: 'WhatsApp no configurado' });
+        } else {
+          results.failed++;
+          results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'failed', reason: r.error || 'Error' });
+        }
+      } catch (e: any) {
         results.failed++;
-        results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'failed', reason: r.error || 'Error' });
+        results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'failed', reason: e?.message || 'Error' });
       }
+    };
+
+    // 2) Enviar en paralelo con concurrencia acotada. El envío secuencial de
+    //    cientos de mensajes tardaba >60s y el gateway cortaba la conexión
+    //    (se veía como error de CORS en el navegador). En lotes de 8 cabe bien.
+    const CONCURRENCY = 8;
+    for (let i = 0; i < toSend.length; i += CONCURRENCY) {
+      await Promise.all(toSend.slice(i, i + CONCURRENCY).map(sendOne));
     }
 
     // Motivo del primer fallo (para diagnosticar desde la UI, ej. imagen faltante).
