@@ -159,9 +159,17 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
         let referrerInfo: { id: number; role: string; name: string } | null = null;
         
         if (referralCodeInput) {
+            const codeUp = referralCodeInput.toUpperCase().trim();
+            // Con guión normalizado (ALDO106 -> ALDO-106) para compatibilidad con el formato viejo.
+            const codeDash = codeUp.includes('-') ? codeUp : (codeUp.length >= 5 ? `${codeUp.slice(0, 4)}-${codeUp.slice(4)}` : codeUp);
+            // Resolver en AMBOS sistemas: users.referral_code y codigos_referido.codigo.
             const referrerCheck = await pool.query(
-                'SELECT id, role, full_name FROM users WHERE referral_code = $1',
-                [referralCodeInput.toUpperCase()]
+                `SELECT id, role, full_name FROM users
+                  WHERE UPPER(TRIM(referral_code)) = $1
+                     OR UPPER(TRIM(referral_code)) = $2
+                     OR id = (SELECT usuario_id FROM codigos_referido WHERE UPPER(TRIM(codigo)) = $1 AND is_active = true ORDER BY id DESC LIMIT 1)
+                  LIMIT 1`,
+                [codeUp, codeDash]
             );
             if (referrerCheck.rows.length > 0) {
                 referrerInfo = {

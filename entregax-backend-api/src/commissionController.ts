@@ -169,17 +169,23 @@ export const validateReferralCode = async (req: Request, res: Response): Promise
             return res.status(400).json({ valid: false, message: 'Código requerido' });
         }
         
-        const codeUpper = code.toUpperCase();
+        const codeUpper = code.toUpperCase().trim();
         // Normalizar código: agregar guión si no lo tiene (CHRI3225 -> CHRI-3225)
-        const normalizedCode = codeUpper.includes('-') 
-            ? codeUpper 
-            : codeUpper.length >= 5 
+        const normalizedCode = codeUpper.includes('-')
+            ? codeUpper
+            : codeUpper.length >= 5
                 ? `${codeUpper.slice(0, 4)}-${codeUpper.slice(4)}`
                 : codeUpper;
-        
-        // Buscar por código exacto o normalizado
+
+        // Buscar el referidor en AMBOS sistemas: users.referral_code (viejo, con o sin
+        // guión) Y codigos_referido.codigo (nuevo, el que ve el usuario en "Invita y Gana").
         const result = await pool.query(
-            'SELECT id, full_name, role, phone, profile_photo_url FROM users WHERE referral_code = $1 OR referral_code = $2',
+            `SELECT id, full_name, role, phone, profile_photo_url
+               FROM users
+              WHERE UPPER(TRIM(referral_code)) = $1
+                 OR UPPER(TRIM(referral_code)) = $2
+                 OR id = (SELECT usuario_id FROM codigos_referido WHERE UPPER(TRIM(codigo)) = $1 AND is_active = true ORDER BY id DESC LIMIT 1)
+              LIMIT 1`,
             [codeUpper, normalizedCode]
         );
         
