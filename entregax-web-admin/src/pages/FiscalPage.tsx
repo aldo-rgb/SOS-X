@@ -805,6 +805,16 @@ export default function FiscalPage() {
           setSyncfyWidgetInstance(widget);
         } catch (err: any) {
           console.error('[Syncfy] Error montando widget:', err);
+          // Si falló porque el chunk (bundle) quedó viejo tras un deploy, recargar
+          // para bajar el bundle nuevo en vez de mostrar un error al usuario.
+          const msg = String(err?.message || err || '');
+          const isStaleChunk = /Failed to fetch dynamically imported module|Failed to load module script|error loading dynamically imported module|Importing a module script failed/.test(msg);
+          if (isStaleChunk && !sessionStorage.getItem('entregax_chunk_reload_once')) {
+            sessionStorage.setItem('entregax_chunk_reload_once', '1');
+            setSnackbar({ open: true, message: 'Actualizando la app…', severity: 'info' });
+            setTimeout(() => window.location.reload(), 300);
+            return;
+          }
           setSnackbar({ open: true, message: `Error montando widget: ${err.message || err}`, severity: 'error' });
           setSyncfyWidgetVisible(false);
         }
