@@ -15,6 +15,8 @@ import {
   Alert,
   Modal,
   Image,
+  Linking,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -92,6 +94,7 @@ export default function SaldoFavorScreen({ navigation }: any) {
   const [kitProducts, setKitProducts] = useState<any[]>([]);
   const [kitModalOpen, setKitModalOpen] = useState(false);
   const [selectingKitId, setSelectingKitId] = useState<number | null>(null);
+  const [kitDetail, setKitDetail] = useState<any | null>(null);
 
   const fetchWalletData = useCallback(async () => {
     try {
@@ -421,44 +424,86 @@ export default function SaldoFavorScreen({ navigation }: any) {
       </ScrollView>
 
       {/* Modal: elegir regalo del Kit de Bienvenida */}
-      <Modal visible={kitModalOpen} animationType="slide" transparent onRequestClose={() => setKitModalOpen(false)}>
+      <Modal visible={kitModalOpen} animationType="slide" transparent onRequestClose={() => { setKitDetail(null); setKitModalOpen(false); }}>
         <View style={styles.kitModalOverlay}>
           <View style={styles.kitModalCard}>
+            {/* Encabezado */}
             <View style={styles.kitModalHeader}>
-              <Text style={styles.kitModalTitle}>🎁 Elige tu regalo</Text>
-              <TouchableOpacity onPress={() => setKitModalOpen(false)}>
+              {kitDetail ? (
+                <TouchableOpacity onPress={() => setKitDetail(null)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="chevron-back" size={24} color="#333" />
+                  <Text style={styles.kitModalTitle}>Volver</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.kitModalTitle}>🎁 Elige tu regalo</Text>
+              )}
+              <TouchableOpacity onPress={() => { setKitDetail(null); setKitModalOpen(false); }}>
                 <Ionicons name="close" size={26} color="#333" />
               </TouchableOpacity>
             </View>
-            <Text style={styles.kitModalSub}>Solo puedes elegir 1. Una vez confirmado no se puede cambiar.</Text>
-            <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false}>
-              {kitProducts.length === 0 ? (
-                <Text style={{ textAlign: 'center', color: '#888', padding: 24 }}>No hay regalos disponibles por ahora.</Text>
-              ) : kitProducts.map((p: any) => (
-                <View key={p.id} style={styles.kitProdCard}>
-                  {p.photos?.[0]?.url ? (
-                    <Image source={{ uri: p.photos[0].url }} style={styles.kitProdImg} resizeMode="cover" />
-                  ) : (
-                    <View style={[styles.kitProdImg, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#eee' }]}>
-                      <Text style={{ fontSize: 30 }}>🎁</Text>
+
+            {kitDetail ? (
+              /* ===== DETALLE DEL PRODUCTO (álbum + video) ===== */
+              <ScrollView style={{ maxHeight: 540 }} showsVerticalScrollIndicator={false}>
+                <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                  {(kitDetail.photos || []).filter((ph: any) => ph?.url).map((ph: any, i: number) => (
+                    <Image key={i} source={{ uri: ph.url }} style={styles.kitDetailImg} resizeMode="cover" />
+                  ))}
+                  {(!kitDetail.photos || kitDetail.photos.length === 0) && (
+                    <View style={[styles.kitDetailImg, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#eee' }]}>
+                      <Text style={{ fontSize: 50 }}>🎁</Text>
                     </View>
                   )}
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={styles.kitProdName}>{p.name}</Text>
-                    {!!p.description && <Text style={styles.kitProdDesc} numberOfLines={2}>{p.description}</Text>}
-                    <TouchableOpacity
-                      style={[styles.kitChooseBtn, selectingKitId != null && { opacity: 0.6 }]}
-                      disabled={selectingKitId != null}
-                      onPress={() => confirmSelect(p.id, p.name)}
-                    >
-                      {selectingKitId === p.id
-                        ? <ActivityIndicator size="small" color="#FFF" />
-                        : <Text style={styles.kitChooseTxt}>Elegir este</Text>}
+                </ScrollView>
+                {(kitDetail.photos?.length || 0) > 1 && (
+                  <Text style={{ textAlign: 'center', color: '#999', fontSize: 12, marginBottom: 8 }}>
+                    Desliza para ver las {kitDetail.photos.length} fotos →
+                  </Text>
+                )}
+                <Text style={styles.kitDetailName}>{kitDetail.name}</Text>
+                {!!kitDetail.description && <Text style={styles.kitDetailDesc}>{kitDetail.description}</Text>}
+                {!!kitDetail.video_url && (
+                  <TouchableOpacity style={styles.kitVideoBtn} onPress={() => Linking.openURL(kitDetail.video_url)}>
+                    <Ionicons name="play-circle" size={22} color="#F05A28" />
+                    <Text style={styles.kitVideoTxt}>Ver video del producto</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={[styles.kitChooseBtn, { marginTop: 16 }, selectingKitId != null && { opacity: 0.6 }]}
+                  disabled={selectingKitId != null}
+                  onPress={() => confirmSelect(kitDetail.id, kitDetail.name)}
+                >
+                  {selectingKitId === kitDetail.id
+                    ? <ActivityIndicator size="small" color="#FFF" />
+                    : <Text style={styles.kitChooseTxt}>Elegir este regalo</Text>}
+                </TouchableOpacity>
+              </ScrollView>
+            ) : (
+              /* ===== LISTA DE PRODUCTOS ===== */
+              <>
+                <Text style={styles.kitModalSub}>Solo puedes elegir 1. Toca un regalo para ver sus detalles.</Text>
+                <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false}>
+                  {kitProducts.length === 0 ? (
+                    <Text style={{ textAlign: 'center', color: '#888', padding: 24 }}>No hay regalos disponibles por ahora.</Text>
+                  ) : kitProducts.map((p: any) => (
+                    <TouchableOpacity key={p.id} activeOpacity={0.8} style={styles.kitProdCard} onPress={() => setKitDetail(p)}>
+                      {p.photos?.[0]?.url ? (
+                        <Image source={{ uri: p.photos[0].url }} style={styles.kitProdImg} resizeMode="cover" />
+                      ) : (
+                        <View style={[styles.kitProdImg, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#eee' }]}>
+                          <Text style={{ fontSize: 30 }}>🎁</Text>
+                        </View>
+                      )}
+                      <View style={{ flex: 1, marginLeft: 12, justifyContent: 'center' }}>
+                        <Text style={styles.kitProdName}>{p.name}</Text>
+                        {!!p.description && <Text style={styles.kitProdDesc} numberOfLines={2}>{p.description}</Text>}
+                        <Text style={{ color: '#F05A28', fontSize: 12, fontWeight: '700', marginTop: 6 }}>Ver detalles →</Text>
+                      </View>
                     </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
+                  ))}
+                </ScrollView>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -481,8 +526,13 @@ const styles = StyleSheet.create({
   kitProdImg: { width: 84, height: 84, borderRadius: 10, backgroundColor: '#eee' },
   kitProdName: { fontSize: 15, fontWeight: '700', color: '#222' },
   kitProdDesc: { fontSize: 12, color: '#777', marginTop: 2 },
-  kitChooseBtn: { backgroundColor: '#F05A28', borderRadius: 10, paddingVertical: 9, alignItems: 'center', marginTop: 8 },
-  kitChooseTxt: { color: '#FFF', fontWeight: '700', fontSize: 13 },
+  kitChooseBtn: { backgroundColor: '#F05A28', borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 8 },
+  kitChooseTxt: { color: '#FFF', fontWeight: '700', fontSize: 14 },
+  kitDetailImg: { width: Dimensions.get('window').width - 40, height: 240, borderRadius: 14, backgroundColor: '#eee' },
+  kitDetailName: { fontSize: 19, fontWeight: '800', color: '#222', marginBottom: 6 },
+  kitDetailDesc: { fontSize: 14, color: '#555', lineHeight: 20 },
+  kitVideoBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, backgroundColor: '#FFF3EE', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#F05A2833' },
+  kitVideoTxt: { color: '#F05A28', fontWeight: '700', fontSize: 14 },
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',

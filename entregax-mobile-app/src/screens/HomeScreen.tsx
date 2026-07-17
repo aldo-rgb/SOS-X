@@ -123,6 +123,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showMenu, setShowMenu] = useState(false); // 📱 Menú de opciones
+  const [hasPendingKit, setHasPendingKit] = useState(false); // 🎁 Kit de bienvenida pendiente
   const [showLanguageModal, setShowLanguageModal] = useState(false); // 🌐 Modal de idioma
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
   const [serviceFilter, setServiceFilter] = useState<'air' | 'maritime' | 'dhl' | 'usa' | null>(null); // 🎯 Filtro de servicio (null = todos)
@@ -637,6 +638,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     fetchUnreadNotifications();
     // 👁 Cargar lista de guías en seguimiento al inicio
     getFollowedTrackings().then(setFollowed).catch(() => {});
+    // 🎁 ¿Tiene un kit de bienvenida pendiente de elegir?
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/welcome-kit/my-kit`, { headers: { Authorization: `Bearer ${token}` } });
+        if (r.ok) { const d = await r.json(); if (isMounted.current) setHasPendingKit(!!d.has_pending_kit); }
+      } catch { /* ignore */ }
+    })();
   }, [fetchPackages, fetchCarouselSlides, fetchUnreadNotifications]);
 
   // 📊 Tarifas de referencia bajo los botones: marítimo (USD/m³), aéreo (USD/kg)
@@ -1716,6 +1724,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             </View>
             <TouchableOpacity onPress={() => setShowMenu(true)} style={{ padding: 8 }} hitSlop={8}>
               <Ionicons name="menu" size={26} color="white" />
+              {hasPendingKit && (
+                <View style={{ position: 'absolute', top: 4, right: 4, width: 10, height: 10, borderRadius: 5, backgroundColor: '#E53935', borderWidth: 1.5, borderColor: '#000' }} />
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -1835,9 +1846,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 navigation.navigate('SaldoFavor' as any, { user, token });
               }}
             >
-              <Ionicons name="gift-outline" size={24} color={BLACK} />
+              <View>
+                <Ionicons name="gift-outline" size={24} color={BLACK} />
+                {hasPendingKit && (
+                  <View style={{ position: 'absolute', top: -3, right: -3, width: 11, height: 11, borderRadius: 6, backgroundColor: '#E53935', borderWidth: 2, borderColor: '#FFF' }} />
+                )}
+              </View>
               <Text style={styles.menuItemText}>{t('profile.myBalance')}</Text>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              {hasPendingKit
+                ? <View style={{ backgroundColor: '#E53935', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginRight: 4 }}><Text style={{ color: '#FFF', fontSize: 11, fontWeight: '700' }}>🎁 Regalo</Text></View>
+                : <Ionicons name="chevron-forward" size={20} color="#ccc" />}
             </TouchableOpacity>
             </>
             )}

@@ -303,7 +303,13 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
     }
     // Marcar como leída
     markAsRead(item.id);
-    
+
+    // 🎁 Notificación del Kit de Bienvenida → ir a Saldo a Favor
+    if (item.data?.kind === 'welcome_kit' || (item.title || '').toLowerCase().includes('regalo')) {
+      (navigation as any).navigate('SaldoFavor', { user, token });
+      return;
+    }
+
     // Verificar si tiene acción de navegación
     if (item.action_url && item.action_url.includes('firma-abandono')) {
       // Extraer el token del URL
