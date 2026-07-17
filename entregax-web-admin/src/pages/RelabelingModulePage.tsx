@@ -1489,7 +1489,7 @@ ${body}
         ${showBoxBadges ? `<div class="box-badge">CAJA ${box.boxNum} / ${totalBoxes}</div>` : ''}
       </div>
     </div>
-    ${isCod ? `<div class="cod-banner">💰 POR COBRAR — COBRAR AL ENTREGAR</div>` : ''}
+    ${isCod ? `<div class="cod-banner">POR COBRAR — COBRAR AL ENTREGAR</div>` : ''}
     <div class="tracking-row">
       <div class="tn">${box.tnCompact}</div>
       <div class="date">${today}</div>
@@ -1541,13 +1541,12 @@ ${body}
   .brand .logo span { color: #000; }
   .brand-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
   .badge { background: #000; color: #fff; padding: 4px 10px; font-size: 10px; font-weight: 800; border-radius: 4px; letter-spacing: 1px; }
-  .badge-cod { background: #c62828; color: #fff; }
+  .badge-cod { background: transparent; color: #000; padding: 4px 0; border: 0; font-size: 11px; font-weight: 900; letter-spacing: 1px; border-radius: 0; }
   .box-badge { background: #000; color: #fff; padding: 3px 8px; font-size: 12px; font-weight: 900; border-radius: 4px; letter-spacing: 1px; }
   .cod-banner {
-    background: #c62828; color: #fff;
+    background: transparent; color: #000;
     text-align: center; font-weight: 900; font-size: 13px; letter-spacing: 1px;
-    padding: 6px 8px; border-radius: 4px; margin: 4px 0;
-    border: 2px dashed #fff; outline: 2px solid #c62828;
+    padding: 4px 0; border: 0; margin: 2px 0;
   }
   .tracking-row { display: flex; justify-content: space-between; align-items: center; margin: 4px 0; }
   .tracking-row .tn { font-family: 'Courier New', monospace; font-size: 16px; font-weight: 900; color: #000; }
