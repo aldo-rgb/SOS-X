@@ -118,6 +118,8 @@ interface Lead {
   reclamado?: boolean;
   // Grupos a los que pertenece el lead
   groups?: Array<{ id: number; name: string; color: string }>;
+  // Kit de bienvenida
+  has_kit?: boolean;
 }
 
 // Grupo de leads
@@ -704,7 +706,7 @@ export default function UnifiedLeadsPage() {
   const [prospectsLoading, setProspectsLoading] = useState(true);
   const [prospectStats, setProspectStats] = useState<ProspectStats | null>(null);
   const [uploadingProspects, setUploadingProspects] = useState(false);
-  const [markingKitId, setMarkingKitId] = useState<number | null>(null);
+  const [markingKitId, setMarkingKitId] = useState<string | null>(null);
   // Secuencias automáticas
   const [sequences, setSequences] = useState<WaSequence[]>([]);
   const [seqDialogOpen, setSeqDialogOpen] = useState(false);
@@ -862,7 +864,7 @@ export default function UnifiedLeadsPage() {
 
   // Marcar un prospecto para el Kit de Bienvenida (aparece en la lista del Kit).
   const markProspectKit = async (prospect: Prospect) => {
-    setMarkingKitId(prospect.id);
+    setMarkingKitId(`pr_${prospect.id}`);
     try {
       await axios.post(`${API_URL}/admin/welcome-kit`, {
         lead_key: `pr_${prospect.id}`,
@@ -872,6 +874,27 @@ export default function UnifiedLeadsPage() {
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
       setSnackbar({ open: true, message: `🎁 ${prospect.full_name} agregado a la lista del Kit`, severity: 'success' });
       fetchProspects();
+    } catch (e: any) {
+      const msg = e.response?.status === 409 ? 'Ya está en la lista del Kit' : (e.response?.data?.error || 'Error al marcar kit');
+      setSnackbar({ open: true, message: msg, severity: e.response?.status === 409 ? 'success' : 'error' });
+    } finally { setMarkingKitId(null); }
+  };
+
+  // Marcar un lead del CRM para el Kit de Bienvenida.
+  const markLeadKit = async (lead: Lead) => {
+    const lk = leadKeyOf(lead);
+    setMarkingKitId(lk);
+    try {
+      await axios.post(`${API_URL}/admin/welcome-kit`, {
+        lead_key: lk,
+        user_id: lead.user_id || undefined,
+        full_name: lead.full_name,
+        phone: lead.phone,
+        email: lead.email,
+        box_id: lead.box_id,
+      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({ open: true, message: `🎁 ${lead.full_name} agregado a la lista del Kit`, severity: 'success' });
+      fetchLeads();
     } catch (e: any) {
       const msg = e.response?.status === 409 ? 'Ya está en la lista del Kit' : (e.response?.data?.error || 'Error al marcar kit');
       setSnackbar({ open: true, message: msg, severity: e.response?.status === 409 ? 'success' : 'error' });
@@ -1714,6 +1737,13 @@ export default function UnifiedLeadsPage() {
                                 <PersonAddIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
+                            <Tooltip title={lead.has_kit ? 'Ya está en la lista del Kit' : 'Marcar para Kit de Bienvenida'}>
+                              <span>
+                                <IconButton size="small" sx={{ color: lead.has_kit ? '#F59E0B' : undefined }} disabled={lead.has_kit || markingKitId === leadKeyOf(lead)} onClick={() => markLeadKit(lead)}>
+                                  <CardGiftcardIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
                           </Box>
                         )}
                       </TableCell>
@@ -2061,7 +2091,7 @@ export default function UnifiedLeadsPage() {
                             )}
                             <Tooltip title={prospect.has_kit ? 'Ya está en la lista del Kit' : 'Marcar para Kit de Bienvenida'}>
                               <span>
-                                <IconButton size="small" sx={{ color: prospect.has_kit ? '#F59E0B' : undefined }} disabled={prospect.has_kit || markingKitId === prospect.id} onClick={() => markProspectKit(prospect)}>
+                                <IconButton size="small" sx={{ color: prospect.has_kit ? '#F59E0B' : undefined }} disabled={prospect.has_kit || markingKitId === `pr_${prospect.id}`} onClick={() => markProspectKit(prospect)}>
                                   <CardGiftcardIcon fontSize="small" />
                                 </IconButton>
                               </span>

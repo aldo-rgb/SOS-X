@@ -156,6 +156,7 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
   try {
     const { status } = req.query;
     await ensureGroupsSchema();
+    await ensureWelcomeKitSchema();
     // Los prospectos que ya se registraron pasan a "Prospectados" (abajo).
     await reconcileRegisteredProspects();
 
@@ -279,7 +280,14 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
       SELECT * FROM (
         SELECT DISTINCT ON (COALESCE(NULLIF(UPPER(TRIM(c.box_id)), ''), c.lead_key))
                c.*,
-               COALESCE(gr.groups, '[]'::jsonb) AS groups
+               COALESCE(gr.groups, '[]'::jsonb) AS groups,
+               EXISTS (
+                 SELECT 1 FROM welcome_kit_requests wk
+                  WHERE wk.status <> 'cancelado'
+                    AND ( wk.lead_key = c.lead_key
+                       OR (c.user_id IS NOT NULL AND wk.user_id = c.user_id)
+                       OR (NULLIF(TRIM(c.box_id),'') IS NOT NULL AND UPPER(TRIM(wk.box_id)) = UPPER(TRIM(c.box_id))) )
+               ) AS has_kit
           FROM combined c
           LEFT JOIN LATERAL (
             SELECT jsonb_agg(jsonb_build_object('id', lg.id, 'name', lg.name, 'color', lg.color) ORDER BY lg.name) AS groups
