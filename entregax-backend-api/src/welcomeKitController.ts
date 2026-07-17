@@ -39,7 +39,15 @@ async function ensureProductsSchema(): Promise<void> {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  // Video subido a S3 (bucket privado → se firma al leer). video_url es para enlaces externos (YouTube).
+  await pool.query(`ALTER TABLE welcome_kit_products ADD COLUMN IF NOT EXISTS video_key TEXT`).catch(() => {});
   productsReady = true;
+}
+
+// Resuelve el video visible: si hay video subido (key S3) se firma; si no, la URL externa.
+async function resolveVideoUrl(row: any): Promise<string | null> {
+  if (row?.video_key) { try { return await getSignedUrlForKey(row.video_key, 6 * 3600); } catch { /* ignore */ } }
+  return row?.video_url || null;
 }
 
 // Firma cada key de S3 → URL visible. Acepta keys o {key,url}.
@@ -64,7 +72,7 @@ export const getKitProducts = async (req: Request, res: Response): Promise<any> 
     const r = await pool.query(
       `SELECT * FROM welcome_kit_products ${onlyActive ? 'WHERE is_active = true' : ''} ORDER BY sort_order ASC, id DESC`
     );
-    const data = await Promise.all(r.rows.map(async (p: any) => ({ ...p, photos: await signPhotos(p.photos) })));
+    const data = await Promise.all(r.rows.map(async (p: any) => ({ ...p, photos: await signPhotos(p.photos), video_url: await resolveVideoUrl(p) })));
     res.json({ success: true, data });
   } catch (error: any) {
     console.error('Error getKitProducts:', error);
@@ -94,6 +102,26 @@ export const uploadKitProductPhoto = async (req: Request, res: Response): Promis
   }
 };
 
+// POST /api/admin/welcome-kit/products/upload-video (multipart "file")
+export const uploadKitProductVideo = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file || !file.buffer) return res.status(400).json({ success: false, error: 'No se recibió video' });
+    const mime = (file.mimetype || '').toLowerCase();
+    if (!mime.startsWith('video/')) return res.status(400).json({ success: false, error: 'El archivo debe ser un video' });
+    if (!isS3Configured()) return res.status(500).json({ success: false, error: 'Almacenamiento no configurado (S3)' });
+    const ext = mime.includes('quicktime') || mime.includes('mov') ? 'mov' : mime.includes('webm') ? 'webm' : 'mp4';
+    const key = `kit-products/video-${Date.now()}-${Math.round(Math.random() * 1e6)}.${ext}`;
+    await uploadToS3(file.buffer, key, mime);
+    let url: string | null = null;
+    try { url = await getSignedUrlForKey(key, 6 * 3600); } catch { /* ignore */ }
+    res.json({ success: true, key, url });
+  } catch (error: any) {
+    console.error('Error uploadKitProductVideo:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 const cleanPhotos = (photos: any): string[] => {
   const arr = Array.isArray(photos) ? photos : [];
   return arr.map((p: any) => (typeof p === 'string' ? p : p?.key)).filter(Boolean).slice(0, 5);
@@ -106,10 +134,10 @@ export const createKitProduct = async (req: Request, res: Response): Promise<any
     const b = req.body || {};
     if (!String(b.name || '').trim()) return res.status(400).json({ success: false, error: 'Falta el nombre del producto' });
     const r = await pool.query(
-      `INSERT INTO welcome_kit_products (name, description, video_url, stock, photos, is_active, sort_order)
-       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7) RETURNING id`,
-      [String(b.name).trim(), b.description || null, b.video_url || null, parseInt(String(b.stock), 10) || 0,
-       JSON.stringify(cleanPhotos(b.photos)), b.is_active !== false, parseInt(String(b.sort_order), 10) || 0]
+      `INSERT INTO welcome_kit_products (name, description, video_url, video_key, stock, photos, is_active, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING id`,
+      [String(b.name).trim(), b.description || null, (String(b.video_url || '').trim() || null), (String(b.video_key || '').trim() || null),
+       parseInt(String(b.stock), 10) || 0, JSON.stringify(cleanPhotos(b.photos)), b.is_active !== false, parseInt(String(b.sort_order), 10) || 0]
     );
     res.json({ success: true, id: r.rows[0].id });
   } catch (error: any) {
@@ -128,10 +156,10 @@ export const updateKitProduct = async (req: Request, res: Response): Promise<any
     if (!String(b.name || '').trim()) return res.status(400).json({ success: false, error: 'Falta el nombre del producto' });
     await pool.query(
       `UPDATE welcome_kit_products
-          SET name=$1, description=$2, video_url=$3, stock=$4, photos=$5::jsonb, is_active=$6, sort_order=$7, updated_at=NOW()
-        WHERE id=$8`,
-      [String(b.name).trim(), b.description || null, b.video_url || null, parseInt(String(b.stock), 10) || 0,
-       JSON.stringify(cleanPhotos(b.photos)), b.is_active !== false, parseInt(String(b.sort_order), 10) || 0, id]
+          SET name=$1, description=$2, video_url=$3, video_key=$4, stock=$5, photos=$6::jsonb, is_active=$7, sort_order=$8, updated_at=NOW()
+        WHERE id=$9`,
+      [String(b.name).trim(), b.description || null, (String(b.video_url || '').trim() || null), (String(b.video_key || '').trim() || null),
+       parseInt(String(b.stock), 10) || 0, JSON.stringify(cleanPhotos(b.photos)), b.is_active !== false, parseInt(String(b.sort_order), 10) || 0, id]
     );
     res.json({ success: true });
   } catch (error: any) {
@@ -451,10 +479,13 @@ export const getMyKit = async (req: Request, res: Response): Promise<any> => {
     let products: any[] = [];
     if (kit && !kit.selected_product_id) {
       const pr = await pool.query(
-        `SELECT id, name, description, video_url, stock, photos FROM welcome_kit_products
+        `SELECT id, name, description, video_url, video_key, stock, photos FROM welcome_kit_products
           WHERE is_active = true AND stock > 0 ORDER BY sort_order ASC, id DESC`
       );
-      products = await Promise.all(pr.rows.map(async (p: any) => ({ ...p, photos: await signPhotos(p.photos) })));
+      products = await Promise.all(pr.rows.map(async (p: any) => {
+        const { video_key, ...rest } = p;
+        return { ...rest, photos: await signPhotos(p.photos), video_url: await resolveVideoUrl(p) };
+      }));
     }
 
     res.json({

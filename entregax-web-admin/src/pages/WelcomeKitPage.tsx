@@ -78,12 +78,13 @@ interface KitProduct {
   name: string;
   description: string | null;
   video_url: string | null;
+  video_key: string | null;
   stock: number;
   photos: KitPhoto[];
   is_active: boolean;
   sort_order: number;
 }
-const emptyProduct: Partial<KitProduct> = { name: '', description: '', video_url: '', stock: 0, photos: [], is_active: true, sort_order: 0 };
+const emptyProduct: Partial<KitProduct> = { name: '', description: '', video_url: '', video_key: null, stock: 0, photos: [], is_active: true, sort_order: 0 };
 
 export default function WelcomeKitPage() {
   const [tab, setTab] = useState<'requests' | 'catalog'>('requests');
@@ -103,6 +104,7 @@ export default function WelcomeKitPage() {
   const [editingProd, setEditingProd] = useState<Partial<KitProduct> | null>(null);
   const [savingProd, setSavingProd] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
   // Buscador de cliente para agregar a la lista
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [clientQuery, setClientQuery] = useState('');
@@ -192,6 +194,31 @@ export default function WelcomeKitPage() {
     setEditingProd(prev => prev ? { ...prev, photos: (prev.photos || []).filter(p => p.key !== key) } : prev);
   };
 
+  const uploadProductVideo = async (file: File) => {
+    if (!editingProd) return;
+    if (!file.type.startsWith('video/')) {
+      setSnackbar({ open: true, message: 'El archivo debe ser un video', severity: 'error' });
+      return;
+    }
+    if (file.size > 60 * 1024 * 1024) {
+      setSnackbar({ open: true, message: 'El video no debe pesar más de 60 MB', severity: 'error' });
+      return;
+    }
+    setUploadingVideo(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await axios.post(`${API_URL}/admin/welcome-kit/products/upload-video`, fd, {
+        headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'multipart/form-data' },
+      });
+      // Al subir un video, se usa la key de S3 (se limpia la URL externa).
+      setEditingProd(prev => prev ? { ...prev, video_key: res.data.key, video_url: res.data.url } : prev);
+      setSnackbar({ open: true, message: 'Video subido', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al subir el video', severity: 'error' });
+    } finally { setUploadingVideo(false); }
+  };
+
   const saveProduct = async () => {
     if (!editingProd) return;
     if (!String(editingProd.name || '').trim()) {
@@ -201,7 +228,8 @@ export default function WelcomeKitPage() {
     setSavingProd(true);
     try {
       const payload = {
-        name: editingProd.name, description: editingProd.description, video_url: editingProd.video_url,
+        name: editingProd.name, description: editingProd.description,
+        video_url: editingProd.video_key ? null : editingProd.video_url, video_key: editingProd.video_key || null,
         stock: editingProd.stock, is_active: editingProd.is_active !== false, sort_order: editingProd.sort_order,
         photos: (editingProd.photos || []).map(p => p.key),
       };
@@ -542,7 +570,24 @@ export default function WelcomeKitPage() {
                 <TextField label="Cantidad en stock" type="number" value={editingProd.stock ?? 0} onChange={e => setEditingProd({ ...editingProd, stock: Math.max(0, Number(e.target.value) || 0) })} size="small" sx={{ width: 160 }} />
                 <FormControlLabel control={<Switch checked={editingProd.is_active !== false} onChange={e => setEditingProd({ ...editingProd, is_active: e.target.checked })} />} label="Activo (visible)" />
               </Box>
-              <TextField label="URL del video (opcional)" value={editingProd.video_url || ''} onChange={e => setEditingProd({ ...editingProd, video_url: e.target.value })} size="small" fullWidth placeholder="https://youtube.com/... o enlace directo" InputProps={{ startAdornment: (<InputAdornment position="start"><VideocamIcon fontSize="small" /></InputAdornment>) }} />
+              {/* Video: subir directo o pegar URL externa */}
+              <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
+                <Typography variant="body2" fontWeight={700} sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}><VideocamIcon fontSize="small" /> Video del producto (opcional)</Typography>
+                {editingProd.video_key ? (
+                  <Box sx={{ mb: 1 }}>
+                    <video src={editingProd.video_url || ''} controls style={{ width: '100%', maxHeight: 200, borderRadius: 8, background: '#000' }} />
+                    <Button size="small" color="error" onClick={() => setEditingProd({ ...editingProd, video_key: null, video_url: '' })} disabled={savingProd || uploadingVideo} sx={{ mt: 0.5 }}>Quitar video</Button>
+                  </Box>
+                ) : (
+                  <>
+                    <Button component="label" size="small" variant="outlined" startIcon={<VideocamIcon />} disabled={uploadingVideo || savingProd} sx={{ mb: 1 }}>
+                      {uploadingVideo ? 'Subiendo…' : 'Subir video (recomendado ≤15s)'}
+                      <input type="file" hidden accept="video/*" onChange={e => { const f = e.target.files?.[0]; if (f) uploadProductVideo(f); (e.target as HTMLInputElement).value = ''; }} />
+                    </Button>
+                    <TextField label="…o pega una URL (YouTube, etc.)" value={editingProd.video_url || ''} onChange={e => setEditingProd({ ...editingProd, video_url: e.target.value })} size="small" fullWidth placeholder="https://youtube.com/..." />
+                  </>
+                )}
+              </Box>
 
               <Box>
                 <Typography variant="body2" fontWeight={700} sx={{ mb: 1 }}>Fotos ({(editingProd.photos?.length || 0)}/5)</Typography>
@@ -567,7 +612,7 @@ export default function WelcomeKitPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setProdFormOpen(false)} disabled={savingProd}>Cancelar</Button>
-          <Button variant="contained" onClick={saveProduct} disabled={savingProd || uploadingPhoto || !String(editingProd?.name || '').trim()}>{savingProd ? 'Guardando…' : 'Guardar'}</Button>
+          <Button variant="contained" onClick={saveProduct} disabled={savingProd || uploadingPhoto || uploadingVideo || !String(editingProd?.name || '').trim()}>{savingProd ? 'Guardando…' : 'Guardar'}</Button>
         </DialogActions>
       </Dialog>
 

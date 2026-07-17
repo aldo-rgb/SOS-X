@@ -15,7 +15,6 @@ import {
   Alert,
   Modal,
   Image,
-  Linking,
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,6 +23,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { getSecure } from '../services/secureStorage';
 import { API_URL } from '../services/api';
 import { useTranslation } from 'react-i18next';
+import { Video, ResizeMode } from 'expo-av';
 
 // Colores
 const SEA_COLOR = '#0097A7';
@@ -95,6 +95,11 @@ export default function SaldoFavorScreen({ navigation }: any) {
   const [kitModalOpen, setKitModalOpen] = useState(false);
   const [selectingKitId, setSelectingKitId] = useState<number | null>(null);
   const [kitDetail, setKitDetail] = useState<any | null>(null);
+  const [mainImgIndex, setMainImgIndex] = useState(0);
+  const [videoPlaying, setVideoPlaying] = useState(false);
+
+  const openKitDetail = (p: any) => { setMainImgIndex(0); setVideoPlaying(false); setKitDetail(p); };
+  const closeKitDetail = () => { setVideoPlaying(false); setKitDetail(null); };
 
   const fetchWalletData = useCallback(async () => {
     try {
@@ -424,50 +429,65 @@ export default function SaldoFavorScreen({ navigation }: any) {
       </ScrollView>
 
       {/* Modal: elegir regalo del Kit de Bienvenida */}
-      <Modal visible={kitModalOpen} animationType="slide" transparent onRequestClose={() => { setKitDetail(null); setKitModalOpen(false); }}>
+      <Modal visible={kitModalOpen} animationType="slide" transparent onRequestClose={() => { closeKitDetail(); setKitModalOpen(false); }}>
         <View style={styles.kitModalOverlay}>
           <View style={styles.kitModalCard}>
             {/* Encabezado */}
             <View style={styles.kitModalHeader}>
               {kitDetail ? (
-                <TouchableOpacity onPress={() => setKitDetail(null)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <TouchableOpacity onPress={closeKitDetail} style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Ionicons name="chevron-back" size={24} color="#333" />
                   <Text style={styles.kitModalTitle}>Volver</Text>
                 </TouchableOpacity>
               ) : (
                 <Text style={styles.kitModalTitle}>🎁 Elige tu regalo</Text>
               )}
-              <TouchableOpacity onPress={() => { setKitDetail(null); setKitModalOpen(false); }}>
+              <TouchableOpacity onPress={() => { closeKitDetail(); setKitModalOpen(false); }}>
                 <Ionicons name="close" size={26} color="#333" />
               </TouchableOpacity>
             </View>
 
             {kitDetail ? (
-              /* ===== DETALLE DEL PRODUCTO (álbum + video) ===== */
-              <ScrollView style={{ maxHeight: 540 }} showsVerticalScrollIndicator={false}>
-                <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+              /* ===== DETALLE DEL PRODUCTO (visor + miniaturas + video) ===== */
+              <ScrollView style={{ maxHeight: 560 }} showsVerticalScrollIndicator={false}>
+                {/* Visor principal: foto o video reproduciéndose */}
+                {videoPlaying && kitDetail.video_url ? (
+                  <Video
+                    source={{ uri: kitDetail.video_url }}
+                    style={styles.kitDetailImg}
+                    useNativeControls
+                    resizeMode={ResizeMode.CONTAIN}
+                    shouldPlay
+                    isLooping={false}
+                  />
+                ) : (kitDetail.photos?.[mainImgIndex]?.url) ? (
+                  <Image source={{ uri: kitDetail.photos[mainImgIndex].url }} style={styles.kitDetailImg} resizeMode="cover" />
+                ) : (
+                  <View style={[styles.kitDetailImg, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#eee' }]}>
+                    <Text style={{ fontSize: 50 }}>🎁</Text>
+                  </View>
+                )}
+
+                {/* Tira de miniaturas: fotos + video (con play) */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
                   {(kitDetail.photos || []).filter((ph: any) => ph?.url).map((ph: any, i: number) => (
-                    <Image key={i} source={{ uri: ph.url }} style={styles.kitDetailImg} resizeMode="cover" />
+                    <TouchableOpacity key={i} onPress={() => { setVideoPlaying(false); setMainImgIndex(i); }}
+                      style={[styles.kitThumb, !videoPlaying && mainImgIndex === i && styles.kitThumbActive]}>
+                      <Image source={{ uri: ph.url }} style={styles.kitThumbImg} resizeMode="cover" />
+                    </TouchableOpacity>
                   ))}
-                  {(!kitDetail.photos || kitDetail.photos.length === 0) && (
-                    <View style={[styles.kitDetailImg, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#eee' }]}>
-                      <Text style={{ fontSize: 50 }}>🎁</Text>
-                    </View>
+                  {!!kitDetail.video_url && (
+                    <TouchableOpacity onPress={() => setVideoPlaying(true)} style={[styles.kitThumb, videoPlaying && styles.kitThumbActive]}>
+                      {kitDetail.photos?.[0]?.url && <Image source={{ uri: kitDetail.photos[0].url }} style={styles.kitThumbImg} resizeMode="cover" />}
+                      <View style={styles.kitThumbPlay}>
+                        <Ionicons name="play" size={22} color="#FFF" />
+                      </View>
+                    </TouchableOpacity>
                   )}
                 </ScrollView>
-                {(kitDetail.photos?.length || 0) > 1 && (
-                  <Text style={{ textAlign: 'center', color: '#999', fontSize: 12, marginBottom: 8 }}>
-                    Desliza para ver las {kitDetail.photos.length} fotos →
-                  </Text>
-                )}
-                <Text style={styles.kitDetailName}>{kitDetail.name}</Text>
+
+                <Text style={[styles.kitDetailName, { marginTop: 14 }]}>{kitDetail.name}</Text>
                 {!!kitDetail.description && <Text style={styles.kitDetailDesc}>{kitDetail.description}</Text>}
-                {!!kitDetail.video_url && (
-                  <TouchableOpacity style={styles.kitVideoBtn} onPress={() => Linking.openURL(kitDetail.video_url)}>
-                    <Ionicons name="play-circle" size={22} color="#F05A28" />
-                    <Text style={styles.kitVideoTxt}>Ver video del producto</Text>
-                  </TouchableOpacity>
-                )}
                 <TouchableOpacity
                   style={[styles.kitChooseBtn, { marginTop: 16 }, selectingKitId != null && { opacity: 0.6 }]}
                   disabled={selectingKitId != null}
@@ -486,7 +506,7 @@ export default function SaldoFavorScreen({ navigation }: any) {
                   {kitProducts.length === 0 ? (
                     <Text style={{ textAlign: 'center', color: '#888', padding: 24 }}>No hay regalos disponibles por ahora.</Text>
                   ) : kitProducts.map((p: any) => (
-                    <TouchableOpacity key={p.id} activeOpacity={0.8} style={styles.kitProdCard} onPress={() => setKitDetail(p)}>
+                    <TouchableOpacity key={p.id} activeOpacity={0.8} style={styles.kitProdCard} onPress={() => openKitDetail(p)}>
                       {p.photos?.[0]?.url ? (
                         <Image source={{ uri: p.photos[0].url }} style={styles.kitProdImg} resizeMode="cover" />
                       ) : (
@@ -531,8 +551,10 @@ const styles = StyleSheet.create({
   kitDetailImg: { width: Dimensions.get('window').width - 40, height: 240, borderRadius: 14, backgroundColor: '#eee' },
   kitDetailName: { fontSize: 19, fontWeight: '800', color: '#222', marginBottom: 6 },
   kitDetailDesc: { fontSize: 14, color: '#555', lineHeight: 20 },
-  kitVideoBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, backgroundColor: '#FFF3EE', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#F05A2833' },
-  kitVideoTxt: { color: '#F05A28', fontWeight: '700', fontSize: 14 },
+  kitThumb: { width: 60, height: 60, borderRadius: 8, marginRight: 8, overflow: 'hidden', borderWidth: 2, borderColor: 'transparent', backgroundColor: '#eee' },
+  kitThumbActive: { borderColor: '#F05A28' },
+  kitThumbImg: { width: '100%', height: '100%' },
+  kitThumbPlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' },
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',

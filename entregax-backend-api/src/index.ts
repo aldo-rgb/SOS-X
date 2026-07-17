@@ -645,6 +645,7 @@ import {
   updateKitProduct,
   deleteKitProduct,
   uploadKitProductPhoto,
+  uploadKitProductVideo,
   getMyKit,
   selectKitGift,
 } from './welcomeKitController';
@@ -7132,6 +7133,8 @@ app.post('/api/admin/welcome-kit/products', authenticateToken, requireMinLevel(R
 app.put('/api/admin/welcome-kit/products/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateKitProduct);
 app.delete('/api/admin/welcome-kit/products/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteKitProduct);
 app.post('/api/admin/welcome-kit/products/upload-photo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), kitPhotoUpload.single('file'), uploadKitProductPhoto);
+const kitVideoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } }); // 60MB (video corto)
+app.post('/api/admin/welcome-kit/products/upload-video', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), kitVideoUpload.single('file'), uploadKitProductVideo);
 // 📱 Cliente: ver su kit pendiente y elegir su regalo (crea la guía USK)
 app.get('/api/welcome-kit/my-kit', authenticateToken, getMyKit);
 app.post('/api/welcome-kit/select-gift', authenticateToken, selectKitGift);
