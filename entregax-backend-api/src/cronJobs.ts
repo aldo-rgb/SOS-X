@@ -1016,9 +1016,24 @@ export const startWaSequenceCron = () => {
   console.log('✅ Cron de secuencias WhatsApp activo (12:06 PM, Lun-Vie, hora México)');
 };
 
+// 💸 Referidos: activa el bono cuando el referido hace su PRIMER ENVÍO real
+// (excluye guías USK- del Kit de Bienvenida). Cada 20 min.
+export const startReferralFirstShipmentCron = () => {
+  cron.schedule('*/20 * * * *', async () => {
+    try {
+      const { procesarReferidosPrimerEnvio } = await import('./referralService');
+      await procesarReferidosPrimerEnvio();
+    } catch (e) {
+      console.error('[CRON] startReferralFirstShipmentCron:', (e as Error).message);
+    }
+  });
+  console.log('✅ Cron de bonos de referido (primer envío) activo (cada 20 min)');
+};
+
 export const initCronJobs = () => {
   startRecoveryCronJob();
   startWaSequenceCron();
+  startReferralFirstShipmentCron();
   startProspectFollowUpCron();
   startMaritimeOrderSyncCron();
   startMaritimeTrackingSyncCron();

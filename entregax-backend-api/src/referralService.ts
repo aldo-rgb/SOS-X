@@ -640,6 +640,45 @@ export const procesarPrimerPago = async (
   }
 };
 
+// ============================================================================
+// CRON: procesa el PRIMER ENVÍO real de los referidos y activa los bonos.
+// Regla: el Kit de Bienvenida NO cuenta (guías 'USK-%' excluidas). Solo cuenta
+// un envío PAGADO (payment_status='paid'), master (no cajas hijas), con costo.
+// procesarPrimerPago aplica el mínimo, anti-fraude e idempotencia.
+// ============================================================================
+export const procesarReferidosPrimerEnvio = async (): Promise<{ procesados: number; activados: number }> => {
+  let procesados = 0, activados = 0;
+  try {
+    const cand = await pool.query(
+      `SELECT r.referido_id, p.id AS package_id, COALESCE(p.assigned_cost_mxn, 0)::numeric AS monto
+         FROM referidos r
+         JOIN users u ON u.id = r.referido_id
+         JOIN LATERAL (
+           SELECT id, assigned_cost_mxn
+             FROM packages
+            WHERE user_id = r.referido_id
+              AND payment_status = 'paid'
+              AND tracking_internal NOT LIKE 'USK-%'    -- el Kit de Bienvenida NO cuenta
+              AND COALESCE(is_master, true) = true
+              AND COALESCE(assigned_cost_mxn, 0) > 0
+            ORDER BY created_at ASC
+            LIMIT 1
+         ) p ON true
+        WHERE r.estado = 'registrado' AND u.first_payment_date IS NULL
+        LIMIT 200`
+    );
+    for (const row of cand.rows) {
+      procesados++;
+      try {
+        const res = await procesarPrimerPago(Number(row.referido_id), Number(row.monto), Number(row.package_id));
+        if (res.bonos_activados) activados++;
+      } catch (e) { console.warn('[REFERIDOS] primer envío:', (e as Error).message); }
+    }
+    if (procesados) console.log(`[REFERIDOS] Cron primer envío: ${procesados} procesados, ${activados} bonos activados`);
+  } catch (e) { console.warn('[REFERIDOS] procesarReferidosPrimerEnvio:', (e as Error).message); }
+  return { procesados, activados };
+};
+
 // ============================================
 // OBTENER MIS REFERIDOS
 // ============================================
