@@ -13,6 +13,8 @@ import {
   RefreshControl,
   ActivityIndicator,
   Alert,
+  Modal,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -85,6 +87,11 @@ export default function SaldoFavorScreen({ navigation }: any) {
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
   const [showAllTransactions, setShowAllTransactions] = useState(false);
   const [totalReferidos, setTotalReferidos] = useState(0);
+  // Kit de Bienvenida
+  const [hasPendingKit, setHasPendingKit] = useState(false);
+  const [kitProducts, setKitProducts] = useState<any[]>([]);
+  const [kitModalOpen, setKitModalOpen] = useState(false);
+  const [selectingKitId, setSelectingKitId] = useState<number | null>(null);
 
   const fetchWalletData = useCallback(async () => {
     try {
@@ -99,11 +106,20 @@ export default function SaldoFavorScreen({ navigation }: any) {
         'Authorization': `Bearer ${token}`,
       };
 
-      const [resumenRes, txRes, referidosRes] = await Promise.all([
+      const [resumenRes, txRes, referidosRes, kitRes] = await Promise.all([
         fetch(`${API_URL}/api/billetera/resumen`, { headers }),
         fetch(`${API_URL}/api/billetera/transacciones?limit=50`, { headers }),
         fetch(`${API_URL}/api/referidos/mis-referidos`, { headers }),
+        fetch(`${API_URL}/api/welcome-kit/my-kit`, { headers }),
       ]);
+
+      if (kitRes.ok) {
+        const kitData = await kitRes.json();
+        if (kitData.success) {
+          setHasPendingKit(!!kitData.has_pending_kit);
+          setKitProducts(kitData.products || []);
+        }
+      }
 
       if (resumenRes.ok) {
         const data = await resumenRes.json();
@@ -136,6 +152,42 @@ export default function SaldoFavorScreen({ navigation }: any) {
   const onRefresh = () => {
     setRefreshing(true);
     fetchWalletData();
+  };
+
+  const selectGift = async (productId: number, productName: string) => {
+    try {
+      setSelectingKitId(productId);
+      const token = await getSecure('token');
+      const res = await fetch(`${API_URL}/api/welcome-kit/select-gift`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ product_id: productId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setKitModalOpen(false);
+        setHasPendingKit(false);
+        Alert.alert('🎁 ¡Regalo confirmado!', `Elegiste "${productName}". Ya generamos tu guía ${data.tracking}. Captura tus datos de envío en "Sin instrucciones".`);
+        fetchWalletData();
+      } else {
+        Alert.alert('Aviso', data.error || 'No se pudo confirmar tu regalo.');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo confirmar tu regalo. Intenta de nuevo.');
+    } finally {
+      setSelectingKitId(null);
+    }
+  };
+
+  const confirmSelect = (productId: number, productName: string) => {
+    Alert.alert(
+      'Confirmar regalo',
+      `¿Elegir "${productName}"? Solo puedes elegir 1 regalo y no se puede cambiar.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Elegir', onPress: () => selectGift(productId, productName) },
+      ]
+    );
   };
 
   const formatMoney = (amount: any) => {
@@ -241,6 +293,28 @@ export default function SaldoFavorScreen({ navigation }: any) {
           )}
         </LinearGradient>
 
+        {/* 🎁 Banner Kit de Bienvenida (regalo pendiente) */}
+        {hasPendingKit && (
+          <TouchableOpacity activeOpacity={0.85} onPress={() => setKitModalOpen(true)}>
+            <LinearGradient
+              colors={[ORANGE, '#C1272D']}
+              style={styles.kitBanner}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={styles.kitBannerIcon}>
+                <Text style={{ fontSize: 26 }}>🎁</Text>
+                <View style={styles.kitDot} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.kitBannerTitle}>¡Tienes un regalo pendiente!</Text>
+                <Text style={styles.kitBannerSub}>Toca para elegir tu Kit de Bienvenida</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#FFF" />
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+
         {/* Info cards */}
         <View style={styles.infoCards}>
           <View style={styles.infoCard}>
@@ -345,11 +419,70 @@ export default function SaldoFavorScreen({ navigation }: any) {
           </View>
         </View>
       </ScrollView>
+
+      {/* Modal: elegir regalo del Kit de Bienvenida */}
+      <Modal visible={kitModalOpen} animationType="slide" transparent onRequestClose={() => setKitModalOpen(false)}>
+        <View style={styles.kitModalOverlay}>
+          <View style={styles.kitModalCard}>
+            <View style={styles.kitModalHeader}>
+              <Text style={styles.kitModalTitle}>🎁 Elige tu regalo</Text>
+              <TouchableOpacity onPress={() => setKitModalOpen(false)}>
+                <Ionicons name="close" size={26} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.kitModalSub}>Solo puedes elegir 1. Una vez confirmado no se puede cambiar.</Text>
+            <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false}>
+              {kitProducts.length === 0 ? (
+                <Text style={{ textAlign: 'center', color: '#888', padding: 24 }}>No hay regalos disponibles por ahora.</Text>
+              ) : kitProducts.map((p: any) => (
+                <View key={p.id} style={styles.kitProdCard}>
+                  {p.photos?.[0]?.url ? (
+                    <Image source={{ uri: p.photos[0].url }} style={styles.kitProdImg} resizeMode="cover" />
+                  ) : (
+                    <View style={[styles.kitProdImg, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#eee' }]}>
+                      <Text style={{ fontSize: 30 }}>🎁</Text>
+                    </View>
+                  )}
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={styles.kitProdName}>{p.name}</Text>
+                    {!!p.description && <Text style={styles.kitProdDesc} numberOfLines={2}>{p.description}</Text>}
+                    <TouchableOpacity
+                      style={[styles.kitChooseBtn, selectingKitId != null && { opacity: 0.6 }]}
+                      disabled={selectingKitId != null}
+                      onPress={() => confirmSelect(p.id, p.name)}
+                    >
+                      {selectingKitId === p.id
+                        ? <ActivityIndicator size="small" color="#FFF" />
+                        : <Text style={styles.kitChooseTxt}>Elegir este</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  kitBanner: { flexDirection: 'row', alignItems: 'center', borderRadius: 16, padding: 16, marginBottom: 16, gap: 12 },
+  kitBannerIcon: { position: 'relative', width: 40, alignItems: 'center' },
+  kitDot: { position: 'absolute', top: -2, right: 2, width: 12, height: 12, borderRadius: 6, backgroundColor: '#FFEB3B', borderWidth: 2, borderColor: '#FFF' },
+  kitBannerTitle: { color: '#FFF', fontWeight: '800', fontSize: 15 },
+  kitBannerSub: { color: '#FFF', opacity: 0.9, fontSize: 12, marginTop: 2 },
+  kitModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  kitModalCard: { backgroundColor: '#FFF', borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, paddingBottom: 32 },
+  kitModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  kitModalTitle: { fontSize: 20, fontWeight: '800', color: '#222' },
+  kitModalSub: { color: '#888', fontSize: 13, marginTop: 4, marginBottom: 14 },
+  kitProdCard: { flexDirection: 'row', backgroundColor: '#FAFAFA', borderRadius: 14, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#eee' },
+  kitProdImg: { width: 84, height: 84, borderRadius: 10, backgroundColor: '#eee' },
+  kitProdName: { fontSize: 15, fontWeight: '700', color: '#222' },
+  kitProdDesc: { fontSize: 12, color: '#777', marginTop: 2 },
+  kitChooseBtn: { backgroundColor: '#F05A28', borderRadius: 10, paddingVertical: 9, alignItems: 'center', marginTop: 8 },
+  kitChooseTxt: { color: '#FFF', fontWeight: '700', fontSize: 13 },
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
