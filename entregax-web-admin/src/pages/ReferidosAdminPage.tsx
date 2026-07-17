@@ -62,6 +62,8 @@ interface ReferralSettings {
   currency: string;
   minimum_order_amount: number;
   is_active: boolean;
+  referrer_reward_type?: 'money' | 'kit';
+  referred_reward_type?: 'money' | 'kit';
 }
 
 const ESTADO_CONFIG: Record<string, { label: string; color: 'success' | 'warning' | 'default' | 'error' }> = {
@@ -306,20 +308,50 @@ export default function ReferidosAdminPage() {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
             {settingsError && <Alert severity="error">{settingsError}</Alert>}
             {settingsSuccess && <Alert severity="success">{settingsSuccess}</Alert>}
-            <TextField
-              label="Bono para el referidor (MXN)"
-              type="number"
-              value={settingsForm.referrer_bonus ?? ''}
-              onChange={e => setSettingsForm(f => ({ ...f, referrer_bonus: Number(e.target.value) }))}
-              fullWidth size="small"
-            />
-            <TextField
-              label="Bono para el referido (MXN)"
-              type="number"
-              value={settingsForm.referred_bonus ?? ''}
-              onChange={e => setSettingsForm(f => ({ ...f, referred_bonus: Number(e.target.value) }))}
-              fullWidth size="small"
-            />
+            {/* Premio del REFERIDOR */}
+            <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
+              <Typography variant="body2" fontWeight={700} sx={{ mb: 1 }}>🎁 Premio para el REFERIDOR (quien invita)</Typography>
+              <Select
+                size="small" fullWidth sx={{ mb: 1 }}
+                value={settingsForm.referrer_reward_type || 'money'}
+                onChange={e => setSettingsForm(f => ({ ...f, referrer_reward_type: e.target.value as 'money' | 'kit' }))}
+              >
+                <MenuItem value="money">💵 Dinero (saldo a favor)</MenuItem>
+                <MenuItem value="kit">🎁 Kit de Bienvenida</MenuItem>
+              </Select>
+              {(settingsForm.referrer_reward_type || 'money') === 'money' ? (
+                <TextField
+                  label="Monto del bono (MXN)" type="number"
+                  value={settingsForm.referrer_bonus ?? ''}
+                  onChange={e => setSettingsForm(f => ({ ...f, referrer_bonus: Number(e.target.value) }))}
+                  fullWidth size="small"
+                />
+              ) : (
+                <Typography variant="caption" color="text.secondary">No recibe dinero; se agrega a la lista del Kit de Bienvenida.</Typography>
+              )}
+            </Box>
+            {/* Premio del REFERIDO */}
+            <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
+              <Typography variant="body2" fontWeight={700} sx={{ mb: 1 }}>🎁 Premio para el REFERIDO (el amigo invitado)</Typography>
+              <Select
+                size="small" fullWidth sx={{ mb: 1 }}
+                value={settingsForm.referred_reward_type || 'money'}
+                onChange={e => setSettingsForm(f => ({ ...f, referred_reward_type: e.target.value as 'money' | 'kit' }))}
+              >
+                <MenuItem value="money">💵 Dinero (saldo a favor)</MenuItem>
+                <MenuItem value="kit">🎁 Kit de Bienvenida</MenuItem>
+              </Select>
+              {(settingsForm.referred_reward_type || 'money') === 'money' ? (
+                <TextField
+                  label="Monto del bono (MXN)" type="number"
+                  value={settingsForm.referred_bonus ?? ''}
+                  onChange={e => setSettingsForm(f => ({ ...f, referred_bonus: Number(e.target.value) }))}
+                  fullWidth size="small"
+                />
+              ) : (
+                <Typography variant="caption" color="text.secondary">No recibe dinero; se agrega a la lista del Kit de Bienvenida.</Typography>
+              )}
+            </Box>
             <TextField
               label="Monto mínimo del primer envío (MXN)"
               type="number"

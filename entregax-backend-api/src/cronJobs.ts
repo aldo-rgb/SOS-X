@@ -1033,10 +1033,8 @@ export const startReferralFirstShipmentCron = () => {
 export const initCronJobs = () => {
   startRecoveryCronJob();
   startWaSequenceCron();
-  // ⛔ DESACTIVADO temporalmente: procesarPrimerPago puede colgar el pool
-  // (transacción + llamadas a pool en antifraude/depósito). Reimplementar sin
-  // ese riesgo antes de reactivar.
-  // startReferralFirstShipmentCron();
+  // Reactivado: procesarPrimerPago ya no usa transacción anidada (no puede colgar el pool).
+  startReferralFirstShipmentCron();
   startProspectFollowUpCron();
   startMaritimeOrderSyncCron();
   startMaritimeTrackingSyncCron();

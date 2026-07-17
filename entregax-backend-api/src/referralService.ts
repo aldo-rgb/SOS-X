@@ -5,6 +5,7 @@
 
 import { pool } from './db';
 import * as walletService from './walletService';
+import { addUserToKit } from './welcomeKitController';
 import crypto from 'crypto';
 
 // ============================================
@@ -20,6 +21,9 @@ export interface ReferralSettings {
   require_first_payment: boolean;
   max_referrals_per_user: number;
   bonus_expiry_days: number;
+  // Tipo de premio para cada lado: 'money' = saldo a favor; 'kit' = Kit de Bienvenida.
+  referrer_reward_type?: 'money' | 'kit';
+  referred_reward_type?: 'money' | 'kit';
 }
 
 export interface AntifraudSettings {
@@ -77,6 +81,8 @@ export const getReferralSettings = async (): Promise<ReferralSettings> => {
       require_first_payment: true,
       max_referrals_per_user: 100,
       bonus_expiry_days: 365,
+      referrer_reward_type: 'money',
+      referred_reward_type: 'money',
     };
   } catch (error) {
     console.error('Error obteniendo configuración de referidos:', error);
@@ -429,13 +435,17 @@ export const runAntifraudChecks = async (
       totalRiskScore += check.risk_score;
     }
     
-    // Registrar todos los checks
-    for (const check of checks) {
-      await pool.query(
-        `INSERT INTO antifraud_checks (referido_id, usuario_id, check_type, check_result, check_details, risk_score)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [referidoId, usuarioReferidoId, check.check_type, check.passed, check.details, check.risk_score]
-      );
+    // Registrar todos los checks (best-effort: no debe tumbar el resultado del anti-fraude).
+    try {
+      for (const check of checks) {
+        await pool.query(
+          `INSERT INTO antifraud_checks (referido_id, usuario_id, check_type, check_result, check_details, risk_score)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [referidoId, usuarioReferidoId, check.check_type, check.passed, JSON.stringify(check.details), check.risk_score]
+        );
+      }
+    } catch (logErr) {
+      console.warn('[ANTIFRAUD] no se pudo registrar checks (se continúa):', (logErr as Error).message);
     }
     
     // Determinar si pasó todos los checks críticos
@@ -472,175 +482,97 @@ export const procesarPrimerPago = async (
   bono_referido?: number;
   razon_rechazo?: string;
 }> => {
-  const client = await pool.connect();
-  
+  // IMPORTANTE: NO se usa una transacción propia que envuelva a walletService.depositar
+  // ni al anti-fraude (ambos usan el pool en otras conexiones). Mantener una fila de
+  // users/referidos bloqueada mientras se llama a esas funciones causaba un DEADLOCK que
+  // colgaba el pool. Aquí cada paso corre con su propia conexión (auto-commit) y la
+  // idempotencia se logra con un "claim" atómico del estado.
   try {
-    await client.query('BEGIN');
-    
-    // Verificar si ya tiene primer pago registrado
-    const userCheck = await client.query(
-      'SELECT first_payment_date FROM users WHERE id = $1',
-      [usuarioId]
+    // 1) Claim atómico: solo un proceso puede pasar registrado -> primer_pago.
+    const claim = await pool.query(
+      `UPDATE referidos
+          SET estado = 'primer_pago', fecha_primer_pago = NOW(),
+              monto_primer_pago = $2, orden_id = $3, updated_at = NOW()
+        WHERE referido_id = $1 AND estado = 'registrado'
+      RETURNING id, referidor_id, referido_id, bono_referidor, bono_referido`,
+      [usuarioId, montoPago, ordenId]
     );
-    
-    if (userCheck.rows[0]?.first_payment_date) {
-      // Ya tenía primer pago, no procesar bonos
-      return { bonos_activados: false, razon_rechazo: 'Ya se procesó el primer pago anteriormente' };
+    if (claim.rows.length === 0) {
+      return { bonos_activados: false, razon_rechazo: 'Usuario no es referido registrado (o ya se procesó)' };
     }
-    // NOTA: el UPDATE de first_payment_date se hace AL FINAL (después de los depósitos)
-    // para no mantener bloqueada la fila de users mientras walletService.depositar
-    // (que corre en otra conexión) intenta actualizar wallet_balance del mismo usuario.
-
-    // Buscar registro de referido
-    const referidoRes = await client.query(
-      `SELECT r.*, u.full_name as nombre_referidor
-       FROM referidos r
-       JOIN users u ON r.referidor_id = u.id
-       WHERE r.referido_id = $1 AND r.estado = 'registrado'`,
-      [usuarioId]
-    );
-    
-    if (referidoRes.rows.length === 0) {
-      // No es referido de nadie
-      await client.query('COMMIT');
-      return { bonos_activados: false, razon_rechazo: 'Usuario no fue referido' };
-    }
-    
-    const referido = referidoRes.rows[0];
+    const referido = claim.rows[0];
     const settings = await getReferralSettings();
-    
-    // Actualizar estado a primer_pago
-    await client.query(
-      `UPDATE referidos SET 
-         estado = 'primer_pago',
-         fecha_primer_pago = NOW(),
-         monto_primer_pago = $1,
-         orden_id = $2,
-         updated_at = NOW()
-       WHERE id = $3`,
-      [montoPago, ordenId, referido.id]
-    );
-    
-    // Verificar monto mínimo
+
+    // 2) Monto mínimo del primer envío.
     if (montoPago < settings.minimum_order_amount) {
-      await client.query(
-        `UPDATE referidos SET 
-           estado = 'rechazado',
-           razon_rechazo = $1,
-           updated_at = NOW()
-         WHERE id = $2`,
-        [`Monto de primer pago ($${montoPago}) menor al mínimo requerido ($${settings.minimum_order_amount})`, referido.id]
+      await pool.query(
+        `UPDATE referidos SET estado='rechazado', razon_rechazo=$2, updated_at=NOW() WHERE id=$1`,
+        [referido.id, `Monto de primer envío ($${montoPago}) menor al mínimo ($${settings.minimum_order_amount})`]
       );
-      await client.query('COMMIT');
-      return {
-        bonos_activados: false,
-        razon_rechazo: `El monto del primer envío debe ser mayor a $${settings.minimum_order_amount} MXN`,
-      };
+      return { bonos_activados: false, razon_rechazo: `El primer envío debe ser mayor a $${settings.minimum_order_amount} MXN` };
     }
-    
-    // Ejecutar verificaciones anti-fraude
-    const antifraud = await runAntifraudChecks(
-      referido.id,
-      usuarioId,
-      referido.referidor_id,
-      cardBin,
-      cardLast4
-    );
-    
+
+    // 3) Anti-fraude.
+    const antifraud = await runAntifraudChecks(referido.id, usuarioId, referido.referidor_id, cardBin, cardLast4);
     if (!antifraud.passed) {
-      await client.query(
-        `UPDATE referidos SET 
-           estado = 'rechazado',
-           razon_rechazo = $1,
-           metadata = metadata || $2::jsonb,
-           updated_at = NOW()
-         WHERE id = $3`,
-        [
-          'No pasó las verificaciones de seguridad',
-          JSON.stringify({ antifraud_checks: antifraud.checks, risk_score: antifraud.total_risk_score }),
-          referido.id
-        ]
+      await pool.query(
+        `UPDATE referidos SET estado='rechazado', razon_rechazo=$2, metadata=$3::jsonb, updated_at=NOW() WHERE id=$1`,
+        [referido.id, 'No pasó las verificaciones de seguridad',
+         JSON.stringify({ antifraud_checks: antifraud.checks, risk_score: antifraud.total_risk_score })]
       );
-      await client.query('COMMIT');
-      return {
-        bonos_activados: false,
-        razon_rechazo: 'Verificación de seguridad fallida',
-      };
+      return { bonos_activados: false, razon_rechazo: 'Verificación de seguridad fallida' };
     }
-    
-    // ¡TODO VALIDADO! Depositar bonos
-    
-    // Obtener nombre del referido
-    const nombreReferido = await client.query(
-      'SELECT full_name FROM users WHERE id = $1',
-      [usuarioId]
+
+    // 4) Entregar premios (dinero o Kit) según la configuración, por lado.
+    const nombreRef = (await pool.query('SELECT full_name FROM users WHERE id = $1', [usuarioId])).rows[0]?.full_name || 'Usuario';
+    const referrerType = settings.referrer_reward_type || 'money';
+    const referredType = settings.referred_reward_type || 'money';
+
+    // Referidor
+    if (referrerType === 'kit') {
+      await addUserToKit(referido.referidor_id);
+    } else {
+      await walletService.depositar(
+        referido.referidor_id, Number(referido.bono_referidor),
+        `Recompensa por referido: ${nombreRef}`, 'referido', referido.id,
+        { tipo: 'bono_referidor', referido_id: usuarioId }
+      );
+    }
+    // Referido
+    if (referredType === 'kit') {
+      await addUserToKit(usuarioId);
+    } else {
+      await walletService.depositar(
+        usuarioId, Number(referido.bono_referido),
+        'Bono de bienvenida por referido', 'referido', referido.id,
+        { tipo: 'bono_referido', referidor_id: referido.referidor_id }
+      );
+    }
+
+    // 5) Marcar validado + primer pago + contadores del referidor.
+    await pool.query(
+      `UPDATE referidos SET estado='validado', fecha_validacion=NOW(), bonos_pagados=TRUE, updated_at=NOW() WHERE id=$1`,
+      [referido.id]
     );
-    
-    const nombreRef = nombreReferido.rows[0]?.full_name || 'Usuario';
-    
-    // Bono para el referidor
-    const bonoReferidor = await walletService.depositar(
-      referido.referidor_id,
-      referido.bono_referidor,
-      `Recompensa por referido: ${nombreRef}`,
-      'referido',
-      referido.id,
-      { tipo: 'bono_referidor', referido_id: usuarioId }
-    );
-    
-    // Bono para el referido
-    const bonoReferido = await walletService.depositar(
-      usuarioId,
-      referido.bono_referido,
-      'Bono de bienvenida por referido',
-      'referido',
-      referido.id,
-      { tipo: 'bono_referido', referidor_id: referido.referidor_id }
-    );
-    
-    // Registrar el primer pago del usuario (ya después de los depósitos, para no
-    // bloquear la fila durante walletService.depositar).
-    await client.query(
+    await pool.query(
       'UPDATE users SET first_payment_date = NOW(), first_payment_amount = $1 WHERE id = $2',
       [montoPago, usuarioId]
     );
+    await pool.query(
+      `UPDATE users SET referrals_count = COALESCE(referrals_count,0) + 1,
+                        referrals_earnings = COALESCE(referrals_earnings,0) + $1
+        WHERE id = $2`,
+      [referrerType === 'money' ? Number(referido.bono_referidor) : 0, referido.referidor_id]
+    );
 
-    // Actualizar estado a validado
-    await client.query(
-      `UPDATE referidos SET
-         estado = 'validado',
-         fecha_validacion = NOW(),
-         bonos_pagados = TRUE,
-         updated_at = NOW()
-       WHERE id = $1`,
-      [referido.id]
-    );
-    
-    // Actualizar contadores del referidor
-    await client.query(
-      `UPDATE users SET 
-         referrals_count = COALESCE(referrals_count, 0) + 1,
-         referrals_earnings = COALESCE(referrals_earnings, 0) + $1
-       WHERE id = $2`,
-      [referido.bono_referidor, referido.referidor_id]
-    );
-    
-    await client.query('COMMIT');
-    
     return {
       bonos_activados: true,
-      bono_referidor: referido.bono_referidor,
-      bono_referido: referido.bono_referido,
+      bono_referidor: Number(referido.bono_referidor),
+      bono_referido: Number(referido.bono_referido),
     };
   } catch (error: any) {
-    await client.query('ROLLBACK');
     console.error('Error procesando primer pago:', error);
-    return {
-      bonos_activados: false,
-      razon_rechazo: error.message,
-    };
-  } finally {
-    client.release();
+    return { bonos_activados: false, razon_rechazo: error.message };
   }
 };
 

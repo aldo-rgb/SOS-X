@@ -271,6 +271,30 @@ async function notifyKitReady(userId: number | null | undefined, name?: string |
   } catch (e) { console.warn('[KIT] notifyKitReady:', (e as Error).message); }
 }
 
+// Agrega un usuario a la lista del Kit (premio de referido tipo "kit"). Idempotente
+// por user_id. Notifica en la app. No lanza (para no romper el flujo del bono).
+export async function addUserToKit(userId: number): Promise<boolean> {
+  try {
+    if (!userId) return false;
+    await ensureSchema();
+    const u = await pool.query(`SELECT full_name, phone, email, box_id FROM users WHERE id = $1`, [userId]);
+    const user = u.rows[0];
+    if (!user) return false;
+    const dup = await pool.query(
+      `SELECT 1 FROM welcome_kit_requests WHERE status <> 'cancelado' AND user_id = $1 LIMIT 1`,
+      [userId]
+    );
+    if (dup.rows[0]) return false; // ya está en la lista
+    await pool.query(
+      `INSERT INTO welcome_kit_requests (user_id, full_name, phone, email, box_id, status, notes)
+       VALUES ($1,$2,$3,$4,$5,'solicitado','Premio de referido (Kit de Bienvenida)')`,
+      [userId, user.full_name, user.phone || null, user.email || null, user.box_id || null]
+    );
+    await notifyKitReady(userId, user.full_name);
+    return true;
+  } catch (e) { console.warn('[KIT] addUserToKit:', (e as Error).message); return false; }
+}
+
 // GET /api/admin/welcome-kit → lista + stats
 export const getWelcomeKits = async (req: Request, res: Response): Promise<any> => {
   try {

@@ -539,7 +539,8 @@ export const updateReferralSettings = async (req: AuthRequest, res: Response): P
       return res.status(403).json({ error: 'Sin permisos' });
     }
 
-    const { referrer_bonus, referred_bonus, minimum_order_amount, is_active } = req.body;
+    const { referrer_bonus, referred_bonus, minimum_order_amount, is_active, referrer_reward_type, referred_reward_type } = req.body;
+    const normType = (v: any) => (v === 'kit' ? 'kit' : 'money');
 
     const current = await referralService.getReferralSettings();
     const updated = {
@@ -548,6 +549,8 @@ export const updateReferralSettings = async (req: AuthRequest, res: Response): P
       ...(referred_bonus !== undefined && { referred_bonus: Number(referred_bonus) }),
       ...(minimum_order_amount !== undefined && { minimum_order_amount: Number(minimum_order_amount) }),
       ...(is_active !== undefined && { is_active: Boolean(is_active) }),
+      ...(referrer_reward_type !== undefined && { referrer_reward_type: normType(referrer_reward_type) }),
+      ...(referred_reward_type !== undefined && { referred_reward_type: normType(referred_reward_type) }),
     };
 
     const { pool: db2 } = require('./db');
