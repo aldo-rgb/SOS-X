@@ -361,6 +361,9 @@ export const getAvailableAdvisors = async (req: Request, res: Response): Promise
       SELECT id, full_name, email, referral_code, box_id, phone
       FROM users
       WHERE role IN ('advisor', 'asesor', 'asesor_lider', 'sub_advisor')
+        AND COALESCE(is_active, TRUE) = TRUE
+        AND deleted_at IS NULL
+        AND COALESCE(is_blocked, FALSE) = FALSE
       ORDER BY full_name
     `);
     
