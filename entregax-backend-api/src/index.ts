@@ -645,6 +645,8 @@ import {
   updateKitProduct,
   deleteKitProduct,
   uploadKitProductPhoto,
+  getMyKit,
+  selectKitGift,
 } from './welcomeKitController';
 import {
   getSequences,
@@ -7130,6 +7132,9 @@ app.post('/api/admin/welcome-kit/products', authenticateToken, requireMinLevel(R
 app.put('/api/admin/welcome-kit/products/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateKitProduct);
 app.delete('/api/admin/welcome-kit/products/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteKitProduct);
 app.post('/api/admin/welcome-kit/products/upload-photo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), kitPhotoUpload.single('file'), uploadKitProductPhoto);
+// 📱 Cliente: ver su kit pendiente y elegir su regalo (crea la guía USK)
+app.get('/api/welcome-kit/my-kit', authenticateToken, getMyKit);
+app.post('/api/welcome-kit/select-gift', authenticateToken, selectKitGift);
 
 // 🔄 Secuencias automáticas de WhatsApp (cadencia Día 1/3/7)
 app.get('/api/admin/crm/sequences', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSequences);

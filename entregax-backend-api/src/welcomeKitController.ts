@@ -14,7 +14,10 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
-import { uploadToS3, isS3Configured, getSignedUrlForKey } from './s3Service';
+import { uploadToS3, isS3Configured, getSignedUrlForKey, BUCKET_NAME } from './s3Service';
+
+const s3UrlFromKey = (key: string): string =>
+  `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${key}`;
 
 // ============================================================================
 // 🛍️ CATÁLOGO DE REGALOS (mini-tienda con inventario)
@@ -203,7 +206,20 @@ async function ensureSchema(): Promise<void> {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_wkr_status ON welcome_kit_requests(status);`).catch(() => {});
+  // Producto (regalo) que el cliente eligió del catálogo.
+  await pool.query(`ALTER TABLE welcome_kit_requests ADD COLUMN IF NOT EXISTS selected_product_id INTEGER`).catch(() => {});
   schemaReady = true;
+}
+
+// Genera un tracking único para la guía del Kit: USK- + 10 dígitos.
+async function generateUskTracking(): Promise<string> {
+  for (let i = 0; i < 8; i++) {
+    const digits = Date.now().toString().slice(-6) + String(Math.floor(1000 + Math.random() * 9000));
+    const t = `USK-${digits}`;
+    const dup = await pool.query(`SELECT 1 FROM packages WHERE tracking_internal = $1 LIMIT 1`, [t]);
+    if (!dup.rows[0]) return t;
+  }
+  return `USK-${Date.now()}`;
 }
 
 const VALID_STATUSES = ['solicitado', 'seleccionado', 'instrucciones', 'por_enviar', 'enviado', 'entregado', 'cancelado'];
@@ -389,6 +405,121 @@ export const deleteWelcomeKit = async (req: Request, res: Response): Promise<any
     res.json({ success: true });
   } catch (error: any) {
     console.error('Error deleteWelcomeKit:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ============================================================================
+// 📱 CLIENTE: ver su kit pendiente y elegir su regalo (crea la guía USK)
+// ============================================================================
+
+// GET /api/welcome-kit/my-kit  (cliente autenticado)
+// Devuelve si tiene un kit pendiente + los productos disponibles para elegir.
+export const getMyKit = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureSchema();
+    await ensureProductsSchema();
+    const userId = (req as any).user?.userId || (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'No autenticado' });
+    const me = await pool.query(`SELECT id, full_name, box_id FROM users WHERE id = $1`, [userId]);
+    const boxId = me.rows[0]?.box_id || null;
+
+    // Kit pendiente del usuario (por user_id o por Box ID), no cancelado ni entregado.
+    const kitRes = await pool.query(
+      `SELECT id, status, selected_product_id, usa_tracking
+         FROM welcome_kit_requests
+        WHERE status NOT IN ('cancelado')
+          AND ( user_id = $1
+             OR (NULLIF($2,'') IS NOT NULL AND UPPER(TRIM(box_id)) = UPPER(TRIM($2))) )
+        ORDER BY requested_at DESC LIMIT 1`,
+      [userId, boxId]
+    );
+    const kit = kitRes.rows[0] || null;
+
+    // Productos disponibles (activos con stock) — solo si aún no ha elegido.
+    let products: any[] = [];
+    if (kit && !kit.selected_product_id) {
+      const pr = await pool.query(
+        `SELECT id, name, description, video_url, stock, photos FROM welcome_kit_products
+          WHERE is_active = true AND stock > 0 ORDER BY sort_order ASC, id DESC`
+      );
+      products = await Promise.all(pr.rows.map(async (p: any) => ({ ...p, photos: await signPhotos(p.photos) })));
+    }
+
+    res.json({
+      success: true,
+      has_pending_kit: !!kit && kit.status === 'solicitado' && !kit.selected_product_id,
+      kit: kit ? { id: kit.id, status: kit.status, selected_product_id: kit.selected_product_id, usa_tracking: kit.usa_tracking } : null,
+      products,
+    });
+  } catch (error: any) {
+    console.error('Error getMyKit:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// POST /api/welcome-kit/select-gift  { product_id }  (cliente autenticado)
+// El cliente elige 1 regalo → status 'seleccionado' + se genera la guía USK.
+export const selectKitGift = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureSchema();
+    await ensureProductsSchema();
+    const userId = (req as any).user?.userId || (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'No autenticado' });
+    const productId = parseInt(String((req.body || {}).product_id), 10);
+    if (!productId) return res.status(400).json({ success: false, error: 'Falta el producto' });
+
+    const me = await pool.query(`SELECT id, full_name, box_id FROM users WHERE id = $1`, [userId]);
+    const user = me.rows[0];
+    if (!user) return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+
+    // Kit pendiente (sin regalo elegido aún).
+    const kitRes = await pool.query(
+      `SELECT id, selected_product_id FROM welcome_kit_requests
+        WHERE status NOT IN ('cancelado')
+          AND ( user_id = $1 OR (NULLIF($2,'') IS NOT NULL AND UPPER(TRIM(box_id)) = UPPER(TRIM($2))) )
+        ORDER BY requested_at DESC LIMIT 1`,
+      [userId, user.box_id || null]
+    );
+    const kit = kitRes.rows[0];
+    if (!kit) return res.status(404).json({ success: false, error: 'No tienes un kit pendiente' });
+    if (kit.selected_product_id) return res.status(409).json({ success: false, error: 'Ya elegiste tu regalo' });
+
+    // Producto disponible.
+    const pr = await pool.query(`SELECT id, name, photos, stock FROM welcome_kit_products WHERE id = $1 AND is_active = true`, [productId]);
+    const product = pr.rows[0];
+    if (!product) return res.status(404).json({ success: false, error: 'Producto no disponible' });
+    if ((product.stock || 0) <= 0) return res.status(409).json({ success: false, error: 'Sin existencias de ese regalo' });
+
+    // Foto del producto (la primera) para la guía.
+    const firstKey = Array.isArray(product.photos) ? (typeof product.photos[0] === 'string' ? product.photos[0] : product.photos[0]?.key) : null;
+    const imageUrl = firstKey ? s3UrlFromKey(firstKey) : null;
+
+    // Crear la guía USK: POBOX_USA, 1 kg, 10x20x25, proveedor EntregaX, sin guía origen.
+    const tracking = await generateUskTracking();
+    const pkg = await pool.query(
+      `INSERT INTO packages
+         (user_id, box_id, tracking_internal, tracking_provider, description, weight,
+          pkg_length, pkg_width, pkg_height, status, is_master, box_number, total_boxes,
+          carrier, service_type, image_url, notes, needs_instructions)
+       VALUES ($1,$2,$3,NULL,$4,1, 10,20,25,'received', true, 0, 1, 'EntregaX','POBOX_USA',$5,$6, true)
+       RETURNING id, tracking_internal`,
+      [
+        userId, user.box_id || null, tracking, `Kit de Bienvenida — ${product.name}`,
+        imageUrl, `Regalo Kit de Bienvenida (${product.name}). Proveedor: EntregaX. Sin guía origen.`,
+      ]
+    );
+
+    // Actualizar el kit: seleccionado + guía + producto. Descontar stock.
+    await pool.query(
+      `UPDATE welcome_kit_requests SET status='seleccionado', selected_product_id=$2, usa_tracking=$3, updated_at=NOW() WHERE id=$1`,
+      [kit.id, productId, tracking]
+    );
+    await pool.query(`UPDATE welcome_kit_products SET stock = GREATEST(stock - 1, 0), updated_at=NOW() WHERE id=$1`, [productId]);
+
+    res.json({ success: true, tracking, package_id: pkg.rows[0].id, product: { id: product.id, name: product.name } });
+  } catch (error: any) {
+    console.error('Error selectKitGift:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
