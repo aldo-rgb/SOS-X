@@ -257,14 +257,25 @@ export const getWelcomeKits = async (req: Request, res: Response): Promise<any> 
       params.push(`%${search}%`); i++;
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const list = await pool.query(
-      `SELECT k.*, adv.full_name AS advisor_name
+    const listRes = await pool.query(
+      `SELECT k.*, adv.full_name AS advisor_name,
+              pr.name AS selected_product_name, pr.photos AS selected_product_photos
          FROM welcome_kit_requests k
          LEFT JOIN users adv ON k.user_id = adv.id
+         LEFT JOIN welcome_kit_products pr ON pr.id = k.selected_product_id
          ${where}
         ORDER BY k.requested_at DESC`,
       params
     );
+    // Firmar la primera foto del producto elegido (para mostrar miniatura).
+    const list = { rows: await Promise.all(listRes.rows.map(async (r: any) => {
+      let photo: string | null = null;
+      const ph = Array.isArray(r.selected_product_photos) ? r.selected_product_photos : [];
+      const key = ph[0] ? (typeof ph[0] === 'string' ? ph[0] : ph[0]?.key) : null;
+      if (key) { try { photo = await getSignedUrlForKey(key, 6 * 3600); } catch { /* ignore */ } }
+      const { selected_product_photos, ...rest } = r;
+      return { ...rest, selected_product_photo: photo };
+    })) };
     const statsRes = await pool.query(`
       SELECT
         COUNT(*) FILTER (WHERE status = 'solicitado')   AS solicitado,

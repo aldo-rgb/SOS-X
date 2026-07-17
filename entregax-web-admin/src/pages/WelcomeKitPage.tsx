@@ -50,6 +50,9 @@ interface KitRequest {
   notes: string | null;
   requested_at: string;
   updated_at: string;
+  selected_product_id: number | null;
+  selected_product_name: string | null;
+  selected_product_photo: string | null;
 }
 
 interface KitStats {
@@ -349,6 +352,7 @@ export default function WelcomeKitPage() {
               <TableRow sx={{ bgcolor: 'rgba(0,0,0,0.03)' }}>
                 <TableCell><strong>Solicitante</strong></TableCell>
                 <TableCell><strong>Contacto</strong></TableCell>
+                <TableCell><strong>Regalo elegido</strong></TableCell>
                 <TableCell><strong>Dirección de envío</strong></TableCell>
                 <TableCell><strong>Guías</strong></TableCell>
                 <TableCell><strong>Estado</strong></TableCell>
@@ -357,9 +361,9 @@ export default function WelcomeKitPage() {
             </TableHead>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4 }}><CircularProgress size={40} /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4 }}><CircularProgress size={40} /></TableCell></TableRow>
               ) : rows.length === 0 ? (
-                <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4 }}><Typography color="text.secondary">No hay solicitudes de kit todavía.</Typography></TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4 }}><Typography color="text.secondary">No hay solicitudes de kit todavía.</Typography></TableCell></TableRow>
               ) : rows.map(r => {
                 const ship = shipSummary(r);
                 return (
@@ -373,6 +377,18 @@ export default function WelcomeKitPage() {
                     <TableCell>
                       <Typography variant="caption" display="block">{r.phone || '—'}</Typography>
                       <Typography variant="caption" color="text.secondary">{r.email || ''}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      {r.selected_product_name ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {r.selected_product_photo
+                            ? <img src={r.selected_product_photo} alt={r.selected_product_name} style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover' }} />
+                            : <Box sx={{ width: 40, height: 40, borderRadius: 1, bgcolor: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🎁</Box>}
+                          <Typography variant="caption" fontWeight={600}>{r.selected_product_name}</Typography>
+                        </Box>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">Sin elegir</Typography>
+                      )}
                     </TableCell>
                     <TableCell sx={{ maxWidth: 260 }}>
                       {ship ? (
