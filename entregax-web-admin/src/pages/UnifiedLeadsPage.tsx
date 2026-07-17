@@ -179,6 +179,10 @@ interface Prospect {
   seq_next_send_at?: string | null;
   // Kit de bienvenida
   has_kit?: boolean;
+  // Origen: 'prospect' (tabla prospects) o 'legacy' (cliente de reactivación sin reclamar)
+  source?: string;
+  lead_key?: string;
+  box_id?: string | null;
 }
 
 interface WaSequence {
@@ -338,7 +342,7 @@ export default function UnifiedLeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [leadStats, setLeadStats] = useState<LeadStats>({ prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 });
   const [leadsLoading, setLeadsLoading] = useState(true);
-  const [leadTabValue, setLeadTabValue] = useState('pending');
+  const [leadTabValue, setLeadTabValue] = useState('assigned');
   
   // Modal asignación lead
   const [openLeadModal, setOpenLeadModal] = useState(false);
@@ -584,7 +588,7 @@ export default function UnifiedLeadsPage() {
   };
 
   // ===== Selección de PROSPECTOS externos (mismo sistema, key 'pr_<id>') =====
-  const prospectKeyOf = (p: Prospect): string => `pr_${p.id}`;
+  const prospectKeyOf = (p: Prospect): string => p.lead_key || `pr_${p.id}`;
   const toggleProspectSelected = (key: string) => {
     setSelectedProspectKeys(prev => {
       const next = new Set(prev);
@@ -1423,7 +1427,7 @@ export default function UnifiedLeadsPage() {
       {mainTab === 'leads' && (
         <Box>
           {/* Lead Stats */}
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 2, mb: 3 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 2, mb: 3 }}>
             <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#f3e5f5', borderLeft: '4px solid #9c27b0' }}>
               <Typography variant="h4" fontWeight={700} color="#7b1fa2">{leadStats.prospected}</Typography>
               <Typography variant="body2" color="text.secondary">Prospectados 🌱</Typography>
@@ -1431,10 +1435,6 @@ export default function UnifiedLeadsPage() {
             <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#fffde7', borderLeft: '4px solid #fbc02d' }}>
               <Typography variant="h4" fontWeight={700} color="#f57f17">{leadStats.waiting}</Typography>
               <Typography variant="body2" color="text.secondary">En espera ⏳</Typography>
-            </Paper>
-            <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#fff3e0', borderLeft: '4px solid #ff9800' }}>
-              <Typography variant="h4" fontWeight={700} color="#e65100">{leadStats.pending}</Typography>
-              <Typography variant="body2" color="text.secondary">{t('leads.pending')} 🔥</Typography>
             </Paper>
             <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#e3f2fd', borderLeft: '4px solid #2196f3' }}>
               <Typography variant="h4" fontWeight={700} color="#1565c0">{leadStats.assigned}</Typography>
@@ -1460,7 +1460,6 @@ export default function UnifiedLeadsPage() {
             >
               <Tab value="prospected" label={`Prospectados (${leadStats.prospected})`} />
               <Tab value="waiting" label={`En espera (${leadStats.waiting})`} />
-              <Tab value="pending" label={`${t('leads.pending')} (${leadStats.pending})`} />
               <Tab value="assigned" label={`${t('leads.assigned')} (${leadStats.assigned})`} />
               <Tab value="contacted" label={`${t('leads.contacted')} (${leadStats.contacted})`} />
               <Tab value="converted" label={`${t('leads.converted')} (${leadStats.converted})`} />
@@ -2033,9 +2032,11 @@ export default function UnifiedLeadsPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    prospects.map((prospect) => (
-                      <TableRow 
-                        key={prospect.id}
+                    prospects.map((prospect) => {
+                      const isLegacy = prospect.source === 'legacy';
+                      return (
+                      <TableRow
+                        key={prospectKeyOf(prospect)}
                         sx={{
                           bgcolor: prospect.follow_up_today ? 'rgba(255, 193, 7, 0.1)' : 
                                    prospect.follow_up_overdue ? 'rgba(211, 47, 47, 0.05)' : 'transparent',
@@ -2138,24 +2139,28 @@ export default function UnifiedLeadsPage() {
                           ) : '-'}
                         </TableCell>
                         <TableCell>
-                          <FormControl size="small" variant="standard" sx={{ minWidth: 100 }}>
-                            <Select
-                              value={prospect.status}
-                              onChange={(e) => handleQuickProspectStatusChange(prospect, e.target.value)}
-                              disableUnderline
-                              renderValue={(value) => (
-                                <Chip 
-                                  label={getProspectStatusInfo(value).label} 
-                                  size="small" 
-                                  color={getProspectStatusInfo(value).color}
-                                />
-                              )}
-                            >
-                              {PROSPECT_STATUSES.map(s => (
-                                <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>
-                              ))}
-                            </Select>
-                          </FormControl>
+                          {isLegacy ? (
+                            <Chip label="Reactivación (sin reclamar)" size="small" color="warning" variant="outlined" />
+                          ) : (
+                            <FormControl size="small" variant="standard" sx={{ minWidth: 100 }}>
+                              <Select
+                                value={prospect.status}
+                                onChange={(e) => handleQuickProspectStatusChange(prospect, e.target.value)}
+                                disableUnderline
+                                renderValue={(value) => (
+                                  <Chip
+                                    label={getProspectStatusInfo(value).label}
+                                    size="small"
+                                    color={getProspectStatusInfo(value).color}
+                                  />
+                                )}
+                              >
+                                {PROSPECT_STATUSES.map(s => (
+                                  <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          )}
                         </TableCell>
                         <TableCell align="center">
                           <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
@@ -2171,38 +2176,45 @@ export default function UnifiedLeadsPage() {
                                 </IconButton>
                               </Tooltip>
                             )}
-                            {prospect.status !== 'converted' && prospect.status !== 'lost' && (
-                              <Tooltip title="Convertir a Cliente">
-                                <IconButton size="small" color="success" onClick={() => handleOpenConvert(prospect)}>
-                                  <PersonAddIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
+                            {isLegacy ? (
+                              prospect.box_id ? <Chip label={prospect.box_id} size="small" variant="outlined" /> : null
+                            ) : (
+                              <>
+                                {prospect.status !== 'converted' && prospect.status !== 'lost' && (
+                                  <Tooltip title="Convertir a Cliente">
+                                    <IconButton size="small" color="success" onClick={() => handleOpenConvert(prospect)}>
+                                      <PersonAddIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
+                                <Tooltip title={prospect.has_kit ? 'Ya está en la lista del Kit' : 'Marcar para Kit de Bienvenida'}>
+                                  <span>
+                                    <IconButton size="small" sx={{ color: prospect.has_kit ? '#F59E0B' : undefined }} disabled={prospect.has_kit || markingKitId === `pr_${prospect.id}`} onClick={() => markProspectKit(prospect)}>
+                                      <CardGiftcardIcon fontSize="small" />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                                <Tooltip title="Editar">
+                                  <IconButton size="small" onClick={() => handleOpenProspectForm(prospect)}>
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Eliminar">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => { setDeletingProspect(prospect); setDeleteDialogOpen(true); }}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </>
                             )}
-                            <Tooltip title={prospect.has_kit ? 'Ya está en la lista del Kit' : 'Marcar para Kit de Bienvenida'}>
-                              <span>
-                                <IconButton size="small" sx={{ color: prospect.has_kit ? '#F59E0B' : undefined }} disabled={prospect.has_kit || markingKitId === `pr_${prospect.id}`} onClick={() => markProspectKit(prospect)}>
-                                  <CardGiftcardIcon fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                            <Tooltip title="Editar">
-                              <IconButton size="small" onClick={() => handleOpenProspectForm(prospect)}>
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Eliminar">
-                              <IconButton 
-                                size="small" 
-                                color="error"
-                                onClick={() => { setDeletingProspect(prospect); setDeleteDialogOpen(true); }}
-                              >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
                           </Box>
                         </TableCell>
                       </TableRow>
-                    ))
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>

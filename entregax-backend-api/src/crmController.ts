@@ -200,9 +200,12 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
             WHEN LOWER(TRIM(COALESCE(lc.chartback_status, ''))) = 'recovered' THEN 'converted'
             WHEN LOWER(TRIM(COALESCE(lc.chartback_status, ''))) IN ('no_answer','callback','retention') THEN 'contacted'
             WHEN lc.recovery_advisor_id IS NOT NULL THEN 'assigned'
-            -- Reclamado = ya existe un usuario en el sistema (match por Box ID) →
-            -- sale de Pendientes. Pendientes = SOLO los que no tienen usuario.
-            WHEN mu.id IS NOT NULL THEN 'assigned'
+            -- Reclamado = ya existe un usuario en el sistema (match por Box ID).
+            -- Al reclamar su número, el cliente sale de Prospectos Externos y
+            -- pasa a CONVERTIDOS (recuperado).
+            WHEN mu.id IS NOT NULL THEN 'converted'
+            -- Sin reclamar: ya NO vive en CRM Leads; se muestra en Prospectos
+            -- Externos (se filtra abajo con status='pending').
             ELSE 'pending'
           END AS status,
           lc.chartback_notes AS admin_notes,
@@ -310,9 +313,13 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
 
     const all = await pool.query(combinedQuery);
 
-    // Stats sobre TODAS las fuentes (funnel combinado)
+    // Los "sin reclamar" (status='pending') ya NO viven en CRM Leads: se muestran
+    // en Prospectos Externos. Aquí se excluyen por completo.
+    const rows = all.rows.filter((r: any) => r.status !== 'pending');
+
+    // Stats sobre TODAS las fuentes (funnel combinado, sin los sin-reclamar)
     const stats = { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 };
-    for (const row of all.rows) {
+    for (const row of rows) {
       if (row.status && Object.prototype.hasOwnProperty.call(stats, row.status)) {
         stats[row.status as keyof typeof stats]++;
       }
@@ -325,7 +332,7 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
     let leads;
     if (q) {
       const qDigits = q.replace(/\D/g, '');
-      leads = all.rows.filter((r: any) => {
+      leads = rows.filter((r: any) => {
         const box = String(r.box_id || '').toLowerCase();
         const boxWithS = box.startsWith('s') ? box : ('s' + box);
         const name = String(r.full_name || '').toLowerCase();
@@ -338,8 +345,8 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
       });
     } else {
       leads = (status && status !== 'all')
-        ? all.rows.filter((r: any) => r.status === status)
-        : all.rows;
+        ? rows.filter((r: any) => r.status === status)
+        : rows;
     }
 
     res.json({
@@ -1655,68 +1662,105 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
     let paramIndex = 1;
 
     if (status && status !== 'all') {
-      whereConditions.push(`p.status = $${paramIndex}`);
+      whereConditions.push(`b.status = $${paramIndex}`);
       params.push(status);
       paramIndex++;
     }
 
     if (advisorId) {
-      whereConditions.push(`p.assigned_advisor_id = $${paramIndex}`);
+      whereConditions.push(`b.assigned_advisor_id = $${paramIndex}`);
       params.push(advisorId);
       paramIndex++;
     }
 
     if (channel) {
-      whereConditions.push(`p.acquisition_channel = $${paramIndex}`);
+      whereConditions.push(`b.acquisition_channel = $${paramIndex}`);
       params.push(channel);
       paramIndex++;
     }
 
     if (search) {
-      whereConditions.push(`(p.full_name ILIKE $${paramIndex} OR p.email ILIKE $${paramIndex} OR p.whatsapp ILIKE $${paramIndex})`);
+      whereConditions.push(`(b.full_name ILIKE $${paramIndex} OR b.email ILIKE $${paramIndex} OR b.whatsapp ILIKE $${paramIndex})`);
       params.push(`%${search}%`);
       paramIndex++;
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
+    // CTE base: prospectos externos + clientes legacy "sin reclamar" (reactivación
+    // sin asesor de recuperación y sin usuario registrado por Box ID). En cuanto el
+    // cliente reclama su número (se registra un usuario con ese Box ID) deja de
+    // cumplir la condición → sale de aquí solo y pasa a Convertidos en CRM Leads.
+    const baseCTE = `
+      base AS (
+        SELECT
+          p.id, 'prospect'::text AS source, ('pr_' || p.id::text) AS lead_key,
+          p.full_name, p.whatsapp, p.email, p.acquisition_channel,
+          p.assigned_advisor_id, p.status, p.notes, p.follow_up_date,
+          p.created_by_id, p.converted_user_id, p.created_at,
+          p.facebook_psid, p.last_interaction_fb, p.is_ai_active,
+          NULL::text AS legacy_asesor, NULL::text AS box_id
+        FROM prospects p
+        UNION ALL
+        SELECT
+          lc.id, 'legacy'::text AS source, ('lc_' || lc.id::text) AS lead_key,
+          COALESCE(NULLIF(TRIM(lc.full_name), ''), '(sin nombre)') AS full_name,
+          lc.phone AS whatsapp, lc.email, 'reactivacion'::text AS acquisition_channel,
+          NULL::int AS assigned_advisor_id, 'new'::text AS status,
+          lc.chartback_notes AS notes, NULL::timestamptz AS follow_up_date,
+          NULL::int AS created_by_id, NULL::int AS converted_user_id,
+          COALESCE(lc.chartback_i_since, lc.created_at) AS created_at,
+          NULL::text AS facebook_psid, NULL::timestamptz AS last_interaction_fb,
+          FALSE AS is_ai_active,
+          NULLIF(TRIM(lc.asesor), '') AS legacy_asesor, lc.box_id
+        FROM legacy_clients lc
+        LEFT JOIN LATERAL (
+          SELECT u2.id FROM users u2
+           WHERE lc.box_id IS NOT NULL AND UPPER(TRIM(u2.box_id)) = UPPER(TRIM(lc.box_id))
+           ORDER BY u2.id ASC LIMIT 1
+        ) mu ON true
+        WHERE LOWER(TRIM(COALESCE(lc.chartback_status, ''))) <> 'not_interested'
+          AND LOWER(TRIM(COALESCE(lc.chartback_status, ''))) <> 'recovered'
+          AND LOWER(TRIM(COALESCE(lc.chartback_status, ''))) NOT IN ('no_answer','callback','retention')
+          AND lc.recovery_advisor_id IS NULL
+          AND mu.id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM crm_requests cr WHERE cr.user_id IS NOT NULL AND cr.user_id = lc.claimed_by_user_id)
+          AND NOT EXISTS (SELECT 1 FROM lead_blacklist bl WHERE bl.lead_key = ('lc_' || lc.id::text))
+      )
+    `;
+
     const query = `
+      WITH ${baseCTE}
       SELECT
-        p.*,
-        advisor.full_name as advisor_name,
+        b.*,
+        COALESCE(advisor.full_name, b.legacy_asesor) as advisor_name,
         creator.full_name as created_by_name,
         cl.clicks AS link_clicks,
         cl.last_click_at AS last_click_at,
         se.status AS seq_status,
         se.current_step AS seq_step,
         se.next_send_at AS seq_next_send_at,
-        EXISTS(SELECT 1 FROM welcome_kit_requests wk WHERE wk.lead_key = ('pr_' || p.id::text) AND wk.status <> 'cancelado') AS has_kit,
-        CASE
-          WHEN p.follow_up_date::date = CURRENT_DATE THEN true
-          ELSE false
-        END as follow_up_today,
-        CASE
-          WHEN p.follow_up_date < NOW() THEN true
-          ELSE false
-        END as follow_up_overdue
-      FROM prospects p
-      LEFT JOIN users advisor ON p.assigned_advisor_id = advisor.id
-      LEFT JOIN users creator ON p.created_by_id = creator.id
+        EXISTS(SELECT 1 FROM welcome_kit_requests wk WHERE wk.lead_key = b.lead_key AND wk.status <> 'cancelado') AS has_kit,
+        CASE WHEN b.follow_up_date::date = CURRENT_DATE THEN true ELSE false END as follow_up_today,
+        CASE WHEN b.follow_up_date < NOW() THEN true ELSE false END as follow_up_overdue
+      FROM base b
+      LEFT JOIN users advisor ON b.assigned_advisor_id = advisor.id
+      LEFT JOIN users creator ON b.created_by_id = creator.id
       LEFT JOIN LATERAL (
         SELECT COALESCE(SUM(click_count), 0)::int AS clicks, MAX(last_click_at) AS last_click_at
           FROM wa_click_links wl
-         WHERE wl.lead_key = ('pr_' || p.id::text) AND wl.click_count > 0
+         WHERE wl.lead_key = b.lead_key AND wl.click_count > 0
       ) cl ON true
       LEFT JOIN LATERAL (
         SELECT status, current_step, next_send_at
           FROM wa_sequence_enrollments en
-         WHERE en.lead_key = ('pr_' || p.id::text)
+         WHERE en.lead_key = b.lead_key
          ORDER BY en.updated_at DESC LIMIT 1
       ) se ON true
       ${whereClause}
-      ORDER BY 
-        CASE WHEN p.follow_up_date::date = CURRENT_DATE THEN 0 ELSE 1 END,
-        p.created_at DESC
+      ORDER BY
+        CASE WHEN b.follow_up_date::date = CURRENT_DATE THEN 0 ELSE 1 END,
+        b.created_at DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
 
@@ -1725,20 +1769,21 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
     const result = await pool.query(query, params);
 
     // Conteo
-    const countQuery = `SELECT COUNT(*) FROM prospects p ${whereClause}`;
+    const countQuery = `WITH ${baseCTE} SELECT COUNT(*) FROM base b ${whereClause}`;
     const countResult = await pool.query(countQuery, params.slice(0, -2));
     const total = parseInt(countResult.rows[0].count);
 
-    // Stats por estado
+    // Stats por estado (sobre prospectos + legacy sin-reclamar)
     const statsQuery = `
-      SELECT 
+      WITH ${baseCTE}
+      SELECT
         COUNT(*) FILTER (WHERE status = 'new') as new_count,
         COUNT(*) FILTER (WHERE status = 'contacting') as contacting_count,
         COUNT(*) FILTER (WHERE status = 'interested') as interested_count,
         COUNT(*) FILTER (WHERE status = 'converted') as converted_count,
         COUNT(*) FILTER (WHERE status = 'lost') as lost_count,
         COUNT(*) FILTER (WHERE follow_up_date::date = CURRENT_DATE) as follow_up_today
-      FROM prospects
+      FROM base
     `;
     const statsResult = await pool.query(statsQuery);
 
