@@ -702,12 +702,22 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   }, [token, user, navigation]);
 
   // 🔄 Refrescar al volver a la pantalla (después de contratar GEX o completar onboarding)
+  // 🎁 Refrescar el estado del kit de bienvenida (para quitar el badge "Regalo"
+  //    y el punto rojo en cuanto el cliente ya eligió su regalo).
+  const fetchPendingKit = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/welcome-kit/my-kit`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) { const d = await r.json(); if (isMounted.current) setHasPendingKit(!!d.has_pending_kit); }
+    } catch { /* ignore */ }
+  }, [token]);
+
   useFocusEffect(
     useCallback(() => {
       fetchPackages();
       refreshUserData(); // Actualizar datos del usuario
       fetchUnreadNotifications(); // 🔔 Actualizar notificaciones
-    }, [fetchPackages, refreshUserData, fetchUnreadNotifications])
+      fetchPendingKit(); // 🎁 Refrescar estado del kit (quita el badge si ya eligió)
+    }, [fetchPackages, refreshUserData, fetchUnreadNotifications, fetchPendingKit])
   );
 
   const onRefresh = () => {
