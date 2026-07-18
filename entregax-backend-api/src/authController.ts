@@ -122,6 +122,29 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
             return;
         }
 
+        // 1.2 Verificar que el teléfono/WhatsApp no esté ya registrado por otro usuario.
+        // Se compara por los últimos 10 dígitos (mismo criterio que el resto del sistema)
+        // para ignorar prefijos de país / formato. Un mismo número no puede pertenecer a
+        // dos cuentas distintas.
+        const phoneDigits = String(phone || '').replace(/\D/g, '');
+        if (phoneDigits.length >= 10) {
+            const phoneLast10 = phoneDigits.slice(-10);
+            const phoneCheck = await pool.query(
+                `SELECT id FROM users
+                  WHERE length(regexp_replace(COALESCE(phone, ''), '\\D', '', 'g')) >= 10
+                    AND right(regexp_replace(COALESCE(phone, ''), '\\D', '', 'g'), 10) = $1
+                  LIMIT 1`,
+                [phoneLast10]
+            );
+            if (phoneCheck.rows.length > 0) {
+                res.status(409).json({
+                    error: 'Este número de teléfono ya está registrado. Inicia sesión con tu cuenta existente o recupera tu contraseña.',
+                    errorCode: 'PHONE_EXISTS'
+                });
+                return;
+            }
+        }
+
         // 1.5 Si proporciona un box_id existente, verificar que esté en legacy_clients y no en users
         let claimedBoxId: string | null = null;
         if (existingBoxId) {
