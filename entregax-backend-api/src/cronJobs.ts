@@ -760,6 +760,13 @@ export const startXpayExpiryCron = () => {
       );
       if (r.rowCount && r.rowCount > 0) {
         console.log(`⏳ [CRON] X-Pay: ${r.rowCount} órdenes canceladas por congelamiento vencido`);
+        // Fire-and-forget: avisar a ENTANGLED de cada una.
+        try {
+          const { notifyCancelledRequestIds } = await import('./entangledServiceV2');
+          void notifyCancelledRequestIds(r.rows.map((row) => row.id), 'congelamiento_vencido');
+        } catch (nErr) {
+          console.warn('[CRON] X-Pay notifyCancelled fallback:', (nErr as Error).message);
+        }
       }
     } catch (err: any) {
       console.error('❌ [CRON] X-Pay expiry:', err.message);

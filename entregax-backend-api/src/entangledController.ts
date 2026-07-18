@@ -37,6 +37,7 @@ import {
   ENTANGLED_WEBHOOK_SECRET,
   EntangledSolicitudPayload,
 } from './entangledService';
+import { notifyCancelledRequestIds } from './entangledServiceV2';
 
 const getAuthUserId = (req: Request): number | null => {
   const u = (req as any).user;
@@ -488,7 +489,7 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
   try {
     // Auto-cancelación: solicitudes sin completar en 24h
     // Se marca cargo de cancelación configurable por proveedor (fallback 1 USD) en raw_response.
-    await pool.query(
+    const autoCancel = await pool.query(
       `UPDATE entangled_payment_requests epr
        SET estatus_global = 'cancelado',
            estatus_factura = CASE WHEN estatus_factura IN ('completado', 'emitida', 'enviado') THEN estatus_factura ELSE 'cancelado' END,
@@ -505,9 +506,14 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
        WHERE user_id = $1
          AND estatus_global IN ('pendiente', 'esperando_comprobante', 'error_envio')
          AND comprobante_subido_at IS NULL
-         AND created_at <= (NOW() - INTERVAL '24 hours')`,
+         AND created_at <= (NOW() - INTERVAL '24 hours')
+       RETURNING id`,
       [userId]
     );
+    if (autoCancel.rows.length > 0) {
+      // Fire-and-forget: avisar a ENTANGLED que cancelamos.
+      void notifyCancelledRequestIds(autoCancel.rows.map((r) => r.id), 'expiro_24h');
+    }
 
     const r = await pool.query(
       `SELECT id,
@@ -599,7 +605,7 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
   const status = (req.query.status as string) || 'all';
   try {
     // Auto-cancelación global de solicitudes vencidas
-    await pool.query(
+    const autoCancel = await pool.query(
       `UPDATE entangled_payment_requests epr
        SET estatus_global = 'cancelado',
            estatus_factura = CASE WHEN estatus_factura IN ('completado', 'emitida', 'enviado') THEN estatus_factura ELSE 'cancelado' END,
@@ -615,8 +621,12 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
            updated_at = NOW()
        WHERE estatus_global IN ('pendiente', 'esperando_comprobante', 'error_envio')
          AND comprobante_subido_at IS NULL
-         AND created_at <= (NOW() - INTERVAL '24 hours')`
+         AND created_at <= (NOW() - INTERVAL '24 hours')
+       RETURNING id`
     );
+    if (autoCancel.rows.length > 0) {
+      void notifyCancelledRequestIds(autoCancel.rows.map((r) => r.id), 'expiro_24h');
+    }
 
     const params: any[] = [];
     let where = '';

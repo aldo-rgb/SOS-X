@@ -47,6 +47,7 @@ import {
   listProveedoresRemote,
   listComisionesRemote,
   callAsignacion,
+  notifyCancelledRequestIds,
 } from './entangledServiceV2';
 import { generateXpayCommission } from './commissionService';
 import { signRowFileUrls } from './entangledController';
@@ -783,6 +784,8 @@ export async function sendPendingRequestToEntangled(
       `UPDATE entangled_payment_requests SET estatus_global='cancelado', error_message='congelamiento_vencido', updated_at=NOW() WHERE id=$1`,
       [requestId]
     ).catch(() => {});
+    // Fire-and-forget: avisar a ENTANGLED que cancelamos por congelamiento vencido.
+    void notifyCancelledRequestIds([requestId], 'congelamiento_vencido');
     return { ok: false, status: 409, payload: { error: 'orden_vencida', message: 'El plazo de pago venció (congelamiento). Crea una nueva solicitud.' } };
   }
 

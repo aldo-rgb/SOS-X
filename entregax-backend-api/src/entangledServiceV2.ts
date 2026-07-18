@@ -13,6 +13,7 @@
 
 import axios, { AxiosError } from 'axios';
 import FormData from 'form-data';
+import { pool } from './db';
 
 const ENTANGLED_BASE_URL =
   process.env.ENTANGLED_BASE_URL || 'https://api.entangledclothing.com';
@@ -360,6 +361,148 @@ export const getSolicitudStatus = async (
     error: `${lastError}${lastStatus ? ` (HTTP ${lastStatus})` : ''}. Probé: ${triedUrls.join(', ')}`,
     triedUrls,
   };
+};
+
+// ---------------------------------------------------------------------------
+// Notifica a ENTANGLED que NOSOTROS cancelamos una solicitud (p.ej. por
+// congelamiento vencido, expiración de 24h, etc.). Es fire-and-forget: NO
+// bloquea el flujo local; sólo intentamos avisar. Si ENTANGLED todavía no
+// tiene endpoint público de cancelación, probamos varias rutas comunes y
+// devolvemos el resultado para logging.
+//
+// Configurable vía ENTANGLED_CANCEL_PATH (con `:id` como placeholder) y
+// ENTANGLED_CANCEL_METHOD (POST | DELETE, default POST).
+// ---------------------------------------------------------------------------
+export const notifyCancellationToEntangled = async (
+  transaccionId: string,
+  motivo: string = 'cancelado_por_xpay'
+): Promise<{ ok: boolean; data?: any; error?: string; triedUrls?: string[] }> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
+  if (!transaccionId) return { ok: false, error: 'transaccion_id requerido' };
+
+  const id = encodeURIComponent(transaccionId);
+  const customPath = process.env.ENTANGLED_CANCEL_PATH;
+  const method = String(process.env.ENTANGLED_CANCEL_METHOD || 'POST').toUpperCase();
+  const candidates: string[] = customPath
+    ? [customPath.replace(':id', id)]
+    : [
+        `/solicitud-pago/${id}/cancelar`,
+        `/solicitud-pago/${id}/cancel`,
+        `/solicitud-pago/${id}`,          // DELETE style
+        `/orden/${id}/cancelar`,
+        `/ordenes/${id}/cancelar`,
+      ];
+
+  const triedUrls: string[] = [];
+  let lastError = 'Endpoint de cancelación no encontrado en ENTANGLED';
+  let lastStatus: number | undefined;
+
+  for (const path of candidates) {
+    const url = buildUrl(path);
+    triedUrls.push(url);
+    try {
+      const isDelete = method === 'DELETE' || path.endsWith(`/${id}`);
+      const res = isDelete
+        ? await axios.delete(url, {
+            timeout: ENTANGLED_TIMEOUT_MS,
+            headers: authHeaders(),
+            data: { motivo, cancelado_por: 'xpay' },
+          })
+        : await axios.post(
+            url,
+            { motivo, cancelado_por: 'xpay' },
+            {
+              timeout: ENTANGLED_TIMEOUT_MS,
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+            }
+          );
+      return { ok: true, data: res.data || {}, triedUrls };
+    } catch (err) {
+      const ax = err as AxiosError;
+      lastStatus = ax.response?.status;
+      const responseData = ax.response?.data as any;
+      lastError =
+        responseData?.error ||
+        responseData?.message ||
+        ax.message ||
+        'Error al notificar cancelación';
+      console.warn(
+        '[ENTANGLED] notifyCancellation probó',
+        url,
+        '→',
+        lastStatus,
+        lastError
+      );
+      // Sólo seguir probando si fue 404 (ruta no existe). Cualquier otro
+      // error (auth, 4xx no-404, 5xx) es la respuesta real → abortar.
+      if (lastStatus !== 404) break;
+    }
+  }
+
+  return {
+    ok: false,
+    error: `${lastError}${lastStatus ? ` (HTTP ${lastStatus})` : ''}. Probé: ${triedUrls.join(', ')}`,
+    triedUrls,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Helper "batch fire-and-forget" para notificar a ENTANGLED sobre una lista
+// de request IDs internos que acabamos de cancelar. Se llama después de un
+// UPDATE ... SET estatus_global='cancelado' ... RETURNING id.
+//
+// - Ignora IDs sin `entangled_transaccion_id` (nunca se envió a ENTANGLED).
+// - Ignora IDs ya notificados (raw_response->>'entangled_cancel_notified_at').
+// - Marca cada uno como notificado en raw_response al éxito para evitar
+//   duplicados en corridas subsecuentes del cron.
+// - NUNCA lanza excepciones al caller (fire-and-forget): sólo loguea.
+// ---------------------------------------------------------------------------
+export const notifyCancelledRequestIds = async (
+  requestIds: number[],
+  motivo: string = 'cancelado_por_xpay'
+): Promise<void> => {
+  if (!Array.isArray(requestIds) || requestIds.length === 0) return;
+  try {
+    const rows = await pool.query(
+      `SELECT id, entangled_transaccion_id, referencia_pago
+         FROM entangled_payment_requests
+        WHERE id = ANY($1::int[])
+          AND entangled_transaccion_id IS NOT NULL
+          AND (raw_response->>'entangled_cancel_notified_at') IS NULL`,
+      [requestIds]
+    );
+    if (rows.rows.length === 0) return;
+
+    // En paralelo pero sin bloquear al caller. Cada notificación es
+    // independiente: si una falla, las demás siguen.
+    await Promise.allSettled(
+      rows.rows.map(async (row) => {
+        const r = await notifyCancellationToEntangled(String(row.entangled_transaccion_id), motivo);
+        if (r.ok) {
+          await pool
+            .query(
+              `UPDATE entangled_payment_requests
+                  SET raw_response = COALESCE(raw_response, '{}'::jsonb)
+                                    || jsonb_build_object('entangled_cancel_notified_at', NOW())
+                                    || jsonb_build_object('entangled_cancel_motivo', $2::text),
+                      updated_at = NOW()
+                WHERE id = $1`,
+              [row.id, motivo]
+            )
+            .catch((e) =>
+              console.warn(`[ENTANGLED] no se pudo marcar notified para #${row.id}:`, (e as Error).message)
+            );
+          console.log(`[ENTANGLED] cancel notificado a Entangled: ${row.referencia_pago || row.id}`);
+        } else {
+          console.warn(
+            `[ENTANGLED] no se pudo notificar cancelación de ${row.referencia_pago || row.id}: ${r.error}`
+          );
+        }
+      })
+    );
+  } catch (err) {
+    console.error('[ENTANGLED] notifyCancelledRequestIds error:', (err as Error).message);
+  }
 };
 
 // ---------------------------------------------------------------------------

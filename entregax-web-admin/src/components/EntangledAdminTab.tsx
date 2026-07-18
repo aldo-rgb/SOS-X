@@ -58,7 +58,7 @@ const statusColor = (s: string): 'default' | 'warning' | 'info' | 'success' | 'e
   if (!s) return 'default';
   if (['completado', 'emitida', 'enviado', 'pagado'].includes(s)) return 'success';
   if (['en_proceso', 'pendiente'].includes(s)) return 'warning';
-  if (['rechazado', 'error_envio', 'error'].includes(s)) return 'error';
+  if (['rechazado', 'error_envio', 'error', 'cancelado'].includes(s)) return 'error';
   return 'info';
 };
 
