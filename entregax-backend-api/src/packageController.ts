@@ -4843,6 +4843,34 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                             console.log(`💳 [Evisa Prepagado] Paquete ${packageId}: ${boxesEv} caja(s) × $${perBoxEv} = $${shippingCostMxn} MXN`);
                         }
 
+                        // 💰 Cualquier OTRA paquetería con precio FIJO configurado
+                        // (carrier_service_options.price_label, ej. Estafeta "$99" por caja):
+                        // si el frontend no mandó costo, tomarlo del config × cajas. Excluye
+                        // las "por cobrar" (allows_collect) — esas se pagan al recibir.
+                        if (shippingCostMxn <= 0 && !isPqtxPaid && !isEvisaPre && carrierNorm) {
+                            try {
+                                const cfgFx = await pool.query(
+                                    `SELECT price_label FROM carrier_service_options
+                                      WHERE REPLACE(REPLACE(LOWER(carrier_key), '_', ''), ' ', '') = $1
+                                        AND COALESCE(allows_collect, false) = false
+                                        AND is_active = true
+                                      LIMIT 1`,
+                                    [carrierNorm]
+                                );
+                                const perBoxFx = parseFloat(String(cfgFx.rows[0]?.price_label || '').replace(/[^0-9.]/g, '')) || 0;
+                                if (perBoxFx > 0) {
+                                    const boxesFxRes = await pool.query(
+                                        `SELECT COALESCE(total_boxes, 1) AS boxes FROM packages WHERE id = $1`, [packageId]
+                                    );
+                                    const boxesFx = Number(boxesFxRes.rows[0]?.boxes) || 1;
+                                    shippingCostMxn = perBoxFx * boxesFx;
+                                    console.log(`💰 [Precio fijo ${carrier}] Paquete ${packageId}: ${boxesFx} caja(s) × $${perBoxFx} = $${shippingCostMxn} MXN`);
+                                }
+                            } catch (fxErr: any) {
+                                console.warn(`[Precio fijo] No se pudo leer price_label de ${carrier}:`, fxErr?.message);
+                            }
+                        }
+
                         // Recalcular total: PO Box + GEX + envío nacional
                         const currentPkgData = await pool.query(
                             'SELECT pobox_venta_usd, gex_total_cost, monto_pagado FROM packages WHERE id = $1',
