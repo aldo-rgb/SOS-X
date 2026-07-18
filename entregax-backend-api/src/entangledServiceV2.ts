@@ -376,22 +376,26 @@ export const getSolicitudStatus = async (
 export const notifyCancellationToEntangled = async (
   transaccionId: string,
   motivo: string = 'cancelado_por_xpay'
-): Promise<{ ok: boolean; data?: any; error?: string; triedUrls?: string[] }> => {
+): Promise<{ ok: boolean; data?: any; error?: string; triedUrls?: string[]; status?: number }> => {
   if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
   if (!transaccionId) return { ok: false, error: 'transaccion_id requerido' };
 
   const id = encodeURIComponent(transaccionId);
-  const customPath = process.env.ENTANGLED_CANCEL_PATH;
+  const rawCustomPath = process.env.ENTANGLED_CANCEL_PATH;
+  // Nuestro buildUrl ya prefija /api/v1. Si la env var trae ese prefijo
+  // (como confirmó Entangled: "/api/v1/solicitud-pago/:id/cancelar"), lo
+  // removemos para no duplicar.
+  const customPath = rawCustomPath
+    ? rawCustomPath.replace(/^\/?(api\/v1|v1)\//i, '/')
+    : undefined;
   const method = String(process.env.ENTANGLED_CANCEL_METHOD || 'POST').toUpperCase();
+  // Endpoint oficial confirmado por Entangled:
+  //   POST /api/v1/solicitud-pago/:id/cancelar
+  //   :id acepta UUID o referencia_xpay. Idempotente (ya cancelada → ok).
+  //   409 = orden ya no cancelable (cliente pagó) — se maneja como ok.
   const candidates: string[] = customPath
     ? [customPath.replace(':id', id)]
-    : [
-        `/solicitud-pago/${id}/cancelar`,
-        `/solicitud-pago/${id}/cancel`,
-        `/solicitud-pago/${id}`,          // DELETE style
-        `/orden/${id}/cancelar`,
-        `/ordenes/${id}/cancelar`,
-      ];
+    : [`/solicitud-pago/${id}/cancelar`];
 
   const triedUrls: string[] = [];
   let lastError = 'Endpoint de cancelación no encontrado en ENTANGLED';
@@ -426,6 +430,15 @@ export const notifyCancellationToEntangled = async (
         responseData?.message ||
         ax.message ||
         'Error al notificar cancelación';
+      // 409 = "no cancelable" según su contrato (cliente ya pagó, o ya
+      // cancelada). Es idempotente y NO es fallo — lo tratamos como ok
+      // para NO reintentar en el próximo cron.
+      if (lastStatus === 409) {
+        console.log(
+          `[ENTANGLED] cancel idempotent 409 en ${url}: ${lastError}`
+        );
+        return { ok: true, data: responseData || {}, triedUrls, status: 409 };
+      }
       console.warn(
         '[ENTANGLED] notifyCancellation probó',
         url,
