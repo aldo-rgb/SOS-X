@@ -972,6 +972,7 @@ import {
   getConsolidationOrders,
   getConsolidationStats,
   updateOrderConsolidation,
+  updateMaritimeMerchandiseType,
   uploadPackingList,
   updateMarkClient,
   updateOrderStatus as updateMaritimeOrderStatus,
@@ -7652,6 +7653,8 @@ app.get('/api/maritime-api/orders/:ordersn', authenticateToken, requireMinLevel(
 app.get('/api/maritime-api/orders/:ordersn/refresh', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), refreshOrderTracking);
 app.post('/api/maritime-api/orders/:ordersn/assign', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignOrderToClient);
 app.put('/api/maritime-api/orders/:ordersn/consolidation', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateOrderConsolidation);
+// Asignar SOLO el tipo de mercancía (clasificación) — solo super_admin.
+app.put('/api/maritime-api/orders/:ordersn/merchandise-type', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateMaritimeMerchandiseType);
 app.put('/api/maritime-api/orders/:ordersn/mark-client', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateMarkClient);
 app.put('/api/maritime-api/orders/:ordersn/status', authenticateToken, requireRole(ROLES.SUPER_ADMIN), updateMaritimeOrderStatus);
 app.post('/api/maritime-api/orders/:ordersn/packing-list', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), uploadPackingList);

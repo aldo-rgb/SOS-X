@@ -464,6 +464,27 @@ const MaritimeConsolidationsPage: React.FC = () => {
     }
   };
 
+  // Asignar SOLO el tipo de mercancía (clasificación) inline — solo super_admin.
+  const assignMerchandiseType = async (ordersn: string, merchandiseType: string) => {
+    if (!isSuperAdmin || !merchandiseType) return;
+    try {
+      const res = await fetch(`${API_URL}/api/maritime-api/orders/${ordersn}/merchandise-type`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merchandiseType }),
+      });
+      if (res.ok) {
+        setSnackbar({ open: true, message: 'Tipo de mercancía asignado', severity: 'success' });
+        loadData();
+      } else {
+        const d = await res.json();
+        throw new Error(d.error || 'Error al asignar tipo');
+      }
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.message, severity: 'error' });
+    }
+  };
+
   // Subir packing list
   const handleUploadPackingList = async () => {
     if (!packingListDialog.order || !packingListDialog.file) return;
@@ -878,28 +899,53 @@ const MaritimeConsolidationsPage: React.FC = () => {
                     if (!hasArrived) {
                       return <Chip size="small" label={t('maritimeConsolidations.pending')} color="warning" />;
                     }
+                    // Valor actual normalizado (para el Select de super_admin).
+                    const currentType =
+                      (order.brand_type === 'logo' || order.merchandise_type === 'branded') ? 'branded' :
+                      (order.brand_type === 'sensitive' || order.merchandise_type === 'sensitive') ? 'sensitive' :
+                      (order.brand_type === 'pending' || order.brand_type === 'pending_classification' ||
+                       order.merchandise_type === 'pending' || order.merchandise_type === 'pending_classification' ||
+                       (!order.brand_type && !order.merchandise_type)) ? '' :
+                      'generic';
+                    // Super admin: asignar el tipo inline (al clasificar, la guía ya
+                    // puede contratar Garantía Extendida).
+                    if (isSuperAdmin) {
+                      return (
+                        <Select
+                          size="small"
+                          variant="standard"
+                          disableUnderline
+                          displayEmpty
+                          value={currentType}
+                          onChange={(e) => assignMerchandiseType(order.ordersn, e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          renderValue={(v) => (
+                            <Chip
+                              size="small"
+                              label={v === 'branded' ? 'Logotipo' : v === 'sensitive' ? 'Sensible' : v === 'generic' ? 'Genérico' : 'Pendiente'}
+                              color={v === 'branded' ? 'primary' : v === 'sensitive' ? 'default' : v === 'generic' ? 'success' : 'warning'}
+                            />
+                          )}
+                          sx={{ minWidth: 110 }}
+                        >
+                          <MenuItem value="generic">Genérico</MenuItem>
+                          <MenuItem value="sensitive">Sensible</MenuItem>
+                          <MenuItem value="branded">Logotipo</MenuItem>
+                        </Select>
+                      );
+                    }
                     return (
                       <Chip
                         size="small"
                         label={
-                          order.brand_type === 'logo' ? 'Logotipo' :
-                          order.brand_type === 'sensitive' ? 'Sensible' :
-                          (order.brand_type === 'pending' || order.brand_type === 'pending_classification') ? 'Pendiente' :
-                          order.merchandise_type === 'branded' ? 'Logotipo' :
-                          order.merchandise_type === 'sensitive' ? 'Sensible' :
-                          (order.merchandise_type === 'pending' || order.merchandise_type === 'pending_classification') ? 'Pendiente' :
-                          (!order.brand_type && !order.merchandise_type) ? 'Pendiente' :
-                          'Genérico'
+                          currentType === 'branded' ? 'Logotipo' :
+                          currentType === 'sensitive' ? 'Sensible' :
+                          currentType === 'generic' ? 'Genérico' : 'Pendiente'
                         }
                         color={
-                          order.brand_type === 'logo' ? 'primary' :
-                          order.brand_type === 'sensitive' ? 'default' :
-                          (order.brand_type === 'pending' || order.brand_type === 'pending_classification') ? 'warning' :
-                          order.merchandise_type === 'branded' ? 'primary' :
-                          order.merchandise_type === 'sensitive' ? 'default' :
-                          (order.merchandise_type === 'pending' || order.merchandise_type === 'pending_classification') ? 'warning' :
-                          (!order.brand_type && !order.merchandise_type) ? 'warning' :
-                          'success'
+                          currentType === 'branded' ? 'primary' :
+                          currentType === 'sensitive' ? 'default' :
+                          currentType === 'generic' ? 'success' : 'warning'
                         }
                       />
                     );

@@ -1338,6 +1338,35 @@ export const updateOrderConsolidation = async (req: Request, res: Response): Pro
 };
 
 /**
+ * PUT /api/maritime-api/orders/:ordersn/merchandise-type
+ * Asigna SOLO el tipo de mercancía (clasificación) de una orden marítima, sin
+ * tocar contenedor/ruta/etc. Solo super_admin. Al clasificar (dejar de estar
+ * 'pending') la guía ya puede contratar Garantía Extendida.
+ */
+export const updateMaritimeMerchandiseType = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { ordersn } = req.params;
+        const { merchandiseType } = req.body;
+        const mt = ['generic', 'sensitive', 'branded'].includes(String(merchandiseType)) ? String(merchandiseType) : 'generic';
+        const brand = mt === 'branded' ? 'logo' : mt === 'sensitive' ? 'sensitive' : 'generic';
+        const r = await pool.query(
+            `UPDATE maritime_orders
+                SET merchandise_type = $1, brand_type = $2, updated_at = NOW()
+              WHERE ordersn = $3
+          RETURNING ordersn, merchandise_type, brand_type`,
+            [mt, brand, ordersn]
+        );
+        if (r.rowCount === 0) {
+            return res.status(404).json({ success: false, error: 'Orden no encontrada' });
+        }
+        res.json({ success: true, data: r.rows[0] });
+    } catch (error: any) {
+        console.error('Error asignando tipo de mercancía:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
  * PUT /api/maritime-api/orders/:ordersn/mark-client
  * Actualizar MARK y CLIENTE de una orden
  */
@@ -2208,6 +2237,7 @@ export default {
     getConsolidationOrders,
     getConsolidationStats,
     updateOrderConsolidation,
+    updateMaritimeMerchandiseType,
     uploadPackingList,
     updateMarkClient,
     // Rutas
