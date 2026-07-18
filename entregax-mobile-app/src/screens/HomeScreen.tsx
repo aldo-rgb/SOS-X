@@ -1054,9 +1054,14 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       || (brandKey === '' && (merchKey === 'pending' || merchKey === 'pending_classification'));
     const hasPendingOrder = !!(item as any).has_pending_payment_order;
     // Elegibilidad pura para contratar GEX (sin considerar si ya tiene ni si hay orden pendiente)
-    const gexEligible = gexEnabled && !isPendingClass && !((isMaritime || isChinaAir) && isLogoMerch) && (isMaritime
-      ? (item.status === 'received_china')
-      : isChinaAir
+    // GEX solo se puede contratar mientras la mercancía está EN CHINA (bodega de
+    // origen). Al zarpar/despachar (marítimo in_transit = "Ya Zarpó", aéreo/TDI en
+    // tránsito) se oculta el botón. TDI Express llega como shipment_type='china_air',
+    // pero lo cubrimos explícito por si acaso.
+    const isChinaOrigin = isChinaAir || isTdiExpress;
+    const gexEligible = gexEnabled && !isPendingClass && !((isMaritime || isChinaOrigin) && isLogoMerch) && (isMaritime
+      ? (['received_china', 'received_origin'].includes(item.status))
+      : isChinaOrigin
         ? (['received_origin', 'received_china'].includes(item.status))
         : (['received', 'processing'].includes(item.status) &&
            item.consolidation_status !== 'in_transit' &&
