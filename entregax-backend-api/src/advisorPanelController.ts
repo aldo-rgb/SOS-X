@@ -365,17 +365,19 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
           (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status NOT IN ('delivered', 'returned_to_warehouse', 'lost')) +
           (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status IN ('in_transit', 'received_mty', 'ready_pickup', 'inspected'))
         ) as in_transit_count,
-        -- Pendientes de pago (count)
+        -- Pendientes de pago (count) — solo lo REALMENTE pendiente: excluye
+        -- pagadas/entregadas/canceladas (el saldo_pendiente puede quedar stale
+        -- tras pagarse/entregarse y no reflejar un adeudo real).
         (
-          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND COALESCE(p.saldo_pendiente, 0) > 0) +
-          (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND COALESCE(mo.saldo_pendiente, 0) > 0) +
-          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND COALESCE(ds.saldo_pendiente, 0) > 0)
+          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND COALESCE(p.saldo_pendiente, 0) > 0 AND COALESCE(p.client_paid, false) = false AND COALESCE(p.payment_status, '') <> 'paid' AND p.status::text NOT IN ('delivered','cancelled','returned')) +
+          (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND COALESCE(mo.saldo_pendiente, 0) > 0 AND COALESCE(mo.payment_status, '') <> 'paid' AND mo.status NOT IN ('delivered','cancelled')) +
+          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND COALESCE(ds.saldo_pendiente, 0) > 0 AND ds.status NOT IN ('delivered','cancelled'))
         ) as pending_payment_count,
-        -- Suma total pendiente de pago (MXN)
+        -- Suma total pendiente de pago (MXN) — mismos filtros.
         (
-          COALESCE((SELECT SUM(COALESCE(p.saldo_pendiente, 0)) FROM packages p WHERE p.user_id = u.id AND COALESCE(p.saldo_pendiente, 0) > 0), 0) +
-          COALESCE((SELECT SUM(COALESCE(mo.saldo_pendiente, 0)) FROM maritime_orders mo WHERE mo.user_id = u.id AND COALESCE(mo.saldo_pendiente, 0) > 0), 0) +
-          COALESCE((SELECT SUM(COALESCE(ds.saldo_pendiente, 0)) FROM dhl_shipments ds WHERE ds.user_id = u.id AND COALESCE(ds.saldo_pendiente, 0) > 0), 0)
+          COALESCE((SELECT SUM(COALESCE(p.saldo_pendiente, 0)) FROM packages p WHERE p.user_id = u.id AND COALESCE(p.saldo_pendiente, 0) > 0 AND COALESCE(p.client_paid, false) = false AND COALESCE(p.payment_status, '') <> 'paid' AND p.status::text NOT IN ('delivered','cancelled','returned')), 0) +
+          COALESCE((SELECT SUM(COALESCE(mo.saldo_pendiente, 0)) FROM maritime_orders mo WHERE mo.user_id = u.id AND COALESCE(mo.saldo_pendiente, 0) > 0 AND COALESCE(mo.payment_status, '') <> 'paid' AND mo.status NOT IN ('delivered','cancelled')), 0) +
+          COALESCE((SELECT SUM(COALESCE(ds.saldo_pendiente, 0)) FROM dhl_shipments ds WHERE ds.user_id = u.id AND COALESCE(ds.saldo_pendiente, 0) > 0 AND ds.status NOT IN ('delivered','cancelled')), 0)
         ) as pending_payment_total,
         -- Sin instrucciones (excluye entregados)
         (
