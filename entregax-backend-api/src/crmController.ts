@@ -369,12 +369,13 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
       SELECT
         COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('week',  now() AT TIME ZONE 'America/Monterrey')) AS week,
         COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('month', now() AT TIME ZONE 'America/Monterrey')) AS month,
+        COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('year',  now() AT TIME ZONE 'America/Monterrey')) AS year,
         COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('day',   now() AT TIME ZONE 'America/Monterrey')) AS today
       FROM users
       WHERE role = 'client' AND deleted_at IS NULL
     `);
     const row = r.rows[0] || {};
-    res.json({ success: true, week: Number(row.week) || 0, month: Number(row.month) || 0, today: Number(row.today) || 0 });
+    res.json({ success: true, week: Number(row.week) || 0, month: Number(row.month) || 0, year: Number(row.year) || 0, today: Number(row.today) || 0 });
   } catch (error) {
     console.error('Error en getRegistrationStats:', error);
     res.status(500).json({ success: false, error: 'Error al obtener altas' });

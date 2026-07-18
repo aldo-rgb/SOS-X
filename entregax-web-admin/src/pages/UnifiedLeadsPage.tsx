@@ -337,7 +337,7 @@ export default function UnifiedLeadsPage() {
   // Estados comunes
   const [advisors, setAdvisors] = useState<Advisor[]>([]);
   // Altas de usuarios (registros): semana (reinicia lunes) y mes (reinicia el 1).
-  const [regStats, setRegStats] = useState<{ week: number; month: number; today: number }>({ week: 0, month: 0, today: 0 });
+  const [regStats, setRegStats] = useState<{ week: number; month: number; year: number; today: number }>({ week: 0, month: 0, year: 0, today: 0 });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   
   // ============ CRM LEADS STATE ============
@@ -807,7 +807,7 @@ export default function UnifiedLeadsPage() {
         headers: { Authorization: `Bearer ${getToken()}` }
       });
       if (res.data.success) {
-        setRegStats({ week: res.data.week || 0, month: res.data.month || 0, today: res.data.today || 0 });
+        setRegStats({ week: res.data.week || 0, month: res.data.month || 0, year: res.data.year || 0, today: res.data.today || 0 });
       }
     } catch {
       console.error('Error fetching registration stats');
@@ -1397,8 +1397,8 @@ export default function UnifiedLeadsPage() {
         </Box>
       </Box>
 
-      {/* 📈 Widgets principales: altas de usuarios (semana / mes) */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mb: 3 }}>
+      {/* 📈 Widgets principales: altas de usuarios (semana / mes / año) */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 2, mb: 3 }}>
         <Paper sx={{ p: 3, borderRadius: 3, color: '#fff', background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)', display: 'flex', alignItems: 'center', gap: 2 }}>
           <Box sx={{ fontSize: 40, lineHeight: 1 }}>🗓️</Box>
           <Box>
@@ -1413,6 +1413,14 @@ export default function UnifiedLeadsPage() {
             <Typography variant="h3" fontWeight={800} lineHeight={1}>{regStats.month}</Typography>
             <Typography variant="subtitle1" fontWeight={600}>Altas este mes</Typography>
             <Typography variant="caption" sx={{ opacity: 0.85 }}>Nuevos usuarios · reinicia el día 1</Typography>
+          </Box>
+        </Paper>
+        <Paper sx={{ p: 3, borderRadius: 3, color: '#fff', background: 'linear-gradient(135deg, #6A1B9A 0%, #8E24AA 100%)', display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ fontSize: 40, lineHeight: 1 }}>🎯</Box>
+          <Box>
+            <Typography variant="h3" fontWeight={800} lineHeight={1}>{regStats.year}</Typography>
+            <Typography variant="subtitle1" fontWeight={600}>Altas este año</Typography>
+            <Typography variant="caption" sx={{ opacity: 0.85 }}>Nuevos usuarios · reinicia el 1 de enero</Typography>
           </Box>
         </Paper>
       </Box>
