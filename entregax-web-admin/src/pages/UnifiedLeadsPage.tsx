@@ -2264,7 +2264,7 @@ export default function UnifiedLeadsPage() {
               onPageChange={(_, p) => setProspectPage(p)}
               rowsPerPage={prospectRowsPerPage}
               onRowsPerPageChange={(e) => { setProspectRowsPerPage(parseInt(e.target.value, 10)); setProspectPage(0); }}
-              rowsPerPageOptions={[10, 25, 50, 100]}
+              rowsPerPageOptions={[10, 25, 50, 100, 250, 500]}
               labelRowsPerPage="Filas por página"
             />
           </Paper>
