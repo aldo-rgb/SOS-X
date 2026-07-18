@@ -490,12 +490,17 @@ export const sendPoboxReceptionNotification = async (
     const firstName = nombre.split(' ')[0] ?? nombre;
     const servicioParam = servicio || 'EntregaX';
     const guiaParam = guiaOrigen || (totalCajas > 1 ? 'Múltiples (ver en portal)' : 'No registrada');
+    // Botón "Generar instrucciones" → https://entregax.app/instrucciones/{{1}} (deep link a la app).
+    // Solo se envía el sufijo dinámico cuando el botón ya está aprobado en Meta,
+    // para no romper el envío actual. Activar con WHATSAPP_POBOX_INSTRUCTIONS_BUTTON=1 en Railway.
+    const includeInstrBtn = ['1', 'true', 'yes'].includes(String(process.env.WHATSAPP_POBOX_INSTRUCTIONS_BUTTON || '').toLowerCase());
     try {
         await sendTemplate({
             to: phone,
             template: templateName,
             languageCode: process.env.WHATSAPP_POBOX_TEMPLATE_LANG || 'en',
             parameters: [firstName, trackingMaster, servicioParam, String(totalCajas), guiaParam],
+            ...(includeInstrBtn ? { urlButtonParam: trackingMaster } : {}),
         });
     } catch {
         // Fallback al template básico si la plantilla detallada no está aprobada aún
