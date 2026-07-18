@@ -27,6 +27,10 @@
   ],
   "rewrites": [
     {
+      "source": "/instrucciones/:trn*",
+      "destination": "/instrucciones.html"
+    },
+    {
       "source": "/privacy-policy",
       "destination": "https://api.entregax.app/legal/privacy-policy"
     },

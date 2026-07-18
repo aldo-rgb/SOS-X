@@ -45,6 +45,7 @@ import {
 } from '../services/followedTrackings';
 import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
 import { getPackageCostBreakdown } from '../utils/packageCosts';
+import { setInstructionListener, consumePendingInstructionTrn } from '../deepLink';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import { useBrandAsset } from '../hooks/useBrandAssets';
 import { Ionicons } from '@expo/vector-icons';
@@ -167,6 +168,22 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   const isMounted = useRef(true);
   useEffect(() => { return () => { isMounted.current = false; }; }, []);
+
+  // 🔗 Deep link "Generar instrucciones": filtra Home al paquete que llegó
+  // (viene del botón de la plantilla de WhatsApp → https://entregax.app/instrucciones/<TRN>).
+  useEffect(() => {
+    const applyInstructionFocus = (trn: string) => {
+      if (!trn) return;
+      setServiceFilter(null);
+      setInstructionFilter(null);
+      setTrnFilter(trn);
+    };
+    setInstructionListener(applyInstructionFocus);
+    // Arranque en frío: consumir el TRN que quedó pendiente antes de montar Home.
+    const pending = consumePendingInstructionTrn();
+    if (pending) applyInstructionFocus(pending);
+    return () => setInstructionListener(null);
+  }, []);
 
   // 🔐 Verificar si el usuario está verificado
   const isUserVerified = user.isVerified === true;

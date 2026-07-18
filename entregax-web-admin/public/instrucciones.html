@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Abrir en EntregaX</title>
+  <style>
+    :root { --brand: #C1272D; --brand2: #F05A28; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(160deg, #C1272D 0%, #F05A28 100%);
+      color: #fff; display: flex; align-items: center; justify-content: center;
+      padding: 24px; text-align: center;
+    }
+    .card {
+      background: rgba(255,255,255,0.10); backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.18); border-radius: 20px;
+      padding: 32px 24px; max-width: 380px; width: 100%;
+    }
+    h1 { font-size: 22px; margin: 8px 0 4px; font-weight: 800; }
+    p { font-size: 15px; opacity: 0.92; margin: 6px 0 20px; line-height: 1.4; }
+    .emoji { font-size: 44px; line-height: 1; }
+    .btn {
+      display: block; width: 100%; padding: 15px 16px; margin: 10px 0;
+      border-radius: 14px; font-size: 16px; font-weight: 700; text-decoration: none;
+      border: none; cursor: pointer;
+    }
+    .btn-primary { background: #fff; color: var(--brand); }
+    .btn-ghost { background: transparent; color: #fff; border: 1.5px solid rgba(255,255,255,0.6); }
+    .stores { display: flex; gap: 10px; margin-top: 14px; }
+    .stores a { flex: 1; font-size: 13px; padding: 11px 8px; border-radius: 12px;
+      background: rgba(0,0,0,0.22); color: #fff; text-decoration: none; font-weight: 600; }
+    .foot { margin-top: 18px; font-size: 12px; opacity: 0.7; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="emoji">📦</div>
+    <h1>Tu paquete llegó</h1>
+    <p>Ábrelo en la app de EntregaX para generar tus instrucciones de entrega.</p>
+    <a id="openApp" class="btn btn-primary" href="#">Abrir en la app</a>
+    <a class="btn btn-ghost" href="https://www.entregax.app">Ir al sitio web</a>
+    <div class="stores">
+      <a id="playStore" href="https://play.google.com/store/apps/details?id=com.entregax.mobile">Google Play</a>
+      <a id="appStore" href="https://apps.apple.com/mx/search?term=entregax">App Store</a>
+    </div>
+    <div class="foot">Si tienes la app instalada, se abrirá automáticamente.</div>
+  </div>
+
+  <script>
+    (function () {
+      // El TRN va en la ruta: /instrucciones/<TRN>
+      var parts = location.pathname.split('/').filter(Boolean);
+      var trn = parts.length > 1 ? decodeURIComponent(parts[parts.length - 1]) : '';
+      var deepLink = 'entregax://instrucciones/' + encodeURIComponent(trn);
+
+      var openBtn = document.getElementById('openApp');
+      openBtn.setAttribute('href', deepLink);
+      openBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        window.location.href = deepLink;
+      });
+
+      // Intento automático de abrir la app (esquema entregax://). Si la app no
+      // está instalada, el esquema simplemente no hace nada y el usuario ve las
+      // opciones de arriba.
+      setTimeout(function () {
+        try { window.location.href = deepLink; } catch (err) {}
+      }, 350);
+    })();
+  </script>
+</body>
+</html>
