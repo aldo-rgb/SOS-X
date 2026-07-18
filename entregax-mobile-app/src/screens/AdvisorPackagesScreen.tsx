@@ -483,7 +483,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       const [addrRes, carrierRes] = await Promise.all([
         fetch(`${API_URL}/api/advisor/clients/${item.client_id}/addresses`, { headers: { Authorization: `Bearer ${token}` } }),
         carrierServiceType
-          ? fetch(`${API_URL}/api/carrier-options/by-service/${carrierServiceType}`, { headers: { Authorization: `Bearer ${token}` } })
+          ? fetch(`${API_URL}/api/carrier-options/by-service/${carrierServiceType}?weight=${encodeURIComponent(String(item.weight || 1))}`, { headers: { Authorization: `Bearer ${token}` } })
           : Promise.resolve(null),
       ]);
       const addrData = await addrRes.json();

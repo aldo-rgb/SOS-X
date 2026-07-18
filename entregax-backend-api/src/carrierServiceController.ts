@@ -98,15 +98,21 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
   try {
     const { serviceType } = req.params;
     const zip = (req.query.zip ? String(req.query.zip).trim() : '') || '';
+    // Peso del paquete (kg). Si viene, se ocultan las paqueterías con límite de
+    // peso menor (ej. Estafeta "Guía de 1 Kilo" con max_weight_kg=1 no debe
+    // ofrecerse en paquetes de más de 1 kg).
+    const weightRaw = req.query.weight != null ? Number(req.query.weight) : NaN;
+    const weight = Number.isFinite(weightRaw) && weightRaw > 0 ? weightRaw : null;
 
     const result = await pool.query(`
-      SELECT co.carrier_key, co.name, co.description, co.price_label, co.subtext, co.icon, co.priority, co.allows_collect
+      SELECT co.carrier_key, co.name, co.description, co.price_label, co.subtext, co.icon, co.priority, co.allows_collect, co.max_weight_kg
       FROM carrier_service_options co
       INNER JOIN carrier_service_type_map cm ON co.id = cm.carrier_option_id
       WHERE cm.service_type = $1
         AND co.is_active = true
+        AND ($2::numeric IS NULL OR co.max_weight_kg IS NULL OR co.max_weight_kg >= $2::numeric)
       ORDER BY co.priority ASC
-    `, [serviceType]);
+    `, [serviceType, weight]);
 
     // 🚚 Regla TDX en zona metropolitana de MTY: solo aplica entrega local EntregaX.
     // Se ocultan Paquete Express, Paquete Express Por Cobrar y todas las "por cobrar".
