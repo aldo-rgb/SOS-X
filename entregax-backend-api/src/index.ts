@@ -15112,6 +15112,24 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
       }
     }
 
+    // 🔕 Cambios manuales de status a "recibido en CEDIS" desde Operaciones NO deben
+    // disparar el recordatorio de pago del cron. Sellar como ya-notificado.
+    if (safeNewStatus === 'received_cdmx' || safeNewStatus === 'received_mty') {
+      await pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS payment_reminder_sent_at TIMESTAMPTZ`).catch(() => {});
+      await pool.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS payment_reminder_sent_at TIMESTAMPTZ`).catch(() => {});
+      await pool.query(
+        `UPDATE packages SET payment_reminder_sent_at = COALESCE(payment_reminder_sent_at, NOW())
+          WHERE UPPER(tracking_internal) = UPPER($1)
+             OR master_id IN (SELECT id FROM packages WHERE UPPER(tracking_internal) = UPPER($1))`,
+        [guia]
+      ).catch(() => {});
+      await pool.query(
+        `UPDATE maritime_orders SET payment_reminder_sent_at = COALESCE(payment_reminder_sent_at, NOW())
+          WHERE ordersn = $1`,
+        [guia]
+      ).catch(() => {});
+    }
+
     console.log(`[sync-entregax] guia=${guia} service=${service} synced=${syncedFields.join(',')}`);
     return (res as any).json({ success: true, synced: syncedFields });
   } catch (err: any) {
