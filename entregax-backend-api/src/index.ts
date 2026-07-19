@@ -7153,21 +7153,6 @@ app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel
 app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
 app.post('/api/webhooks/whatsapp', handleWhatsappWebhook);
 app.get('/api/_diag/wa-subs', debugWabaSubs);
-// TEMPORAL: prueba de las 3 plantillas de recordatorio. Quitar tras validar.
-app.get('/api/_diag/test-reminders', async (req: Request, res: Response): Promise<any> => {
-  if (String(req.query.secret || '') !== 'zaia-rem-8823') return res.status(403).json({ error: 'nope' });
-  const phone = String(req.query.phone || '');
-  if (!phone) return res.status(400).json({ error: 'falta phone' });
-  try {
-    const { sendInstructionReminderClient, sendInstructionReminderAdvisor, sendPaymentReminder } = await import('./whatsappService');
-    await sendInstructionReminderClient(phone, 'Aldo', 'AIR3-123');
-    await sendInstructionReminderAdvisor(phone, 'Aldo', 'Juan Pérez', 'AIR3-123');
-    await sendPaymentReminder(phone, 'Aldo', 'AIR3-123');
-    res.json({ ok: true, phone, sent: ['recordatorio_instrucciones_cliente', 'recordatorio_instrucciones_asesor', 'recordatorio_pago_embarque'] });
-  } catch (e: any) {
-    res.status(500).json({ ok: false, error: e?.message });
-  }
-});
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);
