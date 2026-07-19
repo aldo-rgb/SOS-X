@@ -486,6 +486,7 @@ export default function HRManagementPage() {
   const checkedInToday = employees.filter(e => e.check_in_time).length;
   const notCheckedIn = employees.filter(e => !e.check_in_time).length;
   const lateToday = employees.filter(e => e.attendance_status === 'late').length;
+  const activeEmployees = employees.filter(e => e.is_active !== false && !e.is_blocked).length;
 
   // Skeleton para las tarjetas de stats (disponible para uso futuro)
   const _StatCardSkeleton = () => (
@@ -557,7 +558,22 @@ export default function HRManagementPage() {
 
       {/* KPIs */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 12, md: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 2.4 }}>
+          <Card sx={{ background: 'linear-gradient(135deg, #5E35B1 0%, #7E57C2 100%)', color: 'white' }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box>
+                  <Typography variant="h3" fontWeight="bold">
+                    {loading ? <Skeleton width={50} sx={{ bgcolor: 'rgba(255,255,255,0.3)' }} /> : activeEmployees}
+                  </Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Empleados activos</Typography>
+                </Box>
+                <PeopleIcon sx={{ fontSize: 48, opacity: 0.8 }} />
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 2.4 }}>
           <Card sx={{ background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)', color: 'white' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -572,7 +588,7 @@ export default function HRManagementPage() {
             </CardContent>
           </Card>
         </Grid>
-        <Grid size={{ xs: 12, md: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 2.4 }}>
           <Card sx={{ background: 'linear-gradient(135deg, #f44336 0%, #d32f2f 100%)', color: 'white' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -587,7 +603,7 @@ export default function HRManagementPage() {
             </CardContent>
           </Card>
         </Grid>
-        <Grid size={{ xs: 12, md: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 2.4 }}>
           <Card sx={{ background: 'linear-gradient(135deg, #FF9800 0%, #f57c00 100%)', color: 'white' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -602,7 +618,7 @@ export default function HRManagementPage() {
             </CardContent>
           </Card>
         </Grid>
-        <Grid size={{ xs: 12, md: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 2.4 }}>
           <Card sx={{ background: 'linear-gradient(135deg, #2196F3 0%, #1976d2 100%)', color: 'white' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
