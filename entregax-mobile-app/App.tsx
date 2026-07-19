@@ -3,7 +3,7 @@ import { Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { PaperProvider, MD3LightTheme } from 'react-native-paper';
-import { parseInstructionTrn, emitInstruction } from './src/deepLink';
+import { parseDeepLink, emitDeepLink } from './src/deepLink';
 
 // Inicializar i18n
 import './src/i18n';
@@ -289,14 +289,14 @@ const linking = {
 };
 
 function App() {
-  // Deep link "Generar instrucciones": captura el TRN de la URL entrante
+  // Deep links (instrucciones / pagar): captura la URL entrante
   // (arranque en frío vía getInitialURL + app abierta vía evento 'url').
   useEffect(() => {
     Linking.getInitialURL()
-      .then((url) => emitInstruction(parseInstructionTrn(url)))
+      .then((url) => emitDeepLink(parseDeepLink(url)))
       .catch(() => {});
     const sub = Linking.addEventListener('url', ({ url }) => {
-      emitInstruction(parseInstructionTrn(url));
+      emitDeepLink(parseDeepLink(url));
     });
     return () => sub.remove();
   }, []);

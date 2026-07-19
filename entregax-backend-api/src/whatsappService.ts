@@ -591,7 +591,8 @@ export const sendInstructionReminderAdvisor = async (
  * instrucciones). Se envía UNO por guía master. Plantilla
  * "recordatorio_pago_embarque" (UTILITY, es_MX).
  *   {{1}} = nombre (first name), {{2}} = tracking (guía master)
- *   Botón URL dinámico "Pagar embarque" → https://entregax.app/instrucciones/{{1}} (=tracking)
+ *   Botón URL dinámico "Pagar embarque" → https://entregax.app/pagar/{{1}} (=tracking)
+ *   (Etapa 1: abre la app en la guía. El auto-pago llega en la siguiente etapa.)
  */
 export const sendPaymentReminder = async (
     phone: string, nombre: string, tracking: string

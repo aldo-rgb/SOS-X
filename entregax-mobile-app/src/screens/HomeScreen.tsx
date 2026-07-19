@@ -45,7 +45,7 @@ import {
 } from '../services/followedTrackings';
 import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
 import { getPackageCostBreakdown } from '../utils/packageCosts';
-import { setInstructionListener, consumePendingInstructionTrn } from '../deepLink';
+import { setDeepLinkListener, consumePendingDeepLink, type DeepLinkTarget } from '../deepLink';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import { useBrandAsset } from '../hooks/useBrandAssets';
 import { Ionicons } from '@expo/vector-icons';
@@ -169,20 +169,21 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const isMounted = useRef(true);
   useEffect(() => { return () => { isMounted.current = false; }; }, []);
 
-  // 🔗 Deep link "Generar instrucciones": filtra Home al paquete que llegó
-  // (viene del botón de la plantilla de WhatsApp → https://entregax.app/instrucciones/<TRN>).
+  // 🔗 Deep links (instrucciones / pagar): filtra Home a la guía objetivo
+  // (botones de las plantillas de WhatsApp → /instrucciones/<TRN> o /pagar/<TRN>).
+  // Etapa 1: ambos solo filtran Home a la guía. El auto-pago de 'pagar' llega después.
   useEffect(() => {
-    const applyInstructionFocus = (trn: string) => {
-      if (!trn) return;
+    const applyFocus = (target: DeepLinkTarget) => {
+      if (!target?.trn) return;
       setServiceFilter(null);
       setInstructionFilter(null);
-      setTrnFilter(trn);
+      setTrnFilter(target.trn);
     };
-    setInstructionListener(applyInstructionFocus);
-    // Arranque en frío: consumir el TRN que quedó pendiente antes de montar Home.
-    const pending = consumePendingInstructionTrn();
-    if (pending) applyInstructionFocus(pending);
-    return () => setInstructionListener(null);
+    setDeepLinkListener(applyFocus);
+    // Arranque en frío: consumir el deep link que quedó pendiente antes de montar Home.
+    const pending = consumePendingDeepLink();
+    if (pending) applyFocus(pending);
+    return () => setDeepLinkListener(null);
   }, []);
 
   // 🔐 Verificar si el usuario está verificado
