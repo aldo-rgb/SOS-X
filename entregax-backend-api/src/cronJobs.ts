@@ -1085,8 +1085,8 @@ export const startUskGuideProgressionCron = () => {
  * master o caja individual (no por cada hija). Toggle: notif_caja_recibida.
  */
 export const startInstructionReminderCron = () => {
-  // Diario 10:00 MX (16:00 UTC).
-  cron.schedule('0 16 * * *', async () => {
+  // Lunes a viernes 10:00 MX (16:00 UTC). No se envía fines de semana.
+  cron.schedule('0 16 * * 1-5', async () => {
     try {
       const { sendInstructionReminderClient, sendInstructionReminderAdvisor, isNotifEnabled } = await import('./whatsappService');
       // Controlado por el toggle "Notificación de caja recibida" (Ajustes del Sistema).
