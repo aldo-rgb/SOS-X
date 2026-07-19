@@ -1135,36 +1135,39 @@ export const startInstructionReminderCron = () => {
 };
 
 /**
- * CRON: Recordatorio de PAGO ~12h después de asignar instrucciones. UNO por
- * guía master/caja individual. Solo si NO está pagada y no se mandó antes
- * (dedup por payment_reminder_sent_at). Gated: PAYMENT_REMINDER_ENABLED=1.
+ * CRON: Recordatorio de PAGO cuando la caja LLEGA a un CEDIS en México
+ * (status received_mty / received_cdmx) y NO tiene pago registrado. Aplica a
+ * TODOS los servicios (packages: aéreo/TDI/PO Box + maritime_orders). UNO por
+ * guía master/caja individual, dedup por payment_reminder_sent_at.
+ * Gated: PAYMENT_REMINDER_ENABLED=1.
  */
 export const startPaymentReminderCron = () => {
-  // Cada hora (:20) para acercarse a la ventana de 12h.
-  cron.schedule('20 * * * *', async () => {
+  // Cada 30 min: captura la caja mientras está "recibida en CEDIS".
+  cron.schedule('*/30 * * * *', async () => {
     if (!['1', 'true', 'yes'].includes(String(process.env.PAYMENT_REMINDER_ENABLED || '').toLowerCase())) return;
     try {
       await pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS payment_reminder_sent_at TIMESTAMPTZ`).catch(() => {});
+      await pool.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS payment_reminder_sent_at TIMESTAMPTZ`).catch(() => {});
       const { sendPaymentReminder } = await import('./whatsappService');
-      const r = await pool.query(`
+      let sent = 0;
+
+      // 1) packages (aéreo China / TDI Express / PO Box / etc.)
+      const rp = await pool.query(`
         SELECT p.id, p.tracking_internal AS trn,
                u.full_name AS client_name, u.phone AS client_phone,
                u.notif_whatsapp, u.phone_verified, u.whatsapp_verified
         FROM packages p
         JOIN users u ON u.id = p.user_id
-        WHERE p.instructions_assigned_at IS NOT NULL
-          AND p.instructions_assigned_at <= NOW() - INTERVAL '12 hours'
-          AND p.instructions_assigned_at >= NOW() - INTERVAL '48 hours'
+        WHERE p.status::text IN ('received_mty', 'received_cdmx')
           AND p.client_paid IS NOT TRUE
           AND COALESCE(p.payment_status, '') NOT IN ('paid', 'pagado')
           AND p.delivered_at IS NULL
           AND (p.is_master = TRUE OR p.master_id IS NULL)
           AND p.payment_reminder_sent_at IS NULL
-        ORDER BY p.instructions_assigned_at ASC
+        ORDER BY p.received_at ASC NULLS LAST
         LIMIT 300
       `);
-      let sent = 0;
-      for (const row of r.rows) {
+      for (const row of rp.rows) {
         const wantWa = row.notif_whatsapp !== false && (row.phone_verified === true || row.whatsapp_verified === true);
         if (row.client_phone && wantWa) {
           await sendPaymentReminder(row.client_phone, row.client_name || 'Cliente', row.trn || '').catch(() => {});
@@ -1172,12 +1175,36 @@ export const startPaymentReminderCron = () => {
         await pool.query(`UPDATE packages SET payment_reminder_sent_at = NOW() WHERE id = $1`, [row.id]).catch(() => {});
         sent++;
       }
-      if (sent) console.log(`[CRON] Recordatorio de pago (12h): ${sent} guías notificadas`);
+
+      // 2) maritime_orders (marítimo China)
+      const rm = await pool.query(`
+        SELECT m.id, m.ordersn AS trn,
+               u.full_name AS client_name, u.phone AS client_phone,
+               u.notif_whatsapp, u.phone_verified, u.whatsapp_verified
+        FROM maritime_orders m
+        JOIN users u ON u.id = m.user_id
+        WHERE m.status IN ('received_mty', 'received_cdmx')
+          AND COALESCE(m.payment_status, '') NOT IN ('paid', 'pagado')
+          AND m.delivered_at IS NULL
+          AND m.payment_reminder_sent_at IS NULL
+        ORDER BY m.received_at ASC NULLS LAST
+        LIMIT 300
+      `);
+      for (const row of rm.rows) {
+        const wantWa = row.notif_whatsapp !== false && (row.phone_verified === true || row.whatsapp_verified === true);
+        if (row.client_phone && wantWa) {
+          await sendPaymentReminder(row.client_phone, row.client_name || 'Cliente', row.trn || '').catch(() => {});
+        }
+        await pool.query(`UPDATE maritime_orders SET payment_reminder_sent_at = NOW() WHERE id = $1`, [row.id]).catch(() => {});
+        sent++;
+      }
+
+      if (sent) console.log(`[CRON] Recordatorio de pago (CEDIS): ${sent} guías notificadas`);
     } catch (e) {
       console.error('[CRON] startPaymentReminderCron:', (e as Error).message);
     }
   });
-  console.log('✅ Cron recordatorio de pago (12h post-instrucciones) activo');
+  console.log('✅ Cron recordatorio de pago (al llegar a CEDIS) activo');
 };
 
 export const initCronJobs = () => {
