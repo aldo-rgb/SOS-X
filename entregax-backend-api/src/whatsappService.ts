@@ -568,7 +568,7 @@ export const sendInstructionReminderClient = async (
 /**
  * Recordatorio al ASESOR: su cliente tiene una caja sin instrucciones (3 días).
  * Plantilla "recordatorio_instrucciones_asesor" (UTILITY, es_MX).
- *   {{1}} = nombre asesor (first name), {{2}} = nombre cliente, {{3}} = tracking
+ *   {{1}} = nombre asesor (first name), {{2}} = casillero del cliente (S1234), {{3}} = tracking
  */
 export const sendInstructionReminderAdvisor = async (
     phone: string, advisorName: string, clientName: string, tracking: string

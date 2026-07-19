@@ -1094,7 +1094,7 @@ export const startInstructionReminderCron = () => {
       await pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS instruction_reminder_sent_at TIMESTAMPTZ`).catch(() => {});
       const r = await pool.query(`
         SELECT p.id, p.tracking_internal AS trn,
-               u.full_name AS client_name, u.phone AS client_phone,
+               u.full_name AS client_name, u.box_id AS client_box, u.phone AS client_phone,
                u.notif_whatsapp, u.phone_verified, u.whatsapp_verified,
                a.full_name AS advisor_name, a.phone AS advisor_phone
         FROM packages p
@@ -1121,8 +1121,9 @@ export const startInstructionReminderCron = () => {
           await sendInstructionReminderClient(row.client_phone, row.client_name || 'Cliente', trn).catch(() => {});
         }
         // El asesor siempre recibe el recordatorio de trabajo (si tiene teléfono).
+        // Se le manda el CASILLERO del cliente (S1234), no el nombre.
         if (row.advisor_phone) {
-          await sendInstructionReminderAdvisor(row.advisor_phone, row.advisor_name || 'Asesor', row.client_name || 'tu cliente', trn).catch(() => {});
+          await sendInstructionReminderAdvisor(row.advisor_phone, row.advisor_name || 'Asesor', row.client_box || row.client_name || 'tu cliente', trn).catch(() => {});
         }
         await pool.query(`UPDATE packages SET instruction_reminder_sent_at = NOW() WHERE id = $1`, [row.id]).catch(() => {});
         sent++;
