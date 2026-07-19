@@ -169,15 +169,19 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const isMounted = useRef(true);
   useEffect(() => { return () => { isMounted.current = false; }; }, []);
 
+  // TRN pendiente de auto-pago (viene del deep link /pagar/<TRN>).
+  const [pendingPayTrn, setPendingPayTrn] = useState<string | null>(null);
+
   // 🔗 Deep links (instrucciones / pagar): filtra Home a la guía objetivo
   // (botones de las plantillas de WhatsApp → /instrucciones/<TRN> o /pagar/<TRN>).
-  // Etapa 1: ambos solo filtran Home a la guía. El auto-pago de 'pagar' llega después.
   useEffect(() => {
     const applyFocus = (target: DeepLinkTarget) => {
       if (!target?.trn) return;
       setServiceFilter(null);
       setInstructionFilter(null);
       setTrnFilter(target.trn);
+      // /pagar → además intentar dejar listo el pago (auto-seleccionar + navegar).
+      if (target.action === 'pagar') setPendingPayTrn(target.trn);
     };
     setDeepLinkListener(applyFocus);
     // Arranque en frío: consumir el deep link que quedó pendiente antes de montar Home.
@@ -185,6 +189,28 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     if (pending) applyFocus(pending);
     return () => setDeepLinkListener(null);
   }, []);
+
+  // 💳 Auto-pago del deep link /pagar/<TRN>: cuando los paquetes ya cargaron,
+  // busca la guía, la selecciona y (si es pagable) navega directo a PaymentSummary.
+  // Si no tiene instrucciones/saldo, solo la deja filtrada (Etapa 1).
+  useEffect(() => {
+    if (!pendingPayTrn || packages.length === 0) return;
+    const trn = pendingPayTrn.toUpperCase();
+    setPendingPayTrn(null); // intentar una sola vez cuando ya hay paquetes
+    const matches = packages.filter(p => String(p.tracking_internal || '').toUpperCase().includes(trn));
+    if (matches.length === 0) return;
+    const payable = matches.filter(p => {
+      const hasInstr = !!(p as any).assigned_address_id || !!(p as any).delivery_address_id;
+      const saldo = parseFloat(String((p as any).saldo_pendiente || (p as any).assigned_cost_mxn || 0));
+      const notPaid = (p as any).client_paid !== true;
+      const svcEnabled = isEntregaxPaymentEnabledFor((p as any).service_type || (p as any).servicio || (p as any).shipment_type);
+      return hasInstr && saldo > 0 && notPaid && svcEnabled;
+    });
+    if (payable.length > 0 && entregaxPaymentsEnabled) {
+      setSelectedIds(payable.map(p => p.id));
+      navigation.navigate('PaymentSummary', { packages: payable, user, token });
+    }
+  }, [pendingPayTrn, packages, entregaxPaymentsEnabled, isEntregaxPaymentEnabledFor, navigation, user, token]);
 
   // 🔐 Verificar si el usuario está verificado
   const isUserVerified = user.isVerified === true;
