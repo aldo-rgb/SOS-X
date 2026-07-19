@@ -518,6 +518,83 @@ export const sendPoboxReceptionNotification = async (
 };
 
 /**
+ * Recordatorio al CLIENTE: su caja lleva 3 días sin instrucciones de entrega.
+ * Plantilla "recordatorio_instrucciones_cliente" (UTILITY, es_MX).
+ *   {{1}} = nombre (first name), {{2}} = tracking
+ *   Botón URL dinámico "Asignar instrucciones" → https://entregax.app/instrucciones/{{1}} (=tracking)
+ */
+export const sendInstructionReminderClient = async (
+    phone: string, nombre: string, tracking: string
+): Promise<void> => {
+    const templateName = process.env.WHATSAPP_INSTR_REMINDER_CLIENT_TEMPLATE || 'recordatorio_instrucciones_cliente';
+    const lang = process.env.WHATSAPP_INSTR_REMINDER_CLIENT_LANG || 'es_MX';
+    const firstName = nombre.split(' ')[0] ?? nombre;
+    try {
+        await sendTemplate({
+            to: phone, template: templateName, languageCode: lang,
+            parameters: [firstName, tracking],
+            urlButtonParam: tracking, // botón → /instrucciones/<tracking>
+        });
+    } catch {
+        // Reintento sin botón por si la plantilla aún no tiene el botón URL aprobado.
+        try {
+            await sendTemplate({ to: phone, template: templateName, languageCode: lang, parameters: [firstName, tracking] });
+        } catch (e2) {
+            console.error('[WHATSAPP] recordatorio_instrucciones_cliente falló:', (e2 as Error).message);
+        }
+    }
+};
+
+/**
+ * Recordatorio al ASESOR: su cliente tiene una caja sin instrucciones (3 días).
+ * Plantilla "recordatorio_instrucciones_asesor" (UTILITY, es_MX).
+ *   {{1}} = nombre asesor (first name), {{2}} = nombre cliente, {{3}} = tracking
+ */
+export const sendInstructionReminderAdvisor = async (
+    phone: string, advisorName: string, clientName: string, tracking: string
+): Promise<void> => {
+    const templateName = process.env.WHATSAPP_INSTR_REMINDER_ADVISOR_TEMPLATE || 'recordatorio_instrucciones_asesor';
+    const lang = process.env.WHATSAPP_INSTR_REMINDER_ADVISOR_LANG || 'es_MX';
+    const advisorFirst = advisorName.split(' ')[0] ?? advisorName;
+    try {
+        await sendTemplate({
+            to: phone, template: templateName, languageCode: lang,
+            parameters: [advisorFirst, clientName, tracking],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] recordatorio_instrucciones_asesor falló:', (e as Error).message);
+    }
+};
+
+/**
+ * Recordatorio al CLIENTE: ya puede pagar su embarque (12h después de asignar
+ * instrucciones). Se envía UNO por guía master. Plantilla
+ * "recordatorio_pago_embarque" (UTILITY, es_MX).
+ *   {{1}} = nombre (first name), {{2}} = tracking (guía master)
+ *   Botón URL dinámico "Pagar embarque" → https://entregax.app/instrucciones/{{1}} (=tracking)
+ */
+export const sendPaymentReminder = async (
+    phone: string, nombre: string, tracking: string
+): Promise<void> => {
+    const templateName = process.env.WHATSAPP_PAYMENT_REMINDER_TEMPLATE || 'recordatorio_pago_embarque';
+    const lang = process.env.WHATSAPP_PAYMENT_REMINDER_LANG || 'es_MX';
+    const firstName = nombre.split(' ')[0] ?? nombre;
+    try {
+        await sendTemplate({
+            to: phone, template: templateName, languageCode: lang,
+            parameters: [firstName, tracking],
+            urlButtonParam: tracking,
+        });
+    } catch {
+        try {
+            await sendTemplate({ to: phone, template: templateName, languageCode: lang, parameters: [firstName, tracking] });
+        } catch (e2) {
+            console.error('[WHATSAPP] recordatorio_pago_embarque falló:', (e2 as Error).message);
+        }
+    }
+};
+
+/**
  * Helper reutilizable: notifica al CLIENTE por WhatsApp que su paquete llegó a
  * bodega (plantilla detallada), buscando su teléfono y respetando preferencias
  * (notif_whatsapp + notif_<servicio> + teléfono/whatsapp verificado). Pensado

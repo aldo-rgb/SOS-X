@@ -1078,6 +1078,108 @@ export const startUskGuideProgressionCron = () => {
   console.log('✅ Cron de progresión de guías USK activo (cada 30 min)');
 };
 
+/**
+ * CRON: Recordatorio de cajas SIN INSTRUCCIONES a los 3 días de recibidas.
+ * Envía al CLIENTE y a su ASESOR. Solo si aún no hay instrucciones y no se
+ * mandó antes (dedup por instruction_reminder_sent_at). Una vez por guía
+ * master o caja individual (no por cada hija). Gated: INSTRUCTION_REMINDER_ENABLED=1.
+ */
+export const startInstructionReminderCron = () => {
+  // Diario 10:00 MX (16:00 UTC).
+  cron.schedule('0 16 * * *', async () => {
+    if (!['1', 'true', 'yes'].includes(String(process.env.INSTRUCTION_REMINDER_ENABLED || '').toLowerCase())) return;
+    try {
+      await pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS instruction_reminder_sent_at TIMESTAMPTZ`).catch(() => {});
+      const { sendInstructionReminderClient, sendInstructionReminderAdvisor } = await import('./whatsappService');
+      const r = await pool.query(`
+        SELECT p.id, p.tracking_internal AS trn,
+               u.full_name AS client_name, u.phone AS client_phone,
+               u.notif_whatsapp, u.phone_verified, u.whatsapp_verified,
+               a.full_name AS advisor_name, a.phone AS advisor_phone
+        FROM packages p
+        JOIN users u ON u.id = p.user_id
+        LEFT JOIN users a ON a.id = u.advisor_id
+        WHERE p.received_at IS NOT NULL
+          AND p.received_at <= NOW() - INTERVAL '3 days'
+          AND p.received_at >= NOW() - INTERVAL '14 days'
+          AND p.assigned_address_id IS NULL
+          AND p.instructions_assigned_at IS NULL
+          AND p.delivered_at IS NULL
+          AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
+          AND p.lost_by_user_id IS NULL
+          AND (p.is_master = TRUE OR p.master_id IS NULL)
+          AND p.instruction_reminder_sent_at IS NULL
+        ORDER BY p.received_at ASC
+        LIMIT 300
+      `);
+      let sent = 0;
+      for (const row of r.rows) {
+        const trn = row.trn || '';
+        const wantWa = row.notif_whatsapp !== false && (row.phone_verified === true || row.whatsapp_verified === true);
+        if (row.client_phone && wantWa) {
+          await sendInstructionReminderClient(row.client_phone, row.client_name || 'Cliente', trn).catch(() => {});
+        }
+        // El asesor siempre recibe el recordatorio de trabajo (si tiene teléfono).
+        if (row.advisor_phone) {
+          await sendInstructionReminderAdvisor(row.advisor_phone, row.advisor_name || 'Asesor', row.client_name || 'tu cliente', trn).catch(() => {});
+        }
+        await pool.query(`UPDATE packages SET instruction_reminder_sent_at = NOW() WHERE id = $1`, [row.id]).catch(() => {});
+        sent++;
+      }
+      if (sent) console.log(`[CRON] Recordatorio instrucciones (3 días): ${sent} guías notificadas`);
+    } catch (e) {
+      console.error('[CRON] startInstructionReminderCron:', (e as Error).message);
+    }
+  });
+  console.log('✅ Cron recordatorio de instrucciones (3 días) activo');
+};
+
+/**
+ * CRON: Recordatorio de PAGO ~12h después de asignar instrucciones. UNO por
+ * guía master/caja individual. Solo si NO está pagada y no se mandó antes
+ * (dedup por payment_reminder_sent_at). Gated: PAYMENT_REMINDER_ENABLED=1.
+ */
+export const startPaymentReminderCron = () => {
+  // Cada hora (:20) para acercarse a la ventana de 12h.
+  cron.schedule('20 * * * *', async () => {
+    if (!['1', 'true', 'yes'].includes(String(process.env.PAYMENT_REMINDER_ENABLED || '').toLowerCase())) return;
+    try {
+      await pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS payment_reminder_sent_at TIMESTAMPTZ`).catch(() => {});
+      const { sendPaymentReminder } = await import('./whatsappService');
+      const r = await pool.query(`
+        SELECT p.id, p.tracking_internal AS trn,
+               u.full_name AS client_name, u.phone AS client_phone,
+               u.notif_whatsapp, u.phone_verified, u.whatsapp_verified
+        FROM packages p
+        JOIN users u ON u.id = p.user_id
+        WHERE p.instructions_assigned_at IS NOT NULL
+          AND p.instructions_assigned_at <= NOW() - INTERVAL '12 hours'
+          AND p.instructions_assigned_at >= NOW() - INTERVAL '48 hours'
+          AND p.client_paid IS NOT TRUE
+          AND COALESCE(p.payment_status, '') NOT IN ('paid', 'pagado')
+          AND p.delivered_at IS NULL
+          AND (p.is_master = TRUE OR p.master_id IS NULL)
+          AND p.payment_reminder_sent_at IS NULL
+        ORDER BY p.instructions_assigned_at ASC
+        LIMIT 300
+      `);
+      let sent = 0;
+      for (const row of r.rows) {
+        const wantWa = row.notif_whatsapp !== false && (row.phone_verified === true || row.whatsapp_verified === true);
+        if (row.client_phone && wantWa) {
+          await sendPaymentReminder(row.client_phone, row.client_name || 'Cliente', row.trn || '').catch(() => {});
+        }
+        await pool.query(`UPDATE packages SET payment_reminder_sent_at = NOW() WHERE id = $1`, [row.id]).catch(() => {});
+        sent++;
+      }
+      if (sent) console.log(`[CRON] Recordatorio de pago (12h): ${sent} guías notificadas`);
+    } catch (e) {
+      console.error('[CRON] startPaymentReminderCron:', (e as Error).message);
+    }
+  });
+  console.log('✅ Cron recordatorio de pago (12h post-instrucciones) activo');
+};
+
 export const initCronJobs = () => {
   startRecoveryCronJob();
   startWaSequenceCron();
@@ -1103,6 +1205,8 @@ export const initCronJobs = () => {
   startSyncfyAutoSyncCron();
   startChartbackIPromotionCron();
   startStaleRatesNotifyCron();
+  startInstructionReminderCron();
+  startPaymentReminderCron();
 };
 
 export default initCronJobs;
