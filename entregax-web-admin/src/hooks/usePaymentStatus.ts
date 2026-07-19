@@ -30,6 +30,8 @@ interface PaymentStatusCache {
   entregax_full_black_url: string | null;
   entregax_x_only_url: string | null;
   maintenance_mode: boolean;
+  notif_caja_recibida: boolean;
+  notif_recordatorio_pago: boolean;
 }
 
 let cached: PaymentStatusCache | null = null;
@@ -57,6 +59,8 @@ const FALLBACK: PaymentStatusCache = {
   entregax_full_black_url: null,
   entregax_x_only_url: null,
   maintenance_mode: false,
+  notif_caja_recibida: true,
+  notif_recordatorio_pago: true,
 };
 
 export type EntregaxServiceKey = 'pobox' | 'maritimo' | 'aereo' | 'tdi_express' | 'dhl';
@@ -143,6 +147,8 @@ export function usePaymentStatus() {
             entregax_full_black_url: typeof data.entregax_full_black_url === 'string' ? data.entregax_full_black_url : null,
             entregax_x_only_url: typeof data.entregax_x_only_url === 'string' ? data.entregax_x_only_url : null,
             maintenance_mode: data.maintenance_mode === true,
+            notif_caja_recibida: data.notif_caja_recibida !== false,
+            notif_recordatorio_pago: data.notif_recordatorio_pago !== false,
           };
           lastFetch = Date.now();
           setStatus(cached);
@@ -189,6 +195,8 @@ export function usePaymentStatus() {
     entregaxXOnlyUrl: status.entregax_x_only_url,
     entregaxFullBlackUrl: status.entregax_full_black_url,
     maintenanceMode: status.maintenance_mode,
+    notifCajaRecibida: status.notif_caja_recibida,
+    notifRecordatorioPago: status.notif_recordatorio_pago,
     loading,
   };
 }
@@ -224,6 +232,18 @@ export async function toggleFacturas(payload: boolean | { enabled?: boolean; by_
 /** Actualiza el estado de contratación de GEX (solo Super Admin) */
 export async function toggleGEX(enabled: boolean): Promise<void> {
   await api.post('/admin/system/gex-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Notificación de caja recibida + recordatorio de instrucciones 3 días (solo Super Admin) */
+export async function toggleNotifCajaRecibida(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/notif-caja-recibida-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Recordatorio de pago al llegar a CEDIS (solo Super Admin) */
+export async function toggleNotifPago(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/notif-pago-toggle', { enabled });
   invalidatePaymentStatusCache();
 }
 

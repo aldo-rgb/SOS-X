@@ -38,7 +38,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SyncIcon from '@mui/icons-material/Sync';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
-import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleFacturas, toggleGEX, toggleAdvisorInstructions, toggleAdvisorPaymentOrder, toggleAdvisorXpay, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleRequireInstructionsToLoadPobox, toggleExternalSync, toggleEntregaxPaymentQuery, toggleCajito, toggleMaintenanceMode, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleFacturas, toggleGEX, toggleAdvisorInstructions, toggleAdvisorPaymentOrder, toggleAdvisorXpay, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleRequireInstructionsToLoadPobox, toggleExternalSync, toggleEntregaxPaymentQuery, toggleCajito, toggleMaintenanceMode, toggleNotifCajaRecibida, toggleNotifPago, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
 import CajitoAuditDialog from '../components/CajitoAuditDialog';
@@ -86,12 +86,16 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
-    const { xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, entregaxPaymentQueryEnabled, cajitoEnabled, maintenanceMode, loading: paymentsStatusLoading } = usePaymentStatus();
+    const { xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, entregaxPaymentQueryEnabled, cajitoEnabled, maintenanceMode, notifCajaRecibida, notifRecordatorioPago, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
     const [localFacturas, setLocalFacturas] = useState<boolean | null>(null);
     const [localFacturasByService, setLocalFacturasByService] = useState<{ pobox: boolean; maritimo: boolean; aereo: boolean; tdi_express: boolean; dhl: boolean } | null>(null);
     const [togglingFacturas, setTogglingFacturas] = useState(false);
+    const [localNotifCaja, setLocalNotifCaja] = useState<boolean | null>(null);
+    const [togglingNotifCaja, setTogglingNotifCaja] = useState(false);
+    const [localNotifPago, setLocalNotifPago] = useState<boolean | null>(null);
+    const [togglingNotifPago, setTogglingNotifPago] = useState(false);
     const [togglingFacturasService, setTogglingFacturasService] = useState<string | null>(null);
     const [togglingGex, setTogglingGex] = useState(false);
     const [togglingAdvisorInstr, setTogglingAdvisorInstr] = useState(false);
@@ -144,8 +148,10 @@ export default function SettingsPage() {
             setLocalPaymentQuery(entregaxPaymentQueryEnabled);
             setLocalCajito(cajitoEnabled);
             setLocalMaintenance(maintenanceMode);
+            setLocalNotifCaja(notifCajaRecibida);
+            setLocalNotifPago(notifRecordatorioPago);
         }
-    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, cajitoEnabled, maintenanceMode]);
+    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, cajitoEnabled, maintenanceMode, notifCajaRecibida, notifRecordatorioPago]);
 
     const handleToggleXpay = async (checked: boolean) => {
         setTogglingXpay(true);
@@ -206,6 +212,36 @@ export default function SettingsPage() {
             setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar Facturas EntregaX', severity: 'error' });
         } finally {
             setTogglingFacturas(false);
+        }
+    };
+    const handleToggleNotifCaja = async (checked: boolean) => {
+        setTogglingNotifCaja(true);
+        const prev = localNotifCaja;
+        setLocalNotifCaja(checked);
+        try {
+            await toggleNotifCajaRecibida(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Notificación de caja recibida ${checked ? 'activada' : 'desactivada'}`, severity: 'success' });
+        } catch (err: any) {
+            setLocalNotifCaja(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar la notificación', severity: 'error' });
+        } finally {
+            setTogglingNotifCaja(false);
+        }
+    };
+    const handleToggleNotifPago = async (checked: boolean) => {
+        setTogglingNotifPago(true);
+        const prev = localNotifPago;
+        setLocalNotifPago(checked);
+        try {
+            await toggleNotifPago(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Recordatorio de pago ${checked ? 'activado' : 'desactivado'}`, severity: 'success' });
+        } catch (err: any) {
+            setLocalNotifPago(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar el recordatorio de pago', severity: 'error' });
+        } finally {
+            setTogglingNotifPago(false);
         }
     };
     const handleToggleFacturasService = async (key: 'pobox' | 'maritimo' | 'aereo' | 'tdi_express' | 'dhl', checked: boolean) => {
@@ -807,6 +843,69 @@ export default function SettingsPage() {
                                         )}
                                     </Box>
                                 )}
+                            </Paper>
+
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                                <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>
+                                    🔔 Notificaciones automáticas (WhatsApp)
+                                </Typography>
+
+                                {/* Caja recibida + recordatorio de instrucciones 3 días */}
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                                        <Typography variant="body2" fontWeight={600}>📦 Caja recibida</Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            Avisa al cliente cuando su caja llega al sistema. También activa el
+                                            recordatorio a los 3 días si la caja sigue sin instrucciones (al cliente y,
+                                            con otra plantilla, a su asesor). Si se apaga, se apagan ambos.
+                                        </Typography>
+                                    </Box>
+                                    {paymentsStatusLoading || localNotifCaja === null ? (
+                                        <CircularProgress size={20} />
+                                    ) : (
+                                        <FormControlLabel
+                                            control={
+                                                <Switch
+                                                    checked={!!localNotifCaja}
+                                                    onChange={(e) => handleToggleNotifCaja(e.target.checked)}
+                                                    disabled={togglingNotifCaja}
+                                                    color="success"
+                                                />
+                                            }
+                                            label={togglingNotifCaja ? '...' : (localNotifCaja ? 'Activado' : 'Desactivado')}
+                                            labelPlacement="start"
+                                            sx={{ m: 0 }}
+                                        />
+                                    )}
+                                </Box>
+
+                                {/* Recordatorio de pago al llegar a CEDIS */}
+                                <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed', borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                                        <Typography variant="body2" fontWeight={600}>💳 Recordatorio de pago</Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            Avisa al cliente que ya puede pagar su embarque cuando la caja se registra
+                                            recibida en CEDIS (MTY o CDMX) y aún no tiene pago. Uno por guía master.
+                                        </Typography>
+                                    </Box>
+                                    {paymentsStatusLoading || localNotifPago === null ? (
+                                        <CircularProgress size={20} />
+                                    ) : (
+                                        <FormControlLabel
+                                            control={
+                                                <Switch
+                                                    checked={!!localNotifPago}
+                                                    onChange={(e) => handleToggleNotifPago(e.target.checked)}
+                                                    disabled={togglingNotifPago}
+                                                    color="success"
+                                                />
+                                            }
+                                            label={togglingNotifPago ? '...' : (localNotifPago ? 'Activado' : 'Desactivado')}
+                                            labelPlacement="start"
+                                            sx={{ m: 0 }}
+                                        />
+                                    )}
+                                </Box>
                             </Paper>
 
                             <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>

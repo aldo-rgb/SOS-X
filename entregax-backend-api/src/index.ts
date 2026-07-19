@@ -14182,7 +14182,7 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'advisor_payment_order_enabled', 'advisor_xpay_enabled', 'require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode', 'entregax_payment_query_enabled', 'facturas_enabled')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'advisor_payment_order_enabled', 'advisor_xpay_enabled', 'require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode', 'entregax_payment_query_enabled', 'facturas_enabled', 'notif_caja_recibida', 'notif_recordatorio_pago')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -14229,6 +14229,13 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
       tdi_express: rawFacturasByService?.tdi_express  !== false,
       dhl:         rawFacturasByService?.dhl          !== false,
     };
+
+    // Notificaciones automáticas de WhatsApp (default TRUE):
+    // - notif_caja_recibida: aviso de "paquete recibido" + recordatorio de
+    //   instrucciones a 3 días (cliente y asesor).
+    // - notif_recordatorio_pago: recordatorio de pago al llegar a CEDIS.
+    const notifCajaRecibida = byKey['notif_caja_recibida']?.enabled !== false;
+    const notifRecordatorioPago = byKey['notif_recordatorio_pago']?.enabled !== false;
 
     // advisor_instructions_enabled: controla botón lapiz y edición de instrucciones/direcciones en panel asesor
     const advisorInstructionsEnabled = byKey['advisor_instructions_enabled'] !== undefined
@@ -14356,9 +14363,11 @@ app.get('/api/system/payment-status', async (req: Request, res: Response) => {
       entregax_full_black_url: entregaxFullBlackUrl,
       entregax_x_only_url: entregaxXOnlyUrl,
       maintenance_mode: maintenanceMode,
+      notif_caja_recibida: notifCajaRecibida,
+      notif_recordatorio_pago: notifRecordatorioPago,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, facturas_enabled: true, facturas_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, advisor_instructions_enabled: true, advisor_payment_order_enabled: true, advisor_xpay_enabled: false, require_payment_to_load: true, require_label_to_load: true, require_instructions_to_load_pobox: false, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, entregax_full_black_url: null, maintenance_mode: false });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, facturas_enabled: true, facturas_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, advisor_instructions_enabled: true, advisor_payment_order_enabled: true, advisor_xpay_enabled: false, require_payment_to_load: true, require_label_to_load: true, require_instructions_to_load_pobox: false, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, entregax_full_black_url: null, maintenance_mode: false, notif_caja_recibida: true, notif_recordatorio_pago: true });
   }
 });
 
@@ -14499,6 +14508,47 @@ app.post('/api/admin/system/gex-toggle', authenticateToken, requireRole('super_a
   } catch (err: any) {
     console.error('[GEX-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar estado de GEX' });
+  }
+});
+
+// POST /api/admin/system/notif-caja-recibida-toggle — aviso de "paquete recibido"
+// + recordatorio de instrucciones a 3 días (cliente y asesor).
+app.post('/api/admin/system/notif-caja-recibida-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('notif_caja_recibida', $1::jsonb, 'Notificación de caja recibida + recordatorio de instrucciones (3 días, cliente y asesor)', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled: !!enabled }), userId]
+    );
+    console.log(`🔔 [NOTIF-CAJA] ${enabled ? '✅ Habilitada' : '🔴 Deshabilitada'} por user #${userId}`);
+    res.json({ success: true, notif_caja_recibida: !!enabled });
+  } catch (err: any) {
+    console.error('[NOTIF-CAJA-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar notificación de caja recibida' });
+  }
+});
+
+// POST /api/admin/system/notif-pago-toggle — recordatorio de pago al llegar a CEDIS.
+app.post('/api/admin/system/notif-pago-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('notif_recordatorio_pago', $1::jsonb, 'Recordatorio de pago al llegar la caja a CEDIS', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled: !!enabled }), userId]
+    );
+    console.log(`🔔 [NOTIF-PAGO] ${enabled ? '✅ Habilitada' : '🔴 Deshabilitada'} por user #${userId}`);
+    res.json({ success: true, notif_recordatorio_pago: !!enabled });
+  } catch (err: any) {
+    console.error('[NOTIF-PAGO-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar recordatorio de pago' });
   }
 });
 

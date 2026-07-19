@@ -438,6 +438,7 @@ export const sendTicketResolved = async (phone: string, nombre: string, ticketFo
  * Variables: {{1}} = nombre, {{2}} = tracking, {{3}} = servicio
  */
 export const sendPackageArrival = async (phone: string, nombre: string, tracking: string, servicio: string): Promise<void> => {
+    if (!(await isNotifEnabled('notif_caja_recibida'))) return; // toggle en Ajustes del Sistema
     const templateName = process.env.WHATSAPP_PACKAGE_TEMPLATE || 'paquete_recibido';
     try {
         await sendTemplate({
@@ -485,6 +486,7 @@ export const sendPoboxReceptionNotification = async (
     guiaOrigen: string | null,
     servicio: string = 'PO Box USA'
 ): Promise<void> => {
+    if (!(await isNotifEnabled('notif_caja_recibida'))) return; // toggle en Ajustes del Sistema
     const templateName = process.env.WHATSAPP_POBOX_RECEPTION_TEMPLATE || 'paquete_recibido_pobox';
     const basicTemplate = process.env.WHATSAPP_PACKAGE_TEMPLATE || 'paquete_recibido';
     const firstName = nombre.split(' ')[0] ?? nombre;
@@ -514,6 +516,24 @@ export const sendPoboxReceptionNotification = async (
         } catch (e) {
             console.error('[WHATSAPP] Error enviando notificación PO Box recepción:', e);
         }
+    }
+};
+
+/**
+ * Lee un toggle de notificaciones desde system_configurations.
+ * Default ON: si la fila no existe o hay error, NO se bloquea el envío (para no
+ * romper flujos que hoy funcionan). Solo un {enabled:false} explícito apaga.
+ */
+export const isNotifEnabled = async (configKey: string): Promise<boolean> => {
+    try {
+        const r = await pool.query(
+            `SELECT config_value FROM system_configurations WHERE config_key = $1 AND is_active = TRUE`,
+            [configKey]
+        );
+        if (!r.rows.length) return true;
+        return r.rows[0].config_value?.enabled !== false;
+    } catch {
+        return true;
     }
 };
 

@@ -1082,15 +1082,16 @@ export const startUskGuideProgressionCron = () => {
  * CRON: Recordatorio de cajas SIN INSTRUCCIONES a los 3 días de recibidas.
  * Envía al CLIENTE y a su ASESOR. Solo si aún no hay instrucciones y no se
  * mandó antes (dedup por instruction_reminder_sent_at). Una vez por guía
- * master o caja individual (no por cada hija). Gated: INSTRUCTION_REMINDER_ENABLED=1.
+ * master o caja individual (no por cada hija). Toggle: notif_caja_recibida.
  */
 export const startInstructionReminderCron = () => {
   // Diario 10:00 MX (16:00 UTC).
   cron.schedule('0 16 * * *', async () => {
-    if (!['1', 'true', 'yes'].includes(String(process.env.INSTRUCTION_REMINDER_ENABLED || '').toLowerCase())) return;
     try {
+      const { sendInstructionReminderClient, sendInstructionReminderAdvisor, isNotifEnabled } = await import('./whatsappService');
+      // Controlado por el toggle "Notificación de caja recibida" (Ajustes del Sistema).
+      if (!(await isNotifEnabled('notif_caja_recibida'))) return;
       await pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS instruction_reminder_sent_at TIMESTAMPTZ`).catch(() => {});
-      const { sendInstructionReminderClient, sendInstructionReminderAdvisor } = await import('./whatsappService');
       const r = await pool.query(`
         SELECT p.id, p.tracking_internal AS trn,
                u.full_name AS client_name, u.phone AS client_phone,
@@ -1139,16 +1140,17 @@ export const startInstructionReminderCron = () => {
  * (status received_mty / received_cdmx) y NO tiene pago registrado. Aplica a
  * TODOS los servicios (packages: aéreo/TDI/PO Box + maritime_orders). UNO por
  * guía master/caja individual, dedup por payment_reminder_sent_at.
- * Gated: PAYMENT_REMINDER_ENABLED=1.
+ * Toggle: notif_recordatorio_pago (Ajustes del Sistema).
  */
 export const startPaymentReminderCron = () => {
   // Cada 30 min: captura la caja mientras está "recibida en CEDIS".
   cron.schedule('*/30 * * * *', async () => {
-    if (!['1', 'true', 'yes'].includes(String(process.env.PAYMENT_REMINDER_ENABLED || '').toLowerCase())) return;
     try {
+      const { sendPaymentReminder, isNotifEnabled } = await import('./whatsappService');
+      // Controlado por el toggle "Recordatorio de pago" (Ajustes del Sistema).
+      if (!(await isNotifEnabled('notif_recordatorio_pago'))) return;
       await pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS payment_reminder_sent_at TIMESTAMPTZ`).catch(() => {});
       await pool.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS payment_reminder_sent_at TIMESTAMPTZ`).catch(() => {});
-      const { sendPaymentReminder } = await import('./whatsappService');
       let sent = 0;
 
       // 1) packages (aéreo China / TDI Express / PO Box / etc.)
