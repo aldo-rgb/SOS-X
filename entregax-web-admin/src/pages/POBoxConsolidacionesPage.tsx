@@ -138,6 +138,7 @@ const POBoxConsolidacionesPage: React.FC = () => {
   const [filtroPago, setFiltroPago] = useState('todos');
   const [filtroConsolId, setFiltroConsolId] = useState<string>('todos');
   const [filtroTracking, setFiltroTracking] = useState('');
+  const [showExcluded, setShowExcluded] = useState(false);
 
   // Selección
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -581,8 +582,17 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
               if (!p.received_mty_at) return false;
               return true;
             };
+            const exclusionReason = (p: any): string => {
+              if (p.is_master && Number(p.total_boxes || 1) > 1) return 'Master multi-caja';
+              if (p.is_lost) return 'Perdida';
+              if (p.missing_on_arrival) return 'Faltante';
+              if (p.costing_paid) return 'Ya pagada';
+              if (!p.received_mty_at) return 'Aún sin llegar a MTY';
+              return 'Excluida';
+            };
             const payablePkgs = toShowAll.filter(isPayable);
-            const excludedCount = toShowAll.length - payablePkgs.length;
+            const excludedPkgs = toShowAll.filter(p => !isPayable(p));
+            const excludedCount = excludedPkgs.length;
             const totalUsd = payablePkgs.reduce((s, p) => s + Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0), 0);
             const totalMxn = payablePkgs.reduce((s, p) => {
               const mxn = Number(p.pobox_provider_cost_mxn ?? 0) || (Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0) * Number(p.registered_exchange_rate ?? 0));
@@ -617,9 +627,29 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                   </Grid>
                 </Grid>
                 {excludedCount > 0 && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                    Excluidas {excludedCount} guías (master multi-caja · perdida · faltante · ya pagada · aún sin llegar a MTY). Estas no se sumarán a la referencia.
-                  </Typography>
+                  <Box sx={{ mt: 1 }}>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      onClick={() => setShowExcluded(v => !v)}
+                      sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', textDecoration: 'underline dotted' }}
+                    >
+                      Excluidas {excludedCount} guías (no se suman a la referencia) — {showExcluded ? 'ocultar' : 'ver cuáles y por qué'}
+                    </Typography>
+                    {showExcluded && (
+                      <Box sx={{ mt: 1, p: 1, bgcolor: 'rgba(0,0,0,0.04)', borderRadius: 1 }}>
+                        {excludedPkgs.map((p: any) => (
+                          <Box key={p.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, py: 0.5, borderBottom: '1px dashed', borderColor: 'divider' }}>
+                            <Box sx={{ minWidth: 0 }}>
+                              <Typography variant="caption" fontFamily="monospace" fontWeight={600} sx={{ display: 'block' }}>{p.tracking || '—'}</Typography>
+                              <Typography variant="caption" color="text.secondary">{p.client_name || 'Sin cliente'}{p.client_box_id ? ` · ${p.client_box_id}` : ''}</Typography>
+                            </Box>
+                            <Chip size="small" variant="outlined" color="warning" label={exclusionReason(p)} sx={{ height: 22 }} />
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
+                  </Box>
                 )}
               </Paper>
             );
