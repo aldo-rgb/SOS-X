@@ -3586,7 +3586,7 @@ export default function DashboardAdvisor() {
                         <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${c.weight > 0 ? `${Number(c.weight).toFixed(1)} kg` : '—'}</td>
                         <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">${cdims}</td>
                         <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:center">—</td>
-                        <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right">${fmt(c.venta_mxn)}</td>
+                        <td style="padding:4px 8px;border-bottom:1px solid #F5E6D0;font-size:10px;text-align:right;color:#999">${c.venta_mxn != null ? fmt(c.venta_mxn) : ''}</td>
                       </tr>`;
                     });
                   });

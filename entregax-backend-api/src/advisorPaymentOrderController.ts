@@ -659,7 +659,12 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           total_boxes: m.total_boxes || (children.length || 1),
           tipo: 'POBOX',
           venta_usd: parseFloat(m.pobox_venta_usd) || children.reduce((s: number, c: any) => s + (parseFloat(c.pobox_venta_usd) || 0), 0),
-          venta_mxn: parseFloat(m.pobox_service_cost) || parseFloat(m.assigned_cost_mxn) || parseFloat(m.saldo_pendiente) || 0,
+          // REPACK (master con hijas): se cobra el precio del reempaque completo
+          // = assigned_cost_mxn ($1576.19), NO pobox_service_cost (costo interno).
+          // Las hijas van adentro y NO se cobran por separado (venta_mxn = null).
+          venta_mxn: (m.is_master && children.length > 0)
+            ? (parseFloat(m.assigned_cost_mxn) || parseFloat(m.pobox_service_cost) || parseFloat(m.saldo_pendiente) || 0)
+            : (parseFloat(m.pobox_service_cost) || parseFloat(m.assigned_cost_mxn) || parseFloat(m.saldo_pendiente) || 0),
           exchange_rate: parseFloat(tc) || 18.5,
           children: children.map((c: any) => ({
             id: c.id,
@@ -667,7 +672,8 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
             child_no: c.child_no,
             n_level: c.pobox_tarifa_nivel ? `N${c.pobox_tarifa_nivel}` : null,
             venta_usd: parseFloat(c.pobox_venta_usd) || 0,
-            venta_mxn: parseFloat(c.pobox_service_cost) || parseFloat(c.assigned_cost_mxn) || 0,
+            // Las hijas de un REPACK no se cobran por separado (van dentro del master).
+            venta_mxn: null,
             weight: parseFloat(c.weight) || 0,
             lengthCm: parseFloat(c.pkg_length) || parseFloat(c.long_cm) || 0,
             widthCm: parseFloat(c.pkg_width) || parseFloat(c.width_cm) || 0,
