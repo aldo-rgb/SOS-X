@@ -1766,6 +1766,8 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
         se.status AS seq_status,
         se.current_step AS seq_step,
         se.next_send_at AS seq_next_send_at,
+        se.stopped_reason AS seq_reason,
+        se.last_sent_at AS seq_last_sent,
         EXISTS(SELECT 1 FROM welcome_kit_requests wk WHERE wk.lead_key = b.lead_key AND wk.status <> 'cancelado') AS has_kit,
         CASE WHEN b.follow_up_date::date = CURRENT_DATE THEN true ELSE false END as follow_up_today,
         CASE WHEN b.follow_up_date < NOW() THEN true ELSE false END as follow_up_overdue
@@ -1778,7 +1780,7 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
          WHERE wl.lead_key = b.lead_key AND wl.click_count > 0
       ) cl ON true
       LEFT JOIN LATERAL (
-        SELECT status, current_step, next_send_at
+        SELECT status, current_step, next_send_at, stopped_reason, last_sent_at
           FROM wa_sequence_enrollments en
          WHERE en.lead_key = b.lead_key
          ORDER BY en.updated_at DESC LIMIT 1

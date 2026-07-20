@@ -177,6 +177,8 @@ interface Prospect {
   seq_status?: string | null;
   seq_step?: number | null;
   seq_next_send_at?: string | null;
+  seq_reason?: string | null;
+  seq_last_sent?: string | null;
   // Kit de bienvenida
   has_kit?: boolean;
   // Origen: 'prospect' (tabla prospects) o 'legacy' (cliente de reactivación sin reclamar)
@@ -2053,6 +2055,7 @@ export default function UnifiedLeadsPage() {
                     <TableCell><strong>{t('leads.channelLabel')}</strong></TableCell>
                     <TableCell><strong>{t('leads.advisorLabel')}</strong></TableCell>
                     <TableCell><strong>{t('leads.followUp')}</strong></TableCell>
+                    <TableCell><strong>Secuencia</strong></TableCell>
                     <TableCell><strong>{t('leads.statusLabel')}</strong></TableCell>
                     <TableCell align="center"><strong>{t('common.actions')}</strong></TableCell>
                   </TableRow>
@@ -2060,13 +2063,13 @@ export default function UnifiedLeadsPage() {
                 <TableBody>
                   {prospectsLoading ? (
                     <TableRow>
-                      <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                         <CircularProgress size={40} />
                       </TableCell>
                     </TableRow>
                   ) : prospects.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                         <Typography color="text.secondary">{t('leads.noProspectsToShow')}</Typography>
                       </TableCell>
                     </TableRow>
@@ -2176,6 +2179,34 @@ export default function UnifiedLeadsPage() {
                               color={prospect.follow_up_today ? 'warning' : prospect.follow_up_overdue ? 'error' : 'default'}
                             />
                           ) : '-'}
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const DAYS = ['Día 1', 'Día 3', 'Día 7'];
+                            const st = prospect.seq_status;
+                            const step = prospect.seq_step ?? 0;
+                            const reason = prospect.seq_reason;
+                            if (!st) return <Typography variant="caption" color="text.secondary">—</Typography>;
+                            if (st === 'responded' && reason === 'clicked') {
+                              const day = DAYS[Math.max(0, step - 1)] || `paso ${step}`;
+                              return <Chip size="small" color="success" label={`🔗 Clic · ${day}`} sx={{ height: 22 }} />;
+                            }
+                            if (st === 'responded') return <Chip size="small" color="info" label="💬 Respondió" sx={{ height: 22 }} />;
+                            if (st === 'completed') return <Chip size="small" color="secondary" variant="outlined" label="✅ Terminada" sx={{ height: 22 }} />;
+                            if (st === 'stopped') return <Chip size="small" variant="outlined" label="⏸️ Detenida" sx={{ height: 22 }} />;
+                            if (st === 'active') {
+                              const sentLabel = step >= 1 ? DAYS[step - 1] : null;
+                              const nextLabel = DAYS[step] || null;
+                              const label = sentLabel ? `📨 ${sentLabel} enviado` : '⏳ Programada';
+                              const tip = nextLabel ? `Próximo: ${nextLabel}${prospect.seq_next_send_at ? ` · ${formatDate(prospect.seq_next_send_at)}` : ''}` : 'Secuencia en curso';
+                              return (
+                                <Tooltip title={tip}>
+                                  <Chip size="small" color="warning" variant="outlined" label={label} sx={{ height: 22 }} />
+                                </Tooltip>
+                              );
+                            }
+                            return <Typography variant="caption" color="text.secondary">—</Typography>;
+                          })()}
                         </TableCell>
                         <TableCell>
                           {isLegacy ? (
