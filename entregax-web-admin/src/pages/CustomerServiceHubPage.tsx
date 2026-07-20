@@ -33,7 +33,9 @@ import ReferidosAdminPage from './ReferidosAdminPage';
 import LegacyClientsPage from './LegacyClientsPage';
 import ChartbackManagementPage from './ChartbackManagementPage';
 import WelcomeKitPage from './WelcomeKitPage';
+import LeadRegistrationPage from './LeadRegistrationPage';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -45,6 +47,7 @@ const TOOL_PERMISSIONS: Record<string, string> = {
   'cartera': 'cs_cartera',
   'delayed': 'cs_delayed',
   'assign_client': 'cs_assign_client',
+  'lead_registration': 'cs_lead_registration',
 };
 
 interface User {
@@ -63,7 +66,7 @@ interface CustomerServiceHubPageProps {
   onViewApplied?: () => void;
 }
 
-type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback' | 'welcome_kit';
+type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback' | 'welcome_kit' | 'lead_registration';
 
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh, pendingView, onViewApplied }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
@@ -301,6 +304,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       color: '#F59E0B',
       bgColor: 'rgba(245, 158, 11, 0.1)',
     },
+    {
+      key: 'lead_registration',
+      title: 'Registro de LEADS',
+      description: 'Alimenta la Central de Leads: nuevo prospecto, subir Excel o descargar plantilla',
+      icon: <PersonAddIcon sx={{ fontSize: 40 }} />,
+      color: '#3F51B5',
+      bgColor: 'rgba(63, 81, 181, 0.1)',
+    },
   ];
 
   // Renderizar página activa
@@ -316,6 +327,20 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           </Typography>
         </Box>
         <UnifiedLeadsPage />
+      </Box>
+    );
+  }
+
+  if (activeView === 'lead_registration') {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>Registro de LEADS</Typography>
+        </Box>
+        <LeadRegistrationPage />
       </Box>
     );
   }

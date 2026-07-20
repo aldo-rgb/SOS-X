@@ -49,6 +49,7 @@ import {
   LocationOn as LocationIcon,
   Whatshot as WhatshotIcon,
   PersonSearch as PersonSearchIcon,
+  PersonAdd as PersonAddIcon,
   HeadsetMic as HeadsetMicIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
@@ -149,6 +150,7 @@ const PANEL_ICONS: Record<string, React.ReactNode> = {
   cs_cartera: <CarteraIcon />,
   cs_delayed: <TruckIcon />,
   cs_assign_client: <AssignmentIndIcon />,
+  cs_lead_registration: <PersonAddIcon />,
 };
 
 export default function UserPanelPermissionsPage() {

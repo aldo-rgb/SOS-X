@@ -13964,7 +13964,8 @@ async function ensureRequiredColumns() {
       INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order) VALUES
         ('cs_cartera',       'Ajustes y Abandonos', 'customer_service', 'AccountBalanceWallet', 'Cargos, descuentos, cobranza y abandono de mercancía', TRUE, 4),
         ('cs_delayed',       'Guías con Retraso',   'customer_service', 'LocalShipping',        'Paquetes cuya consolidación llegó a MTY sin ellos',    TRUE, 5),
-        ('cs_assign_client', 'Asignar Cliente',     'customer_service', 'AssignmentInd',        'Guías en bodega PO Box sin cliente asignado',          TRUE, 6)
+        ('cs_assign_client', 'Asignar Cliente',     'customer_service', 'AssignmentInd',        'Guías en bodega PO Box sin cliente asignado',          TRUE, 6),
+        ('cs_lead_registration', 'Registro de LEADS', 'customer_service', 'PersonAdd',          'Alimentar la Central de Leads: nuevo prospecto, Excel, plantilla', TRUE, 7)
       ON CONFLICT (panel_key) DO UPDATE SET
         panel_name  = EXCLUDED.panel_name,
         description = EXCLUDED.description,
