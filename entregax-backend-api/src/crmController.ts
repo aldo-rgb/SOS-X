@@ -1683,9 +1683,14 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
     let paramIndex = 1;
 
     if (status && status !== 'all') {
-      whereConditions.push(`b.status = $${paramIndex}`);
-      params.push(status);
-      paramIndex++;
+      if (status === 'legacy') {
+        // Filtro especial: solo clientes de reactivación "sin reclamar" (legacy).
+        whereConditions.push(`b.source = 'legacy'`);
+      } else {
+        whereConditions.push(`b.status = $${paramIndex}`);
+        params.push(status);
+        paramIndex++;
+      }
     }
 
     if (advisorId) {

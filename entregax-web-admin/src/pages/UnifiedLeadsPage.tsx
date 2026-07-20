@@ -1978,6 +1978,7 @@ export default function UnifiedLeadsPage() {
                   {PROSPECT_STATUSES.map(s => (
                     <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>
                   ))}
+                  <MenuItem value="legacy">Reactivación (sin reclamar)</MenuItem>
                 </Select>
               </FormControl>
               <FormControl size="small" sx={{ minWidth: 150 }}>
