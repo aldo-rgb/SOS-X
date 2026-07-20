@@ -171,11 +171,14 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   // TRN pendiente de auto-pago (viene del deep link /pagar/<TRN>).
   const [pendingPayTrn, setPendingPayTrn] = useState<string | null>(null);
+  // Deep link /xpay pendiente: abrir X-Pay (o Home si no hay asesor).
+  const [pendingXpay, setPendingXpay] = useState(false);
 
-  // 🔗 Deep links (instrucciones / pagar): filtra Home a la guía objetivo
-  // (botones de las plantillas de WhatsApp → /instrucciones/<TRN> o /pagar/<TRN>).
+  // 🔗 Deep links (instrucciones / pagar / xpay).
+  // Botones de plantillas de WhatsApp → /instrucciones/<TRN>, /pagar/<TRN>, /xpay.
   useEffect(() => {
     const applyFocus = (target: DeepLinkTarget) => {
+      if (target.action === 'xpay') { setPendingXpay(true); return; }
       if (!target?.trn) return;
       setServiceFilter(null);
       setInstructionFilter(null);
@@ -211,6 +214,21 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       navigation.navigate('PaymentSummary', { packages: payable, user, token });
     }
   }, [pendingPayTrn, packages, entregaxPaymentsEnabled, isEntregaxPaymentEnabledFor, navigation, user, token]);
+
+  // 💳 Deep link /xpay: abre X-Pay si está habilitado y el cliente tiene asesor.
+  // Si no (X-Pay no disponible / sin asesor), se queda en la pantalla principal.
+  // Pequeño delay para dar tiempo a que carguen hasAdvisor (perfil) y el estado X-Pay.
+  useEffect(() => {
+    if (!pendingXpay) return;
+    const t = setTimeout(() => {
+      setPendingXpay(false);
+      if (xpayEnabled && hasAdvisor) {
+        navigation.navigate('ExternalProviderTransition' as any, { user, token, target: 'SupplierPayment', label: 'X-Pay' });
+      }
+      // else: quedarse en Home.
+    }, 800);
+    return () => clearTimeout(t);
+  }, [pendingXpay, xpayEnabled, hasAdvisor, navigation, user, token]);
 
   // 🔐 Verificar si el usuario está verificado
   const isUserVerified = user.isVerified === true;

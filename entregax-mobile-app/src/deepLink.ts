@@ -14,7 +14,7 @@
  *   - App ya abierta en Home (warm): el evento 'url' llama directo al listener.
  */
 
-export type DeepLinkAction = 'instrucciones' | 'pagar';
+export type DeepLinkAction = 'instrucciones' | 'pagar' | 'xpay';
 export interface DeepLinkTarget { action: DeepLinkAction; trn: string; }
 
 // Extrae { action, trn } de una URL de EntregaX. Devuelve null si no aplica.
@@ -22,6 +22,8 @@ export function parseDeepLink(url: string | null | undefined): DeepLinkTarget | 
   if (!url) return null;
   try {
     const s = String(url);
+    // /xpay no lleva TRN: abre X-Pay (o Home si el cliente no tiene asesor).
+    if (/(?:^|\/|:\/\/)xpay(?:[/?#]|$)/i.test(s)) return { action: 'xpay', trn: '' };
     const mp = s.match(/pagar\/([^/?#]+)/i);
     if (mp && mp[1]) { const trn = decodeURIComponent(mp[1]).trim(); return trn ? { action: 'pagar', trn } : null; }
     const mi = s.match(/instrucciones\/([^/?#]+)/i);
@@ -41,7 +43,8 @@ let listener: DeepLinkListener | null = null;
 // Si Home ya está montado (listener activo) se aplica en el momento;
 // si no, queda pendiente para cuando Home se monte.
 export function emitDeepLink(target: DeepLinkTarget | null): void {
-  if (!target || !target.trn) return;
+  // 'xpay' no requiere TRN; el resto sí.
+  if (!target || (target.action !== 'xpay' && !target.trn)) return;
   if (listener) listener(target);
   else pending = target;
 }

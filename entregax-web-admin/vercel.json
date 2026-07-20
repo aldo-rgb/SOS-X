@@ -35,6 +35,10 @@
       "destination": "/pagar.html"
     },
     {
+      "source": "/xpay",
+      "destination": "/xpay.html"
+    },
+    {
       "source": "/privacy-policy",
       "destination": "https://api.entregax.app/legal/privacy-policy"
     },
