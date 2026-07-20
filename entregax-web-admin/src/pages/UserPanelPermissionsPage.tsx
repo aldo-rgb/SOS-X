@@ -50,6 +50,10 @@ import {
   Whatshot as WhatshotIcon,
   PersonSearch as PersonSearchIcon,
   PersonAdd as PersonAddIcon,
+  PeopleOutline as PeopleOutlineIcon,
+  UploadFile as UploadFileIcon,
+  Sync as SyncIcon,
+  CardGiftcard as CardGiftcardIcon,
   HeadsetMic as HeadsetMicIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
@@ -151,6 +155,10 @@ const PANEL_ICONS: Record<string, React.ReactNode> = {
   cs_delayed: <TruckIcon />,
   cs_assign_client: <AssignmentIndIcon />,
   cs_lead_registration: <PersonAddIcon />,
+  cs_referidos: <PeopleOutlineIcon />,
+  cs_legacy_clients: <UploadFileIcon />,
+  cs_chartback: <SyncIcon />,
+  cs_welcome_kit: <CardGiftcardIcon />,
 };
 
 export default function UserPanelPermissionsPage() {

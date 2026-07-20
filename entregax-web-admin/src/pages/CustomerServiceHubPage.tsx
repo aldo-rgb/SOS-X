@@ -48,6 +48,10 @@ const TOOL_PERMISSIONS: Record<string, string> = {
   'delayed': 'cs_delayed',
   'assign_client': 'cs_assign_client',
   'lead_registration': 'cs_lead_registration',
+  'referidos': 'cs_referidos',
+  'legacy_clients': 'cs_legacy_clients',
+  'chartback': 'cs_chartback',
+  'welcome_kit': 'cs_welcome_kit',
 };
 
 interface User {

@@ -13965,7 +13965,11 @@ async function ensureRequiredColumns() {
         ('cs_cartera',       'Ajustes y Abandonos', 'customer_service', 'AccountBalanceWallet', 'Cargos, descuentos, cobranza y abandono de mercancía', TRUE, 4),
         ('cs_delayed',       'Guías con Retraso',   'customer_service', 'LocalShipping',        'Paquetes cuya consolidación llegó a MTY sin ellos',    TRUE, 5),
         ('cs_assign_client', 'Asignar Cliente',     'customer_service', 'AssignmentInd',        'Guías en bodega PO Box sin cliente asignado',          TRUE, 6),
-        ('cs_lead_registration', 'Registro de LEADS', 'customer_service', 'PersonAdd',          'Alimentar la Central de Leads: nuevo prospecto, Excel, plantilla', TRUE, 7)
+        ('cs_lead_registration', 'Registro de LEADS', 'customer_service', 'PersonAdd',          'Alimentar la Central de Leads: nuevo prospecto, Excel, plantilla', TRUE, 7),
+        ('cs_referidos',     'Gestión de Referidos', 'customer_service', 'PeopleOutline',       'Programa "Trae un amigo": referidos, estados y bonos',  TRUE, 8),
+        ('cs_legacy_clients','Migración de Clientes','customer_service', 'UploadFile',          'Importar y gestionar clientes de la base anterior',     TRUE, 9),
+        ('cs_chartback',     'Chartback — Reactivación', 'customer_service', 'Sync',            'Asignar asesores a clientes chartback para contactarlos', TRUE, 10),
+        ('cs_welcome_kit',   'Kit de Bienvenida',   'customer_service', 'CardGiftcard',        'Quién solicitó su kit (báscula + PO Box) y a dónde enviarlo', TRUE, 11)
       ON CONFLICT (panel_key) DO UPDATE SET
         panel_name  = EXCLUDED.panel_name,
         description = EXCLUDED.description,
