@@ -5955,19 +5955,28 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
                 ? `REPACK-${packages.length} guías`
                 : repackProviderFull;
 
+            // Costo de PROVEEDOR por el TAMAÑO FINAL de la repack (misma tarifa que
+            // un paquete individual). Las hijas NO se cobran por separado: solo se
+            // paga esta caja. Se persiste en pobox_provider_cost_* (lo que usa la
+            // página de pago a proveedor); si no, quedaba null y caía a la suma de hijas.
+            const providerCostUsd = Number((poboxCost as any).poboxCostUsd || 0);
+            const providerCostMxn = Number((poboxCost as any).poboxServiceCost || (providerCostUsd * exchangeRate) || 0);
+
             parentResult = await pool.query(`
                 INSERT INTO packages (
                     tracking_internal, tracking_provider, user_id,
                     description, status, weight, pkg_length, pkg_width, pkg_height,
                     is_master, total_boxes, service_type, warehouse_location,
                     assigned_cost_mxn, saldo_pendiente, pobox_venta_usd, pobox_service_cost,
-                    registered_exchange_rate, pobox_tarifa_nivel, notes, created_at
+                    registered_exchange_rate, pobox_tarifa_nivel, notes,
+                    pobox_provider_cost_usd, pobox_provider_cost_mxn, created_at
                 ) VALUES (
                     $1, $2, $3,
                     $4, 'received', $5, $6, $7, $8,
                     TRUE, $9, $10, $11,
                     $12, $12, $13, $14,
-                    $15, $16, $17, CURRENT_TIMESTAMP
+                    $15, $16, $17,
+                    $18, $19, CURRENT_TIMESTAMP
                 ) RETURNING id
             `, [
                 consolidatedTracking,
@@ -5986,7 +5995,9 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
                 (poboxCost.poboxServiceCost || 0).toFixed(2),  // costo interno
                 exchangeRate.toFixed(4),
                 nivelTarifa,  // nivel de tarifa calculado
-                `Consolidación: ${packages.map(p => p.tracking_internal).join(', ')}\nTarifa caja: $${precioVentaUsd.toFixed(2)} USD (Nivel ${nivelTarifa}) + Consolidación: $${consolidationCostUsd.toFixed(2)} USD = $${totalUsd.toFixed(2)} USD`
+                `Consolidación: ${packages.map(p => p.tracking_internal).join(', ')}\nTarifa caja: $${precioVentaUsd.toFixed(2)} USD (Nivel ${nivelTarifa}) + Consolidación: $${consolidationCostUsd.toFixed(2)} USD = $${totalUsd.toFixed(2)} USD`,
+                providerCostUsd.toFixed(2),  // pobox_provider_cost_usd (por tamaño repack)
+                providerCostMxn.toFixed(2),  // pobox_provider_cost_mxn (por tamaño repack)
             ]);
             console.log('✅ INSERT ejecutado, resultado:', parentResult.rows);
         } catch (insertError: any) {
