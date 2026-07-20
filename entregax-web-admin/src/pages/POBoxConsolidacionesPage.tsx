@@ -575,7 +575,10 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
             //   - excluir masters multi-caja (no se cobra el master, solo las hijas)
             //   - excluir perdidas / faltantes / ya pagadas / aún no llegaron a MTY
             const isPayable = (p: any): boolean => {
-              if (p.is_master && Number(p.total_boxes || 1) > 1) return false;
+              // Nota: los masters multi-caja "normales" (hijas en la misma
+              // consolidación) ya los filtra el backend. Los únicos masters que
+              // llegan aquí son REPACK: SÍ se cobran (una sola guía, el costo de
+              // la repack; sus hijas van adentro y no se cobran por separado).
               if (p.is_lost) return false;
               if (p.missing_on_arrival) return false;
               if (p.costing_paid) return false;
@@ -583,7 +586,6 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
               return true;
             };
             const exclusionReason = (p: any): string => {
-              if (p.is_master && Number(p.total_boxes || 1) > 1) return 'Master multi-caja';
               if (p.is_lost) return 'Perdida';
               if (p.missing_on_arrival) return 'Faltante';
               if (p.costing_paid) return 'Ya pagada';
