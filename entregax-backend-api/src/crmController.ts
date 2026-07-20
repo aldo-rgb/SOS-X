@@ -1672,7 +1672,7 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
     await ensureClickLinksSchema();
     await ensureSequenceSchema();
     await ensureWelcomeKitSchema();
-    const { status, advisorId, channel, search, page = 1, limit = 50 } = req.query;
+    const { status, advisorId, channel, search, seq, page = 1, limit = 50 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
     // Los prospectos que se registran se marcan 'converted' (reconcile) pero NO
@@ -1709,6 +1709,14 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
       whereConditions.push(`(b.full_name ILIKE $${paramIndex} OR b.email ILIKE $${paramIndex} OR b.whatsapp ILIKE $${paramIndex})`);
       params.push(`%${search}%`);
       paramIndex++;
+    }
+
+    // Filtro por inscripción en la secuencia automática (EXISTS para que sirva
+    // también en el countQuery, que no une el enrollment).
+    if (seq === 'enrolled') {
+      whereConditions.push(`EXISTS (SELECT 1 FROM wa_sequence_enrollments en WHERE en.lead_key = b.lead_key)`);
+    } else if (seq === 'not_enrolled') {
+      whereConditions.push(`NOT EXISTS (SELECT 1 FROM wa_sequence_enrollments en WHERE en.lead_key = b.lead_key)`);
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';

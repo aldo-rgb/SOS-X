@@ -745,6 +745,7 @@ export default function UnifiedLeadsPage() {
 
   // Filtros prospectos
   const [prospectStatusFilter, setProspectStatusFilter] = useState('all');
+  const [prospectSeqFilter, setProspectSeqFilter] = useState('all');
   const [prospectAdvisorFilter, setProspectAdvisorFilter] = useState('');
   const [prospectChannelFilter, setProspectChannelFilter] = useState('');
   const [prospectSearch, setProspectSearch] = useState('');
@@ -844,6 +845,7 @@ export default function UnifiedLeadsPage() {
       if (prospectStatusFilter !== 'all') params.append('status', prospectStatusFilter);
       if (prospectAdvisorFilter) params.append('advisorId', prospectAdvisorFilter);
       if (prospectChannelFilter) params.append('channel', prospectChannelFilter);
+      if (prospectSeqFilter !== 'all') params.append('seq', prospectSeqFilter);
       if (prospectSearch) params.append('search', prospectSearch);
       params.append('page', String(prospectPage + 1));
       params.append('limit', String(prospectRowsPerPage));
@@ -860,7 +862,7 @@ export default function UnifiedLeadsPage() {
     } finally {
       setProspectsLoading(false);
     }
-  }, [prospectStatusFilter, prospectAdvisorFilter, prospectChannelFilter, prospectSearch, prospectPage, prospectRowsPerPage]);
+  }, [prospectStatusFilter, prospectAdvisorFilter, prospectChannelFilter, prospectSeqFilter, prospectSearch, prospectPage, prospectRowsPerPage]);
 
   // ===== Secuencias automáticas =====
   const fetchSequences = useCallback(async () => {
@@ -1994,6 +1996,18 @@ export default function UnifiedLeadsPage() {
                   {CHANNELS.map(c => (
                     <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
                   ))}
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 160 }}>
+                <InputLabel>Secuencia</InputLabel>
+                <Select
+                  value={prospectSeqFilter}
+                  label="Secuencia"
+                  onChange={(e: SelectChangeEvent) => { setProspectSeqFilter(e.target.value); setProspectPage(0); }}
+                >
+                  <MenuItem value="all">{t('common.all')}</MenuItem>
+                  <MenuItem value="enrolled">Inscritos</MenuItem>
+                  <MenuItem value="not_enrolled">No inscritos</MenuItem>
                 </Select>
               </FormControl>
               <FormControl size="small" sx={{ minWidth: 180 }}>
