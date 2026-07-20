@@ -257,7 +257,9 @@ const POBoxConsolidacionesPage: React.FC = () => {
     consolidaciones.forEach((c) => {
       (c.packages || []).forEach((p) => {
         if (!selected.has(p.id)) return;
-        if (p.is_master && Number(p.total_boxes || 1) > 1) return;
+        // Los masters multi-caja "normales" ya los filtra el backend; los únicos
+        // masters que llegan aquí son REPACK: SÍ se cobran (una sola guía, el
+        // costo del reempaque; sus hijas van adentro y no se cobran aparte).
         involvedConsolIds.add(c.id);
         const usd = Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0);
         const tc = Number(p.registered_exchange_rate ?? 0);
