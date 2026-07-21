@@ -268,11 +268,20 @@ export default function EntangledAdminTab() {
                         // Esto evita que solicitudes legitimamente recién creadas (sobre todo sin factura)
                         // parezcan no existir en el listado admin.
                         const created = r.created_at ? new Date(r.created_at) : null;
+                        const esFinal = ['completado', 'cancelado', 'rechazado'].includes(String(r.estatus_global));
                         if (!created) {
-                          return <Chip size="small" label="Esperando comprobante" variant="outlined" color="warning" sx={{ fontWeight: 700 }} />;
+                          return <Chip size="small" label={esFinal ? String(r.estatus_global) : 'Esperando comprobante'} variant="outlined" color={esFinal ? 'default' : 'warning'} sx={{ fontWeight: 700 }} />;
                         }
-                        const ageMs = Math.max(0, Date.now() - created.getTime());
+                        // Estado final sin comprobante (p.ej. cancelada): reloj DETENIDO
+                        // en updated_at, mostrando el tiempo transcurrido fijo.
+                        const endRef = esFinal && r.updated_at ? new Date(r.updated_at).getTime() : Date.now();
+                        const ageMs = Math.max(0, endRef - created.getTime());
                         const ageH = Math.floor(ageMs / 3_600_000);
+                        if (esFinal) {
+                          const d = Math.floor(ageH / 24), h = ageH % 24;
+                          const dur = d > 0 ? `${d}d ${h}h` : `${ageH}h`;
+                          return <Chip size="small" label={dur} variant="outlined" color="default" sx={{ fontFamily: 'monospace', fontWeight: 700 }} />;
+                        }
                         const label = ageH < 1
                           ? 'Esperando comprobante'
                           : ageH < 24
@@ -291,13 +300,14 @@ export default function EntangledAdminTab() {
                       const facturaAt = r.factura_emitida_at ? new Date(r.factura_emitida_at) : null;
                       const pagoAt = r.proveedor_pagado_at ? new Date(r.proveedor_pagado_at) : null;
                       // El reloj se CONGELA cuando la operación llega a un estado
-                      // final (completado). Se congela en la marca de completado
-                      // (pago a proveedor / factura); si no hubiera timestamp, en el
-                      // último cambio (updated_at). Mientras no esté completa, corre.
+                      // FINAL (completado / cancelado / rechazado). Se congela en la
+                      // marca de completado (pago/factura) o en el último cambio
+                      // (updated_at). Mientras no sea final, corre.
                       const completo = r.estatus_global === 'completado';
+                      const esFinal = ['completado', 'cancelado', 'rechazado'].includes(String(r.estatus_global));
                       const frozenTs = Math.max(facturaAt?.getTime() ?? 0, pagoAt?.getTime() ?? 0)
                         || (r.updated_at ? new Date(r.updated_at).getTime() : 0);
-                      const endTs = completo
+                      const endTs = esFinal
                         ? (frozenTs || Date.now())
                         : Date.now();
                       const elapsedMs = Math.max(0, endTs - start.getTime());
