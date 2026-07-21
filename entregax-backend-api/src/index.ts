@@ -7153,53 +7153,6 @@ app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel
 app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
 app.post('/api/webhooks/whatsapp', handleWhatsappWebhook);
 app.get('/api/_diag/wa-subs', debugWabaSubs);
-// TEMPORAL: diagnóstico — qué devuelve ENTANGLED de una operación + corre el sync. Quitar tras usar.
-app.get('/api/_diag/xpay-status', async (req: Request, res: Response): Promise<any> => {
-  if (String(req.query.secret || '') !== 'zaia-xpay-8823') return res.status(403).json({ error: 'nope' });
-  const ref = String(req.query.ref || 'XP879241');
-  try {
-    const row = (await pool.query(`SELECT entangled_transaccion_id FROM entangled_payment_requests WHERE referencia_pago = $1 LIMIT 1`, [ref])).rows[0];
-    if (!row?.entangled_transaccion_id) return res.status(404).json({ error: 'sin transaccion_id' });
-    const { getSolicitudStatus } = await import('./entangledServiceV2');
-    const remote = await getSolicitudStatus(String(row.entangled_transaccion_id));
-    const data: any = remote.data || {};
-    const summary = {
-      remote_ok: remote.ok,
-      estatus_proveedor: data.estatus_proveedor ?? null,
-      estatus_factura: data.estatus_factura ?? null,
-      estatus: data.estatus ?? null,
-      detalles_estatus: data.detalles?.estatus ?? null,
-      docs_keys: Object.keys(data.documentos || data.docs || {}),
-      top_keys: Object.keys(data),
-    };
-    // Correr el sync para ver si ahora sí actualiza.
-    const { syncPendingEntangledOperations } = await import('./entangledControllerV2');
-    const syncRes = await syncPendingEntangledOperations().catch((e: any) => ({ error: e.message }));
-    res.json({ ref, transaccion_id: row.entangled_transaccion_id, summary, sync: syncRes });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message });
-  }
-});
-// TEMPORAL: muestra del correo (datos reales de una ref) a un solo correo. Quitar tras validar.
-app.get('/api/_diag/sample-xpay-email', async (req: Request, res: Response): Promise<any> => {
-  if (String(req.query.secret || '') !== 'zaia-xpay-8823') return res.status(403).json({ error: 'nope' });
-  const ref = String(req.query.ref || 'XP879241');
-  const email = String(req.query.email || 'aldocampos@entregax.com');
-  try {
-    const { XPAY_SOLICITADA_EMAIL_SELECT, buildXpaySolicitadaEmail } = await import('./entangledControllerV2');
-    const info = await pool.query(
-      `SELECT ${XPAY_SOLICITADA_EMAIL_SELECT} FROM entangled_payment_requests er
-         LEFT JOIN users u ON u.id = er.advisor_id WHERE er.referencia_pago = $1 LIMIT 1`, [ref]);
-    const r0 = info.rows[0];
-    if (!r0) return res.status(404).json({ error: 'operación no encontrada' });
-    const { sendEmail } = await import('./emailService');
-    const { subject, html } = buildXpaySolicitadaEmail(r0);
-    const rr = await sendEmail(email, subject, html);
-    res.json({ ok: rr.ok, email, ref, error: rr.error });
-  } catch (e: any) {
-    res.status(500).json({ ok: false, error: e?.message });
-  }
-});
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);
