@@ -289,11 +289,22 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
                 }
             }
             
+            // ===== DHL Monterrey - dhl_shipments por box_id =====
+            const linkedDhl = await pool.query(`
+                UPDATE dhl_shipments
+                SET user_id = $1, updated_at = NOW()
+                WHERE user_id IS NULL AND UPPER(TRIM(box_id)) = $2
+                RETURNING id
+            `, [savedUser.id, newBoxId]);
+            if (linkedDhl.rowCount && linkedDhl.rowCount > 0) {
+                console.log(`[REGISTRO] ✅ DHL: ${linkedDhl.rowCount} envíos vinculados a ${newBoxId}`);
+            }
+
             // ===== TODOS LOS SERVICIOS - paquetes por box_id (PO Box, DHL, AIR, etc) =====
             const linkedPackages = await pool.query(`
-                UPDATE packages 
+                UPDATE packages
                 SET user_id = $1, updated_at = NOW()
-                WHERE user_id IS NULL 
+                WHERE user_id IS NULL
                 AND UPPER(box_id) = $2
                 RETURNING id, service_type
             `, [savedUser.id, newBoxId]);

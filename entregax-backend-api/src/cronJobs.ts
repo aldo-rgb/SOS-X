@@ -1062,6 +1062,22 @@ export const startWaSequenceCron = () => {
   console.log('✅ Cron de secuencias WhatsApp activo (horario configurable, hora México)');
 };
 
+// 📦 Enlaza envíos huérfanos a su cliente por box_id (DHL/aéreo/marítimo/packages)
+// que hayan quedado con user_id NULL — p.ej. llegaron después de que el cliente
+// ya se registró. Evita que aparezcan "Sin alta" y que el cliente no los vea.
+export const startBoxLinkReconcileCron = () => {
+  // 1 vez al día — 3:00 a.m. hora Monterrey (UTC-6 = 09:00 UTC).
+  cron.schedule('0 9 * * *', async () => {
+    try {
+      const { reconcileOrphanShipments } = await import('./boxLinkReconcile');
+      await reconcileOrphanShipments();
+    } catch (e) {
+      console.error('[CRON] startBoxLinkReconcileCron:', (e as Error).message);
+    }
+  });
+  console.log('✅ Cron de enlace de envíos por box_id activo (1 vez al día, 3am MTY)');
+};
+
 // 💸 Referidos: activa el bono cuando el referido hace su PRIMER ENVÍO real
 // (excluye guías USK- del Kit de Bienvenida). Cada 20 min.
 export const startReferralFirstShipmentCron = () => {
@@ -1252,6 +1268,7 @@ export const startPaymentReminderCron = () => {
 export const initCronJobs = () => {
   startRecoveryCronJob();
   startWaSequenceCron();
+  startBoxLinkReconcileCron();
   // Reactivado: procesarPrimerPago ya no usa transacción anidada (no puede colgar el pool).
   startReferralFirstShipmentCron();
   startUskGuideProgressionCron();
