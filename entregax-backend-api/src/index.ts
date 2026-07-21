@@ -7153,15 +7153,28 @@ app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel
 app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
 app.post('/api/webhooks/whatsapp', handleWhatsappWebhook);
 app.get('/api/_diag/wa-subs', debugWabaSubs);
-// TEMPORAL: prueba del correo de "operación solicitada" (versión final EN). Quitar tras validar.
-app.get('/api/_diag/test-xpay-email', async (req: Request, res: Response): Promise<any> => {
+// TEMPORAL: dispara el correo REAL de una operación a los correos configurados. Quitar tras usar.
+app.get('/api/_diag/fire-xpay-email', async (req: Request, res: Response): Promise<any> => {
   if (String(req.query.secret || '') !== 'zaia-xpay-8823') return res.status(403).json({ error: 'nope' });
-  const email = String(req.query.email || '');
-  if (!email) return res.status(400).json({ error: 'falta email' });
+  const ref = String(req.query.ref || '');
+  if (!ref) return res.status(400).json({ error: 'falta ref' });
   try {
+    const info = await pool.query(
+      `SELECT er.referencia_pago, er.op_monto, er.op_divisa_destino,
+              COALESCE(er.monto_mxn_total, er.monto_mxn_base) AS mxn,
+              er.op_beneficiario_nombre, u.full_name AS advisor_name
+         FROM entangled_payment_requests er
+         LEFT JOIN users u ON u.id = er.advisor_id
+        WHERE er.referencia_pago = $1 LIMIT 1`, [ref]);
+    const r0 = info.rows[0];
+    if (!r0) return res.status(404).json({ error: 'operación no encontrada' });
+    const cfg = await pool.query(`SELECT config_value FROM system_configurations WHERE config_key = 'xpay_solicitada_notify_emails' AND is_active = TRUE`);
+    const emails: string[] = Array.isArray(cfg.rows[0]?.config_value?.emails) ? cfg.rows[0].config_value.emails : [];
+    if (emails.length === 0) return res.status(400).json({ error: 'no hay correos configurados' });
     const { sendEmail } = await import('./emailService');
-    const ref = 'XP879241', usd = 980, mxn = 17364.00;
-    const subject = `X-Pay · Payment request submitted · ${ref}`;
+    const usd = Number(r0.op_monto || 0);
+    const mxn = Number(r0.mxn || 0);
+    const subject = `X-Pay · Payment request submitted · ${r0.referencia_pago}`;
     const html = `
       <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
         <div style="background:linear-gradient(135deg,#C1272D,#F05A28);color:#fff;padding:18px 20px;border-radius:10px 10px 0 0">
@@ -7170,17 +7183,18 @@ app.get('/api/_diag/test-xpay-email', async (req: Request, res: Response): Promi
         <div style="border:1px solid #eee;border-top:none;border-radius:0 0 10px 10px;padding:20px">
           <p style="margin:0 0 12px;color:#333">A payment operation is now <b>pending</b>.</p>
           <table style="width:100%;border-collapse:collapse;font-size:14px">
-            <tr><td style="padding:6px 0;color:#666">Reference</td><td style="padding:6px 0;text-align:right;font-weight:700">${ref}</td></tr>
-            <tr><td style="padding:6px 0;color:#666">Amount USD</td><td style="padding:6px 0;text-align:right;font-weight:700">$${usd.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
-            <tr><td style="padding:6px 0;color:#666">Amount MXN</td><td style="padding:6px 0;text-align:right;font-weight:700">$${mxn.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
-            <tr><td style="padding:6px 0;color:#666">Supplier</td><td style="padding:6px 0;text-align:right">ROLS9012016D9 · Sergio Rodriguez</td></tr>
-            <tr><td style="padding:6px 0;color:#666">Advisor</td><td style="padding:6px 0;text-align:right">Oscar Cantu</td></tr>
+            <tr><td style="padding:6px 0;color:#666">Reference</td><td style="padding:6px 0;text-align:right;font-weight:700">${r0.referencia_pago}</td></tr>
+            <tr><td style="padding:6px 0;color:#666">Amount ${r0.op_divisa_destino || 'USD'}</td><td style="padding:6px 0;text-align:right;font-weight:700">$${usd.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
+            ${mxn > 0 ? `<tr><td style="padding:6px 0;color:#666">Amount MXN</td><td style="padding:6px 0;text-align:right;font-weight:700">$${mxn.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>` : ''}
+            ${r0.op_beneficiario_nombre ? `<tr><td style="padding:6px 0;color:#666">Supplier</td><td style="padding:6px 0;text-align:right">${r0.op_beneficiario_nombre}</td></tr>` : ''}
+            ${r0.advisor_name ? `<tr><td style="padding:6px 0;color:#666">Advisor</td><td style="padding:6px 0;text-align:right">${r0.advisor_name}</td></tr>` : ''}
           </table>
-          <p style="margin:16px 0 0;color:#999;font-size:12px">Check the X-Pay panel to follow up on the supplier payment. (TEST EMAIL)</p>
+          <p style="margin:16px 0 0;color:#999;font-size:12px">Check the X-Pay panel to follow up on the supplier payment.</p>
         </div>
       </div>`;
-    const r = await sendEmail(email, subject, html);
-    res.json({ ok: r.ok, email, error: r.error });
+    const results: any[] = [];
+    for (const em of emails) { const rr = await sendEmail(em, subject, html); results.push({ em, ok: rr.ok, err: rr.error }); }
+    res.json({ ok: true, ref: r0.referencia_pago, sent_to: results });
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e?.message });
   }
