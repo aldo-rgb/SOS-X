@@ -19,13 +19,16 @@ export async function ensureCoverageSchema(): Promise<void> {
   if (_ensured) return;
   await pool.query(`
     CREATE TABLE IF NOT EXISTS metro_zones (
-      zone_key   TEXT PRIMARY KEY,
-      label      TEXT NOT NULL,
-      active     BOOLEAN NOT NULL DEFAULT true,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      zone_key    TEXT PRIMARY KEY,
+      label       TEXT NOT NULL,
+      active      BOOLEAN NOT NULL DEFAULT true,
+      sort_order  INTEGER NOT NULL DEFAULT 0,
+      carrier_key TEXT,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // carrier_key: paquetería a la que aplica esta cobertura/exclusiones.
+  await pool.query(`ALTER TABLE metro_zones ADD COLUMN IF NOT EXISTS carrier_key TEXT`).catch(() => {});
   await pool.query(`
     CREATE TABLE IF NOT EXISTS metro_zone_rules (
       id         SERIAL PRIMARY KEY,
@@ -53,9 +56,9 @@ export async function ensureCoverageSchema(): Promise<void> {
   const seeded = await pool.query('SELECT COUNT(*)::int AS n FROM metro_zones');
   if ((seeded.rows[0]?.n || 0) === 0) {
     await pool.query(
-      `INSERT INTO metro_zones (zone_key, label, active, sort_order) VALUES
-         ('mty', 'Monterrey (AMM)', true, 1),
-         ('cdmx', 'CDMX + Valle de México', true, 2)
+      `INSERT INTO metro_zones (zone_key, label, active, sort_order, carrier_key) VALUES
+         ('mty', 'EntregaX Local MTY', true, 1, 'local'),
+         ('cdmx', 'EntregaX Local CDMX', true, 2, 'entregax_local_cdmx')
        ON CONFLICT (zone_key) DO NOTHING`
     );
     // MTY: rango base 64000–67999.
@@ -69,6 +72,10 @@ export async function ensureCoverageSchema(): Promise<void> {
       await pool.query(`INSERT INTO metro_zone_rules (zone_key, rule_type, prefix) VALUES ('cdmx', 'prefix', $1)`, [p]);
     }
   }
+
+  // Backfill de carrier_key para zonas MTY/CDMX ya sembradas antes de esta columna.
+  await pool.query(`UPDATE metro_zones SET carrier_key = 'local' WHERE zone_key = 'mty' AND carrier_key IS NULL`).catch(() => {});
+  await pool.query(`UPDATE metro_zones SET carrier_key = 'entregax_local_cdmx' WHERE zone_key = 'cdmx' AND carrier_key IS NULL`).catch(() => {});
 
   // Migración: traer exclusiones históricas de MTY (tabla antigua) a la nueva.
   await pool.query(`
@@ -116,6 +123,27 @@ export async function getMetroZoneForZip(zip: string | null | undefined): Promis
 export async function isMetroZip(zip: string | null | undefined): Promise<boolean> {
   return (await getMetroZoneForZip(zip)) !== null;
 }
+
+// Paqueterías (carrier_key) que NO entregan en este CP (CP en su lista de
+// exclusiones). Se usa para ocultar esas paqueterías en ese destino.
+export async function getExcludedCarriersForZip(zip: string | null | undefined): Promise<string[]> {
+  const raw = String(zip || '').trim();
+  if (!/^\d{4,5}$/.test(raw)) return [];
+  const padded = raw.padStart(5, '0');
+  try {
+    await ensureCoverageSchema();
+    const r = await pool.query(
+      `SELECT DISTINCT z.carrier_key
+         FROM metro_zone_excluded_zips e
+         JOIN metro_zones z ON z.zone_key = e.zone_key
+        WHERE e.zip = $1 AND z.carrier_key IS NOT NULL`,
+      [padded]
+    );
+    return r.rows.map((x: any) => x.carrier_key).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 export async function isCdmxMetroZip(zip: string | null | undefined): Promise<boolean> {
   return (await getMetroZoneForZip(zip)) === 'cdmx';
 }
@@ -126,7 +154,7 @@ export async function isCdmxMetroZip(zip: string | null | undefined): Promise<bo
 export async function listZones(_req: Request, res: Response): Promise<any> {
   try {
     await ensureCoverageSchema();
-    const zones = await pool.query('SELECT zone_key, label, active, sort_order FROM metro_zones ORDER BY sort_order ASC, zone_key ASC');
+    const zones = await pool.query('SELECT zone_key, label, active, sort_order, carrier_key FROM metro_zones ORDER BY sort_order ASC, zone_key ASC');
     const rules = await pool.query('SELECT id, zone_key, rule_type, range_min, range_max, prefix FROM metro_zone_rules ORDER BY zone_key, rule_type, range_min, prefix');
     const excluded = await pool.query(
       `SELECT e.zone_key, e.zip, e.note, e.created_at, u.full_name AS created_by_name
@@ -152,13 +180,14 @@ export async function upsertZone(req: Request, res: Response): Promise<any> {
     const zone_key = String(req.body?.zone_key || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
     const label = String(req.body?.label || '').trim();
     const active = req.body?.active === undefined ? true : !!req.body.active;
+    const carrier_key = req.body?.carrier_key ? String(req.body.carrier_key).trim() : null;
     if (!zone_key || !label) return res.status(400).json({ success: false, error: 'zone_key y label son obligatorios' });
     const ord = await pool.query('SELECT COALESCE(MAX(sort_order),0)+1 AS next FROM metro_zones');
     await pool.query(
-      `INSERT INTO metro_zones (zone_key, label, active, sort_order)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (zone_key) DO UPDATE SET label = EXCLUDED.label, active = EXCLUDED.active`,
-      [zone_key, label, active, ord.rows[0].next]
+      `INSERT INTO metro_zones (zone_key, label, active, sort_order, carrier_key)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (zone_key) DO UPDATE SET label = EXCLUDED.label, active = EXCLUDED.active, carrier_key = EXCLUDED.carrier_key`,
+      [zone_key, label, active, ord.rows[0].next, carrier_key]
     );
     res.json({ success: true });
   } catch (e: any) {
@@ -250,6 +279,22 @@ export async function removeExcluded(req: Request, res: Response): Promise<any> 
   }
 }
 
+// GET /api/admin/coverage/carriers → paqueterías activas (para el selector).
+export async function listCarriers(_req: Request, res: Response): Promise<any> {
+  try {
+    const r = await pool.query(
+      `SELECT DISTINCT carrier_key, MIN(name) AS name
+         FROM carrier_service_options
+        WHERE is_active = true AND carrier_key IS NOT NULL AND carrier_key <> ''
+        GROUP BY carrier_key
+        ORDER BY name`
+    );
+    res.json({ success: true, carriers: r.rows });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+}
+
 // GET /api/admin/coverage/check?zip=  → prueba a qué zona pertenece un CP.
 export async function checkZip(req: Request, res: Response): Promise<any> {
   try {
@@ -260,7 +305,8 @@ export async function checkZip(req: Request, res: Response): Promise<any> {
       const z = await pool.query('SELECT label FROM metro_zones WHERE zone_key = $1', [zone]);
       label = z.rows[0]?.label || null;
     }
-    res.json({ success: true, zip, zone, label, isMetro: zone !== null });
+    const excludedCarriers = await getExcludedCarriersForZip(zip);
+    res.json({ success: true, zip, zone, label, isMetro: zone !== null, excludedCarriers });
   } catch (e: any) {
     res.status(500).json({ success: false, error: e.message });
   }

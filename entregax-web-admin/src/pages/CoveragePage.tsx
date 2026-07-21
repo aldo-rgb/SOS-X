@@ -19,17 +19,20 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 interface Rule { id: number; zone_key: string; rule_type: 'range' | 'prefix'; range_min: number | null; range_max: number | null; prefix: string | null; }
 interface Excluded { zip: string; note: string | null; created_by_name?: string | null; }
-interface Zone { zone_key: string; label: string; active: boolean; sort_order: number; rules: Rule[]; excluded: Excluded[]; }
+interface Zone { zone_key: string; label: string; active: boolean; sort_order: number; carrier_key: string | null; rules: Rule[]; excluded: Excluded[]; }
+interface Carrier { carrier_key: string; name: string; }
 
 export default function CoveragePage() {
   const [zones, setZones] = useState<Zone[]>([]);
+  const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ sev: 'success' | 'error'; text: string } | null>(null);
 
-  // Alta de zona
+  // Alta de paquetería/servicio
   const [newZoneOpen, setNewZoneOpen] = useState(false);
   const [newZoneKey, setNewZoneKey] = useState('');
   const [newZoneLabel, setNewZoneLabel] = useState('');
+  const [newZoneCarrier, setNewZoneCarrier] = useState('');
 
   // Probar CP
   const [testZip, setTestZip] = useState('');
@@ -41,9 +44,14 @@ export default function CoveragePage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/coverage/zones`, { headers });
-      const data = await res.json();
-      if (data.success) setZones(data.zones || []);
+      const [zres, cres] = await Promise.all([
+        fetch(`${API_URL}/api/admin/coverage/zones`, { headers }),
+        fetch(`${API_URL}/api/admin/coverage/carriers`, { headers }),
+      ]);
+      const zdata = await zres.json();
+      const cdata = await cres.json();
+      if (zdata.success) setZones(zdata.zones || []);
+      if (cdata.success) setCarriers(cdata.carriers || []);
     } catch { /* silent */ } finally { setLoading(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -62,15 +70,21 @@ export default function CoveragePage() {
   };
 
   const toggleZone = async (z: Zone) => {
-    const d = await post(`${API_URL}/api/admin/coverage/zones`, { zone_key: z.zone_key, label: z.label, active: !z.active });
-    if (d.success) { flash('success', `Zona ${z.label} ${!z.active ? 'activada' : 'desactivada'}`); load(); } else flash('error', d.error || 'Error');
+    const d = await post(`${API_URL}/api/admin/coverage/zones`, { zone_key: z.zone_key, label: z.label, active: !z.active, carrier_key: z.carrier_key });
+    if (d.success) { flash('success', `${z.label} ${!z.active ? 'activada' : 'desactivada'}`); load(); } else flash('error', d.error || 'Error');
+  };
+
+  const setCarrier = async (z: Zone, carrier_key: string) => {
+    const d = await post(`${API_URL}/api/admin/coverage/zones`, { zone_key: z.zone_key, label: z.label, active: z.active, carrier_key });
+    if (d.success) { flash('success', 'Paquetería actualizada'); load(); } else flash('error', d.error || 'Error');
   };
 
   const createZone = async () => {
     const key = newZoneKey.trim().toLowerCase();
     if (!key || !newZoneLabel.trim()) { flash('error', 'Clave y nombre son obligatorios'); return; }
-    const d = await post(`${API_URL}/api/admin/coverage/zones`, { zone_key: key, label: newZoneLabel.trim(), active: true });
-    if (d.success) { setNewZoneOpen(false); setNewZoneKey(''); setNewZoneLabel(''); flash('success', 'Zona creada'); load(); } else flash('error', d.error || 'Error');
+    if (!newZoneCarrier) { flash('error', 'Selecciona la paquetería'); return; }
+    const d = await post(`${API_URL}/api/admin/coverage/zones`, { zone_key: key, label: newZoneLabel.trim(), active: true, carrier_key: newZoneCarrier });
+    if (d.success) { setNewZoneOpen(false); setNewZoneKey(''); setNewZoneLabel(''); setNewZoneCarrier(''); flash('success', 'Servicio creado'); load(); } else flash('error', d.error || 'Error');
   };
 
   const deleteZone = async (z: Zone) => {
@@ -93,13 +107,13 @@ export default function CoveragePage() {
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
         <Box>
-          <Typography variant="h6" fontWeight="bold"><PlaceIcon sx={{ verticalAlign: 'middle', mr: 0.5 }} />Cobertura metropolitana — EntregaX Local</Typography>
+          <Typography variant="h6" fontWeight="bold"><PlaceIcon sx={{ verticalAlign: 'middle', mr: 0.5 }} />Cobertura por paquetería</Typography>
           <Typography variant="body2" color="text.secondary">
-            En zona metro solo se ofrece <strong>EntregaX Local</strong> (se ocultan Paquete Express y las paqueterías "por cobrar") en guías TDX.
-            Un CP pertenece a una zona si cae en alguna <strong>regla</strong> (rango o prefijo) y <strong>no</strong> está en sus exclusiones.
+            Cada paquetería tiene su <strong>cobertura</strong> (reglas de CP) y sus <strong>exclusiones</strong>. En un CP excluido, esa paquetería <strong>no</strong> se ofrece
+            (las demás sí). Las reglas de <strong>EntregaX Local MTY/CDMX</strong> definen sus zonas metropolitanas.
           </Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setNewZoneOpen(true)}>Agregar zona</Button>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setNewZoneOpen(true)}>Agregar servicio</Button>
       </Box>
 
       {msg && <Alert severity={msg.sev} sx={{ my: 1 }}>{msg.text}</Alert>}
@@ -121,15 +135,22 @@ export default function CoveragePage() {
       ) : zones.length === 0 ? (
         <Alert severity="info">No hay zonas configuradas.</Alert>
       ) : (
-        zones.map((z) => <ZoneCard key={z.zone_key} zone={z} onChange={load} flash={flash} headers={headers} onToggle={() => toggleZone(z)} onDelete={() => deleteZone(z)} />)
+        zones.map((z) => <ZoneCard key={z.zone_key} zone={z} carriers={carriers} onChange={load} flash={flash} headers={headers} onToggle={() => toggleZone(z)} onDelete={() => deleteZone(z)} onSetCarrier={(ck) => setCarrier(z, ck)} />)
       )}
 
-      {/* Dialog nueva zona */}
+      {/* Dialog nuevo servicio/paquetería */}
       <Dialog open={newZoneOpen} onClose={() => setNewZoneOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Nueva zona de cobertura</DialogTitle>
+        <DialogTitle>Nuevo servicio de cobertura</DialogTitle>
         <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
-          <TextField label="Clave (sin espacios, ej. gdl)" value={newZoneKey} onChange={(e) => setNewZoneKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} size="small" fullWidth />
-          <TextField label="Nombre visible (ej. Guadalajara ZMG)" value={newZoneLabel} onChange={(e) => setNewZoneLabel(e.target.value)} size="small" fullWidth />
+          <Box>
+            <Typography variant="caption" color="text.secondary">Paquetería</Typography>
+            <Select fullWidth size="small" value={newZoneCarrier} displayEmpty onChange={(e) => setNewZoneCarrier(e.target.value)}>
+              <MenuItem value="" disabled>Selecciona una paquetería…</MenuItem>
+              {carriers.map((c) => <MenuItem key={c.carrier_key} value={c.carrier_key}>{c.name} ({c.carrier_key})</MenuItem>)}
+            </Select>
+          </Box>
+          <TextField label="Clave interna (sin espacios, ej. gdl)" value={newZoneKey} onChange={(e) => setNewZoneKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} size="small" fullWidth />
+          <TextField label="Nombre visible (ej. Estafeta, Guadalajara ZMG)" value={newZoneLabel} onChange={(e) => setNewZoneLabel(e.target.value)} size="small" fullWidth />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNewZoneOpen(false)}>Cancelar</Button>
@@ -141,13 +162,15 @@ export default function CoveragePage() {
 }
 
 // ---------- Tarjeta de una zona ----------
-function ZoneCard({ zone, onChange, flash, headers, onToggle, onDelete }: {
+function ZoneCard({ zone, carriers, onChange, flash, headers, onToggle, onDelete, onSetCarrier }: {
   zone: Zone;
+  carriers: Carrier[];
   onChange: () => void;
   flash: (sev: 'success' | 'error', text: string) => void;
   headers: Record<string, string>;
   onToggle: () => void;
   onDelete: () => void;
+  onSetCarrier: (carrierKey: string) => void;
 }) {
   const [ruleType, setRuleType] = useState<'range' | 'prefix'>('range');
   const [rMin, setRMin] = useState('');
@@ -191,13 +214,23 @@ function ZoneCard({ zone, onChange, flash, headers, onToggle, onDelete }: {
   return (
     <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2, opacity: zone.active ? 1 : 0.65 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           <Typography variant="subtitle1" fontWeight="bold">{zone.label}</Typography>
           <Chip size="small" label={zone.zone_key} variant="outlined" />
+          <Select
+            size="small"
+            value={zone.carrier_key || ''}
+            displayEmpty
+            onChange={(e) => onSetCarrier(e.target.value)}
+            sx={{ minWidth: 200, '& .MuiSelect-select': { py: 0.5 } }}
+          >
+            <MenuItem value="" disabled>Sin paquetería asignada</MenuItem>
+            {carriers.map((c) => <MenuItem key={c.carrier_key} value={c.carrier_key}>{c.name} ({c.carrier_key})</MenuItem>)}
+          </Select>
         </Box>
         <Box>
           <FormControlLabel control={<Switch checked={zone.active} onChange={onToggle} />} label={zone.active ? 'Activa' : 'Inactiva'} />
-          <Tooltip title="Eliminar zona"><IconButton size="small" color="error" onClick={onDelete}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+          <Tooltip title="Eliminar servicio"><IconButton size="small" color="error" onClick={onDelete}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
         </Box>
       </Box>
 
@@ -235,7 +268,7 @@ function ZoneCard({ zone, onChange, flash, headers, onToggle, onDelete }: {
       </Box>
 
       {/* Exclusiones */}
-      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>CP excluidos ({zone.excluded.length})</Typography>
+      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>CP excluidos — esta paquetería NO entrega aquí ({zone.excluded.length})</Typography>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
         {zone.excluded.length === 0 ? (
           <Typography variant="caption" color="text.secondary">Sin exclusiones.</Typography>

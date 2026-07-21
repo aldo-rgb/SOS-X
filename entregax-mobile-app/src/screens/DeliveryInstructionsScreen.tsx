@@ -199,6 +199,8 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   // undefined = aún no consultado / falló → se usa el fallback local por prefijo.
   // null = consultado y NO es zona metro. 'mty'/'cdmx'/… = zona metro.
   const [metroZone, setMetroZone] = useState<string | null | undefined>(undefined);
+  // Paqueterías (carrier_key) que NO entregan en el CP destino (panel Cobertura).
+  const [excludedCarriers, setExcludedCarriers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -268,6 +270,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   useEffect(() => {
     let cancelled = false;
     setMetroZone(undefined);
+    setExcludedCarriers([]);
     const z = String(selectedZip || '').trim();
     if (!/^\d{4,5}$/.test(z)) return;
     (async () => {
@@ -276,7 +279,10 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
-        if (!cancelled && data?.success) setMetroZone(data.zone ?? null);
+        if (!cancelled && data?.success) {
+          setMetroZone(data.zone ?? null);
+          setExcludedCarriers(Array.isArray(data.excludedCarriers) ? data.excludedCarriers : []);
+        }
       } catch {
         // Deja metroZone=undefined → se aplica el fallback local.
       }
@@ -288,6 +294,19 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   // fallback local por prefijo de CP.
   const inMtyMetro = metroZone !== undefined ? metroZone === 'mty' : isMtyMetroZip(selectedZip);
   const inCdmxMetro = metroZone !== undefined ? metroZone === 'cdmx' : isCdmxMetroZip(selectedZip);
+
+  // Mapea el id de opción de la app al carrier_key del backend, para aplicar las
+  // exclusiones por paquetería (un CP donde esa paquetería no entrega).
+  const carrierKeyForOption = (id: string): string => {
+    switch (id) {
+      case 'entregax_local_mty': return 'local';
+      case 'paquete_express_pc': return 'pqtx_cod';
+      case 'pickup_hidalgo': return 'pickup';
+      default: return id; // entregax_local_cdmx, paquete_express, estafeta, dhl, …
+    }
+  };
+  const isCarrierExcluded = (id: string): boolean =>
+    excludedCarriers.length > 0 && excludedCarriers.includes(carrierKeyForOption(id));
 
   // Reglas de paquetería local Entregax por tipo de envío + ZIP destino:
   //  - MTY metro      → solo Entregax Local MTY
@@ -378,6 +397,8 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
         // 🗺️ Un local de zona incorrecta NO es válido para este CP destino.
         .filter(c => !(selectedZip && c.id === 'entregax_local_cdmx' && !inCdmxMetro))
         .filter(c => !(selectedZip && c.id === 'entregax_local_mty' && !inMtyMetro))
+        // 🚫 Excluidos por paquetería para este CP.
+        .filter(c => !(selectedZip && isCarrierExcluded(c.id)))
         .map(c => c.id)
     );
     if (!validIds.has(selectedCarrier)) {
@@ -387,7 +408,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
       if (fallback) setSelectedCarrier(fallback);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedZip, shipmentType, inMtyMetro, inCdmxMetro]);
+  }, [selectedZip, shipmentType, inMtyMetro, inCdmxMetro, excludedCarriers]);
 
   // Estado para expandir paquetes master y ver sus hijos
   const [expandedPackages, setExpandedPackages] = useState<Set<number>>(new Set());
@@ -1490,6 +1511,8 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                   if (isChangingFromPickup && carrier.id === 'pickup_hidalgo') {
                     return false;
                   }
+                  // 🚫 Exclusión por paquetería: este carrier no entrega en el CP.
+                  if (selectedZip && isCarrierExcluded(carrier.id)) return false;
                   // 🗺️ Filtrar los locales de EntregaX por la ZONA del CP destino:
                   //    EntregaX Local CDMX solo para CP de CDMX metro; EntregaX
                   //    Local MTY solo para CP de la zona metro de Monterrey.

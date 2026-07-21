@@ -6,6 +6,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { isMtyMetroZip } from './mtyMetroController';
+import { getExcludedCarriersForZip } from './coverageController';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -126,6 +127,15 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
         r.allows_collect !== true &&
         (r.carrier_key === 'local' || String(r.carrier_key || '').startsWith('entregax_'))
       );
+    }
+
+    // 🚫 Exclusiones por paquetería: ocultar las paqueterías que NO entregan en
+    // este CP (configurado en el panel Cobertura → exclusiones por servicio).
+    if (zip) {
+      const excludedCarriers = await getExcludedCarriersForZip(zip);
+      if (excludedCarriers.length) {
+        result.rows = result.rows.filter((r: any) => !excludedCarriers.includes(String(r.carrier_key || '')));
+      }
     }
 
     // 🎨 Sobreescribir icon de paqueterías EntregaX con el brand asset activo
