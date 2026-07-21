@@ -1927,22 +1927,23 @@ export const webhookPagoProveedorV2 = async (
             const ref = r0.referencia_pago || `#${requestId}`;
             const usd = Number(r0.op_monto || 0);
             const mxn = Number(r0.monto_mxn_total || 0);
-            const subject = `X-Pay · Operación solicitada · ${ref}`;
+            // El correo SIEMPRE va en inglés.
+            const subject = `X-Pay · Payment request submitted · ${ref}`;
             const html = `
               <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
                 <div style="background:linear-gradient(135deg,#C1272D,#F05A28);color:#fff;padding:18px 20px;border-radius:10px 10px 0 0">
-                  <h2 style="margin:0;font-size:18px">💱 Nueva operación X-Pay solicitada</h2>
+                  <h2 style="margin:0;font-size:18px">💱 New X-Pay payment request</h2>
                 </div>
                 <div style="border:1px solid #eee;border-top:none;border-radius:0 0 10px 10px;padding:20px">
-                  <p style="margin:0 0 12px;color:#333">Una operación <b>híbrida</b> entró en estado <b>solicitada</b> (aprobada, en proceso de pago a proveedor).</p>
+                  <p style="margin:0 0 12px;color:#333">A payment operation is now <b>pending</b>.</p>
                   <table style="width:100%;border-collapse:collapse;font-size:14px">
-                    <tr><td style="padding:6px 0;color:#666">Referencia</td><td style="padding:6px 0;text-align:right;font-weight:700">${ref}</td></tr>
-                    <tr><td style="padding:6px 0;color:#666">Monto USD</td><td style="padding:6px 0;text-align:right;font-weight:700">$${usd.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
-                    <tr><td style="padding:6px 0;color:#666">Monto MXN</td><td style="padding:6px 0;text-align:right;font-weight:700">$${mxn.toLocaleString('es-MX',{minimumFractionDigits:2})}</td></tr>
-                    ${r0.op_beneficiario_nombre ? `<tr><td style="padding:6px 0;color:#666">Proveedor</td><td style="padding:6px 0;text-align:right">${r0.op_beneficiario_nombre}</td></tr>` : ''}
-                    ${r0.advisor_name ? `<tr><td style="padding:6px 0;color:#666">Asesor</td><td style="padding:6px 0;text-align:right">${r0.advisor_name}</td></tr>` : ''}
+                    <tr><td style="padding:6px 0;color:#666">Reference</td><td style="padding:6px 0;text-align:right;font-weight:700">${ref}</td></tr>
+                    <tr><td style="padding:6px 0;color:#666">Amount USD</td><td style="padding:6px 0;text-align:right;font-weight:700">$${usd.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
+                    <tr><td style="padding:6px 0;color:#666">Amount MXN</td><td style="padding:6px 0;text-align:right;font-weight:700">$${mxn.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
+                    ${r0.op_beneficiario_nombre ? `<tr><td style="padding:6px 0;color:#666">Supplier</td><td style="padding:6px 0;text-align:right">${r0.op_beneficiario_nombre}</td></tr>` : ''}
+                    ${r0.advisor_name ? `<tr><td style="padding:6px 0;color:#666">Advisor</td><td style="padding:6px 0;text-align:right">${r0.advisor_name}</td></tr>` : ''}
                   </table>
-                  <p style="margin:16px 0 0;color:#999;font-size:12px">Revisa el panel de X-Pay para dar seguimiento al pago a proveedor.</p>
+                  <p style="margin:16px 0 0;color:#999;font-size:12px">Check the X-Pay panel to follow up on the supplier payment.</p>
                 </div>
               </div>`;
             for (const em of emails) { await sendEmail(em, subject, html).catch(() => {}); }
