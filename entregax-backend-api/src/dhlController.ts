@@ -656,9 +656,9 @@ export const getDhlShipments = async (req: Request, res: Response) => {
       SELECT 
         ds.*,
         ds.inspected_at as received_at,
-        u.full_name as client_name,
-        u.email as client_email,
-        u.box_id as client_box_id,
+        COALESCE(u.full_name, lc.full_name) as client_name,
+        COALESCE(u.email, lc.email) as client_email,
+        COALESCE(u.box_id, lc.box_id, ds.box_id) as client_box_id,
         inspector.full_name as inspector_name,
         a.street as delivery_street,
         a.city as delivery_city,
@@ -666,6 +666,10 @@ export const getDhlShipments = async (req: Request, res: Response) => {
         a.zip_code as delivery_zip
       FROM dhl_shipments ds
       LEFT JOIN users u ON ds.user_id = u.id
+      LEFT JOIN legacy_clients lc
+        ON ds.user_id IS NULL
+       AND ds.box_id IS NOT NULL
+       AND UPPER(TRIM(ds.box_id)) = UPPER(TRIM(lc.box_id))
       LEFT JOIN users inspector ON ds.inspected_by = inspector.id
       LEFT JOIN addresses a ON ds.delivery_address_id = a.id
       WHERE 1=1
@@ -681,7 +685,10 @@ export const getDhlShipments = async (req: Request, res: Response) => {
     }
 
     if (search) {
-      query += ` AND (ds.inbound_tracking ILIKE $${paramIndex} OR ds.secondary_tracking ILIKE $${paramIndex} OR u.full_name ILIKE $${paramIndex} OR u.box_id ILIKE $${paramIndex})`;
+      query += ` AND (ds.inbound_tracking ILIKE $${paramIndex}
+                    OR ds.secondary_tracking ILIKE $${paramIndex}
+                    OR COALESCE(u.full_name, lc.full_name) ILIKE $${paramIndex}
+                    OR COALESCE(u.box_id, lc.box_id, ds.box_id) ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;
     }
