@@ -256,11 +256,16 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
     : statusLabel(status, { warehouseLocation: m.warehouseLocation || m.warehouse_location, serviceType: m.serviceType || m.service_type });
 
   // Nombre legible de la paquetería (evita mostrar la clave cruda 'evisa_pre').
+  // "Por Cobrar" es Paquete Express pagando al recibir → mostrar la paquetería
+  // real para que no quede solo "Por Cobrar" sin decir qué paquetería es.
+  const isCollectCarrier = /por[_\s]*cobrar|paquete[_\s]*express[_\s]*pc/.test(carrierNorm);
   const carrierDisplay = /evisa/.test(carrierNorm)
     ? 'eVISA PRE'
-    : (m.nationalCarrier
-        ? String(m.nationalCarrier).replace(/[_-]+/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
-        : '');
+    : isCollectCarrier
+      ? 'Paquete Express (Por Cobrar)'
+      : (m.nationalCarrier
+          ? String(m.nationalCarrier).replace(/[_-]+/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+          : '');
 
   const totalBoxes = m.totalBoxes ?? m.total_boxes ?? 1;
 
