@@ -86,19 +86,27 @@ export default function EntangledAdminTab() {
     } catch { setNotifyEmails([]); }
   };
 
+  // Acepta uno o varios correos (separados por coma, espacio, punto y coma o salto de línea).
+  const parseEmails = (raw: string): string[] =>
+    raw.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+
   const addEmail = () => {
-    const e = newEmail.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) { setSnack({ open: true, msg: 'Correo inválido', sev: 'error' }); return; }
-    if (!notifyEmails.includes(e)) setNotifyEmails([...notifyEmails, e]);
+    const valid = parseEmails(newEmail);
+    if (valid.length === 0) { setSnack({ open: true, msg: 'Correo inválido', sev: 'error' }); return; }
+    setNotifyEmails([...new Set([...notifyEmails, ...valid])]);
     setNewEmail('');
   };
 
   const saveNotifyEmails = async () => {
     setSavingEmails(true);
+    // Incluir también lo que esté escrito en el campo (si es válido) para no perderlo.
+    const finalEmails = [...new Set([...notifyEmails, ...parseEmails(newEmail)])];
     try {
       const token = localStorage.getItem('token');
-      await axios.post(`${API_URL}/admin/xpay/notify-emails`, { emails: notifyEmails }, { headers: { Authorization: `Bearer ${token}` } });
-      setSnack({ open: true, msg: 'Correos guardados', sev: 'success' });
+      await axios.post(`${API_URL}/admin/xpay/notify-emails`, { emails: finalEmails }, { headers: { Authorization: `Bearer ${token}` } });
+      setNotifyEmails(finalEmails);
+      setNewEmail('');
+      setSnack({ open: true, msg: `Correos guardados (${finalEmails.length})`, sev: 'success' });
       setEmailDialogOpen(false);
     } catch (e: any) {
       setSnack({ open: true, msg: e?.response?.data?.error || 'No se pudieron guardar', sev: 'error' });
@@ -384,8 +392,8 @@ export default function EntangledAdminTab() {
             <TextField
               size="small"
               fullWidth
-              label="Agregar correo"
-              placeholder="correo@dominio.com"
+              label="Agregar correo(s)"
+              placeholder="correo@dominio.com  ·  puedes pegar varios separados por coma"
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addEmail(); } }}
