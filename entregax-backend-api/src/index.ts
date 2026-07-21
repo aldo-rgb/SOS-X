@@ -7153,38 +7153,6 @@ app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel
 app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
 app.post('/api/webhooks/whatsapp', handleWhatsappWebhook);
 app.get('/api/_diag/wa-subs', debugWabaSubs);
-// TEMPORAL: prueba del correo de "operación solicitada". Quitar tras validar.
-app.get('/api/_diag/test-xpay-email', async (req: Request, res: Response): Promise<any> => {
-  if (String(req.query.secret || '') !== 'zaia-xpay-8823') return res.status(403).json({ error: 'nope' });
-  const email = String(req.query.email || '');
-  if (!email) return res.status(400).json({ error: 'falta email' });
-  try {
-    const { sendEmail } = await import('./emailService');
-    const ref = 'XP879241', usd = 980, mxn = 17364.00;
-    const subject = `X-Pay · Operación solicitada · ${ref}`;
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
-        <div style="background:linear-gradient(135deg,#C1272D,#F05A28);color:#fff;padding:18px 20px;border-radius:10px 10px 0 0">
-          <h2 style="margin:0;font-size:18px">💱 Nueva operación X-Pay solicitada</h2>
-        </div>
-        <div style="border:1px solid #eee;border-top:none;border-radius:0 0 10px 10px;padding:20px">
-          <p style="margin:0 0 12px;color:#333">Una operación <b>híbrida</b> entró en estado <b>solicitada</b> (aprobada, en proceso de pago a proveedor).</p>
-          <table style="width:100%;border-collapse:collapse;font-size:14px">
-            <tr><td style="padding:6px 0;color:#666">Referencia</td><td style="padding:6px 0;text-align:right;font-weight:700">${ref}</td></tr>
-            <tr><td style="padding:6px 0;color:#666">Monto USD</td><td style="padding:6px 0;text-align:right;font-weight:700">$${usd.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
-            <tr><td style="padding:6px 0;color:#666">Monto MXN</td><td style="padding:6px 0;text-align:right;font-weight:700">$${mxn.toLocaleString('es-MX',{minimumFractionDigits:2})}</td></tr>
-            <tr><td style="padding:6px 0;color:#666">Proveedor</td><td style="padding:6px 0;text-align:right">ROLS9012016D9 · Sergio Rodríguez</td></tr>
-            <tr><td style="padding:6px 0;color:#666">Asesor</td><td style="padding:6px 0;text-align:right">Oscar Cantú</td></tr>
-          </table>
-          <p style="margin:16px 0 0;color:#999;font-size:12px">Revisa el panel de X-Pay para dar seguimiento al pago a proveedor. (CORREO DE PRUEBA)</p>
-        </div>
-      </div>`;
-    const r = await sendEmail(email, subject, html);
-    res.json({ ok: r.ok, email, error: r.error });
-  } catch (e: any) {
-    res.status(500).json({ ok: false, error: e?.message });
-  }
-});
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);
