@@ -88,6 +88,7 @@ import FCLManagementPage from './FCLManagementPage';
 import AirManagementPage from './AirManagementPage';
 import CajoManagementPage from './CajoManagementPage';
 import EntregaxPaymentQueryPanel from './EntregaxPaymentQueryPanel';
+import CoveragePage from './CoveragePage';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import {
     UploadFile as UploadIcon,
@@ -226,7 +227,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'instructions', status: 'active' },
         { key: 'carrier_options', status: 'active' },
         { key: 'payment_query', status: 'active' },
-        { key: 'coverage', status: 'pending' },
+        { key: 'coverage', status: 'active' },
         { key: 'reports', status: 'pending' },
     ],
 };
@@ -1048,6 +1049,19 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         <Chip label={`← ${t(`panels.services.${selectedService}.title`)}`} onClick={() => setSelectedModule(null)} sx={{ cursor: 'pointer' }} color="primary" variant="outlined" />
                     </Box>
                     <EntregaxPaymentQueryPanel enabled={entregaxPaymentQueryEnabled} />
+                </Box>
+            );
+        }
+
+        // Panel de Cobertura metropolitana (coverage) - solo mx_national
+        if (selectedModule === 'coverage' && selectedService === 'mx_national') {
+            return (
+                <Box>
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip label={t('panels.backToAdmin')} onClick={() => { setSelectedService(null); setSelectedModule(null); }} sx={{ cursor: 'pointer' }} />
+                        <Chip label={`← ${t(`panels.services.${selectedService}.title`)}`} onClick={() => setSelectedModule(null)} sx={{ cursor: 'pointer' }} color="primary" variant="outlined" />
+                    </Box>
+                    <CoveragePage />
                 </Box>
             );
         }

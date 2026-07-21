@@ -1163,6 +1163,16 @@ import {
 } from './carrierServiceController';
 import { listExcludedZips, addExcludedZip, removeExcludedZip } from './mtyMetroController';
 import {
+  listZones as coverageListZones,
+  upsertZone as coverageUpsertZone,
+  deleteZone as coverageDeleteZone,
+  addRule as coverageAddRule,
+  deleteRule as coverageDeleteRule,
+  addExcluded as coverageAddExcluded,
+  removeExcluded as coverageRemoveExcluded,
+  checkZip as coverageCheckZip,
+} from './coverageController';
+import {
   getDhlRates,
   updateDhlRate,
   getClientPricing as getDhlClientPricing,
@@ -6145,6 +6155,16 @@ app.get('/api/carrier-options/by-service/:serviceType', authenticateToken, getCa
 app.get('/api/admin/mty-metro/excluded-zips', authenticateToken, requireMinLevel(ROLES.ADMIN), listExcludedZips);
 app.post('/api/admin/mty-metro/excluded-zips', authenticateToken, requireMinLevel(ROLES.ADMIN), addExcludedZip);
 app.delete('/api/admin/mty-metro/excluded-zips/:zip', authenticateToken, requireMinLevel(ROLES.ADMIN), removeExcludedZip);
+
+// Cobertura metropolitana EntregaX Local: zonas configurables (MTY/CDMX/…)
+app.get('/api/admin/coverage/zones', authenticateToken, requireMinLevel(ROLES.ADMIN), coverageListZones);
+app.post('/api/admin/coverage/zones', authenticateToken, requireMinLevel(ROLES.ADMIN), coverageUpsertZone);
+app.delete('/api/admin/coverage/zones/:key', authenticateToken, requireMinLevel(ROLES.ADMIN), coverageDeleteZone);
+app.post('/api/admin/coverage/zones/:key/rules', authenticateToken, requireMinLevel(ROLES.ADMIN), coverageAddRule);
+app.delete('/api/admin/coverage/rules/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), coverageDeleteRule);
+app.post('/api/admin/coverage/zones/:key/excluded', authenticateToken, requireMinLevel(ROLES.ADMIN), coverageAddExcluded);
+app.delete('/api/admin/coverage/zones/:key/excluded/:zip', authenticateToken, requireMinLevel(ROLES.ADMIN), coverageRemoveExcluded);
+app.get('/api/admin/coverage/check', authenticateToken, requireMinLevel(ROLES.ADMIN), coverageCheckZip);
 
 // Endpoint público para cotizar paquetería (app móvil)
 // Devuelve opciones locales + Skydropx (si está habilitado)
