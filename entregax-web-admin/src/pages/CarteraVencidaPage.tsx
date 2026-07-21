@@ -652,6 +652,7 @@ export default function CarteraVencidaPage() {
                       <TableCell>Tracking</TableCell>
                       <TableCell>Servicio</TableCell>
                       <TableCell>Cliente</TableCell>
+                      <TableCell align="center">Llegada a CEDIS</TableCell>
                       <TableCell align="center">Días</TableCell>
                       <TableCell align="right">Saldo</TableCell>
                       <TableCell>Acciones</TableCell>
@@ -672,6 +673,13 @@ export default function CarteraVencidaPage() {
                         <TableCell>
                           <Typography variant="body2">{guia.cliente_nombre || 'Sin nombre'}</Typography>
                           <Typography variant="caption" color="text.secondary">{guia.cliente_telefono || guia.cliente_email || '-'}</Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Typography variant="caption">
+                            {guia.fecha_llegada_cedis
+                              ? new Date(guia.fecha_llegada_cedis).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+                              : '—'}
+                          </Typography>
                         </TableCell>
                         <TableCell align="center">
                           <Chip 
@@ -696,7 +704,7 @@ export default function CarteraVencidaPage() {
                     ))}
                     {(!dashboard.guiasCriticas || dashboard.guiasCriticas.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={7} align="center">
+                        <TableCell colSpan={8} align="center">
                           <Typography color="text.secondary">🎉 No hay guías críticas - Todo en orden</Typography>
                         </TableCell>
                       </TableRow>
