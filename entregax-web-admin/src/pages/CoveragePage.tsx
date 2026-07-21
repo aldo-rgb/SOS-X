@@ -7,10 +7,9 @@
 // ============================================
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Box, Typography, Paper, Button, TextField, Chip, IconButton, Alert,
+  Box, Typography, Paper, Button, TextField, Chip, Alert,
   Switch, FormControlLabel, Divider, CircularProgress, MenuItem, Select, Tooltip,
 } from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import PlaceIcon from '@mui/icons-material/Place';
 import SearchIcon from '@mui/icons-material/Search';
