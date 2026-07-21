@@ -6165,6 +6165,9 @@ app.delete('/api/admin/coverage/rules/:id', authenticateToken, requireMinLevel(R
 app.post('/api/admin/coverage/zones/:key/excluded', authenticateToken, requireMinLevel(ROLES.ADMIN), coverageAddExcluded);
 app.delete('/api/admin/coverage/zones/:key/excluded/:zip', authenticateToken, requireMinLevel(ROLES.ADMIN), coverageRemoveExcluded);
 app.get('/api/admin/coverage/check', authenticateToken, requireMinLevel(ROLES.ADMIN), coverageCheckZip);
+// Consulta de cobertura para la app (cualquier usuario autenticado): a qué zona
+// metro pertenece un CP (para ofrecer EntregaX Local en el checkout del cliente).
+app.get('/api/coverage/check', authenticateToken, coverageCheckZip);
 
 // Endpoint público para cotizar paquetería (app móvil)
 // Devuelve opciones locales + Skydropx (si está habilitado)

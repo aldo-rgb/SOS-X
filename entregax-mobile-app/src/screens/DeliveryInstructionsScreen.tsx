@@ -195,6 +195,10 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   const [additionalNotes, setAdditionalNotes] = useState(
     hasExistingInstructions ? ((pkg as any).delivery_instructions || '') : ''
   );
+  // Cobertura metro del CP destino, consultada al backend (panel Cobertura).
+  // undefined = aún no consultado / falló → se usa el fallback local por prefijo.
+  // null = consultado y NO es zona metro. 'mty'/'cdmx'/… = zona metro.
+  const [metroZone, setMetroZone] = useState<string | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -258,8 +262,32 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     const a = addresses.find(addr => addr.id === selectedAddressId);
     return a?.zip_code || null;
   })();
-  const inMtyMetro = isMtyMetroZip(selectedZip);
-  const inCdmxMetro = isCdmxMetroZip(selectedZip);
+  // Consultar la cobertura real al backend cuando cambia el CP destino. El panel
+  // Cobertura (admin) es la fuente de verdad; si la red falla se usa el fallback
+  // local por prefijo para no bloquear el checkout.
+  useEffect(() => {
+    let cancelled = false;
+    setMetroZone(undefined);
+    const z = String(selectedZip || '').trim();
+    if (!/^\d{4,5}$/.test(z)) return;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/coverage/check?zip=${z.padStart(5, '0')}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (!cancelled && data?.success) setMetroZone(data.zone ?? null);
+      } catch {
+        // Deja metroZone=undefined → se aplica el fallback local.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedZip, token]);
+
+  // Preferir la cobertura del backend; si aún no llega (undefined), usar el
+  // fallback local por prefijo de CP.
+  const inMtyMetro = metroZone !== undefined ? metroZone === 'mty' : isMtyMetroZip(selectedZip);
+  const inCdmxMetro = metroZone !== undefined ? metroZone === 'cdmx' : isCdmxMetroZip(selectedZip);
 
   // Reglas de paquetería local Entregax por tipo de envío + ZIP destino:
   //  - MTY metro      → solo Entregax Local MTY
