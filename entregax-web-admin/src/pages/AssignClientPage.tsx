@@ -141,7 +141,8 @@ function daysColor(days: number): string {
 // ─── Section: Guías sin instrucciones ───────────────────────────────────────
 
 function NoInstructionsSection({ section }: { section: ServiceSection }) {
-    const [open, setOpen] = useState(true);
+    // Inicia colapsado; el operador expande sólo el servicio que quiere revisar.
+    const [open, setOpen] = useState(false);
     const [search, setSearch] = useState('');
 
     const filtered = useMemo(() => {
