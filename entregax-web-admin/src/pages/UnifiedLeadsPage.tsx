@@ -2041,46 +2041,28 @@ export default function UnifiedLeadsPage() {
           {/* Prospect Stats */}
           {prospectStats && (
             <Grid container spacing={2} sx={{ mb: 3 }}>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Card sx={{ bgcolor: 'info.light', color: 'info.contrastText' }}>
-                  <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
-                    <Typography variant="h5" fontWeight={700}>{prospectStats.new_count}</Typography>
-                    <Typography variant="caption">Nuevos</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Card sx={{ bgcolor: 'warning.light', color: 'warning.contrastText' }}>
-                  <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
-                    <Typography variant="h5" fontWeight={700}>{prospectStats.contacting_count}</Typography>
-                    <Typography variant="caption">Contactando</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Card sx={{ bgcolor: 'primary.light', color: 'primary.contrastText' }}>
-                  <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
-                    <Typography variant="h5" fontWeight={700}>{prospectStats.interested_count}</Typography>
-                    <Typography variant="caption">Interesados</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Card sx={{ bgcolor: 'success.light', color: 'success.contrastText' }}>
-                  <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
-                    <Typography variant="h5" fontWeight={700}>{prospectStats.converted_count}</Typography>
-                    <Typography variant="caption">Convertidos</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4, md: 2 }}>
-                <Card sx={{ bgcolor: 'error.light', color: 'error.contrastText' }}>
-                  <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
-                    <Typography variant="h5" fontWeight={700}>{prospectStats.lost_count}</Typography>
-                    <Typography variant="caption">{t('leads.lost')}</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
+              {([
+                { key: 'new', count: prospectStats.new_count, label: 'Nuevos', bg: 'info.light', fg: 'info.contrastText' },
+                { key: 'contacting', count: prospectStats.contacting_count, label: 'Contactando', bg: 'warning.light', fg: 'warning.contrastText' },
+                { key: 'interested', count: prospectStats.interested_count, label: 'Interesados', bg: 'primary.light', fg: 'primary.contrastText' },
+                { key: 'converted', count: prospectStats.converted_count, label: 'Convertidos', bg: 'success.light', fg: 'success.contrastText' },
+                { key: 'lost', count: prospectStats.lost_count, label: t('leads.lost'), bg: 'error.light', fg: 'error.contrastText' },
+              ] as const).map((c) => {
+                const active = prospectStatusFilter === c.key;
+                return (
+                  <Grid key={c.key} size={{ xs: 6, sm: 4, md: 2 }}>
+                    <Card
+                      onClick={() => { setProspectStatusFilter(active ? 'all' : c.key); setProspectPage(0); }}
+                      sx={{ bgcolor: c.bg, color: c.fg, cursor: 'pointer', transition: 'transform .15s, box-shadow .15s', outline: active ? '2px solid rgba(0,0,0,0.45)' : 'none', '&:hover': { transform: 'translateY(-2px)', boxShadow: 4 } }}
+                    >
+                      <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                        <Typography variant="h5" fontWeight={700}>{c.count}</Typography>
+                        <Typography variant="caption">{c.label}</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                );
+              })}
               <Grid size={{ xs: 6, sm: 4, md: 2 }}>
                 <Card sx={{ bgcolor: 'secondary.light', color: 'secondary.contrastText' }}>
                   <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
@@ -2431,7 +2413,9 @@ export default function UnifiedLeadsPage() {
                         </TableCell>
                         <TableCell>
                           {isLegacy ? (
-                            <Chip label="Reactivación (sin reclamar)" size="small" color="warning" variant="outlined" />
+                            prospect.status === 'interested'
+                              ? <Chip label={t('leads.interested')} size="small" color="primary" />
+                              : <Chip label="Reactivación (sin reclamar)" size="small" color="warning" variant="outlined" />
                           ) : (
                             <FormControl size="small" variant="standard" sx={{ minWidth: 100 }}>
                               <Select

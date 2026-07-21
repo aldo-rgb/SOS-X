@@ -1779,7 +1779,13 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
           lc.id, 'legacy'::text AS source, ('lc_' || lc.id::text) AS lead_key,
           COALESCE(NULLIF(TRIM(lc.full_name), ''), '(sin nombre)') AS full_name,
           lc.phone AS whatsapp, lc.email, 'reactivacion'::text AS acquisition_channel,
-          NULL::int AS assigned_advisor_id, 'new'::text AS status,
+          NULL::int AS assigned_advisor_id,
+          -- Si el cliente de reactivación hizo clic en la secuencia (cualquier
+          -- paso) → 'interested'; si no, sigue como 'new' (Reactivación sin reclamar).
+          CASE WHEN EXISTS (
+            SELECT 1 FROM wa_click_links wl
+             WHERE wl.lead_key = ('lc_' || lc.id::text) AND wl.click_count > 0
+          ) THEN 'interested'::text ELSE 'new'::text END AS status,
           lc.chartback_notes AS notes, NULL::timestamptz AS follow_up_date,
           NULL::int AS created_by_id, NULL::int AS converted_user_id,
           COALESCE(lc.chartback_i_since, lc.created_at) AS created_at,
