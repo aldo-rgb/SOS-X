@@ -587,6 +587,7 @@ import {
   lookupAdvisor,
   getCrmLeads,
   getRegistrationStats,
+  getRegistrationList,
   getAvailableAdvisors,
   assignAdvisorManually,
   updateLeadStatus,
@@ -7105,6 +7106,7 @@ app.post('/api/advisor/request', authenticateToken, requestAdvisor);
 // Admin: Ver leads pendientes
 app.get('/api/admin/crm/leads', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getCrmLeads);
 app.get('/api/admin/crm/registration-stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getRegistrationStats);
+app.get('/api/admin/crm/registration-list', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getRegistrationList);
 
 // Admin: Ver asesores disponibles para asignar
 app.get('/api/admin/crm/advisors', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAvailableAdvisors);

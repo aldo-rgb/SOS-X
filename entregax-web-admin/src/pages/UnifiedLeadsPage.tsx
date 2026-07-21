@@ -340,6 +340,12 @@ export default function UnifiedLeadsPage() {
   const [advisors, setAdvisors] = useState<Advisor[]>([]);
   // Altas de usuarios (registros): semana (reinicia lunes) y mes (reinicia el 1).
   const [regStats, setRegStats] = useState<{ week: number; month: number; year: number; today: number }>({ week: 0, month: 0, year: 0, today: 0 });
+  // Detalle de altas (al hacer click en los widgets semana/mes/año).
+  type RegItem = { id: number; full_name: string; phone: string | null; box_id: string | null; created_at: string; advisor_name: string | null };
+  const [regListOpen, setRegListOpen] = useState(false);
+  const [regListTitle, setRegListTitle] = useState('');
+  const [regListLoading, setRegListLoading] = useState(false);
+  const [regListItems, setRegListItems] = useState<RegItem[]>([]);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   
   // ============ CRM LEADS STATE ============
@@ -878,6 +884,25 @@ export default function UnifiedLeadsPage() {
       }
     } catch {
       console.error('Error fetching registration stats');
+    }
+  };
+
+  // Abre el detalle de altas de un periodo (semana/mes/año).
+  const openRegList = async (period: 'week' | 'month' | 'year', title: string) => {
+    setRegListTitle(title);
+    setRegListItems([]);
+    setRegListOpen(true);
+    setRegListLoading(true);
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/registration-list`, {
+        params: { period },
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (res.data.success) setRegListItems(res.data.items || []);
+    } catch {
+      console.error('Error fetching registration list');
+    } finally {
+      setRegListLoading(false);
     }
   };
 
@@ -1467,7 +1492,7 @@ export default function UnifiedLeadsPage() {
 
       {/* 📈 Widgets principales: altas de usuarios (semana / mes / año) */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 2, mb: 3 }}>
-        <Paper sx={{ p: 3, borderRadius: 3, color: '#fff', background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)', display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Paper onClick={() => openRegList('week', 'Altas esta semana')} sx={{ p: 3, borderRadius: 3, color: '#fff', background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)', display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer', transition: 'transform .15s, box-shadow .15s', '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 } }}>
           <Box sx={{ fontSize: 40, lineHeight: 1 }}>🗓️</Box>
           <Box>
             <Typography variant="h3" fontWeight={800} lineHeight={1}>{regStats.week}</Typography>
@@ -1475,7 +1500,7 @@ export default function UnifiedLeadsPage() {
             <Typography variant="caption" sx={{ opacity: 0.85 }}>Nuevos usuarios · reinicia cada lunes</Typography>
           </Box>
         </Paper>
-        <Paper sx={{ p: 3, borderRadius: 3, color: '#fff', background: 'linear-gradient(135deg, #0097A7 0%, #00BFA5 100%)', display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Paper onClick={() => openRegList('month', 'Altas este mes')} sx={{ p: 3, borderRadius: 3, color: '#fff', background: 'linear-gradient(135deg, #0097A7 0%, #00BFA5 100%)', display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer', transition: 'transform .15s, box-shadow .15s', '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 } }}>
           <Box sx={{ fontSize: 40, lineHeight: 1 }}>📅</Box>
           <Box>
             <Typography variant="h3" fontWeight={800} lineHeight={1}>{regStats.month}</Typography>
@@ -1483,7 +1508,7 @@ export default function UnifiedLeadsPage() {
             <Typography variant="caption" sx={{ opacity: 0.85 }}>Nuevos usuarios · reinicia el día 1</Typography>
           </Box>
         </Paper>
-        <Paper sx={{ p: 3, borderRadius: 3, color: '#fff', background: 'linear-gradient(135deg, #6A1B9A 0%, #8E24AA 100%)', display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Paper onClick={() => openRegList('year', 'Altas este año')} sx={{ p: 3, borderRadius: 3, color: '#fff', background: 'linear-gradient(135deg, #6A1B9A 0%, #8E24AA 100%)', display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer', transition: 'transform .15s, box-shadow .15s', '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 } }}>
           <Box sx={{ fontSize: 40, lineHeight: 1 }}>🎯</Box>
           <Box>
             <Typography variant="h3" fontWeight={800} lineHeight={1}>{regStats.year}</Typography>
@@ -1492,6 +1517,53 @@ export default function UnifiedLeadsPage() {
           </Box>
         </Paper>
       </Box>
+
+      {/* 📋 Detalle de altas (al hacer click en un widget) */}
+      <Dialog open={regListOpen} onClose={() => setRegListOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>{regListTitle}{!regListLoading ? ` · ${regListItems.length}` : ''}</span>
+          <IconButton size="small" onClick={() => setRegListOpen(false)}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {regListLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+          ) : regListItems.length === 0 ? (
+            <Alert severity="info">Sin altas en este periodo.</Alert>
+          ) : (
+            <TableContainer>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell><strong>Cliente</strong></TableCell>
+                    <TableCell><strong>Teléfono</strong></TableCell>
+                    <TableCell><strong>Box ID</strong></TableCell>
+                    <TableCell><strong>Fecha y hora de alta</strong></TableCell>
+                    <TableCell><strong>Asesor asignado</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {regListItems.map((it) => (
+                    <TableRow key={it.id} hover>
+                      <TableCell>{it.full_name || '(sin nombre)'}</TableCell>
+                      <TableCell>{it.phone || '-'}</TableCell>
+                      <TableCell>{it.box_id || '-'}</TableCell>
+                      <TableCell>{formatDateTime(it.created_at)}</TableCell>
+                      <TableCell>
+                        {it.advisor_name
+                          ? <Chip size="small" label={it.advisor_name} sx={{ bgcolor: '#ede7f6', color: '#6A1B9A' }} />
+                          : <Typography variant="caption" color="text.secondary">Sin asesor</Typography>}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRegListOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Main Tabs - Leads vs Prospectos */}
       <Paper sx={{ mb: 3 }}>

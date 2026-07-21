@@ -382,6 +382,31 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
   }
 };
 
+// 📋 ADMIN: LISTA DE ALTAS de un periodo (para el detalle al hacer click en los
+// widgets). Devuelve nombre, teléfono, box id, fecha/hora de alta y asesor
+// asignado (si tiene). Solo clientes, mismo criterio que getRegistrationStats.
+export const getRegistrationList = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const period = String(req.query.period || 'week');
+    const trunc: Record<string, string> = { today: 'day', week: 'week', month: 'month', year: 'year' };
+    const unit = trunc[period] || 'week';
+    const r = await pool.query(`
+      SELECT
+        u.id, u.full_name, u.phone, u.box_id, u.created_at,
+        a.full_name AS advisor_name
+      FROM users u
+      LEFT JOIN users a ON u.advisor_id = a.id
+      WHERE u.role = 'client' AND u.deleted_at IS NULL
+        AND u.created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('${unit}', now() AT TIME ZONE 'America/Monterrey')
+      ORDER BY u.created_at DESC
+    `);
+    res.json({ success: true, period, count: r.rows.length, items: r.rows });
+  } catch (error) {
+    console.error('Error en getRegistrationList:', error);
+    res.status(500).json({ success: false, error: 'Error al obtener lista de altas' });
+  }
+};
+
 // 🖥️ ADMIN: OBTENER LISTA DE ASESORES DISPONIBLES
 export const getAvailableAdvisors = async (req: Request, res: Response): Promise<any> => {
   try {
