@@ -104,6 +104,7 @@ interface Client {
     full_name: string;
     box_id: string;
     email: string;
+    is_legacy?: boolean;
 }
 
 interface LegacyClient {
