@@ -653,6 +653,7 @@ export default function CarteraVencidaPage() {
                       <TableCell>Servicio</TableCell>
                       <TableCell>Cliente</TableCell>
                       <TableCell align="center">Llegada a CEDIS</TableCell>
+                      <TableCell align="center">Último Status</TableCell>
                       <TableCell align="center">Días</TableCell>
                       <TableCell align="right">Saldo</TableCell>
                       <TableCell>Acciones</TableCell>
@@ -682,6 +683,13 @@ export default function CarteraVencidaPage() {
                           </Typography>
                         </TableCell>
                         <TableCell align="center">
+                          {guia.ultimo_status ? (
+                            <Chip size="small" variant="outlined" label={guia.ultimo_status} sx={{ fontSize: '0.7rem' }} />
+                          ) : (
+                            <Typography variant="caption" color="text.disabled">—</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="center">
                           <Chip 
                             size="small" 
                             label={`${guia.dias || 0} días`}
@@ -704,7 +712,7 @@ export default function CarteraVencidaPage() {
                     ))}
                     {(!dashboard.guiasCriticas || dashboard.guiasCriticas.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={8} align="center">
+                        <TableCell colSpan={9} align="center">
                           <Typography color="text.secondary">🎉 No hay guías críticas - Todo en orden</Typography>
                         </TableCell>
                       </TableRow>
