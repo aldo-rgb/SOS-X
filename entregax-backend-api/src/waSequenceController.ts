@@ -331,7 +331,8 @@ async function sendStep(enr: any, step: any): Promise<boolean> {
 }
 
 // Procesa las inscripciones cuyo próximo envío ya venció (llamado por el cron).
-export const processDueSequenceSteps = async (): Promise<{ sent: number; advanced: number }> => {
+export const SEQUENCE_BATCH_LIMIT = 200;
+export const processDueSequenceSteps = async (): Promise<{ sent: number; advanced: number; processed: number }> => {
   await ensureSequenceSchema();
   let sent = 0, advanced = 0;
   const due = await pool.query(
@@ -340,7 +341,7 @@ export const processDueSequenceSteps = async (): Promise<{ sent: number; advance
        JOIN wa_sequences s ON s.id = e.sequence_id
       WHERE e.status = 'active' AND e.next_send_at IS NOT NULL AND e.next_send_at <= NOW()
       ORDER BY e.next_send_at ASC
-      LIMIT 200`
+      LIMIT ${SEQUENCE_BATCH_LIMIT}`
   );
   for (const enr of due.rows) {
     const steps: any[] = Array.isArray(enr.steps) ? enr.steps : [];
@@ -387,6 +388,6 @@ export const processDueSequenceSteps = async (): Promise<{ sent: number; advance
       await pool.query(`UPDATE wa_sequence_enrollments SET status='completed', last_sent_at=NOW(), updated_at=NOW() WHERE id=$1`, [enr.id]).catch(() => {});
     }
   }
-  if (sent || advanced) console.log(`[SEQ] Cron: ${sent} mensajes enviados, ${advanced} avanzados`);
-  return { sent, advanced };
+  if (sent || advanced) console.log(`[SEQ] Cron: ${sent} mensajes enviados, ${advanced} avanzados (lote de ${due.rows.length})`);
+  return { sent, advanced, processed: due.rows.length };
 };

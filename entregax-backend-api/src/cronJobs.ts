@@ -1013,15 +1013,47 @@ export const startStaleRatesNotifyCron = () => {
 // configurados (editable desde el panel). Un paso que vence en día no-hábil
 // espera a la siguiente corrida hábil — aplica también a los ya inscritos,
 // porque el filtro es por next_send_at <= NOW() en cada corrida válida.
+let seqDrainInProgress = false;
+// Vacía la cola en tandas de SEQUENCE_BATCH_LIMIT (200): procesa un lote y, si
+// quedó lleno (hay backlog), agenda el siguiente lote 20 min después. Repite
+// hasta que un lote salga incompleto (cola vacía). Evita saturar WhatsApp con
+// miles de envíos de golpe pero termina de mandarlos el mismo día.
+const drainSequenceBatches = async () => {
+  if (seqDrainInProgress) return;
+  seqDrainInProgress = true;
+  try {
+    const { processDueSequenceSteps, SEQUENCE_BATCH_LIMIT } = await import('./waSequenceController');
+    const runBatch = async (round: number) => {
+      try {
+        const { processed } = await processDueSequenceSteps();
+        // Lote lleno → todavía hay pendientes: siguiente tanda en 20 min.
+        if (processed >= SEQUENCE_BATCH_LIMIT) {
+          console.log(`[SEQ] Lote ${round} lleno (${processed}); siguiente tanda en 20 min`);
+          setTimeout(() => { runBatch(round + 1).catch(() => {}); }, 20 * 60 * 1000);
+        } else {
+          seqDrainInProgress = false;
+        }
+      } catch (e) {
+        seqDrainInProgress = false;
+        console.error('[CRON] drainSequenceBatches lote:', (e as Error).message);
+      }
+    };
+    await runBatch(1);
+  } catch (e) {
+    seqDrainInProgress = false;
+    console.error('[CRON] drainSequenceBatches:', (e as Error).message);
+  }
+};
+
 export const startWaSequenceCron = () => {
   cron.schedule('* * * * *', async () => {
     try {
-      const { getSequenceSchedule, processDueSequenceSteps } = await import('./waSequenceController');
+      const { getSequenceSchedule } = await import('./waSequenceController');
       const sch = await getSequenceSchedule();
       // Hora de pared Monterrey (UTC-6, sin DST).
       const mty = new Date(Date.now() - 6 * 3600 * 1000);
       if (mty.getUTCHours() === sch.hour && mty.getUTCMinutes() === sch.minute && sch.days.includes(mty.getUTCDay())) {
-        await processDueSequenceSteps();
+        drainSequenceBatches().catch(() => {});
       }
     } catch (e) {
       console.error('[CRON] startWaSequenceCron:', (e as Error).message);
