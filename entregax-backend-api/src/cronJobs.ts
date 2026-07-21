@@ -1009,18 +1009,25 @@ export const startStaleRatesNotifyCron = () => {
 };
 
 // 🔄 Secuencias automáticas de WhatsApp: 12:06 PM de Lunes a Viernes (hora México).
-// Envía todos los pasos con fecha vencida. Si un lead se inscribe después de las
-// 12:06 (o en fin de semana), su Día 1 sale en la siguiente corrida hábil.
+// Envía todos los pasos con fecha vencida, SOLO en la hora/días hábiles
+// configurados (editable desde el panel). Un paso que vence en día no-hábil
+// espera a la siguiente corrida hábil — aplica también a los ya inscritos,
+// porque el filtro es por next_send_at <= NOW() en cada corrida válida.
 export const startWaSequenceCron = () => {
-  cron.schedule('6 12 * * 1-5', async () => {
+  cron.schedule('* * * * *', async () => {
     try {
-      const { processDueSequenceSteps } = await import('./waSequenceController');
-      await processDueSequenceSteps();
+      const { getSequenceSchedule, processDueSequenceSteps } = await import('./waSequenceController');
+      const sch = await getSequenceSchedule();
+      // Hora de pared Monterrey (UTC-6, sin DST).
+      const mty = new Date(Date.now() - 6 * 3600 * 1000);
+      if (mty.getUTCHours() === sch.hour && mty.getUTCMinutes() === sch.minute && sch.days.includes(mty.getUTCDay())) {
+        await processDueSequenceSteps();
+      }
     } catch (e) {
       console.error('[CRON] startWaSequenceCron:', (e as Error).message);
     }
-  }, { timezone: 'America/Monterrey' });
-  console.log('✅ Cron de secuencias WhatsApp activo (12:06 PM, Lun-Vie, hora México)');
+  });
+  console.log('✅ Cron de secuencias WhatsApp activo (horario configurable, hora México)');
 };
 
 // 💸 Referidos: activa el bono cuando el referido hace su PRIMER ENVÍO real

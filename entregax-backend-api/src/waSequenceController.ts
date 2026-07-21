@@ -173,28 +173,89 @@ export const unenrollFromSequence = async (req: Request, res: Response): Promise
   }
 };
 
-// GET /api/admin/crm/sequence/next-send → próximo envío de la secuencia (12:06 PM
-// Monterrey, Lun-Vie) y a cuántos usuarios se enviará en esa corrida.
+// ── Horario configurable de la secuencia ────────────────────────────────────
+// hour/minute en hora de Monterrey (UTC-6, sin DST). days = arreglo de días
+// hábiles con convención JS (0=Dom, 1=Lun … 6=Sáb). Default: 12:06, Lun-Vie.
+const MTY_OFFSET_MS = 6 * 3600 * 1000;
+export interface SequenceSchedule { hour: number; minute: number; days: number[]; }
+export const DEFAULT_SEQUENCE_SCHEDULE: SequenceSchedule = { hour: 12, minute: 6, days: [1, 2, 3, 4, 5] };
+
+export const getSequenceSchedule = async (): Promise<SequenceSchedule> => {
+  try {
+    const r = await pool.query(`SELECT config_value FROM system_configurations WHERE config_key = 'wa_sequence_schedule' AND is_active = TRUE`);
+    const v = r.rows[0]?.config_value;
+    if (!v) return DEFAULT_SEQUENCE_SCHEDULE;
+    const hour = Number.isInteger(v.hour) && v.hour >= 0 && v.hour <= 23 ? v.hour : DEFAULT_SEQUENCE_SCHEDULE.hour;
+    const minute = Number.isInteger(v.minute) && v.minute >= 0 && v.minute <= 59 ? v.minute : DEFAULT_SEQUENCE_SCHEDULE.minute;
+    const days = Array.isArray(v.days) ? v.days.filter((d: any) => Number.isInteger(d) && d >= 0 && d <= 6) : DEFAULT_SEQUENCE_SCHEDULE.days;
+    return { hour, minute, days };
+  } catch { return DEFAULT_SEQUENCE_SCHEDULE; }
+};
+
+// Próximo timestamp UTC de envío según la config (o null si no hay días hábiles).
+export const computeNextSendUtc = (sch: SequenceSchedule): Date | null => {
+  if (!sch.days.length) return null;
+  const now = new Date();
+  // "cand" representa la hora de pared MTY en campos UTC. El UTC real = cand + 6h.
+  const mtyNow = new Date(now.getTime() - MTY_OFFSET_MS);
+  const cand = new Date(Date.UTC(mtyNow.getUTCFullYear(), mtyNow.getUTCMonth(), mtyNow.getUTCDate(), sch.hour, sch.minute, 0, 0));
+  const realUtc = () => new Date(cand.getTime() + MTY_OFFSET_MS);
+  let guard = 0;
+  while ((realUtc() <= now || !sch.days.includes(cand.getUTCDay())) && guard < 30) {
+    cand.setUTCDate(cand.getUTCDate() + 1);
+    guard++;
+  }
+  return guard >= 30 ? null : realUtc();
+};
+
+// GET /api/admin/crm/sequence/schedule → config vigente.
+export const getSequenceScheduleConfig = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    const sch = await getSequenceSchedule();
+    res.json({ success: true, ...sch });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// POST /api/admin/crm/sequence/schedule { hour, minute, days } → guarda config.
+export const saveSequenceScheduleConfig = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { hour, minute, days } = req.body || {};
+    const h = Number(hour), m = Number(minute);
+    if (!Number.isInteger(h) || h < 0 || h > 23) return res.status(400).json({ success: false, error: 'Hora inválida (0-23)' });
+    if (!Number.isInteger(m) || m < 0 || m > 59) return res.status(400).json({ success: false, error: 'Minuto inválido (0-59)' });
+    const cleanDays = Array.isArray(days) ? [...new Set(days.map((d: any) => Number(d)).filter((d: number) => Number.isInteger(d) && d >= 0 && d <= 6))].sort() : [];
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('wa_sequence_schedule', $1::jsonb, 'Horario y días hábiles de la secuencia automática', TRUE)
+       ON CONFLICT (config_key) DO UPDATE SET config_value = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify({ hour: h, minute: m, days: cleanDays })]
+    );
+    res.json({ success: true, hour: h, minute: m, days: cleanDays });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// GET /api/admin/crm/sequence/next-send → próximo envío (según config) + a cuántos
+// usuarios activos les toca en esa corrida.
 export const getSequenceNextSend = async (_req: Request, res: Response): Promise<any> => {
   try {
     await ensureSequenceSchema();
-    // Monterrey = UTC-6 (sin DST). El cron dispara a las 12:06 MTY = 18:06 UTC.
-    const now = new Date();
-    const cand = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 18, 6, 0, 0));
-    // Avanzar hasta un día hábil (Lun-Vie) cuya 18:06 UTC sea futura.
-    let guard = 0;
-    while ((cand <= now || cand.getUTCDay() === 0 || cand.getUTCDay() === 6) && guard < 14) {
-      cand.setUTCDate(cand.getUTCDate() + 1);
-      cand.setUTCHours(18, 6, 0, 0);
-      guard++;
+    const sch = await getSequenceSchedule();
+    const next = computeNextSendUtc(sch);
+    let dueCount = 0;
+    if (next) {
+      const dueRes = await pool.query(
+        `SELECT COUNT(*)::int AS due
+           FROM wa_sequence_enrollments
+          WHERE status = 'active' AND next_send_at IS NOT NULL AND next_send_at <= $1`,
+        [next.toISOString()]
+      );
+      dueCount = dueRes.rows[0]?.due || 0;
     }
-    const dueRes = await pool.query(
-      `SELECT COUNT(*)::int AS due
-         FROM wa_sequence_enrollments
-        WHERE status = 'active' AND next_send_at IS NOT NULL AND next_send_at <= $1`,
-      [cand.toISOString()]
-    );
-    res.json({ success: true, nextSendAt: cand.toISOString(), dueCount: dueRes.rows[0]?.due || 0 });
+    res.json({ success: true, nextSendAt: next ? next.toISOString() : null, dueCount, schedule: sch });
   } catch (error: any) {
     console.error('Error getSequenceNextSend:', error);
     res.status(500).json({ success: false, error: error.message });

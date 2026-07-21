@@ -774,6 +774,39 @@ export default function UnifiedLeadsPage() {
     return () => clearInterval(iv);
   }, [seqNextSend?.nextSendAt]);
 
+  // Configuración de horario/días de la secuencia
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState<{ hour: number; minute: number; days: number[] }>({ hour: 12, minute: 6, days: [1, 2, 3, 4, 5] });
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const DAY_OPTS = [
+    { v: 1, label: 'Lun' }, { v: 2, label: 'Mar' }, { v: 3, label: 'Mié' }, { v: 4, label: 'Jue' },
+    { v: 5, label: 'Vie' }, { v: 6, label: 'Sáb' }, { v: 0, label: 'Dom' },
+  ];
+  const openScheduleDialog = async () => {
+    setScheduleOpen(true);
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/sequence/schedule`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (res.data?.success) setScheduleForm({ hour: res.data.hour, minute: res.data.minute, days: res.data.days || [] });
+    } catch { /* usa default */ }
+  };
+  const toggleScheduleDay = (v: number) => setScheduleForm(f => ({ ...f, days: f.days.includes(v) ? f.days.filter(d => d !== v) : [...f.days, v] }));
+  const saveSchedule = async () => {
+    if (scheduleForm.days.length === 0) { setSnackbar({ open: true, message: 'Selecciona al menos un día hábil', severity: 'error' }); return; }
+    setSavingSchedule(true);
+    try {
+      await axios.post(`${API_URL}/admin/crm/sequence/schedule`, scheduleForm, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({ open: true, message: 'Horario de la secuencia guardado', severity: 'success' });
+      setScheduleOpen(false);
+      // refrescar el contador
+      try {
+        const res = await axios.get(`${API_URL}/admin/crm/sequence/next-send`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        if (res.data?.success) setSeqNextSend({ nextSendAt: res.data.nextSendAt, dueCount: res.data.dueCount || 0 });
+      } catch { /* ignore */ }
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo guardar', severity: 'error' });
+    } finally { setSavingSchedule(false); }
+  };
+
   // Filtros prospectos
   const [prospectStatusFilter, setProspectStatusFilter] = useState('all');
   const [prospectSeqFilter, setProspectSeqFilter] = useState('all');
@@ -2086,6 +2119,50 @@ export default function UnifiedLeadsPage() {
                 <Chip size="small" label={`${seqNextSend.dueCount} usuario${seqNextSend.dueCount === 1 ? '' : 's'}`} sx={{ ml: 0.5, bgcolor: '#7b1fa2', color: '#fff', fontWeight: 700 }} />
               </Box>
             )}
+            <Button variant="text" size="small" startIcon={<AccessTimeIcon />} onClick={openScheduleDialog} sx={{ color: '#7b1fa2' }}>
+              Configurar horario
+            </Button>
+            <Dialog open={scheduleOpen} onClose={() => setScheduleOpen(false)} maxWidth="xs" fullWidth>
+              <DialogTitle>⏰ Horario de la secuencia</DialogTitle>
+              <DialogContent dividers>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Hora de envío (Monterrey) y días hábiles. Un mensaje que caiga en día no-hábil espera al siguiente día hábil seleccionado. Aplica también a los ya inscritos.
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                  <TextField
+                    label="Hora" type="number" size="small" fullWidth
+                    inputProps={{ min: 0, max: 23 }}
+                    value={scheduleForm.hour}
+                    onChange={(e) => setScheduleForm(f => ({ ...f, hour: Math.max(0, Math.min(23, Number(e.target.value) || 0)) }))}
+                  />
+                  <TextField
+                    label="Minuto" type="number" size="small" fullWidth
+                    inputProps={{ min: 0, max: 59 }}
+                    value={scheduleForm.minute}
+                    onChange={(e) => setScheduleForm(f => ({ ...f, minute: Math.max(0, Math.min(59, Number(e.target.value) || 0)) }))}
+                  />
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Días hábiles</Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {DAY_OPTS.map(d => (
+                    <Chip
+                      key={d.v}
+                      label={d.label}
+                      onClick={() => toggleScheduleDay(d.v)}
+                      color={scheduleForm.days.includes(d.v) ? 'secondary' : 'default'}
+                      variant={scheduleForm.days.includes(d.v) ? 'filled' : 'outlined'}
+                      sx={{ fontWeight: 700, cursor: 'pointer' }}
+                    />
+                  ))}
+                </Box>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setScheduleOpen(false)}>Cancelar</Button>
+                <Button variant="contained" onClick={saveSchedule} disabled={savingSchedule} sx={{ bgcolor: '#7b1fa2' }}>
+                  {savingSchedule ? <CircularProgress size={20} /> : 'Guardar'}
+                </Button>
+              </DialogActions>
+            </Dialog>
             <Typography variant="body2" color="text.secondary">
               Marca prospectos para enviar WhatsApp o inscribirlos en la secuencia Día 1/3/7.
             </Typography>
