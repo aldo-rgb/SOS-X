@@ -1100,6 +1100,12 @@ export const getBlacklist = async (_req: Request, res: Response): Promise<any> =
            WHERE lc.box_id IS NOT NULL AND UPPER(TRIM(u2.box_id)) = UPPER(TRIM(lc.box_id))
            ORDER BY u2.id ASC LIMIT 1
         ) mu ON true
+      UNION ALL
+      SELECT b.lead_key, b.reason, b.created_at,
+             'prospect'::text AS source,
+             p.full_name, p.email, NULL::text AS box_id, p.whatsapp AS phone
+        FROM lead_blacklist b
+        JOIN prospects p ON ('pr_' || p.id::text) = b.lead_key
       ORDER BY created_at DESC
     `);
     res.json({ success: true, blacklist: r.rows, count: r.rows.length });
@@ -1774,6 +1780,7 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
           p.facebook_psid, p.last_interaction_fb, p.is_ai_active,
           NULL::text AS legacy_asesor, NULL::text AS box_id
         FROM prospects p
+        WHERE NOT EXISTS (SELECT 1 FROM lead_blacklist bl WHERE bl.lead_key = ('pr_' || p.id::text))
         UNION ALL
         SELECT
           lc.id, 'legacy'::text AS source, ('lc_' || lc.id::text) AS lead_key,

@@ -539,6 +539,50 @@ export default function UnifiedLeadsPage() {
     });
   };
 
+  // Blacklist para el tab "Prospectos Externos". Usa el mismo endpoint que
+  // CRM Leads (acepta lead_keys tipo pr_<id>) pero refresca fetchProspects.
+  const blacklistSelectedProspects = () => {
+    const leadKeys = Array.from(selectedProspectKeys);
+    if (leadKeys.length === 0) return;
+    askConfirm({
+      title: 'Poner en Black List',
+      message: `¿Poner ${leadKeys.length} prospecto(s) en la black list? No recibirán mensajes masivos ni secuencia y desaparecerán del listado.`,
+      confirmLabel: 'Sí, poner en blacklist',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await axios.post(`${API_URL}/admin/crm/blacklist`, { leadKeys }, { headers: { Authorization: `Bearer ${getToken()}` } });
+          setSelectedProspectKeys(new Set());
+          await fetchProspects();
+          await fetchBlacklist();
+          setSnackbar({ open: true, message: `${leadKeys.length} prospecto(s) en blacklist`, severity: 'success' });
+        } catch (e: any) {
+          setSnackbar({ open: true, message: e.response?.data?.error || 'Error al agregar a blacklist', severity: 'error' });
+        }
+      },
+    });
+  };
+
+  const blacklistOneProspect = (prospect: Prospect) => {
+    const leadKey = prospect.lead_key || `pr_${prospect.id}`;
+    askConfirm({
+      title: 'Poner en Black List',
+      message: `¿Poner a "${prospect.full_name || 'este prospecto'}" en la black list? No recibirá mensajes ni secuencia.`,
+      confirmLabel: 'Sí, poner en blacklist',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await axios.post(`${API_URL}/admin/crm/blacklist`, { leadKeys: [leadKey] }, { headers: { Authorization: `Bearer ${getToken()}` } });
+          await fetchProspects();
+          await fetchBlacklist();
+          setSnackbar({ open: true, message: 'Prospecto en blacklist', severity: 'success' });
+        } catch (e: any) {
+          setSnackbar({ open: true, message: e.response?.data?.error || 'Error al agregar a blacklist', severity: 'error' });
+        }
+      },
+    });
+  };
+
   const unBlacklist = async (leadKey: string) => {
     try {
       await axios.delete(`${API_URL}/admin/crm/blacklist`, { headers: { Authorization: `Bearer ${getToken()}` }, data: { leadKeys: [leadKey] } });
@@ -2180,6 +2224,15 @@ export default function UnifiedLeadsPage() {
             >
               Secuencia automática{selectedProspectKeys.size > 0 ? ` (${selectedProspectKeys.size})` : ''}
             </Button>
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<BlockIcon />}
+              disabled={selectedProspectKeys.size === 0}
+              onClick={blacklistSelectedProspects}
+            >
+              Blacklist ({selectedProspectKeys.size})
+            </Button>
             {seqNextSend && (
               <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75, borderRadius: 2, bgcolor: 'rgba(123,31,162,0.08)', border: '1px solid rgba(123,31,162,0.25)' }}>
                 <AccessTimeIcon sx={{ fontSize: 18, color: '#7b1fa2' }} />
@@ -2452,7 +2505,14 @@ export default function UnifiedLeadsPage() {
                               </Tooltip>
                             )}
                             {isLegacy ? (
-                              prospect.box_id ? <Chip label={prospect.box_id} size="small" variant="outlined" /> : null
+                              <>
+                                {prospect.box_id ? <Chip label={prospect.box_id} size="small" variant="outlined" /> : null}
+                                <Tooltip title="Poner en Black List">
+                                  <IconButton size="small" color="error" onClick={() => blacklistOneProspect(prospect)}>
+                                    <BlockIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </>
                             ) : (
                               <>
                                 {prospect.status !== 'converted' && prospect.status !== 'lost' && (
@@ -2472,6 +2532,11 @@ export default function UnifiedLeadsPage() {
                                 <Tooltip title="Editar">
                                   <IconButton size="small" onClick={() => handleOpenProspectForm(prospect)}>
                                     <EditIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Poner en Black List">
+                                  <IconButton size="small" color="error" onClick={() => blacklistOneProspect(prospect)}>
+                                    <BlockIcon fontSize="small" />
                                   </IconButton>
                                 </Tooltip>
                                 <Tooltip title="Eliminar">
