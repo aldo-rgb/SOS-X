@@ -1697,7 +1697,7 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
     await ensureClickLinksSchema();
     await ensureSequenceSchema();
     await ensureWelcomeKitSchema();
-    const { status, advisorId, channel, search, seq, page = 1, limit = 50 } = req.query;
+    const { status, advisorId, channel, search, seq, clicked, page = 1, limit = 50 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
     // Los prospectos que se registran se marcan 'converted' (reconcile) pero NO
@@ -1748,6 +1748,14 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
       whereConditions.push(`EXISTS (SELECT 1 FROM wa_sequence_enrollments en WHERE en.lead_key = b.lead_key AND en.current_step = $${paramIndex})`);
       params.push(stepIdx);
       paramIndex++;
+    }
+
+    // Filtro por clic en el botón de WhatsApp (EXISTS sobre wa_click_links con
+    // al menos un clic registrado). Sirve también para el countQuery.
+    if (clicked === 'yes') {
+      whereConditions.push(`EXISTS (SELECT 1 FROM wa_click_links wl WHERE wl.lead_key = b.lead_key AND wl.click_count > 0)`);
+    } else if (clicked === 'no') {
+      whereConditions.push(`NOT EXISTS (SELECT 1 FROM wa_click_links wl WHERE wl.lead_key = b.lead_key AND wl.click_count > 0)`);
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';

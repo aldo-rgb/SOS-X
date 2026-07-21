@@ -816,6 +816,7 @@ export default function UnifiedLeadsPage() {
   // Filtros prospectos
   const [prospectStatusFilter, setProspectStatusFilter] = useState('all');
   const [prospectSeqFilter, setProspectSeqFilter] = useState('all');
+  const [prospectClickFilter, setProspectClickFilter] = useState('all');
   const [prospectAdvisorFilter, setProspectAdvisorFilter] = useState('');
   const [prospectChannelFilter, setProspectChannelFilter] = useState('');
   const [prospectSearch, setProspectSearch] = useState('');
@@ -935,6 +936,7 @@ export default function UnifiedLeadsPage() {
       if (prospectAdvisorFilter) params.append('advisorId', prospectAdvisorFilter);
       if (prospectChannelFilter) params.append('channel', prospectChannelFilter);
       if (prospectSeqFilter !== 'all') params.append('seq', prospectSeqFilter);
+      if (prospectClickFilter !== 'all') params.append('clicked', prospectClickFilter);
       if (prospectSearch) params.append('search', prospectSearch);
       params.append('page', String(prospectPage + 1));
       params.append('limit', String(prospectRowsPerPage));
@@ -951,7 +953,7 @@ export default function UnifiedLeadsPage() {
     } finally {
       setProspectsLoading(false);
     }
-  }, [prospectStatusFilter, prospectAdvisorFilter, prospectChannelFilter, prospectSeqFilter, prospectSearch, prospectPage, prospectRowsPerPage]);
+  }, [prospectStatusFilter, prospectAdvisorFilter, prospectChannelFilter, prospectSeqFilter, prospectClickFilter, prospectSearch, prospectPage, prospectRowsPerPage]);
 
   // ===== Secuencias automáticas =====
   const fetchSequences = useCallback(async () => {
@@ -2147,6 +2149,18 @@ export default function UnifiedLeadsPage() {
                   <MenuItem value="step_1">Paso 1 (Día 1)</MenuItem>
                   <MenuItem value="step_2">Paso 2 (Día 3)</MenuItem>
                   <MenuItem value="step_3">Paso 3 (Día 7)</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 140 }}>
+                <InputLabel>Clic</InputLabel>
+                <Select
+                  value={prospectClickFilter}
+                  label="Clic"
+                  onChange={(e: SelectChangeEvent) => { setProspectClickFilter(e.target.value); setProspectPage(0); }}
+                >
+                  <MenuItem value="all">{t('common.all')}</MenuItem>
+                  <MenuItem value="yes">🔗 Con clic</MenuItem>
+                  <MenuItem value="no">Sin clic</MenuItem>
                 </Select>
               </FormControl>
               <FormControl size="small" sx={{ minWidth: 180 }}>
