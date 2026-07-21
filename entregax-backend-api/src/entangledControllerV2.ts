@@ -75,7 +75,6 @@ export const buildXpaySolicitadaEmail = (r0: any): { subject: string; html: stri
   const usd = Number(r0.op_monto || 0);
   const mxn = Number(r0.monto_mxn || 0);
   const divisa = r0.op_divisa_destino || 'USD';
-  const serviceLabel = r0.servicio === 'pago_con_factura' ? 'With invoice' : r0.servicio === 'pago_sin_factura' ? 'Without invoice' : (r0.servicio || '—');
   const row = (label: string, val: any) => (val != null && String(val).trim() !== '')
     ? `<tr><td style="padding:5px 0;color:#666;vertical-align:top">${label}</td><td style="padding:5px 0;text-align:right;font-weight:600;word-break:break-word">${val}</td></tr>` : '';
   const money = (n: number, cur: string) => `${cur === 'USD' || cur === 'MXN' ? '$' : ''}${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
@@ -92,14 +91,8 @@ export const buildXpaySolicitadaEmail = (r0: any): { subject: string; html: stri
         <div style="font-size:12px;font-weight:700;color:#C1272D;text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px">Operation details</div>
         <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">
           ${row('Reference', `<span style="font-weight:700">${ref}</span>`)}
-          ${row('Service', serviceLabel)}
           ${row(`Amount (${divisa})`, money(usd, divisa))}
           ${mxn > 0 ? row('Amount MXN', money(mxn, 'MXN')) : ''}
-          ${r0.comision_cliente_final_porcentaje != null ? row('Commission', `${Number(r0.comision_cliente_final_porcentaje).toFixed(2)}%`) : ''}
-          ${r0.tc_cliente_final != null ? row('Exchange rate', Number(r0.tc_cliente_final).toFixed(4)) : ''}
-          ${row('Client', r0.cf_razon_social)}
-          ${row('RFC', r0.cf_rfc)}
-          ${row('Advisor', r0.advisor_name)}
         </table>
 
         <div style="font-size:12px;font-weight:700;color:#C1272D;text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px">Payment account (beneficiary)</div>
@@ -1324,7 +1317,11 @@ export const syncRequestFromEntangled = async (req: Request, res: Response): Pro
   const comprobanteProvUrl = docs.comprobante_proveedor || docs.url_comprobante_proveedor || data.comprobante_proveedor_url || null;
   const comprobanteClienteUrl = docs.comprobante_cliente || docs.url_comprobante_cliente || null;
   const estatusFacturaRemote = String(data.estatus_factura || '').toLowerCase() || null;
-  const estatusProveedorRemote = String(data.estatus_proveedor || detalles.estatus || data.estatus || '').toLowerCase() || null;
+  // Si ya hay comprobante del proveedor, el pago está hecho aunque ENTANGLED
+  // reporte estatus_proveedor='pendiente'.
+  const estatusProveedorRemote = comprobanteProvUrl
+    ? 'completado'
+    : (String(data.estatus_proveedor || detalles.estatus || data.estatus || '').toLowerCase() || null);
   const servicio = row.servicio as EntangledServicio;
 
   const upd = await pool.query(
@@ -1413,7 +1410,11 @@ export async function syncPendingEntangledOperations(): Promise<{ checked: numbe
       const comprobanteProvUrl = docs.comprobante_proveedor || docs.url_comprobante_proveedor || data.url_comprobante_proveedor || data.comprobante_proveedor_url || null;
       const comprobanteClienteUrl = docs.comprobante_cliente || docs.url_comprobante_cliente || data.url_comprobante_cliente || null;
       const estatusFacturaRemote = String(data.estatus_factura || '').toLowerCase() || null;
-      const estatusProveedorRemote = String(data.estatus_proveedor || detalles.estatus || data.estatus || '').toLowerCase() || null;
+      // Si ENTANGLED ya tiene el COMPROBANTE del proveedor, el pago está hecho —
+      // aunque su campo estatus_proveedor a veces se quede en 'pendiente'.
+      const estatusProveedorRemote = comprobanteProvUrl
+        ? 'completado'
+        : (String(data.estatus_proveedor || detalles.estatus || data.estatus || '').toLowerCase() || null);
       const upd = await pool.query(
         `UPDATE entangled_payment_requests
             SET factura_url = COALESCE($1, factura_url),
