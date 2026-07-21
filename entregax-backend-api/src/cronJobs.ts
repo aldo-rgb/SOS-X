@@ -1018,7 +1018,7 @@ let seqDrainInProgress = false;
 // quedó lleno (hay backlog), agenda el siguiente lote 20 min después. Repite
 // hasta que un lote salga incompleto (cola vacía). Evita saturar WhatsApp con
 // miles de envíos de golpe pero termina de mandarlos el mismo día.
-const drainSequenceBatches = async () => {
+export const drainSequenceBatches = async () => {
   if (seqDrainInProgress) return;
   seqDrainInProgress = true;
   try {

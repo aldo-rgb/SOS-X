@@ -2072,6 +2072,9 @@ export default function UnifiedLeadsPage() {
                   <MenuItem value="all">{t('common.all')}</MenuItem>
                   <MenuItem value="enrolled">Inscritos</MenuItem>
                   <MenuItem value="not_enrolled">No inscritos</MenuItem>
+                  <MenuItem value="step_1">Paso 1 (Día 1)</MenuItem>
+                  <MenuItem value="step_2">Paso 2 (Día 3)</MenuItem>
+                  <MenuItem value="step_3">Paso 3 (Día 7)</MenuItem>
                 </Select>
               </FormControl>
               <FormControl size="small" sx={{ minWidth: 180 }}>

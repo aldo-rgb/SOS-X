@@ -1717,6 +1717,12 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
       whereConditions.push(`EXISTS (SELECT 1 FROM wa_sequence_enrollments en WHERE en.lead_key = b.lead_key)`);
     } else if (seq === 'not_enrolled') {
       whereConditions.push(`NOT EXISTS (SELECT 1 FROM wa_sequence_enrollments en WHERE en.lead_key = b.lead_key)`);
+    } else if (typeof seq === 'string' && /^step_[123]$/.test(seq)) {
+      // Filtro por paso de la secuencia (current_step 0/1/2 = Paso 1/2/3).
+      const stepIdx = parseInt(seq.slice(5), 10) - 1;
+      whereConditions.push(`EXISTS (SELECT 1 FROM wa_sequence_enrollments en WHERE en.lead_key = b.lead_key AND en.current_step = $${paramIndex})`);
+      params.push(stepIdx);
+      paramIndex++;
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';

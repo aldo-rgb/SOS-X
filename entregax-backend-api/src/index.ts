@@ -7154,6 +7154,17 @@ app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel
 app.get('/api/admin/crm/sequence/next-send', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSequenceNextSend);
 app.get('/api/admin/crm/sequence/schedule', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSequenceScheduleConfig);
 app.post('/api/admin/crm/sequence/schedule', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveSequenceScheduleConfig);
+// 🚀 Disparar la secuencia ahora mismo (drena la cola de vencidos en tandas de
+// 200 cada 20 min, sin esperar a la ventana programada). Fire-and-forget.
+app.post('/api/admin/crm/sequence/run-now', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (_req, res) => {
+  try {
+    const { drainSequenceBatches } = await import('./cronJobs');
+    drainSequenceBatches().catch((e) => console.error('[SEQ] run-now:', (e as Error).message));
+    res.json({ ok: true, message: 'Secuencia disparada; se enviará en tandas de 200 cada 20 min.' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e as Error).message });
+  }
+});
 
 // 📩 Webhook entrante de WhatsApp (verificación + eventos). Público (Meta lo llama).
 app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
