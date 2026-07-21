@@ -2744,23 +2744,96 @@ export const reopenDraft = async (req: Request, res: Response): Promise<any> => 
 
 /**
  * PUT /api/admin/maritime/drafts/:id/match-client
- * Asignar cliente legacy manualmente a un borrador
+ * Asignar cliente manualmente a un borrador.
+ *
+ * Acepta 3 formatos (para compatibilidad con clientes antiguos y nuevos):
+ *   1) { legacyClientId: number }              — flujo original, id directo de legacy_clients
+ *   2) { userId: number }                      — id de users; se resuelve a legacy_client por box_id (crea si no existe)
+ *   3) { clientId: number, isLegacy: boolean, boxId?: string }  — nuevo flujo (buscador unificado users+legacy)
+ *
+ * El backend siempre guarda en matched_user_id el id de legacy_clients porque el
+ * resto del pipeline de aprobación (approveDraft) consulta legacy_clients con
+ * ese id para leer box_id/full_name.
  */
 export const matchClientToDraft = async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
-    const { legacyClientId, userId } = req.body;
+    const { legacyClientId, userId, clientId, isLegacy, boxId } = req.body || {};
 
-    // Soportar ambos: legacyClientId (nuevo) o userId (legacy)
-    const clientId = legacyClientId || userId;
+    // Determinar el ID y si viene de la tabla users o legacy_clients
+    let effectiveId: number | null = null;
+    let source: 'legacy' | 'user' = 'legacy';
+    if (typeof legacyClientId === 'number') {
+      effectiveId = legacyClientId;
+      source = 'legacy';
+    } else if (typeof userId === 'number') {
+      effectiveId = userId;
+      source = 'user';
+    } else if (typeof clientId === 'number') {
+      effectiveId = clientId;
+      source = isLegacy === true ? 'legacy' : 'user';
+    }
+    if (!effectiveId) {
+      return res.status(400).json({ error: 'Falta el ID del cliente' });
+    }
+
+    let legacyIdToStore: number = effectiveId;
+
+    if (source === 'user') {
+      // Buscar box_id del usuario (o usar el que llegó del cliente).
+      let userBoxId: string | null = boxId ? String(boxId).trim() : null;
+      let userFullName: string | null = null;
+      let userEmail: string | null = null;
+      let userPhone: string | null = null;
+      const u = await pool.query(
+        `SELECT box_id, full_name, email, phone FROM users WHERE id = $1 LIMIT 1`,
+        [effectiveId]
+      );
+      if (u.rows[0]) {
+        userBoxId = userBoxId || (u.rows[0].box_id || null);
+        userFullName = u.rows[0].full_name || null;
+        userEmail = u.rows[0].email || null;
+        userPhone = u.rows[0].phone || null;
+      }
+      if (!userBoxId) {
+        return res.status(400).json({ error: 'El usuario no tiene box_id — no se puede vincular a legacy_clients' });
+      }
+
+      // Buscar legacy_client existente por box_id
+      const lc = await pool.query(
+        `SELECT id FROM legacy_clients WHERE UPPER(TRIM(box_id)) = UPPER(TRIM($1)) LIMIT 1`,
+        [userBoxId]
+      );
+      if (lc.rows[0]) {
+        legacyIdToStore = lc.rows[0].id;
+        // Marcar el legacy como reclamado por este user (idempotente)
+        await pool.query(
+          `UPDATE legacy_clients SET claimed_by_user_id = $1, updated_at = NOW()
+            WHERE id = $2 AND (claimed_by_user_id IS NULL OR claimed_by_user_id <> $1)`,
+          [effectiveId, lc.rows[0].id]
+        ).catch(() => {});
+      } else {
+        // Crear un legacy_client "espejo" para que el pipeline downstream pueda
+        // trabajar con id de legacy (matched_user_id). El registro queda
+        // reclamado inmediatamente por este user.
+        const ins = await pool.query(
+          `INSERT INTO legacy_clients (box_id, full_name, email, phone, claimed_by_user_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+           RETURNING id`,
+          [userBoxId, userFullName || `Usuario ${effectiveId}`, userEmail, userPhone, effectiveId]
+        );
+        legacyIdToStore = ins.rows[0].id;
+        console.log(`[matchClientToDraft] Legacy espejo creado #${legacyIdToStore} para user ${effectiveId} (box=${userBoxId})`);
+      }
+    }
 
     await pool.query(`
       UPDATE maritime_reception_drafts 
       SET matched_user_id = $1, updated_at = NOW()
       WHERE id = $2
-    `, [clientId, id]);
+    `, [legacyIdToStore, id]);
 
-    res.json({ success: true, message: 'Cliente asignado al borrador' });
+    res.json({ success: true, message: 'Cliente asignado al borrador', legacyClientId: legacyIdToStore });
   } catch (error) {
     console.error('Error asignando cliente:', error);
     res.status(500).json({ error: 'Error al asignar cliente' });

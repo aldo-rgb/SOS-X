@@ -111,6 +111,7 @@ interface LegacyClient {
     box_id: string;
     full_name: string;
     email: string;
+    is_legacy?: boolean;
 }
 
 interface EditableLog {
@@ -367,7 +368,9 @@ export default function InboundEmailsPage() {
         }
     };
 
-    // Buscar clientes en legacy_clients
+    // Buscar clientes (users registrados + legacy_clients no reclamados) por
+    // box_id, nombre, email o teléfono. Reemplaza el endpoint anterior
+    // /api/legacy/clients que sólo buscaba en la tabla legacy_clients.
     const searchLegacyClients = async (search: string) => {
         if (!search || search.length < 2) {
             setLegacyClients([]);
@@ -375,12 +378,12 @@ export default function InboundEmailsPage() {
         }
         setSearchingClient(true);
         try {
-            const res = await fetch(`${API_URL}/api/legacy/clients?search=${encodeURIComponent(search)}&limit=10`, {
+            const res = await fetch(`${API_URL}/api/admin/users/search?q=${encodeURIComponent(search)}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (res.ok) {
                 const data = await res.json();
-                setLegacyClients(data.clients || []);
+                setLegacyClients(Array.isArray(data) ? data : (data.clients || []));
             }
         } catch (error) {
             console.error('Error searching legacy clients:', error);
@@ -714,7 +717,10 @@ export default function InboundEmailsPage() {
         }
     };
 
-    // Asignar cliente legacy
+    // Asignar cliente al draft. El buscador ahora regresa tanto users
+    // registrados (is_legacy=false, id=user_id) como legacy_clients no
+    // reclamados (is_legacy=true, id=legacy_client_id). Pasamos el flag para
+    // que el backend resuelva/cree el legacy_client si viene de users.
     const handleAssignClient = async () => {
         if (!selectedDraft || !selectedClient) return;
         try {
@@ -724,7 +730,11 @@ export default function InboundEmailsPage() {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify({ legacyClientId: selectedClient.id })
+                body: JSON.stringify({
+                    clientId: selectedClient.id,
+                    isLegacy: selectedClient.is_legacy === true,
+                    boxId: selectedClient.box_id || null,
+                })
             });
 
             if (res.ok) {
