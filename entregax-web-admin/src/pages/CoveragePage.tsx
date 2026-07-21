@@ -1,21 +1,25 @@
 // ============================================
-// Panel de COBERTURA metropolitana — EntregaX Local
-// Gestiona zonas metro (MTY, CDMX, y futuras): reglas de pertenencia
-// (rangos de CP y prefijos) + CP excluidos. En zona metro solo se ofrece
-// EntregaX Local (se ocultan Paquete Express y las "por cobrar") en guías TDX.
+// Panel de COBERTURA por paquetería — EntregaX Local y exclusiones por CP
+// Lista las paqueterías EXISTENTES (módulo Paqueterías) y para cada una permite
+// definir los CP donde NO entrega (exclusiones). Las paqueterías EntregaX Local
+// MTY/CDMX además definen su zona metropolitana con reglas de CP (rango/prefijo).
+// En un CP excluido, esa paquetería no se ofrece; las demás sí.
 // ============================================
 import { useCallback, useEffect, useState } from 'react';
 import {
   Box, Typography, Paper, Button, TextField, Chip, IconButton, Alert,
-  Switch, FormControlLabel, Divider, CircularProgress, MenuItem, Select,
-  Dialog, DialogTitle, DialogContent, DialogActions, Tooltip,
+  Switch, FormControlLabel, Divider, CircularProgress, MenuItem, Select, Tooltip,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import PlaceIcon from '@mui/icons-material/Place';
 import SearchIcon from '@mui/icons-material/Search';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+// Paqueterías EntregaX Local que además gestionan zona metropolitana (rangos de CP).
+const LOCAL_CARRIER_KEYS = ['local', 'entregax_local_cdmx'];
 
 interface Rule { id: number; zone_key: string; rule_type: 'range' | 'prefix'; range_min: number | null; range_max: number | null; prefix: string | null; }
 interface Excluded { zip: string; note: string | null; created_by_name?: string | null; }
@@ -28,15 +32,9 @@ export default function CoveragePage() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ sev: 'success' | 'error'; text: string } | null>(null);
 
-  // Alta de paquetería/servicio
-  const [newZoneOpen, setNewZoneOpen] = useState(false);
-  const [newZoneKey, setNewZoneKey] = useState('');
-  const [newZoneLabel, setNewZoneLabel] = useState('');
-  const [newZoneCarrier, setNewZoneCarrier] = useState('');
-
   // Probar CP
   const [testZip, setTestZip] = useState('');
-  const [testResult, setTestResult] = useState<{ zone: string | null; label: string | null } | null>(null);
+  const [testResult, setTestResult] = useState<{ zone: string | null; label: string | null; excludedCarriers: string[] } | null>(null);
 
   const token = localStorage.getItem('token');
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
@@ -60,60 +58,35 @@ export default function CoveragePage() {
 
   const flash = (sev: 'success' | 'error', text: string) => { setMsg({ sev, text }); setTimeout(() => setMsg(null), 3500); };
 
-  const post = async (url: string, body?: unknown) => {
-    const res = await fetch(url, { method: 'POST', headers, body: body ? JSON.stringify(body) : undefined });
-    return res.json();
-  };
-  const del = async (url: string) => {
-    const res = await fetch(url, { method: 'DELETE', headers });
-    return res.json();
-  };
-
-  const toggleZone = async (z: Zone) => {
-    const d = await post(`${API_URL}/api/admin/coverage/zones`, { zone_key: z.zone_key, label: z.label, active: !z.active, carrier_key: z.carrier_key });
-    if (d.success) { flash('success', `${z.label} ${!z.active ? 'activada' : 'desactivada'}`); load(); } else flash('error', d.error || 'Error');
-  };
-
-  const setCarrier = async (z: Zone, carrier_key: string) => {
-    const d = await post(`${API_URL}/api/admin/coverage/zones`, { zone_key: z.zone_key, label: z.label, active: z.active, carrier_key });
-    if (d.success) { flash('success', 'Paquetería actualizada'); load(); } else flash('error', d.error || 'Error');
-  };
-
-  const createZone = async () => {
-    const key = newZoneKey.trim().toLowerCase();
-    if (!key || !newZoneLabel.trim()) { flash('error', 'Clave y nombre son obligatorios'); return; }
-    if (!newZoneCarrier) { flash('error', 'Selecciona la paquetería'); return; }
-    const d = await post(`${API_URL}/api/admin/coverage/zones`, { zone_key: key, label: newZoneLabel.trim(), active: true, carrier_key: newZoneCarrier });
-    if (d.success) { setNewZoneOpen(false); setNewZoneKey(''); setNewZoneLabel(''); setNewZoneCarrier(''); flash('success', 'Servicio creado'); load(); } else flash('error', d.error || 'Error');
-  };
-
-  const deleteZone = async (z: Zone) => {
-    if (!window.confirm(`¿Eliminar la zona "${z.label}" con todas sus reglas y exclusiones?`)) return;
-    const d = await del(`${API_URL}/api/admin/coverage/zones/${z.zone_key}`);
-    if (d.success) { flash('success', 'Zona eliminada'); load(); } else flash('error', d.error || 'Error');
-  };
-
   const runTest = async () => {
     const z = testZip.trim();
     if (!/^\d{5}$/.test(z)) { flash('error', 'CP inválido (5 dígitos)'); return; }
     try {
       const res = await fetch(`${API_URL}/api/admin/coverage/check?zip=${z}`, { headers });
       const d = await res.json();
-      if (d.success) setTestResult({ zone: d.zone, label: d.label });
+      if (d.success) setTestResult({ zone: d.zone, label: d.label, excludedCarriers: d.excludedCarriers || [] });
     } catch { flash('error', 'Error de red'); }
   };
 
+  // Mapa carrier_key → zona (para mostrar reglas/exclusiones ya guardadas).
+  const zoneByCarrier = new Map<string, Zone>();
+  zones.forEach((z) => { if (z.carrier_key) zoneByCarrier.set(z.carrier_key, z); });
+
+  // Orden: EntregaX Local primero, luego el resto alfabético.
+  const orderedCarriers = [...carriers].sort((a, b) => {
+    const la = LOCAL_CARRIER_KEYS.includes(a.carrier_key) ? 0 : 1;
+    const lb = LOCAL_CARRIER_KEYS.includes(b.carrier_key) ? 0 : 1;
+    return la !== lb ? la - lb : a.name.localeCompare(b.name);
+  });
+
   return (
     <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
-        <Box>
-          <Typography variant="h6" fontWeight="bold"><PlaceIcon sx={{ verticalAlign: 'middle', mr: 0.5 }} />Cobertura por paquetería</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Cada paquetería tiene su <strong>cobertura</strong> (reglas de CP) y sus <strong>exclusiones</strong>. En un CP excluido, esa paquetería <strong>no</strong> se ofrece
-            (las demás sí). Las reglas de <strong>EntregaX Local MTY/CDMX</strong> definen sus zonas metropolitanas.
-          </Typography>
-        </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setNewZoneOpen(true)}>Agregar servicio</Button>
+      <Box sx={{ mb: 1 }}>
+        <Typography variant="h6" fontWeight="bold"><PlaceIcon sx={{ verticalAlign: 'middle', mr: 0.5 }} />Cobertura por paquetería</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Cada paquetería tiene su lista de <strong>CP excluidos</strong> (donde no entrega): en un CP excluido esa paquetería no se ofrece, las demás sí.
+          <strong> EntregaX Local MTY/CDMX</strong> además define su zona metropolitana con reglas de CP (rango/prefijo).
+        </Typography>
       </Box>
 
       {msg && <Alert severity={msg.sev} sx={{ my: 1 }}>{msg.text}</Alert>}
@@ -124,53 +97,46 @@ export default function CoveragePage() {
         <TextField size="small" placeholder="Ej. 64000" value={testZip} onChange={(e) => setTestZip(e.target.value.replace(/\D/g, '').slice(0, 5))} sx={{ width: 130 }} />
         <Button size="small" variant="outlined" startIcon={<SearchIcon />} onClick={runTest}>Verificar</Button>
         {testResult && (
-          testResult.zone
-            ? <Chip color="success" label={`Zona metro: ${testResult.label}`} />
-            : <Chip color="default" variant="outlined" label="Fuera de zona metro (paqueterías normales)" />
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            {testResult.zone
+              ? <Chip color="success" size="small" label={`Zona metro: ${testResult.label}`} />
+              : <Chip color="default" size="small" variant="outlined" label="Fuera de zona metro" />}
+            {testResult.excludedCarriers.length > 0 && (
+              <Chip color="warning" size="small" label={`Excluye: ${testResult.excludedCarriers.join(', ')}`} />
+            )}
+          </Box>
         )}
       </Paper>
 
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
-      ) : zones.length === 0 ? (
-        <Alert severity="info">No hay zonas configuradas.</Alert>
+      ) : orderedCarriers.length === 0 ? (
+        <Alert severity="info">No hay paqueterías activas.</Alert>
       ) : (
-        zones.map((z) => <ZoneCard key={z.zone_key} zone={z} carriers={carriers} onChange={load} flash={flash} headers={headers} onToggle={() => toggleZone(z)} onDelete={() => deleteZone(z)} onSetCarrier={(ck) => setCarrier(z, ck)} />)
+        orderedCarriers.map((c) => (
+          <CarrierCard
+            key={c.carrier_key}
+            carrier={c}
+            zone={zoneByCarrier.get(c.carrier_key)}
+            isLocal={LOCAL_CARRIER_KEYS.includes(c.carrier_key)}
+            headers={headers}
+            onChange={load}
+            flash={flash}
+          />
+        ))
       )}
-
-      {/* Dialog nuevo servicio/paquetería */}
-      <Dialog open={newZoneOpen} onClose={() => setNewZoneOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Nuevo servicio de cobertura</DialogTitle>
-        <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
-          <Box>
-            <Typography variant="caption" color="text.secondary">Paquetería</Typography>
-            <Select fullWidth size="small" value={newZoneCarrier} displayEmpty onChange={(e) => setNewZoneCarrier(e.target.value)}>
-              <MenuItem value="" disabled>Selecciona una paquetería…</MenuItem>
-              {carriers.map((c) => <MenuItem key={c.carrier_key} value={c.carrier_key}>{c.name} ({c.carrier_key})</MenuItem>)}
-            </Select>
-          </Box>
-          <TextField label="Clave interna (sin espacios, ej. gdl)" value={newZoneKey} onChange={(e) => setNewZoneKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} size="small" fullWidth />
-          <TextField label="Nombre visible (ej. Estafeta, Guadalajara ZMG)" value={newZoneLabel} onChange={(e) => setNewZoneLabel(e.target.value)} size="small" fullWidth />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setNewZoneOpen(false)}>Cancelar</Button>
-          <Button variant="contained" onClick={createZone}>Crear</Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }
 
-// ---------- Tarjeta de una zona ----------
-function ZoneCard({ zone, carriers, onChange, flash, headers, onToggle, onDelete, onSetCarrier }: {
-  zone: Zone;
-  carriers: Carrier[];
+// ---------- Tarjeta de una paquetería ----------
+function CarrierCard({ carrier, zone, isLocal, headers, onChange, flash }: {
+  carrier: Carrier;
+  zone: Zone | undefined;
+  isLocal: boolean;
+  headers: Record<string, string>;
   onChange: () => void;
   flash: (sev: 'success' | 'error', text: string) => void;
-  headers: Record<string, string>;
-  onToggle: () => void;
-  onDelete: () => void;
-  onSetCarrier: (carrierKey: string) => void;
 }) {
   const [ruleType, setRuleType] = useState<'range' | 'prefix'>('range');
   const [rMin, setRMin] = useState('');
@@ -182,7 +148,25 @@ function ZoneCard({ zone, carriers, onChange, flash, headers, onToggle, onDelete
   const post = async (url: string, body?: unknown) => (await fetch(url, { method: 'POST', headers, body: body ? JSON.stringify(body) : undefined })).json();
   const del = async (url: string) => (await fetch(url, { method: 'DELETE', headers })).json();
 
+  // Asegura que exista una "zona" (contenedor) para esta paquetería; la crea al
+  // vuelo con zone_key = carrier_key si aún no tiene. Devuelve el zone_key.
+  const ensureZoneKey = async (): Promise<string | null> => {
+    if (zone) return zone.zone_key;
+    const zoneKey = carrier.carrier_key;
+    const d = await post(`${API_URL}/api/admin/coverage/zones`, { zone_key: zoneKey, label: carrier.name, active: true, carrier_key: carrier.carrier_key });
+    if (!d.success) { flash('error', d.error || 'No se pudo crear el contenedor'); return null; }
+    return zoneKey;
+  };
+
+  const toggleActive = async () => {
+    if (!zone) return;
+    const d = await post(`${API_URL}/api/admin/coverage/zones`, { zone_key: zone.zone_key, label: zone.label, active: !zone.active, carrier_key: zone.carrier_key });
+    if (d.success) { flash('success', `${carrier.name} ${!zone.active ? 'activada' : 'desactivada'}`); onChange(); } else flash('error', d.error || 'Error');
+  };
+
   const addRule = async () => {
+    const zk = await ensureZoneKey();
+    if (!zk) return;
     let body: Record<string, unknown>;
     if (ruleType === 'range') {
       if (!/^\d{4,5}$/.test(rMin) || !/^\d{4,5}$/.test(rMax)) { flash('error', 'Rango inválido'); return; }
@@ -191,7 +175,7 @@ function ZoneCard({ zone, carriers, onChange, flash, headers, onToggle, onDelete
       if (!/^\d{1,4}$/.test(prefix)) { flash('error', 'Prefijo inválido (1–4 dígitos)'); return; }
       body = { rule_type: 'prefix', prefix };
     }
-    const d = await post(`${API_URL}/api/admin/coverage/zones/${zone.zone_key}/rules`, body);
+    const d = await post(`${API_URL}/api/admin/coverage/zones/${zk}/rules`, body);
     if (d.success) { setRMin(''); setRMax(''); setPrefix(''); flash('success', 'Regla agregada'); onChange(); } else flash('error', d.error || 'Error');
   };
 
@@ -202,77 +186,79 @@ function ZoneCard({ zone, carriers, onChange, flash, headers, onToggle, onDelete
 
   const addExcluded = async () => {
     if (!/^\d{5}$/.test(exZip.trim())) { flash('error', 'CP inválido (5 dígitos)'); return; }
-    const d = await post(`${API_URL}/api/admin/coverage/zones/${zone.zone_key}/excluded`, { zip: exZip.trim(), note: exNote.trim() || null });
-    if (d.success) { setExZip(''); setExNote(''); flash('success', `CP ${exZip.trim()} excluido`); onChange(); } else flash('error', d.error || 'Error');
+    const zk = await ensureZoneKey();
+    if (!zk) return;
+    const d = await post(`${API_URL}/api/admin/coverage/zones/${zk}/excluded`, { zip: exZip.trim(), note: exNote.trim() || null });
+    if (d.success) { setExZip(''); setExNote(''); flash('success', `CP ${exZip.trim()} excluido de ${carrier.name}`); onChange(); } else flash('error', d.error || 'Error');
   };
 
   const removeExcluded = async (zip: string) => {
+    if (!zone) return;
     const d = await del(`${API_URL}/api/admin/coverage/zones/${zone.zone_key}/excluded/${zip}`);
     if (d.success) { onChange(); } else flash('error', d.error || 'Error');
   };
 
+  const rules = zone?.rules || [];
+  const excluded = zone?.excluded || [];
+  const inactive = isLocal && zone ? !zone.active : false;
+
   return (
-    <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2, opacity: zone.active ? 1 : 0.65 }}>
+    <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2, opacity: inactive ? 0.65 : 1 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-          <Typography variant="subtitle1" fontWeight="bold">{zone.label}</Typography>
-          <Chip size="small" label={zone.zone_key} variant="outlined" />
-          <Select
-            size="small"
-            value={zone.carrier_key || ''}
-            displayEmpty
-            onChange={(e) => onSetCarrier(e.target.value)}
-            sx={{ minWidth: 200, '& .MuiSelect-select': { py: 0.5 } }}
-          >
-            <MenuItem value="" disabled>Sin paquetería asignada</MenuItem>
-            {carriers.map((c) => <MenuItem key={c.carrier_key} value={c.carrier_key}>{c.name} ({c.carrier_key})</MenuItem>)}
-          </Select>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <LocalShippingIcon sx={{ color: 'text.secondary', fontSize: 20 }} />
+          <Typography variant="subtitle1" fontWeight="bold">{carrier.name}</Typography>
+          <Chip size="small" label={carrier.carrier_key} variant="outlined" />
+          {isLocal && <Chip size="small" color="primary" label="EntregaX Local" />}
         </Box>
-        <Box>
-          <FormControlLabel control={<Switch checked={zone.active} onChange={onToggle} />} label={zone.active ? 'Activa' : 'Inactiva'} />
-          <Tooltip title="Eliminar servicio"><IconButton size="small" color="error" onClick={onDelete}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
-        </Box>
+        {isLocal && zone && (
+          <FormControlLabel control={<Switch checked={zone.active} onChange={toggleActive} />} label={zone.active ? 'Cobertura activa' : 'Cobertura inactiva'} />
+        )}
       </Box>
 
       <Divider sx={{ my: 1.5 }} />
 
-      {/* Reglas */}
-      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Reglas de pertenencia</Typography>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
-        {zone.rules.length === 0 ? (
-          <Typography variant="caption" color="text.secondary">Sin reglas — la zona no cubre ningún CP.</Typography>
-        ) : zone.rules.map((r) => (
-          <Chip
-            key={r.id}
-            label={r.rule_type === 'range' ? `Rango ${r.range_min}–${r.range_max}` : `Prefijo ${r.prefix}*`}
-            onDelete={() => removeRule(r.id)}
-            color={r.rule_type === 'range' ? 'primary' : 'secondary'}
-            variant="outlined"
-          />
-        ))}
-      </Box>
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
-        <Select size="small" value={ruleType} onChange={(e) => setRuleType(e.target.value as 'range' | 'prefix')} sx={{ width: 130 }}>
-          <MenuItem value="range">Rango</MenuItem>
-          <MenuItem value="prefix">Prefijo</MenuItem>
-        </Select>
-        {ruleType === 'range' ? (
-          <>
-            <TextField size="small" placeholder="Desde" value={rMin} onChange={(e) => setRMin(e.target.value.replace(/\D/g, '').slice(0, 5))} sx={{ width: 100 }} />
-            <TextField size="small" placeholder="Hasta" value={rMax} onChange={(e) => setRMax(e.target.value.replace(/\D/g, '').slice(0, 5))} sx={{ width: 100 }} />
-          </>
-        ) : (
-          <TextField size="small" placeholder="Prefijo (ej. 01)" value={prefix} onChange={(e) => setPrefix(e.target.value.replace(/\D/g, '').slice(0, 4))} sx={{ width: 130 }} />
-        )}
-        <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={addRule}>Agregar regla</Button>
-      </Box>
+      {/* Reglas (solo EntregaX Local) */}
+      {isLocal && (
+        <>
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Zona de cobertura (reglas de CP)</Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+            {rules.length === 0 ? (
+              <Typography variant="caption" color="text.secondary">Sin reglas — no cubre ningún CP.</Typography>
+            ) : rules.map((r) => (
+              <Chip
+                key={r.id}
+                label={r.rule_type === 'range' ? `Rango ${r.range_min}–${r.range_max}` : `Prefijo ${r.prefix}*`}
+                onDelete={() => removeRule(r.id)}
+                color={r.rule_type === 'range' ? 'primary' : 'secondary'}
+                variant="outlined"
+              />
+            ))}
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
+            <Select size="small" value={ruleType} onChange={(e) => setRuleType(e.target.value as 'range' | 'prefix')} sx={{ width: 130 }}>
+              <MenuItem value="range">Rango</MenuItem>
+              <MenuItem value="prefix">Prefijo</MenuItem>
+            </Select>
+            {ruleType === 'range' ? (
+              <>
+                <TextField size="small" placeholder="Desde" value={rMin} onChange={(e) => setRMin(e.target.value.replace(/\D/g, '').slice(0, 5))} sx={{ width: 100 }} />
+                <TextField size="small" placeholder="Hasta" value={rMax} onChange={(e) => setRMax(e.target.value.replace(/\D/g, '').slice(0, 5))} sx={{ width: 100 }} />
+              </>
+            ) : (
+              <TextField size="small" placeholder="Prefijo (ej. 01)" value={prefix} onChange={(e) => setPrefix(e.target.value.replace(/\D/g, '').slice(0, 4))} sx={{ width: 130 }} />
+            )}
+            <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={addRule}>Agregar regla</Button>
+          </Box>
+        </>
+      )}
 
-      {/* Exclusiones */}
-      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>CP excluidos — esta paquetería NO entrega aquí ({zone.excluded.length})</Typography>
+      {/* Exclusiones (todas las paqueterías) */}
+      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>CP excluidos — {carrier.name} NO entrega aquí ({excluded.length})</Typography>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
-        {zone.excluded.length === 0 ? (
+        {excluded.length === 0 ? (
           <Typography variant="caption" color="text.secondary">Sin exclusiones.</Typography>
-        ) : zone.excluded.map((e) => (
+        ) : excluded.map((e) => (
           <Tooltip key={e.zip} title={e.note || ''}>
             <Chip label={e.zip} onDelete={() => removeExcluded(e.zip)} color="warning" variant="outlined" />
           </Tooltip>
