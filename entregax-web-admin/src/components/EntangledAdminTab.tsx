@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Chip, CircularProgress, IconButton, Tooltip, Button,
-  Snackbar, Alert,
+  Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import MarkEmailUnreadIcon from '@mui/icons-material/MarkEmailUnread';
+import CloseIcon from '@mui/icons-material/Close';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import VerifiedIcon from '@mui/icons-material/Verified';
@@ -69,6 +71,39 @@ export default function EntangledAdminTab() {
   const [detail, setDetail] = useState<EntangledRequestDetail | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' | 'info' }>({ open: false, msg: '', sev: 'info' });
+  // Correos a notificar cuando una operación híbrida entra en "solicitada".
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [notifyEmails, setNotifyEmails] = useState<string[]>([]);
+  const [newEmail, setNewEmail] = useState('');
+  const [savingEmails, setSavingEmails] = useState(false);
+
+  const openEmailDialog = async () => {
+    setEmailDialogOpen(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/admin/xpay/notify-emails`, { headers: { Authorization: `Bearer ${token}` } });
+      setNotifyEmails(Array.isArray(res.data?.emails) ? res.data.emails : []);
+    } catch { setNotifyEmails([]); }
+  };
+
+  const addEmail = () => {
+    const e = newEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) { setSnack({ open: true, msg: 'Correo inválido', sev: 'error' }); return; }
+    if (!notifyEmails.includes(e)) setNotifyEmails([...notifyEmails, e]);
+    setNewEmail('');
+  };
+
+  const saveNotifyEmails = async () => {
+    setSavingEmails(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API_URL}/admin/xpay/notify-emails`, { emails: notifyEmails }, { headers: { Authorization: `Bearer ${token}` } });
+      setSnack({ open: true, msg: 'Correos guardados', sev: 'success' });
+      setEmailDialogOpen(false);
+    } catch (e: any) {
+      setSnack({ open: true, msg: e?.response?.data?.error || 'No se pudieron guardar', sev: 'error' });
+    } finally { setSavingEmails(false); }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -123,9 +158,14 @@ export default function EntangledAdminTab() {
             {t('entangled.subtitle', 'Triangulación de pagos internacional')}
           </Typography>
         </Box>
-        <Button startIcon={<RefreshIcon />} onClick={load} variant="outlined" size="small">
-          {t('common.refresh', 'Refrescar')}
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button startIcon={<MarkEmailUnreadIcon />} onClick={openEmailDialog} variant="outlined" size="small" color="warning">
+            Configurar correos
+          </Button>
+          <Button startIcon={<RefreshIcon />} onClick={load} variant="outlined" size="small">
+            {t('common.refresh', 'Refrescar')}
+          </Button>
+        </Box>
       </Box>
 
       {loading ? (
@@ -332,6 +372,42 @@ export default function EntangledAdminTab() {
         row={detail}
         onClose={() => setDetail(null)}
       />
+
+      {/* Diálogo: correos a notificar cuando una operación híbrida entra en "solicitada" */}
+      <Dialog open={emailDialogOpen} onClose={() => setEmailDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>📧 Correos de notificación · Pago a proveedores</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Estos correos reciben un aviso cada vez que una operación <strong>híbrida</strong> entra en estado <strong>solicitada</strong>.
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+            <TextField
+              size="small"
+              fullWidth
+              label="Agregar correo"
+              placeholder="correo@dominio.com"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addEmail(); } }}
+            />
+            <Button variant="contained" onClick={addEmail}>Agregar</Button>
+          </Box>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {notifyEmails.length === 0 ? (
+              <Typography variant="caption" color="text.secondary">Aún no hay correos configurados.</Typography>
+            ) : notifyEmails.map((em) => (
+              <Chip key={em} label={em} onDelete={() => setNotifyEmails(notifyEmails.filter((x) => x !== em))} deleteIcon={<CloseIcon />} sx={{ m: 0.25 }} />
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEmailDialogOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={saveNotifyEmails} disabled={savingEmails}>
+            {savingEmails ? <CircularProgress size={20} /> : 'Guardar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Snackbar
         open={snack.open}
         autoHideDuration={5000}
