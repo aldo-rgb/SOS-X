@@ -52,6 +52,7 @@ interface EntangledRow {
   comprobante_subido_at?: string | null;
   factura_emitida_at?: string | null;
   proveedor_pagado_at?: string | null;
+  updated_at?: string | null;
   // box_id del usuario (S1, S54, etc) — alimenta la columna Cliente
   client_box_id?: string | null;
 }
@@ -289,12 +290,15 @@ export default function EntangledAdminTab() {
                       }
                       const facturaAt = r.factura_emitida_at ? new Date(r.factura_emitida_at) : null;
                       const pagoAt = r.proveedor_pagado_at ? new Date(r.proveedor_pagado_at) : null;
-                      // Si la solicitud es "sin factura", basta con que esté pagada por el proveedor.
-                      const completo = conFactura
-                        ? (!!facturaAt && !!pagoAt)
-                        : !!pagoAt;
+                      // El reloj se CONGELA cuando la operación llega a un estado
+                      // final (completado). Se congela en la marca de completado
+                      // (pago a proveedor / factura); si no hubiera timestamp, en el
+                      // último cambio (updated_at). Mientras no esté completa, corre.
+                      const completo = r.estatus_global === 'completado';
+                      const frozenTs = Math.max(facturaAt?.getTime() ?? 0, pagoAt?.getTime() ?? 0)
+                        || (r.updated_at ? new Date(r.updated_at).getTime() : 0);
                       const endTs = completo
-                        ? Math.max(facturaAt?.getTime() ?? 0, pagoAt?.getTime() ?? 0)
+                        ? (frozenTs || Date.now())
                         : Date.now();
                       const elapsedMs = Math.max(0, endTs - start.getTime());
                       const days = Math.floor(elapsedMs / 86_400_000);
