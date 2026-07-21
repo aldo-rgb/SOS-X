@@ -7192,17 +7192,6 @@ app.post('/api/admin/crm/sequence/run-now', authenticateToken, requireMinLevel(R
 app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
 app.post('/api/webhooks/whatsapp', handleWhatsappWebhook);
 app.get('/api/_diag/wa-subs', debugWabaSubs);
-// TEMP: fuerza la creación/seed del schema de cobertura (se elimina tras usarse).
-app.get('/api/_diag/coverage-seed', async (req, res) => {
-  if (req.query.secret !== 'zaia-cov-0721') return res.status(403).json({ error: 'forbidden' });
-  try {
-    const { ensureCoverageSchema } = await import('./coverageController');
-    await ensureCoverageSchema();
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: (e as Error).message });
-  }
-});
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);
