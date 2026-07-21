@@ -7153,6 +7153,26 @@ app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel
 app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
 app.post('/api/webhooks/whatsapp', handleWhatsappWebhook);
 app.get('/api/_diag/wa-subs', debugWabaSubs);
+// TEMPORAL: muestra del correo (datos reales de una ref) a un solo correo. Quitar tras validar.
+app.get('/api/_diag/sample-xpay-email', async (req: Request, res: Response): Promise<any> => {
+  if (String(req.query.secret || '') !== 'zaia-xpay-8823') return res.status(403).json({ error: 'nope' });
+  const ref = String(req.query.ref || 'XP879241');
+  const email = String(req.query.email || 'aldocampos@entregax.com');
+  try {
+    const { XPAY_SOLICITADA_EMAIL_SELECT, buildXpaySolicitadaEmail } = await import('./entangledControllerV2');
+    const info = await pool.query(
+      `SELECT ${XPAY_SOLICITADA_EMAIL_SELECT} FROM entangled_payment_requests er
+         LEFT JOIN users u ON u.id = er.advisor_id WHERE er.referencia_pago = $1 LIMIT 1`, [ref]);
+    const r0 = info.rows[0];
+    if (!r0) return res.status(404).json({ error: 'operación no encontrada' });
+    const { sendEmail } = await import('./emailService');
+    const { subject, html } = buildXpaySolicitadaEmail(r0);
+    const rr = await sendEmail(email, subject, html);
+    res.json({ ok: rr.ok, email, ref, error: rr.error });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message });
+  }
+});
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);

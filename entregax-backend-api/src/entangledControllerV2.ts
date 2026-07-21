@@ -54,6 +54,79 @@ import { signRowFileUrls } from './entangledController';
 
 const SERVICIOS_VALIDOS: EntangledServicio[] = ['pago_con_factura', 'pago_sin_factura'];
 
+// Columnas que necesita el correo de "operación solicitada".
+export const XPAY_SOLICITADA_EMAIL_SELECT = `
+  er.referencia_pago, er.op_monto, er.op_divisa_destino,
+  COALESCE(er.monto_mxn_total, er.monto_mxn_base) AS monto_mxn, er.servicio,
+  er.comision_cliente_final_porcentaje, er.tc_cliente_final,
+  er.cf_razon_social, er.cf_rfc,
+  er.op_beneficiario_nombre, er.sup_nombre_beneficiario, er.sup_nombre_chino,
+  er.sup_banco_nombre, er.sup_numero_cuenta, er.sup_swift_bic, er.sup_iban,
+  er.sup_aba_routing, er.sup_banco_intermediario_nombre, er.sup_banco_intermediario_swift,
+  er.sup_banco_direccion, er.sup_direccion,
+  er.proveedor_moneda_enviada, er.proveedor_monto_enviado,
+  u.full_name AS advisor_name`;
+
+// Construye el correo (SIEMPRE en inglés) con detalles de la operación + datos
+// completos de la cuenta de pago + botón al portal de pago.
+export const buildXpaySolicitadaEmail = (r0: any): { subject: string; html: string } => {
+  const PORTAL_URL = process.env.XPAY_PAYMENT_PORTAL_URL || 'https://wireusd.tcmanual.mx/loginchino';
+  const ref = r0.referencia_pago || '—';
+  const usd = Number(r0.op_monto || 0);
+  const mxn = Number(r0.monto_mxn || 0);
+  const divisa = r0.op_divisa_destino || 'USD';
+  const serviceLabel = r0.servicio === 'pago_con_factura' ? 'With invoice' : r0.servicio === 'pago_sin_factura' ? 'Without invoice' : (r0.servicio || '—');
+  const row = (label: string, val: any) => (val != null && String(val).trim() !== '')
+    ? `<tr><td style="padding:5px 0;color:#666;vertical-align:top">${label}</td><td style="padding:5px 0;text-align:right;font-weight:600;word-break:break-word">${val}</td></tr>` : '';
+  const money = (n: number, cur: string) => `${cur === 'USD' || cur === 'MXN' ? '$' : ''}${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+
+  const subject = `X-Pay · Payment request submitted · ${ref}`;
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:linear-gradient(135deg,#C1272D,#F05A28);color:#fff;padding:18px 20px;border-radius:10px 10px 0 0">
+        <h2 style="margin:0;font-size:18px">💱 New X-Pay payment request</h2>
+      </div>
+      <div style="border:1px solid #eee;border-top:none;border-radius:0 0 10px 10px;padding:20px">
+        <p style="margin:0 0 14px;color:#333">A payment operation is now <b>pending</b>. Please process the supplier payment.</p>
+
+        <div style="font-size:12px;font-weight:700;color:#C1272D;text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px">Operation details</div>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">
+          ${row('Reference', `<span style="font-weight:700">${ref}</span>`)}
+          ${row('Service', serviceLabel)}
+          ${row(`Amount (${divisa})`, money(usd, divisa))}
+          ${mxn > 0 ? row('Amount MXN', money(mxn, 'MXN')) : ''}
+          ${r0.comision_cliente_final_porcentaje != null ? row('Commission', `${Number(r0.comision_cliente_final_porcentaje).toFixed(2)}%`) : ''}
+          ${r0.tc_cliente_final != null ? row('Exchange rate', Number(r0.tc_cliente_final).toFixed(4)) : ''}
+          ${row('Client', r0.cf_razon_social)}
+          ${row('RFC', r0.cf_rfc)}
+          ${row('Advisor', r0.advisor_name)}
+        </table>
+
+        <div style="font-size:12px;font-weight:700;color:#C1272D;text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px">Payment account (beneficiary)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:8px">
+          ${row('Beneficiary', r0.sup_nombre_beneficiario || r0.op_beneficiario_nombre)}
+          ${row('Beneficiary (CN)', r0.sup_nombre_chino)}
+          ${row('Bank', r0.sup_banco_nombre)}
+          ${row('Account number', r0.sup_numero_cuenta)}
+          ${row('IBAN', r0.sup_iban)}
+          ${row('SWIFT / BIC', r0.sup_swift_bic)}
+          ${row('ABA / Routing', r0.sup_aba_routing)}
+          ${row('Intermediary bank', r0.sup_banco_intermediario_nombre)}
+          ${row('Intermediary SWIFT', r0.sup_banco_intermediario_swift)}
+          ${row('Bank address', r0.sup_banco_direccion)}
+          ${row('Beneficiary address', r0.sup_direccion)}
+          ${r0.proveedor_monto_enviado ? row('Amount to send', money(Number(r0.proveedor_monto_enviado), r0.proveedor_moneda_enviada || '')) : ''}
+        </table>
+
+        <div style="text-align:center;margin:22px 0 6px">
+          <a href="${PORTAL_URL}" style="display:inline-block;background:linear-gradient(135deg,#C1272D,#F05A28);color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:13px 28px;border-radius:10px">Process payment →</a>
+        </div>
+        <p style="margin:12px 0 0;color:#999;font-size:12px;text-align:center">Or check the X-Pay panel to follow up on the supplier payment.</p>
+      </div>
+    </div>`;
+  return { subject, html };
+};
+
 
 const getAuthUserId = (req: Request): number | null => {
   const u = (req as any).user;
@@ -1908,9 +1981,7 @@ export const webhookPagoProveedorV2 = async (
       try {
         await pool.query(`ALTER TABLE entangled_payment_requests ADD COLUMN IF NOT EXISTS solicitada_notified_at TIMESTAMPTZ`).catch(() => {});
         const info = await pool.query(
-          `SELECT er.referencia_pago, er.op_monto, er.monto_mxn_total, er.es_hibrida,
-                  er.solicitada_notified_at, er.cf_email, er.op_beneficiario_nombre,
-                  u.full_name AS advisor_name
+          `SELECT er.es_hibrida, er.solicitada_notified_at, ${XPAY_SOLICITADA_EMAIL_SELECT}
              FROM entangled_payment_requests er
              LEFT JOIN users u ON u.id = er.advisor_id
             WHERE er.id = $1`,
@@ -1924,28 +1995,7 @@ export const webhookPagoProveedorV2 = async (
           const emails: string[] = Array.isArray(cfg.rows[0]?.config_value?.emails) ? cfg.rows[0].config_value.emails : [];
           if (emails.length > 0) {
             const { sendEmail } = await import('./emailService');
-            const ref = r0.referencia_pago || `#${requestId}`;
-            const usd = Number(r0.op_monto || 0);
-            const mxn = Number(r0.monto_mxn_total || 0);
-            // El correo SIEMPRE va en inglés.
-            const subject = `X-Pay · Payment request submitted · ${ref}`;
-            const html = `
-              <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
-                <div style="background:linear-gradient(135deg,#C1272D,#F05A28);color:#fff;padding:18px 20px;border-radius:10px 10px 0 0">
-                  <h2 style="margin:0;font-size:18px">💱 New X-Pay payment request</h2>
-                </div>
-                <div style="border:1px solid #eee;border-top:none;border-radius:0 0 10px 10px;padding:20px">
-                  <p style="margin:0 0 12px;color:#333">A payment operation is now <b>pending</b>.</p>
-                  <table style="width:100%;border-collapse:collapse;font-size:14px">
-                    <tr><td style="padding:6px 0;color:#666">Reference</td><td style="padding:6px 0;text-align:right;font-weight:700">${ref}</td></tr>
-                    <tr><td style="padding:6px 0;color:#666">Amount USD</td><td style="padding:6px 0;text-align:right;font-weight:700">$${usd.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
-                    <tr><td style="padding:6px 0;color:#666">Amount MXN</td><td style="padding:6px 0;text-align:right;font-weight:700">$${mxn.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
-                    ${r0.op_beneficiario_nombre ? `<tr><td style="padding:6px 0;color:#666">Supplier</td><td style="padding:6px 0;text-align:right">${r0.op_beneficiario_nombre}</td></tr>` : ''}
-                    ${r0.advisor_name ? `<tr><td style="padding:6px 0;color:#666">Advisor</td><td style="padding:6px 0;text-align:right">${r0.advisor_name}</td></tr>` : ''}
-                  </table>
-                  <p style="margin:16px 0 0;color:#999;font-size:12px">Check the X-Pay panel to follow up on the supplier payment.</p>
-                </div>
-              </div>`;
+            const { subject, html } = buildXpaySolicitadaEmail(r0);
             for (const em of emails) { await sendEmail(em, subject, html).catch(() => {}); }
           }
           await pool.query(`UPDATE entangled_payment_requests SET solicitada_notified_at = NOW() WHERE id = $1`, [requestId]).catch(() => {});
