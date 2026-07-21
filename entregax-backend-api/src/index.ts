@@ -13382,8 +13382,8 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
       safeQuery(`
         SELECT
           REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', '') AS tracking,
-          COALESCE(u.box_id, p.box_id) AS box_id,
-          COALESCE(u.full_name, p.box_id) AS client_name,
+          COALESCE(u.box_id, lc.box_id, p.box_id) AS box_id,
+          COALESCE(u.full_name, lc.full_name, p.box_id) AS client_name,
           COALESCE(MAX(adv.full_name), MAX(lc.asesor)) AS asesor,
           MIN(p.status) AS status,
           MIN(p.created_at) AS created_at,
@@ -13399,16 +13399,16 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           AND p.assigned_address_id IS NULL
           AND (p.user_id IS NOT NULL OR p.box_id IS NOT NULL)
         GROUP BY REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', ''),
-                 COALESCE(u.box_id, p.box_id),
-                 COALESCE(u.full_name, p.box_id)
+                 COALESCE(u.box_id, lc.box_id, p.box_id),
+                 COALESCE(u.full_name, lc.full_name, p.box_id)
         ORDER BY MIN(p.created_at) DESC LIMIT 200
       `),
       // TDI Express — agrupa por master
       safeQuery(`
         SELECT
           REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', '') AS tracking,
-          COALESCE(u.box_id, p.box_id) AS box_id,
-          COALESCE(u.full_name, p.box_id) AS client_name,
+          COALESCE(u.box_id, lc.box_id, p.box_id) AS box_id,
+          COALESCE(u.full_name, lc.full_name, p.box_id) AS client_name,
           COALESCE(MAX(adv.full_name), MAX(lc.asesor)) AS asesor,
           MIN(p.status) AS status,
           MIN(p.created_at) AS created_at,
@@ -13424,15 +13424,15 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           AND p.assigned_address_id IS NULL
           AND (p.user_id IS NOT NULL OR p.box_id IS NOT NULL)
         GROUP BY REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', ''),
-                 COALESCE(u.box_id, p.box_id),
-                 COALESCE(u.full_name, p.box_id)
+                 COALESCE(u.box_id, lc.box_id, p.box_id),
+                 COALESCE(u.full_name, lc.full_name, p.box_id)
         ORDER BY MIN(p.created_at) DESC LIMIT 200
       `),
       // Aéreo Chino — shipping_mark es el box_id del cliente para clientes legacy
       safeQuery(`
         SELECT cr.fno AS tracking,
-          COALESCE(u.box_id, cr.shipping_mark) AS box_id,
-          COALESCE(u.full_name, cr.shipping_mark) AS client_name,
+          COALESCE(u.box_id, lc.box_id, cr.shipping_mark) AS box_id,
+          COALESCE(u.full_name, lc.full_name, cr.shipping_mark) AS client_name,
           COALESCE(adv.full_name, lc.asesor) AS asesor,
           cr.status, cr.created_at,
           (cr.user_id IS NULL AND cr.shipping_mark IS NOT NULL) AS is_legacy
@@ -13447,8 +13447,8 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
       // Marítimo China (LCL) — shipping_mark como fallback de box_id
       safeQuery(`
         SELECT mo.ordersn AS tracking,
-          COALESCE(u.box_id, mo.shipping_mark) AS box_id,
-          COALESCE(u.full_name, mo.shipping_mark) AS client_name,
+          COALESCE(u.box_id, lc.box_id, mo.shipping_mark) AS box_id,
+          COALESCE(u.full_name, lc.full_name, mo.shipping_mark) AS client_name,
           COALESCE(adv.full_name, lc.asesor) AS asesor,
           mo.status, mo.created_at,
           (mo.user_id IS NULL AND mo.shipping_mark IS NOT NULL) AS is_legacy
@@ -13464,13 +13464,16 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
       // DHL Monterrey
       safeQuery(`
         SELECT COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS tracking,
-          u.box_id, u.full_name AS client_name,
+          COALESCE(u.box_id, lc.box_id, ds.box_id) AS box_id,
+          COALESCE(u.full_name, lc.full_name) AS client_name,
           COALESCE(adv.full_name, lc.asesor) AS asesor,
-          ds.status, ds.created_at
+          ds.status, ds.created_at,
+          (ds.user_id IS NULL AND (lc.id IS NOT NULL OR ds.box_id IS NOT NULL)) AS is_legacy
         FROM dhl_shipments ds
         LEFT JOIN users u ON u.id = ds.user_id
         LEFT JOIN users adv ON adv.id = u.advisor_id
-        LEFT JOIN legacy_clients lc ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(u.box_id))
+        LEFT JOIN legacy_clients lc
+          ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(COALESCE(u.box_id, ds.box_id)))
         WHERE ds.status NOT IN ('delivered', 'cancelled')
           AND ds.delivery_address_id IS NULL
         ORDER BY ds.created_at DESC LIMIT 200
