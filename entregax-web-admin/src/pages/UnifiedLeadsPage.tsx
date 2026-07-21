@@ -743,6 +743,37 @@ export default function UnifiedLeadsPage() {
   const [seqEditing, setSeqEditing] = useState<WaSequence | null>(null);
   const [seqSaving, setSeqSaving] = useState(false);
 
+  // Contador regresivo al próximo envío de la secuencia + a cuántos usuarios.
+  const [seqNextSend, setSeqNextSend] = useState<{ nextSendAt: string; dueCount: number } | null>(null);
+  const [seqCountdown, setSeqCountdown] = useState('');
+  useEffect(() => {
+    const fetchNext = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/admin/crm/sequence/next-send`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        if (res.data?.success) setSeqNextSend({ nextSendAt: res.data.nextSendAt, dueCount: res.data.dueCount || 0 });
+      } catch { /* ignore */ }
+    };
+    fetchNext();
+    const refetch = setInterval(fetchNext, 60_000); // refresca conteo/ventana cada min
+    return () => clearInterval(refetch);
+  }, []);
+  useEffect(() => {
+    if (!seqNextSend?.nextSendAt) { setSeqCountdown(''); return; }
+    const tick = () => {
+      const diff = new Date(seqNextSend.nextSendAt).getTime() - Date.now();
+      if (diff <= 0) { setSeqCountdown('enviando…'); return; }
+      const d = Math.floor(diff / 86_400_000);
+      const h = Math.floor((diff % 86_400_000) / 3_600_000);
+      const m = Math.floor((diff % 3_600_000) / 60_000);
+      const s = Math.floor((diff % 60_000) / 1000);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      setSeqCountdown(d > 0 ? `${d}d ${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(h)}:${pad(m)}:${pad(s)}`);
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [seqNextSend?.nextSendAt]);
+
   // Filtros prospectos
   const [prospectStatusFilter, setProspectStatusFilter] = useState('all');
   const [prospectSeqFilter, setProspectSeqFilter] = useState('all');
@@ -2045,6 +2076,16 @@ export default function UnifiedLeadsPage() {
             >
               Secuencia automática{selectedProspectKeys.size > 0 ? ` (${selectedProspectKeys.size})` : ''}
             </Button>
+            {seqNextSend && (
+              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75, borderRadius: 2, bgcolor: 'rgba(123,31,162,0.08)', border: '1px solid rgba(123,31,162,0.25)' }}>
+                <AccessTimeIcon sx={{ fontSize: 18, color: '#7b1fa2' }} />
+                <Box sx={{ lineHeight: 1.1 }}>
+                  <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>Próximo envío en</Typography>
+                  <Typography variant="body2" fontWeight={800} sx={{ fontFamily: 'monospace', color: '#7b1fa2' }}>{seqCountdown || '—'}</Typography>
+                </Box>
+                <Chip size="small" label={`${seqNextSend.dueCount} usuario${seqNextSend.dueCount === 1 ? '' : 's'}`} sx={{ ml: 0.5, bgcolor: '#7b1fa2', color: '#fff', fontWeight: 700 }} />
+              </Box>
+            )}
             <Typography variant="body2" color="text.secondary">
               Marca prospectos para enviar WhatsApp o inscribirlos en la secuencia Día 1/3/7.
             </Typography>

@@ -173,6 +173,34 @@ export const unenrollFromSequence = async (req: Request, res: Response): Promise
   }
 };
 
+// GET /api/admin/crm/sequence/next-send → próximo envío de la secuencia (12:06 PM
+// Monterrey, Lun-Vie) y a cuántos usuarios se enviará en esa corrida.
+export const getSequenceNextSend = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureSequenceSchema();
+    // Monterrey = UTC-6 (sin DST). El cron dispara a las 12:06 MTY = 18:06 UTC.
+    const now = new Date();
+    const cand = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 18, 6, 0, 0));
+    // Avanzar hasta un día hábil (Lun-Vie) cuya 18:06 UTC sea futura.
+    let guard = 0;
+    while ((cand <= now || cand.getUTCDay() === 0 || cand.getUTCDay() === 6) && guard < 14) {
+      cand.setUTCDate(cand.getUTCDate() + 1);
+      cand.setUTCHours(18, 6, 0, 0);
+      guard++;
+    }
+    const dueRes = await pool.query(
+      `SELECT COUNT(*)::int AS due
+         FROM wa_sequence_enrollments
+        WHERE status = 'active' AND next_send_at IS NOT NULL AND next_send_at <= $1`,
+      [cand.toISOString()]
+    );
+    res.json({ success: true, nextSendAt: cand.toISOString(), dueCount: dueRes.rows[0]?.due || 0 });
+  } catch (error: any) {
+    console.error('Error getSequenceNextSend:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 // Detener secuencias activas de un lead (por lead_key) — usado al hacer clic.
 export const stopSequenceByLeadKey = async (leadKey: string, reason: string): Promise<void> => {
   try {

@@ -655,6 +655,7 @@ import {
   updateSequence,
   enrollInSequence,
   unenrollFromSequence,
+  getSequenceNextSend,
 } from './waSequenceController';
 import {
   verifyWhatsappWebhook,
@@ -7148,6 +7149,7 @@ app.get('/api/admin/crm/sequences', authenticateToken, requireMinLevel(ROLES.COU
 app.put('/api/admin/crm/sequences/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateSequence);
 app.post('/api/admin/crm/sequences/:id/enroll', authenticateToken, requireMinLevel(ROLES.DIRECTOR), enrollInSequence);
 app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel(ROLES.DIRECTOR), unenrollFromSequence);
+app.get('/api/admin/crm/sequence/next-send', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSequenceNextSend);
 
 // 📩 Webhook entrante de WhatsApp (verificación + eventos). Público (Meta lo llama).
 app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
