@@ -10,6 +10,8 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import MarkEmailUnreadIcon from '@mui/icons-material/MarkEmailUnread';
+import CloseIcon from '@mui/icons-material/Close';
 import CurrencyExchangeIcon from '@mui/icons-material/CurrencyExchange';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import BusinessIcon from '@mui/icons-material/Business';
@@ -126,6 +128,38 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
   const [tabValue, setTabValue] = useState(3);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  // Correos a notificar cuando una operación híbrida entra en "solicitada".
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [notifyEmails, setNotifyEmails] = useState<string[]>([]);
+  const [newEmail, setNewEmail] = useState('');
+  const [savingEmails, setSavingEmails] = useState(false);
+
+  const openEmailDialog = async () => {
+    setEmailDialogOpen(true);
+    try {
+      const res = await axios.get(`${API_URL}/admin/xpay/notify-emails`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setNotifyEmails(Array.isArray(res.data?.emails) ? res.data.emails : []);
+    } catch { setNotifyEmails([]); }
+  };
+
+  const addEmail = () => {
+    const e = newEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) { setSnackbar({ open: true, message: 'Correo inválido', severity: 'error' }); return; }
+    if (notifyEmails.includes(e)) { setNewEmail(''); return; }
+    setNotifyEmails([...notifyEmails, e]);
+    setNewEmail('');
+  };
+
+  const saveNotifyEmails = async () => {
+    setSavingEmails(true);
+    try {
+      await axios.post(`${API_URL}/admin/xpay/notify-emails`, { emails: notifyEmails }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({ open: true, message: 'Correos guardados', severity: 'success' });
+      setEmailDialogOpen(false);
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudieron guardar', severity: 'error' });
+    } finally { setSavingEmails(false); }
+  };
 
   // Estado
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -509,6 +543,13 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
               <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: '#4ade80', animation: 'xpay-dot 1.5s ease-in-out infinite' }} />
               <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 600, fontSize: '0.7rem' }}>Gateway activo · SWIFT/BIC</Typography>
             </Box>
+            <Tooltip title="Configurar correos de notificación">
+              <IconButton onClick={openEmailDialog} size="small"
+                sx={{ color: ORANGE, bgcolor: 'rgba(255,102,0,0.1)', border: `1px solid rgba(255,102,0,0.25)`,
+                  '&:hover': { bgcolor: 'rgba(255,102,0,0.2)' } }}>
+                <MarkEmailUnreadIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             <Tooltip title="Actualizar datos">
               <IconButton onClick={loadData} size="small"
                 sx={{ color: ORANGE, bgcolor: 'rgba(255,102,0,0.1)', border: `1px solid rgba(255,102,0,0.25)`,
@@ -2029,8 +2070,49 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
         </DialogActions>
       </Dialog>
 
-      <Snackbar 
-        open={snackbar.open} 
+      {/* Diálogo: correos a notificar cuando una operación híbrida entra en "solicitada" */}
+      <Dialog open={emailDialogOpen} onClose={() => setEmailDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>📧 Correos de notificación · X-Pay</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Estos correos reciben un aviso cada vez que una operación <strong>híbrida</strong> entra en estado <strong>solicitada</strong>.
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+            <TextField
+              size="small"
+              fullWidth
+              label="Agregar correo"
+              placeholder="correo@dominio.com"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addEmail(); } }}
+            />
+            <Button variant="contained" onClick={addEmail}>Agregar</Button>
+          </Box>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {notifyEmails.length === 0 ? (
+              <Typography variant="caption" color="text.secondary">Aún no hay correos configurados.</Typography>
+            ) : notifyEmails.map((em) => (
+              <Chip
+                key={em}
+                label={em}
+                onDelete={() => setNotifyEmails(notifyEmails.filter((x) => x !== em))}
+                deleteIcon={<CloseIcon />}
+                sx={{ m: 0.25 }}
+              />
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEmailDialogOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={saveNotifyEmails} disabled={savingEmails}>
+            {savingEmails ? <CircularProgress size={20} /> : 'Guardar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={snackbar.open}
         autoHideDuration={snackbar.message.includes(TC_WALLET_PASS) ? 12000 : 4000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}

@@ -1903,6 +1903,55 @@ export const webhookPagoProveedorV2 = async (
         [requestId, payload.es_hibrida != null ? Boolean(payload.es_hibrida) : null,
          payload.es_pesos != null ? Boolean(payload.es_pesos) : null]
       );
+      // 📧 Notificar por correo a la lista configurada cuando una operación
+      // HÍBRIDA entra en "solicitada" (una sola vez, dedup por columna).
+      try {
+        await pool.query(`ALTER TABLE entangled_payment_requests ADD COLUMN IF NOT EXISTS solicitada_notified_at TIMESTAMPTZ`).catch(() => {});
+        const info = await pool.query(
+          `SELECT er.referencia_pago, er.op_monto, er.monto_mxn_total, er.es_hibrida,
+                  er.solicitada_notified_at, er.cf_email, er.op_beneficiario_nombre,
+                  u.full_name AS advisor_name
+             FROM entangled_payment_requests er
+             LEFT JOIN users u ON u.id = er.advisor_id
+            WHERE er.id = $1`,
+          [requestId]
+        );
+        const r0 = info.rows[0];
+        if (r0 && r0.es_hibrida === true && !r0.solicitada_notified_at) {
+          const cfg = await pool.query(
+            `SELECT config_value FROM system_configurations WHERE config_key = 'xpay_solicitada_notify_emails' AND is_active = TRUE`
+          );
+          const emails: string[] = Array.isArray(cfg.rows[0]?.config_value?.emails) ? cfg.rows[0].config_value.emails : [];
+          if (emails.length > 0) {
+            const { sendEmail } = await import('./emailService');
+            const ref = r0.referencia_pago || `#${requestId}`;
+            const usd = Number(r0.op_monto || 0);
+            const mxn = Number(r0.monto_mxn_total || 0);
+            const subject = `X-Pay · Operación solicitada · ${ref}`;
+            const html = `
+              <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
+                <div style="background:linear-gradient(135deg,#C1272D,#F05A28);color:#fff;padding:18px 20px;border-radius:10px 10px 0 0">
+                  <h2 style="margin:0;font-size:18px">💱 Nueva operación X-Pay solicitada</h2>
+                </div>
+                <div style="border:1px solid #eee;border-top:none;border-radius:0 0 10px 10px;padding:20px">
+                  <p style="margin:0 0 12px;color:#333">Una operación <b>híbrida</b> entró en estado <b>solicitada</b> (aprobada, en proceso de pago a proveedor).</p>
+                  <table style="width:100%;border-collapse:collapse;font-size:14px">
+                    <tr><td style="padding:6px 0;color:#666">Referencia</td><td style="padding:6px 0;text-align:right;font-weight:700">${ref}</td></tr>
+                    <tr><td style="padding:6px 0;color:#666">Monto USD</td><td style="padding:6px 0;text-align:right;font-weight:700">$${usd.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
+                    <tr><td style="padding:6px 0;color:#666">Monto MXN</td><td style="padding:6px 0;text-align:right;font-weight:700">$${mxn.toLocaleString('es-MX',{minimumFractionDigits:2})}</td></tr>
+                    ${r0.op_beneficiario_nombre ? `<tr><td style="padding:6px 0;color:#666">Proveedor</td><td style="padding:6px 0;text-align:right">${r0.op_beneficiario_nombre}</td></tr>` : ''}
+                    ${r0.advisor_name ? `<tr><td style="padding:6px 0;color:#666">Asesor</td><td style="padding:6px 0;text-align:right">${r0.advisor_name}</td></tr>` : ''}
+                  </table>
+                  <p style="margin:16px 0 0;color:#999;font-size:12px">Revisa el panel de X-Pay para dar seguimiento al pago a proveedor.</p>
+                </div>
+              </div>`;
+            for (const em of emails) { await sendEmail(em, subject, html).catch(() => {}); }
+          }
+          await pool.query(`UPDATE entangled_payment_requests SET solicitada_notified_at = NOW() WHERE id = $1`, [requestId]).catch(() => {});
+        }
+      } catch (notifyErr) {
+        console.warn('[xpay solicitada notify]', (notifyErr as Error).message);
+      }
       await logWebhook(transaccionId, evento, payload, requestId);
       return res.status(200).json({ ok: true, estatus: 'solicitada' });
     }

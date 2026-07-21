@@ -14557,6 +14557,38 @@ app.post('/api/admin/system/notif-pago-toggle', authenticateToken, requireRole('
   }
 });
 
+// GET/POST correos a notificar cuando una operación X-Pay híbrida entra en "solicitada".
+app.get('/api/admin/xpay/notify-emails', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response): Promise<any> => {
+  try {
+    const r = await pool.query(`SELECT config_value FROM system_configurations WHERE config_key = 'xpay_solicitada_notify_emails' AND is_active = TRUE`);
+    const emails: string[] = Array.isArray(r.rows[0]?.config_value?.emails) ? r.rows[0].config_value.emails : [];
+    res.json({ emails });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/xpay/notify-emails', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const raw = Array.isArray(req.body?.emails) ? req.body.emails : [];
+    // Validar/normalizar: correos válidos, únicos, sin espacios.
+    const emails = [...new Set(raw
+      .map((e: any) => String(e || '').trim().toLowerCase())
+      .filter((e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
+    )];
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('xpay_solicitada_notify_emails', $1::jsonb, 'Correos a notificar cuando una operación X-Pay híbrida entra en solicitada', TRUE)
+       ON CONFLICT (config_key) DO UPDATE SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ emails }), userId]
+    );
+    res.json({ success: true, emails });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/admin/system/advisor-payment-order-toggle — controla la función Orden de Pago (tab web + botón móvil)
 app.post('/api/admin/system/advisor-payment-order-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
   try {
