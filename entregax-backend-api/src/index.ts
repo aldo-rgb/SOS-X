@@ -7170,17 +7170,6 @@ app.post('/api/admin/crm/sequence/run-now', authenticateToken, requireMinLevel(R
 app.get('/api/webhooks/whatsapp', verifyWhatsappWebhook);
 app.post('/api/webhooks/whatsapp', handleWhatsappWebhook);
 app.get('/api/_diag/wa-subs', debugWabaSubs);
-// TEMP: disparo manual de la secuencia (se elimina tras usarse).
-app.get('/api/_diag/seq-run', async (req, res) => {
-  if (req.query.secret !== 'zaia-seqrun-0721') return res.status(403).json({ error: 'forbidden' });
-  try {
-    const { drainSequenceBatches } = await import('./cronJobs');
-    drainSequenceBatches().catch((e) => console.error('[SEQ] diag run:', (e as Error).message));
-    res.json({ ok: true, message: 'drenado disparado' });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: (e as Error).message });
-  }
-});
 // Grupos de leads (segmentación manual; reglas automáticas después)
 app.get('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadGroups);
 app.post('/api/admin/crm/groups', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createLeadGroup);
