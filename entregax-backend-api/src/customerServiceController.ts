@@ -443,6 +443,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           GREATEST(EXTRACT(DAY FROM NOW() - p.received_at)::INTEGER, 0) as dias,
           p.received_at as fecha_llegada_cedis,
           p.status::text as ultimo_status,
+          COALESCE(p.payment_status, 'pending') as payment_status,
           COALESCE(p.description, 'Paquete') as descripcion
         FROM packages p
         LEFT JOIN china_receipts cr ON p.china_receipt_id = cr.id
@@ -462,6 +463,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           GREATEST(EXTRACT(DAY FROM NOW() - d.inspected_at)::INTEGER, 0),
           d.inspected_at as fecha_llegada_cedis,
           d.status::text as ultimo_status,
+          CASE WHEN d.paid_at IS NOT NULL THEN 'paid' ELSE 'pending' END as payment_status,
           COALESCE(d.description, 'DHL')
         FROM dhl_shipments d WHERE d.paid_at IS NULL
           AND d.inspected_at IS NOT NULL
@@ -475,6 +477,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           GREATEST(EXTRACT(DAY FROM NOW() - n.created_at)::INTEGER, 0),
           n.created_at as fecha_llegada_cedis,
           n.status::text as ultimo_status,
+          CASE WHEN n.paid_at IS NOT NULL THEN 'paid' ELSE 'pending' END as payment_status,
           COALESCE(n.destination_name, 'Nacional')
         FROM national_shipments n WHERE n.paid_at IS NULL
           AND n.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz')
@@ -487,6 +490,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           GREATEST(EXTRACT(DAY FROM NOW() - COALESCE(ms.received_at_cedis, ms.received_at_origin))::INTEGER, 0),
           COALESCE(ms.received_at_cedis, ms.received_at_origin) as fecha_llegada_cedis,
           ms.status::text as ultimo_status,
+          COALESCE(ms.payment_status, 'pending') as payment_status,
           'Marítimo'::text
         FROM maritime_shipments ms WHERE (ms.payment_status != 'paid' OR ms.payment_status IS NULL)
           AND COALESCE(ms.received_at_cedis, ms.received_at_origin) IS NOT NULL
@@ -500,6 +504,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           GREATEST(EXTRACT(DAY FROM NOW() - cr.created_at)::INTEGER, 0),
           cr.created_at as fecha_llegada_cedis,
           cr.status::text as ultimo_status,
+          COALESCE(cr.payment_status, 'pending') as payment_status,
           COALESCE(cr.shipping_mark, 'China')
         FROM china_receipts cr WHERE cr.paid_at IS NULL
           AND cr.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz')
@@ -512,6 +517,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           GREATEST(EXTRACT(DAY FROM NOW() - mo.received_at)::INTEGER, 0),
           mo.received_at as fecha_llegada_cedis,
           COALESCE(mo.last_tracking_status, mo.status::text) as ultimo_status,
+          COALESCE(mo.payment_status, 'pending') as payment_status,
           COALESCE(mo.shipping_mark, 'Pedido')
         FROM maritime_orders mo WHERE mo.paid_at IS NULL
           AND mo.received_at IS NOT NULL

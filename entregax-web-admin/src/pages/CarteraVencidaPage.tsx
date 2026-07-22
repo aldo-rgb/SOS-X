@@ -654,6 +654,7 @@ export default function CarteraVencidaPage() {
                       <TableCell>Cliente</TableCell>
                       <TableCell align="center">Llegada a CEDIS</TableCell>
                       <TableCell align="center">Último Status</TableCell>
+                      <TableCell align="center">Pago</TableCell>
                       <TableCell align="center">Días</TableCell>
                       <TableCell align="right">Saldo</TableCell>
                       <TableCell>Acciones</TableCell>
@@ -690,6 +691,23 @@ export default function CarteraVencidaPage() {
                           )}
                         </TableCell>
                         <TableCell align="center">
+                          {(() => {
+                            const ps = String(guia.payment_status || 'pending').toLowerCase();
+                            const map: Record<string, { label: string; color: 'success' | 'warning' | 'error' | 'info' | 'default' }> = {
+                              paid: { label: 'Pagado', color: 'success' },
+                              partial: { label: 'Parcial', color: 'warning' },
+                              vouchers_submitted: { label: 'Comprobantes', color: 'info' },
+                              vouchers_partial: { label: 'Comp. parcial', color: 'info' },
+                              pending_payment: { label: 'Por pagar', color: 'warning' },
+                              pending: { label: 'Pendiente', color: 'error' },
+                              condonado: { label: 'Condonado', color: 'default' },
+                              cancelled: { label: 'Cancelado', color: 'default' },
+                            };
+                            const cfg = map[ps] || { label: ps, color: 'default' as const };
+                            return <Chip size="small" color={cfg.color} label={cfg.label} sx={{ fontSize: '0.7rem' }} />;
+                          })()}
+                        </TableCell>
+                        <TableCell align="center">
                           <Chip 
                             size="small" 
                             label={`${guia.dias || 0} días`}
@@ -712,7 +730,7 @@ export default function CarteraVencidaPage() {
                     ))}
                     {(!dashboard.guiasCriticas || dashboard.guiasCriticas.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={9} align="center">
+                        <TableCell colSpan={10} align="center">
                           <Typography color="text.secondary">🎉 No hay guías críticas - Todo en orden</Typography>
                         </TableCell>
                       </TableRow>
