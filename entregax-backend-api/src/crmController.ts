@@ -375,7 +375,25 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
       WHERE role = 'client' AND deleted_at IS NULL
     `);
     const row = r.rows[0] || {};
-    res.json({ success: true, week: Number(row.week) || 0, month: Number(row.month) || 0, year: Number(row.year) || 0, today: Number(row.today) || 0 });
+    // Contenedores dados de alta este mes calendario (reinicia el día 1):
+    //   FCL = contenedores completos; LCL = consolidaciones semanales ("weeks").
+    let fclMonth = 0, lclMonth = 0;
+    try {
+      const c = await pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE UPPER(TRIM(type)) = 'FCL') AS fcl,
+          COUNT(*) FILTER (WHERE UPPER(TRIM(type)) = 'LCL') AS lcl
+        FROM containers
+        WHERE created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('month', now() AT TIME ZONE 'America/Monterrey')
+      `);
+      fclMonth = Number(c.rows[0]?.fcl) || 0;
+      lclMonth = Number(c.rows[0]?.lcl) || 0;
+    } catch (e) { /* tabla containers puede no existir en algún entorno */ }
+    res.json({
+      success: true,
+      week: Number(row.week) || 0, month: Number(row.month) || 0, year: Number(row.year) || 0, today: Number(row.today) || 0,
+      fcl_month: fclMonth, lcl_month: lclMonth,
+    });
   } catch (error) {
     console.error('Error en getRegistrationStats:', error);
     res.status(500).json({ success: false, error: 'Error al obtener altas' });

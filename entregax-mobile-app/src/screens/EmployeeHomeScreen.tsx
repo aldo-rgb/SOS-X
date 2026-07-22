@@ -440,7 +440,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   // Widgets de leads/altas para admin y super_admin.
-  const [leadsWidgets, setLeadsWidgets] = useState<{ week: number; month: number; year: number; interested: number } | null>(null);
+  const [leadsWidgets, setLeadsWidgets] = useState<{ week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number } | null>(null);
   const isAdminLevel = ['admin', 'super_admin'].includes(user.role);
 
   const loadLeadsWidgets = useCallback(async () => {
@@ -457,6 +457,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
         month: Number(reg.month) || 0,
         year: Number(reg.year) || 0,
         interested: Number(prov?.stats?.interested_count) || 0,
+        fclMonth: Number(reg.fcl_month) || 0,
+        lclMonth: Number(reg.lcl_month) || 0,
       });
     } catch (e) {
       console.warn('No se pudieron cargar widgets de leads:', e);
@@ -1314,6 +1316,16 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                     <Text style={styles.leadNumber}>{leadsWidgets.interested}</Text>
                     <Text style={styles.leadLabel}>Interesados</Text>
                     <Text style={styles.leadSub}>dieron clic / respondieron</Text>
+                  </View>
+                  <View style={[styles.leadCard, { backgroundColor: '#1E6F8B' }]}>
+                    <Text style={styles.leadNumber}>{leadsWidgets.fclMonth}</Text>
+                    <Text style={styles.leadLabel}>Contenedores FCL</Text>
+                    <Text style={styles.leadSub}>este mes · reinicia el día 1</Text>
+                  </View>
+                  <View style={[styles.leadCard, { backgroundColor: '#2E7D5B' }]}>
+                    <Text style={styles.leadNumber}>{leadsWidgets.lclMonth}</Text>
+                    <Text style={styles.leadLabel}>Weeks LCL</Text>
+                    <Text style={styles.leadSub}>este mes · reinicia el día 1</Text>
                   </View>
                 </View>
               </View>
