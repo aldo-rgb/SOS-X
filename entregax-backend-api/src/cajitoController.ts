@@ -328,6 +328,130 @@ const TOOLS: ToolDef[] = [
         currentlyLoaded: loaded.rows[0]?.total ?? null
       };
     }
+  },
+
+  // -------------------- CENTRO DE SOPORTE: KPIs --------------------
+  {
+    name: 'support_tickets_stats',
+    requiredCapability: 'cajito.read.support',
+    readOnly: true,
+    description: 'Estadísticas del Centro de Soporte: cuántos tickets hay por estado (open_ai=IA atendiendo, escalated_human=escalado a humano, waiting_client=esperando al cliente, resolved=resuelto, closed=cerrado), abiertos por cliente vs por empleado, nuevos y resueltos en las últimas 24h, y abiertos por departamento. Úsalo cuando pregunten cuántos tickets hay, cuántos abiertos/pendientes, o el estado general del soporte.',
+    parameters: { type: 'object', properties: {} },
+    handler: async () => {
+      const stats = await pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE archived_at IS NULL)                                   AS total_activos,
+          COUNT(*) FILTER (WHERE status = 'open_ai' AND archived_at IS NULL)            AS ia_atendiendo,
+          COUNT(*) FILTER (WHERE status = 'escalated_human' AND archived_at IS NULL)    AS escalados_humano,
+          COUNT(*) FILTER (WHERE status = 'waiting_client' AND archived_at IS NULL)     AS esperando_cliente,
+          COUNT(*) FILTER (WHERE status = 'resolved')                                   AS resueltos,
+          COUNT(*) FILTER (WHERE status = 'closed')                                     AS cerrados,
+          COUNT(*) FILTER (WHERE creator_type = 'employee' AND status <> 'resolved' AND archived_at IS NULL)                    AS abiertos_empleado,
+          COUNT(*) FILTER (WHERE COALESCE(creator_type,'client') <> 'employee' AND status <> 'resolved' AND archived_at IS NULL) AS abiertos_cliente,
+          COUNT(*) FILTER (WHERE created_at  > NOW() - INTERVAL '24 hours')             AS nuevos_24h,
+          COUNT(*) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours')             AS resueltos_24h
+        FROM support_tickets
+      `).catch(() => ({ rows: [{}] }));
+      const deps = await pool.query(`
+        SELECT d.name AS departamento,
+               COUNT(t.id) FILTER (WHERE t.status <> 'resolved' AND t.archived_at IS NULL) AS abiertos
+        FROM support_departments d
+        LEFT JOIN support_tickets t ON t.department_id = d.id
+        GROUP BY d.id, d.name, d.sort_order
+        ORDER BY d.sort_order
+      `).catch(() => ({ rows: [] }));
+      return { resumen: stats.rows[0] || {}, por_departamento: deps.rows };
+    }
+  },
+
+  // -------------------- CENTRO DE SOPORTE: buscar tickets --------------------
+  {
+    name: 'search_support_tickets',
+    requiredCapability: 'cajito.read.support',
+    readOnly: true,
+    description: 'Busca/lista tickets del Centro de Soporte. Puedes filtrar por texto (query: folio del ticket, asunto, número de guía, o nombre/casillero/correo del cliente) y/o por status (open_ai, escalated_human, waiting_client, resolved, closed). Sin filtros devuelve los tickets activos más recientes. Devuelve folio, estado, asunto, categoría, cliente, departamento, nº de mensajes, último mensaje y fechas.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Texto a buscar: folio, asunto, guía, o nombre/casillero/correo del cliente (opcional)' },
+        status: { type: 'string', description: 'Filtrar por estado: open_ai, escalated_human, waiting_client, resolved, closed (opcional)' },
+        include_archived: { type: 'boolean', description: 'Incluir tickets archivados (por defecto false)' }
+      }
+    },
+    handler: async ({ query, status, include_archived }) => {
+      const wh: string[] = [];
+      const params: any[] = [];
+      if (!include_archived) wh.push('t.archived_at IS NULL');
+      if (status) { params.push(String(status).trim()); wh.push(`t.status = $${params.length}`); }
+      const q = String(query || '').trim();
+      if (q) {
+        params.push(`%${q}%`);
+        const p = `$${params.length}`;
+        wh.push(`(t.ticket_folio ILIKE ${p} OR t.subject ILIKE ${p} OR t.tracking_number ILIKE ${p}
+                  OR u.full_name ILIKE ${p} OR u.email ILIKE ${p} OR u.box_id ILIKE ${p})`);
+      }
+      params.push(MAX_ROWS);
+      const r = await pool.query(
+        `SELECT t.ticket_folio, t.status, t.subject, t.category, t.tracking_number,
+                t.creator_type, t.created_at, t.updated_at,
+                u.full_name AS cliente, u.box_id AS casillero, u.email AS cliente_email,
+                d.name AS departamento,
+                (SELECT COUNT(*)::int FROM ticket_messages tm WHERE tm.ticket_id = t.id) AS mensajes,
+                (SELECT tm.message FROM ticket_messages tm WHERE tm.ticket_id = t.id ORDER BY tm.created_at DESC LIMIT 1) AS ultimo_mensaje
+           FROM support_tickets t
+           LEFT JOIN users u ON t.user_id = u.id
+           LEFT JOIN support_departments d ON t.department_id = d.id
+          ${wh.length ? 'WHERE ' + wh.join(' AND ') : ''}
+          ORDER BY t.updated_at DESC NULLS LAST
+          LIMIT $${params.length}`,
+        params
+      ).catch((e: any) => ({ rows: [], _err: String(e?.message || e) } as any));
+      return { count: r.rows.length, tickets: r.rows };
+    }
+  },
+
+  // -------------------- CENTRO DE SOPORTE: hilo de un ticket --------------------
+  {
+    name: 'get_ticket_thread',
+    requiredCapability: 'cajito.read.support',
+    readOnly: true,
+    description: 'Devuelve el hilo COMPLETO de un ticket por su folio (p.ej. "TKT-2026-1708") o su id numérico: datos del ticket + todos los mensajes en orden (cliente, IA y agentes), incluyendo notas internas. Úsalo cuando pidan "de qué trata el ticket X", "muéstrame la conversación del ticket X" o el detalle/historial de un ticket.',
+    parameters: {
+      type: 'object',
+      properties: {
+        ticket: { type: 'string', description: 'Folio del ticket (TDX-…) o id numérico' }
+      },
+      required: ['ticket']
+    },
+    handler: async ({ ticket }) => {
+      const key = String(ticket || '').trim();
+      if (!key) return { error: 'ticket vacío' };
+      const isNum = /^\d+$/.test(key);
+      const head = await pool.query(
+        `SELECT t.id, t.ticket_folio, t.status, t.ticket_status, t.subject, t.category, t.tracking_number,
+                t.creator_type, t.created_at, t.updated_at, t.resolved_at,
+                u.full_name AS cliente, u.box_id AS casillero, u.email AS cliente_email, u.phone AS cliente_telefono,
+                d.name AS departamento, ag.full_name AS agente_asignado
+           FROM support_tickets t
+           LEFT JOIN users u  ON t.user_id = u.id
+           LEFT JOIN support_departments d ON t.department_id = d.id
+           LEFT JOIN users ag ON t.assigned_to = ag.id
+          WHERE ${isNum ? 't.id = $1' : 't.ticket_folio ILIKE $1'}
+          LIMIT 1`,
+        [isNum ? Number(key) : key]
+      );
+      if (!head.rows.length) return { found: false };
+      const t = head.rows[0];
+      const msgs = await pool.query(
+        `SELECT sender_type, message, COALESCE(is_internal, FALSE) AS is_internal, created_at
+           FROM ticket_messages
+          WHERE ticket_id = $1
+          ORDER BY created_at ASC
+          LIMIT 200`,
+        [t.id]
+      );
+      return { found: true, ticket: t, mensajes: msgs.rows };
+    }
   }
 ];
 
@@ -351,6 +475,13 @@ function buildSystemPrompt(user: { userId: number; role: string; full_name?: str
     'Estados de contenedores: received_origin (recibido en China), consolidated (consolidado), in_transit (zarpó, en camino), arrived_port (llegó al puerto MX), customs_cleared (aduana liberada), in_transit_clientfinal (en camino al cliente final), delivered (entregado).',
     'Para preguntas sobre cajas/paquetes pendientes o en tránsito → usa packages_pending_counts o package_status_counts.',
     'Para preguntas sobre contenedores marítimos → usa container_status_counts.',
+    '',
+    '=== CENTRO DE SOPORTE (tickets) ===',
+    'El Centro de Soporte maneja "tickets" (tabla support_tickets) con mensajes (ticket_messages) y departamentos (support_departments).',
+    'Estados de ticket: open_ai (la IA lo está atendiendo), escalated_human (escalado a un agente humano), waiting_client (esperando respuesta del cliente), resolved (resuelto), closed (cerrado). Cada ticket tiene folio (p.ej. TKT-2026-1708), asunto, categoría, cliente, departamento y a veces un número de guía.',
+    'Para "cuántos tickets hay / abiertos / pendientes / estado del soporte" → usa support_tickets_stats.',
+    'Para buscar o listar tickets (por folio, asunto, guía, cliente o estado) → usa search_support_tickets.',
+    'Para el detalle/conversación de un ticket concreto → usa get_ticket_thread con el folio o id.',
     '',
     `Usuario actual: id=${user.userId}, rol=${user.role}${user.full_name ? `, nombre=${user.full_name}` : ''}.`,
     `Capacidades concedidas: ${capList}.`
