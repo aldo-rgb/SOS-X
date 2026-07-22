@@ -935,7 +935,7 @@ export default function UnifiedLeadsPage() {
   };
 
   // Abre el detalle de altas de un periodo (semana/mes/año).
-  const openRegList = async (period: 'week' | 'month' | 'year', title: string) => {
+  const openRegList = async (period: 'today' | 'week' | 'month' | 'year', title: string) => {
     setRegListTitle(title);
     setRegListItems([]);
     setRegListOpen(true);
@@ -1565,8 +1565,16 @@ export default function UnifiedLeadsPage() {
         </Box>
       </Box>
 
-      {/* 📈 Widgets principales: altas de usuarios (semana / mes / año) */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 2, mb: 3 }}>
+      {/* 📈 Widgets principales: altas de usuarios (hoy / semana / mes / año) */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr 1fr' }, gap: 2, mb: 3 }}>
+        <Paper onClick={() => openRegList('today', 'Altas hoy')} sx={{ p: 3, borderRadius: 3, color: '#fff', background: 'linear-gradient(135deg, #E65100 0%, #FB8C00 100%)', display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer', transition: 'transform .15s, box-shadow .15s', '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 } }}>
+          <Box sx={{ fontSize: 40, lineHeight: 1 }}>☀️</Box>
+          <Box>
+            <Typography variant="h3" fontWeight={800} lineHeight={1}>{regStats.today}</Typography>
+            <Typography variant="subtitle1" fontWeight={600}>Altas hoy</Typography>
+            <Typography variant="caption" sx={{ opacity: 0.85 }}>Nuevos usuarios · reinicia a medianoche (MTY)</Typography>
+          </Box>
+        </Paper>
         <Paper onClick={() => openRegList('week', 'Altas esta semana')} sx={{ p: 3, borderRadius: 3, color: '#fff', background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)', display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer', transition: 'transform .15s, box-shadow .15s', '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 } }}>
           <Box sx={{ fontSize: 40, lineHeight: 1 }}>🗓️</Box>
           <Box>
