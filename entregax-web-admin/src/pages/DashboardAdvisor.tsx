@@ -1554,10 +1554,16 @@ export default function DashboardAdvisor() {
       // Antes se mandaba childrenCount + 1, lo que para un master de 6 guías generaba
       // 7 líneas y PQTX rechaza con "no se pueden enviar más de 6 líneas de captura".
       const boxes = (shipment.isMaster && shipment.childrenCount > 0) ? shipment.childrenCount : 1;
+      // El peso del master es el TOTAL (suma de las hijas). PQTX cotiza por LÍNEA,
+      // así que hay que mandar el peso POR CAJA (promedio), no el total, o infla
+      // la cotización ~N×. Espejo del fallback del backend (weight/boxes).
+      const perBoxWeight = boxes > 1
+        ? Math.max(0.5, (shipment.weight || boxes) / boxes)
+        : (shipment.weight || 1);
       const res = await api.post('/shipping/pqtx-quote', {
         destZipCode: zipCode,
         packageCount: boxes,
-        weight: shipment.weight || 1,
+        weight: perBoxWeight,
         length: shipment.lengthCm || 30,
         width: shipment.widthCm || 30,
         height: shipment.heightCm || 30,
