@@ -375,19 +375,27 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
       WHERE role = 'client' AND deleted_at IS NULL
     `);
     const row = r.rows[0] || {};
-    // Contenedores dados de alta este mes calendario (reinicia el día 1):
-    //   FCL = contenedores completos; LCL = consolidaciones semanales ("weeks").
+    // Contenedores dados de alta este mes calendario (reinicia el día 1).
+    // Clasificación (misma que el panel Costeo Marítimo):
+    //   FCL = contenedor con cliente dueño (legacy_client_id) o sin week_number.
+    //   LCL = sin cliente y con week_number → agrupado por semana; "weeks" =
+    //         cantidad de semanas (week_number) distintas.
+    // (NO usar containers.type: es el tipo de despacho aduanal 单清/双清.)
     let fclMonth = 0, lclMonth = 0;
     try {
       const c = await pool.query(`
         SELECT
-          COUNT(*) FILTER (WHERE UPPER(TRIM(type)) = 'FCL') AS fcl,
-          COUNT(*) FILTER (WHERE UPPER(TRIM(type)) = 'LCL') AS lcl
+          COUNT(*) FILTER (
+            WHERE legacy_client_id IS NOT NULL OR week_number IS NULL OR TRIM(week_number) = ''
+          ) AS fcl,
+          COUNT(DISTINCT week_number) FILTER (
+            WHERE legacy_client_id IS NULL AND week_number IS NOT NULL AND TRIM(week_number) <> ''
+          ) AS lcl_weeks
         FROM containers
         WHERE created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('month', now() AT TIME ZONE 'America/Monterrey')
       `);
       fclMonth = Number(c.rows[0]?.fcl) || 0;
-      lclMonth = Number(c.rows[0]?.lcl) || 0;
+      lclMonth = Number(c.rows[0]?.lcl_weeks) || 0;
     } catch (e) { /* tabla containers puede no existir en algún entorno */ }
 
     // AWBs (China aéreo) y kilos de la SEMANA — reinicia el DOMINGO.
