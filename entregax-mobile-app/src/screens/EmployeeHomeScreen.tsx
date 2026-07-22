@@ -439,6 +439,29 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  // Widgets de leads/altas para admin y super_admin.
+  const [leadsWidgets, setLeadsWidgets] = useState<{ week: number; month: number; year: number; interested: number } | null>(null);
+  const isAdminLevel = ['admin', 'super_admin'].includes(user.role);
+
+  const loadLeadsWidgets = useCallback(async () => {
+    if (!['admin', 'super_admin'].includes(user.role)) return;
+    try {
+      const [regRes, provRes] = await Promise.all([
+        fetch(`${API_URL}/api/admin/crm/registration-stats`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/admin/crm/prospects?limit=1`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const reg = regRes.ok ? await regRes.json() : {};
+      const prov = provRes.ok ? await provRes.json() : {};
+      setLeadsWidgets({
+        week: Number(reg.week) || 0,
+        month: Number(reg.month) || 0,
+        year: Number(reg.year) || 0,
+        interested: Number(prov?.stats?.interested_count) || 0,
+      });
+    } catch (e) {
+      console.warn('No se pudieron cargar widgets de leads:', e);
+    }
+  }, [token, user.role]);
 
   // Cargar datos del asesor
   const loadAdvisorData = useCallback(async () => {
@@ -596,6 +619,10 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     loadModulePermissions();
   }, [loadModulePermissions]);
 
+  useEffect(() => {
+    loadLeadsWidgets();
+  }, [loadLeadsWidgets]);
+
   // 🔔 Registrar push token y suscribir a notificaciones de chat (deep-link)
   useEffect(() => {
     let cleanup: (() => void) | null = null;
@@ -731,6 +758,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     if (isAdvisor) {
       loadAdvisorData();
     }
+    loadLeadsWidgets();
     setTimeout(() => setRefreshing(false), 1000);
   };
 
@@ -1262,6 +1290,35 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           </View>
         ) : (
           <>
+            {/* =============== WIDGETS DE LEADS (admin / super_admin) =============== */}
+            {isAdminLevel && leadsWidgets && (
+              <View style={styles.leadsSection}>
+                <Text style={styles.sectionTitle}>📊 Leads y Altas</Text>
+                <View style={styles.leadsGrid}>
+                  <View style={[styles.leadCard, { backgroundColor: '#C1502E' }]}>
+                    <Text style={styles.leadNumber}>{leadsWidgets.week}</Text>
+                    <Text style={styles.leadLabel}>Altas esta semana</Text>
+                    <Text style={styles.leadSub}>reinicia cada lunes</Text>
+                  </View>
+                  <View style={[styles.leadCard, { backgroundColor: '#2E9E9E' }]}>
+                    <Text style={styles.leadNumber}>{leadsWidgets.month}</Text>
+                    <Text style={styles.leadLabel}>Altas este mes</Text>
+                    <Text style={styles.leadSub}>reinicia el día 1</Text>
+                  </View>
+                  <View style={[styles.leadCard, { backgroundColor: '#6A2E9E' }]}>
+                    <Text style={styles.leadNumber}>{leadsWidgets.year}</Text>
+                    <Text style={styles.leadLabel}>Altas este año</Text>
+                    <Text style={styles.leadSub}>reinicia el 1 de enero</Text>
+                  </View>
+                  <View style={[styles.leadCard, { backgroundColor: '#D97A3D' }]}>
+                    <Text style={styles.leadNumber}>{leadsWidgets.interested}</Text>
+                    <Text style={styles.leadLabel}>Interesados</Text>
+                    <Text style={styles.leadSub}>dieron clic / respondieron</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
             {/* =============== CONTENIDO PARA OTROS EMPLEADOS =============== */}
             {/* Módulos Disponibles */}
             <View style={styles.modulesSection}>
@@ -1573,6 +1630,40 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   
+  // Leads widgets (admin / super_admin)
+  leadsSection: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  leadsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  leadCard: {
+    width: '48.5%',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+  },
+  leadNumber: {
+    color: '#fff',
+    fontSize: 30,
+    fontWeight: '800',
+    lineHeight: 34,
+  },
+  leadLabel: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  leadSub: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 10,
+    marginTop: 1,
+  },
   // Modules Section
   modulesSection: {
     paddingHorizontal: 16,
