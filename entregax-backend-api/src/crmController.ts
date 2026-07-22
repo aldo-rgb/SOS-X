@@ -2110,36 +2110,32 @@ export const bulkCreateProspects = async (req: Request, res: Response): Promise<
       return res.status(400).json({ success: false, error: 'Ninguna fila tiene "Nombre completo"' });
     }
 
-    // Cargar teléfonos y correos existentes (users + legacy_clients + prospects previos).
+    // Cargar teléfonos existentes (users + legacy_clients + prospects previos).
+    // El funnel es 100% por teléfono → el dedup es SOLO por teléfono. El correo
+    // NUNCA descarta una fila (un prospecto sin correo es válido y se agrega igual).
     const existingPhones = new Set<string>();
-    const existingEmails = new Set<string>();
     const existingRes = await pool.query(`
-      SELECT phone, email FROM users
+      SELECT phone FROM users
       UNION ALL
-      SELECT phone, email FROM legacy_clients
+      SELECT phone FROM legacy_clients
       UNION ALL
-      SELECT whatsapp AS phone, email FROM prospects
+      SELECT whatsapp AS phone FROM prospects
     `);
     for (const row of existingRes.rows) {
       const np = normPhone(row.phone);
       if (np) existingPhones.add(np);
-      const ne = normEmail(row.email);
-      if (ne) existingEmails.add(ne);
     }
 
-    // Filtrar: se omite la fila si su teléfono o correo ya existe (en BD o dentro del mismo Excel).
+    // Filtrar: se omite la fila SOLO si su teléfono ya existe (en BD o dentro del
+    // mismo Excel). Las filas sin teléfono se agregan igual (no deduplican).
     const toInsert: typeof clean = [];
     let skippedDuplicate = 0;
     const seenPhones = new Set<string>();
-    const seenEmails = new Set<string>();
     for (const c of clean) {
       const np = normPhone(c.whatsapp);
-      const ne = normEmail(c.email);
       const dupPhone = !!np && (existingPhones.has(np) || seenPhones.has(np));
-      const dupEmail = !!ne && (existingEmails.has(ne) || seenEmails.has(ne));
-      if (dupPhone || dupEmail) { skippedDuplicate++; continue; }
+      if (dupPhone) { skippedDuplicate++; continue; }
       if (np) seenPhones.add(np);
-      if (ne) seenEmails.add(ne);
       toInsert.push(c);
     }
 
