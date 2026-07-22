@@ -32,6 +32,7 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import QRCode from 'react-native-qrcode-svg';
 import { api, API_URL } from '../services/api';
+import WidgetSeriesModal, { SeriesConfig } from '../components/WidgetSeriesModal';
 import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
 import { useBrandAsset } from '../hooks/useBrandAssets';
@@ -441,6 +442,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   // Widgets de leads/altas para admin y super_admin.
   const [leadsWidgets, setLeadsWidgets] = useState<{ today: number; week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number; awbWeek: number; kgWeek: number } | null>(null);
+  const [seriesConfig, setSeriesConfig] = useState<SeriesConfig | null>(null);
   const isAdminLevel = ['admin', 'super_admin'].includes(user.role);
 
   const loadLeadsWidgets = useCallback(async () => {
@@ -1300,46 +1302,54 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               <View style={styles.leadsSection}>
                 <Text style={styles.sectionTitle}>📊 Leads y Altas</Text>
                 <View style={styles.leadsGrid}>
-                  <View style={[styles.leadCard, { backgroundColor: '#C1502E' }]}>
+                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#C1502E' }]}
+                    onPress={() => setSeriesConfig({ metric: 'altas', granularity: 'week', periods: 9, title: 'Altas por semana', color: '#C1502E' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.week}</Text>
                     <Text style={styles.leadLabel}>Altas esta semana</Text>
-                    <Text style={styles.leadSub}>reinicia cada lunes</Text>
-                  </View>
-                  <View style={[styles.leadCard, { backgroundColor: '#2E9E9E' }]}>
+                    <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#2E9E9E' }]}
+                    onPress={() => setSeriesConfig({ metric: 'altas', granularity: 'month', periods: 12, title: 'Altas por mes', color: '#2E9E9E' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.month}</Text>
                     <Text style={styles.leadLabel}>Altas este mes</Text>
-                    <Text style={styles.leadSub}>reinicia el día 1</Text>
-                  </View>
-                  <View style={[styles.leadCard, { backgroundColor: '#E65100' }]}>
+                    <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#E65100' }]}
+                    onPress={() => setSeriesConfig({ metric: 'altas', granularity: 'day', periods: 7, title: 'Altas por día', color: '#E65100' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.today}</Text>
                     <Text style={styles.leadLabel}>Altas hoy</Text>
-                    <Text style={styles.leadSub}>reinicia a medianoche</Text>
-                  </View>
-                  <View style={[styles.leadCard, { backgroundColor: '#D97A3D' }]}>
+                    <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#D97A3D' }]}
+                    onPress={() => setSeriesConfig({ metric: 'interested', granularity: 'day', periods: 7, title: 'Interesados por día', color: '#D97A3D' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.interested}</Text>
                     <Text style={styles.leadLabel}>Interesados</Text>
-                    <Text style={styles.leadSub}>dieron clic / respondieron</Text>
-                  </View>
-                  <View style={[styles.leadCard, { backgroundColor: '#1E6F8B' }]}>
+                    <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#1E6F8B' }]}
+                    onPress={() => setSeriesConfig({ metric: 'fcl', granularity: 'month', periods: 12, title: 'Contenedores FCL por mes', color: '#1E6F8B' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.fclMonth}</Text>
                     <Text style={styles.leadLabel}>Contenedores FCL</Text>
-                    <Text style={styles.leadSub}>este mes · reinicia el día 1</Text>
-                  </View>
-                  <View style={[styles.leadCard, { backgroundColor: '#2E7D5B' }]}>
+                    <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#2E7D5B' }]}
+                    onPress={() => setSeriesConfig({ metric: 'lcl', granularity: 'month', periods: 12, title: 'Weeks LCL por mes', color: '#2E7D5B' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.lclMonth}</Text>
                     <Text style={styles.leadLabel}>Weeks LCL</Text>
-                    <Text style={styles.leadSub}>este mes · reinicia el día 1</Text>
-                  </View>
-                  <View style={[styles.leadCard, { backgroundColor: '#8B5E1E' }]}>
+                    <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#8B5E1E' }]}
+                    onPress={() => setSeriesConfig({ metric: 'awb', granularity: 'week', periods: 9, title: 'AWBs China aéreo por semana', color: '#8B5E1E' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.awbWeek}</Text>
                     <Text style={styles.leadLabel}>AWBs China aéreo</Text>
-                    <Text style={styles.leadSub}>esta semana · reinicia el domingo</Text>
-                  </View>
-                  <View style={[styles.leadCard, { backgroundColor: '#3D5A8B' }]}>
+                    <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#3D5A8B' }]}
+                    onPress={() => setSeriesConfig({ metric: 'kg', granularity: 'week', periods: 9, title: 'Kilos aéreo por semana', color: '#3D5A8B', unit: 'kg', decimals: 0 })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.kgWeek.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</Text>
                     <Text style={styles.leadLabel}>Kilos aéreo</Text>
-                    <Text style={styles.leadSub}>esta semana · reinicia el domingo</Text>
-                  </View>
+                    <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             )}
@@ -1542,6 +1552,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <WidgetSeriesModal config={seriesConfig} onClose={() => setSeriesConfig(null)} apiUrl={API_URL} token={token} />
 
       <CajitoFab user={user} token={token} />
     </SafeAreaView>

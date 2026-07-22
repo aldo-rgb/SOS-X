@@ -431,6 +431,58 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
   }
 };
 
+// 📈 ADMIN: SERIE TEMPORAL para las gráficas de los widgets (altas/fcl/lcl/awb/kg/
+// interesados). granularity: day (7 días) | week (~2 meses) | month (12 meses).
+// Devuelve buckets contiguos (rellena con 0) en hora de México, orden viejo→nuevo.
+export const getWidgetSeries = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const metric = String(req.query.metric || 'altas').toLowerCase();
+    const granRaw = String(req.query.granularity || 'day').toLowerCase();
+    const trunc = granRaw === 'month' ? 'month' : granRaw === 'week' ? 'week' : 'day';
+    const periods = Math.min(Math.max(parseInt(String(req.query.periods || '7'), 10) || 7, 1), 36);
+
+    // Whitelist de métricas → tabla / columna fecha / expresión de valor / filtro.
+    const M: Record<string, { table: string; dateCol: string; val: string; where: string }> = {
+      altas:      { table: 'users',          dateCol: 'created_at', val: 'COUNT(*)',                     where: "role = 'client' AND deleted_at IS NULL" },
+      awb:        { table: 'china_receipts', dateCol: 'created_at', val: 'COUNT(*)',                     where: 'TRUE' },
+      kg:         { table: 'china_receipts', dateCol: 'created_at', val: 'COALESCE(SUM(total_weight),0)', where: 'TRUE' },
+      fcl:        { table: 'containers',     dateCol: 'created_at', val: "COUNT(*) FILTER (WHERE legacy_client_id IS NOT NULL OR week_number IS NULL OR TRIM(week_number) = '')", where: 'TRUE' },
+      lcl:        { table: 'containers',     dateCol: 'created_at', val: "COUNT(DISTINCT week_number) FILTER (WHERE legacy_client_id IS NULL AND week_number IS NOT NULL AND TRIM(week_number) <> '')", where: 'TRUE' },
+      interested: { table: 'prospects',      dateCol: 'updated_at', val: 'COUNT(*)',                     where: "status = 'interested'" },
+    };
+    const cfg = M[metric];
+    if (!cfg) return res.status(400).json({ success: false, error: 'Métrica inválida' });
+
+    const sql = `
+      WITH buckets AS (
+        SELECT generate_series(
+          date_trunc('${trunc}', (now() AT TIME ZONE 'America/Monterrey')) - interval '${periods - 1} ${trunc}',
+          date_trunc('${trunc}', (now() AT TIME ZONE 'America/Monterrey')),
+          interval '1 ${trunc}'
+        )::date AS bucket
+      ),
+      data AS (
+        SELECT date_trunc('${trunc}', (${cfg.dateCol} AT TIME ZONE 'America/Monterrey'))::date AS bucket,
+               ${cfg.val} AS value
+        FROM ${cfg.table}
+        WHERE ${cfg.where}
+          AND (${cfg.dateCol} AT TIME ZONE 'America/Monterrey')
+              >= date_trunc('${trunc}', (now() AT TIME ZONE 'America/Monterrey')) - interval '${periods - 1} ${trunc}'
+        GROUP BY 1
+      )
+      SELECT b.bucket, COALESCE(d.value, 0)::numeric AS value
+      FROM buckets b LEFT JOIN data d ON d.bucket = b.bucket
+      ORDER BY b.bucket ASC
+    `;
+    const r = await pool.query(sql);
+    const series = r.rows.map((x: any) => ({ bucket: x.bucket, value: Number(x.value) || 0 }));
+    res.json({ success: true, metric, granularity: trunc, periods, series });
+  } catch (error: any) {
+    console.error('Error en getWidgetSeries:', error);
+    res.status(500).json({ success: false, error: 'Error al obtener la serie' });
+  }
+};
+
 // 📋 ADMIN: LISTA DE ALTAS de un periodo (para el detalle al hacer click en los
 // widgets). Devuelve nombre, teléfono, box id, fecha/hora de alta y asesor
 // asignado (si tiene). Solo clientes, mismo criterio que getRegistrationStats.
