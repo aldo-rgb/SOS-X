@@ -786,6 +786,7 @@ export default function UnifiedLeadsPage() {
   const [prospectsLoading, setProspectsLoading] = useState(true);
   const [prospectStats, setProspectStats] = useState<ProspectStats | null>(null);
   const [uploadingProspects, setUploadingProspects] = useState(false);
+  const [runningSeqNow, setRunningSeqNow] = useState(false);
   const [markingKitId, setMarkingKitId] = useState<string | null>(null);
   // Secuencias automáticas
   const [sequences, setSequences] = useState<WaSequence[]>([]);
@@ -1153,6 +1154,31 @@ export default function UnifiedLeadsPage() {
     } finally {
       setUploadingProspects(false);
     }
+  };
+
+  // Dispara la secuencia YA (drena la cola vencida en tandas de 200). Útil cuando
+  // quedó backlog atorado (p.ej. tras un reinicio del backend entre tandas).
+  const handleRunSequenceNow = () => {
+    const due = seqNextSend?.dueCount || 0;
+    askConfirm({
+      title: '📤 Enviar secuencia ahora',
+      message: due > 0
+        ? `Se enviará el mensaje pendiente a ${due} usuario${due === 1 ? '' : 's'} cuya fecha ya venció, en tandas de 200 (cada 20 min hasta vaciar la cola). ¿Continuar?`
+        : 'No hay usuarios vencidos ahora mismo. ¿Aun así quieres forzar una corrida de la secuencia?',
+      confirmLabel: 'Enviar ahora',
+      onConfirm: async () => {
+        setRunningSeqNow(true);
+        try {
+          const res = await axios.post(`${API_URL}/admin/crm/sequence/run-now`, {}, { headers: { Authorization: `Bearer ${getToken()}` } });
+          setSnackbar({ open: true, message: res.data?.message || 'Envío iniciado; se drena en tandas de 200.', severity: 'success' });
+          setTimeout(() => { fetchProspects(); }, 3000);
+        } catch (e: any) {
+          setSnackbar({ open: true, message: e.response?.data?.error || 'Error al iniciar el envío', severity: 'error' });
+        } finally {
+          setRunningSeqNow(false);
+        }
+      }
+    });
   };
 
   // Effects
@@ -2245,6 +2271,17 @@ export default function UnifiedLeadsPage() {
             )}
             <Button variant="text" size="small" startIcon={<AccessTimeIcon />} onClick={openScheduleDialog} sx={{ color: '#7b1fa2' }}>
               Configurar horario
+            </Button>
+            <Button
+              variant="outlined"
+              size="small"
+              color="secondary"
+              startIcon={<WhatsAppIcon />}
+              disabled={runningSeqNow}
+              onClick={handleRunSequenceNow}
+              sx={{ color: '#7b1fa2', borderColor: 'rgba(123,31,162,0.5)' }}
+            >
+              {runningSeqNow ? 'Enviando…' : 'Enviar ahora'}
             </Button>
             <Dialog open={scheduleOpen} onClose={() => setScheduleOpen(false)} maxWidth="xs" fullWidth>
               <DialogTitle>⏰ Horario de la secuencia</DialogTitle>
