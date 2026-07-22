@@ -4780,7 +4780,9 @@ app.get('/api/cs/instructions/lookup', authenticateToken, requireMinLevel(ROLES.
     // Búsqueda flexible: tracking_internal o tracking_provider, con o sin guión.
     const compact = tracking.replace(/-/g, '').toUpperCase();
     const r = await pool.query(
-      `SELECT
+      `SELECT * FROM (
+        SELECT
+         'package'::text AS source,
          p.id,
          p.tracking_internal,
          p.tracking_provider,
@@ -4788,7 +4790,7 @@ app.get('/api/cs/instructions/lookup', authenticateToken, requireMinLevel(ROLES.
          p.user_id,
          p.box_id,
          p.service_type,
-         p.status,
+         p.status::text AS status,
          CASE WHEN p.assigned_address_id IS NOT NULL
                 OR p.delivery_address_id IS NOT NULL
               THEN TRUE ELSE FALSE END AS has_delivery_instructions,
@@ -4830,14 +4832,61 @@ app.get('/api/cs/instructions/lookup', authenticateToken, requireMinLevel(ROLES.
           OR UPPER(p.tracking_provider) = UPPER($1)
           OR REPLACE(UPPER(p.tracking_internal), '-', '') = $2
           OR REPLACE(UPPER(p.tracking_provider), '-', '') = $2
-          -- Buscar por la guía del recibo aéreo (china_receipts.fno) → sus hijas
           OR UPPER(cr.fno) = UPPER($1)
           OR REPLACE(UPPER(cr.fno), '-', '') = $2
-          -- Buscar por la guía del master → sus hijas
           OR UPPER(mp.tracking_internal) = UPPER($1)
           OR REPLACE(UPPER(mp.tracking_internal), '-', '') = $2
-       ORDER BY p.tracking_internal
-       LIMIT 40`,
+
+       UNION ALL
+
+        -- DHL Monterrey: se busca por el número interno (JJD…) o el visible.
+        SELECT
+         'dhl'::text AS source,
+         d.id,
+         COALESCE(d.secondary_tracking, d.inbound_tracking) AS tracking_internal,
+         d.inbound_tracking AS tracking_provider,
+         NULL::text AS origin_carrier,
+         d.user_id,
+         d.box_id,
+         'AA_DHL'::text AS service_type,
+         d.status::text AS status,
+         CASE WHEN d.delivery_address_id IS NOT NULL THEN TRUE ELSE FALSE END AS has_delivery_instructions,
+         d.delivery_address_id,
+         NULL::int AS assigned_address_id,
+         NULL::text AS destination_country,
+         NULL::text AS destination_city,
+         NULL::text AS destination_address,
+         NULL::text AS destination_zip,
+         NULL::text AS destination_phone,
+         NULL::text AS destination_contact,
+         d.national_carrier,
+         d.national_tracking,
+         d.national_label_url,
+         NULL::boolean AS is_master,
+         NULL::int AS master_id,
+         NULL::int AS china_receipt_id,
+         NULL::text AS receipt_fno,
+         u.full_name AS client_name,
+         u.email AS client_email,
+         a.alias AS address_alias,
+         TRIM(BOTH ' ' FROM CONCAT_WS(' ',
+           a.street, a.exterior_number,
+           CASE WHEN a.interior_number IS NOT NULL AND a.interior_number <> '' THEN 'Int. ' || a.interior_number END,
+           CASE WHEN a.neighborhood IS NOT NULL AND a.neighborhood <> '' THEN 'Col. ' || a.neighborhood END
+         )) AS address_line,
+         a.city AS address_city,
+         a.state AS address_state,
+         a.zip_code AS address_zip
+       FROM dhl_shipments d
+       LEFT JOIN users u ON u.id = d.user_id
+       LEFT JOIN addresses a ON a.id = d.delivery_address_id
+       WHERE UPPER(COALESCE(d.inbound_tracking,'')) = UPPER($1)
+          OR UPPER(COALESCE(d.secondary_tracking,'')) = UPPER($1)
+          OR REPLACE(UPPER(COALESCE(d.inbound_tracking,'')), '-', '') = $2
+          OR REPLACE(UPPER(COALESCE(d.secondary_tracking,'')), '-', '') = $2
+      ) combined
+      ORDER BY tracking_internal
+      LIMIT 40`,
       [tracking, compact]
     );
     if (r.rows.length === 0) {
@@ -4857,13 +4906,45 @@ app.get('/api/cs/instructions/lookup', authenticateToken, requireMinLevel(ROLES.
 // etiqueta, devolvemos error para evitar inconsistencia con la paquetería.
 app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), async (req: AuthRequest, res: Response) => {
   try {
-    const { packageId, reason, force } = req.body || {};
+    const { packageId, reason, force, source } = req.body || {};
     const id = parseInt(String(packageId), 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'packageId inválido' });
     // force = el agente confirmó que ya notificó a CEDIS. Permite revertir las
     // instrucciones aunque la guía ya tenga etiqueta impresa. NO se cancela ni
     // se borra la etiqueta (CEDIS la cancela por su lado).
     const forceRevert = force === true || force === 'true';
+
+    // 📦 DHL: las instrucciones viven en dhl_shipments.delivery_address_id.
+    if (String(source) === 'dhl') {
+      const dRes = await pool.query(
+        `SELECT id, inbound_tracking, secondary_tracking, delivery_address_id,
+                national_label_url, national_tracking, status
+           FROM dhl_shipments WHERE id = $1`,
+        [id]
+      );
+      if (dRes.rows.length === 0) return res.status(404).json({ error: 'Guía DHL no encontrada' });
+      const d = dRes.rows[0];
+      if ((d.national_label_url || d.national_tracking) && !forceRevert) {
+        return res.status(409).json({ error: 'No se puede revertir: la guía ya tiene etiqueta impresa. Cancela primero la etiqueta de paquetería.', hasLabel: true });
+      }
+      if (['delivered', 'dispatched', 'out_for_delivery', 'returned_to_warehouse'].includes(String(d.status))) {
+        return res.status(409).json({ error: `No se puede revertir: la guía está en estado "${d.status}". Solo se puede revertir antes de salir a ruta.` });
+      }
+      await pool.query(
+        `UPDATE dhl_shipments SET delivery_address_id = NULL, national_label_url = NULL, updated_at = NOW() WHERE id = $1`,
+        [id]
+      );
+      pool.query(
+        `INSERT INTO audit_log (action, entity_type, entity_id, user_id, details)
+         VALUES ('REVERT_DELIVERY_INSTRUCTIONS', 'dhl_shipments', $1, $2, $3)`,
+        [id, req.user?.userId || null, JSON.stringify({
+          tracking: d.secondary_tracking || d.inbound_tracking,
+          previous_delivery_address_id: d.delivery_address_id,
+          reason: String(reason || '').trim() || null,
+        })]
+      ).catch(() => {});
+      return res.json({ success: true, reverted: true, childrenReverted: 0 });
+    }
 
     const cur = await pool.query(
       `SELECT id, tracking_internal, assigned_address_id,

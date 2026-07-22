@@ -590,7 +590,8 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           COALESCE(p.payment_status, 'pending') as payment_status,
           p.received_at as fecha_recepcion,
           p.status::text as ultimo_status,
-          COALESCE(p.description, p.destination_contact, 'Paquete') as descripcion
+          COALESCE(p.description, p.destination_contact, 'Paquete') as descripcion,
+          CONCAT_WS(' ', p.tracking_internal, p.tracking_provider, cr.fno, cr2.fno) as search_key
         FROM packages p
         LEFT JOIN china_receipts cr ON p.china_receipt_id = cr.id
         -- Fallback: buscar china_receipt por fno = prefijo del tracking_internal (sin sufijo -NNN)
@@ -605,16 +606,17 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
         
         UNION ALL
         
-        -- DHL
-        SELECT 
-          d.id, 'dhl', d.inbound_tracking, 'DHL_MTY', d.user_id,
+        -- DHL (mostrar el número visible secondary_tracking; buscar por ambos)
+        SELECT
+          d.id, 'dhl', COALESCE(d.secondary_tracking, d.inbound_tracking), 'DHL_MTY', d.user_id,
           NULL as shipping_mark,
           COALESCE(d.saldo_pendiente, d.total_cost_mxn, d.import_cost_mxn, ROUND(d.import_cost_usd * COALESCE(d.exchange_rate, 17.5), 2), 0),
           COALESCE(d.total_cost_mxn, d.import_cost_mxn, ROUND(d.import_cost_usd * COALESCE(d.exchange_rate, 17.5), 2), 0),
           GREATEST(EXTRACT(DAY FROM NOW() - d.inspected_at)::INTEGER, 0),
           CASE WHEN d.paid_at IS NOT NULL THEN 'paid' ELSE 'pending' END, d.inspected_at,
           d.status::text as ultimo_status,
-          COALESCE(d.description, 'DHL')
+          COALESCE(d.description, 'DHL'),
+          CONCAT_WS(' ', d.inbound_tracking, d.secondary_tracking) as search_key
         FROM dhl_shipments d WHERE d.paid_at IS NULL
           AND d.inspected_at IS NOT NULL
           AND d.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz', 'shipped', 'dispatched', 'dispatched_national', 'out_for_delivery')
@@ -630,7 +632,8 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           GREATEST(EXTRACT(DAY FROM NOW() - n.created_at)::INTEGER, 0),
           CASE WHEN n.paid_at IS NOT NULL THEN 'paid' ELSE 'pending' END, n.created_at,
           n.status::text as ultimo_status,
-          COALESCE(n.destination_name, 'Nacional')
+          COALESCE(n.destination_name, 'Nacional'),
+          CONCAT_WS(' ', n.tracking_number) as search_key
         FROM national_shipments n WHERE n.paid_at IS NULL
           AND n.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz', 'shipped', 'dispatched', 'dispatched_national', 'out_for_delivery')
         
@@ -645,7 +648,8 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           GREATEST(EXTRACT(DAY FROM NOW() - COALESCE(ms.received_at_cedis, ms.received_at_origin))::INTEGER, 0),
           COALESCE(ms.payment_status, 'pending'), COALESCE(ms.received_at_cedis, ms.received_at_origin),
           ms.status::text as ultimo_status,
-          'LOG Marítimo'
+          'LOG Marítimo',
+          CONCAT_WS(' ', ms.log_number) as search_key
         FROM maritime_shipments ms WHERE (ms.payment_status != 'paid' OR ms.payment_status IS NULL)
           AND COALESCE(ms.received_at_cedis, ms.received_at_origin) IS NOT NULL
           AND ms.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz', 'shipped', 'dispatched', 'dispatched_national', 'out_for_delivery')
@@ -661,8 +665,9 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           GREATEST(EXTRACT(DAY FROM NOW() - c.created_at)::INTEGER, 0),
           c.status, c.created_at,
           c.status::text as ultimo_status,
-          COALESCE(c.container_number, 'FCL')
-        FROM containers c 
+          COALESCE(c.container_number, 'FCL'),
+          CONCAT_WS(' ', c.bl_number, c.container_number) as search_key
+        FROM containers c
         LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
         WHERE c.status NOT IN ('delivered', 'entregado')
         
@@ -677,8 +682,9 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           GREATEST(EXTRACT(DAY FROM NOW() - cr.created_at)::INTEGER, 0),
           COALESCE(cr.payment_status, 'pending'), cr.created_at,
           cr.status::text as ultimo_status,
-          COALESCE(cr.shipping_mark, 'China')
-        FROM china_receipts cr 
+          COALESCE(cr.shipping_mark, 'China'),
+          CONCAT_WS(' ', cr.fno, cr.shipping_mark) as search_key
+        FROM china_receipts cr
         WHERE cr.paid_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM packages p WHERE p.china_receipt_id = cr.id)
           AND cr.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz', 'shipped', 'dispatched', 'dispatched_national', 'out_for_delivery')
@@ -694,7 +700,8 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           GREATEST(EXTRACT(DAY FROM NOW() - mo.received_at)::INTEGER, 0),
           COALESCE(mo.payment_status, 'pending'), mo.received_at,
           COALESCE(mo.last_tracking_status, mo.status::text) as ultimo_status,
-          COALESCE(mo.shipping_mark, 'LCL China')
+          COALESCE(mo.shipping_mark, 'LCL China'),
+          CONCAT_WS(' ', mo.ordersn, mo.shipping_mark) as search_key
         FROM maritime_orders mo WHERE mo.paid_at IS NULL
           AND mo.received_at IS NOT NULL
           AND mo.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz', 'shipped', 'dispatched', 'dispatched_national', 'out_for_delivery')
@@ -719,9 +726,10 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
       }
     }
 
-    // Filtro por tracking
+    // Filtro por tracking (busca en todos los números de la guía, p.ej. DHL por
+    // su número interno JJD… o por el número visible secondary_tracking).
     if (tracking) {
-      conditions.push(`guia_tracking ILIKE $${paramIndex++}`);
+      conditions.push(`search_key ILIKE $${paramIndex++}`);
       params.push(`%${tracking}%`);
     }
 
@@ -1233,7 +1241,7 @@ export const getResumenFinancieroGuia = async (req: Request, res: Response) => {
     // Intentar por source_type directo
     const queries: { type: string; query: string }[] = [
       { type: 'package', query: `SELECT id, tracking_internal as tracking_number, service_type as servicio, description, assigned_cost_mxn as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, payment_status, user_id, weight, dimensions, has_gex, gex_folio, destination_address, destination_city, destination_contact, status, created_at, received_at, air_sale_price, air_price_per_kg, air_tariff_type, pobox_venta_usd, single_cbm as cbm, declared_value FROM packages WHERE tracking_internal = $1` },
-      { type: 'dhl', query: `SELECT id, inbound_tracking as tracking_number, 'DHL_MTY' as servicio, description, COALESCE(total_cost_mxn, import_cost_mxn, ROUND(import_cost_usd * COALESCE(exchange_rate, 1), 2)) as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, CASE WHEN paid_at IS NOT NULL THEN 'paid' ELSE 'pending' END as payment_status, user_id, weight_kg as weight, product_type, import_cost_usd, import_cost_mxn, exchange_rate, national_cost_mxn, status, created_at, inspected_at as received_at, has_gex, gex_folio, delivery_address_id FROM dhl_shipments WHERE inbound_tracking = $1` },
+      { type: 'dhl', query: `SELECT id, inbound_tracking as tracking_number, 'DHL_MTY' as servicio, description, COALESCE(total_cost_mxn, import_cost_mxn, ROUND(import_cost_usd * COALESCE(exchange_rate, 1), 2)) as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, CASE WHEN paid_at IS NOT NULL THEN 'paid' ELSE 'pending' END as payment_status, user_id, weight_kg as weight, product_type, import_cost_usd, import_cost_mxn, exchange_rate, national_cost_mxn, status, created_at, inspected_at as received_at, has_gex, gex_folio, delivery_address_id FROM dhl_shipments WHERE inbound_tracking = $1 OR secondary_tracking = $1` },
       { type: 'china_receipt', query: `SELECT id, fno as tracking_number, 'AIR_CHN' as servicio, shipping_mark as description, assigned_cost_mxn as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, CASE WHEN paid_at IS NOT NULL THEN 'paid' ELSE payment_status END as payment_status, user_id, total_weight as weight, total_cbm as cbm, status, created_at, has_gex, gex_folio, delivery_address_id, delivery_instructions FROM china_receipts WHERE fno = $1` },
       { type: 'maritime_order', query: `SELECT id, ordersn as tracking_number, 'MAR_CHN' as servicio, shipping_mark as description, assigned_cost_mxn as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, CASE WHEN paid_at IS NOT NULL THEN 'paid' ELSE payment_status END as payment_status, user_id, weight, volume as cbm, merchandise_type, assigned_cost_usd, status, created_at, has_gex, gex_folio, delivery_address_id, delivery_instructions FROM maritime_orders WHERE ordersn = $1` },
       { type: 'maritime', query: `SELECT id, log_number as tracking_number, 'MARITIMO' as servicio, 'Embarque Marítimo' as description, assigned_cost_mxn as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, payment_status, user_id, weight_kg as weight, volume_cbm as cbm, status, created_at, has_gex, gex_folio FROM maritime_shipments WHERE log_number = $1` },

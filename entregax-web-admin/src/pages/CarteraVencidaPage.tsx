@@ -287,6 +287,7 @@ export default function CarteraVencidaPage() {
     try {
       await api.post('/cs/instructions/revert', {
         packageId: revertConfirmPkg.id,
+        source: revertConfirmPkg.source || 'package',
         reason: revertReason.trim() || undefined,
         // Forzar aunque haya etiqueta impresa: el agente confirmó que ya notificó
         // a CEDIS. Revierte instrucciones SIN cancelar la etiqueta (revertLabel:false).
@@ -1236,7 +1237,7 @@ export default function CarteraVencidaPage() {
                 const hasLabel = !!(p.national_label_url || p.national_tracking);
                 const blockedByStatus = ['delivered', 'out_for_delivery', 'returned_to_warehouse'].includes(String(p.status));
                 return (
-                  <Card key={p.id} variant="outlined" sx={{ borderColor: hasInstr ? '#F05A28' : '#E5E7EB' }}>
+                  <Card key={`${p.source || 'package'}-${p.id}`} variant="outlined" sx={{ borderColor: hasInstr ? '#F05A28' : '#E5E7EB' }}>
                     <CardContent>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
                         <Box sx={{ flex: 1, minWidth: 280 }}>
