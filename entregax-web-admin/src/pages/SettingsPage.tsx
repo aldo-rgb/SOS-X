@@ -123,6 +123,7 @@ export default function SettingsPage() {
     const [togglingCajito, setTogglingCajito] = useState(false);
     const [cajitoAuditOpen, setCajitoAuditOpen] = useState(false);
     const [localCajito, setLocalCajito] = useState<boolean | null>(null);
+    const [cajitoHealth, setCajitoHealth] = useState<{ provider?: string; model?: string; modelLabel?: string; readOnly?: boolean; apiKeyConfigured?: boolean } | null>(null);
     const [togglingMaintenance, setTogglingMaintenance] = useState(false);
     const [localMaintenance, setLocalMaintenance] = useState<boolean | null>(null);
     const [externalSyncKey, setExternalSyncKey] = useState<string | null>(null);
@@ -152,6 +153,22 @@ export default function SettingsPage() {
             setLocalNotifPago(notifRecordatorioPago);
         }
     }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, facturasEnabled, facturasByService, advisorInstructionsEnabled, advisorPaymentOrderEnabled, advisorXpayEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, cajitoEnabled, maintenanceMode, notifCajaRecibida, notifRecordatorioPago]);
+
+    // Cargar health de Cajito (provider actual, modelo, readOnly) — solo super_admin
+    useEffect(() => {
+        if (!isSuperAdmin) return;
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        (async () => {
+            try {
+                const r = await fetch(`${API_URL}/cajito/health`, { headers: { Authorization: `Bearer ${token}` } });
+                if (r.ok) {
+                    const data = await r.json();
+                    setCajitoHealth(data);
+                }
+            } catch { /* ignore */ }
+        })();
+    }, [isSuperAdmin]);
 
     const handleToggleXpay = async (checked: boolean) => {
         setTogglingXpay(true);
@@ -1331,10 +1348,21 @@ export default function SettingsPage() {
             {isSuperAdmin && (
                 <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3, mb: 3, background: 'linear-gradient(135deg, #faf5ff 0%, #ffffff 60%)' }}>
                     <CardContent>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
                             <Box sx={{ fontSize: '1.6rem', lineHeight: 1 }}>🤖</Box>
                             <Typography variant="h6" fontWeight={600}>Cajito — Asistente IA</Typography>
-                            <Chip label="Claude 3.5 Sonnet" size="small" color="secondary" sx={{ ml: 1 }} />
+                            <Chip
+                                label={cajitoHealth?.modelLabel || cajitoHealth?.model || 'Cargando…'}
+                                size="small"
+                                color={cajitoHealth?.provider === 'anthropic' ? 'secondary' : 'primary'}
+                                sx={{ ml: 1 }}
+                            />
+                            {cajitoHealth?.readOnly && (
+                                <Chip label="🔒 Solo lectura" size="small" color="success" variant="outlined" />
+                            )}
+                            {cajitoHealth && !cajitoHealth.apiKeyConfigured && (
+                                <Chip label="⚠️ Sin API key" size="small" color="error" />
+                            )}
                             <Chip label="Super Admin" size="small" color="warning" />
                         </Box>
                         <Alert severity="warning" sx={{ mb: 3 }}>

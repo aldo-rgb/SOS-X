@@ -1,11 +1,12 @@
 // ============================================================
-// CAJITO — Asistente IA (OpenAI) · Chat + Tool-use + Auditoría
+// CAJITO — Asistente IA · Chat + Tool-use + Auditoría
 // ============================================================
 // Alcance v1: SOLO LECTURA. Todas las conversaciones se persisten
 // para auditoría (cajito_conversations + cajito_messages).
 //
-// Proveedor: OpenAI (gpt-4o-mini por defecto). Para cambiar:
-//   CAJITO_MODEL=gpt-4o
+// Proveedor: seleccionable con CAJITO_PROVIDER (openai | anthropic).
+// Modelo: CAJITO_MODEL (por defecto gpt-4o-mini o claude-3-5-sonnet-latest
+// según el proveedor). Ver services/llmProvider.ts.
 //
 // Cada herramienta requiere que el usuario tenga la capability
 // correspondiente concedida en `cajito_user_capabilities`. El
@@ -13,26 +14,21 @@
 // ============================================================
 
 import { Request, Response } from 'express';
-import OpenAI from 'openai';
 import { pool } from './db';
+import {
+  getLlmProvider,
+  getProviderName,
+  getModelName,
+  getFriendlyModelLabel,
+  isProviderKeyConfigured,
+  LlmMessage,
+  LlmContentBlock,
+} from './services/llmProvider';
 
 interface AuthRequest extends Request {
   user?: { userId: number; role: string };
 }
 
-// --- OpenAI client (lazy) ---------------------------------------------------
-let openaiClient: OpenAI | null = null;
-function getOpenAI(): OpenAI {
-  if (!openaiClient) {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY no configurada');
-    }
-    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  return openaiClient;
-}
-
-const MODEL = process.env.CAJITO_MODEL || 'gpt-4o-mini';
 const MAX_TOKENS = parseInt(process.env.CAJITO_MAX_TOKENS || '2048', 10);
 const MAX_TOOL_ITERATIONS = 5;
 
@@ -92,7 +88,12 @@ function trimText(s: any, n = 400): any {
 }
 
 // ============================================================
-// HERRAMIENTAS (TOOLS) — solo lectura, v1
+// HERRAMIENTAS (TOOLS) — SOLO LECTURA (v1)
+// ============================================================
+// REGLA DURA: cada tool DEBE tener readOnly: true. El dispatch
+// del chat rechaza en runtime cualquier tool con readOnly !== true,
+// y el compilador también lo exige por el tipo `ToolDef`.
+// Esto aplica tanto para el proveedor OpenAI como Anthropic.
 // ============================================================
 type ToolCtx = { userId: number; role: string };
 type ToolDef = {
@@ -100,6 +101,7 @@ type ToolDef = {
   requiredCapability: string;
   description: string;
   parameters: any;
+  readOnly: true; // ← invariante: si alguna vez lo cambias, revisa a fondo
   handler: (args: any, ctx: ToolCtx) => Promise<any>;
 };
 
@@ -108,6 +110,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'lookup_package',
     requiredCapability: 'cajito.read.packages',
+    readOnly: true,
     description: 'Busca un paquete por su número de GUÍA/tracking (US-…, TDX-…, AIR…, LOG…, JJD…, o tracking del transportista). Devuelve estado, peso, dimensiones, cliente y fechas. NO la uses para casilleros de cliente como "S2345"/"S96" — para eso usa search_clients.',
     parameters: {
       type: 'object',
@@ -144,6 +147,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'search_clients',
     requiredCapability: 'cajito.read.clients',
+    readOnly: true,
     description: 'Busca CLIENTES por número de casillero (box_id, p.ej. "S1", "S96", "S2345"), nombre o correo, y devuelve sus datos. ÚSALA siempre que pidan información/detalles de un cliente o cuando den un número que empieza con "S" seguido de dígitos (eso es un casillero de cliente, NO una guía).',
     parameters: {
       type: 'object',
@@ -172,6 +176,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'package_status_counts',
     requiredCapability: 'cajito.read.warehouses',
+    readOnly: true,
     description: 'Cuenta paquetes agrupados por estado (status). Útil para KPIs de almacén. Filtros opcionales: service_type, since (fecha ISO).',
     parameters: {
       type: 'object',
@@ -201,6 +206,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'container_status_counts',
     requiredCapability: 'cajito.read.warehouses',
+    readOnly: true,
     description: 'Cuenta contenedores marítimos agrupados por estado. Los estados son: received_origin, consolidated, in_transit (en camino / zarpó), arrived_port (llegó al puerto), customs_cleared (aduana liberada), in_transit_clientfinal (en camino al cliente final), delivered. Úsalo cuando el usuario pregunte por contenedores en camino, en aduana, entregados, etc.',
     parameters: {
       type: 'object',
@@ -230,6 +236,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'packages_pending_counts',
     requiredCapability: 'cajito.read.packages',
+    readOnly: true,
     description: 'Conteo rápido de paquetes por servicio y estado pendiente. Úsalo cuando el usuario pregunte cuántas cajas/paquetes están pendientes de recibir, en tránsito, en almacén, o por entregar. service_type: POBOX_USA (Po Box), AIR_CHN_MX (aéreo China), SEA_CHN_MX (marítimo China), AA_DHL (DHL).',
     parameters: {
       type: 'object',
@@ -257,6 +264,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'today_routes',
     requiredCapability: 'cajito.read.routes',
+    readOnly: true,
     description: 'Lista rutas/asignaciones de hoy con chofer y vehículo. Devuelve hasta 25.',
     parameters: { type: 'object', properties: {} },
     handler: async () => {
@@ -285,6 +293,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'driver_status',
     requiredCapability: 'cajito.read.drivers',
+    readOnly: true,
     description: 'Devuelve estado actual de un chofer: vehículo asignado, inspección abierta, paquetes cargados.',
     parameters: {
       type: 'object',
@@ -328,8 +337,9 @@ function buildSystemPrompt(user: { userId: number; role: string; full_name?: str
   return [
     'Eres Cajito, asistente IA operativo de EntregaX (paquetería).',
     'Responde SIEMPRE en español, con tono cordial y directo. Sin emojis salvo en saludos cortos.',
-    'Tu alcance ACTUAL es SOLO LECTURA: puedes consultar paquetes, clientes, rutas, choferes e inventarios. NO puedes modificar nada.',
-    'Si te piden una acción de escritura (modificar, enviar mensajes, cambiar status, aplicar descuentos), responde que esa función aún no está habilitada y sugiere el módulo del panel donde hacerlo.',
+    'MODO ESTRICTO SOLO LECTURA: NO puedes escribir, crear, editar, eliminar, notificar, ni ejecutar acciones que modifiquen datos. Todas las herramientas disponibles son de consulta.',
+    'Si el usuario pide una acción de escritura (modificar guías, aplicar descuentos, enviar mensajes, cambiar status, aprobar/rechazar, asignar, cancelar, condonar, etc.), NIÉGATE educadamente y dile que debe hacerlo desde el módulo correspondiente del panel administrativo. NO intentes invocar ninguna herramienta para ese fin.',
+    'El sistema bloquea a nivel de runtime cualquier herramienta que no esté marcada como readOnly — así que aunque lo intentes, será rechazada.',
     'Cuando necesites datos del sistema, USA las herramientas disponibles. NO inventes trackings, montos ni nombres.',
     'Si una herramienta devuelve resultados, formatea la respuesta de forma corta y útil (lista breve o tabla en texto). Cita IDs/trackings textuales.',
     'Si el usuario te pregunta algo fuera de operaciones de paquetería, responde brevemente y vuelve al tema operativo.',
@@ -347,17 +357,14 @@ function buildSystemPrompt(user: { userId: number; role: string; full_name?: str
   ].join('\n');
 }
 
-// --- Build tools array for OpenAI based on user capabilities ----------------
+// --- Build tools array (proveedor-agnóstico) según capacidades del usuario --
 function toolsForUser(caps: Set<string>) {
   return TOOLS
     .filter(t => hasCap(caps, t.requiredCapability))
     .map(t => ({
-      type: 'function' as const,
-      function: {
-        name: t.name,
-        description: t.description,
-        parameters: t.parameters
-      }
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters
     }));
 }
 
@@ -426,7 +433,7 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
     } else {
       const created = await pool.query(
         `INSERT INTO cajito_conversations (user_id, title, model) VALUES ($1, $2, $3) RETURNING id`,
-        [userId, trimText(message, 80), MODEL]
+        [userId, trimText(message, 80), getModelName()]
       );
       conversationId = created.rows[0].id;
     }
@@ -451,53 +458,53 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
     // Guardar el mensaje del usuario
     await saveMessage(conversationId!, { role: 'user', content: message });
 
-    // Construir mensajes para OpenAI
-    const messages: any[] = [
-      { role: 'system', content: systemPrompt },
-      ...historyMsgs,
-      { role: 'user', content: message }
+    // Construir mensajes en formato proveedor-agnóstico
+    const messages: LlmMessage[] = [
+      ...historyMsgs.map((m: any) => ({ role: m.role as 'user' | 'assistant', content: m.content as string })),
+      { role: 'user' as const, content: message },
     ];
 
     const tools = toolsForUser(caps);
-    const openai = getOpenAI();
+    const provider = getLlmProvider();
 
     const toolCallsLog: { name: string; args: any; resultPreview: any }[] = [];
     let finalReply = '';
     let totalIn = 0, totalOut = 0;
 
     for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
-      const completion = await openai.chat.completions.create({
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
+      const completion = await provider.complete({
+        system: systemPrompt,
         messages,
-        ...(tools.length ? { tools, tool_choice: 'auto' as const } : {}),
+        ...(tools.length ? { tools } : {}),
+        maxTokens: MAX_TOKENS,
       });
 
-      totalIn += completion.usage?.prompt_tokens || 0;
-      totalOut += completion.usage?.completion_tokens || 0;
-
-      const choice = completion.choices[0];
-      if (!choice) break;
-      const msg = choice.message;
+      totalIn += completion.usage.inputTokens;
+      totalOut += completion.usage.outputTokens;
 
       // ¿El modelo pidió herramientas?
-      if (msg.tool_calls && msg.tool_calls.length > 0) {
-        // Append assistant tool-call message
-        messages.push({
-          role: 'assistant',
-          content: msg.content || null,
-          tool_calls: msg.tool_calls,
-        });
+      if (completion.toolCalls.length > 0) {
+        // Append assistant turn (texto + tool_use blocks) — formato común
+        const assistantBlocks: LlmContentBlock[] = [];
+        if (completion.text) assistantBlocks.push({ type: 'text', text: completion.text });
+        for (const tc of completion.toolCalls) {
+          assistantBlocks.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.input });
+        }
+        messages.push({ role: 'assistant', content: assistantBlocks });
 
-        for (const tc of msg.tool_calls) {
-          if (tc.type !== 'function') continue;
-          const toolDef = TOOLS.find(t => t.name === tc.function.name);
-          let parsedArgs: any = {};
-          try { parsedArgs = tc.function.arguments ? JSON.parse(tc.function.arguments) : {}; } catch { parsedArgs = {}; }
+        // Ejecutar cada tool y appendear resultados como user/tool_result
+        const toolResultBlocks: LlmContentBlock[] = [];
+        for (const tc of completion.toolCalls) {
+          const toolDef = TOOLS.find(t => t.name === tc.name);
+          const parsedArgs = tc.input || {};
 
           let result: any;
           if (!toolDef) {
-            result = { error: `Herramienta desconocida: ${tc.function.name}` };
+            result = { error: `Herramienta desconocida: ${tc.name}` };
+          } else if (toolDef.readOnly !== true) {
+            // Guard duro: nunca ejecutar tools de escritura. Si alguien
+            // llega a agregar un tool sin readOnly:true, se bloquea aquí.
+            result = { error: `Herramienta rechazada: '${tc.name}' no es de solo-lectura. Cajito está restringido a lectura.` };
           } else if (!hasCap(caps, toolDef.requiredCapability)) {
             result = { error: `Sin capacidad ${toolDef.requiredCapability}` };
           } else {
@@ -512,28 +519,28 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
           await saveMessage(conversationId!, {
             role: 'tool',
             content: null,
-            toolName: tc.function.name,
+            toolName: tc.name,
             toolArgs: parsedArgs,
             toolResult: result,
           });
           toolCallsLog.push({
-            name: tc.function.name,
+            name: tc.name,
             args: parsedArgs,
             resultPreview: typeof result === 'object' ? Object.keys(result).slice(0, 5) : result,
           });
 
-          // Append como tool message
-          messages.push({
-            role: 'tool',
-            tool_call_id: tc.id,
+          toolResultBlocks.push({
+            type: 'tool_result',
+            tool_use_id: tc.id,
             content: JSON.stringify(result).slice(0, 8000), // cap por seguridad
           });
         }
+        messages.push({ role: 'user', content: toolResultBlocks });
         continue; // siguiente iteración
       }
 
       // No hubo tool-calls → respuesta final
-      finalReply = msg.content || '';
+      finalReply = completion.text || '';
       break;
     }
 
@@ -670,7 +677,7 @@ export const getMyAccess = async (req: AuthRequest, res: Response): Promise<void
 export const getHealth = async (req: AuthRequest, res: Response): Promise<void> => {
   const role = req.user?.role;
   if (role !== 'super_admin' && role !== 'admin') { res.status(403).json({ error: 'No autorizado' }); return; }
-  const hasKey = !!process.env.OPENAI_API_KEY;
+  const hasKey = isProviderKeyConfigured();
   const tg = await pool.query(
     `SELECT config_value FROM system_configurations WHERE config_key = 'cajito_enabled' LIMIT 1`
   ).catch(() => ({ rows: [] as any[] }));
@@ -678,8 +685,11 @@ export const getHealth = async (req: AuthRequest, res: Response): Promise<void> 
   res.json({
     enabled,
     apiKeyConfigured: hasKey,
-    model: MODEL,
+    provider: getProviderName(),
+    model: getModelName(),
+    modelLabel: getFriendlyModelLabel(),
     toolCount: TOOLS.length,
+    readOnly: TOOLS.every(t => t.readOnly === true),
     ready: hasKey && enabled,
   });
 };

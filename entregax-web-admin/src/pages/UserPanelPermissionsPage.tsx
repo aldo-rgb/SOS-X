@@ -180,6 +180,7 @@ export default function UserPanelPermissionsPage() {
   const [cajitoCatalog, setCajitoCatalog] = useState<CajitoCapability[]>([]);
   const [cajitoGranted, setCajitoGranted] = useState<Record<string, boolean>>({});
   const [cajitoIsSuperAdmin, setCajitoIsSuperAdmin] = useState(false);
+  const [cajitoModelLabel, setCajitoModelLabel] = useState<string>('IA');
 
   // Dialog para permisos de módulos
   const [moduleDialog, setModuleDialog] = useState(false);
@@ -246,6 +247,20 @@ export default function UserPanelPermissionsPage() {
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
+
+  // Fetch modelo actual de Cajito para mostrar el label real (Claude vs GPT)
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/cajito/health`, { headers: { Authorization: `Bearer ${token}` } });
+        if (r.ok) {
+          const data = await r.json();
+          setCajitoModelLabel(data.modelLabel || data.model || 'IA');
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [token]);
 
   const handleEditUser = async (user: UserWithPermissions) => {
     setSelectedUser(user);
@@ -732,7 +747,7 @@ export default function UserPanelPermissionsPage() {
                 )}
                 <Alert severity={cajitoIsSuperAdmin ? 'success' : accessGranted ? 'warning' : 'info'} sx={{ mb: 2 }}>
                   <Typography variant="body2" fontWeight={600} gutterBottom>
-                    🤖 Permisos de Cajito (asistente IA, Claude 3.5 Sonnet)
+                    🤖 Permisos de Cajito (asistente IA, {cajitoModelLabel}) — 🔒 solo lectura
                   </Typography>
                   <Typography variant="caption" component="div">
                     Cada capacidad otorgada le permite a Cajito ejecutar herramientas en nombre del usuario.
