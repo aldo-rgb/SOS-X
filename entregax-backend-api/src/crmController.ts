@@ -374,12 +374,13 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
   try {
     const r = await pool.query(`
       SELECT
-        COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('week',  now() AT TIME ZONE 'America/Monterrey')) AS week,
-        COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('month', now() AT TIME ZONE 'America/Monterrey')) AS month,
-        COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('year',  now() AT TIME ZONE 'America/Monterrey')) AS year,
-        COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('day',   now() AT TIME ZONE 'America/Monterrey')) AS today
+        COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey' >= date_trunc('week',  now() AT TIME ZONE 'America/Monterrey')) AS week,
+        COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey' >= date_trunc('month', now() AT TIME ZONE 'America/Monterrey')) AS month,
+        COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey' >= date_trunc('year',  now() AT TIME ZONE 'America/Monterrey')) AS year,
+        COUNT(*) FILTER (WHERE created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey' >= date_trunc('day',   now() AT TIME ZONE 'America/Monterrey')) AS today
       FROM users
       WHERE role = 'client' AND deleted_at IS NULL
+        AND created_at <= now()
     `);
     const row = r.rows[0] || {};
     // Contenedores dados de alta este mes calendario (reinicia el día 1).
@@ -399,7 +400,8 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
             WHERE legacy_client_id IS NULL AND week_number IS NOT NULL AND TRIM(week_number) <> ''
           ) AS lcl_weeks
         FROM containers
-        WHERE created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('month', now() AT TIME ZONE 'America/Monterrey')
+        WHERE created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey' >= date_trunc('month', now() AT TIME ZONE 'America/Monterrey')
+          AND created_at <= now()
       `);
       fclMonth = Number(c.rows[0]?.fcl) || 0;
       lclMonth = Number(c.rows[0]?.lcl_weeks) || 0;
@@ -412,8 +414,9 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
       const a = await pool.query(`
         SELECT COUNT(*) AS awbs, COALESCE(SUM(total_weight), 0) AS kilos
         FROM china_receipts
-        WHERE created_at AT TIME ZONE 'America/Monterrey'
+        WHERE created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey'
               >= (date_trunc('week', (now() AT TIME ZONE 'America/Monterrey') + interval '1 day') - interval '1 day')
+          AND created_at <= now()
       `);
       awbWeek = Number(a.rows[0]?.awbs) || 0;
       kgWeek = Math.round((Number(a.rows[0]?.kilos) || 0) * 100) / 100;
@@ -462,11 +465,12 @@ export const getWidgetSeries = async (req: Request, res: Response): Promise<any>
         )::date AS bucket
       ),
       data AS (
-        SELECT date_trunc('${trunc}', (${cfg.dateCol} AT TIME ZONE 'America/Monterrey'))::date AS bucket,
+        SELECT date_trunc('${trunc}', (${cfg.dateCol} AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey'))::date AS bucket,
                ${cfg.val} AS value
         FROM ${cfg.table}
         WHERE ${cfg.where}
-          AND (${cfg.dateCol} AT TIME ZONE 'America/Monterrey')
+          AND ${cfg.dateCol} <= now()
+          AND (${cfg.dateCol} AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey')
               >= date_trunc('${trunc}', (now() AT TIME ZONE 'America/Monterrey')) - interval '${periods - 1} ${trunc}'
         GROUP BY 1
       )
@@ -498,7 +502,8 @@ export const getRegistrationList = async (req: Request, res: Response): Promise<
       FROM users u
       LEFT JOIN users a ON u.advisor_id = a.id
       WHERE u.role = 'client' AND u.deleted_at IS NULL
-        AND u.created_at AT TIME ZONE 'America/Monterrey' >= date_trunc('${unit}', now() AT TIME ZONE 'America/Monterrey')
+        AND u.created_at <= now()
+        AND u.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey' >= date_trunc('${unit}', now() AT TIME ZONE 'America/Monterrey')
       ORDER BY u.created_at DESC
     `);
     res.json({ success: true, period, count: r.rows.length, items: r.rows });
