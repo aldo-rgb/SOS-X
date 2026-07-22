@@ -925,7 +925,6 @@ import {
   clientLookup as cajitoClientLookup,
   ticketLookup as cajitoTicketLookup,
 } from './cajitoController';
-import { getProviderName, getModelName, getLlmProvider } from './services/llmProvider';
 import {
   listAwbCosts,
   getAwbCostDetail,
@@ -1727,39 +1726,6 @@ app.get('/api/_sentry-diagnostic', (req: Request, res: Response) => {
       ? 'Sentry SDK debería estar activo. Llama de nuevo con ?mode=throw para forzar un evento de prueba.'
       : 'SENTRY_DSN no está configurado. Agrégalo en Railway → Variables.',
   });
-});
-
-// DIAGNÓSTICO TEMPORAL Cajito: qué modelo/provider/key ve el runtime + ping en vivo a Anthropic.
-// Protegido por header X-Diag-Token = process.env.EXTERNAL_SYNC_API_KEY. Quitar tras diagnosticar.
-app.get('/api/_cajito-diagnostic', async (req: Request, res: Response) => {
-  const token = req.header('x-diag-token') || (req.query.t as string | undefined);
-  const expected = process.env.EXTERNAL_SYNC_API_KEY;
-  const ONE_TIME = 'diag-cajito-2607-Xk9';
-  if (token !== ONE_TIME && (!expected || token !== expected)) {
-    return res.status(404).json({ error: 'Not found' });
-  }
-  const key = process.env.ANTHROPIC_API_KEY || '';
-  const info: any = {
-    provider: getProviderName(),
-    model: getModelName(),
-    cajito_provider_env: process.env.CAJITO_PROVIDER || null,
-    cajito_model_env: process.env.CAJITO_MODEL || null,
-    anthropic_key_present: Boolean(key),
-    anthropic_key_len: key.length,
-    anthropic_key_last4: key ? key.slice(-4) : null,
-    git_commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.SOURCE_COMMIT || null,
-  };
-  try {
-    const provider = getLlmProvider();
-    const r = await provider.complete({ system: 'ping', messages: [{ role: 'user', content: 'ping' }], maxTokens: 8 });
-    info.ping = 'OK';
-    info.ping_text = r.text?.slice(0, 40);
-  } catch (e: any) {
-    info.ping = 'ERROR';
-    info.ping_status = e?.status || null;
-    info.ping_message = String(e?.message || e).slice(0, 300);
-  }
-  return res.status(200).json(info);
 });
 
 // DEBUG: Verificar conexión a base de datos
