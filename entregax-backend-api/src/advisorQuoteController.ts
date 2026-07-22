@@ -266,27 +266,6 @@ const buildQuoteHtml = (q: any): string => {
 
 <div class="section">
   <h2>Desglose de Precio</h2>
-  ${(() => {
-    // Unidad de medida según el servicio para mostrar precio unitario
-    let unitQty = 0;
-    let unitLabel = '';
-    if (q.servicio === 'maritimo' && q.subservicio !== 'fcl_40') {
-      unitQty = Number(d.cbm || 0);
-      unitLabel = 'm³';
-    } else if (q.servicio === 'aereo' || q.servicio === 'dhl' || q.servicio === 'pobox') {
-      unitQty = Number(d.peso_cobrable || d.peso || 0);
-      unitLabel = 'kg';
-    } else if (q.servicio === 'maritimo' && q.subservicio === 'fcl_40') {
-      unitQty = Number(d.cantidad || 1);
-      unitLabel = 'contenedor';
-    }
-    if (!unitQty || !unitLabel || subtotal <= 0) return '';
-    const mxnPerUnit = subtotal / unitQty;
-    const usdPerUnit = q.precio_usd ? Number(q.precio_usd) / unitQty : 0;
-    return `<p style="margin: 0 0 6px 0; font-size: 11px; color: #555;">
-      <strong>Tarifa unitaria:</strong> ${fmtMxn(mxnPerUnit)} MXN${usdPerUnit ? ` <span style="color:#888">(${fmtUsd(usdPerUnit)} USD)</span>` : ''} por ${unitLabel} · ${unitQty} ${unitLabel}${unitQty !== 1 ? 's' : ''} × ${fmtMxn(mxnPerUnit)} = ${fmtMxn(subtotal)}
-    </p>`;
-  })()}
   <table>
     <thead><tr><th>Concepto</th><th class="right">Importe</th></tr></thead>
     <tbody>
