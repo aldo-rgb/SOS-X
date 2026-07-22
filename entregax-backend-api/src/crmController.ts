@@ -2093,8 +2093,15 @@ export const bulkCreateProspects = async (req: Request, res: Response): Promise<
     for (const r of rows) {
       const full_name = String(r?.full_name ?? r?.nombre ?? '').trim();
       if (!full_name) { skippedNoName++; continue; }
-      const whatsapp = String(r?.whatsapp ?? r?.telefono ?? r?.phone ?? '').trim() || null;
-      const email = String(r?.email ?? r?.correo ?? '').trim() || null;
+      const whatsappRaw = String(r?.whatsapp ?? r?.telefono ?? r?.phone ?? '').trim();
+      // Solo cuenta como teléfono si tiene al menos 10 dígitos; placeholders como
+      // "sin telefono" / "n/a" quedan en null (no cuentan para dedup).
+      const whatsapp = whatsappRaw.replace(/\D/g, '').length >= 10 ? whatsappRaw : null;
+      const emailRaw = String(r?.email ?? r?.correo ?? '').trim();
+      // Solo cuenta como correo si parece uno (tiene "@"). Así "sin correo",
+      // "N/A", "-" y similares NO se tratan como correo real y dejan de colapsar
+      // toda la carga por "duplicado de correo".
+      const email = emailRaw.includes('@') ? emailRaw : null;
       const channel = normalizeProspectChannel(r?.acquisition_channel ?? r?.canal);
       clean.push({ full_name, whatsapp, email, channel });
     }
