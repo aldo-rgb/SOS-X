@@ -5,7 +5,7 @@
 // para auditoría (cajito_conversations + cajito_messages).
 //
 // Proveedor: seleccionable con CAJITO_PROVIDER (openai | anthropic).
-// Modelo: CAJITO_MODEL (por defecto gpt-4o-mini o claude-3-5-sonnet-latest
+// Modelo: CAJITO_MODEL (por defecto gpt-4o-mini o claude-sonnet-5
 // según el proveedor). Ver services/llmProvider.ts.
 //
 // Cada herramienta requiere que el usuario tenga la capability

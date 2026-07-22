@@ -77,11 +77,22 @@ export function getProviderName(): 'openai' | 'anthropic' {
   return 'openai';
 }
 
+// Modelos Claude retirados → reemplazo vigente. Evita 404 aunque CAJITO_MODEL
+// en el entorno siga apuntando a un id retirado (p.ej. claude-3-5-sonnet-latest,
+// retirado el 28-oct-2025).
+function remapRetiredClaude(model: string): string {
+  const m = model.toLowerCase();
+  if (m.startsWith('claude-3-5-sonnet') || m.startsWith('claude-3-sonnet') || m.startsWith('claude-3-7-sonnet')) return 'claude-sonnet-5';
+  if (m.startsWith('claude-3-5-haiku') || m.startsWith('claude-3-haiku')) return 'claude-haiku-4-5';
+  if (m.startsWith('claude-3-opus') || m === 'claude-3-opus-latest') return 'claude-opus-4-8';
+  return model;
+}
+
 export function getModelName(): string {
   const provider = getProviderName();
   const explicit = (process.env.CAJITO_MODEL || '').trim();
-  if (explicit) return explicit;
-  return provider === 'anthropic' ? 'claude-3-5-sonnet-latest' : 'gpt-4o-mini';
+  if (explicit) return remapRetiredClaude(explicit);
+  return provider === 'anthropic' ? 'claude-sonnet-5' : 'gpt-4o-mini';
 }
 
 // ------------ OpenAI implementation --------------------------
@@ -249,6 +260,10 @@ class AnthropicProvider implements LlmProvider {
       max_tokens: req.maxTokens || 2048,
       system: req.system,
       messages: antMessages,
+      // Sonnet 5 corre thinking adaptivo por defecto; Cajito es un asistente de
+      // soporte rápido (solo lectura + tools), así que lo deshabilitamos para
+      // conservar la latencia/costo del modelo previo y no truncar max_tokens.
+      thinking: { type: 'disabled' },
       ...(antTools.length ? { tools: antTools } : {}),
     });
 
