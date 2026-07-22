@@ -1240,13 +1240,6 @@ const MyPaymentsScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Total Pendiente */}
-      <View style={styles.totalCard}>
-        <Text style={styles.totalLabel}>{MT.totalLabel}</Text>
-        <Text style={styles.totalAmount}>{formatCurrency(totalPending)}</Text>
-        <Text style={styles.totalCurrency}>MXN</Text>
-      </View>
-
       {/* Tabs: Pendientes / Historial */}
       <View style={styles.tabBar}>
         <TouchableOpacity
