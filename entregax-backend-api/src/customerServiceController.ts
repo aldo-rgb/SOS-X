@@ -586,9 +586,10 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           COALESCE(cr.shipping_mark, cr2.shipping_mark, p.box_id) as shipping_mark,
           COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, p.air_sale_price, cr.assigned_cost_mxn, cr2.assigned_cost_mxn, 0) as saldo_deudor,
           COALESCE(p.assigned_cost_mxn, p.air_sale_price, cr.assigned_cost_mxn, cr2.assigned_cost_mxn, 0) as costo_base,
-          GREATEST(EXTRACT(DAY FROM NOW() - COALESCE(p.received_at, p.created_at))::INTEGER, 0) as dias_en_almacen,
+          GREATEST(EXTRACT(DAY FROM NOW() - p.received_at)::INTEGER, 0) as dias_en_almacen,
           COALESCE(p.payment_status, 'pending') as payment_status,
           p.received_at as fecha_recepcion,
+          p.status::text as ultimo_status,
           COALESCE(p.description, p.destination_contact, 'Paquete') as descripcion
         FROM packages p
         LEFT JOIN china_receipts cr ON p.china_receipt_id = cr.id
@@ -599,6 +600,8 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           AND UPPER(cr2.fno) = UPPER(REGEXP_REPLACE(p.tracking_internal, '-\d+$', ''))
         )
         WHERE (p.payment_status != 'paid' OR p.payment_status IS NULL)
+          AND p.received_at IS NOT NULL
+          AND p.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'lost', 'missing', 'received_china', 'received_origin', 'in_customs_gz', 'shipped', 'dispatched', 'dispatched_national', 'out_for_delivery')
         
         UNION ALL
         
@@ -608,9 +611,13 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           NULL as shipping_mark,
           COALESCE(d.saldo_pendiente, d.total_cost_mxn, d.import_cost_mxn, ROUND(d.import_cost_usd * COALESCE(d.exchange_rate, 17.5), 2), 0),
           COALESCE(d.total_cost_mxn, d.import_cost_mxn, ROUND(d.import_cost_usd * COALESCE(d.exchange_rate, 17.5), 2), 0),
-          GREATEST(EXTRACT(DAY FROM NOW() - COALESCE(d.inspected_at, d.created_at))::INTEGER, 0),
-          'pending', d.inspected_at, COALESCE(d.description, 'DHL')
+          GREATEST(EXTRACT(DAY FROM NOW() - d.inspected_at)::INTEGER, 0),
+          CASE WHEN d.paid_at IS NOT NULL THEN 'paid' ELSE 'pending' END, d.inspected_at,
+          d.status::text as ultimo_status,
+          COALESCE(d.description, 'DHL')
         FROM dhl_shipments d WHERE d.paid_at IS NULL
+          AND d.inspected_at IS NOT NULL
+          AND d.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz', 'shipped', 'dispatched', 'dispatched_national', 'out_for_delivery')
         
         UNION ALL
         
@@ -621,8 +628,11 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           COALESCE(n.saldo_pendiente, n.shipping_cost, 0),
           COALESCE(n.shipping_cost, 0),
           GREATEST(EXTRACT(DAY FROM NOW() - n.created_at)::INTEGER, 0),
-          CASE WHEN n.paid_at IS NOT NULL THEN 'paid' ELSE 'pending' END, n.created_at, COALESCE(n.destination_name, 'Nacional')
+          CASE WHEN n.paid_at IS NOT NULL THEN 'paid' ELSE 'pending' END, n.created_at,
+          n.status::text as ultimo_status,
+          COALESCE(n.destination_name, 'Nacional')
         FROM national_shipments n WHERE n.paid_at IS NULL
+          AND n.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz', 'shipped', 'dispatched', 'dispatched_national', 'out_for_delivery')
         
         UNION ALL
         
@@ -632,9 +642,13 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           NULL as shipping_mark,
           COALESCE(ms.saldo_pendiente, ms.assigned_cost_mxn, 0),
           COALESCE(ms.assigned_cost_mxn, 0),
-          GREATEST(EXTRACT(DAY FROM NOW() - ms.created_at)::INTEGER, 0),
-          COALESCE(ms.payment_status, 'pending'), ms.created_at, 'LOG Marítimo'
-        FROM maritime_shipments ms WHERE ms.payment_status != 'paid' OR ms.payment_status IS NULL
+          GREATEST(EXTRACT(DAY FROM NOW() - COALESCE(ms.received_at_cedis, ms.received_at_origin))::INTEGER, 0),
+          COALESCE(ms.payment_status, 'pending'), COALESCE(ms.received_at_cedis, ms.received_at_origin),
+          ms.status::text as ultimo_status,
+          'LOG Marítimo'
+        FROM maritime_shipments ms WHERE (ms.payment_status != 'paid' OR ms.payment_status IS NULL)
+          AND COALESCE(ms.received_at_cedis, ms.received_at_origin) IS NOT NULL
+          AND ms.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz', 'shipped', 'dispatched', 'dispatched_national', 'out_for_delivery')
         
         UNION ALL
         
@@ -645,7 +659,9 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           COALESCE(c.sale_price, 0),
           COALESCE(c.sale_price, 0),
           GREATEST(EXTRACT(DAY FROM NOW() - c.created_at)::INTEGER, 0),
-          c.status, c.created_at, COALESCE(c.container_number, 'FCL')
+          c.status, c.created_at,
+          c.status::text as ultimo_status,
+          COALESCE(c.container_number, 'FCL')
         FROM containers c 
         LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
         WHERE c.status NOT IN ('delivered', 'entregado')
@@ -659,10 +675,13 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           COALESCE(cr.saldo_pendiente, cr.assigned_cost_mxn, 0),
           COALESCE(cr.assigned_cost_mxn, 0),
           GREATEST(EXTRACT(DAY FROM NOW() - cr.created_at)::INTEGER, 0),
-          'pending', cr.created_at, COALESCE(cr.shipping_mark, 'China')
+          COALESCE(cr.payment_status, 'pending'), cr.created_at,
+          cr.status::text as ultimo_status,
+          COALESCE(cr.shipping_mark, 'China')
         FROM china_receipts cr 
         WHERE cr.paid_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM packages p WHERE p.china_receipt_id = cr.id)
+          AND cr.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz', 'shipped', 'dispatched', 'dispatched_national', 'out_for_delivery')
         
         UNION ALL
         
@@ -672,9 +691,13 @@ export const searchGuiasCS = async (req: Request, res: Response) => {
           mo.shipping_mark as shipping_mark,
           COALESCE(mo.saldo_pendiente, mo.assigned_cost_mxn, 0),
           COALESCE(mo.assigned_cost_mxn, 0),
-          GREATEST(EXTRACT(DAY FROM NOW() - mo.created_at)::INTEGER, 0),
-          'pending', mo.created_at, COALESCE(mo.shipping_mark, 'LCL China')
+          GREATEST(EXTRACT(DAY FROM NOW() - mo.received_at)::INTEGER, 0),
+          COALESCE(mo.payment_status, 'pending'), mo.received_at,
+          COALESCE(mo.last_tracking_status, mo.status::text) as ultimo_status,
+          COALESCE(mo.shipping_mark, 'LCL China')
         FROM maritime_orders mo WHERE mo.paid_at IS NULL
+          AND mo.received_at IS NOT NULL
+          AND mo.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'received_china', 'received_origin', 'in_customs_gz', 'shipped', 'dispatched', 'dispatched_national', 'out_for_delivery')
       ) combined
     `;
 

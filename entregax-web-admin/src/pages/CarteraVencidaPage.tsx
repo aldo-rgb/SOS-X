@@ -946,6 +946,9 @@ export default function CarteraVencidaPage() {
                     </TableCell>
                     <TableCell>Tracking</TableCell>
                     <TableCell>Cliente</TableCell>
+                    <TableCell align="center">Llegada a CEDIS</TableCell>
+                    <TableCell align="center">Último Status</TableCell>
+                    <TableCell align="center">Pago</TableCell>
                     <TableCell align="center">Días</TableCell>
                     <TableCell align="right">Saldo</TableCell>
                     <TableCell>Estatus</TableCell>
@@ -983,6 +986,37 @@ export default function CarteraVencidaPage() {
                       <TableCell>
                         {guia.cliente_box && <Typography variant="caption" fontWeight={700} color="primary.main">📦 {guia.cliente_box}</Typography>}
                         <Typography variant="body2">{guia.cliente_nombre}</Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        <Typography variant="caption">
+                          {(guia as any).fecha_recepcion
+                            ? new Date((guia as any).fecha_recepcion).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+                            : '—'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        {(guia as any).ultimo_status ? (
+                          <Chip size="small" variant="outlined" label={(guia as any).ultimo_status} sx={{ fontSize: '0.7rem' }} />
+                        ) : (
+                          <Typography variant="caption" color="text.disabled">—</Typography>
+                        )}
+                      </TableCell>
+                      <TableCell align="center">
+                        {(() => {
+                          const ps = String(guia.payment_status || 'pending').toLowerCase();
+                          const map: Record<string, { label: string; color: 'success' | 'warning' | 'error' | 'info' | 'default' }> = {
+                            paid: { label: 'Pagado', color: 'success' },
+                            partial: { label: 'Parcial', color: 'warning' },
+                            vouchers_submitted: { label: 'Comprobantes', color: 'info' },
+                            vouchers_partial: { label: 'Comp. parcial', color: 'info' },
+                            pending_payment: { label: 'Por pagar', color: 'warning' },
+                            pending: { label: 'Pendiente', color: 'error' },
+                            condonado: { label: 'Condonado', color: 'default' },
+                            cancelled: { label: 'Cancelado', color: 'default' },
+                          };
+                          const cfg = map[ps] || { label: ps, color: 'default' as const };
+                          return <Chip size="small" color={cfg.color} label={cfg.label} sx={{ fontSize: '0.7rem' }} />;
+                        })()}
                       </TableCell>
                       <TableCell align="center">
                         <Chip 
