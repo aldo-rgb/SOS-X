@@ -21,7 +21,6 @@ import {
   ActivityIndicator,
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp } from '@react-navigation/native';
 import { api } from '../services/api';
 
 // Colores de marca
@@ -39,7 +38,7 @@ type RootStackParamList = {
 
 type ExistingClientScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'ExistingClient'>;
-  route: RouteProp<RootStackParamList, 'ExistingClient'>;
+  route?: { params?: { ref?: string } };
 };
 
 // Pasos del flujo

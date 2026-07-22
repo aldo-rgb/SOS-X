@@ -133,9 +133,9 @@ export type RootStackParamList = {
   Bootstrap: undefined;
   Login: undefined;
   GuestTracking: { initialLang?: 'es' | 'en' | 'zh' };
-  Register: undefined;
-  PreRegister: undefined;
-  ExistingClient: undefined;
+  Register: { ref?: string } | undefined;
+  PreRegister: { ref?: string } | undefined;
+  ExistingClient: { ref?: string } | undefined;
   ChangePassword: { user: any; token: string; currentPassword: string };
   Verification: { user: any; token: string };
   Home: { user: any; token: string };
@@ -283,7 +283,10 @@ const linking = {
   prefixes: ['https://www.entregax.app', 'https://entregax.app', 'entregax://'],
   config: {
     screens: {
-      Register: 'register',
+      // El link de referido (entregax.app/register?ref=CODE) abre la app en la
+      // pregunta "¿Ya tienes número de cliente?" (igual que en web). El query
+      // param `ref` se mapea a route.params.ref automáticamente.
+      PreRegister: 'register',
     },
   },
 };

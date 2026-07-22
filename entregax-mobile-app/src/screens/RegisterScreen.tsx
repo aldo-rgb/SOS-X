@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -41,9 +41,10 @@ type RootStackParamList = {
 
 type RegisterScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Register'>;
+  route?: { params?: { ref?: string } };
 };
 
-export default function RegisterScreen({ navigation }: RegisterScreenProps) {
+export default function RegisterScreen({ navigation, route }: RegisterScreenProps) {
   const { i18n } = useTranslation();
   const rl = i18n.language;
   const RT = {
@@ -88,7 +89,8 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
   ];
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [referralCode, setReferralCode] = useState('');
+  // Precarga el código de referido que llega por el deep link (?ref=CODE).
+  const [referralCode, setReferralCode] = useState((route?.params?.ref || '').toUpperCase());
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   
@@ -119,6 +121,14 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
       setValidatingCode(false);
     }
   };
+
+  // Si llegó un código de referido por deep link, validarlo al montar para
+  // mostrar el asesor que refirió (igual que al escribirlo a mano).
+  useEffect(() => {
+    const pre = (route?.params?.ref || '').trim();
+    if (pre.length >= 6) validateReferralCode(pre);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Validaciones de formulario
   const emailError = email && !email.includes('@');

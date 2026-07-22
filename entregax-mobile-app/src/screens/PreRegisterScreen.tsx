@@ -16,9 +16,12 @@ const BLACK = '#111111';
 
 type Props = {
     navigation: NativeStackNavigationProp<RootStackParamList, 'PreRegister'>;
+    route?: { params?: { ref?: string } };
 };
 
-export default function PreRegisterScreen({ navigation }: Props) {
+export default function PreRegisterScreen({ navigation, route }: Props) {
+    // Código de referido que llega por el deep link (entregax.app/register?ref=CODE).
+    const ref = route?.params?.ref;
     return (
         <View style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor={BLACK} />
@@ -50,7 +53,7 @@ export default function PreRegisterScreen({ navigation }: Props) {
                 {/* Sí — cliente existente */}
                 <TouchableOpacity
                     style={styles.cardYes}
-                    onPress={() => navigation.navigate('ExistingClient')}
+                    onPress={() => navigation.navigate('ExistingClient', ref ? { ref } : undefined)}
                     activeOpacity={0.85}
                 >
                     <View style={styles.cardIcon}>
@@ -66,7 +69,7 @@ export default function PreRegisterScreen({ navigation }: Props) {
                 {/* No — registro nuevo */}
                 <TouchableOpacity
                     style={styles.cardNo}
-                    onPress={() => navigation.navigate('Register')}
+                    onPress={() => navigation.navigate('Register', ref ? { ref } : undefined)}
                     activeOpacity={0.85}
                 >
                     <View style={styles.cardIcon}>
