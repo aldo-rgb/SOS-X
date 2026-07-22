@@ -440,7 +440,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   // Widgets de leads/altas para admin y super_admin.
-  const [leadsWidgets, setLeadsWidgets] = useState<{ week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number; awbWeek: number; kgWeek: number } | null>(null);
+  const [leadsWidgets, setLeadsWidgets] = useState<{ today: number; week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number; awbWeek: number; kgWeek: number } | null>(null);
   const isAdminLevel = ['admin', 'super_admin'].includes(user.role);
 
   const loadLeadsWidgets = useCallback(async () => {
@@ -453,6 +453,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       const reg = regRes.ok ? await regRes.json() : {};
       const prov = provRes.ok ? await provRes.json() : {};
       setLeadsWidgets({
+        today: Number(reg.today) || 0,
         week: Number(reg.week) || 0,
         month: Number(reg.month) || 0,
         year: Number(reg.year) || 0,
@@ -1309,10 +1310,10 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                     <Text style={styles.leadLabel}>Altas este mes</Text>
                     <Text style={styles.leadSub}>reinicia el día 1</Text>
                   </View>
-                  <View style={[styles.leadCard, { backgroundColor: '#6A2E9E' }]}>
-                    <Text style={styles.leadNumber}>{leadsWidgets.year}</Text>
-                    <Text style={styles.leadLabel}>Altas este año</Text>
-                    <Text style={styles.leadSub}>reinicia el 1 de enero</Text>
+                  <View style={[styles.leadCard, { backgroundColor: '#E65100' }]}>
+                    <Text style={styles.leadNumber}>{leadsWidgets.today}</Text>
+                    <Text style={styles.leadLabel}>Altas hoy</Text>
+                    <Text style={styles.leadSub}>reinicia a medianoche</Text>
                   </View>
                   <View style={[styles.leadCard, { backgroundColor: '#D97A3D' }]}>
                     <Text style={styles.leadNumber}>{leadsWidgets.interested}</Text>
