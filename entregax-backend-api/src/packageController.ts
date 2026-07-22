@@ -1503,7 +1503,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                                ds.weight_kg as weight,
                                ds.status, ds.created_at,
                                1 as total_boxes,
-                               ds.import_cost_mxn, ds.import_cost_usd, ds.import_tax_mxn,
+                               ds.import_cost_mxn, ds.import_cost_usd, ds.import_tax_mxn, ds.exchange_rate,
                                ds.national_carrier, ds.national_tracking, ds.national_label_url,
                                ds.delivery_address_id,
                                u.id as user_id, u.full_name, u.email, u.box_id as user_box_id, u.is_verified as user_is_verified,
@@ -1679,13 +1679,15 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             let dhlTaxTotal: number | null = null;
             let dhlMontoPagado: number | null = null;
             let dhlSaldoPendiente: number | null = null;
+            let dhlImportUsd: number | null = null;
+            let dhlExchangeRate: number | null = null;
             if (fallbackKind === 'dhl') {
                 const masterTk = fallbackRow.master_tracking || fallbackRow.tracking_number || null;
                 let boxes: any[] = [fallbackRow];
                 if (masterTk) {
                     const sib = await pool.query(`
                         SELECT id, inbound_tracking, weight_kg, status,
-                               total_cost_mxn, import_tax_mxn, saldo_pendiente, monto_pagado
+                               total_cost_mxn, import_tax_mxn, import_cost_usd, exchange_rate, saldo_pendiente, monto_pagado
                         FROM dhl_shipments WHERE secondary_tracking = $1 ORDER BY id
                     `, [masterTk]);
                     if (sib.rows.length > 1) boxes = sib.rows;
@@ -1702,6 +1704,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 dhlTaxTotal = boxes.reduce((s, b) => s + (Number(b.import_tax_mxn) || 0), 0);
                 dhlMontoPagado = boxes.reduce((s, b) => s + (Number(b.monto_pagado) || 0), 0);
                 dhlSaldoPendiente = boxes.reduce((s, b) => s + (Number(b.saldo_pendiente) || 0), 0);
+                dhlImportUsd = boxes.reduce((s, b) => s + (Number(b.import_cost_usd) || 0), 0);
+                dhlExchangeRate = Number(boxes.find((b: any) => b.exchange_rate != null)?.exchange_rate) || null;
             }
 
             res.json({
@@ -1751,6 +1755,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         serviceType: fallbackKind === 'dhl' ? 'AA_DHL' : (fallbackKind === 'national' ? 'NACIONAL' : 'SEA_CHN_MX'),
                         totalCost: fallbackKind === 'dhl' ? dhlTotalCost : null,
                         importTaxMxn: fallbackKind === 'dhl' ? dhlTaxTotal : null,
+                        importCostUsd: fallbackKind === 'dhl' ? dhlImportUsd : null,
+                        exchangeRate: fallbackKind === 'dhl' ? dhlExchangeRate : null,
                         montoPagado: fallbackKind === 'dhl' ? dhlMontoPagado : null,
                         saldoPendiente: fallbackKind === 'dhl' ? dhlSaldoPendiente : null,
                         poboxCostUsd: null,

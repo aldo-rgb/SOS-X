@@ -280,6 +280,8 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const ventaUsd = m.poboxVentaUsd != null ? Number(m.poboxVentaUsd) : null;
   const totalCost = m.totalCost != null ? Number(m.totalCost) : null;
   const importTax = (m as any).importTaxMxn != null ? Number((m as any).importTaxMxn) : null;
+  const importCostUsd = (m as any).importCostUsd != null ? Number((m as any).importCostUsd) : null;
+  const dhlExchangeRate = (m as any).exchangeRate != null ? Number((m as any).exchangeRate) : null;
   const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
   const saldoPendiente = m.saldoPendiente ?? m.saldo_pendiente ?? null;
   const hasCosts = lastMileCost != null || providerCostMxn != null || ventaUsd != null || totalCost != null || (importTax != null && importTax > 0);
@@ -632,6 +634,15 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Typography variant="caption" color="text.secondary">Venta al cliente</Typography>
                 <Typography variant="caption" fontWeight={600} color="success.main">{fmtMoney(ventaUsd, 'USD')}</Typography>
+              </Box>
+            )}
+            {importCostUsd != null && importCostUsd > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Costo importación (USD)</Typography>
+                <Typography variant="caption" fontWeight={600}>
+                  {fmtMoney(importCostUsd, 'USD')}
+                  {dhlExchangeRate ? ` · TC ${dhlExchangeRate.toFixed(2)}` : ''}
+                </Typography>
               </Box>
             )}
             {importTax != null && importTax > 0 && (
