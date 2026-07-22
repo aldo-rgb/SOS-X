@@ -152,16 +152,10 @@ export const lookupAdvisor = async (req: Request, res: Response): Promise<any> =
 //   Se excluye 'not_interested' (cliente perdido, no está en el funnel).
 //   Se dedupe contra crm_requests para no duplicar cuando el legacy_client
 //   ya reclamó su cuenta y ya está en el pipeline moderno.
-export const getCrmLeads = async (req: Request, res: Response): Promise<any> => {
-  try {
-    const { status, search } = req.query;
-    await ensureGroupsSchema();
-    await ensureWelcomeKitSchema();
-    // Los prospectos que ya se registraron pasan a "Prospectados" (abajo).
-    await reconcileRegisteredProspects();
-
-    // Consulta combinada. Todas las fuentes proyectan el MISMO set de columnas.
-    const combinedQuery = `
+// Consulta combinada de la Central de Leads. Todas las fuentes proyectan el
+// MISMO set de columnas. Es SOLO LECTURA (no modifica nada). Se comparte entre
+// el endpoint getCrmLeads y el asistente Cajito para que ambos vean lo mismo.
+const LEADS_COMBINED_QUERY = `
       WITH combined AS (
         -- Fuente 1: CRM requests (usuarios app)
         SELECT
@@ -311,50 +305,63 @@ export const getCrmLeads = async (req: Request, res: Response): Promise<any> => 
       ORDER BY dedup.created_at DESC NULLS LAST
     `;
 
-    const all = await pool.query(combinedQuery);
+// Ejecuta la consulta combinada de leads (SOLO LECTURA) y aplica el mismo
+// filtrado/estadísticas que la Central de Leads. Reutilizable por Cajito.
+export async function fetchLeads(opts: { status?: any; search?: any }): Promise<{
+  leads: any[]; stats: Record<string, number>; isSearch: boolean;
+}> {
+  const { status, search } = opts;
+  const all = await pool.query(LEADS_COMBINED_QUERY);
 
-    // Los "sin reclamar" (status='pending') ya NO viven en CRM Leads: se muestran
-    // en Prospectos Externos. Aquí se excluyen por completo.
-    const rows = all.rows.filter((r: any) => r.status !== 'pending');
+  // Los "sin reclamar" (status='pending') ya NO viven en CRM Leads: se muestran
+  // en Prospectos Externos. Aquí se excluyen por completo.
+  const rows = all.rows.filter((r: any) => r.status !== 'pending');
 
-    // Stats sobre TODAS las fuentes (funnel combinado, sin los sin-reclamar)
-    const stats = { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 };
-    for (const row of rows) {
-      if (row.status && Object.prototype.hasOwnProperty.call(stats, row.status)) {
-        stats[row.status as keyof typeof stats]++;
-      }
+  // Stats sobre TODAS las fuentes (funnel combinado, sin los sin-reclamar)
+  const stats = { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 };
+  for (const row of rows) {
+    if (row.status && Object.prototype.hasOwnProperty.call(stats, row.status)) {
+      stats[row.status as keyof typeof stats]++;
     }
+  }
 
-    // Búsqueda global: si viene `search`, busca en TODAS las listas (ignora la
-    // pestaña) para poder llevar al usuario a donde esté. Cada lead conserva su
-    // `status` (la lista donde vive), que la UI muestra en la columna Estado.
-    const q = String(search || '').trim().toLowerCase();
-    let leads;
-    if (q) {
-      const qDigits = q.replace(/\D/g, '');
-      leads = rows.filter((r: any) => {
-        const box = String(r.box_id || '').toLowerCase();
-        const boxWithS = box.startsWith('s') ? box : ('s' + box);
-        const name = String(r.full_name || '').toLowerCase();
-        const email = String(r.email || '').toLowerCase();
-        const adv = String(r.assigned_advisor_name || '').toLowerCase();
-        const phone = String(r.phone || '').replace(/\D/g, '');
-        return box.includes(q) || boxWithS.includes(q)
-          || name.includes(q) || email.includes(q) || adv.includes(q)
-          || (qDigits.length >= 4 && phone.includes(qDigits));
-      });
-    } else {
-      leads = (status && status !== 'all')
-        ? rows.filter((r: any) => r.status === status)
-        : rows;
-    }
-
-    res.json({
-      success: true,
-      leads,
-      stats,
-      isSearch: !!q,
+  // Búsqueda global: si viene `search`, busca en TODAS las listas (ignora la
+  // pestaña) para poder llevar al usuario a donde esté. Cada lead conserva su
+  // `status` (la lista donde vive), que la UI muestra en la columna Estado.
+  const q = String(search || '').trim().toLowerCase();
+  let leads;
+  if (q) {
+    const qDigits = q.replace(/\D/g, '');
+    leads = rows.filter((r: any) => {
+      const box = String(r.box_id || '').toLowerCase();
+      const boxWithS = box.startsWith('s') ? box : ('s' + box);
+      const name = String(r.full_name || '').toLowerCase();
+      const email = String(r.email || '').toLowerCase();
+      const adv = String(r.assigned_advisor_name || '').toLowerCase();
+      const phone = String(r.phone || '').replace(/\D/g, '');
+      return box.includes(q) || boxWithS.includes(q)
+        || name.includes(q) || email.includes(q) || adv.includes(q)
+        || (qDigits.length >= 4 && phone.includes(qDigits));
     });
+  } else {
+    leads = (status && status !== 'all')
+      ? rows.filter((r: any) => r.status === status)
+      : rows;
+  }
+
+  return { leads, stats, isSearch: !!q };
+}
+
+export const getCrmLeads = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { status, search } = req.query;
+    await ensureGroupsSchema();
+    await ensureWelcomeKitSchema();
+    // Los prospectos que ya se registraron pasan a "Prospectados".
+    await reconcileRegisteredProspects();
+
+    const { leads, stats, isSearch } = await fetchLeads({ status, search });
+    res.json({ success: true, leads, stats, isSearch });
   } catch (error) {
     console.error('Error en getCrmLeads:', error);
     res.status(500).json({ success: false, error: 'Error al obtener leads' });

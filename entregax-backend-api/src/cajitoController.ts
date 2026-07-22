@@ -15,6 +15,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { fetchLeads } from './crmController';
 import {
   getLlmProvider,
   getProviderName,
@@ -452,6 +453,50 @@ const TOOLS: ToolDef[] = [
       );
       return { found: true, ticket: t, mensajes: msgs.rows };
     }
+  },
+
+  // -------------------- CENTRAL DE LEADS: KPIs --------------------
+  {
+    name: 'leads_stats',
+    requiredCapability: 'cajito.read.leads',
+    readOnly: true,
+    description: 'Estadísticas de la Central de Leads (CRM/funnel de captación). Devuelve cuántos leads hay en cada etapa: prospected (prospectados, ya se registraron), waiting (en espera de asignación de asesor), assigned (con asesor asignado), contacted (contactados), converted (convertidos/recuperados). Úsalo cuando pregunten cuántos leads/prospectos hay, el estado del funnel, o cuántos convertidos.',
+    parameters: { type: 'object', properties: {} },
+    handler: async () => {
+      const { stats } = await fetchLeads({});
+      // Omitimos "pending" (esos son Prospectos Externos sin reclamar, fuera del funnel).
+      const { pending: _omit, ...funnel } = stats as any;
+      return { funnel };
+    }
+  },
+
+  // -------------------- CENTRAL DE LEADS: buscar leads --------------------
+  {
+    name: 'search_leads',
+    requiredCapability: 'cajito.read.leads',
+    readOnly: true,
+    description: 'Busca/lista leads de la Central de Leads (CRM). Con query busca en TODO el funnel por nombre, casillero (S####), teléfono, correo o asesor. Con status filtra por etapa: prospected, waiting, assigned, contacted, converted. Sin filtros devuelve los leads más recientes. Devuelve nombre, casillero, teléfono, correo, etapa, fuente y asesor asignado.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Texto a buscar: nombre, casillero (S####), teléfono, correo o asesor (opcional)' },
+        status: { type: 'string', description: 'Filtrar por etapa: prospected, waiting, assigned, contacted, converted (opcional)' }
+      }
+    },
+    handler: async ({ query, status }) => {
+      const { leads } = await fetchLeads({ search: query, status });
+      const trimmed = leads.slice(0, MAX_ROWS).map((r: any) => ({
+        nombre: r.full_name,
+        casillero: r.box_id,
+        telefono: r.phone,
+        correo: r.email,
+        etapa: r.status,
+        fuente: r.source,          // crm | chartback | prospect
+        asesor: r.assigned_advisor_name,
+        creado: r.created_at
+      }));
+      return { count: leads.length, mostrando: trimmed.length, leads: trimmed };
+    }
   }
 ];
 
@@ -482,6 +527,11 @@ function buildSystemPrompt(user: { userId: number; role: string; full_name?: str
     'Para "cuántos tickets hay / abiertos / pendientes / estado del soporte" → usa support_tickets_stats.',
     'Para buscar o listar tickets (por folio, asunto, guía, cliente o estado) → usa search_support_tickets.',
     'Para el detalle/conversación de un ticket concreto → usa get_ticket_thread con el folio o id.',
+    '',
+    '=== CENTRAL DE LEADS (CRM / captación) ===',
+    'La Central de Leads es el funnel de captación de clientes. Etapas: prospected (prospectados, ya se registraron), waiting (en espera de asignación de asesor), assigned (con asesor asignado), contacted (contactados por el asesor), converted (convertidos/recuperados). Cada lead tiene nombre, casillero, teléfono, correo, asesor asignado y una fuente (crm=solicitó asesor en la app, chartback=reactivación de cliente legacy, prospect=prospecto externo registrado).',
+    'Para "cuántos leads/prospectos hay / estado del funnel / cuántos convertidos" → usa leads_stats.',
+    'Para buscar o listar leads (por nombre, casillero, teléfono, correo, asesor o etapa) → usa search_leads.',
     '',
     `Usuario actual: id=${user.userId}, rol=${user.role}${user.full_name ? `, nombre=${user.full_name}` : ''}.`,
     `Capacidades concedidas: ${capList}.`
