@@ -862,7 +862,7 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
         cost_payment_status,
         total_cost_mxn,
         status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $20, $17, $18, NOW(), $19, 'pending', (COALESCE($16::numeric,0) + COALESCE($20::numeric,0)), 'received_mty')
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $20, $17, $18, NOW(), $19, 'pending', COALESCE($16::numeric,0), 'received_mty')
       RETURNING *
     `, [
       inbound_tracking, secondary_tracking || null,
@@ -1718,10 +1718,13 @@ export const crossDhlTaxNote = async (tracking: string | null | undefined, noteA
   const def = await getDhlImportTaxMxn();
   const perBox = noteAmount / Math.max(1, pieces);
   const effective = perBox >= def ? Math.round(perBox * 100) / 100 : def;
+  // import_cost_mxn = servicio (usd×TC) + impuesto; total = servicio + impuesto + nacional.
+  // Se recalcula desde usd×TC para que actualizar el impuesto no lo duplique.
   const r = await pool.query(`
     UPDATE dhl_shipments
        SET import_tax_mxn = $1,
-           total_cost_mxn = COALESCE(import_cost_mxn, 0) + $1 + COALESCE(national_cost_mxn, 0),
+           import_cost_mxn = ROUND(COALESCE(import_cost_usd,0)::numeric * COALESCE(exchange_rate,0)::numeric + $1::numeric, 2),
+           total_cost_mxn  = ROUND(COALESCE(import_cost_usd,0)::numeric * COALESCE(exchange_rate,0)::numeric + $1::numeric + COALESCE(national_cost_mxn,0)::numeric, 2),
            updated_at = NOW()
      WHERE (inbound_tracking = $2 OR secondary_tracking = $2)
        AND paid_at IS NULL
