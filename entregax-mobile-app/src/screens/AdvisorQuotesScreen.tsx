@@ -6,7 +6,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
   RefreshControl, Modal, ScrollView, TextInput, Alert, Switch, Linking,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -153,10 +153,12 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const [ticketDetailLoading, setTicketDetailLoading] = useState(false);
   const [ticketDetail, setTicketDetail] = useState<QuoteTicket | null>(null);
   const [ticketDetailBody, setTicketDetailBody] = useState<string>('');
+  const [ticketDetailAttachments, setTicketDetailAttachments] = useState<string[]>([]);
 
   const openTicketDetail = useCallback(async (t: QuoteTicket) => {
     setTicketDetail(t);
     setTicketDetailBody('');
+    setTicketDetailAttachments([]);
     setTicketDetailOpen(true);
     setTicketDetailLoading(true);
     try {
@@ -165,6 +167,19 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
       // Tomar el primer mensaje del cliente (el cuerpo de la solicitud)
       const first = msgs.find(m => m.sender_type === 'user' || m.sender_type === 'client') || msgs[0];
       setTicketDetailBody(first?.message || '');
+      // Adjuntos (foto + packing list): el backend ya devuelve URLs firmadas.
+      const parseAtt = (a: any): string[] => {
+        if (Array.isArray(a)) return a.filter(Boolean);
+        if (typeof a === 'string' && a.trim()) {
+          try { const p = JSON.parse(a); return Array.isArray(p) ? p.filter(Boolean) : [a]; } catch { return [a]; }
+        }
+        return [];
+      };
+      const atts = [
+        ...parseAtt(first?.attachments),
+        ...(first?.attachment_url ? [first.attachment_url] : []),
+      ];
+      setTicketDetailAttachments(Array.from(new Set(atts)));
     } catch (err: any) {
       setTicketDetailBody('No se pudo cargar el detalle del ticket.');
     } finally {
@@ -1333,7 +1348,37 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                   <ActivityIndicator color={ORANGE} />
                 </View>
               ) : (
-                <Text style={{ color: TEXT, fontSize: 14, lineHeight: 22 }}>{ticketDetailBody || 'Sin detalle disponible.'}</Text>
+                <>
+                  <Text style={{ color: TEXT, fontSize: 14, lineHeight: 22 }}>{ticketDetailBody || 'Sin detalle disponible.'}</Text>
+                  {ticketDetailAttachments.length > 0 && (
+                    <View style={{ marginTop: 16 }}>
+                      <Text style={s.sectionTitle}>Adjuntos del cliente ({ticketDetailAttachments.length})</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                        {ticketDetailAttachments.map((url, i) => {
+                          const clean = String(url).split('?')[0].toLowerCase();
+                          const isImage = /\.(png|jpe?g|gif|webp|heic|bmp)$/.test(clean);
+                          const fileName = decodeURIComponent(String(url).split('?')[0].split('/').pop() || `archivo-${i + 1}`);
+                          if (isImage) {
+                            return (
+                              <TouchableOpacity key={i} onPress={() => Linking.openURL(url)} activeOpacity={0.8}>
+                                <Image source={{ uri: url }} style={{ width: 120, height: 120, borderRadius: 10, backgroundColor: '#EEE', borderWidth: 1, borderColor: '#E0E0E0' }} resizeMode="cover" />
+                                <Text style={{ fontSize: 11, color: ORANGE, marginTop: 4, textAlign: 'center' }}>Ver imagen</Text>
+                              </TouchableOpacity>
+                            );
+                          }
+                          return (
+                            <TouchableOpacity key={i} onPress={() => Linking.openURL(url)} activeOpacity={0.8}
+                              style={{ width: 120, height: 120, borderRadius: 10, backgroundColor: '#F5F5F5', borderWidth: 1, borderColor: '#E0E0E0', alignItems: 'center', justifyContent: 'center', padding: 8 }}>
+                              <Ionicons name="document-text-outline" size={34} color={ORANGE} />
+                              <Text numberOfLines={2} style={{ fontSize: 10, color: TEXT, marginTop: 6, textAlign: 'center' }}>{fileName}</Text>
+                              <Text style={{ fontSize: 11, color: ORANGE, marginTop: 2 }}>Abrir</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  )}
+                </>
               )}
             </ScrollView>
             <View style={{ flexDirection: 'row', gap: 10, padding: 14, paddingBottom: 14 + insets.bottom, borderTopWidth: 1, borderTopColor: '#EEE' }}>
