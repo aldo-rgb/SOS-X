@@ -795,13 +795,13 @@ export default function UnifiedLeadsPage() {
   const [seqSaving, setSeqSaving] = useState(false);
 
   // Contador regresivo al próximo envío de la secuencia + a cuántos usuarios.
-  const [seqNextSend, setSeqNextSend] = useState<{ nextSendAt: string; dueCount: number } | null>(null);
+  const [seqNextSend, setSeqNextSend] = useState<{ nextSendAt: string; dueCount: number; dueNowCount: number } | null>(null);
   const [seqCountdown, setSeqCountdown] = useState('');
   useEffect(() => {
     const fetchNext = async () => {
       try {
         const res = await axios.get(`${API_URL}/admin/crm/sequence/next-send`, { headers: { Authorization: `Bearer ${getToken()}` } });
-        if (res.data?.success) setSeqNextSend({ nextSendAt: res.data.nextSendAt, dueCount: res.data.dueCount || 0 });
+        if (res.data?.success) setSeqNextSend({ nextSendAt: res.data.nextSendAt, dueCount: res.data.dueCount || 0, dueNowCount: res.data.dueNowCount || 0 });
       } catch { /* ignore */ }
     };
     fetchNext();
@@ -851,7 +851,7 @@ export default function UnifiedLeadsPage() {
       // refrescar el contador
       try {
         const res = await axios.get(`${API_URL}/admin/crm/sequence/next-send`, { headers: { Authorization: `Bearer ${getToken()}` } });
-        if (res.data?.success) setSeqNextSend({ nextSendAt: res.data.nextSendAt, dueCount: res.data.dueCount || 0 });
+        if (res.data?.success) setSeqNextSend({ nextSendAt: res.data.nextSendAt, dueCount: res.data.dueCount || 0, dueNowCount: res.data.dueNowCount || 0 });
       } catch { /* ignore */ }
     } catch (e: any) {
       setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo guardar', severity: 'error' });
@@ -1159,11 +1159,11 @@ export default function UnifiedLeadsPage() {
   // Dispara la secuencia YA (drena la cola vencida en tandas de 200). Útil cuando
   // quedó backlog atorado (p.ej. tras un reinicio del backend entre tandas).
   const handleRunSequenceNow = () => {
-    const due = seqNextSend?.dueCount || 0;
+    const due = seqNextSend?.dueNowCount || 0;
     askConfirm({
       title: '📤 Enviar secuencia ahora',
       message: due > 0
-        ? `Se enviará el mensaje pendiente a ${due} usuario${due === 1 ? '' : 's'} cuya fecha ya venció, en tandas de 200 (cada 20 min hasta vaciar la cola). ¿Continuar?`
+        ? `Se enviará el mensaje pendiente a ${due} usuario${due === 1 ? '' : 's'} cuya fecha YA venció, en tandas de 200 (cada 20 min hasta vaciar la cola). Los que aún no vencen NO se tocan. ¿Continuar?`
         : 'No hay usuarios vencidos ahora mismo. ¿Aun así quieres forzar una corrida de la secuencia?',
       confirmLabel: 'Enviar ahora',
       onConfirm: async () => {

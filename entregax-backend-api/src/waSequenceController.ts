@@ -255,7 +255,16 @@ export const getSequenceNextSend = async (_req: Request, res: Response): Promise
       );
       dueCount = dueRes.rows[0]?.due || 0;
     }
-    res.json({ success: true, nextSendAt: next ? next.toISOString() : null, dueCount, schedule: sch });
+    // dueNowCount = lo que YA venció (next_send_at <= ahora) — es exactamente lo
+    // que "Enviar ahora" mandaría en este instante (distinto de dueCount, que
+    // mira hasta la próxima corrida programada e incluye lo que aún no vence).
+    const dueNowRes = await pool.query(
+      `SELECT COUNT(*)::int AS due
+         FROM wa_sequence_enrollments
+        WHERE status = 'active' AND next_send_at IS NOT NULL AND next_send_at <= NOW()`
+    );
+    const dueNowCount = dueNowRes.rows[0]?.due || 0;
+    res.json({ success: true, nextSendAt: next ? next.toISOString() : null, dueCount, dueNowCount, schedule: sch });
   } catch (error: any) {
     console.error('Error getSequenceNextSend:', error);
     res.status(500).json({ success: false, error: error.message });
