@@ -175,6 +175,36 @@ export default function CarteraVencidaPage() {
   const [selectedGuia, setSelectedGuia] = useState<{ tracking: string; servicio: string } | null>(null);
   const [resumenGuia, setResumenGuia] = useState<ResumenFinanciero | null>(null);
   const [loadingResumen, setLoadingResumen] = useState(false);
+  // Cambiar tipo de producto DHL desde el detalle (requiere PIN de supervisor)
+  const [ptOpen, setPtOpen] = useState(false);
+  const [ptValue, setPtValue] = useState<'standard' | 'high_value'>('standard');
+  const [ptPin, setPtPin] = useState('');
+  const [ptLoading, setPtLoading] = useState(false);
+  const [ptHistory, setPtHistory] = useState<any[]>([]);
+
+  const loadPtHistory = async (shipmentId: number) => {
+    try {
+      const r = await api.get('/admin/dhl/product-type-history', { params: { shipmentId } });
+      setPtHistory(r.data?.history || []);
+    } catch { setPtHistory([]); }
+  };
+
+  const handleChangeProductType = async () => {
+    const gid = resumenGuia?.guia?.id;
+    if (!gid) return;
+    if (!ptPin.trim()) { setSnackbar({ open: true, message: 'Ingresa el PIN de supervisor', severity: 'error' }); return; }
+    setPtLoading(true);
+    try {
+      const res = await api.patch(`/admin/dhl/shipments/${gid}/product-type`, { product_type: ptValue, supervisor_pin: ptPin.trim() });
+      setSnackbar({ open: true, message: `✅ ${res.data?.message || 'Tipo actualizado'}`, severity: 'success' });
+      setPtOpen(false); setPtPin('');
+      if (selectedGuia) await loadResumenGuia(selectedGuia.tracking, selectedGuia.servicio);
+      await loadPtHistory(gid);
+      searchGuias();
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err?.response?.data?.error || 'Error al cambiar tipo', severity: 'error' });
+    } finally { setPtLoading(false); }
+  };
   
   // Modal de ajuste
   const [ajusteDialog, setAjusteDialog] = useState(false);
@@ -1619,6 +1649,65 @@ export default function CarteraVencidaPage() {
                       </>
                     )}
                   </Box>
+                </Paper>
+              )}
+
+              {/* Cambiar tipo de producto (solo DHL) */}
+              {String(resumenGuia.guia?.servicio || '').toUpperCase().includes('DHL') && resumenGuia.guia?.id && (
+                <Paper sx={{ p: 2, mb: 2, border: '1px solid #FFE0B2' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+                    <Box>
+                      <Typography variant="subtitle2" fontWeight={600}>Tipo de producto</Typography>
+                      <Chip
+                        size="small"
+                        label={(resumenGuia.guia?.product_type === 'high_value') ? 'Específica' : 'General'}
+                        color={(resumenGuia.guia?.product_type === 'high_value') ? 'warning' : 'default'}
+                      />
+                    </Box>
+                    {!ptOpen && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => {
+                          setPtValue((resumenGuia.guia?.product_type === 'high_value') ? 'high_value' : 'standard');
+                          setPtPin('');
+                          setPtOpen(true);
+                          if (resumenGuia.guia?.id) loadPtHistory(resumenGuia.guia.id);
+                        }}
+                      >
+                        Cambiar tipo
+                      </Button>
+                    )}
+                  </Box>
+                  {ptOpen && (
+                    <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                      <FormControl size="small" fullWidth>
+                        <InputLabel>Tipo de producto</InputLabel>
+                        <Select value={ptValue} label="Tipo de producto" onChange={(e) => setPtValue(e.target.value as 'standard' | 'high_value')}>
+                          <MenuItem value="standard">General</MenuItem>
+                          <MenuItem value="high_value">Específica</MenuItem>
+                        </Select>
+                      </FormControl>
+                      <TextField size="small" type="password" label="PIN de Supervisor" value={ptPin} onChange={(e) => setPtPin(e.target.value)} helperText="Requiere PIN de supervisor/admin/director. El precio se recalcula si la guía no está pagada." />
+                      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                        <Button size="small" onClick={() => { setPtOpen(false); setPtPin(''); }} disabled={ptLoading}>Cancelar</Button>
+                        <Button size="small" variant="contained" onClick={handleChangeProductType} disabled={ptLoading}>
+                          {ptLoading ? 'Actualizando…' : 'Actualizar'}
+                        </Button>
+                      </Box>
+                    </Box>
+                  )}
+                  {ptHistory.length > 0 && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <Typography variant="caption" color="text.secondary" fontWeight={600}>Historial de cambios</Typography>
+                      {ptHistory.map((h) => (
+                        <Typography key={h.id} variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                          {new Date(h.created_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} · {h.old_type === 'high_value' ? 'Específica' : 'General'} → {h.new_type === 'high_value' ? 'Específica' : 'General'}
+                          {h.price_recalculated && h.new_total_mxn != null ? ` · $${Number(h.new_total_mxn).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : ''} · {h.supervisor_name || 'supervisor'}
+                        </Typography>
+                      ))}
+                    </Box>
+                  )}
                 </Paper>
               )}
 

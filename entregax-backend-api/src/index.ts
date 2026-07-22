@@ -6729,6 +6729,28 @@ app.patch('/api/admin/dhl/shipments/:id/mark-label-printed', authenticateToken, 
 });
 // Cambio de tipo de producto (requiere PIN de supervisor dentro del handler)
 app.patch('/api/admin/dhl/shipments/:id/product-type', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateDhlShipmentProductType);
+// Historial de cambios de tipo de producto DHL (guía + supervisor que autorizó).
+app.get('/api/admin/dhl/product-type-history', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
+  try {
+    const tracking = String(req.query.tracking || '').trim();
+    const shipmentId = req.query.shipmentId ? parseInt(String(req.query.shipmentId), 10) : null;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    if (shipmentId) { params.push(shipmentId); conditions.push(`shipment_id = $${params.length}`); }
+    if (tracking) { params.push(`%${tracking}%`); conditions.push(`(tracking ILIKE $${params.length} OR box_id ILIKE $${params.length})`); }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const r = await pool.query(
+      `SELECT id, shipment_id, tracking, box_id, client_name, old_type, new_type,
+              old_total_mxn, new_total_mxn, price_recalculated, supervisor_name, created_at
+         FROM dhl_product_type_history ${where}
+        ORDER BY created_at DESC LIMIT 200`,
+      params
+    ).catch(() => ({ rows: [] }));
+    res.json({ success: true, history: r.rows });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
 app.patch('/api/admin/dhl/shipments/:id/status', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateDhlShipmentStatus);
 // Eliminacion de guia (solo Super Admin)
 // Eliminar guía DHL: super_admin/admin, o usuario de operaciones con permiso de

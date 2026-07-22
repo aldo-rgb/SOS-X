@@ -1537,10 +1537,14 @@ export const updateDhlShipmentProductType = async (req: Request, res: Response) 
     }
     const supervisor = sup.rows[0];
 
-    // 2) Obtener guia y tipo anterior
+    // 2) Obtener guia, tipo anterior e insumos para recalcular el precio.
     const cur = await pool.query(
-      `SELECT ds.id, ds.inbound_tracking, ds.product_type, ds.user_id,
-              u.full_name AS client_name, u.box_id AS client_box_id
+      `SELECT ds.id, ds.inbound_tracking, ds.secondary_tracking, ds.product_type, ds.user_id,
+              ds.exchange_rate, ds.import_tax_mxn, ds.national_cost_mxn,
+              ds.import_cost_usd, ds.import_cost_mxn, ds.total_cost_mxn,
+              ds.paid_at, ds.monto_pagado,
+              u.full_name AS client_name, u.box_id AS client_box_id,
+              u.dhl_standard_price, u.dhl_high_value_price
        FROM dhl_shipments ds
        LEFT JOIN users u ON u.id = ds.user_id
        WHERE ds.id = $1`,
@@ -1561,11 +1565,70 @@ export const updateDhlShipmentProductType = async (req: Request, res: Response) 
       });
     }
 
-    // 3) Actualizar product_type
+    // 3) Recalcular el precio según la tarifa del nuevo tipo (solo si NO está
+    //    pagada). import_cost_mxn = tarifaUSD × TC-de-la-guía + impuesto;
+    //    total = eso + costo nacional. Las pagadas conservan su precio.
+    const tariffStd = before.dhl_standard_price != null ? Number(before.dhl_standard_price) : 145;
+    const tariffHv = before.dhl_high_value_price != null ? Number(before.dhl_high_value_price) : 225;
+    const newUsd = product_type === 'high_value' ? tariffHv : tariffStd;
+    const isPaid = before.paid_at != null || Number(before.monto_pagado || 0) > 0;
+    const tc = Number(before.exchange_rate || 0);
+    const tax = Number(before.import_tax_mxn || 0);
+    const national = Number(before.national_cost_mxn || 0);
+    let newImportMxn: number | null = null;
+    let newTotal: number | null = null;
+    if (!isPaid && tc > 0) {
+      newImportMxn = Math.round((newUsd * tc + tax) * 100) / 100;
+      newTotal = Math.round((newUsd * tc + tax + national) * 100) / 100;
+      await pool.query(
+        `UPDATE dhl_shipments
+            SET product_type = $1, import_cost_usd = $2, import_cost_mxn = $3, total_cost_mxn = $4, updated_at = NOW()
+          WHERE id = $5`,
+        [product_type, newUsd, newImportMxn, newTotal, id]
+      );
+    } else {
+      // Pagada (o sin TC): solo cambia la etiqueta, se conserva el precio.
+      await pool.query(
+        `UPDATE dhl_shipments SET product_type = $1, updated_at = NOW() WHERE id = $2`,
+        [product_type, id]
+      );
+    }
+
+    // 3.5) Historial de cambios de tipo de producto (guía + supervisor).
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS dhl_product_type_history (
+        id SERIAL PRIMARY KEY,
+        shipment_id INTEGER NOT NULL,
+        tracking TEXT,
+        box_id TEXT,
+        client_name TEXT,
+        old_type TEXT,
+        new_type TEXT,
+        old_total_mxn NUMERIC,
+        new_total_mxn NUMERIC,
+        price_recalculated BOOLEAN DEFAULT FALSE,
+        supervisor_id INTEGER,
+        supervisor_name TEXT,
+        requester_id INTEGER,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `).catch(() => {});
     await pool.query(
-      `UPDATE dhl_shipments SET product_type = $1, updated_at = NOW() WHERE id = $2`,
-      [product_type, id]
-    );
+      `INSERT INTO dhl_product_type_history
+         (shipment_id, tracking, box_id, client_name, old_type, new_type, old_total_mxn, new_total_mxn, price_recalculated, supervisor_id, supervisor_name, requester_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        id,
+        before.secondary_tracking || before.inbound_tracking,
+        before.client_box_id || null,
+        before.client_name || null,
+        oldType, product_type,
+        before.total_cost_mxn != null ? Number(before.total_cost_mxn) : null,
+        newTotal != null ? newTotal : (before.total_cost_mxn != null ? Number(before.total_cost_mxn) : null),
+        !isPaid && tc > 0,
+        supervisor.id, supervisor.full_name, requesterId || null,
+      ]
+    ).catch((e) => console.warn('[DHL] historial tipo producto:', (e as Error).message));
 
     // 4) Log de autorizacion
     try {
@@ -1616,10 +1679,13 @@ export const updateDhlShipmentProductType = async (req: Request, res: Response) 
 
     return res.json({
       success: true,
-      message: 'Tipo de producto actualizado',
+      message: newTotal != null ? 'Tipo de producto y precio actualizados' : 'Tipo de producto actualizado (guía pagada: precio sin cambios)',
       shipment_id: id,
       old_product_type: oldType,
       new_product_type: product_type,
+      price_recalculated: newTotal != null,
+      old_total_mxn: before.total_cost_mxn != null ? Number(before.total_cost_mxn) : null,
+      new_total_mxn: newTotal,
       supervisor_name: supervisor.full_name,
     });
   } catch (error: any) {
