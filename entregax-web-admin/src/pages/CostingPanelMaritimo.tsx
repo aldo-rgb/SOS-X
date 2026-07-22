@@ -1522,6 +1522,7 @@ export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { 
                             <TableCell><strong>{t('maritime.route')}</strong></TableCell>
                             <TableCell><strong>Week</strong></TableCell>
                             <TableCell><strong>{t('maritime.eta')}</strong></TableCell>
+                            <TableCell><strong>Fecha alta</strong></TableCell>
                             <TableCell><strong>{t('maritime.status')}</strong></TableCell>
                             <TableCell align="center"><strong>{t('maritime.packages')}</strong></TableCell>
                             <TableCell align="right"><strong>{t('maritime.weight')}</strong></TableCell>
@@ -1637,6 +1638,9 @@ export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { 
                                 </TableCell>
                                 <TableCell>
                                     {container.eta ? new Date(container.eta).toLocaleDateString() : '-'}
+                                </TableCell>
+                                <TableCell>
+                                    {container.created_at ? new Date(container.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
                                 </TableCell>
                                 <TableCell>
                                     <FormControl size="small" sx={{ minWidth: 130 }}>
