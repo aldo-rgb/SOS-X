@@ -440,7 +440,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   // Widgets de leads/altas para admin y super_admin.
-  const [leadsWidgets, setLeadsWidgets] = useState<{ week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number } | null>(null);
+  const [leadsWidgets, setLeadsWidgets] = useState<{ week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number; awbWeek: number; kgWeek: number } | null>(null);
   const isAdminLevel = ['admin', 'super_admin'].includes(user.role);
 
   const loadLeadsWidgets = useCallback(async () => {
@@ -459,6 +459,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
         interested: Number(prov?.stats?.interested_count) || 0,
         fclMonth: Number(reg.fcl_month) || 0,
         lclMonth: Number(reg.lcl_month) || 0,
+        awbWeek: Number(reg.awb_week) || 0,
+        kgWeek: Number(reg.kg_week) || 0,
       });
     } catch (e) {
       console.warn('No se pudieron cargar widgets de leads:', e);
@@ -1326,6 +1328,16 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                     <Text style={styles.leadNumber}>{leadsWidgets.lclMonth}</Text>
                     <Text style={styles.leadLabel}>Weeks LCL</Text>
                     <Text style={styles.leadSub}>este mes · reinicia el día 1</Text>
+                  </View>
+                  <View style={[styles.leadCard, { backgroundColor: '#8B5E1E' }]}>
+                    <Text style={styles.leadNumber}>{leadsWidgets.awbWeek}</Text>
+                    <Text style={styles.leadLabel}>AWBs China aéreo</Text>
+                    <Text style={styles.leadSub}>esta semana · reinicia el domingo</Text>
+                  </View>
+                  <View style={[styles.leadCard, { backgroundColor: '#3D5A8B' }]}>
+                    <Text style={styles.leadNumber}>{leadsWidgets.kgWeek.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</Text>
+                    <Text style={styles.leadLabel}>Kilos aéreo</Text>
+                    <Text style={styles.leadSub}>esta semana · reinicia el domingo</Text>
                   </View>
                 </View>
               </View>

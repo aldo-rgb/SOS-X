@@ -389,10 +389,26 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
       fclMonth = Number(c.rows[0]?.fcl) || 0;
       lclMonth = Number(c.rows[0]?.lcl) || 0;
     } catch (e) { /* tabla containers puede no existir en algún entorno */ }
+
+    // AWBs (China aéreo) y kilos de la SEMANA — reinicia el DOMINGO.
+    // date_trunc('week') empieza en lunes; se corre 1 día para que sea domingo.
+    let awbWeek = 0, kgWeek = 0;
+    try {
+      const a = await pool.query(`
+        SELECT COUNT(*) AS awbs, COALESCE(SUM(total_weight), 0) AS kilos
+        FROM china_receipts
+        WHERE created_at AT TIME ZONE 'America/Monterrey'
+              >= (date_trunc('week', (now() AT TIME ZONE 'America/Monterrey') + interval '1 day') - interval '1 day')
+      `);
+      awbWeek = Number(a.rows[0]?.awbs) || 0;
+      kgWeek = Math.round((Number(a.rows[0]?.kilos) || 0) * 100) / 100;
+    } catch (e) { /* tabla china_receipts puede no existir en algún entorno */ }
+
     res.json({
       success: true,
       week: Number(row.week) || 0, month: Number(row.month) || 0, year: Number(row.year) || 0, today: Number(row.today) || 0,
       fcl_month: fclMonth, lcl_month: lclMonth,
+      awb_week: awbWeek, kg_week: kgWeek,
     });
   } catch (error) {
     console.error('Error en getRegistrationStats:', error);
