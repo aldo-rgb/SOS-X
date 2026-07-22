@@ -2087,12 +2087,28 @@ export const bulkCreateProspects = async (req: Request, res: Response): Promise<
     const normPhone = (p: any): string => { const d = String(p ?? '').replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d; };
     const normEmail = (e: any): string => String(e ?? '').trim().toLowerCase();
 
+    // Lista de omitidos (con motivo) para mostrarla al usuario en un modal.
+    const skippedList: Array<{ full_name: string; whatsapp: string | null; email: string | null; motivo: string }> = [];
+    const SKIPPED_LIST_CAP = 2000;
+    const pushSkipped = (item: { full_name: string; whatsapp: string | null; email: string | null; motivo: string }) => {
+      if (skippedList.length < SKIPPED_LIST_CAP) skippedList.push(item);
+    };
+
     // Limpiar/normalizar. Se omiten filas sin nombre.
     const clean: Array<{ full_name: string; whatsapp: string | null; email: string | null; channel: string }> = [];
     let skippedNoName = 0;
     for (const r of rows) {
       const full_name = String(r?.full_name ?? r?.nombre ?? '').trim();
-      if (!full_name) { skippedNoName++; continue; }
+      if (!full_name) {
+        skippedNoName++;
+        pushSkipped({
+          full_name: '(sin nombre)',
+          whatsapp: String(r?.whatsapp ?? r?.telefono ?? r?.phone ?? '').trim() || null,
+          email: String(r?.email ?? r?.correo ?? '').trim() || null,
+          motivo: 'Sin nombre',
+        });
+        continue;
+      }
       const whatsappRaw = String(r?.whatsapp ?? r?.telefono ?? r?.phone ?? '').trim();
       // Solo cuenta como teléfono si tiene al menos 10 dígitos; placeholders como
       // "sin telefono" / "n/a" quedan en null (no cuentan para dedup).
@@ -2133,8 +2149,16 @@ export const bulkCreateProspects = async (req: Request, res: Response): Promise<
     const seenPhones = new Set<string>();
     for (const c of clean) {
       const np = normPhone(c.whatsapp);
-      const dupPhone = !!np && (existingPhones.has(np) || seenPhones.has(np));
-      if (dupPhone) { skippedDuplicate++; continue; }
+      if (np && existingPhones.has(np)) {
+        skippedDuplicate++;
+        pushSkipped({ full_name: c.full_name, whatsapp: c.whatsapp, email: c.email, motivo: 'Teléfono ya existe en el sistema' });
+        continue;
+      }
+      if (np && seenPhones.has(np)) {
+        skippedDuplicate++;
+        pushSkipped({ full_name: c.full_name, whatsapp: c.whatsapp, email: c.email, motivo: 'Teléfono repetido en el archivo' });
+        continue;
+      }
       if (np) seenPhones.add(np);
       toInsert.push(c);
     }
@@ -2161,7 +2185,12 @@ export const bulkCreateProspects = async (req: Request, res: Response): Promise<
 
     const skipped = skippedNoName + skippedDuplicate;
     console.log(`[CRM] Carga masiva de prospectos: ${inserted} importados, ${skippedDuplicate} duplicados, ${skippedNoName} sin nombre (de ${rows.length} filas)`);
-    res.json({ success: true, inserted, skipped, skippedDuplicate, skippedNoName, total: rows.length, message: `${inserted} prospectos importados` });
+    res.json({
+      success: true, inserted, skipped, skippedDuplicate, skippedNoName, total: rows.length,
+      message: `${inserted} prospectos importados`,
+      skipped_list: skippedList,
+      skipped_list_truncated: skipped > skippedList.length,
+    });
   } catch (error: any) {
     console.error('Error bulkCreateProspects:', error);
     res.status(500).json({ success: false, error: error.message });

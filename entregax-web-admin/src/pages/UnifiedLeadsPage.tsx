@@ -787,6 +787,7 @@ export default function UnifiedLeadsPage() {
   const [prospectStats, setProspectStats] = useState<ProspectStats | null>(null);
   const [uploadingProspects, setUploadingProspects] = useState(false);
   const [runningSeqNow, setRunningSeqNow] = useState(false);
+  const [skippedModal, setSkippedModal] = useState<{ open: boolean; inserted: number; total: number; truncated: boolean; list: Array<{ full_name: string; whatsapp: string | null; email: string | null; motivo: string }> }>({ open: false, inserted: 0, total: 0, truncated: false, list: [] });
   const [markingKitId, setMarkingKitId] = useState<string | null>(null);
   // Secuencias automáticas
   const [sequences, setSequences] = useState<WaSequence[]>([]);
@@ -1141,14 +1142,16 @@ export default function UnifiedLeadsPage() {
       const res = await axios.post(`${API_URL}/admin/crm/prospects/bulk`, { rows }, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
-      const { inserted = 0, skippedDuplicate = 0, skippedNoName = 0 } = res.data || {};
-      const parts: string[] = [];
-      if (skippedDuplicate) parts.push(`${skippedDuplicate} duplicados (tel/correo ya existe)`);
-      if (skippedNoName) parts.push(`${skippedNoName} sin nombre`);
-      const detail = parts.length ? ` · omitidos: ${parts.join(', ')}` : '';
-      setSnackbar({ open: true, message: `✅ ${inserted} prospectos importados${detail}`, severity: inserted > 0 ? 'success' : 'error' });
+      const { inserted = 0, skippedDuplicate = 0, skippedNoName = 0, skipped_list = [], skipped_list_truncated = false } = res.data || {};
+      const skippedTotal = skippedDuplicate + skippedNoName;
       setProspectPage(0);
       fetchProspects();
+      // Si hubo omitidos, abrimos un modal con la lista exacta (nombre, tel, motivo).
+      if (skippedTotal > 0) {
+        setSkippedModal({ open: true, inserted, list: Array.isArray(skipped_list) ? skipped_list : [], truncated: !!skipped_list_truncated, total: skippedTotal });
+      } else {
+        setSnackbar({ open: true, message: `✅ ${inserted} prospectos importados`, severity: 'success' });
+      }
     } catch (e: any) {
       setSnackbar({ open: true, message: e.response?.data?.error || 'Error al importar el Excel', severity: 'error' });
     } finally {
@@ -2700,6 +2703,57 @@ export default function UnifiedLeadsPage() {
           >
             {confirmDialog.confirmLabel}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal de prospectos OMITIDOS en la carga masiva */}
+      <Dialog open={skippedModal.open} onClose={() => setSkippedModal(s => ({ ...s, open: false }))} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <span>📋 Resultado de la carga</span>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+            <Chip color="success" label={`${skippedModal.inserted} importados`} />
+            <Chip color="warning" label={`${skippedModal.total} omitidos`} />
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Estos prospectos NO se agregaron. Revisa el motivo de cada uno:
+          </Typography>
+          <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 360 }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Nombre</TableCell>
+                  <TableCell>Teléfono</TableCell>
+                  <TableCell>Motivo</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {skippedModal.list.map((it, i) => (
+                  <TableRow key={i} hover>
+                    <TableCell>{it.full_name}</TableCell>
+                    <TableCell>{it.whatsapp || '—'}</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        color={it.motivo.includes('sistema') ? 'default' : it.motivo.includes('archivo') ? 'info' : 'warning'}
+                        label={it.motivo}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          {skippedModal.truncated && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Se muestran los primeros {skippedModal.list.length} de {skippedModal.total} omitidos.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSkippedModal(s => ({ ...s, open: false }))} variant="contained">Entendido</Button>
         </DialogActions>
       </Dialog>
 
