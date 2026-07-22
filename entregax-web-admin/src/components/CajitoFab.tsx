@@ -638,11 +638,14 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
             )}
             {importCostUsd != null && importCostUsd > 0 && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="caption" color="text.secondary">Costo importación (USD)</Typography>
-                <Typography variant="caption" fontWeight={600}>
-                  {fmtMoney(importCostUsd, 'USD')}
-                  {dhlExchangeRate ? ` · TC ${dhlExchangeRate.toFixed(2)}` : ''}
-                </Typography>
+                <Typography variant="caption" color="text.secondary">Monto en USD (importación)</Typography>
+                <Typography variant="caption" fontWeight={600}>{fmtMoney(importCostUsd, 'USD')}</Typography>
+              </Box>
+            )}
+            {dhlExchangeRate != null && dhlExchangeRate > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Tipo de cambio aplicado</Typography>
+                <Typography variant="caption" fontWeight={600}>${dhlExchangeRate.toFixed(2)}</Typography>
               </Box>
             )}
             {importTax != null && importTax > 0 && (
@@ -654,7 +657,9 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
             {totalCost != null && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #FFE0B2', pt: 0.5, mt: 0.25 }}>
                 <Typography variant="caption" fontWeight={700}>Total a cobrar</Typography>
-                <Typography variant="caption" fontWeight={700} color="warning.dark">{fmtMoney(totalCost)}</Typography>
+                <Typography variant="caption" fontWeight={700} color="warning.dark">
+                  {fmtMoney(totalCost)}{dhlExchangeRate ? ` · ${fmtMoney(totalCost / dhlExchangeRate, 'USD')}` : ''}
+                </Typography>
               </Box>
             )}
             {dispMontoPagado != null && (
