@@ -315,9 +315,8 @@ export const getCarteraCliente = async (req: Request, res: Response) => {
 export const getCarteraDashboard = async (req: Request, res: Response) => {
   try {
     // Query unificada de todas las tablas
-    // Solo cuenta guías que ya llegaron a cedis (MTY o China). Las que aún
-    // están en tránsito no acumulan días de almacén, no aparecen en KPIs de
-    // cartera ni en pre-abandono.
+    // Solo cuenta guías que ya llegaron a cedis (MTY o China) Y que no
+    // están en tránsito (in_transit/pending) ni entregadas/canceladas.
     const allGuias = await pool.query(`
       SELECT * FROM (
         -- PACKAGES
@@ -339,6 +338,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
         )
         WHERE (p.payment_status != 'paid' OR p.payment_status IS NULL)
           AND p.received_at IS NOT NULL
+          AND p.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'lost', 'missing')
         
         UNION ALL
         
@@ -347,6 +347,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           COALESCE(d.saldo_pendiente, d.total_cost_mxn, 0)::DECIMAL,
           GREATEST(EXTRACT(DAY FROM NOW() - d.inspected_at)::INTEGER, 0)
         FROM dhl_shipments d WHERE d.paid_at IS NULL AND d.inspected_at IS NOT NULL
+          AND d.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled')
         
         UNION ALL
         
@@ -355,6 +356,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           COALESCE(n.saldo_pendiente, n.shipping_cost, 0)::DECIMAL,
           GREATEST(EXTRACT(DAY FROM NOW() - n.created_at)::INTEGER, 0)
         FROM national_shipments n WHERE n.paid_at IS NULL
+          AND n.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled')
         
         UNION ALL
         
@@ -365,6 +367,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
         FROM maritime_shipments ms
         WHERE (ms.payment_status != 'paid' OR ms.payment_status IS NULL)
           AND COALESCE(ms.received_at_cedis, ms.received_at_origin) IS NOT NULL
+          AND ms.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled')
         
         UNION ALL
         
@@ -373,6 +376,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           COALESCE(cr.saldo_pendiente, cr.assigned_cost_mxn, 0)::DECIMAL,
           GREATEST(EXTRACT(DAY FROM NOW() - cr.created_at)::INTEGER, 0)
         FROM china_receipts cr WHERE cr.paid_at IS NULL
+          AND cr.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled')
         
         UNION ALL
         
@@ -381,6 +385,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           COALESCE(mo.saldo_pendiente, mo.assigned_cost_mxn, 0)::DECIMAL,
           GREATEST(EXTRACT(DAY FROM NOW() - mo.received_at)::INTEGER, 0)
         FROM maritime_orders mo WHERE mo.paid_at IS NULL AND mo.received_at IS NOT NULL
+          AND mo.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled')
       ) combined
     `);
 
@@ -422,6 +427,8 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
     });
 
     // Guías críticas (>= 60 días) con info de cliente
+    // Excluye statuses de tránsito/pre-arribo: solo cuenta guías que
+    // efectivamente están detenidas en un cedis (China o MTY).
     const criticas = await pool.query(`
       SELECT g.*, u.full_name as cliente_nombre, u.phone as cliente_telefono, u.email as cliente_email
       FROM (
@@ -445,6 +452,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
         )
         WHERE (p.payment_status != 'paid' OR p.payment_status IS NULL)
           AND p.received_at IS NOT NULL
+          AND p.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled', 'lost', 'missing')
           AND EXTRACT(DAY FROM NOW() - p.received_at) >= 60
         
         UNION ALL
@@ -457,6 +465,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           COALESCE(d.description, 'DHL')
         FROM dhl_shipments d WHERE d.paid_at IS NULL
           AND d.inspected_at IS NOT NULL
+          AND d.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled')
           AND EXTRACT(DAY FROM NOW() - d.inspected_at) >= 60
         
         UNION ALL
@@ -468,6 +477,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           n.status::text as ultimo_status,
           COALESCE(n.destination_name, 'Nacional')
         FROM national_shipments n WHERE n.paid_at IS NULL
+          AND n.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled')
           AND EXTRACT(DAY FROM NOW() - n.created_at) >= 60
         
         UNION ALL
@@ -480,6 +490,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           'Marítimo'::text
         FROM maritime_shipments ms WHERE (ms.payment_status != 'paid' OR ms.payment_status IS NULL)
           AND COALESCE(ms.received_at_cedis, ms.received_at_origin) IS NOT NULL
+          AND ms.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled')
           AND EXTRACT(DAY FROM NOW() - COALESCE(ms.received_at_cedis, ms.received_at_origin)) >= 60
         
         UNION ALL
@@ -491,6 +502,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           cr.status::text as ultimo_status,
           COALESCE(cr.shipping_mark, 'China')
         FROM china_receipts cr WHERE cr.paid_at IS NULL
+          AND cr.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled')
           AND EXTRACT(DAY FROM NOW() - cr.created_at) >= 60
         
         UNION ALL
@@ -503,6 +515,7 @@ export const getCarteraDashboard = async (req: Request, res: Response) => {
           COALESCE(mo.shipping_mark, 'Pedido')
         FROM maritime_orders mo WHERE mo.paid_at IS NULL
           AND mo.received_at IS NOT NULL
+          AND mo.status::text NOT IN ('in_transit', 'pending', 'created', 'delivered', 'cancelled')
           AND EXTRACT(DAY FROM NOW() - mo.received_at) >= 60
       ) g
       LEFT JOIN users u ON g.cliente_id = u.id
