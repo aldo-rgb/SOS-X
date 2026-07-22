@@ -383,7 +383,7 @@ const TOOLS: ToolDef[] = [
       const wh: string[] = [];
       const params: any[] = [];
       if (!include_archived) wh.push('t.archived_at IS NULL');
-      if (status) { params.push(String(status).trim()); wh.push(`t.status = $${params.length}`); }
+      if (status) { params.push(String(status).trim()); wh.push(`t.status::text = $${params.length}`); }
       const q = String(query || '').trim();
       if (q) {
         params.push(`%${q}%`);
@@ -452,6 +452,47 @@ const TOOLS: ToolDef[] = [
         [t.id]
       );
       return { found: true, ticket: t, mensajes: msgs.rows };
+    }
+  },
+
+  // -------------------- CENTRO DE SOPORTE: desglose agregado (TODOS) --------------------
+  {
+    name: 'support_tickets_breakdown',
+    requiredCapability: 'cajito.read.support',
+    readOnly: true,
+    description: 'Desglose AGREGADO (conteos) de tickets sobre TODA la base — no una muestra de 25. Agrupa por categoría, estado o departamento, con filtros opcionales de estado y archivado. Úsalo SIEMPRE que pidan "de TODOS los tickets resueltos/archivados", totales/porcentajes por categoría, o cualquier análisis global. NO uses search_support_tickets (que solo devuelve 25) para totales.',
+    parameters: {
+      type: 'object',
+      properties: {
+        group_by: { type: 'string', description: "Agrupar por: 'category' (default), 'status' o 'department'" },
+        status: { type: 'string', description: 'Filtrar por estado: open_ai, escalated_human, waiting_client, resolved, closed (opcional)' },
+        archived: { type: 'string', description: "'true' = solo archivados, 'false' = solo no archivados, 'all' = ambos (default 'all')" }
+      }
+    },
+    handler: async ({ group_by, status, archived }) => {
+      const wh: string[] = [];
+      const params: any[] = [];
+      if (status) { params.push(String(status).trim()); wh.push(`t.status::text = $${params.length}`); }
+      const arch = String(archived || 'all').toLowerCase();
+      if (arch === 'true') wh.push('t.archived_at IS NOT NULL');
+      else if (arch === 'false') wh.push('t.archived_at IS NULL');
+      const whereSql = wh.length ? 'WHERE ' + wh.join(' AND ') : '';
+      const gbKey = String(group_by || 'category').toLowerCase();
+      let sql: string;
+      if (gbKey === 'department') {
+        sql = `SELECT COALESCE(d.name, '(sin departamento)') AS grupo, COUNT(*)::int AS total
+                 FROM support_tickets t LEFT JOIN support_departments d ON d.id = t.department_id
+                 ${whereSql} GROUP BY 1 ORDER BY 2 DESC`;
+      } else if (gbKey === 'status') {
+        sql = `SELECT COALESCE(NULLIF(TRIM(t.status::text), ''), '(sin estado)') AS grupo, COUNT(*)::int AS total
+                 FROM support_tickets t ${whereSql} GROUP BY 1 ORDER BY 2 DESC`;
+      } else {
+        sql = `SELECT COALESCE(NULLIF(TRIM(t.category::text), ''), '(sin categoría)') AS grupo, COUNT(*)::int AS total
+                 FROM support_tickets t ${whereSql} GROUP BY 1 ORDER BY 2 DESC`;
+      }
+      const r = await pool.query(sql, params).catch((e: any) => ({ rows: [], _err: String(e?.message || e) } as any));
+      const total = r.rows.reduce((s: number, x: any) => s + (x.total || 0), 0);
+      return { agrupado_por: gbKey === 'department' ? 'department' : gbKey, total, grupos: r.rows };
     }
   },
 
@@ -527,6 +568,7 @@ function buildSystemPrompt(user: { userId: number; role: string; full_name?: str
     'Para "cuántos tickets hay / abiertos / pendientes / estado del soporte" → usa support_tickets_stats.',
     'Para buscar o listar tickets (por folio, asunto, guía, cliente o estado) → usa search_support_tickets.',
     'Para el detalle/conversación de un ticket concreto → usa get_ticket_thread con el folio o id.',
+    'IMPORTANTE: search_support_tickets devuelve solo una MUESTRA (máx 25). Para "de TODOS", totales o % por categoría/estado/departamento sobre toda la base → usa support_tickets_breakdown (conteos exactos, sin muestra). Nunca infieras totales a partir de la muestra de 25.',
     '',
     '=== CENTRAL DE LEADS (CRM / captación) ===',
     'La Central de Leads es el funnel de captación de clientes. Etapas: prospected (prospectados, ya se registraron), waiting (en espera de asignación de asesor), assigned (con asesor asignado), contacted (contactados por el asesor), converted (convertidos/recuperados). Cada lead tiene nombre, casillero, teléfono, correo, asesor asignado y una fuente (crm=solicitó asesor en la app, chartback=reactivación de cliente legacy, prospect=prospecto externo registrado).',
