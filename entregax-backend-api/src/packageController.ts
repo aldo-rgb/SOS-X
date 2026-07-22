@@ -1686,7 +1686,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 let boxes: any[] = [fallbackRow];
                 if (masterTk) {
                     const sib = await pool.query(`
-                        SELECT id, inbound_tracking, weight_kg, status,
+                        SELECT id, inbound_tracking, weight_kg, status, length_cm, width_cm, height_cm,
                                total_cost_mxn, import_tax_mxn, import_cost_usd, exchange_rate, saldo_pendiente, monto_pagado
                         FROM dhl_shipments WHERE secondary_tracking = $1 ORDER BY id
                     `, [masterTk]);
@@ -1697,6 +1697,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     tracking: b.inbound_tracking || null,
                     status: b.status,
                     weight: b.weight_kg != null ? Number(b.weight_kg) : null,
+                    length: b.length_cm != null ? Number(b.length_cm) : null,
+                    width: b.width_cm != null ? Number(b.width_cm) : null,
+                    height: b.height_cm != null ? Number(b.height_cm) : null,
                     totalCost: b.total_cost_mxn != null ? Number(b.total_cost_mxn) : null,
                     importTaxMxn: b.import_tax_mxn != null ? Number(b.import_tax_mxn) : null,
                 })) : [];

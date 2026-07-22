@@ -596,14 +596,27 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
         <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
           <Typography variant="caption" color="text.secondary" fontWeight={600}>CAJAS ({children.length})</Typography>
           <Divider sx={{ my: 0.5 }} />
-          {children.slice(0, 5).map((c, i) => (
-            <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
-              <Typography variant="caption" fontFamily="monospace" sx={{ flex: 1, fontSize: 11 }}>
-                {c.tracking || c.trackingInternal || `Caja ${c.boxNumber || i + 1}`}
-              </Typography>
-              <Chip label={statusLabel(c.status, { warehouseLocation: c.warehouseLocation || c.warehouse_location, serviceType: c.serviceType || c.service_type })} size="small" color={statusColor(c.status)} sx={{ height: 18, fontSize: 10 }} />
-            </Box>
-          ))}
+          {children.slice(0, 5).map((c, i) => {
+            const dims = (c.length || c.width || c.height)
+              ? `${Number(c.length || 0).toFixed(0)}×${Number(c.width || 0).toFixed(0)}×${Number(c.height || 0).toFixed(0)} cm`
+              : null;
+            const peso = c.weight != null ? `${Number(c.weight).toFixed(2)} kg` : null;
+            return (
+              <Box key={i} sx={{ py: 0.4, borderBottom: i < Math.min(children.length, 5) - 1 ? '1px dashed #eee' : 'none' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="caption" fontFamily="monospace" sx={{ flex: 1, fontSize: 11 }}>
+                    {c.tracking || c.trackingInternal || `Caja ${c.boxNumber || i + 1}`}
+                  </Typography>
+                  <Chip label={statusLabel(c.status, { warehouseLocation: c.warehouseLocation || c.warehouse_location, serviceType: c.serviceType || c.service_type })} size="small" color={statusColor(c.status)} sx={{ height: 18, fontSize: 10 }} />
+                </Box>
+                {(peso || dims) && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 10.5, mt: 0.25 }}>
+                    Caja {i + 1}{peso ? ` · ${peso}` : ''}{dims ? ` · ${dims}` : ''}
+                  </Typography>
+                )}
+              </Box>
+            );
+          })}
           {children.length > 5 && (
             <Typography variant="caption" color="text.secondary">+{children.length - 5} más</Typography>
           )}
