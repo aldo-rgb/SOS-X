@@ -54,6 +54,29 @@ import { signRowFileUrls } from './entangledController';
 
 const SERVICIOS_VALIDOS: EntangledServicio[] = ['pago_con_factura', 'pago_sin_factura'];
 
+// Constancia de Situación Fiscal (CSF) del cliente final. La guardamos en
+// user_saved_documents (document_type='constancia_fiscal'); el bucket es
+// privado, así que devolvemos una URL firmada (7 días) que ENTANGLED pueda
+// descargar. Devuelve undefined si el cliente no la tiene subida.
+async function fetchConstanciaUrl(userId: number | null | undefined): Promise<string | undefined> {
+  if (!userId) return undefined;
+  try {
+    const csf = await pool.query(
+      `SELECT file_url FROM user_saved_documents
+        WHERE user_id = $1 AND document_type = 'constancia_fiscal' LIMIT 1`,
+      [userId]
+    );
+    const csfUrl = csf.rows[0]?.file_url;
+    if (!csfUrl) return undefined;
+    const { signS3UrlIfNeeded } = await import('./s3Service');
+    const signed = await signS3UrlIfNeeded(csfUrl, 7 * 24 * 60 * 60);
+    return signed || csfUrl;
+  } catch (csfErr) {
+    console.warn('[ENTANGLED v2] no se pudo adjuntar constancia:', (csfErr as Error).message);
+    return undefined;
+  }
+}
+
 // Columnas que necesita el correo de "operación solicitada".
 export const XPAY_SOLICITADA_EMAIL_SELECT = `
   er.referencia_pago, er.op_monto, er.op_divisa_destino,
@@ -497,24 +520,13 @@ export const createPaymentRequestV2 = async (
   };
   if (servicio === 'pago_con_factura') {
     payload.conceptos = conceptos as any[];
-    // Adjuntar la Constancia de Situación Fiscal (CSF) del cliente final:
-    // ENTANGLED la necesita para validar/emitir el CFDI al receptor. Va como
-    // URL firmada (el bucket es privado). Si el cliente no la tiene, se omite
-    // (la factura quedará pendiente hasta que la suba).
-    try {
-      const csf = await pool.query(
-        `SELECT file_url FROM user_saved_documents
-          WHERE user_id = $1 AND document_type = 'constancia_fiscal' LIMIT 1`,
-        [userId]
-      );
-      const csfUrl = csf.rows[0]?.file_url;
-      if (csfUrl) {
-        const { signS3UrlIfNeeded } = await import('./s3Service');
-        const signed = await signS3UrlIfNeeded(csfUrl, 7 * 24 * 60 * 60);
-        payload.constancia_url = signed || csfUrl;
-      }
-    } catch (csfErr) {
-      console.warn('[ENTANGLED v2] no se pudo adjuntar constancia:', (csfErr as Error).message);
+    // Adjuntar la Constancia de Situación Fiscal (CSF) del cliente final DENTRO
+    // de cliente_final (ENTANGLED la lee ahí, no en el nivel raíz). URL firmada;
+    // si el cliente no la tiene subida, se omite (la factura queda pendiente).
+    const constanciaUrl = await fetchConstanciaUrl(userId);
+    if (constanciaUrl) {
+      payload.cliente_final.constancia_url = constanciaUrl;
+      payload.constancia_url = constanciaUrl; // compat: también en raíz
     }
   }
   if (servicio === 'pago_sin_factura' && subservicio) {
@@ -1022,6 +1034,13 @@ export async function sendPendingRequestToEntangled(
   };
   if (servicio === 'pago_con_factura') {
     payload.conceptos = conceptos as any[];
+    // Constancia del cliente final DENTRO de cliente_final (igual que la ruta de
+    // creación). Se omite si el cliente no la tiene subida.
+    const constanciaUrl = await fetchConstanciaUrl(reqRow.user_id);
+    if (constanciaUrl) {
+      payload.cliente_final.constancia_url = constanciaUrl;
+      payload.constancia_url = constanciaUrl; // compat: también en raíz
+    }
   }
   // Anexamos la URL del comprobante (ya subido a NUESTRO S3 por el endpoint
   // /upload-proof-file en index.ts antes de invocarnos). ENTANGLED exige que

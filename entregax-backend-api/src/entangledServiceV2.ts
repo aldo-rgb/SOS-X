@@ -65,6 +65,9 @@ export interface EntangledClienteFinalV2 {
   regimen_fiscal?: string | undefined;
   cp?: string | undefined;
   uso_cfdi?: string | undefined;
+  // Constancia de Situación Fiscal (CSF) del cliente final — URL firmada al PDF.
+  // ENTANGLED la lee AQUÍ, dentro de cliente_final (no en el nivel raíz).
+  constancia_url?: string | undefined;
 }
 
 export interface EntangledConceptoV2 {
