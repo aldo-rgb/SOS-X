@@ -921,6 +921,26 @@ export async function pqtxTrack(req: Request, res: Response) {
   }
 }
 
+// Resuelve un identificador (número de guía O folio/CP) al NÚMERO DE GUÍA real de
+// Paquete Express, consultando pqtx_shipments. Si no lo encuentra, regresa el
+// mismo valor (deja que PQTX intente). El folio se guarda como
+// 'folioLetterPorte:MTY01WE...'; aceptamos con o sin ese prefijo.
+async function resolvePqtxTracking(idOrFolio: string): Promise<string> {
+  try {
+    const r = await pool.query(
+      `SELECT tracking_number FROM pqtx_shipments
+        WHERE tracking_number = $1
+           OR folio_porte = $1
+           OR folio_porte = 'folioLetterPorte:' || $1
+           OR replace(COALESCE(folio_porte, ''), 'folioLetterPorte:', '') = $1
+        ORDER BY (tracking_number = $1) DESC
+        LIMIT 1`,
+      [idOrFolio]
+    );
+    return r.rows[0]?.tracking_number || idOrFolio;
+  } catch { return idOrFolio; }
+}
+
 // ============================================
 // 7. IMPRESIÓN PDF
 // GET /api/admin/paquete-express/label/pdf/:trackingNumber
@@ -937,7 +957,12 @@ export async function pqtxLabelPdf(req: Request, res: Response) {
       });
     }
 
-    let url = `${PQTX_LABEL_BASE_URL}/wsReportPaquetexpress/GenCartaPorte?trackingNoGen=${trackingNumber}`;
+    // PQTX solo conoce el NÚMERO DE GUÍA (ej. 191246965574). Si nos pasan el
+    // folio/CP (ej. MTY01WE5940906, que se muestra en la tabla), lo resolvemos
+    // al tracking real vía la BD para que la impresión funcione en ambos casos.
+    const realTracking = await resolvePqtxTracking(String(trackingNumber));
+
+    let url = `${PQTX_LABEL_BASE_URL}/wsReportPaquetexpress/GenCartaPorte?trackingNoGen=${realTracking}`;
     if (format === '4x6') {
       url += '&measure=4x6';
     }
@@ -1010,6 +1035,9 @@ export async function pqtxLabelZpl(req: Request, res: Response) {
       });
     }
 
+    // Acepta número de guía o folio/CP → resuelve al tracking real de PQTX.
+    const realTracking = await resolvePqtxTracking(String(trackingNumber));
+
     const url = `${PQTX_BASE_URL}/RadRestFul/api/rad/v1/infotrack`;
     const body = {
       header: {
@@ -1031,7 +1059,7 @@ export async function pqtxLabelZpl(req: Request, res: Response) {
                   },
                 ],
               },
-              rastreo: trackingNumber,
+              rastreo: realTracking,
             },
           },
         },
