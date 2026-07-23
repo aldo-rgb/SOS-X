@@ -1219,26 +1219,36 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ? allPendingRows.filter(p => !isPoBox(p) || !!p.assigned_address_id)
                     : allPendingRows;
 
-                // pendingToLoad = paquetes locales visibles con etiqueta impresa (Requerir Etiqueta Impresa).
-                // Las guías DHL MTY (is_dhl_shipment) son entregas LOCALES del driver, aunque su
-                // national_carrier sea 'DHL' (que no matchea isLocalCarrier). Por eso se cuentan como
-                // locales aquí; si no, no entraban en "Asignados Hoy".
-                const isLocalDelivery = (p: any) => p.is_dhl_shipment || isLocalCarrier(String(p.national_carrier || ''));
+                // Un envío es HANDOFF a paquetería (Salidas Paqueterías) si su carrier
+                // nacional es un courier externo. Paquetes normales: carrier presente y
+                // no-local. dhl_shipments: solo si el carrier es un courier real
+                // (paquete_express, fedex…), NO el 'DHL' por defecto (= entrega local MTY).
+                const carrierKey = (c: string) => String(c || '').replace(/[\s_]+/g, '').toLowerCase();
+                const isCourierHandoff = (p: any) => {
+                    const c = p.national_carrier || '';
+                    if (!c || isLocalCarrier(c)) return false;
+                    if (p.is_dhl_shipment) return carrierKey(c) !== 'dhl';
+                    return true;
+                };
+                // Entrega LOCAL del driver: no es handoff Y (es DHL o carrier local).
+                const isLocalDelivery = (p: any) => !isCourierHandoff(p) && (p.is_dhl_shipment || isLocalCarrier(String(p.national_carrier || '')));
+                // pendingToLoad = entregas LOCALES pendientes con etiqueta (Salidas Locales).
                 const pendingToLoad = reqLabel
                     ? visiblePending.filter(p => p.has_label && isLocalDelivery(p)).length
                     : visiblePending.filter(p => isLocalDelivery(p)).length;
                 const loadedToday = loadedRes.rows.length;
-                const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
+                // "Asignados Hoy" es el TOTAL (umbral): todo lo pendiente visible (local +
+                // paquetería, packages + DHL) + cargados + entregados hoy. Antes solo
+                // sumaba pendingToLoad (local) y por eso no contaba DHL/paqueterías.
+                const totalAssigned = visiblePending.length + loadedToday + deliveredToday;
                 const outStatus = await getOutForDeliveryWriteStatus();
-                const allPkgs = [...pendingRes.rows, ...loadedRes.rows];
-                // paqueteriaCount = paquetes con carrier externo que el front
-                // REALMENTE muestra. Debe aplicar el mismo gate de etiqueta que
-                // DriverHomeScreen (si requiere etiqueta y no la tiene y no está
-                // cargado, no se muestra) para que el número del card cuadre con
-                // los grupos del modal.
+                // Incluir DHL pendientes (allPendingRows) para que las guías DHL vía
+                // courier externo (Paquete Express) cuenten en Salidas Paqueterías.
+                const allPkgs = [...allPendingRows, ...loadedRes.rows];
+                // paqueteriaCount = handoffs a courier externo que el front muestra
+                // (mismo gate de etiqueta que DriverHomeScreen).
                 const paqueteriaCount = allPkgs.filter(p => {
-                    const carrier = p.national_carrier || '';
-                    if (!(carrier && !isLocalCarrier(carrier))) return false;
+                    if (!isCourierHandoff(p)) return false;
                     const isLoaded = String(p.delivery_status || '').includes('out_for_delivery')
                                   || String(p.delivery_status || '').includes('in_transit');
                     if (!isLoaded && reqLabel && !p.has_label) return false;

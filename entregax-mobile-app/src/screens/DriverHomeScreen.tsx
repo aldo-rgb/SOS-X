@@ -170,8 +170,13 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     };
     const carrierMap: Record<string, any[]> = {};
     [...pendingPackages, ...loaded].forEach((p: any) => {
-      // dhl_shipments son entregas locales, no paqueterías externas
-      if (p.is_dhl_shipment) return;
+      // dhl_shipments con entrega LOCAL (carrier 'DHL'/local) no son paqueterías.
+      // Pero los DHL vía courier externo (Paquete Express, FedEx…) SÍ van a Salidas
+      // Paqueterías, así que solo se omiten los locales.
+      if (p.is_dhl_shipment) {
+        const dc = canonicalCarrier(p.national_carrier || 'DHL');
+        if (dc === 'DHL' || isLocalCarrier(String(p.national_carrier || ''))) return;
+      }
       const rawCarrier = p.national_carrier || '';
       if (!rawCarrier || isLocalCarrier(rawCarrier)) return;
       const isLoaded = String(p.delivery_status || '').includes('out_for_delivery') || String(p.delivery_status || '').includes('in_transit');
