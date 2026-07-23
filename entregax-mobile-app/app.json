@@ -127,7 +127,13 @@
       ],
       "expo-web-browser",
       "expo-video",
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-notifications",
+        {
+          "sounds": ["./assets/sounds/gong.wav"]
+        }
+      ]
     ],
     "extra": {
       "eas": {

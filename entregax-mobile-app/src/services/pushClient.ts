@@ -54,6 +54,17 @@ export async function registerForPushNotifications(authToken: string): Promise<s
         lightColor: '#F05A28',
         sound: 'default',
       });
+      // Canal 'altas' con sonido Gong para las notificaciones de nuevo cliente.
+      // El sonido se empaqueta vía el plugin expo-notifications (app.json → sounds)
+      // y se referencia por su nombre de archivo. IMPORTANTE: los canales de Android
+      // son inmutables tras crearse; si se cambia el gong, usar un id nuevo (altas_v2).
+      await Notifications.setNotificationChannelAsync('altas', {
+        name: 'Nuevas altas',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 300, 200, 300],
+        lightColor: '#F05A28',
+        sound: 'gong.wav',
+      });
     }
 
     // Obtener Expo push token (ExponentPushToken[...])
