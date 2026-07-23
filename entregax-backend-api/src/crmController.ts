@@ -562,6 +562,34 @@ export const getLeadMessageHistory = async (req: Request, res: Response): Promis
   }
 };
 
+// 🎯 ADMIN: AUDIENCIA de una plantilla — a qué leads se les envió y quiénes
+// hicieron clic. Sirve para filtrar la lista por "quién dio clic en X plantilla".
+// Devuelve { audience: { <lead_key>: <hizo_clic_bool> } }.
+export const getTemplateAudience = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const templateId = parseInt(String(req.query.template_id || ''), 10);
+    if (!Number.isFinite(templateId)) return res.status(400).json({ success: false, error: 'template_id inválido' });
+    const r = await pool.query(
+      `SELECT lead_key, COALESCE(MAX(click_count), 0)::int AS clicks
+         FROM wa_click_links
+        WHERE template_id = $1 AND lead_key IS NOT NULL
+        GROUP BY lead_key`,
+      [templateId]
+    );
+    const audience: Record<string, boolean> = {};
+    let sent = 0, clicked = 0;
+    for (const row of r.rows) {
+      const did = (row.clicks || 0) > 0;
+      audience[row.lead_key] = did;
+      sent++; if (did) clicked++;
+    }
+    res.json({ success: true, template_id: templateId, sent, clicked, audience });
+  } catch (error) {
+    console.error('Error en getTemplateAudience:', error);
+    res.status(500).json({ success: false, error: 'Error al obtener la audiencia de la plantilla' });
+  }
+};
+
 // 📋 ADMIN: LISTA DE ALTAS de un periodo (para el detalle al hacer click en los
 // widgets). Devuelve nombre, teléfono, box id, fecha/hora de alta y asesor
 // asignado (si tiene). Solo clientes, mismo criterio que getRegistrationStats.

@@ -390,6 +390,10 @@ export default function UnifiedLeadsPage() {
   const [blacklist, setBlacklist] = useState<Lead[]>([]);
   const [blacklistView, setBlacklistView] = useState(false);
   const [noPhoneFilter, setNoPhoneFilter] = useState(false);
+  // Filtro por plantilla: quién dio clic (o recibió) una plantilla específica.
+  const [templateFilter, setTemplateFilter] = useState<number | ''>('');
+  const [clickFilter, setClickFilter] = useState<'all' | 'clicked' | 'not_clicked'>('all');
+  const [templateAudience, setTemplateAudience] = useState<Record<string, boolean> | null>(null);
   // Diálogo agregar teléfono
   const [phoneDialogLead, setPhoneDialogLead] = useState<Lead | null>(null);
   const [phoneInput, setPhoneInput] = useState('');
@@ -406,6 +410,26 @@ export default function UnifiedLeadsPage() {
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupColor, setNewGroupColor] = useState('#1976d2');
   const [savingGroup, setSavingGroup] = useState(false);
+
+  // Cargar plantillas al montar (para el dropdown del filtro por plantilla).
+  useEffect(() => {
+    if (bulkTemplates.length === 0) loadBulkTemplates().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Al elegir una plantilla, traer su audiencia (a quién se envió + quién clicó).
+  useEffect(() => {
+    if (!templateFilter) { setTemplateAudience(null); return; }
+    let cancel = false;
+    (async () => {
+      try {
+        const res = await axios.get(`${API_URL}/admin/crm/template-audience?template_id=${templateFilter}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        if (!cancel) setTemplateAudience(res.data?.audience || {});
+      } catch { if (!cancel) setTemplateAudience({}); }
+    })();
+    return () => { cancel = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateFilter]);
 
   // Clave única de cada lead (para selección). El backend la devuelve como lead_key.
   const leadKeyOf = (l: Lead): string => l.lead_key || `crm_${l.request_id}`;
@@ -428,6 +452,17 @@ export default function UnifiedLeadsPage() {
         String(l.full_name || '').toLowerCase().includes(q) ||
         String(l.assigned_advisor_name || '').toLowerCase().includes(q)
       );
+    }
+    // Filtro por plantilla: solo leads a los que se les envió esa plantilla, con
+    // sub-filtro de clic (todos / con clic / sin clic).
+    if (templateFilter && templateAudience) {
+      list = list.filter(l => {
+        const key = leadKeyOf(l);
+        if (!(key in templateAudience)) return false;
+        if (clickFilter === 'clicked') return templateAudience[key] === true;
+        if (clickFilter === 'not_clicked') return templateAudience[key] === false;
+        return true;
+      });
     }
     return list;
   })();
@@ -1862,6 +1897,41 @@ export default function UnifiedLeadsPage() {
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
               {displayedLeads.length} resultado(s) para “{leadSearch.trim()}”
             </Typography>
+          )}
+
+          {/* Filtro por plantilla: quién dio clic (o recibió) una plantilla */}
+          {leadTabValue !== 'advisors' && !blacklistView && (
+            <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+              <FormControl size="small" sx={{ minWidth: 270 }}>
+                <InputLabel>🎯 Filtrar por plantilla (clics)</InputLabel>
+                <Select
+                  label="🎯 Filtrar por plantilla (clics)"
+                  value={templateFilter === '' ? '' : String(templateFilter)}
+                  onChange={(e) => setTemplateFilter(e.target.value === '' ? '' : Number(e.target.value))}
+                >
+                  <MenuItem value=""><em>— Ninguna —</em></MenuItem>
+                  {bulkTemplates.map(tpl => <MenuItem key={tpl.id} value={String(tpl.id)}>{tpl.label}</MenuItem>)}
+                </Select>
+              </FormControl>
+              {templateFilter !== '' && (
+                <>
+                  <FormControl size="small" sx={{ minWidth: 160 }}>
+                    <InputLabel>Clic</InputLabel>
+                    <Select label="Clic" value={clickFilter} onChange={(e) => setClickFilter(e.target.value as any)}>
+                      <MenuItem value="all">Todos (enviados)</MenuItem>
+                      <MenuItem value="clicked">✓ Con clic</MenuItem>
+                      <MenuItem value="not_clicked">Sin clic</MenuItem>
+                    </Select>
+                  </FormControl>
+                  {templateAudience === null ? (
+                    <CircularProgress size={18} />
+                  ) : (
+                    <Chip size="small" color="success" variant="outlined" label={`${displayedLeads.length} lead(s)`} />
+                  )}
+                  <Button size="small" color="inherit" onClick={() => { setTemplateFilter(''); setClickFilter('all'); }}>Limpiar filtro</Button>
+                </>
+              )}
+            </Box>
           )}
 
           {/* Tabla de Asesores */}
