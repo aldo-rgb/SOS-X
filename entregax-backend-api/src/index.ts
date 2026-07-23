@@ -589,6 +589,7 @@ import {
   getRegistrationStats,
   getRegistrationList,
   getWidgetSeries,
+  getLeadMessageHistory,
   getAvailableAdvisors,
   assignAdvisorManually,
   updateLeadStatus,
@@ -7237,6 +7238,7 @@ app.get('/api/admin/crm/leads', authenticateToken, requireMinLevel(ROLES.COUNTER
 app.get('/api/admin/crm/registration-stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getRegistrationStats);
 app.get('/api/admin/crm/registration-list', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getRegistrationList);
 app.get('/api/admin/crm/widget-series', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getWidgetSeries);
+app.get('/api/admin/crm/leads/:leadKey/messages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLeadMessageHistory);
 
 // Admin: Ver asesores disponibles para asignar
 app.get('/api/admin/crm/advisors', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAvailableAdvisors);

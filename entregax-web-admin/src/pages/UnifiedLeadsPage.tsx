@@ -120,6 +120,11 @@ interface Lead {
   groups?: Array<{ id: number; name: string; color: string }>;
   // Kit de bienvenida
   has_kit?: boolean;
+  // Resumen de mensajes WhatsApp rastreados (columna "Mensajes")
+  msgs_sent?: number;
+  msgs_clicked?: number;
+  msgs_last_sent?: string | null;
+  msgs_last_click?: string | null;
 }
 
 // Grupo de leads
@@ -788,6 +793,18 @@ export default function UnifiedLeadsPage() {
   const [uploadingProspects, setUploadingProspects] = useState(false);
   const [runningSeqNow, setRunningSeqNow] = useState(false);
   const [skippedModal, setSkippedModal] = useState<{ open: boolean; inserted: number; total: number; truncated: boolean; list: Array<{ full_name: string; whatsapp: string | null; email: string | null; motivo: string }> }>({ open: false, inserted: 0, total: 0, truncated: false, list: [] });
+  // Historial de mensajes WhatsApp (enviados + clics) de un lead.
+  const [msgHistory, setMsgHistory] = useState<{ open: boolean; loading: boolean; lead: Lead | null; messages: any[] }>({ open: false, loading: false, lead: null, messages: [] });
+  const openMsgHistory = async (lead: Lead) => {
+    const key = lead.lead_key || `crm_${lead.request_id}`;
+    setMsgHistory({ open: true, loading: true, lead, messages: [] });
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/leads/${encodeURIComponent(key)}/messages`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setMsgHistory({ open: true, loading: false, lead, messages: res.data?.messages || [] });
+    } catch {
+      setMsgHistory({ open: true, loading: false, lead, messages: [] });
+    }
+  };
   const [markingKitId, setMarkingKitId] = useState<string | null>(null);
   // Secuencias automáticas
   const [sequences, setSequences] = useState<WaSequence[]>([]);
@@ -1935,6 +1952,7 @@ export default function UnifiedLeadsPage() {
                     <TableCell>{t('leads.contact')}</TableCell>
                     <TableCell>{t('leads.state')}</TableCell>
                     <TableCell>{t('leads.assignedAdvisor')}</TableCell>
+                    <TableCell align="center">Mensajes</TableCell>
                     <TableCell align="right">{t('common.actions')}</TableCell>
                   </TableRow>
                 </TableHead>
@@ -2067,6 +2085,24 @@ export default function UnifiedLeadsPage() {
                           </Typography>
                         )}
                       </TableCell>
+                      <TableCell align="center">
+                        {(lead.msgs_sent || 0) > 0 ? (
+                          <Tooltip title="Ver historial de mensajes y clics">
+                            <Chip
+                              size="small"
+                              icon={<WhatsAppIcon sx={{ fontSize: 14 }} />}
+                              label={`${lead.msgs_sent} env${(lead.msgs_clicked || 0) > 0 ? ` · ${lead.msgs_clicked} clic` : ''}`}
+                              onClick={() => openMsgHistory(lead)}
+                              clickable
+                              color={(lead.msgs_clicked || 0) > 0 ? 'success' : 'default'}
+                              variant={(lead.msgs_clicked || 0) > 0 ? 'filled' : 'outlined'}
+                              sx={{ height: 22, fontSize: 11 }}
+                            />
+                          </Tooltip>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">—</Typography>
+                        )}
+                      </TableCell>
                       <TableCell align="right">
                         {blacklistView ? (
                           <Button size="small" variant="outlined" color="inherit" onClick={() => unBlacklist(leadKeyOf(lead))}>
@@ -2100,7 +2136,7 @@ export default function UnifiedLeadsPage() {
                   ))}
                   {displayedLeads.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
+                      <TableCell colSpan={9} align="center" sx={{ py: 5 }}>
                         <Typography variant="body1" color="text.secondary">
                           {leadTabValue === 'pending'
                             ? `${t('leads.noRequests')} 🎉`
@@ -2711,6 +2747,62 @@ export default function UnifiedLeadsPage() {
           >
             {confirmDialog.confirmLabel}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal: historial de mensajes WhatsApp (enviados + clics) del lead */}
+      <Dialog open={msgHistory.open} onClose={() => setMsgHistory(s => ({ ...s, open: false }))} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WhatsAppIcon sx={{ color: '#25D366' }} /> Mensajes de {msgHistory.lead?.full_name || 'lead'}
+        </DialogTitle>
+        <DialogContent dividers>
+          {msgHistory.loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+          ) : msgHistory.messages.length === 0 ? (
+            <Alert severity="info">Este lead no tiene mensajes rastreados (con botón de URL) todavía.</Alert>
+          ) : (
+            <>
+              <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                <Chip color="primary" size="small" label={`${msgHistory.messages.length} enviados`} />
+                <Chip color="success" size="small" label={`${msgHistory.messages.filter((m: any) => (m.click_count || 0) > 0).length} con clic`} />
+              </Box>
+              <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 380 }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Plantilla / Mensaje</TableCell>
+                      <TableCell>Enviado</TableCell>
+                      <TableCell align="center">Clic</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {msgHistory.messages.map((m: any) => {
+                      const clicked = (m.click_count || 0) > 0;
+                      const fmt = (d: string | null) => d ? new Date(d).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+                      return (
+                        <TableRow key={m.id} hover>
+                          <TableCell><Typography variant="body2" fontWeight={600}>{m.template}</Typography></TableCell>
+                          <TableCell><Typography variant="caption" color="text.secondary">{fmt(m.sent_at)}</Typography></TableCell>
+                          <TableCell align="center">
+                            {clicked ? (
+                              <Tooltip title={`Hizo clic ${m.click_count} vez(es) · último: ${fmt(m.last_click_at)}`}>
+                                <Chip size="small" color="success" label={`✓ ${fmt(m.last_click_at)}`} sx={{ height: 20, fontSize: 10 }} />
+                              </Tooltip>
+                            ) : (
+                              <Chip size="small" variant="outlined" label="Sin clic" sx={{ height: 20, fontSize: 10, color: 'text.secondary' }} />
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMsgHistory(s => ({ ...s, open: false }))} variant="contained">Cerrar</Button>
         </DialogActions>
       </Dialog>
 

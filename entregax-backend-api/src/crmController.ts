@@ -349,6 +349,34 @@ export async function fetchLeads(opts: { status?: any; search?: any }): Promise<
       : rows;
   }
 
+  // Resumen de mensajes WhatsApp rastreados por lead (enviados y con clic), para
+  // la columna "Mensajes" del CRM. Una sola consulta agregada por lead_key.
+  try {
+    const leadKeys = leads.map((l: any) => l.lead_key).filter(Boolean);
+    if (leadKeys.length > 0) {
+      const agg = await pool.query(
+        `SELECT lead_key,
+                COUNT(*)::int AS enviados,
+                COUNT(*) FILTER (WHERE click_count > 0)::int AS con_clic,
+                MAX(created_at) AS ultimo_envio,
+                MAX(last_click_at) AS ultimo_clic
+           FROM wa_click_links
+          WHERE lead_key = ANY($1::text[])
+          GROUP BY lead_key`,
+        [leadKeys]
+      );
+      const byKey: Record<string, any> = {};
+      for (const a of agg.rows) byKey[a.lead_key] = a;
+      for (const l of leads) {
+        const m = byKey[l.lead_key];
+        l.msgs_sent = m ? m.enviados : 0;
+        l.msgs_clicked = m ? m.con_clic : 0;
+        l.msgs_last_sent = m ? m.ultimo_envio : null;
+        l.msgs_last_click = m ? m.ultimo_clic : null;
+      }
+    }
+  } catch (e) { /* no romper la lista si falla el resumen de mensajes */ }
+
   return { leads, stats, isSearch: !!q };
 }
 
@@ -506,6 +534,31 @@ export const getWidgetSeries = async (req: Request, res: Response): Promise<any>
   } catch (error: any) {
     console.error('Error en getWidgetSeries:', error);
     res.status(500).json({ success: false, error: 'Error al obtener la serie' });
+  }
+};
+
+// 📨 ADMIN: HISTORIAL de mensajes WhatsApp rastreados de un lead (enviados + clics).
+// Cada fila de wa_click_links = un mensaje con botón de URL rastreado. Muestra
+// qué plantilla se envió, cuándo, y si el lead hizo clic (y cuándo).
+export const getLeadMessageHistory = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const leadKey = String(req.params.leadKey || '').trim();
+    if (!leadKey) return res.status(400).json({ success: false, error: 'leadKey requerido' });
+    const r = await pool.query(
+      `SELECT w.id, w.created_at AS sent_at, w.click_count,
+              w.first_click_at, w.last_click_at, w.destination, w.phone,
+              COALESCE(NULLIF(TRIM(t.label), ''), t.template_name, 'Mensaje') AS template
+         FROM wa_click_links w
+         LEFT JOIN bulk_wa_templates t ON t.id = w.template_id
+        WHERE w.lead_key = $1
+        ORDER BY w.created_at DESC
+        LIMIT 200`,
+      [leadKey]
+    );
+    res.json({ success: true, count: r.rows.length, messages: r.rows });
+  } catch (error) {
+    console.error('Error en getLeadMessageHistory:', error);
+    res.status(500).json({ success: false, error: 'Error al obtener el historial de mensajes' });
   }
 };
 
