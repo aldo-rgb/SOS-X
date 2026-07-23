@@ -2256,8 +2256,16 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       );
       if (addrCheck.rows.length === 0) return res.status(403).json({ error: 'Dirección no válida para este cliente' });
 
+      // Un master DHL agrupa varias guías (mismo secondary_tracking). El uid es el
+      // MIN(id) del grupo, así que hay que asignar la dirección a TODAS las guías
+      // del master; si no, has_instructions (BOOL_AND) queda false y parece que no
+      // guardó. Para una guía suelta (sin secondary_tracking) solo actualiza esa.
       await pool.query(
-        `UPDATE dhl_shipments SET delivery_address_id = $1 WHERE id = $2`, [addressId, shipmentId]
+        `UPDATE dhl_shipments SET delivery_address_id = $1
+          WHERE id = $2
+             OR (COALESCE(secondary_tracking, '') <> ''
+                 AND secondary_tracking = (SELECT secondary_tracking FROM dhl_shipments WHERE id = $2))`,
+        [addressId, shipmentId]
       );
     } else {
       return res.status(400).json({ error: `Tipo de envío no soportado: ${type}` });
