@@ -48,6 +48,12 @@ interface Pkg {
 const cleanTracking = (raw: string): string => {
   let t = raw.trim();
   if (!t) return '';
+  // Guías aéreas China (AIR...): formato AIR<código>[-NNN de caja]. Se devuelven
+  // TAL CUAL (el backend matchea case-insensitive). NO se les aplica la máscara
+  // US- de abajo, que insertaba un guion tras 2 letras ("AIR..." → "AI-R...") y
+  // descartaba el sufijo -NNN, provocando "no pertenece a esta AWB".
+  const air = t.match(/AIR[A-Za-z0-9]+(?:-\d+)?/i);
+  if (air) return air[0];
   const afterTrack = t.match(/track[^A-Za-z0-9]+([A-Za-z]{2})[^A-Za-z0-9]?([A-Za-z0-9]{4,})/i);
   if (afterTrack) return `${afterTrack[1]}-${afterTrack[2]}`.toUpperCase();
   const matches = t.match(/[A-Z]{2}[-_']?[A-Z0-9]{4,}/gi) || [];
