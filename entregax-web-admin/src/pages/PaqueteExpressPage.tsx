@@ -801,6 +801,58 @@ function LabelTab({ token }: { token: string | null }) {
   const handleClearDates = () => { setDateFrom(''); setDateTo(''); setPage(0); loadShipments(0, searchTerm, '', ''); };
   const handlePageChange = (newPage: number) => { setPage(newPage); loadShipments(newPage, searchTerm, dateFrom, dateTo); };
 
+  // Exportar a Excel (CSV con BOM UTF-8) TODAS las guías con los filtros actuales.
+  const [exporting, setExporting] = useState(false);
+  const exportShipmentsExcel = async () => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ limit: '100000', offset: '0' });
+      if (searchTerm.trim()) params.set('search', searchTerm.trim());
+      if (dateFrom) params.set('date_from', dateFrom);
+      if (dateTo) params.set('date_to', dateTo);
+      const res = await fetch(`${API_URL}/api/admin/paquete-express/shipments?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      const rows: any[] = data.shipments || [];
+      const headers = ['No. Guía', 'CP (folio)', 'Guía Interna', 'Fecha', 'Creado por', 'Servicio', 'Origen', 'CP Origen', 'Destino', 'CP Destino', 'Piezas', 'Peso (kg)', 'Costo PQTX', 'Subtotal', 'Cobrado', 'Utilidad', 'Estado'];
+      const esc = (v: any) => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+      const lines = [headers.join(',')];
+      for (const s of rows) {
+        const util = (s.client_price != null && s.total != null) ? (Number(s.client_price) - Number(s.total)).toFixed(2) : '';
+        const estado = s.status === 'generated' ? 'Activa' : s.status === 'cancelled' ? 'Cancelada' : (s.status || '');
+        lines.push([
+          s.tracking_number || '',
+          String(s.folio_porte || '').replace('folioLetterPorte:', ''),
+          s.tracking_internal || '',
+          formatDate(s.created_at),
+          s.created_by_name || '',
+          s.service_type || 'STD-T',
+          s.origin_name || '',
+          s.origin_zip_code || '',
+          s.dest_name || '',
+          s.dest_zip_code || '',
+          s.pieces || 1,
+          s.weight != null ? Number(s.weight).toFixed(1) : '',
+          s.total != null ? Number(s.total).toFixed(2) : '',
+          s.subtotal != null ? Number(s.subtotal).toFixed(2) : '',
+          s.client_price != null ? Number(s.client_price).toFixed(2) : '',
+          util,
+          estado,
+        ].map(esc).join(','));
+      }
+      const csv = '﻿' + lines.join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const hoy = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `guias_paquete_express_${hoy}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error exportando guías:', err);
+    } finally { setExporting(false); }
+  };
+
   const openPdf = (guia: string, format: string) => {
     if (!guia.trim()) return;
     window.open(`${API_URL}/api/admin/paquete-express/label/pdf/${guia.trim()}?format=${format}`, '_blank');
@@ -893,6 +945,12 @@ function LabelTab({ token }: { token: string | null }) {
                   Limpiar
                 </Button>
               )}
+              <Button variant="contained" size="small" onClick={exportShipmentsExcel}
+                disabled={exporting || totalShipments === 0}
+                startIcon={exporting ? <CircularProgress size={14} color="inherit" /> : <span>📊</span>}
+                sx={{ bgcolor: '#1D6F42', '&:hover': { bgcolor: '#155632' } }}>
+                {exporting ? 'Exportando…' : 'Exportar Excel'}
+              </Button>
               <Tooltip title="Recargar">
                 <IconButton onClick={() => loadShipments(page, searchTerm)} size="small">
                   <RefreshIcon />
