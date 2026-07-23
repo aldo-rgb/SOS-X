@@ -397,6 +397,55 @@ export async function pqtxOcurreQuote(req: Request, res: Response) {
   }
 }
 
+// Busca la sucursal Ocurre más cercana con cobertura para un CP destino (CP exacto
+// y luego cercanos ±10..±100). Devuelve el CP a usar o null. Reutilizado por el
+// fallback automático cuando no hay entrega a domicilio en la generación de guía.
+export async function findNearestOcurreBranch(
+  originZip: string,
+  destZipCode: string,
+  packages: Array<{ weight: number; length?: number; width?: number; height?: number }>
+): Promise<{ usedZip: string; nearestBranch: boolean; cityName: string | null } | null> {
+  const url = `${PQTX_BASE_URL}/WsQuotePaquetexpress/api/apiQuoter/v2/getQuotation`;
+  const shipments = (packages.length ? packages : [{ weight: 1 }]).map((pkg, idx) => ({
+    sequence: idx + 1, quantity: 1, shpCode: '2',
+    weight: pkg.weight || 1, longShip: pkg.length || 30, widthShip: pkg.width || 30, highShip: pkg.height || 30,
+  }));
+  const tryZip = async (zip: string, colony: string) => {
+    const body = {
+      header: {
+        security: { user: PQTX_QUOTE_USER, password: PQTX_QUOTE_PASSWORD, type: 1, token: PQTX_QUOTE_TOKEN },
+        device: { appName: 'EntregaX', type: 'Web', ip: '', idDevice: '' },
+        target: { module: 'QUOTER', version: '1.0', service: 'quoter', uri: 'quotes', event: 'R' },
+        output: 'JSON', language: null,
+      },
+      body: { request: { data: {
+        clientAddrOrig: { zipCode: originZip, colonyName: 'CENTRO' },
+        clientAddrDest: { zipCode: zip, colonyName: colony },
+        services: { dlvyType: '2', ackType: 'N', totlDeclVlue: 1000, invType: 'A', radType: '1' },
+        otherServices: { otherServices: [] },
+        shipmentDetail: { shipments },
+        quoteServices: ['ALL'],
+      }, objectDTO: null }, response: null },
+    };
+    const resp = await axios.post(url, body, { headers: { 'Content-Type': 'application/json' }, timeout: 15000 });
+    const rb = resp.data?.body?.response;
+    const q = rb?.data?.quotations;
+    return (rb?.success === true && Array.isArray(q) && q.length > 0) ? { found: true, dest: rb.data?.clientAddrDest } : { found: false, dest: null };
+  };
+  try {
+    const exact = await tryZip(destZipCode, 'CENTRO');
+    if (exact.found) return { usedZip: destZipCode, nearestBranch: false, cityName: exact.dest?.cityName || null };
+    const base = parseInt(destZipCode, 10);
+    if (!isNaN(base)) {
+      for (const off of [10, -10, 20, -20, 30, -30, 50, -50, 100, -100]) {
+        const cand = String(base + off).padStart(5, '0');
+        try { const r = await tryZip(cand, 'CENTRO'); if (r.found) return { usedZip: cand, nearestBranch: true, cityName: r.dest?.cityName || null }; } catch { /* siguiente */ }
+      }
+    }
+  } catch (e: any) { console.warn('[PQTX] findNearestOcurreBranch:', e?.message); }
+  return null;
+}
+
 // ============================================
 // 3. GENERAR ENVÍO (crear guía)
 // POST /api/admin/paquete-express/shipment
@@ -1436,7 +1485,7 @@ export async function generateOnePqtxGuide(params: {
   // Tabla donde persistir el national_tracking/label (packages por defecto; para
   // envíos DHL se usa dhl_shipments, que no tiene pqtx_shipment_id).
   shipmentTable?: 'packages' | 'dhl_shipments';
-}): Promise<{ ok: true; tracking: string; folioPorte: string; labelUrl: string; pieces: number } | { ok: false; error: string; raw?: any }> {
+}): Promise<{ ok: true; tracking: string; folioPorte: string; labelUrl: string; pieces: number } | { ok: false; error: string; noCoverage?: boolean; raw?: any }> {
   const persistTable = params.shipmentTable === 'dhl_shipments' ? 'dhl_shipments' : 'packages';
   const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64410'; // CEDIS MTY
   const PQTX_ORIGIN_CITY = process.env.PQTX_ORIGIN_CITY || 'MONTERREY';
@@ -1635,17 +1684,16 @@ export async function generateOnePqtxGuide(params: {
 
   const respBody = response.data?.body?.response;
   if (respBody?.success !== true || !respBody?.data) {
-    return {
-      ok: false,
-      error: (() => {
-        const m = respBody?.messages;
-        if (!m) return response.data?.header?.desTrans || 'Error al generar guía';
-        if (typeof m === 'string') return m;
-        if (Array.isArray(m)) return m.map((x: any) => (typeof x === 'string' ? x : x?.description || x?.message || JSON.stringify(x))).join(' | ');
-        return String(m);
-      })(),
-      raw: response.data,
-    };
+    const errMsg = (() => {
+      const m = respBody?.messages;
+      if (!m) return response.data?.header?.desTrans || 'Error al generar guía';
+      if (typeof m === 'string') return m;
+      if (Array.isArray(m)) return m.map((x: any) => (typeof x === 'string' ? x : x?.description || x?.message || JSON.stringify(x))).join(' | ');
+      return String(m);
+    })();
+    // Detectar falta de cobertura a domicilio para poder ofrecer Ocurre (sucursal).
+    const noCoverage = /cobertura/i.test(errMsg) && /(codigo|código)\s*postal|cp\b|destino/i.test(errMsg);
+    return { ok: false, error: errMsg, noCoverage, raw: response.data };
   }
 
   const guiaNo = typeof respBody.data === 'string'
@@ -1743,7 +1791,7 @@ export async function generateOnePqtxGuide(params: {
 
 export async function pqtxGenerateForPackage(req: Request, res: Response) {
   try {
-    const { packageId, shipmentType } = req.body || {};
+    const { packageId, shipmentType, ocurreZip } = req.body || {};
     if (!packageId) {
       res.status(400).json({ success: false, error: 'packageId requerido' });
       return;
@@ -1889,10 +1937,19 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
 
     // Si el cliente eligió Ocurre, usar el CP de la sucursal para la guía PQTX
     console.log(`[PQTX-GEN-DEBUG] pkg.national_delivery_zip="${pkg.national_delivery_zip}" pkg.zip_code="${pkg.zip_code}" pkg.destination_zip="${pkg.destination_zip}"`);
-    const effectiveZip = pkg.national_delivery_zip || pkg.zip_code;
+    // Si el operador eligió Ocurre desde el panel (ocurreZip), ese CP manda y se
+    // persiste como national_delivery_zip para reintentos/consulta.
+    const ocurreZipClean = (typeof ocurreZip === 'string' && /^\d{5}$/.test(ocurreZip.trim())) ? ocurreZip.trim() : null;
+    if (ocurreZipClean && ocurreZipClean !== pkg.national_delivery_zip) {
+      try {
+        await pool.query(`UPDATE ${persistTable} SET national_delivery_zip = $1, updated_at = NOW() WHERE id = $2`, [ocurreZipClean, pkg.id]);
+        pkg.national_delivery_zip = ocurreZipClean;
+      } catch (e: any) { console.error('No se pudo persistir national_delivery_zip (ocurre):', e.message); }
+    }
+    const effectiveZip = ocurreZipClean || pkg.national_delivery_zip || pkg.zip_code;
     console.log(`[PQTX-GEN-DEBUG] effectiveZip="${effectiveZip}"`);
-    if (pkg.national_delivery_zip) {
-      console.log(`[PQTX-GEN] Ocurre: usando CP sucursal ${pkg.national_delivery_zip} en lugar de CP cliente ${pkg.zip_code}`);
+    if (effectiveZip !== pkg.zip_code) {
+      console.log(`[PQTX-GEN] Ocurre: usando CP sucursal ${effectiveZip} en lugar de CP cliente ${pkg.zip_code}`);
     }
 
     const addr: PqtxAddrCtx = {
@@ -1964,7 +2021,20 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
 
     if (!result.ok) {
       console.warn(`[PQTX-GEN] Error API: pkg=${packageId} zip_used="${addr.zip_code}" natZip="${pkg.national_delivery_zip}" addrZip="${pkg.zip_code}", error="${result.error}"`);
-      res.status(400).json({ success: false, error: result.error, raw: result.raw });
+      // Sin cobertura a domicilio → ofrecer Ocurre (sucursal más cercana), salvo
+      // que ya estuviéramos intentando con un CP de sucursal.
+      let ocurreOffer: { usedZip: string; nearestBranch: boolean; cityName: string | null } | null = null;
+      if ((result as any).noCoverage && !ocurreZipClean) {
+        try {
+          const originZip = process.env.PQTX_ORIGIN_ZIP || '64410';
+          ocurreOffer = await findNearestOcurreBranch(
+            originZip,
+            String(pkg.zip_code || '').trim(),
+            piecesData.map((p) => ({ weight: p.weight, length: p.pkgLength, width: p.pkgWidth, height: p.pkgHeight }))
+          );
+        } catch (e: any) { console.warn('[PQTX-GEN] búsqueda Ocurre falló:', e?.message); }
+      }
+      res.status(400).json({ success: false, error: result.error, noCoverage: !!(result as any).noCoverage, ocurreOffer, raw: result.raw });
       return;
     }
 

@@ -409,6 +409,8 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
     const [generatingPqtx, setGeneratingPqtx] = useState(false);
     const [pqtxMsg, setPqtxMsg] = useState<string | null>(null);
     const [pqtxError, setPqtxError] = useState<string | null>(null);
+    // Oferta de Ocurre (sucursal) cuando no hay cobertura a domicilio.
+    const [pqtxOcurreOffer, setPqtxOcurreOffer] = useState<{ usedZip: string; nearestBranch: boolean; cityName: string | null } | null>(null);
     const [selectedPqtx, setSelectedPqtx] = useState<Set<string>>(new Set());
     // Reimpresión por rango de cajas (LOG marítimo y multi-caja)
     const [reprintOpen, setReprintOpen] = useState(false);
@@ -876,7 +878,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         }
     };
 
-    const handleGeneratePqtxLabel = async () => {
+    const handleGeneratePqtxLabel = async (ocurreZip?: string) => {
         if (!shipment) return;
         // Marítimo LOG: requiere captura previa de medidas por caja
         if (isMaritimeLog(shipment.master.tracking)) {
@@ -897,12 +899,14 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         setError(null);
         setPqtxMsg(null);
         setPqtxError(null);
+        if (!ocurreZip) setPqtxOcurreOffer(null);
         try {
             const stGen = String((shipment.master as any).serviceType || '').toUpperCase();
             const isDhlGen = stGen === 'AA_DHL' || stGen === 'DHL' || detectPackageType(shipment.master.tracking) === 'dhl';
             const res = await api.post('/admin/paquete-express/generate-for-package', {
                 packageId: shipment.master.id,
                 ...(isDhlGen ? { shipmentType: 'dhl' } : {}),
+                ...(ocurreZip ? { ocurreZip } : {}),
             });
             if (res.data?.success) {
                 const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
@@ -925,6 +929,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
                     setError(`Algunas cajas fallaron: ${res.data.errors.map((e: any) => `Caja ${e.boxNumber || '?'}: ${e.error}`).join(' | ')}`);
                 }
 
+                setPqtxOcurreOffer(null);
                 await handleSearch({ internal: true });
             } else {
                 const rawErr = res.data?.error;
@@ -938,6 +943,9 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
             // como "Sin cobertura", ocultando la causa real: colonia inválida,
             // CP sin servicio a domicilio, etc.).
             setPqtxError(`Paquete Express: ${rawMsg}`);
+            // Si no hay cobertura a domicilio, el backend sugiere la sucursal Ocurre.
+            const offer = e.response?.data?.ocurreOffer;
+            if (offer?.usedZip) setPqtxOcurreOffer(offer);
         } finally {
             setGeneratingPqtx(false);
         }
@@ -2338,12 +2346,34 @@ ${labelsHtml}
                                                     {pqtxError}
                                                 </Alert>
                                             )}
+                                            {pqtxOcurreOffer && (
+                                                <Alert severity="warning" icon={false} sx={{ mb: 1, fontSize: 12 }}>
+                                                    <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>
+                                                        🏪 <strong>No hay entrega a domicilio</strong> en ese C.P.
+                                                        {pqtxOcurreOffer.nearestBranch
+                                                            ? ` Hay sucursal Ocurre más cercana en C.P. ${pqtxOcurreOffer.usedZip}${pqtxOcurreOffer.cityName ? ` (${pqtxOcurreOffer.cityName})` : ''}.`
+                                                            : ` Hay servicio Ocurre en C.P. ${pqtxOcurreOffer.usedZip}${pqtxOcurreOffer.cityName ? ` (${pqtxOcurreOffer.cityName})` : ''}.`}
+                                                        {' '}El destinatario recoge en sucursal.
+                                                    </Typography>
+                                                    <Button
+                                                        fullWidth
+                                                        size="small"
+                                                        variant="contained"
+                                                        color="warning"
+                                                        startIcon={generatingPqtx ? <CircularProgress size={14} color="inherit" /> : <LocalShippingIcon />}
+                                                        onClick={() => handleGeneratePqtxLabel(pqtxOcurreOffer.usedZip)}
+                                                        disabled={generatingPqtx}
+                                                    >
+                                                        {generatingPqtx ? 'Generando…' : `Generar en Ocurre — C.P. ${pqtxOcurreOffer.usedZip}`}
+                                                    </Button>
+                                                </Alert>
+                                            )}
                                             <Box sx={{ flex: 1 }} />
                                             <Button
                                                 fullWidth
                                                 variant="contained"
                                                 startIcon={generatingPqtx ? <CircularProgress size={16} color="inherit" /> : <LocalShippingIcon />}
-                                                onClick={handleGeneratePqtxLabel}
+                                                onClick={() => handleGeneratePqtxLabel()}
                                                 disabled={generatingPqtx}
                                                 sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
                                             >
