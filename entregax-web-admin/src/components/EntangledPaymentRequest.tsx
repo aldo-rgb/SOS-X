@@ -3234,15 +3234,20 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               {/* Constancia de Situación Fiscal (CSF) — informativa, no bloquea */}
               <Box sx={{ mb: 2 }}>
                 <CsfPanel
-                  mode="self"
+                  mode={advisorClientId ? 'for-client' : 'self'}
+                  clientUserId={advisorClientId}
                   title="Constancia de Situación Fiscal (CSF)"
                   onChange={(s) => setCsfStatus(s)}
                 />
                 {csfStatus && !(csfStatus.exists && csfStatus.is_valid) && (
                   <Alert severity="warning" sx={{ mt: 1.5 }}>
-                    {csfStatus.exists
-                      ? 'Tu constancia ya expiró. Actualízala (no mayor a 3 meses) para que podamos generar tu factura. Puedes continuar, pero la factura quedará pendiente hasta que la subas.'
-                      : 'Aún no has subido tu Constancia de Situación Fiscal. Súbela para que podamos generar tu factura. Puedes continuar, pero la factura quedará pendiente hasta que la subas.'}
+                    {advisorClientId
+                      ? (csfStatus.exists
+                          ? 'La constancia del cliente ya expiró. Debe actualizarla (no mayor a 3 meses) para poder generar la factura. Puedes continuar, pero la factura quedará pendiente hasta que se suba.'
+                          : 'El cliente aún no tiene Constancia de Situación Fiscal. Súbela para poder generar su factura. Puedes continuar, pero la factura quedará pendiente hasta que se suba.')
+                      : (csfStatus.exists
+                          ? 'Tu constancia ya expiró. Actualízala (no mayor a 3 meses) para que podamos generar tu factura. Puedes continuar, pero la factura quedará pendiente hasta que la subas.'
+                          : 'Aún no has subido tu Constancia de Situación Fiscal. Súbela para que podamos generar tu factura. Puedes continuar, pero la factura quedará pendiente hasta que la subas.')}
                   </Alert>
                 )}
               </Box>
