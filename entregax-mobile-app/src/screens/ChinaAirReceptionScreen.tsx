@@ -66,6 +66,14 @@ const cleanTracking = (raw: string): string => {
   return t.toUpperCase();
 };
 
+// ¿El paquete ya fue recibido en su sucursal destino? El escaneo pone el status
+// según la sucursal del operador (received_mty, received_cdmx, received_gdl…), no
+// siempre received_mty. Se cuenta como recibido cualquier `received_*` que NO sea
+// de China/origen — misma regla que usa el backend para "recibidos" del AWB.
+const CHINA_ORIGIN_STATUSES = ['received_china', 'received_china_air', 'received_china_sea', 'received_origin'];
+const isReceivedAtDestino = (status: string | null | undefined): boolean =>
+  typeof status === 'string' && status.startsWith('received_') && !CHINA_ORIGIN_STATUSES.includes(status);
+
 export default function ChinaAirReceptionScreen({ route, navigation }: any) {
   const { token } = route.params;
   const insets = useSafeAreaInsets();
@@ -177,7 +185,7 @@ export default function ChinaAirReceptionScreen({ route, navigation }: any) {
 
   const finalize = async (forcePartial = false) => {
     if (!selected) return;
-    const missing = packages.filter((p) => p.status !== 'received_mty').length;
+    const missing = packages.filter((p) => !isReceivedAtDestino(p.status)).length;
     if (missing > 0 && !forcePartial) { setConfirmPartial(true); return; }
     setLoading(true); setError(null);
     try {
@@ -203,7 +211,7 @@ export default function ChinaAirReceptionScreen({ route, navigation }: any) {
     loadAwbs();
   };
 
-  const receivedCount = packages.filter((p) => p.status === 'received_mty').length;
+  const receivedCount = packages.filter((p) => isReceivedAtDestino(p.status)).length;
   const missingCount = packages.length - receivedCount;
 
   // ================== RENDER ==================
@@ -367,7 +375,7 @@ export default function ChinaAirReceptionScreen({ route, navigation }: any) {
 
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 8 }}>
             {packages.map((p) => {
-              const ok = p.status === 'received_mty';
+              const ok = isReceivedAtDestino(p.status);
               const wasMissing = p.missing_on_arrival === true;
               return (
                 <View key={p.id} style={[
