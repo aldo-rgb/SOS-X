@@ -2275,9 +2275,11 @@ export const bulkCreateProspects = async (req: Request, res: Response): Promise<
       if (skippedList.length < SKIPPED_LIST_CAP) skippedList.push(item);
     };
 
-    // Limpiar/normalizar. Se omiten filas sin nombre.
+    // Limpiar/normalizar. Se omiten filas sin nombre y filas SIN teléfono (el
+    // funnel es 100% por WhatsApp → un prospecto sin número no sirve).
     const clean: Array<{ full_name: string; whatsapp: string | null; email: string | null; channel: string }> = [];
     let skippedNoName = 0;
+    let skippedNoPhone = 0;
     for (const r of rows) {
       const full_name = String(r?.full_name ?? r?.nombre ?? '').trim();
       if (!full_name) {
@@ -2299,6 +2301,12 @@ export const bulkCreateProspects = async (req: Request, res: Response): Promise<
       // "N/A", "-" y similares NO se tratan como correo real y dejan de colapsar
       // toda la carga por "duplicado de correo".
       const email = emailRaw.includes('@') ? emailRaw : null;
+      // SIN teléfono válido → se omite (no se sube). Funnel solo por WhatsApp.
+      if (!whatsapp) {
+        skippedNoPhone++;
+        pushSkipped({ full_name, whatsapp: null, email, motivo: 'Sin teléfono' });
+        continue;
+      }
       const channel = normalizeProspectChannel(r?.acquisition_channel ?? r?.canal);
       clean.push({ full_name, whatsapp, email, channel });
     }
@@ -2364,10 +2372,10 @@ export const bulkCreateProspects = async (req: Request, res: Response): Promise<
       inserted += slice.length;
     }
 
-    const skipped = skippedNoName + skippedDuplicate;
-    console.log(`[CRM] Carga masiva de prospectos: ${inserted} importados, ${skippedDuplicate} duplicados, ${skippedNoName} sin nombre (de ${rows.length} filas)`);
+    const skipped = skippedNoName + skippedNoPhone + skippedDuplicate;
+    console.log(`[CRM] Carga masiva de prospectos: ${inserted} importados, ${skippedDuplicate} duplicados, ${skippedNoPhone} sin teléfono, ${skippedNoName} sin nombre (de ${rows.length} filas)`);
     res.json({
-      success: true, inserted, skipped, skippedDuplicate, skippedNoName, total: rows.length,
+      success: true, inserted, skipped, skippedDuplicate, skippedNoPhone, skippedNoName, total: rows.length,
       message: `${inserted} prospectos importados`,
       skipped_list: skippedList,
       skipped_list_truncated: skipped > skippedList.length,

@@ -1213,8 +1213,8 @@ export default function UnifiedLeadsPage() {
       const res = await axios.post(`${API_URL}/admin/crm/prospects/bulk`, { rows }, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
-      const { inserted = 0, skippedDuplicate = 0, skippedNoName = 0, skipped_list = [], skipped_list_truncated = false } = res.data || {};
-      const skippedTotal = skippedDuplicate + skippedNoName;
+      const { inserted = 0, skippedDuplicate = 0, skippedNoName = 0, skippedNoPhone = 0, skipped_list = [], skipped_list_truncated = false } = res.data || {};
+      const skippedTotal = skippedDuplicate + skippedNoName + skippedNoPhone;
       setProspectPage(0);
       fetchProspects();
       // Si hubo omitidos, abrimos un modal con la lista exacta (nombre, tel, motivo).
