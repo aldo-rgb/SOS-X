@@ -422,11 +422,31 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
       kgWeek = Math.round((Number(a.rows[0]?.kilos) || 0) * 100) / 100;
     } catch (e) { /* tabla china_receipts puede no existir en algún entorno */ }
 
+    // X-Pay de la SEMANA (reinicia lunes). Solo operaciones realmente enviadas
+    // (excluye canceladas/error/pendientes). El conteo excluye MXN (solo
+    // internacionales USD/RMB) y el monto USD suma únicamente las operaciones USD.
+    let xpayOpsWeek = 0, xpayUsdWeek = 0;
+    try {
+      const x = await pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE op_divisa_destino <> 'MXN')                                      AS ops,
+          COALESCE(SUM(op_monto) FILTER (WHERE op_divisa_destino = 'USD'), 0)                      AS usd
+        FROM entangled_payment_requests
+        WHERE estatus_global NOT IN ('cancelado','error_envio','rechazado','pendiente')
+          AND created_at <= now()
+          AND created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey'
+              >= date_trunc('week', now() AT TIME ZONE 'America/Monterrey')
+      `);
+      xpayOpsWeek = Number(x.rows[0]?.ops) || 0;
+      xpayUsdWeek = Math.round((Number(x.rows[0]?.usd) || 0) * 100) / 100;
+    } catch (e) { /* tabla entangled_payment_requests puede no existir en algún entorno */ }
+
     res.json({
       success: true,
       week: Number(row.week) || 0, month: Number(row.month) || 0, year: Number(row.year) || 0, today: Number(row.today) || 0,
       fcl_month: fclMonth, lcl_month: lclMonth,
       awb_week: awbWeek, kg_week: kgWeek,
+      xpay_ops_week: xpayOpsWeek, xpay_usd_week: xpayUsdWeek,
     });
   } catch (error) {
     console.error('Error en getRegistrationStats:', error);
@@ -452,6 +472,8 @@ export const getWidgetSeries = async (req: Request, res: Response): Promise<any>
       fcl:        { table: 'containers',     dateCol: 'created_at', val: "COUNT(*) FILTER (WHERE legacy_client_id IS NOT NULL OR week_number IS NULL OR TRIM(week_number) = '')", where: 'TRUE' },
       lcl:        { table: 'containers',     dateCol: 'created_at', val: "COUNT(DISTINCT week_number) FILTER (WHERE legacy_client_id IS NULL AND week_number IS NOT NULL AND TRIM(week_number) <> '')", where: 'TRUE' },
       interested: { table: 'prospects',      dateCol: 'updated_at', val: 'COUNT(*)',                     where: "status = 'interested'" },
+      xpay_ops:   { table: 'entangled_payment_requests', dateCol: 'created_at', val: 'COUNT(*)',                          where: "op_divisa_destino <> 'MXN' AND estatus_global NOT IN ('cancelado','error_envio','rechazado','pendiente')" },
+      xpay_usd:   { table: 'entangled_payment_requests', dateCol: 'created_at', val: 'COALESCE(SUM(op_monto),0)',         where: "op_divisa_destino = 'USD' AND estatus_global NOT IN ('cancelado','error_envio','rechazado','pendiente')" },
     };
     const cfg = M[metric];
     if (!cfg) return res.status(400).json({ success: false, error: 'Métrica inválida' });

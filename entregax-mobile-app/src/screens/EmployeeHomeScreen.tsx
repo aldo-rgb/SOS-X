@@ -441,7 +441,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   // Widgets de leads/altas para admin y super_admin.
-  const [leadsWidgets, setLeadsWidgets] = useState<{ today: number; week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number; awbWeek: number; kgWeek: number } | null>(null);
+  const [leadsWidgets, setLeadsWidgets] = useState<{ today: number; week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number; awbWeek: number; kgWeek: number; xpayOps: number; xpayUsd: number } | null>(null);
   const [seriesConfig, setSeriesConfig] = useState<SeriesConfig | null>(null);
   const isAdminLevel = ['admin', 'super_admin'].includes(user.role);
 
@@ -464,6 +464,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
         lclMonth: Number(reg.lcl_month) || 0,
         awbWeek: Number(reg.awb_week) || 0,
         kgWeek: Number(reg.kg_week) || 0,
+        xpayOps: Number(reg.xpay_ops_week) || 0,
+        xpayUsd: Number(reg.xpay_usd_week) || 0,
       });
     } catch (e) {
       console.warn('No se pudieron cargar widgets de leads:', e);
@@ -1349,6 +1351,18 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                     <Text style={styles.leadNumber}>{leadsWidgets.kgWeek.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</Text>
                     <Text style={styles.leadLabel}>Kilos aéreo</Text>
                     <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#5E35B1' }]}
+                    onPress={() => setSeriesConfig({ metric: 'xpay_ops', granularity: 'week', periods: 9, title: 'Operaciones X-Pay por semana', color: '#5E35B1' })}>
+                    <Text style={styles.leadNumber}>{leadsWidgets.xpayOps}</Text>
+                    <Text style={styles.leadLabel}>Operaciones X-Pay</Text>
+                    <Text style={styles.leadSub}>esta semana · sin MXN</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#00897B' }]}
+                    onPress={() => setSeriesConfig({ metric: 'xpay_usd', granularity: 'week', periods: 9, title: 'USD enviado por X-Pay por semana', color: '#00897B', unit: 'USD', decimals: 0 })}>
+                    <Text style={styles.leadNumber}>${leadsWidgets.xpayUsd.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</Text>
+                    <Text style={styles.leadLabel}>USD enviado X-Pay</Text>
+                    <Text style={styles.leadSub}>esta semana · solo USD</Text>
                   </TouchableOpacity>
                 </View>
               </View>

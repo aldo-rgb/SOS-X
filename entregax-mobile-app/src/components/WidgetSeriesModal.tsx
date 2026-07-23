@@ -5,7 +5,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 export type SeriesConfig = {
-  metric: 'altas' | 'awb' | 'kg' | 'fcl' | 'lcl' | 'interested';
+  metric: 'altas' | 'awb' | 'kg' | 'fcl' | 'lcl' | 'interested' | 'xpay_ops' | 'xpay_usd';
   granularity: 'day' | 'week' | 'month';
   periods: number;
   title: string;
