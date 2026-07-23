@@ -1912,7 +1912,7 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
     await ensureClickLinksSchema();
     await ensureSequenceSchema();
     await ensureWelcomeKitSchema();
-    const { status, advisorId, channel, search, seq, clicked, page = 1, limit = 50 } = req.query;
+    const { status, advisorId, channel, search, seq, clicked, hasPhone, page = 1, limit = 50 } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
     // Los prospectos que se registran se marcan 'converted' (reconcile) pero NO
@@ -1943,6 +1943,12 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
       whereConditions.push(`b.acquisition_channel = $${paramIndex}`);
       params.push(channel);
       paramIndex++;
+    }
+
+    // Omitir prospectos SIN teléfono: el funnel es solo por WhatsApp, así que los
+    // que no traen número no sirven para la secuencia. (whatsapp NULL o vacío.)
+    if (hasPhone === '1' || hasPhone === 'true') {
+      whereConditions.push(`(b.whatsapp IS NOT NULL AND btrim(b.whatsapp) <> '')`);
     }
 
     if (search) {

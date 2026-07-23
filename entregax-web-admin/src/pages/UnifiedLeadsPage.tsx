@@ -933,6 +933,7 @@ export default function UnifiedLeadsPage() {
   const [prospectTemplateFilter, setProspectTemplateFilter] = useState<number | ''>('');
   const [prospectAdvisorFilter, setProspectAdvisorFilter] = useState('');
   const [prospectChannelFilter, setProspectChannelFilter] = useState('');
+  const [prospectOnlyWithPhone, setProspectOnlyWithPhone] = useState(false);
   const [prospectSearch, setProspectSearch] = useState('');
   const [prospectPage, setProspectPage] = useState(0);
   const [prospectRowsPerPage, setProspectRowsPerPage] = useState(25);
@@ -1052,6 +1053,7 @@ export default function UnifiedLeadsPage() {
       if (prospectSeqFilter !== 'all') params.append('seq', prospectSeqFilter);
       if (prospectClickFilter !== 'all') params.append('clicked', prospectClickFilter);
       if (prospectTemplateFilter !== '') params.append('template_id', String(prospectTemplateFilter));
+      if (prospectOnlyWithPhone) params.append('hasPhone', '1');
       if (prospectSearch) params.append('search', prospectSearch);
       params.append('page', String(prospectPage + 1));
       params.append('limit', String(prospectRowsPerPage));
@@ -1068,7 +1070,7 @@ export default function UnifiedLeadsPage() {
     } finally {
       setProspectsLoading(false);
     }
-  }, [prospectStatusFilter, prospectAdvisorFilter, prospectChannelFilter, prospectSeqFilter, prospectClickFilter, prospectTemplateFilter, prospectSearch, prospectPage, prospectRowsPerPage]);
+  }, [prospectStatusFilter, prospectAdvisorFilter, prospectChannelFilter, prospectSeqFilter, prospectClickFilter, prospectTemplateFilter, prospectOnlyWithPhone, prospectSearch, prospectPage, prospectRowsPerPage]);
 
   // ===== Secuencias automáticas =====
   const fetchSequences = useCallback(async () => {
@@ -2373,6 +2375,15 @@ export default function UnifiedLeadsPage() {
                   ))}
                 </Select>
               </FormControl>
+              <Button
+                size="small"
+                variant={prospectOnlyWithPhone ? 'contained' : 'outlined'}
+                color={prospectOnlyWithPhone ? 'success' : 'inherit'}
+                onClick={() => { setProspectOnlyWithPhone(v => !v); setProspectPage(0); }}
+                sx={{ whiteSpace: 'nowrap', minWidth: 180, borderColor: prospectOnlyWithPhone ? undefined : 'rgba(0,0,0,0.23)' }}
+              >
+                {prospectOnlyWithPhone ? '📱 Solo con teléfono' : 'Omitir sin teléfono'}
+              </Button>
             </Box>
           </Paper>
 
