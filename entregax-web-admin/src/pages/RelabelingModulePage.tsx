@@ -898,8 +898,11 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         setPqtxMsg(null);
         setPqtxError(null);
         try {
+            const stGen = String((shipment.master as any).serviceType || '').toUpperCase();
+            const isDhlGen = stGen === 'AA_DHL' || stGen === 'DHL' || detectPackageType(shipment.master.tracking) === 'dhl';
             const res = await api.post('/admin/paquete-express/generate-for-package', {
                 packageId: shipment.master.id,
+                ...(isDhlGen ? { shipmentType: 'dhl' } : {}),
             });
             if (res.data?.success) {
                 const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');

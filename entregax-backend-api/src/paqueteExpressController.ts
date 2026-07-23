@@ -1433,7 +1433,11 @@ export async function generateOnePqtxGuide(params: {
   createdBy: number | null;
   // IDs de hijas para persistir el mismo national_tracking en todas
   childIds?: number[];
+  // Tabla donde persistir el national_tracking/label (packages por defecto; para
+  // envíos DHL se usa dhl_shipments, que no tiene pqtx_shipment_id).
+  shipmentTable?: 'packages' | 'dhl_shipments';
 }): Promise<{ ok: true; tracking: string; folioPorte: string; labelUrl: string; pieces: number } | { ok: false; error: string; raw?: any }> {
+  const persistTable = params.shipmentTable === 'dhl_shipments' ? 'dhl_shipments' : 'packages';
   const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64410'; // CEDIS MTY
   const PQTX_ORIGIN_CITY = process.env.PQTX_ORIGIN_CITY || 'MONTERREY';
   const PQTX_ORIGIN_STATE = process.env.PQTX_ORIGIN_STATE || 'NUEVO LEON';
@@ -1651,10 +1655,10 @@ export async function generateOnePqtxGuide(params: {
   const addData = respBody.additionalData || null;
   const labelUrl = `/api/admin/paquete-express/label/pdf/${guiaNo}`;
 
-  // Persistir master
+  // Persistir master (en packages o dhl_shipments según el tipo de envío)
   try {
     await pool.query(
-      `UPDATE packages
+      `UPDATE ${persistTable}
           SET national_tracking = $1,
               national_label_url = $2,
               national_carrier = COALESCE(national_carrier, 'Paquete Express'),
@@ -1663,14 +1667,14 @@ export async function generateOnePqtxGuide(params: {
       [guiaNo, labelUrl, params.pkgId]
     );
   } catch (e: any) {
-    console.error('No se pudo actualizar packages.national_tracking (master):', e.message);
+    console.error(`No se pudo actualizar ${persistTable}.national_tracking (master):`, e.message);
   }
 
   // Persistir el MISMO national_tracking en todas las hijas (multipieza)
   if (params.childIds && params.childIds.length > 0) {
     try {
       await pool.query(
-        `UPDATE packages
+        `UPDATE ${persistTable}
             SET national_tracking = $1,
                 national_label_url = $2,
                 national_carrier = COALESCE(national_carrier, 'Paquete Express'),
@@ -1713,22 +1717,25 @@ export async function generateOnePqtxGuide(params: {
     console.error('No se pudo guardar pqtx_shipments:', e.message);
   }
 
-  // Vincular packages (master + hijas) al pqtx_shipment recién creado
-  try {
-    const psRes = await pool.query(
-      `SELECT id FROM pqtx_shipments WHERE tracking_number = $1 ORDER BY id DESC LIMIT 1`,
-      [guiaNo]
-    );
-    const psId = psRes.rows[0]?.id;
-    if (psId) {
-      const allIds = [params.pkgId, ...(params.childIds || [])];
-      await pool.query(
-        `UPDATE packages SET pqtx_shipment_id = $1, updated_at = NOW() WHERE id = ANY($2::int[])`,
-        [psId, allIds]
+  // Vincular packages (master + hijas) al pqtx_shipment recién creado.
+  // dhl_shipments no tiene columna pqtx_shipment_id → solo aplica a packages.
+  if (persistTable === 'packages') {
+    try {
+      const psRes = await pool.query(
+        `SELECT id FROM pqtx_shipments WHERE tracking_number = $1 ORDER BY id DESC LIMIT 1`,
+        [guiaNo]
       );
+      const psId = psRes.rows[0]?.id;
+      if (psId) {
+        const allIds = [params.pkgId, ...(params.childIds || [])];
+        await pool.query(
+          `UPDATE packages SET pqtx_shipment_id = $1, updated_at = NOW() WHERE id = ANY($2::int[])`,
+          [psId, allIds]
+        );
+      }
+    } catch (e: any) {
+      console.error('No se pudo vincular packages.pqtx_shipment_id:', e.message);
     }
-  } catch (e: any) {
-    console.error('No se pudo vincular packages.pqtx_shipment_id:', e.message);
   }
 
   return { ok: true, tracking: guiaNo, folioPorte, labelUrl, pieces: totalPieces };
@@ -1736,37 +1743,66 @@ export async function generateOnePqtxGuide(params: {
 
 export async function pqtxGenerateForPackage(req: Request, res: Response) {
   try {
-    const { packageId } = req.body || {};
+    const { packageId, shipmentType } = req.body || {};
     if (!packageId) {
       res.status(400).json({ success: false, error: 'packageId requerido' });
       return;
     }
+    // Los envíos DHL viven en dhl_shipments (no en packages). El frontend manda
+    // shipmentType='dhl' para que carguemos de la tabla correcta y persistamos ahí.
+    const isDhl = String(shipmentType || '').toLowerCase() === 'dhl';
+    const persistTable: 'packages' | 'dhl_shipments' = isDhl ? 'dhl_shipments' : 'packages';
 
-    // Cargar paquete + dirección + cliente
-    // COALESCE: usa assigned_address_id primero; si no tiene CP válido, cae a delivery_address_id
-    const pkgRes = await pool.query(
-      `SELECT p.*, u.full_name AS user_name, u.email AS user_email,
-              a.recipient_name, a.street, a.exterior_number, a.interior_number,
-              a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference,
-              p.national_delivery_zip
-         FROM packages p
-         LEFT JOIN users u ON p.user_id = u.id
-         LEFT JOIN addresses a ON a.id = COALESCE(
-           CASE WHEN p.assigned_address_id IS NOT NULL
-                 AND (SELECT zip_code FROM addresses WHERE id = p.assigned_address_id) IS NOT NULL
-                 AND (SELECT zip_code FROM addresses WHERE id = p.assigned_address_id) <> ''
-                THEN p.assigned_address_id END,
-           p.delivery_address_id,
-           p.assigned_address_id
-         )
-        WHERE p.id = $1`,
-      [packageId]
-    );
-    if (pkgRes.rows.length === 0) {
-      res.status(404).json({ success: false, error: 'Paquete no encontrado' });
-      return;
+    let pkg: any;
+    if (isDhl) {
+      // Master DHL + dirección de entrega + cliente. Se normalizan los nombres de
+      // columna (weight_kg→weight, length_cm→pkg_length, …) para reutilizar el flujo.
+      const dRes = await pool.query(
+        `SELECT ds.*, ds.weight_kg AS weight, ds.length_cm AS pkg_length,
+                ds.width_cm AS pkg_width, ds.height_cm AS pkg_height,
+                ds.inbound_tracking AS tracking_internal,
+                NULL::text AS national_delivery_zip, NULL::text AS destination_zip,
+                u.full_name AS user_name, u.email AS user_email,
+                a.recipient_name, a.street, a.exterior_number, a.interior_number,
+                a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference
+           FROM dhl_shipments ds
+           LEFT JOIN users u ON ds.user_id = u.id
+           LEFT JOIN addresses a ON a.id = ds.delivery_address_id
+          WHERE ds.id = $1`,
+        [packageId]
+      );
+      if (dRes.rows.length === 0) {
+        res.status(404).json({ success: false, error: 'Envío DHL no encontrado' });
+        return;
+      }
+      pkg = dRes.rows[0];
+    } else {
+      // Cargar paquete + dirección + cliente
+      // COALESCE: usa assigned_address_id primero; si no tiene CP válido, cae a delivery_address_id
+      const pkgRes = await pool.query(
+        `SELECT p.*, u.full_name AS user_name, u.email AS user_email,
+                a.recipient_name, a.street, a.exterior_number, a.interior_number,
+                a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference,
+                p.national_delivery_zip
+           FROM packages p
+           LEFT JOIN users u ON p.user_id = u.id
+           LEFT JOIN addresses a ON a.id = COALESCE(
+             CASE WHEN p.assigned_address_id IS NOT NULL
+                   AND (SELECT zip_code FROM addresses WHERE id = p.assigned_address_id) IS NOT NULL
+                   AND (SELECT zip_code FROM addresses WHERE id = p.assigned_address_id) <> ''
+                  THEN p.assigned_address_id END,
+             p.delivery_address_id,
+             p.assigned_address_id
+           )
+          WHERE p.id = $1`,
+        [packageId]
+      );
+      if (pkgRes.rows.length === 0) {
+        res.status(404).json({ success: false, error: 'Paquete no encontrado' });
+        return;
+      }
+      pkg = pkgRes.rows[0];
     }
-    const pkg = pkgRes.rows[0];
 
     // Paquetería "por cobrar" / COD (pqtx_cod): NO se genera guía con la API de
     // Paquete Express — el destinatario paga al recibir. Solo se imprime una
@@ -1785,15 +1821,33 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     }
 
     // Buscar hijas (bultos del master)
-    const childrenRes = await pool.query(
-      `SELECT id, tracking_internal, weight, pkg_length, pkg_width, pkg_height,
-              description, box_number, national_tracking, national_label_url
-         FROM packages
-        WHERE master_id = $1
-        ORDER BY box_number, id`,
-      [packageId]
-    );
-    const children = childrenRes.rows;
+    let children: any[];
+    if (isDhl) {
+      // Todas las guías del master (mismo secondary_tracking) = las cajas físicas,
+      // cada una con su peso/medidas reales. Incluye la propia guía master.
+      const cRes = await pool.query(
+        `SELECT id, inbound_tracking AS tracking_internal, weight_kg AS weight,
+                length_cm AS pkg_length, width_cm AS pkg_width, height_cm AS pkg_height,
+                description, id AS box_number, national_tracking, national_label_url
+           FROM dhl_shipments
+          WHERE COALESCE(secondary_tracking, '') <> ''
+            AND secondary_tracking = (SELECT secondary_tracking FROM dhl_shipments WHERE id = $1)
+          ORDER BY id`,
+        [packageId]
+      );
+      // Si es una guía suelta (sin hermanas) tratamos el master como única caja.
+      children = cRes.rows.length > 1 ? cRes.rows : [];
+    } else {
+      const childrenRes = await pool.query(
+        `SELECT id, tracking_internal, weight, pkg_length, pkg_width, pkg_height,
+                description, box_number, national_tracking, national_label_url
+           FROM packages
+          WHERE master_id = $1
+          ORDER BY box_number, id`,
+        [packageId]
+      );
+      children = childrenRes.rows;
+    }
 
     // REPACK (US-REPACK-*): las N guías se consolidaron en UNA sola caja física →
     // la guía PQTX es de 1 sola pieza (no una por hija).
@@ -1811,7 +1865,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
         if (stale.length > 0) {
           try {
             await pool.query(
-              `UPDATE packages SET national_tracking = $1, national_label_url = $2,
+              `UPDATE ${persistTable} SET national_tracking = $1, national_label_url = $2,
                  national_carrier = COALESCE(national_carrier, 'Paquete Express'), updated_at = NOW()
                WHERE id = ANY($3::int[])`,
               [pkg.national_tracking, labelUrl, stale]
@@ -1861,7 +1915,10 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     // del master uniformemente entre las cajas para no inflar la cotización.
     const masterWeight = Number(pkg.weight) || 0;
     const childWeightsSum = children.reduce((s: number, c: any) => s + (Number(c.weight) || 0), 0);
+    // En DHL cada guía es una caja con su peso real (el "master" es una de ellas,
+    // no el total), así que NO se aplica el reparto uniforme de peso.
     const useMasterEvenSplit = (
+      !isDhl &&
       children.length > 1 &&
       masterWeight > 0 &&
       childWeightsSum > masterWeight * 1.05 &&
@@ -1902,6 +1959,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       token,
       createdBy: userId,
       childIds,
+      shipmentTable: persistTable,
     });
 
     if (!result.ok) {
