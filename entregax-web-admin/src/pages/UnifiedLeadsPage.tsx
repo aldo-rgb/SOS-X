@@ -915,6 +915,7 @@ export default function UnifiedLeadsPage() {
   const [prospectStatusFilter, setProspectStatusFilter] = useState('all');
   const [prospectSeqFilter, setProspectSeqFilter] = useState('all');
   const [prospectClickFilter, setProspectClickFilter] = useState('all');
+  const [prospectTemplateFilter, setProspectTemplateFilter] = useState<number | ''>('');
   const [prospectAdvisorFilter, setProspectAdvisorFilter] = useState('');
   const [prospectChannelFilter, setProspectChannelFilter] = useState('');
   const [prospectSearch, setProspectSearch] = useState('');
@@ -1035,6 +1036,7 @@ export default function UnifiedLeadsPage() {
       if (prospectChannelFilter) params.append('channel', prospectChannelFilter);
       if (prospectSeqFilter !== 'all') params.append('seq', prospectSeqFilter);
       if (prospectClickFilter !== 'all') params.append('clicked', prospectClickFilter);
+      if (prospectTemplateFilter !== '') params.append('template_id', String(prospectTemplateFilter));
       if (prospectSearch) params.append('search', prospectSearch);
       params.append('page', String(prospectPage + 1));
       params.append('limit', String(prospectRowsPerPage));
@@ -1051,7 +1053,7 @@ export default function UnifiedLeadsPage() {
     } finally {
       setProspectsLoading(false);
     }
-  }, [prospectStatusFilter, prospectAdvisorFilter, prospectChannelFilter, prospectSeqFilter, prospectClickFilter, prospectSearch, prospectPage, prospectRowsPerPage]);
+  }, [prospectStatusFilter, prospectAdvisorFilter, prospectChannelFilter, prospectSeqFilter, prospectClickFilter, prospectTemplateFilter, prospectSearch, prospectPage, prospectRowsPerPage]);
 
   // ===== Secuencias automáticas =====
   const fetchSequences = useCallback(async () => {
@@ -2330,6 +2332,17 @@ export default function UnifiedLeadsPage() {
                   <MenuItem value="all">{t('common.all')}</MenuItem>
                   <MenuItem value="yes">🔗 Con clic</MenuItem>
                   <MenuItem value="no">Sin clic</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 200 }}>
+                <InputLabel>🎯 Plantilla</InputLabel>
+                <Select
+                  value={prospectTemplateFilter === '' ? '' : String(prospectTemplateFilter)}
+                  label="🎯 Plantilla"
+                  onChange={(e: SelectChangeEvent) => { setProspectTemplateFilter(e.target.value === '' ? '' : Number(e.target.value)); setProspectPage(0); }}
+                >
+                  <MenuItem value=""><em>Todas</em></MenuItem>
+                  {bulkTemplates.map(tpl => <MenuItem key={tpl.id} value={String(tpl.id)}>{tpl.label}</MenuItem>)}
                 </Select>
               </FormControl>
               <FormControl size="small" sx={{ minWidth: 180 }}>

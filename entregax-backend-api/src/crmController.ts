@@ -1966,11 +1966,26 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
     }
 
     // Filtro por clic en el botón de WhatsApp (EXISTS sobre wa_click_links con
-    // al menos un clic registrado). Sirve también para el countQuery.
-    if (clicked === 'yes') {
-      whereConditions.push(`EXISTS (SELECT 1 FROM wa_click_links wl WHERE wl.lead_key = b.lead_key AND wl.click_count > 0)`);
-    } else if (clicked === 'no') {
-      whereConditions.push(`NOT EXISTS (SELECT 1 FROM wa_click_links wl WHERE wl.lead_key = b.lead_key AND wl.click_count > 0)`);
+    // al menos un clic registrado). Si viene template_id, se acota a ESA plantilla:
+    //   clicked=yes → recibió la plantilla Y clicó; clicked=no → la recibió y NO clicó;
+    //   sin clicked → todos los que recibieron la plantilla.
+    const templateId = parseInt(String(req.query.template_id || ''), 10);
+    const hasTemplate = Number.isFinite(templateId) && templateId > 0;
+    if (hasTemplate) {
+      params.push(templateId);
+      const tIdx = paramIndex++;
+      whereConditions.push(`EXISTS (SELECT 1 FROM wa_click_links wl WHERE wl.lead_key = b.lead_key AND wl.template_id = $${tIdx})`);
+      if (clicked === 'yes') {
+        whereConditions.push(`EXISTS (SELECT 1 FROM wa_click_links wl WHERE wl.lead_key = b.lead_key AND wl.template_id = $${tIdx} AND wl.click_count > 0)`);
+      } else if (clicked === 'no') {
+        whereConditions.push(`NOT EXISTS (SELECT 1 FROM wa_click_links wl WHERE wl.lead_key = b.lead_key AND wl.template_id = $${tIdx} AND wl.click_count > 0)`);
+      }
+    } else {
+      if (clicked === 'yes') {
+        whereConditions.push(`EXISTS (SELECT 1 FROM wa_click_links wl WHERE wl.lead_key = b.lead_key AND wl.click_count > 0)`);
+      } else if (clicked === 'no') {
+        whereConditions.push(`NOT EXISTS (SELECT 1 FROM wa_click_links wl WHERE wl.lead_key = b.lead_key AND wl.click_count > 0)`);
+      }
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
