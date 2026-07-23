@@ -257,6 +257,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
 
     const getModuleLabel = (moduleKey: string, serviceKey?: string | null): string => {
         if (moduleKey === 'costing' && serviceKey === 'china_sea') return 'Costeo Marítimo';
+        if (moduleKey === 'costing' && serviceKey === 'mx_cedis') return 'Costeo DHL';
         return t(`panels.modules.${moduleKey}`);
     };
     
