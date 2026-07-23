@@ -14613,7 +14613,8 @@ app.post('/api/admin/system/entregax-payments-toggle', authenticateToken, requir
 // POST /api/admin/system/facturas-toggle — controla facturación automática (master + por servicio)
 // Body: { enabled?: boolean, by_service?: { pobox?, maritimo?, aereo?, dhl? } }
 // OFF → las solicitudes de factura van a "Pendientes por Timbrar".
-app.post('/api/admin/system/facturas-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+// Lo puede cambiar el Contador (portal contable) y roles superiores.
+app.post('/api/admin/system/facturas-toggle', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.userId || null;
     const cur = await pool.query(

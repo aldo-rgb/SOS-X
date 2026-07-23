@@ -2382,6 +2382,36 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
   const [voucherDialog, setVoucherDialog] = useState<{ open: boolean; loading: boolean; reference: string; vouchers: any[] } | null>(null);
   const currentRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; } })();
   const isSuperAdmin = currentRole === 'super_admin';
+  // La facturación automática la puede cambiar el Contador y roles superiores.
+  const canToggleAutoInv = ['super_admin', 'admin', 'director', 'accountant'].includes(currentRole);
+
+  // Facturación automática (timbrado inmediato). OFF = los pagos van a Pendientes
+  // por Timbrar. Se controla con el toggle de abajo (solo super_admin).
+  const [autoInv, setAutoInv] = useState<boolean | null>(null);
+  const [autoInvSaving, setAutoInvSaving] = useState(false);
+
+  const loadAutoInv = async () => {
+    try {
+      const res = await api.get('/system/payment-status');
+      setAutoInv(res.data?.facturas_enabled !== false);
+    } catch { setAutoInv(null); }
+  };
+
+  const toggleAutoInvoice = async (enabled: boolean) => {
+    const prev = autoInv;
+    setAutoInv(enabled);
+    setAutoInvSaving(true);
+    try {
+      await api.post('/admin/system/facturas-toggle', { enabled });
+      setSnackbar({ open: true, message: enabled ? '✅ Facturación automática ACTIVADA' : '🔴 Facturación automática DESACTIVADA', severity: enabled ? 'success' : 'warning' });
+      load();
+    } catch (e: any) {
+      setAutoInv(prev);
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo cambiar la facturación automática', severity: 'error' });
+    } finally {
+      setAutoInvSaving(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -2407,10 +2437,41 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
     }
   };
 
-  useEffect(() => { load(); }, [emitter.id]); // eslint-disable-line
+  useEffect(() => { load(); loadAutoInv(); }, [emitter.id]); // eslint-disable-line
 
   return (
     <Box>
+      {/* Toggle de facturación automática (timbrado inmediato) */}
+      <Paper variant="outlined" sx={{ p: 1.5, mb: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, borderColor: autoInv ? 'rgba(46,125,50,0.4)' : 'rgba(240,90,40,0.4)', bgcolor: autoInv ? 'rgba(46,125,50,0.05)' : 'rgba(240,90,40,0.05)' }}>
+        <Box>
+          <Typography variant="body2" fontWeight={700}>
+            🧾 Facturación automática {autoInv === null ? '' : autoInv ? '· ACTIVADA' : '· DESACTIVADA'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {autoInv
+              ? 'Los pagos con factura se timbran automáticamente al completarse.'
+              : 'Los pagos con factura NO se timbran solos; quedan aquí en Pendientes por Timbrar.'}
+          </Typography>
+        </Box>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={!!autoInv}
+              disabled={!canToggleAutoInv || autoInv === null || autoInvSaving}
+              onChange={(e) => toggleAutoInvoice(e.target.checked)}
+              color="success"
+            />
+          }
+          label={autoInvSaving ? 'Guardando…' : (autoInv ? 'Activada' : 'Desactivada')}
+          sx={{ m: 0 }}
+        />
+      </Paper>
+      {!canToggleAutoInv && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5, ml: 0.5 }}>
+          No tienes permiso para cambiar la facturación automática.
+        </Typography>
+      )}
+
       <Alert severity="info" sx={{ mb: 2 }}>
         Estos son pagos completados en los que el cliente solicitó factura pero aún no se ha timbrado el CFDI.
         Emite manualmente la factura desde aquí.
