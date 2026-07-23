@@ -113,6 +113,9 @@ interface ShipmentData {
         tracking: string;
         boxNumber: number;
         weight: number;
+        length?: number | null;
+        width?: number | null;
+        height?: number | null;
         nationalTracking?: string | null;
         nationalLabelUrl?: string | null;
         nationalCarrier?: string | null;
@@ -2039,6 +2042,24 @@ ${labelsHtml}
                                         {label.weight ? `${Number(label.weight).toFixed(2)} kg` : ''}
                                         {label.dimensions ? ` · ${label.dimensions}` : ''}
                                     </Typography>
+                                    {/* Master con varias cajas hijas: mostrar cada hija con su peso y medidas */}
+                                    {label.isMaster && shipment.children && shipment.children.length > 1 && (
+                                        <Box sx={{ mb: 1, p: 1, bgcolor: 'rgba(240,90,40,0.05)', borderRadius: 1, border: '1px solid rgba(240,90,40,0.15)' }}>
+                                            <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                                {shipment.children.length} cajas:
+                                            </Typography>
+                                            {[...shipment.children].sort((a, b) => (a.boxNumber || 0) - (b.boxNumber || 0)).map((c, i) => {
+                                                const dims = (c.length || c.width || c.height)
+                                                    ? `${Number(c.length || 0).toFixed(0)}×${Number(c.width || 0).toFixed(0)}×${Number(c.height || 0).toFixed(0)} cm`
+                                                    : '—';
+                                                return (
+                                                    <Typography key={c.id ?? i} variant="caption" sx={{ display: 'block', fontSize: 11, color: 'text.secondary', lineHeight: 1.6 }}>
+                                                        <b>{i + 1}.</b> <span style={{ fontFamily: 'monospace' }}>{c.tracking}</span> · <b>{Number(c.weight || 0).toFixed(2)} kg</b> · {dims}
+                                                    </Typography>
+                                                );
+                                            })}
+                                        </Box>
+                                    )}
                                     <Box sx={{ flex: 1 }} />
                                     {label.totalBoxes > 1 && !label.isMaster ? (
                                         /^LOG/i.test(label.tracking) ? (
