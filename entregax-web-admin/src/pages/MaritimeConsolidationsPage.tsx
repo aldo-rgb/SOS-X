@@ -238,9 +238,10 @@ const MaritimeConsolidationsPage: React.FC = () => {
     catch { return ''; }
   })();
   const isSuperAdmin = currentRole === 'super_admin';
-  // Botón de Asignación (orden de mercancía): además de super_admin, lo pueden
-  // usar servicio a cliente y soporte técnico.
-  const canAssign = ['super_admin', 'customer_service', 'soporte_tecnico'].includes(currentRole);
+  // Gestión de consolidación (asignación + clasificar TIPO de mercancía): además
+  // de super_admin, la pueden usar servicio a cliente y soporte técnico. El STATUS
+  // sigue siendo exclusivo de super_admin.
+  const canManageConsolidation = ['super_admin', 'customer_service', 'soporte_tecnico'].includes(currentRole);
 
   const { t } = useTranslation();
 
@@ -467,9 +468,10 @@ const MaritimeConsolidationsPage: React.FC = () => {
     }
   };
 
-  // Asignar SOLO el tipo de mercancía (clasificación) inline — solo super_admin.
+  // Asignar SOLO el tipo de mercancía (clasificación) inline.
+  // Super admin + servicio a cliente + soporte técnico.
   const assignMerchandiseType = async (ordersn: string, merchandiseType: string) => {
-    if (!isSuperAdmin || !merchandiseType) return;
+    if (!canManageConsolidation || !merchandiseType) return;
     try {
       const res = await fetch(`${API_URL}/api/maritime-api/orders/${ordersn}/merchandise-type`, {
         method: 'PUT',
@@ -910,9 +912,10 @@ const MaritimeConsolidationsPage: React.FC = () => {
                        order.merchandise_type === 'pending' || order.merchandise_type === 'pending_classification' ||
                        (!order.brand_type && !order.merchandise_type)) ? '' :
                       'generic';
-                    // Super admin: asignar el tipo inline (al clasificar, la guía ya
-                    // puede contratar Garantía Extendida).
-                    if (isSuperAdmin) {
+                    // Asignar el tipo inline (al clasificar, la guía ya puede
+                    // contratar Garantía Extendida). Super admin + servicio a
+                    // cliente + soporte técnico.
+                    if (canManageConsolidation) {
                       return (
                         <Select
                           size="small"
@@ -1047,7 +1050,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
                           <EditIcon />
                         </IconButton>
                       </Tooltip>
-                      {canAssign && (
+                      {canManageConsolidation && (
                         <Tooltip title={t('maritimeConsolidations.assignment')}>
                           <IconButton size="small" color="primary" onClick={() => handleEditOrder(order)}>
                             <AssignmentIcon />
