@@ -177,6 +177,10 @@ export const sendSolicitudPago = async (
       monto: (payload as any).monto != null ? (payload as any).monto : payload.monto_usd,
     };
 
+    // Log del payload completo enviado a /solicitud-pago (incluye constancia_url si
+    // aplica) para diagnosticar 500s de ENTANGLED. hasFile indica multipart.
+    console.warn(`[ENTANGLED] POST ${buildUrl('/solicitud-pago')} hasFile=${hasFile} PAYLOAD=${JSON.stringify(payloadForEntangled)}`);
+
     let res;
     if (hasFile) {
       const form = new FormData();
@@ -235,7 +239,8 @@ export const sendSolicitudPago = async (
       responseData?.message ||
       ax.message ||
       'Error desconocido al contactar ENTANGLED';
-    console.error('[ENTANGLED] sendSolicitudPago error:', message, ax.response?.status);
+    console.error('[ENTANGLED] sendSolicitudPago error:', message, 'status=', ax.response?.status,
+      'RESP_BODY=', JSON.stringify(responseData || {}).slice(0, 800));
     return { ok: false, error: message, status: ax.response?.status, raw: responseData };
   }
 };
