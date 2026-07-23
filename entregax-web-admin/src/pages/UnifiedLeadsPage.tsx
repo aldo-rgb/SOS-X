@@ -30,6 +30,7 @@ import {
   TableRow,
   TablePagination,
   Chip,
+  LinearProgress,
   IconButton,
   TextField,
   InputAdornment,
@@ -848,17 +849,31 @@ export default function UnifiedLeadsPage() {
   const [seqSaving, setSeqSaving] = useState(false);
 
   // Contador regresivo al próximo envío de la secuencia + a cuántos usuarios.
-  const [seqNextSend, setSeqNextSend] = useState<{ nextSendAt: string; dueCount: number; dueNowCount: number } | null>(null);
+  const [seqNextSend, setSeqNextSend] = useState<{
+    nextSendAt: string;
+    dueCount: number;
+    dueNowCount: number;
+    queue?: {
+      en_cola: number;
+      programados: number;
+      total_activos: number;
+      enviados_hoy: number;
+      drain_activo: boolean;
+      por_paso: { paso: number; en_cola: number }[];
+      tope_diario?: number;
+      restante_hoy?: number;
+    };
+  } | null>(null);
   const [seqCountdown, setSeqCountdown] = useState('');
   useEffect(() => {
     const fetchNext = async () => {
       try {
         const res = await axios.get(`${API_URL}/admin/crm/sequence/next-send`, { headers: { Authorization: `Bearer ${getToken()}` } });
-        if (res.data?.success) setSeqNextSend({ nextSendAt: res.data.nextSendAt, dueCount: res.data.dueCount || 0, dueNowCount: res.data.dueNowCount || 0 });
+        if (res.data?.success) setSeqNextSend({ nextSendAt: res.data.nextSendAt, dueCount: res.data.dueCount || 0, dueNowCount: res.data.dueNowCount || 0, queue: res.data.queue });
       } catch { /* ignore */ }
     };
     fetchNext();
-    const refetch = setInterval(fetchNext, 60_000); // refresca conteo/ventana cada min
+    const refetch = setInterval(fetchNext, 20_000); // refresca cola/ventana cada 20s (widget en vivo)
     return () => clearInterval(refetch);
   }, []);
   useEffect(() => {
@@ -904,7 +919,7 @@ export default function UnifiedLeadsPage() {
       // refrescar el contador
       try {
         const res = await axios.get(`${API_URL}/admin/crm/sequence/next-send`, { headers: { Authorization: `Bearer ${getToken()}` } });
-        if (res.data?.success) setSeqNextSend({ nextSendAt: res.data.nextSendAt, dueCount: res.data.dueCount || 0, dueNowCount: res.data.dueNowCount || 0 });
+        if (res.data?.success) setSeqNextSend({ nextSendAt: res.data.nextSendAt, dueCount: res.data.dueCount || 0, dueNowCount: res.data.dueNowCount || 0, queue: res.data.queue });
       } catch { /* ignore */ }
     } catch (e: any) {
       setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo guardar', severity: 'error' });
@@ -2360,6 +2375,106 @@ export default function UnifiedLeadsPage() {
               </FormControl>
             </Box>
           </Paper>
+
+          {/* Widget: estado de la cola de mensajes de la secuencia */}
+          {seqNextSend?.queue && (() => {
+            const q = seqNextSend.queue!;
+            const enviadosHoy = q.enviados_hoy || 0;
+            const enCola = q.en_cola || 0;
+            const programados = q.programados || 0;
+            const total = q.total_activos || 0;
+            const baseDia = enviadosHoy + enCola;
+            const pct = baseDia > 0 ? Math.round((enviadosHoy / baseDia) * 100) : (total === 0 ? 100 : 0);
+            const tiles: { label: string; value: number; color: string; hint?: string }[] = [
+              { label: 'Enviados hoy', value: enviadosHoy, color: '#2e7d32' },
+              { label: 'En cola', value: enCola, color: '#ed6c02', hint: 'vencidos, salen en la próxima tanda' },
+              { label: 'Programados', value: programados, color: '#0277bd', hint: 'próximos días' },
+              { label: 'Total en secuencia', value: total, color: '#7b1fa2' },
+            ];
+            return (
+              <Paper variant="outlined" sx={{ p: 2, mb: 1.5, borderColor: 'rgba(123,31,162,0.25)' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+                  <WhatsAppIcon sx={{ fontSize: 20, color: '#25D366' }} />
+                  <Typography variant="subtitle2" fontWeight={800}>Estado de la cola de mensajes</Typography>
+                  {q.drain_activo ? (
+                    <Chip
+                      size="small"
+                      label="Enviando…"
+                      sx={{
+                        bgcolor: '#25D366', color: '#fff', fontWeight: 700,
+                        '@keyframes pulseChip': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.45 } },
+                        animation: 'pulseChip 1.2s ease-in-out infinite',
+                      }}
+                    />
+                  ) : (
+                    <Chip size="small" variant="outlined" label="En espera" sx={{ color: 'text.secondary' }} />
+                  )}
+                  <Box sx={{ flexGrow: 1 }} />
+                  <AccessTimeIcon sx={{ fontSize: 16, color: '#7b1fa2' }} />
+                  <Typography variant="caption" color="text.secondary">Próxima corrida en</Typography>
+                  <Typography variant="body2" fontWeight={800} sx={{ fontFamily: 'monospace', color: '#7b1fa2' }}>{seqCountdown || '—'}</Typography>
+                </Box>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' }, gap: 1.5, mb: 1.5 }}>
+                  {tiles.map((tl) => (
+                    <Box key={tl.label} sx={{ p: 1.25, borderRadius: 2, bgcolor: 'rgba(0,0,0,0.02)', border: '1px solid rgba(0,0,0,0.08)' }}>
+                      <Typography variant="h5" fontWeight={800} sx={{ color: tl.color, lineHeight: 1.1 }}>{tl.value.toLocaleString()}</Typography>
+                      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }}>{tl.label}</Typography>
+                      {tl.hint && <Typography variant="caption" sx={{ display: 'block', color: 'text.disabled', fontSize: 10.5 }}>{tl.hint}</Typography>}
+                    </Box>
+                  ))}
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <LinearProgress
+                    variant="determinate"
+                    value={pct}
+                    sx={{ flexGrow: 1, height: 8, borderRadius: 4, bgcolor: 'rgba(237,108,2,0.15)', '& .MuiLinearProgress-bar': { bgcolor: '#2e7d32', borderRadius: 4 } }}
+                  />
+                  <Typography variant="caption" fontWeight={700} color="text.secondary">
+                    {enviadosHoy.toLocaleString()} enviados · {enCola.toLocaleString()} en cola ({pct}%)
+                  </Typography>
+                </Box>
+                {q.por_paso && q.por_paso.length > 0 && (
+                  <Box sx={{ display: 'flex', gap: 1, mt: 1.25, flexWrap: 'wrap' }}>
+                    {q.por_paso.map((p) => (
+                      <Chip key={p.paso} size="small" variant="outlined" label={`Msg ${p.paso}: ${p.en_cola.toLocaleString()} en cola`} sx={{ borderColor: 'rgba(237,108,2,0.4)', color: '#ed6c02' }} />
+                    ))}
+                  </Box>
+                )}
+                {q.tope_diario ? (() => {
+                  const tope = q.tope_diario!;
+                  const usado = enviadosHoy;
+                  const restante = q.restante_hoy ?? Math.max(0, tope - usado);
+                  const pctTope = Math.min(100, Math.round((usado / tope) * 100));
+                  const cerca = restante <= 500;
+                  return (
+                    <Box sx={{ mt: 1.5, pt: 1.25, borderTop: '1px dashed rgba(0,0,0,0.12)' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary">
+                          Tope diario de marketing (reserva {(10000 - tope).toLocaleString()} para operación)
+                        </Typography>
+                        <Chip
+                          size="small"
+                          label={`${usado.toLocaleString()} / ${tope.toLocaleString()}`}
+                          sx={{ bgcolor: cerca ? '#c62828' : '#546e7a', color: '#fff', fontWeight: 700 }}
+                        />
+                        {restante === 0 && (
+                          <Chip size="small" label="Tope alcanzado · reanuda mañana" sx={{ bgcolor: '#c62828', color: '#fff', fontWeight: 700 }} />
+                        )}
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={pctTope}
+                        sx={{ height: 6, borderRadius: 3, bgcolor: 'rgba(0,0,0,0.08)', '& .MuiLinearProgress-bar': { bgcolor: cerca ? '#c62828' : '#546e7a', borderRadius: 3 } }}
+                      />
+                      <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.disabled', fontSize: 10.5 }}>
+                        Quedan {restante.toLocaleString()} envíos de secuencia hoy. Las notificaciones de operación no consumen este tope.
+                      </Typography>
+                    </Box>
+                  );
+                })() : null}
+              </Paper>
+            );
+          })()}
 
           {/* Envío masivo de WhatsApp a prospectos seleccionados */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5, flexWrap: 'wrap' }}>

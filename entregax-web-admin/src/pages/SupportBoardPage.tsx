@@ -1288,7 +1288,7 @@ export default function SupportBoardPage() {
                                     <PdfIcon sx={{ fontSize: 20 }} />
                                     <Typography variant="caption" fontWeight={600}>Ver PDF</Typography>
                                   </a>
-                                  <a href={u} download={fileName}
+                                  <a href={`${API_URL}/files/download?src=${encodeURIComponent(u)}&name=${encodeURIComponent(fileName)}`}
                                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '3px 8px', background: '#fff', borderRadius: 6, border: '1px solid #1976d2', textDecoration: 'none', color: '#1976d2' }}>
                                     <Typography variant="caption" fontWeight={600}>⬇ Descargar</Typography>
                                   </a>
@@ -1298,7 +1298,7 @@ export default function SupportBoardPage() {
                                   <ProtectedImage s3Url={u} alt={`adj-${i}`}
                                     sx={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd', cursor: 'pointer' }}
                                   />
-                                  <a href={u} download={fileName} target="_blank" rel="noreferrer"
+                                  <a href={`${API_URL}/files/download?src=${encodeURIComponent(u)}&name=${encodeURIComponent(fileName)}`}
                                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '3px 8px', background: '#fff', borderRadius: 6, border: '1px solid #1976d2', textDecoration: 'none', color: '#1976d2', width: '100%' }}>
                                     <Typography variant="caption" fontWeight={600}>⬇ Descargar</Typography>
                                   </a>

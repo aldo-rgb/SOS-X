@@ -264,7 +264,51 @@ export const getSequenceNextSend = async (_req: Request, res: Response): Promise
         WHERE status = 'active' AND next_send_at IS NOT NULL AND next_send_at <= NOW()`
     );
     const dueNowCount = dueNowRes.rows[0]?.due || 0;
-    res.json({ success: true, nextSendAt: next ? next.toISOString() : null, dueCount, dueNowCount, schedule: sch });
+    // Estado de la cola de mensajes (para el widget en Prospectos Externos):
+    //  - en_cola      = activos ya vencidos (next_send_at <= NOW) -> salen en la próxima tanda
+    //  - programados  = activos con envío futuro (aún no les toca)
+    //  - total_activos= todos los que siguen en secuencia
+    //  - enviados_hoy = mensajes que ya salieron hoy (last_sent_at en fecha MTY)
+    //  - drain_activo = hay un drenado corriendo en este proceso (in-memory)
+    const qStats = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status='active' AND next_send_at IS NOT NULL AND next_send_at <= NOW())::int AS en_cola,
+         COUNT(*) FILTER (WHERE status='active' AND next_send_at IS NOT NULL AND next_send_at >  NOW())::int AS programados,
+         COUNT(*) FILTER (WHERE status='active')::int AS total_activos,
+         COUNT(*) FILTER (WHERE (last_sent_at AT TIME ZONE 'America/Monterrey')::date = (NOW() AT TIME ZONE 'America/Monterrey')::date)::int AS enviados_hoy
+       FROM wa_sequence_enrollments`
+    );
+    const st = qStats.rows[0] || {};
+    let drainActivo = false;
+    try {
+      const { isSequenceDrainInProgress } = await import('./cronJobs');
+      drainActivo = isSequenceDrainInProgress();
+    } catch { /* no-op */ }
+    // Desglose de la cola por paso (current_step+1 = número de mensaje que toca)
+    const qPorPaso = await pool.query(
+      `SELECT current_step + 1 AS paso, COUNT(*)::int AS en_cola
+         FROM wa_sequence_enrollments
+        WHERE status='active' AND next_send_at IS NOT NULL AND next_send_at <= NOW()
+        GROUP BY 1 ORDER BY 1`
+    );
+    res.json({
+      success: true,
+      nextSendAt: next ? next.toISOString() : null,
+      dueCount,
+      dueNowCount,
+      schedule: sch,
+      queue: {
+        en_cola: st.en_cola || 0,
+        programados: st.programados || 0,
+        total_activos: st.total_activos || 0,
+        enviados_hoy: st.enviados_hoy || 0,
+        drain_activo: drainActivo,
+        por_paso: qPorPaso.rows,
+        // Tope diario (reserva para notificaciones de operación)
+        tope_diario: SEQUENCE_DAILY_LIMIT,
+        restante_hoy: Math.max(0, SEQUENCE_DAILY_LIMIT - (st.enviados_hoy || 0)),
+      },
+    });
   } catch (error: any) {
     console.error('Error getSequenceNextSend:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -341,16 +385,55 @@ async function sendStep(enr: any, step: any): Promise<boolean> {
 
 // Procesa las inscripciones cuyo próximo envío ya venció (llamado por el cron).
 export const SEQUENCE_BATCH_LIMIT = 200;
+// Tope diario de envíos de la secuencia (marketing). El tier de WhatsApp es de
+// conversaciones iniciadas por la empresa en 24h (hoy: 10,000) y esa MISMA bolsa
+// la usan las notificaciones operativas (paquete recibido/en tránsito/entregado,
+// confirmaciones X-Pay, etc.). Reservamos 3,000 para operación → la secuencia
+// nunca manda más de 7,000/día; lo que sobre espera al día siguiente.
+export const SEQUENCE_DAILY_LIMIT = 7000;
+// Envíos de la secuencia realizados HOY (fecha Monterrey). Sirve para respetar el
+// tope diario y para el widget de estado de la cola.
+export const countSequenceSentToday = async (): Promise<number> => {
+  const r = await pool.query(
+    `SELECT COUNT(*)::int AS n
+       FROM wa_sequence_enrollments
+      WHERE (last_sent_at AT TIME ZONE 'America/Monterrey')::date = (NOW() AT TIME ZONE 'America/Monterrey')::date`
+  );
+  return r.rows[0]?.n || 0;
+};
+// ¿Hay mensajes de secuencia ya vencidos esperando salir? Se usa para la
+// auto-recuperación del drenado tras un redeploy: el estado real vive en la BD
+// (next_send_at <= NOW), así que basta con revisar esto para saber si hay que
+// reanudar, sin depender de la cadena en memoria (setTimeout) que muere al reiniciar.
+export const hasDueSequenceBacklog = async (): Promise<boolean> => {
+  const r = await pool.query(
+    `SELECT EXISTS(
+       SELECT 1 FROM wa_sequence_enrollments
+        WHERE status='active' AND next_send_at IS NOT NULL AND next_send_at <= NOW()
+     ) AS has`
+  );
+  return !!r.rows[0]?.has;
+};
 export const processDueSequenceSteps = async (): Promise<{ sent: number; advanced: number; processed: number }> => {
   await ensureSequenceSchema();
   let sent = 0, advanced = 0;
+  // Respetar el tope diario: reservamos capacidad del tier de WhatsApp para las
+  // notificaciones operativas. Si ya llegamos al tope, no mandamos nada más hoy.
+  const sentToday = await countSequenceSentToday();
+  const remainingToday = SEQUENCE_DAILY_LIMIT - sentToday;
+  if (remainingToday <= 0) {
+    console.log(`[SEQ] Tope diario alcanzado (${sentToday}/${SEQUENCE_DAILY_LIMIT}); se reserva capacidad para notificaciones de operación. Reanuda mañana.`);
+    return { sent: 0, advanced: 0, processed: 0 };
+  }
+  // El lote no puede exceder ni el tamaño de tanda ni lo que queda del tope diario.
+  const batchLimit = Math.min(SEQUENCE_BATCH_LIMIT, remainingToday);
   const due = await pool.query(
     `SELECT e.*, s.steps, s.active AS seq_active
        FROM wa_sequence_enrollments e
        JOIN wa_sequences s ON s.id = e.sequence_id
       WHERE e.status = 'active' AND e.next_send_at IS NOT NULL AND e.next_send_at <= NOW()
       ORDER BY e.next_send_at ASC
-      LIMIT ${SEQUENCE_BATCH_LIMIT}`
+      LIMIT ${batchLimit}`
   );
   for (const enr of due.rows) {
     const steps: any[] = Array.isArray(enr.steps) ? enr.steps : [];

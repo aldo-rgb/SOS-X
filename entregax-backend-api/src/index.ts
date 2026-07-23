@@ -4525,6 +4525,40 @@ app.get('/api/packages/track/:tracking/photos', authenticateToken, async (req: R
 // Proxy de imágenes de MoJie (solo http, sin https) para pasar el ATS de iOS.
 // Sin auth (el componente <Image> no envía headers) pero con whitelist ESTRICTO
 // de host → evita SSRF. Solo sirve content-type image/*.
+// Descarga same-origin de un archivo de NUESTRO bucket S3. El atributo HTML
+// `download` de un <a> se IGNORA para URLs cross-origin (S3 es otro dominio),
+// así que "Descargar" navegaba a la URL cruda en vez de bajar el archivo. Este
+// proxy toma la URL firmada de S3 (que ya es una capability entregada al usuario),
+// valida que sea de nuestro bucket con firma válida, y re-transmite el archivo
+// con Content-Disposition: attachment. No requiere header de auth (imposible en
+// un <a href>): la propia firma X-Amz autoriza el acceso.
+app.get('/api/files/download', async (req: Request, res: Response) => {
+  try {
+    const src = String(req.query.src || '');
+    const name = String(req.query.name || 'archivo');
+    const inline = String(req.query.inline || '') === '1';
+    let target: URL;
+    try { target = new URL(src); } catch { res.status(400).end(); return; }
+    // Solo NUESTRO bucket S3 y solo si trae firma (evita proxy abierto/SSRF).
+    const bucket = process.env.AWS_S3_BUCKET || 'entregax-uploads';
+    const isOurBucket = target.hostname.startsWith(`${bucket}.s3`) && /amazonaws\.com$/i.test(target.hostname);
+    if (!isOurBucket || !target.searchParams.get('X-Amz-Signature')) { res.status(403).end(); return; }
+    const upstream = await fetch(target.toString());
+    if (!upstream.ok) { res.status(upstream.status === 404 ? 404 : 502).end(); return; }
+    const ct = upstream.headers.get('content-type') || 'application/octet-stream';
+    const len = upstream.headers.get('content-length');
+    const safeName = name.replace(/[^\w.\-]+/g, '_') || 'archivo';
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${safeName}"`);
+    if (len) res.setHeader('Content-Length', len);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(Buffer.from(await upstream.arrayBuffer()));
+  } catch (err: any) {
+    console.error('[files/download] error:', err?.message);
+    res.status(500).end();
+  }
+});
+
 app.get('/api/packages/photo-proxy', async (req: Request, res: Response) => {
   try {
     const raw = String(req.query.url || '');

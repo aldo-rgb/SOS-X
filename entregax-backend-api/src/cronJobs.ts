@@ -1014,6 +1014,9 @@ export const startStaleRatesNotifyCron = () => {
 // espera a la siguiente corrida hábil — aplica también a los ya inscritos,
 // porque el filtro es por next_send_at <= NOW() en cada corrida válida.
 let seqDrainInProgress = false;
+// Getter para el widget de estado de la cola: indica si hay un drenado
+// corriendo en este proceso ahora mismo (in-memory; se reinicia con el deploy).
+export const isSequenceDrainInProgress = (): boolean => seqDrainInProgress;
 // Vacía la cola en tandas de SEQUENCE_BATCH_LIMIT (200): procesa un lote y, si
 // quedó lleno (hay backlog), agenda el siguiente lote 20 min después. Repite
 // hasta que un lote salga incompleto (cola vacía). Evita saturar WhatsApp con
@@ -1045,12 +1048,22 @@ export const drainSequenceBatches = async () => {
   }
 };
 
+// ¿Ya estamos en la ventana de envío del día? (día hábil configurado y la hora
+// de pared Monterrey >= la hora programada). Es el mismo momento en el que el
+// disparo diario habría arrancado el drenado.
+const isWithinSequenceWindow = (sch: { hour: number; minute: number; days: number[] }): boolean => {
+  const mty = new Date(Date.now() - 6 * 3600 * 1000); // Monterrey UTC-6 (sin DST)
+  if (!sch.days.includes(mty.getUTCDay())) return false;
+  const h = mty.getUTCHours(), m = mty.getUTCMinutes();
+  return h > sch.hour || (h === sch.hour && m >= sch.minute);
+};
+
 export const startWaSequenceCron = () => {
+  // (1) Disparo diario: arranca el drenado en el minuto exacto configurado.
   cron.schedule('* * * * *', async () => {
     try {
       const { getSequenceSchedule } = await import('./waSequenceController');
       const sch = await getSequenceSchedule();
-      // Hora de pared Monterrey (UTC-6, sin DST).
       const mty = new Date(Date.now() - 6 * 3600 * 1000);
       if (mty.getUTCHours() === sch.hour && mty.getUTCMinutes() === sch.minute && sch.days.includes(mty.getUTCDay())) {
         drainSequenceBatches().catch(() => {});
@@ -1059,7 +1072,37 @@ export const startWaSequenceCron = () => {
       console.error('[CRON] startWaSequenceCron:', (e as Error).message);
     }
   });
-  console.log('✅ Cron de secuencias WhatsApp activo (horario configurable, hora México)');
+  // (2) Auto-recuperación cada 10 min: si quedó backlog vencido y ya estamos en
+  // ventana, reanuda el drenado. Cubre el caso de que un redeploy haya matado la
+  // cadena en memoria (setTimeout) a media tanda. drainSequenceBatches es
+  // idempotente (guard seqDrainInProgress), así que llamarlo de más es no-op.
+  cron.schedule('*/10 * * * *', async () => {
+    try {
+      const { getSequenceSchedule, hasDueSequenceBacklog } = await import('./waSequenceController');
+      const sch = await getSequenceSchedule();
+      if (isWithinSequenceWindow(sch) && await hasDueSequenceBacklog()) {
+        console.log('[SEQ] Auto-recuperación: backlog vencido detectado, reanudando drenado');
+        drainSequenceBatches().catch(() => {});
+      }
+    } catch (e) {
+      console.error('[CRON] auto-recuperación secuencia:', (e as Error).message);
+    }
+  });
+  // (3) Reanudar de inmediato al arrancar (tras cada (re)deploy): si hay backlog
+  // y estamos en ventana, no esperamos hasta el próximo tick de 10 min.
+  (async () => {
+    try {
+      const { getSequenceSchedule, hasDueSequenceBacklog } = await import('./waSequenceController');
+      const sch = await getSequenceSchedule();
+      if (isWithinSequenceWindow(sch) && await hasDueSequenceBacklog()) {
+        console.log('[SEQ] Arranque: backlog pendiente en ventana, reanudando drenado');
+        drainSequenceBatches().catch(() => {});
+      }
+    } catch (e) {
+      console.error('[CRON] reanudar drenado al arrancar:', (e as Error).message);
+    }
+  })();
+  console.log('✅ Cron de secuencias WhatsApp activo (horario configurable + auto-recuperación tras redeploy)');
 };
 
 // 📦 Enlaza envíos huérfanos a su cliente por box_id (DHL/aéreo/marítimo/packages)
