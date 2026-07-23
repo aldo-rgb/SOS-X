@@ -238,6 +238,9 @@ const MaritimeConsolidationsPage: React.FC = () => {
     catch { return ''; }
   })();
   const isSuperAdmin = currentRole === 'super_admin';
+  // Botón de Asignación (orden de mercancía): además de super_admin, lo pueden
+  // usar servicio a cliente y soporte técnico.
+  const canAssign = ['super_admin', 'customer_service', 'soporte_tecnico'].includes(currentRole);
 
   const { t } = useTranslation();
 
@@ -1044,7 +1047,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
                           <EditIcon />
                         </IconButton>
                       </Tooltip>
-                      {isSuperAdmin && (
+                      {canAssign && (
                         <Tooltip title={t('maritimeConsolidations.assignment')}>
                           <IconButton size="small" color="primary" onClick={() => handleEditOrder(order)}>
                             <AssignmentIcon />
