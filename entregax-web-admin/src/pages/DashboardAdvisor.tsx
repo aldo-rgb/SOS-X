@@ -4193,7 +4193,7 @@ export default function DashboardAdvisor() {
               const SERVICE_MATCH: Record<string, (st: string) => boolean> = {
                 tdi_express: st => /tdi.?express/i.test(st) || st === 'tdi_express',
                 dhl:         st => /dhl/i.test(st) || st === 'AA_DHL',
-                air:         st => /air_chn/i.test(st) || st === 'AIR_CHN_MX',
+                air:         st => /air_chn/i.test(st) || /china.?air/i.test(st) || st === 'AIR_CHN_MX',
                 sea:         st => /sea_chn/i.test(st) || st === 'SEA_CHN_MX',
                 pobox:       st => /pobox/i.test(st) || st === 'POBOX_USA',
               };

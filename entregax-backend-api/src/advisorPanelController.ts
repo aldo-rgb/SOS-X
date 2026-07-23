@@ -138,7 +138,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       FROM (
         -- packages (AIR, POBOX, TDI) — excluye hijos
         SELECT
-          COUNT(*) FILTER (WHERE p.status::text IN ('in_transit','received_china','received','customs','ready_pickup','received_mty')) AS in_transit,
+          COUNT(*) FILTER (WHERE p.status::text IN ('in_transit','received_china','received','customs','ready_pickup','received_mty','received_cdmx','received_cdx')) AS in_transit,
           COUNT(*) FILTER (WHERE p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')
                              AND COALESCE(p.needs_instructions, TRUE) = TRUE
                              AND p.status::text NOT IN ('delivered','shipped','lost','returned_to_warehouse')) AS missing_instr
@@ -814,8 +814,11 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         u.id, u.full_name, u.box_id, u.phone
     `;
 
-    // Dynamic filters per sub-query
-    const extraAllTransit = ["'received_mty'", "'ready_pickup'"];
+    // Dynamic filters per sub-query.
+    // received_cdmx/received_cdx = recibido en sucursal CDMX (como received_mty en MTY):
+    // sigue "en tránsito" hasta entregarse. Sin ellos, las guías recibidas en CDMX no
+    // aparecían (p.ej. en el modal "Nueva Orden CTZ" del asesor).
+    const extraAllTransit = ["'received_mty'", "'received_cdmx'", "'received_cdx'", "'ready_pickup'"];
     let pkgWhere = buildFilterSQL('p.status', 'p.saldo_pendiente', 'p.monto_pagado', "p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')", extraAllTransit);
     // Marítimo: para in_transit mostrar TODO lo que no esté entregado — evita tener que enumerar
     // cada posible status (consolidated, at_port, shipped, dispatched, processing, received_mty…)
