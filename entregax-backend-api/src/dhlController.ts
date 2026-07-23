@@ -740,6 +740,39 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Tracking de entrada es requerido' });
     }
 
+    // 🚫 Bloqueo por servicio: DHL vive en dhl_shipments; si alguna de las guías
+    // (corta/master o larga) existe en `packages` con air_source/service_type
+    // distinto de DHL (típicamente tdi_express / TDX, que también usa 10 dígitos),
+    // NO se puede recibir por DHL. Espejo de /shipments/lookup-master. El frontend
+    // ya avisa, pero esto es la validación dura (no se puede saltar).
+    const codesToCheck = [secondary_tracking, inbound_tracking]
+      .map((c: any) => String(c || '').trim())
+      .filter((c: string) => c.length >= 4);
+    if (codesToCheck.length > 0) {
+      const svcRes = await pool.query(
+        `SELECT LOWER(COALESCE(NULLIF(air_source, ''), service_type::text)) AS svc
+           FROM packages
+          WHERE international_tracking = ANY($1::text[])
+             OR tracking_internal      = ANY($1::text[])
+             OR tracking_provider      = ANY($1::text[])
+          LIMIT 5`,
+        [codesToCheck]
+      );
+      const wrong = svcRes.rows.find((r: any) => {
+        const svc = String(r.svc || '');
+        return svc && svc !== 'dhl' && svc !== 'aa_dhl' && svc !== 'unknown';
+      });
+      if (wrong) {
+        const svc = String(wrong.svc);
+        return res.status(409).json({
+          error: svc === 'tdi_express'
+            ? 'Esta guía pertenece a TDX (TDI Express), no a DHL. Recíbela por su proceso correcto.'
+            : `Esta guía pertenece al servicio "${svc.toUpperCase()}", no a DHL Express.`,
+          service_type: svc,
+        });
+      }
+    }
+
     // Verificar si ya existe
     const existing = await pool.query(
       'SELECT id FROM dhl_shipments WHERE inbound_tracking = $1',

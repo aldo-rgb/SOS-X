@@ -725,6 +725,13 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
       setError('Faltan datos requeridos (guía larga, guía corta, tipo de producto y peso)');
       return;
     }
+    // 🚫 Bloqueo duro: si la guía corta (master) pertenece a otro servicio (TDX /
+    // TDI Express u otro), NO se puede recibir por DHL. El '❌' lo pone
+    // checkMasterServiceType. Antes solo advertía y dejaba continuar.
+    if (tracking2Warning && tracking2Warning.startsWith('❌')) {
+      setError('No puedes recibir esta guía por DHL: pertenece a otro servicio (TDX / TDI Express). Usa el proceso correcto.');
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -1553,7 +1560,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
             size="large"
             startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CheckIcon />}
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={loading || !!(tracking2Warning && tracking2Warning.startsWith('❌'))}
             sx={{ bgcolor: '#4caf50', '&:hover': { bgcolor: '#388e3c' }, px: 6, py: 1.2 }}
           >
             {loading ? 'Guardando...' : 'Guardar Paquete'}
