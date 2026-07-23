@@ -1788,9 +1788,13 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     const advisorCustom = advisorClientId && advisorCommissionPct.trim() !== '' ? Number(advisorCommissionPct) : NaN;
     const clientPct = Number.isFinite(advisorCustom) && advisorCustom > 0 ? advisorCustom : configPct;
     const comision = base * (clientPct / 100);
-    // Costo de operación del pricing (ya incluye override si existe)
+    // Costo de operación del pricing (ya incluye override si existe). SIEMPRE es
+    // en USD, así que se convierte con el TC USD→MXN — NO con el TC destino, que
+    // es 1.0 cuando la divisa destino es MXN (antes salía "$15.34 MXN" en vez de
+    // ~$270 al multiplicar por 1.0).
     const costoOpUsd = pricing.costo_operacion_usd;
-    const costoOpMxn = costoOpUsd * tc;
+    const tcUsd = Number(pricing.tipo_cambio_usd) || tc;
+    const costoOpMxn = costoOpUsd * tcUsd;
     const total = base + comision + costoOpMxn;
     setQuote({
       tipo_cambio: tc,
@@ -3186,7 +3190,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                       {quote.monto_mxn_costo_op > 0 && (
                         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                           <Typography variant="body2" sx={{ color: C.textSecondary, fontSize: '0.85rem' }}>
-                            Costo de operación (${quote.costo_operacion_usd.toFixed(2)} USD × ${quote.tipo_cambio.toFixed(4)})
+                            Costo de operación (${quote.costo_operacion_usd.toFixed(2)} USD × ${(quote.costo_operacion_usd > 0 ? quote.monto_mxn_costo_op / quote.costo_operacion_usd : quote.tipo_cambio).toFixed(4)})
                           </Typography>
                           <Typography variant="body2" sx={{ color: C.textPrimary, fontFamily: 'monospace', fontSize: '0.85rem' }}>
                             ${formatMoney(quote.monto_mxn_costo_op)} MXN
