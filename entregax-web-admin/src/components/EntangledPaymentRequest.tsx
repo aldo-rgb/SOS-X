@@ -2071,8 +2071,13 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       return null;
     }
     if (step === 3 && requiereFactura) {
-      // CSF: no bloquea, solo se muestra Alert arriba avisando al cliente
-      // que debe subir/actualizar su Constancia para que ENTANGLED genere la factura.
+      // CSF obligatoria y vigente para poder facturar: bloquea "Siguiente" si no
+      // hay una constancia válida (ENTANGLED la necesita para emitir el CFDI).
+      if (!(csfStatus?.exists && csfStatus?.is_valid)) {
+        return advisorClientId
+          ? 'El cliente no tiene una Constancia de Situación Fiscal vigente. Súbela para continuar.'
+          : 'No tienes una Constancia de Situación Fiscal vigente. Súbela para continuar.';
+      }
       if (!form.rfc || !form.razon_social || !form.cp || !form.email) {
         return t('entangled.messages.requiredFields');
       }
@@ -3247,11 +3252,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   <Alert severity="warning" sx={{ mt: 1.5 }}>
                     {advisorClientId
                       ? (csfStatus.exists
-                          ? 'La constancia del cliente ya expiró. Debe actualizarla (no mayor a 3 meses) para poder generar la factura. Puedes continuar, pero la factura quedará pendiente hasta que se suba.'
-                          : 'El cliente aún no tiene Constancia de Situación Fiscal. Súbela para poder generar su factura. Puedes continuar, pero la factura quedará pendiente hasta que se suba.')
+                          ? 'La constancia del cliente ya expiró. Debe actualizarla (no mayor a 3 meses) para poder continuar con la factura.'
+                          : 'El cliente aún no tiene Constancia de Situación Fiscal. Súbela para poder continuar con su factura.')
                       : (csfStatus.exists
-                          ? 'Tu constancia ya expiró. Actualízala (no mayor a 3 meses) para que podamos generar tu factura. Puedes continuar, pero la factura quedará pendiente hasta que la subas.'
-                          : 'Aún no has subido tu Constancia de Situación Fiscal. Súbela para que podamos generar tu factura. Puedes continuar, pero la factura quedará pendiente hasta que la subas.')}
+                          ? 'Tu constancia ya expiró. Actualízala (no mayor a 3 meses) para poder continuar con tu factura.'
+                          : 'Aún no has subido tu Constancia de Situación Fiscal. Súbela para poder continuar con tu factura.')}
                   </Alert>
                 )}
               </Box>
@@ -3854,7 +3859,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           )}
           {wizardStep < 4 ? (
             <Button variant="contained" onClick={goNextWizardStep}
-              sx={{ bgcolor: ORANGE, color: '#000', fontWeight: 700, minWidth: 90, flex: '0 0 auto', '&:hover': { bgcolor: '#E54A1F' } }}>
+              disabled={wizardStep === 3 && requiereFactura && !(csfStatus?.exists && csfStatus?.is_valid)}
+              sx={{ bgcolor: ORANGE, color: '#000', fontWeight: 700, minWidth: 90, flex: '0 0 auto', '&:hover': { bgcolor: '#E54A1F' }, '&.Mui-disabled': { bgcolor: 'rgba(240,90,40,0.35)', color: 'rgba(0,0,0,0.4)' } }}>
               {t('common.next', 'Siguiente')}
             </Button>
           ) : (            <Button
