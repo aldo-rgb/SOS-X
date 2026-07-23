@@ -378,6 +378,9 @@ export default function UnifiedLeadsPage() {
   const [bulkVarValues, setBulkVarValues] = useState<string[]>([]);
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResults, setBulkResults] = useState<{ sent: number; skipped: number; failed: number; total: number; firstError?: string | null } | null>(null);
+  // Programación opcional: hora a la que se enviará (datetime-local). Vacío = ahora.
+  const [bulkScheduleAt, setBulkScheduleAt] = useState<string>('');
+  const [bulkScheduled, setBulkScheduled] = useState<{ scheduledAt: string; recipientCount: number } | null>(null);
   // Administración de plantillas
   const [tplManagerOpen, setTplManagerOpen] = useState(false);
   const [tplEditing, setTplEditing] = useState<BulkTemplate | null>(null);
@@ -719,6 +722,8 @@ export default function UnifiedLeadsPage() {
   // Abrir diálogo de envío masivo: carga plantillas + valores vigentes.
   const openBulkDialog = async () => {
     setBulkResults(null);
+    setBulkScheduled(null);
+    setBulkScheduleAt('');
     setBulkOpen(true);
     try {
       const { tpls, defs } = await loadBulkTemplates();
@@ -741,17 +746,30 @@ export default function UnifiedLeadsPage() {
     const advisorIds = Array.from(selectedAdvisorIds);
     if (!bulkTemplateId) return;
     if (advisorsMode ? advisorIds.length === 0 : leadKeys.length === 0) return;
+    // Si hay hora programada, la mandamos en ISO (el input datetime-local es hora local).
+    const scheduledAtIso = bulkScheduleAt ? new Date(bulkScheduleAt).toISOString() : undefined;
+    if (scheduledAtIso && new Date(scheduledAtIso).getTime() <= Date.now() + 30_000) {
+      setSnackbar({ open: true, message: 'La hora programada debe ser en el futuro', severity: 'error' });
+      return;
+    }
     setBulkSending(true);
     setBulkResults(null);
+    setBulkScheduled(null);
     try {
       const res = await axios.post(`${API_URL}/admin/crm/bulk-whatsapp`, {
         templateId: bulkTemplateId,
         ...(advisorsMode ? { advisorIds } : { leadKeys }),
         varValues: bulkVarValues,
+        ...(scheduledAtIso ? { scheduledAt: scheduledAtIso } : {}),
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
       const d = res.data || {};
-      setBulkResults({ sent: d.sent || 0, skipped: d.skipped || 0, failed: d.failed || 0, total: d.total || 0, firstError: d.firstError || null });
-      setSnackbar({ open: true, message: `WhatsApp: ${d.sent || 0} enviados, ${d.skipped || 0} omitidos, ${d.failed || 0} fallidos`, severity: (d.failed > 0 ? 'error' : 'success') });
+      if (d.scheduled) {
+        setBulkScheduled({ scheduledAt: d.scheduledAt, recipientCount: d.recipientCount || 0 });
+        setSnackbar({ open: true, message: `✅ Envío programado para ${new Date(d.scheduledAt).toLocaleString('es-MX')}`, severity: 'success' });
+      } else {
+        setBulkResults({ sent: d.sent || 0, skipped: d.skipped || 0, failed: d.failed || 0, total: d.total || 0, firstError: d.firstError || null });
+        setSnackbar({ open: true, message: `WhatsApp: ${d.sent || 0} enviados, ${d.skipped || 0} omitidos, ${d.failed || 0} fallidos`, severity: (d.failed > 0 ? 'error' : 'success') });
+      }
     } catch (e: any) {
       setSnackbar({ open: true, message: e.response?.data?.error || 'Error al enviar', severity: 'error' });
     } finally {
@@ -3209,19 +3227,62 @@ export default function UnifiedLeadsPage() {
               )}
             </Alert>
           )}
+
+          {/* Programar envío (opcional). Vacío = enviar ahora. */}
+          {!bulkResults && !bulkScheduled && (
+            <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: 'rgba(123,31,162,0.05)', border: '1px solid rgba(123,31,162,0.2)' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                <AccessTimeIcon sx={{ fontSize: 18, color: '#7b1fa2' }} />
+                <Typography variant="body2" fontWeight={700} sx={{ color: '#7b1fa2' }}>Programar envío (opcional)</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+                <TextField
+                  type="datetime-local"
+                  size="small"
+                  value={bulkScheduleAt}
+                  onChange={(e) => setBulkScheduleAt(e.target.value)}
+                  inputProps={{ min: new Date(Date.now() - new Date().getTimezoneOffset() * 60000 + 60000).toISOString().slice(0, 16) }}
+                  sx={{ minWidth: 230 }}
+                />
+                {bulkScheduleAt && (
+                  <Button size="small" onClick={() => setBulkScheduleAt('')} sx={{ color: 'text.secondary' }}>Limpiar (enviar ahora)</Button>
+                )}
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                {bulkScheduleAt
+                  ? `Se enviará el ${new Date(bulkScheduleAt).toLocaleString('es-MX')} (hora de tu equipo).`
+                  : 'Déjalo vacío para enviar de inmediato al dar clic.'}
+              </Typography>
+            </Box>
+          )}
+
+          {bulkScheduled && (
+            <Alert severity="success" icon={<AccessTimeIcon />} sx={{ mt: 2 }}>
+              Envío <strong>programado</strong> para <strong>{new Date(bulkScheduled.scheduledAt).toLocaleString('es-MX')}</strong> · {bulkScheduled.recipientCount} destinatario(s).
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>Se disparará solo a esa hora (aunque cierres esta ventana).</Typography>
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setBulkOpen(false)} disabled={bulkSending}>
-            {bulkResults ? 'Cerrar' : 'Cancelar'}
+            {bulkResults || bulkScheduled ? 'Cerrar' : 'Cancelar'}
           </Button>
           <Button
             variant="contained"
-            startIcon={bulkSending ? <CircularProgress size={16} color="inherit" /> : (bulkResults ? <CheckCircleIcon /> : <WhatsAppIcon />)}
+            startIcon={bulkSending ? <CircularProgress size={16} color="inherit" /> : (bulkResults ? <CheckCircleIcon /> : (bulkScheduled ? <AccessTimeIcon /> : (bulkScheduleAt ? <AccessTimeIcon /> : <WhatsAppIcon />)))}
             onClick={sendBulkWhatsapp}
-            disabled={bulkSending || bulkRecipientCount === 0 || !!bulkResults || !bulkTemplateId}
-            sx={{ bgcolor: bulkResults ? '#9e9e9e' : '#25D366', '&:hover': { bgcolor: bulkResults ? '#9e9e9e' : '#1da851' } }}
+            disabled={bulkSending || bulkRecipientCount === 0 || !!bulkResults || !!bulkScheduled || !bulkTemplateId}
+            sx={{ bgcolor: (bulkResults || bulkScheduled) ? '#9e9e9e' : (bulkScheduleAt ? '#7b1fa2' : '#25D366'), '&:hover': { bgcolor: (bulkResults || bulkScheduled) ? '#9e9e9e' : (bulkScheduleAt ? '#6a1b9a' : '#1da851') } }}
           >
-            {bulkSending ? 'Enviando…' : (bulkResults ? 'Enviado ✓' : `Enviar (${bulkRecipientCount})`)}
+            {bulkSending
+              ? (bulkScheduleAt ? 'Programando…' : 'Enviando…')
+              : bulkScheduled
+                ? 'Programado ✓'
+                : bulkResults
+                  ? 'Enviado ✓'
+                  : bulkScheduleAt
+                    ? `Programar (${bulkRecipientCount})`
+                    : `Enviar (${bulkRecipientCount})`}
           </Button>
         </DialogActions>
       </Dialog>

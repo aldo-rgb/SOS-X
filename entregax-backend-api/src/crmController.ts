@@ -989,9 +989,35 @@ export const getBulkWhatsappDefaults = async (_req: Request, res: Response): Pro
 
 // POST /api/admin/crm/bulk-whatsapp
 // Body: { messageType: 'invite'|'xpay'|'tarifas', leadKeys: string[], values?: {tc,comision,cbm,kg} }
+// Schema para envíos masivos PROGRAMADOS (durable: sobrevive redeploys).
+let scheduledBulkSchemaReady = false;
+export const ensureScheduledBulkSchema = async (): Promise<void> => {
+  if (scheduledBulkSchemaReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scheduled_bulk_sends (
+      id SERIAL PRIMARY KEY,
+      template_id INTEGER NOT NULL,
+      lead_keys JSONB,
+      advisor_ids JSONB,
+      var_values JSONB,
+      scheduled_at TIMESTAMPTZ NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      result JSONB,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      sent_at TIMESTAMPTZ
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_scheduled_bulk_pending ON scheduled_bulk_sends (status, scheduled_at)`);
+  scheduledBulkSchemaReady = true;
+};
+
+// POST /api/admin/crm/bulk-whatsapp
+// Envía plantilla a los leads/asesores seleccionados. Si viene `scheduledAt`,
+// no envía: guarda el envío programado y el cron lo dispara a esa hora.
 export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { templateId, leadKeys, advisorIds, varValues } = req.body || {};
+    const { templateId, leadKeys, advisorIds, varValues, scheduledAt } = req.body || {};
     const isAdvisors = Array.isArray(advisorIds) && advisorIds.length > 0;
     if (!isAdvisors && (!Array.isArray(leadKeys) || leadKeys.length === 0)) {
       return res.status(400).json({ success: false, error: 'Selecciona al menos un destinatario' });
@@ -1000,11 +1026,53 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
     if (recipientCount > 500) {
       return res.status(400).json({ success: false, error: 'Máximo 500 destinatarios por envío' });
     }
+    if (!templateId) {
+      return res.status(400).json({ success: false, error: 'Selecciona una plantilla' });
+    }
 
+    // PROGRAMADO: guardar y salir. El cron `drainScheduledBulkSends` lo enviará.
+    if (scheduledAt) {
+      const when = new Date(scheduledAt);
+      if (isNaN(when.getTime())) return res.status(400).json({ success: false, error: 'Fecha/hora inválida' });
+      if (when.getTime() <= Date.now() + 30_000) {
+        return res.status(400).json({ success: false, error: 'La hora programada debe ser en el futuro' });
+      }
+      await ensureScheduledBulkSchema();
+      const ins = await pool.query(
+        `INSERT INTO scheduled_bulk_sends (template_id, lead_keys, advisor_ids, var_values, scheduled_at, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [
+          parseInt(String(templateId), 10) || 0,
+          JSON.stringify(isAdvisors ? null : (leadKeys || null)),
+          JSON.stringify(isAdvisors ? (advisorIds || null) : null),
+          JSON.stringify(varValues || null),
+          when.toISOString(),
+          (req as any).user?.id || null,
+        ]
+      );
+      return res.json({ success: true, scheduled: true, scheduledId: ins.rows[0].id, scheduledAt: when.toISOString(), recipientCount });
+    }
+
+    // INMEDIATO
+    const out = await executeBulkSend({ templateId, leadKeys, advisorIds, varValues });
+    return res.json(out);
+  } catch (error: any) {
+    console.error('Error en bulkWhatsapp:', error);
+    res.status(error?.statusCode || 500).json({ success: false, error: error?.message || 'Error al enviar' });
+  }
+};
+
+// Núcleo de envío masivo — reutilizado por el endpoint inmediato y por el cron de
+// programados. Lanza Error (con .statusCode) en validaciones; devuelve resultados.
+export const executeBulkSend = async (opts: { templateId: any; leadKeys?: any[] | null; advisorIds?: any[] | null; varValues?: any[] | null }): Promise<any> => {
+  const { templateId, leadKeys, advisorIds, varValues } = opts;
+  const isAdvisors = Array.isArray(advisorIds) && advisorIds.length > 0;
+  const recipientCount = isAdvisors ? (advisorIds as any[]).length : (Array.isArray(leadKeys) ? leadKeys.length : 0);
+  {
     // Cargar la plantilla seleccionada (administrable desde la UI).
     await ensureBulkTemplatesSchema();
     const tplRes = await pool.query(`SELECT id, template_name, language_code, variables, header_image_url, header_image_key, use_mm_lite, uses_name, link_dest FROM bulk_wa_templates WHERE id = $1`, [parseInt(String(templateId), 10) || 0]);
-    if (!tplRes.rows[0]) return res.status(404).json({ success: false, error: 'Plantilla no encontrada' });
+    if (!tplRes.rows[0]) { const e: any = new Error('Plantilla no encontrada'); e.statusCode = 404; throw e; }
     const tpl = tplRes.rows[0];
     // Resolver la imagen del encabezado: si se subió a S3 (bucket privado), firmar una
     // URL fresca (Meta la descarga al momento de enviar). Si no, usar la URL pública manual.
@@ -1018,7 +1086,7 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
     const vals: string[] = Array.isArray(varValues) ? varValues.map((v: any) => String(v ?? '').trim()) : [];
     // Todos los campos manuales de la plantilla deben tener valor.
     for (let i = 0; i < tplVars.length; i++) {
-      if (!vals[i]) return res.status(400).json({ success: false, error: `Falta el valor de "${tplVars[i]?.label || `campo ${i + 1}`}"` });
+      if (!vals[i]) { const e: any = new Error(`Falta el valor de "${tplVars[i]?.label || `campo ${i + 1}`}"`); e.statusCode = 400; throw e; }
     }
 
     // Resolver nombre + teléfono de los destinatarios.
@@ -1137,10 +1205,7 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
     // Motivo del primer fallo (para diagnosticar desde la UI, ej. imagen faltante).
     const firstError = results.details.find((d: any) => d.status === 'failed')?.reason || null;
     console.log(`[CRM] Envío masivo WhatsApp "${template}": ${results.sent} enviados, ${results.skipped} omitidos, ${results.failed} fallidos (de ${recipientCount} seleccionados)${firstError ? ' | 1er error: ' + firstError : ''}`);
-    res.json({ success: true, template, firstError, ...results });
-  } catch (error: any) {
-    console.error('Error en bulkWhatsapp:', error);
-    res.status(500).json({ success: false, error: error.message || 'Error al enviar' });
+    return { success: true, template, firstError, ...results };
   }
 };
 

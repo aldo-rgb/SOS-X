@@ -1308,9 +1308,59 @@ export const startPaymentReminderCron = () => {
   console.log('✅ Cron recordatorio de pago (al llegar a CEDIS) activo');
 };
 
+// 📅 Envíos masivos de WhatsApp PROGRAMADOS. El estado vive en la BD
+// (scheduled_bulk_sends), así que es a prueba de redeploys: cada minuto revisa
+// los pendientes cuya hora ya llegó y los dispara con el mismo core del envío
+// inmediato. Marca 'sending' de forma atómica (SKIP LOCKED) para no duplicar.
+let bulkScheduledInProgress = false;
+export const drainScheduledBulkSends = async () => {
+  if (bulkScheduledInProgress) return;
+  bulkScheduledInProgress = true;
+  try {
+    const { ensureScheduledBulkSchema, executeBulkSend } = await import('./crmController');
+    await ensureScheduledBulkSchema();
+    const due = await pool.query(
+      `UPDATE scheduled_bulk_sends
+          SET status='sending'
+        WHERE id IN (
+          SELECT id FROM scheduled_bulk_sends
+           WHERE status='pending' AND scheduled_at <= NOW()
+           ORDER BY scheduled_at ASC LIMIT 5
+           FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id, template_id, lead_keys, advisor_ids, var_values`
+    );
+    for (const job of due.rows) {
+      try {
+        const out = await executeBulkSend({
+          templateId: job.template_id,
+          leadKeys: job.lead_keys || undefined,
+          advisorIds: job.advisor_ids || undefined,
+          varValues: job.var_values || undefined,
+        });
+        await pool.query(`UPDATE scheduled_bulk_sends SET status='done', result=$2, sent_at=NOW() WHERE id=$1`, [job.id, JSON.stringify(out)]);
+        console.log(`[BULK-CRON] Programado #${job.id} enviado: ${out.sent} enviados, ${out.failed} fallidos`);
+      } catch (e) {
+        await pool.query(`UPDATE scheduled_bulk_sends SET status='error', result=$2, sent_at=NOW() WHERE id=$1`, [job.id, JSON.stringify({ error: (e as Error).message })]).catch(() => {});
+        console.error(`[BULK-CRON] Programado #${job.id} falló:`, (e as Error).message);
+      }
+    }
+  } catch (e) {
+    console.error('[BULK-CRON] drainScheduledBulkSends:', (e as Error).message);
+  } finally {
+    bulkScheduledInProgress = false;
+  }
+};
+
+export const startScheduledBulkCron = () => {
+  cron.schedule('* * * * *', () => { drainScheduledBulkSends().catch(() => {}); });
+  console.log('✅ Cron de envíos masivos programados activo (cada minuto)');
+};
+
 export const initCronJobs = () => {
   startRecoveryCronJob();
   startWaSequenceCron();
+  startScheduledBulkCron();
   startBoxLinkReconcileCron();
   // Reactivado: procesarPrimerPago ya no usa transacción anidada (no puede colgar el pool).
   startReferralFirstShipmentCron();
