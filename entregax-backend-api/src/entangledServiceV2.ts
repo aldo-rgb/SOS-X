@@ -177,10 +177,6 @@ export const sendSolicitudPago = async (
       monto: (payload as any).monto != null ? (payload as any).monto : payload.monto_usd,
     };
 
-    // Log del payload completo enviado a /solicitud-pago (incluye constancia_url si
-    // aplica) para diagnosticar 500s de ENTANGLED. hasFile indica multipart.
-    console.warn(`[ENTANGLED] POST ${buildUrl('/solicitud-pago')} hasFile=${hasFile} PAYLOAD=${JSON.stringify(payloadForEntangled)}`);
-
     let res;
     if (hasFile) {
       const form = new FormData();
