@@ -1219,10 +1219,14 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ? allPendingRows.filter(p => !isPoBox(p) || !!p.assigned_address_id)
                     : allPendingRows;
 
-                // pendingToLoad = paquetes locales visibles con etiqueta impresa (Requerir Etiqueta Impresa)
+                // pendingToLoad = paquetes locales visibles con etiqueta impresa (Requerir Etiqueta Impresa).
+                // Las guías DHL MTY (is_dhl_shipment) son entregas LOCALES del driver, aunque su
+                // national_carrier sea 'DHL' (que no matchea isLocalCarrier). Por eso se cuentan como
+                // locales aquí; si no, no entraban en "Asignados Hoy".
+                const isLocalDelivery = (p: any) => p.is_dhl_shipment || isLocalCarrier(String(p.national_carrier || ''));
                 const pendingToLoad = reqLabel
-                    ? visiblePending.filter(p => p.has_label && isLocalCarrier(String(p.national_carrier || ''))).length
-                    : visiblePending.filter(p => isLocalCarrier(String(p.national_carrier || ''))).length;
+                    ? visiblePending.filter(p => p.has_label && isLocalDelivery(p)).length
+                    : visiblePending.filter(p => isLocalDelivery(p)).length;
                 const loadedToday = loadedRes.rows.length;
                 const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
                 const outStatus = await getOutForDeliveryWriteStatus();
