@@ -178,6 +178,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   // Botones de plantillas de WhatsApp → /instrucciones/<TRN>, /pagar/<TRN>, /xpay.
   useEffect(() => {
     const applyFocus = (target: DeepLinkTarget) => {
+      // /cotizar → abre directo la sección Cotizar (QuoteHub).
+      if (target.action === 'cotizar') { navigation.navigate('QuoteHub' as any, { user, token }); return; }
       if (target.action === 'xpay') { setPendingXpay(true); return; }
       if (!target?.trn) return;
       setServiceFilter(null);
