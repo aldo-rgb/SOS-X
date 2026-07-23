@@ -397,6 +397,13 @@ export const appleAuth = async (req: Request, res: Response): Promise<void> => {
         const token = signJwt(user.id, user.email, user.role);
         setAuthCookie(res, token);
 
+        // Nueva alta vía Apple → notificar a super admins (push + Gong).
+        if (created) {
+            import('./pushService').then(({ notifyNewClientAlta }) =>
+                notifyNewClientAlta(user)
+            ).catch(() => {});
+        }
+
         const message = created
             ? `¡Bienvenido a EntregaX! Tu casillero es ${user.box_id}.`
             : `¡Bienvenido de vuelta, ${(user.full_name || '').split(' ')[0]}!`;

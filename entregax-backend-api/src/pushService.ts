@@ -46,6 +46,11 @@ interface PushPayload {
   title: string;
   body: string;
   data?: Record<string, string>;
+  // Sonido custom (ej. 'gong.wav'). Requiere que el archivo esté empaquetado en
+  // el build nativo de la app; si no existe en el dispositivo, cae a 'default'.
+  sound?: string;
+  // Canal de Android (ej. 'altas'). Si no existe en el dispositivo, cae al default.
+  channelId?: string;
 }
 
 function isExpoToken(token: string): boolean {
@@ -63,12 +68,12 @@ async function sendExpoPush(
   // Expo recomienda batches de 100
   const messages = tokens.map((t) => ({
     to: t.token,
-    sound: 'default',
+    sound: payload.sound || 'default',
     title: payload.title,
     body: payload.body,
     data: payload.data || {},
     priority: 'high',
-    channelId: 'chat',
+    channelId: payload.channelId || 'chat',
   }));
 
   const chunks: any[][] = [];
@@ -166,10 +171,10 @@ export async function sendPushToUsers(userIds: number[], payload: PushPayload): 
         tokens: nativeTokens.map((t) => t.token),
         android: {
           priority: 'high' as const,
-          notification: { sound: 'default', channelId: 'chat' },
+          notification: { sound: payload.sound || 'default', channelId: payload.channelId || 'chat' },
         },
         apns: {
-          payload: { aps: { sound: 'default', badge: 1 } },
+          payload: { aps: { sound: payload.sound || 'default', badge: 1 } },
         },
       };
       try {
@@ -201,6 +206,27 @@ export async function sendPushToUsers(userIds: number[], payload: PushPayload): 
       `UPDATE user_push_tokens SET is_active = FALSE WHERE token = ANY($1::text[])`,
       [invalidAll]
     );
+  }
+}
+
+// Notifica a los SUPER ADMINS de una nueva alta de cliente con push + sonido Gong.
+// Fire-and-forget seguro: se auto-captura, nunca bloquea ni rompe el registro.
+// Llamar desde CADA vía de alta (self-registro, social Google/Apple, legacy).
+export async function notifyNewClientAlta(user: {
+  id: number;
+  full_name?: string | null;
+  box_id?: string | null;
+}): Promise<void> {
+  try {
+    await sendPushToRole(['super_admin'], {
+      title: '🔔 Nueva alta de cliente',
+      body: `${user.full_name || 'Nuevo cliente'} se acaba de registrar`,
+      data: { type: 'nueva_alta', userId: String(user.id), boxId: String(user.box_id || '') },
+      sound: 'gong.wav',   // requiere build nativo; si no existe en el device, cae a default
+      channelId: 'altas',  // canal Android con sonido Gong (se crea en la app)
+    });
+  } catch (e) {
+    console.error('[ALTA] push a super_admin falló:', (e as Error).message);
   }
 }
 

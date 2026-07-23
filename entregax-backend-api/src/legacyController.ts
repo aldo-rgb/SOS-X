@@ -833,6 +833,11 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
             `, [finalName, finalEmail, hashedPassword, boxId.toUpperCase(), phone || null, myReferralCode]);
 
             newUserId = newUser.rows[0].id;
+
+            // Nueva alta (cliente legacy que reclama su casillero) → avisar a super admins.
+            import('./pushService').then(({ notifyNewClientAlta }) =>
+                notifyNewClientAlta(newUser.rows[0])
+            ).catch(() => {});
         }
 
         // 6. Marcar como reclamado y LIMPIAR datos sensibles del legacy.

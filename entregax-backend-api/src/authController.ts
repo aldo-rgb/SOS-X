@@ -233,6 +233,11 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
 
         const savedUser = newUserQuery.rows[0];
 
+        // 6.5 Notificar a los SUPER ADMINS de cada alta nueva (push con sonido Gong).
+        import('./pushService').then(({ notifyNewClientAlta }) =>
+            notifyNewClientAlta(savedUser)
+        ).catch(() => {});
+
         // 7. Si fue referido por un AMIGO, registrar en tabla referidos para sistema de $500
         if (referidoPorId) {
             try {
