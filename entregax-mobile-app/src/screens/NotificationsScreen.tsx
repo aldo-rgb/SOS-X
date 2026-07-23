@@ -28,6 +28,7 @@ import { RouteProp } from '@react-navigation/native';
 import { API_URL } from '../services/api';
 import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
+import { emitDeepLink } from '../deepLink';
 
 // Colores de marca
 const BRAND_ORANGE = '#F05A28';
@@ -366,6 +367,16 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
     // Guías sin identificar → va directo al filtro del asesor
     if (item.data?.screen === 'AdvisorPackages' && item.data?.filter) {
       (navigation as any).navigate('AdvisorPackages', { user, token, filter: item.data.filter });
+      return;
+    }
+
+    // 📦 Paquete recibido (u otra notif con tracking) → abrir Home filtrado a ese
+    // paquete (mismo mecanismo que los links /pagar, /instrucciones) y quitar la
+    // notificación de la lista (ya la abrió).
+    if (item.data?.tracking) {
+      emitDeepLink({ action: 'instrucciones', trn: String(item.data.tracking) });
+      (navigation as any).navigate('Home', { user, token });
+      archiveOne(item.id);
       return;
     }
 
