@@ -1190,25 +1190,41 @@ export const startInstructionReminderCron = () => {
       // Controlado por el toggle "Notificación de caja recibida" (Ajustes del Sistema).
       if (!(await isNotifEnabled('notif_caja_recibida'))) return;
       await pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS instruction_reminder_sent_at TIMESTAMPTZ`).catch(() => {});
+      // base_guia = GUÍA MASTER para agrupar. En China Aéreo (AIR_CHN_MX) el
+      // tracking_internal es el corto "CN-xxxx-001" y la guía real es el child_no
+      // "AIRxxxx-001"; el master es ese child_no SIN el sufijo -NNN → "AIRxxxx".
+      // Así 1 envío = 1 recordatorio (no 1 por caja) y se muestra la guía AIR.
+      // Para el resto de servicios (POBOX, etc.) NO se estruja el sufijo: se usa
+      // el tracking_internal tal cual (US-2782469577 no debe volverse "US").
+      const BASE_GUIA = `CASE WHEN p.service_type = 'AIR_CHN_MX'
+              THEN REGEXP_REPLACE(COALESCE(NULLIF(p.child_no,''), p.tracking_internal), '-[0-9]+$', '')
+              ELSE p.tracking_internal END`;
       const r = await pool.query(`
-        SELECT p.id, p.tracking_internal AS trn,
-               u.full_name AS client_name, u.box_id AS client_box, u.phone AS client_phone,
-               u.notif_whatsapp, u.phone_verified, u.whatsapp_verified,
-               a.full_name AS advisor_name, a.phone AS advisor_phone
-        FROM packages p
-        JOIN users u ON u.id = p.user_id
-        LEFT JOIN users a ON a.id = u.advisor_id
-        WHERE p.received_at IS NOT NULL
-          AND p.received_at <= NOW() - INTERVAL '3 days'
-          AND p.received_at >= NOW() - INTERVAL '14 days'
-          AND p.assigned_address_id IS NULL
-          AND p.instructions_assigned_at IS NULL
-          AND p.delivered_at IS NULL
-          AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
-          AND p.lost_by_user_id IS NULL
-          AND (p.is_master = TRUE OR p.master_id IS NULL)
-          AND p.instruction_reminder_sent_at IS NULL
-        ORDER BY p.received_at ASC
+        WITH pend AS (
+          SELECT p.id, p.user_id, p.received_at,
+                 ${BASE_GUIA} AS base_guia,
+                 u.full_name AS client_name, u.box_id AS client_box, u.phone AS client_phone,
+                 u.notif_whatsapp, u.phone_verified, u.whatsapp_verified,
+                 a.full_name AS advisor_name, a.phone AS advisor_phone
+          FROM packages p
+          JOIN users u ON u.id = p.user_id
+          LEFT JOIN users a ON a.id = u.advisor_id
+          WHERE p.received_at IS NOT NULL
+            AND p.received_at <= NOW() - INTERVAL '3 days'
+            AND p.received_at >= NOW() - INTERVAL '14 days'
+            AND p.assigned_address_id IS NULL
+            AND p.instructions_assigned_at IS NULL
+            AND p.delivered_at IS NULL
+            AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
+            AND p.lost_by_user_id IS NULL
+            AND (p.is_master = TRUE OR p.master_id IS NULL)
+            AND p.instruction_reminder_sent_at IS NULL
+        )
+        SELECT DISTINCT ON (user_id, base_guia)
+               base_guia AS trn, user_id, client_name, client_box, client_phone,
+               notif_whatsapp, phone_verified, whatsapp_verified, advisor_name, advisor_phone
+        FROM pend
+        ORDER BY user_id, base_guia, received_at ASC
         LIMIT 300
       `);
       let sent = 0;
@@ -1223,7 +1239,16 @@ export const startInstructionReminderCron = () => {
         if (row.advisor_phone) {
           await sendInstructionReminderAdvisor(row.advisor_phone, row.advisor_name || 'Asesor', row.client_box || row.client_name || 'tu cliente', trn).catch(() => {});
         }
-        await pool.query(`UPDATE packages SET instruction_reminder_sent_at = NOW() WHERE id = $1`, [row.id]).catch(() => {});
+        // Marcar TODAS las cajas de esa guía master (mismo cliente + misma base)
+        // para no repetir el recordatorio en los siguientes días.
+        await pool.query(
+          `UPDATE packages SET instruction_reminder_sent_at = NOW()
+            WHERE user_id = $1 AND instruction_reminder_sent_at IS NULL
+              AND (CASE WHEN service_type = 'AIR_CHN_MX'
+                     THEN REGEXP_REPLACE(COALESCE(NULLIF(child_no,''), tracking_internal), '-[0-9]+$', '')
+                     ELSE tracking_internal END) = $2`,
+          [row.user_id, trn]
+        ).catch(() => {});
         sent++;
       }
       if (sent) console.log(`[CRON] Recordatorio instrucciones (3 días): ${sent} guías notificadas`);
