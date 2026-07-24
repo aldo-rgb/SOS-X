@@ -148,6 +148,10 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
     }
 
     const cleanTracking = String(tracking).trim().toUpperCase();
+    // Normalización robusta contra el mangling del escáner Zebra: quita TODO lo no
+    // alfanumérico ("AI-R2608012OZUNZ" → "AIR2608012OZUNZ") para poder matchear
+    // aunque el lector inserte un guion tras "AI" y/o pierda el sufijo -NNN de caja.
+    const normScan = cleanTracking.replace(/[^A-Z0-9]/g, '');
 
     // Determinar sucursal del usuario que escanea ANTES de iniciar la transacción
     // Si el usuario no tiene sucursal asignada, no puede recibir
@@ -220,14 +224,30 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    // Buscar paquete vinculado a este AWB (tracking_internal o child_no AIR)
+    // Buscar paquete vinculado a este AWB. Match ROBUSTO por código normalizado
+    // (sin caracteres no alfanuméricos): tolera el guion espurio ("AI-R…") y el
+    // sufijo de caja perdido por el escáner (match por prefijo). Prioriza:
+    //   1) match exacto de la caja,  2) cajas AÚN NO recibidas (para que escaneos
+    //   repetidos del mismo base vayan cubriendo -001, -002, …),  3) por child_no.
     const pkgRes = await client.query(
       `SELECT id, tracking_internal, child_no, status, COALESCE(missing_on_arrival, FALSE) AS missing_on_arrival
        FROM packages
-       WHERE (UPPER(tracking_internal) = $1 OR UPPER(child_no) = $1)
-         AND international_tracking = $2
+       WHERE international_tracking = $2
+         AND (
+              UPPER(REGEXP_REPLACE(COALESCE(child_no,''),        '[^A-Za-z0-9]', '', 'g')) = $1
+           OR UPPER(REGEXP_REPLACE(COALESCE(tracking_internal,''),'[^A-Za-z0-9]', '', 'g')) = $1
+           OR UPPER(REGEXP_REPLACE(COALESCE(child_no,''),        '[^A-Za-z0-9]', '', 'g')) LIKE $1 || '%'
+         )
+       ORDER BY
+         (CASE WHEN UPPER(REGEXP_REPLACE(COALESCE(child_no,''),'[^A-Za-z0-9]','','g')) = $1
+                 OR UPPER(REGEXP_REPLACE(COALESCE(tracking_internal,''),'[^A-Za-z0-9]','','g')) = $1
+               THEN 0 ELSE 1 END),
+         (CASE WHEN status::text LIKE 'received_%'
+                AND status::text NOT IN ('received_china','received_origin','received_china_air','received_china_sea')
+               THEN 1 ELSE 0 END),
+         child_no
        LIMIT 1`,
-      [cleanTracking, awb.awb_number]
+      [normScan, awb.awb_number]
     );
 
     if (pkgRes.rows.length === 0) {
