@@ -338,6 +338,10 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     let available: CarrierOption[];
     if (shipmentType === 'maritime') available = [cdmx];
     else if (shipmentType === 'china_air') available = [cdmx, mty];
+    // 🇺🇸 PO Box USA: la carga llega a CEDIS MTY, así que SOLO aplica EntregaX
+    // Local MTY (para destinos del AMM). Para destinos CDMX/otros va por paquetería
+    // nacional (Paquete Express) — el mensajero local de CDMX NO puede recoger de MTY.
+    else if (isPOBoxUS) available = [mty];
     else available = [cdmx, mty];
 
     // Si aún no hay ZIP seleccionado, mostramos todas las disponibles del tipo

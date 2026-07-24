@@ -4685,6 +4685,20 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
         // Determinar si es Pick Up en sucursal
         const isPickup = carrier === 'pickup_hidalgo';
 
+        // 🇺🇸 Guard: PO Box USA llega a CEDIS MTY; "EntregaX Local CDMX" NO aplica
+        // (el mensajero local de CDMX no puede recoger de MTY). Rechazamos por si un
+        // app viejo lo manda — destinos CDMX/otros deben ir por paquetería nacional.
+        {
+            const _ck = String(carrier || '').toLowerCase();
+            const _cn = String(carrierName || '').toLowerCase();
+            if (packageType === 'usa' && (_ck === 'entregax_local_cdmx' || _cn.includes('local cdmx'))) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'EntregaX Local CDMX no aplica para PO Box USA (la carga llega a CEDIS MTY). Para destinos en CDMX usa Paquete Express.',
+                });
+            }
+        }
+
         // Verificar si es admin/operador para permitir actualizar paquetes de otros usuarios
         const isAdmin = ['admin', 'super_admin', 'superadmin', 'ops_mx', 'ops_usa', 'ops_usa_pobox', 'branch_manager', 'director', 'warehouse_ops', 'counter_staff'].includes(String(userRole).toLowerCase());
 
