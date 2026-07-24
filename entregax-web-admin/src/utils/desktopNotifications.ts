@@ -15,7 +15,8 @@ export async function ensureDesktopNotificationPermission(): Promise<boolean> {
   if (!desktopNotificationsSupported()) return false;
   if (Notification.permission === 'granted') return true;
   if (Notification.permission === 'denied') return false;
-  if (permissionAsked) return Notification.permission === 'granted';
+  // Aquí ya descartamos 'granted' y 'denied' arriba; solo queda 'default'.
+  if (permissionAsked) return false;
   permissionAsked = true;
   try {
     const p = await Notification.requestPermission();
