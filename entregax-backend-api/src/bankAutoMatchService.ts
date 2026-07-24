@@ -387,6 +387,14 @@ const notifyStatementSynced = async (emitterId: number, summary: {
         console.warn(`[bank-auto-auth] notif estado de cuenta user ${r.id} fallo:`, e?.message);
       }
     }
+    // Push (móvil/desktop) además del bell — respeta tono/on-off/roles del panel.
+    try {
+      const { sendPushToUsers } = await import('./pushService');
+      await sendPushToUsers(recipients.rows.map((r: any) => Number(r.id)), {
+        title, body: message, data: { screen: 'Home', route: '/admin/dashboard-cobranza' },
+        notificationType: 'statement_synced',
+      });
+    } catch (e: any) { console.warn('[bank-auto-auth] push estado de cuenta fallo:', e?.message); }
     console.log(`📬 [Auto-AUTH] Notificación 'estado de cuenta' enviada a ${recipients.rowCount} usuarios`);
   } catch (e: any) {
     console.warn('[bank-auto-auth] notifyStatementSynced fallo:', e?.message);

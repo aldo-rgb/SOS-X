@@ -19,6 +19,7 @@ export const NOTIFICATION_TYPES: Array<{ key: string; label: string; description
   { key: 'repack_request',     label: '📦 Solicitud de reempaque',      description: 'El cliente pide reempaque/consolidación.', group: 'Operación' },
   { key: 'new_client_alta',    label: '🔔 Nueva alta de cliente',       description: 'Cada vez que se registra un cliente nuevo (avisa a Super Admin).', group: 'Ventas' },
   { key: 'referral_bonus',     label: '💸 Bono de referido',            description: 'Se libera el bono de $500 por referido.', group: 'Ventas' },
+  { key: 'statement_synced',   label: '💳 Estado de cuenta conciliado',  description: 'Cuando se concilian/auto-autorizan pagos en un estado de cuenta (cobranza).', group: 'Cobranza' },
   { key: 'ticket_agent_reply', label: '🎧 Respuesta en tu ticket',      description: 'El agente responde el ticket (avisa al cliente).', group: 'Soporte' },
   { key: 'ticket_client_reply',label: '💬 Respuesta del cliente',       description: 'El cliente responde el ticket (avisa al agente).', group: 'Soporte' },
   { key: 'client_claim',       label: '🆘 Reclamación de número',       description: 'Cliente reclama su número de casillero.', group: 'Soporte' },
