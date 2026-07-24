@@ -1868,22 +1868,27 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         [containerNumber]
       );
       
+      // reuseContainerId: si el contenedor ya existe y es la MISMA consolidación
+      // (misma reference_code) o aún no tiene referencia, lo REUSAMOS (enriquecer +
+      // agregar LOGs) en vez de bloquear/insertar. En LCL varias house BLs comparten
+      // el mismo contenedor físico (container_number es UNIQUE → 1 sola fila).
+      let reuseContainerId: number | null = null;
       if (existingContainer.rows.length > 0) {
         const existing = existingContainer.rows[0];
         const hasRef = existing.reference_code && String(existing.reference_code).trim() !== '';
-        if (hasRef) {
-          return res.status(400).json({ 
+        const newRef = String(finalData.reference_code || '').trim();
+        const sameRef = hasRef && newRef !== '' && newRef === String(existing.reference_code).trim();
+        if (hasRef && !sameRef) {
+          // Referencia DIFERENTE → conflicto real (mismo número de contenedor, otra consolidación).
+          return res.status(400).json({
             error: `El contenedor ${containerNumber} ya existe con referencia asignada (${existing.reference_code})`,
             details: `Contenedor ID: ${existing.id}, BL: ${existing.bl_number || 'N/A'}`,
             duplicateContainer: true,
             existingReference: existing.reference_code
           });
         }
-        // Existe pero sin referencia -> permitimos continuar; el codigo abajo
-        // crea un nuevo registro LCL. Para evitar choque del UNIQUE de
-        // container_number, marcamos el nuevo con sufijo de timestamp si no
-        // hubo containerNumber explicito.
-        console.log(`⚠️ Contenedor LCL existente sin referencia (id=${existing.id}). Se permite registrar nueva recepcion.`);
+        reuseContainerId = existing.id;
+        console.log(`♻️ LCL: reusando contenedor existente id=${existing.id} (${sameRef ? `misma referencia ${existing.reference_code}` : 'sin referencia previa'}) — se enriquece y se agregan LOGs`);
       }
       
       // VALIDACIÓN: Verificar que el BL no exista previamente en otro contenedor (con referencia)
@@ -1921,47 +1926,88 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       const weekNumber = finalData.week_number || null;
       const referenceCode = finalData.reference_code || null;
       
-      // 2a. Crear contenedor con datos del BL (ya no usa ON CONFLICT)
-      // LCL se crea directamente en 'in_transit' (ya viene de China navegando)
-      const containerRes = await pool.query(`
-        INSERT INTO containers 
-        (container_number, bl_number, eta, status, notes, consignee, shipper, 
-         vessel, pol, pod, route_id, week_number, reference_code,
-         vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
-         total_weight_kg, total_cbm, total_packages, carrier, laden_on_board, exchange_rate_usd_mxn, client_user_id, legacy_client_id)
-        VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
-        RETURNING id
-      `, [
-        containerNumber,
-        finalData.blNumber,
-        finalData.eta,
-        `Vessel: ${finalData.vesselName || 'N/A'}, Voyage: ${finalData.voyageNumber || 'N/A'}`,
-        finalData.consignee,
-        finalData.shipper,
-        finalData.vesselName,
-        finalData.portOfLoading,
-        finalData.portOfDischarge,
-        finalData.route_id || draft.route_id,  // Usar route_id de datos editados O del draft
-        weekNumber,
-        referenceCode,
-        // Campos adicionales para el frontend
-        finalData.vesselName,
-        finalData.voyageNumber,
-        finalData.portOfLoading,
-        finalData.portOfDischarge,
-        finalData.soNumber,
-        finalData.weightKg ? parseFloat(finalData.weightKg) : null,
-        finalData.volumeCbm ? parseFloat(finalData.volumeCbm) : null,
-        finalData.packages ? parseInt(finalData.packages) : null,
-        finalData.carrier || null,
-        finalData.ladenOnBoard || null,
-        exchangeRate,
-        containerClientUserId,  // user_id del cliente (si tiene cuenta)
-        containerLegacyClientId  // legacy_client_id directo para tarifas FCL
-      ]);
-
-      const containerId = containerRes.rows[0].id;
-      console.log(`✅ Contenedor creado/actualizado: ID=${containerId}, Container=${finalData.containerNumber}`);
+      // 2a. Crear o REUSAR el contenedor. Si es la misma consolidación LCL
+      // (reuseContainerId), enriquecemos con COALESCE (no pisa lo ya lleno) y
+      // reusamos su ID para agregarle los LOGs. Si no, INSERT nuevo ('in_transit').
+      let containerId: number;
+      if (reuseContainerId) {
+        await pool.query(`
+          UPDATE containers SET
+            bl_number = COALESCE(bl_number, $1),
+            eta = COALESCE(eta, $2),
+            consignee = COALESCE(consignee, $3),
+            shipper = COALESCE(shipper, $4),
+            vessel = COALESCE(vessel, $5),
+            pol = COALESCE(pol, $6),
+            pod = COALESCE(pod, $7),
+            route_id = COALESCE(route_id, $8),
+            week_number = COALESCE(week_number, $9),
+            reference_code = COALESCE(reference_code, $10),
+            vessel_name = COALESCE(vessel_name, $5),
+            voyage_number = COALESCE(voyage_number, $11),
+            port_of_loading = COALESCE(port_of_loading, $6),
+            port_of_discharge = COALESCE(port_of_discharge, $7),
+            so_number = COALESCE(so_number, $12),
+            total_weight_kg = COALESCE(total_weight_kg, $13),
+            total_cbm = COALESCE(total_cbm, $14),
+            total_packages = COALESCE(total_packages, $15),
+            carrier = COALESCE(carrier, $16),
+            laden_on_board = COALESCE(laden_on_board, $17),
+            client_user_id = COALESCE(client_user_id, $18),
+            legacy_client_id = COALESCE(legacy_client_id, $19),
+            updated_at = NOW()
+          WHERE id = $20
+        `, [
+          finalData.blNumber, finalData.eta, finalData.consignee, finalData.shipper, finalData.vesselName,
+          finalData.portOfLoading, finalData.portOfDischarge, finalData.route_id || draft.route_id, weekNumber, referenceCode,
+          finalData.voyageNumber, finalData.soNumber,
+          finalData.weightKg ? parseFloat(finalData.weightKg) : null,
+          finalData.volumeCbm ? parseFloat(finalData.volumeCbm) : null,
+          finalData.packages ? parseInt(finalData.packages) : null,
+          finalData.carrier || null, finalData.ladenOnBoard || null,
+          containerClientUserId, containerLegacyClientId, reuseContainerId,
+        ]);
+        containerId = reuseContainerId;
+        console.log(`♻️ Contenedor LCL reusado y enriquecido: ID=${containerId}, Container=${containerNumber}`);
+      } else {
+        const containerRes = await pool.query(`
+          INSERT INTO containers
+          (container_number, bl_number, eta, status, notes, consignee, shipper,
+           vessel, pol, pod, route_id, week_number, reference_code,
+           vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
+           total_weight_kg, total_cbm, total_packages, carrier, laden_on_board, exchange_rate_usd_mxn, client_user_id, legacy_client_id)
+          VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+          RETURNING id
+        `, [
+          containerNumber,
+          finalData.blNumber,
+          finalData.eta,
+          `Vessel: ${finalData.vesselName || 'N/A'}, Voyage: ${finalData.voyageNumber || 'N/A'}`,
+          finalData.consignee,
+          finalData.shipper,
+          finalData.vesselName,
+          finalData.portOfLoading,
+          finalData.portOfDischarge,
+          finalData.route_id || draft.route_id,
+          weekNumber,
+          referenceCode,
+          finalData.vesselName,
+          finalData.voyageNumber,
+          finalData.portOfLoading,
+          finalData.portOfDischarge,
+          finalData.soNumber,
+          finalData.weightKg ? parseFloat(finalData.weightKg) : null,
+          finalData.volumeCbm ? parseFloat(finalData.volumeCbm) : null,
+          finalData.packages ? parseInt(finalData.packages) : null,
+          finalData.carrier || null,
+          finalData.ladenOnBoard || null,
+          exchangeRate,
+          containerClientUserId,
+          containerLegacyClientId
+        ]);
+        containerId = containerRes.rows[0].id;
+        console.log(`✅ Contenedor LCL creado: ID=${containerId}, Container=${containerNumber}`);
+      }
 
       // Obtener el route_id del contenedor (puede haber sido heredado de un registro anterior)
       const containerRouteRes = await pool.query('SELECT route_id FROM containers WHERE id = $1', [containerId]);
