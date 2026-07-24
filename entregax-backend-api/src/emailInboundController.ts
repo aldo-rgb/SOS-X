@@ -2329,14 +2329,22 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         'SELECT id, container_number, bl_number, reference_code, status FROM containers WHERE container_number = $1',
         [containerNumber]
       );
+      // MISMA referencia (misma consolidación) o sin referencia → se REUSA/enriquece
+      // (existingContainerRow queda seteado → UPDATE con COALESCE abajo). Solo se
+      // bloquea si el contenedor/BL existe con una referencia DISTINTA (conflicto real).
+      const newRefForCheck = String(finalData.reference_code || '').trim();
       let existingContainerRow: any = existingByContainer.rows[0] || null;
       if (existingContainerRow && existingContainerRow.reference_code && String(existingContainerRow.reference_code).trim() !== '') {
-        return res.status(400).json({ 
-          error: `El contenedor ${containerNumber} ya existe con referencia asignada (${existingContainerRow.reference_code})`,
-          details: `Contenedor ID: ${existingContainerRow.id}, BL: ${existingContainerRow.bl_number || 'N/A'}`,
-          duplicateContainer: true,
-          existingReference: existingContainerRow.reference_code
-        });
+        const sameRef = newRefForCheck !== '' && newRefForCheck === String(existingContainerRow.reference_code).trim();
+        if (!sameRef) {
+          return res.status(400).json({
+            error: `El contenedor ${containerNumber} ya existe con referencia asignada (${existingContainerRow.reference_code})`,
+            details: `Contenedor ID: ${existingContainerRow.id}, BL: ${existingContainerRow.bl_number || 'N/A'}`,
+            duplicateContainer: true,
+            existingReference: existingContainerRow.reference_code
+          });
+        }
+        console.log(`♻️ FCL: contenedor ${containerNumber} ya existe con la MISMA referencia ${newRefForCheck} (id=${existingContainerRow.id}) — se enriquece en vez de bloquear`);
       }
 
       if (finalData.blNumber) {
@@ -2346,12 +2354,15 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         );
         const blRow = existingBl.rows[0];
         if (blRow && blRow.reference_code && String(blRow.reference_code).trim() !== '') {
-          return res.status(400).json({
-            error: `El BL ${finalData.blNumber} ya existe con referencia asignada (${blRow.reference_code})`,
-            details: `Contenedor ID: ${blRow.id}, Container: ${blRow.container_number || 'N/A'}`,
-            duplicateBl: true,
-            existingReference: blRow.reference_code
-          });
+          const sameRef = newRefForCheck !== '' && newRefForCheck === String(blRow.reference_code).trim();
+          if (!sameRef) {
+            return res.status(400).json({
+              error: `El BL ${finalData.blNumber} ya existe con referencia asignada (${blRow.reference_code})`,
+              details: `Contenedor ID: ${blRow.id}, Container: ${blRow.container_number || 'N/A'}`,
+              duplicateBl: true,
+              existingReference: blRow.reference_code
+            });
+          }
         }
         // Si hay match por BL y aun no teniamos por container_number, usar ese
         if (!existingContainerRow && blRow) {
