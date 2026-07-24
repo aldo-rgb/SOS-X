@@ -233,6 +233,19 @@ export default function CajitoFab({ user, token }: Props) {
           </View>
         ) : null}
 
+        {/* CONTENEDOR ASIGNADO (marítimo) */}
+        {m.containerNumber ? (
+          <View style={[styles.box, { borderColor: '#A5D6A7' }]}>
+            <Text style={styles.boxLabel}>📦 CONTENEDOR ASIGNADO</Text>
+            <Text style={[styles.strong, { color: '#2e7d32', fontSize: 18 }]}>{m.containerNumber}</Text>
+            <View style={styles.chipRow}>
+              {m.blNumber ? <Chip label={`BL ${m.blNumber}`} /> : null}
+              {m.containerWeek ? <Chip label={`📅 ${m.containerWeek}`} bg="#e8f0fe" fg="#1a56db" /> : null}
+              {m.eta ? <Chip label={`ETA ${fmtDT(m.eta)}`} bg="#e8f0fe" fg="#1a56db" /> : null}
+            </View>
+          </View>
+        ) : null}
+
         {/* CONTENIDO / PESO / MEDIDAS */}
         {(m.description || m.weight || m.length || m.width || m.height) ? (
           <View style={styles.box}>

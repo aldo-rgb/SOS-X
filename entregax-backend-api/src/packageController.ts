@@ -2223,6 +2223,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     // ETA marítimo: se asigna a la semana/contenedor (containers.eta).
                     eta: pkg.container_eta || null,
                     containerWeek: pkg.container_week ?? null,
+                    // Contenedor asignado (para mostrar "CONTENEDOR ASIGNADO" en el rastreo).
+                    containerNumber: pkg.container_number || null,
+                    blNumber: pkg.bl_number || null,
                     lastTrackingStatus: pkg.last_tracking_status || null,
                     lastTrackingDetail: pkg.last_tracking_detail || null,
                     lastTrackingDate: pkg.last_tracking_date || null,
