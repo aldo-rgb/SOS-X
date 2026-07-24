@@ -268,6 +268,16 @@ async function notifyKitReady(userId: number | null | undefined, name?: string |
         JSON.stringify({ kind: 'welcome_kit' }),
       ]
     );
+    // 🔔 Push al cliente (además del in-app). Cubre kit directo y regalo de referido.
+    try {
+      const { sendPushToUsers } = await import('./pushService');
+      await sendPushToUsers([Number(userId)], {
+        title: '🎁 ¡Tienes un regalo!',
+        body: `${name ? name.split(' ')[0] + ', t' : 'T'}ienes un Kit de Bienvenida listo para ser enviado. Elige tu regalo y captura tus datos de envío.`,
+        data: { screen: 'Home', kind: 'welcome_kit' },
+        notificationType: 'welcome_kit_gift',
+      });
+    } catch (pushErr) { console.warn('[KIT] push notifyKitReady:', (pushErr as Error).message); }
   } catch (e) { console.warn('[KIT] notifyKitReady:', (e as Error).message); }
 }
 

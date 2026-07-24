@@ -6106,6 +6106,13 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
                             .catch((e: any) => console.warn('[REPACK] notif Hidalgo user', r.id, 'falló:', e?.message))
                     )
                 );
+                // 🔔 Push (además del in-app).
+                try {
+                    const { sendPushToUsers } = await import('./pushService');
+                    await sendPushToUsers(hidalgoUsers.rows.map((r: any) => Number(r.id)), {
+                        title: notifTitle, body: notifBody, data: notifData, notificationType: 'repack_request',
+                    });
+                } catch (pushErr: any) { console.warn('[REPACK] push falló:', pushErr?.message); }
                 console.log(`🔔 [REPACK] Notificación enviada a ${hidalgoUsers.rows.length} usuario(s) de Hidalgo`);
             }
         } catch (notifErr: any) {

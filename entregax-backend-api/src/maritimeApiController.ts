@@ -335,6 +335,19 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
                 JSON.stringify({ ordersn: order.ordersn, goods_num: order.goods_num, autoAssignedAddress: !!defaultAddressId })
             ]);
 
+            // 🔔 Push al cliente (además del in-app).
+            try {
+                const { sendPushToUsers } = await import('./pushService');
+                await sendPushToUsers([Number(userId)], {
+                    title: '📦 Nueva Recepción Marítimo',
+                    body: `Tu carga ${order.ordersn} ha sido recibida en bodega China.${addressNote}`,
+                    data: { screen: 'Home', ordersn: order.ordersn },
+                    notificationType: 'warehouse_reception',
+                });
+            } catch (pushErr: any) {
+                console.warn('[maritime] push recepción falló:', pushErr?.message);
+            }
+
             // Avisar también al cliente por WhatsApp (plantilla detallada).
             try {
                 const { notifyArrivalWhatsApp } = await import('./whatsappService');

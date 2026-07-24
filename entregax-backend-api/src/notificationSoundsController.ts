@@ -16,17 +16,17 @@ export const NOTIFICATION_TYPES: Array<{ key: string; label: string; description
   { key: 'package_received',   label: '📦 Paquete recibido',            description: 'Al recibir un paquete del cliente (PO Box, China aéreo, DHL, TDI, Marítimo).', group: 'Operación' },
   { key: 'package_unassigned', label: '📦 Guía sin identificar',        description: 'Guía recibida sin cliente asignado.', group: 'Operación' },
   { key: 'package_delivered',  label: '🎉 Paquete entregado',           description: 'Cuando el repartidor confirma la entrega.', group: 'Operación' },
-  { key: 'repack_request',     label: '📦 Solicitud de reempaque',      description: 'El cliente pide reempaque/consolidación.', group: 'Operación' },
+  { key: 'repack_request',     label: '📦 Solicitud de reempaque',      description: 'El cliente pide reempaque/consolidación (avisa a bodega Hidalgo).', group: 'Operación' },
+  { key: 'warehouse_reception',label: '📦 Recepción en bodega China',    description: 'La carga del cliente (Marítimo/LOG) es recibida en bodega China.', group: 'Operación' },
   { key: 'new_client_alta',    label: '🔔 Nueva alta de cliente',       description: 'Cada vez que se registra un cliente nuevo (avisa a Super Admin).', group: 'Ventas' },
   { key: 'referral_bonus',     label: '💸 Bono de referido',            description: 'Se libera el bono de $500 por referido.', group: 'Ventas' },
+  { key: 'welcome_kit_gift',   label: '🎁 Regalo disponible',           description: 'Kit de Bienvenida / regalo de referido listo para elegir y enviar.', group: 'Ventas' },
   { key: 'statement_synced',   label: '💳 Estado de cuenta conciliado',  description: 'Cuando se concilian/auto-autorizan pagos en un estado de cuenta (cobranza).', group: 'Cobranza' },
   { key: 'ticket_agent_reply', label: '🎧 Respuesta en tu ticket',      description: 'El agente responde el ticket (avisa al cliente).', group: 'Soporte' },
   { key: 'ticket_client_reply',label: '💬 Respuesta del cliente',       description: 'El cliente responde el ticket (avisa al agente).', group: 'Soporte' },
   { key: 'client_claim',       label: '🆘 Reclamación de número',       description: 'Cliente reclama su número de casillero.', group: 'Soporte' },
   { key: 'internal_chat',      label: '💬 Chat interno',                description: 'Mensajes del chat interno (Monitoreo/Repartidores/Operaciones/Dirección).', group: 'Interno' },
   { key: 'rate_change',        label: '💱 Nuevo precio de tarifa',      description: 'Cambio de precio de tarifas (aéreo).', group: 'Interno' },
-  { key: 'dhl_product_change', label: '📦 Tipo de producto DHL',        description: 'Se actualiza el tipo de producto de una guía DHL.', group: 'Interno' },
-  { key: 'maritime_consolidated', label: '🚢 Mercancía consolidada',    description: 'Carga consolidada para envío marítimo (LCL).', group: 'Operación' },
 ];
 
 // ─── Tonos EMPAQUETADOS en el build nativo (para segundo plano) ───

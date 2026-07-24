@@ -2194,6 +2194,10 @@ export const submitBoxIdClaim = async (req: Request, res: Response): Promise<any
           )
         )
       );
+      // 🔔 Push (además del in-app).
+      await sendPushToUsers(staff.rows.map((s: any) => Number(s.id)), {
+        title, body: msg, data: { screen: 'Home', claimId: claim.id, folio: claim.folio }, notificationType: 'client_claim',
+      });
     } catch (notifErr) {
       console.warn('No se pudo notificar a staff sobre claim:', notifErr);
     }

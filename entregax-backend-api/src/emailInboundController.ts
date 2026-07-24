@@ -1855,6 +1855,18 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
           'ferry',
           JSON.stringify({ logNumber: finalData.logNumber, type: 'LOG' })
         ]);
+        // 🔔 Push al cliente (además del in-app).
+        try {
+          const { sendPushToUsers } = await import('./pushService');
+          await sendPushToUsers([Number(clientUserId)], {
+            title: '📦 Mercancía recibida en China',
+            body: `Tu carga ${finalData.logNumber || ''} ha sido recibida en bodega China. ${finalData.boxCount || 0} cajas, ${finalData.weightKg || 0}kg.`,
+            data: { screen: 'Home', logNumber: finalData.logNumber, type: 'LOG' },
+            notificationType: 'warehouse_reception',
+          });
+        } catch (pushErr: any) {
+          console.warn('[emailInbound] push recepción LOG falló:', pushErr?.message);
+        }
       }
 
     } else if (draft.document_type === 'LCL') {
