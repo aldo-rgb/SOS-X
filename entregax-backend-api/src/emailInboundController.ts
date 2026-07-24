@@ -2854,7 +2854,7 @@ export const matchClientToDraft = async (req: Request, res: Response): Promise<a
         legacyIdToStore = lc.rows[0].id;
         // Marcar el legacy como reclamado por este user (idempotente)
         await pool.query(
-          `UPDATE legacy_clients SET claimed_by_user_id = $1, updated_at = NOW()
+          `UPDATE legacy_clients SET claimed_by_user_id = $1
             WHERE id = $2 AND (claimed_by_user_id IS NULL OR claimed_by_user_id <> $1)`,
           [effectiveId, lc.rows[0].id]
         ).catch(() => {});
@@ -2863,8 +2863,8 @@ export const matchClientToDraft = async (req: Request, res: Response): Promise<a
         // trabajar con id de legacy (matched_user_id). El registro queda
         // reclamado inmediatamente por este user.
         const ins = await pool.query(
-          `INSERT INTO legacy_clients (box_id, full_name, email, phone, claimed_by_user_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+          `INSERT INTO legacy_clients (box_id, full_name, email, phone, claimed_by_user_id, created_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
            RETURNING id`,
           [userBoxId, userFullName || `Usuario ${effectiveId}`, userEmail, userPhone, effectiveId]
         );
@@ -2880,9 +2880,9 @@ export const matchClientToDraft = async (req: Request, res: Response): Promise<a
     `, [legacyIdToStore, id]);
 
     res.json({ success: true, message: 'Cliente asignado al borrador', legacyClientId: legacyIdToStore });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error asignando cliente:', error);
-    res.status(500).json({ error: 'Error al asignar cliente' });
+    res.status(500).json({ error: error?.message ? `Error al asignar cliente: ${error.message}` : 'Error al asignar cliente' });
   }
 };
 
