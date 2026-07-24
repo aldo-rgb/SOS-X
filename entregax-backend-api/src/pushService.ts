@@ -245,10 +245,33 @@ export async function notifyNewClientAlta(user: {
   box_id?: string | null;
 }): Promise<void> {
   try {
+    // Traer casillero + asesor asignado (si el registro vino con código de
+    // referido ya trae advisor_id). Robusto: consulta la BD, no depende del
+    // objeto recibido.
+    let boxId = user.box_id || '';
+    let advisorName = '';
+    try {
+      const q = await pool.query(
+        `SELECT u.box_id, a.full_name AS advisor_name
+           FROM users u LEFT JOIN users a ON a.id = u.advisor_id
+          WHERE u.id = $1`,
+        [user.id]
+      );
+      if (q.rows[0]) {
+        boxId = q.rows[0].box_id || boxId;
+        advisorName = q.rows[0].advisor_name || '';
+      }
+    } catch { /* usa lo que venga en el objeto */ }
+
+    const name = user.full_name || 'Nuevo cliente';
+    const parts = [`${name} se acaba de registrar`];
+    if (boxId) parts.push(`Casillero ${boxId}`);
+    if (advisorName) parts.push(`Asesor: ${advisorName}`);
+
     await sendPushToRole(['super_admin'], {
       title: '🔔 Nueva alta de cliente',
-      body: `${user.full_name || 'Nuevo cliente'} se acaba de registrar`,
-      data: { type: 'nueva_alta', userId: String(user.id), boxId: String(user.box_id || '') },
+      body: parts.join(' · '),
+      data: { type: 'nueva_alta', userId: String(user.id), boxId: String(boxId), advisor: advisorName },
       notificationType: 'new_client_alta', // tono/on-off desde el panel de Ajustes
     });
   } catch (e) {

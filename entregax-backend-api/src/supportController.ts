@@ -2178,8 +2178,23 @@ export const submitBoxIdClaim = async (req: Request, res: Response): Promise<any
           WHERE role IN ('customer_service','admin','super_admin')
             AND (status IS NULL OR status = 'active')`
       );
+      // Asesor asignado al casillero reclamado (si el dueño ya lo trae desde su
+      // referencia). Se muestra para que el staff sepa a quién corresponde.
+      const claimedBox = String(box_id).toUpperCase();
+      let advisorName = '';
+      try {
+        const owner = await pool.query(
+          `SELECT a.full_name AS advisor_name
+             FROM users u LEFT JOIN users a ON a.id = u.advisor_id
+            WHERE UPPER(u.box_id) = $1 LIMIT 1`,
+          [claimedBox]
+        );
+        advisorName = owner.rows[0]?.advisor_name || '';
+      } catch { /* sin asesor */ }
+
       const title = '🆘 Reclamación de número de cliente';
-      const msg = `${claim.folio}: ${full_name} reclama el número ${String(box_id).toUpperCase()}`;
+      const msg = `${claim.folio}: ${full_name} reclama el número ${claimedBox}`
+        + (advisorName ? ` · Asesor: ${advisorName}` : '');
       const actionUrl = `/admin/support/box-id-claims/${claim.id}`;
       await Promise.all(
         staff.rows.map((s: any) =>
