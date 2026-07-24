@@ -35,6 +35,9 @@ import {
     InputLabel,
     Select,
     MenuItem,
+    List,
+    ListItemButton,
+    ListItemText,
 } from '@mui/material';
 import {
     DirectionsBoat as BoatIcon,
@@ -134,6 +137,8 @@ export default function FCLManagementPage() {
         } catch { return ''; }
     })();
     const canEditSalePrice = ['super_admin', 'admin', 'director'].includes(currentUserRole);
+    // Asignar/cambiar cliente: además de los de arriba, servicio a cliente y soporte.
+    const canEditClient = [...['super_admin', 'admin', 'director'], 'customer_service', 'soporte_tecnico'].includes(currentUserRole);
 
     const [containers, setContainers] = useState<FCLContainer[]>([]);
     const [stats, setStats] = useState<FCLStats | null>(null);
@@ -609,7 +614,7 @@ export default function FCLManagementPage() {
                                                     </Typography>
                                                 )}
                                             </Box>
-                                            {canEditSalePrice && (
+                                            {canEditClient && (
                                                 <Tooltip title={container.client_name ? 'Cambiar cliente' : 'Asignar cliente'}>
                                                     <IconButton size="small" onClick={() => openClientDialog(container)} sx={{ color: FCL_COLOR }}>
                                                         <EditIcon fontSize="small" />
@@ -1033,7 +1038,7 @@ export default function FCLManagementPage() {
                     {clientDialogContainer?.client_name ? 'Cambiar cliente' : 'Asignar cliente'}
                     {clientDialogContainer && (
                         <Typography variant="caption" display="block" color="text.secondary">
-                            {clientDialogContainer.reference || clientDialogContainer.container_number}
+                            {clientDialogContainer.reference_code || clientDialogContainer.container_number}
                             {clientDialogContainer.client_name ? ` · Actual: ${clientDialogContainer.client_name}` : ''}
                         </Typography>
                     )}
