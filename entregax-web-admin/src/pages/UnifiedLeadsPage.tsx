@@ -30,6 +30,7 @@ import {
   TableRow,
   TablePagination,
   Chip,
+  Stack,
   LinearProgress,
   IconButton,
   TextField,
@@ -910,6 +911,34 @@ export default function UnifiedLeadsPage() {
     const iv = setInterval(tick, 1000);
     return () => clearInterval(iv);
   }, [seqNextSend?.nextSendAt]);
+
+  // ── Envíos masivos PROGRAMADOS (bulk-whatsapp con hora futura) ──
+  type ScheduledSend = {
+    id: number; status: 'pending' | 'sending' | 'done' | 'error';
+    scheduledAt: string; sentAt: string | null; templateLabel: string; recipientCount: number;
+    result: { total?: number; sent?: number; skipped?: number; failed?: number; error?: string } | null;
+  };
+  const [scheduledSends, setScheduledSends] = useState<ScheduledSend[]>([]);
+  const fetchScheduledSends = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/bulk-whatsapp/scheduled`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (res.data?.success) setScheduledSends(res.data.items || []);
+    } catch { /* ignore */ }
+  };
+  useEffect(() => {
+    fetchScheduledSends();
+    const iv = setInterval(fetchScheduledSends, 20_000); // en vivo cada 20s
+    return () => clearInterval(iv);
+  }, []);
+  const cancelScheduledSend = async (id: number) => {
+    try {
+      await axios.delete(`${API_URL}/admin/crm/bulk-whatsapp/scheduled/${id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({ open: true, message: 'Envío programado cancelado', severity: 'success' });
+      fetchScheduledSends();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo cancelar', severity: 'error' });
+    }
+  };
 
   // Configuración de horario/días de la secuencia
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -1824,6 +1853,98 @@ export default function UnifiedLeadsPage() {
               <Tab value="all" label={t('leads.all')} />
             </Tabs>
           </Paper>
+
+          {/* Widget: estado de los ENVÍOS PROGRAMADOS (bulk-whatsapp con hora futura) */}
+          {scheduledSends.length > 0 && (() => {
+            const fmt = (iso: string) => {
+              try { return new Date(iso).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+              catch { return iso; }
+            };
+            const badge = (s: ScheduledSend) => {
+              switch (s.status) {
+                case 'pending': return { label: 'Programado', bg: '#0277bd', pulse: false };
+                case 'sending': return { label: 'Enviando…', bg: '#25D366', pulse: true };
+                case 'done': return { label: 'Enviado', bg: '#2e7d32', pulse: false };
+                default: return { label: 'Error', bg: '#c62828', pulse: false };
+              }
+            };
+            const pendientes = scheduledSends.filter(s => s.status === 'pending').length;
+            const enCurso = scheduledSends.filter(s => s.status === 'sending').length;
+            return (
+              <Paper variant="outlined" sx={{ p: 2, mb: 1.5, borderColor: 'rgba(2,119,189,0.3)' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+                  <AccessTimeIcon sx={{ fontSize: 20, color: '#0277bd' }} />
+                  <Typography variant="subtitle2" fontWeight={800}>Envíos programados</Typography>
+                  {pendientes > 0 && <Chip size="small" label={`${pendientes} en cola`} sx={{ bgcolor: '#0277bd', color: '#fff', fontWeight: 700 }} />}
+                  {enCurso > 0 && <Chip size="small" label={`${enCurso} enviando`} sx={{ bgcolor: '#25D366', color: '#fff', fontWeight: 700 }} />}
+                  <Box sx={{ flexGrow: 1 }} />
+                  <Tooltip title="Actualizar"><IconButton size="small" onClick={fetchScheduledSends}><RefreshIcon fontSize="small" /></IconButton></Tooltip>
+                </Box>
+                <Stack spacing={1}>
+                  {scheduledSends.map((s) => {
+                    const b = badge(s);
+                    const r = s.result || {};
+                    const total = r.total ?? s.recipientCount;
+                    const sent = r.sent ?? 0;
+                    const failed = r.failed ?? 0;
+                    const skipped = r.skipped ?? 0;
+                    const pct = total > 0 && (s.status === 'done') ? Math.round((sent / total) * 100) : 0;
+                    return (
+                      <Box key={s.id} sx={{ p: 1.25, borderRadius: 2, border: '1px solid rgba(0,0,0,0.1)', bgcolor: 'rgba(0,0,0,0.015)' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                          <Chip
+                            size="small"
+                            label={b.label}
+                            sx={{
+                              bgcolor: b.bg, color: '#fff', fontWeight: 700,
+                              ...(b.pulse ? { '@keyframes pulseSch': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.45 } }, animation: 'pulseSch 1.2s ease-in-out infinite' } : {}),
+                            }}
+                          />
+                          <Typography variant="body2" fontWeight={700} sx={{ maxWidth: 240 }} noWrap>{s.templateLabel}</Typography>
+                          <Chip size="small" variant="outlined" label={`${s.recipientCount.toLocaleString()} destinatarios`} />
+                          <Box sx={{ flexGrow: 1 }} />
+                          <Typography variant="caption" color="text.secondary">
+                            {s.status === 'pending'
+                              ? `📅 ${fmt(s.scheduledAt)}`
+                              : s.sentAt ? `✅ ${fmt(s.sentAt)}` : `📅 ${fmt(s.scheduledAt)}`}
+                          </Typography>
+                          {s.status === 'pending' && (
+                            <Tooltip title="Cancelar envío programado">
+                              <IconButton size="small" color="error" onClick={() => cancelScheduledSend(s.id)}><DeleteIcon fontSize="small" /></IconButton>
+                            </Tooltip>
+                          )}
+                        </Box>
+                        {s.status === 'done' && (
+                          <Box sx={{ mt: 0.75 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <LinearProgress
+                                variant="determinate" value={pct}
+                                sx={{ flexGrow: 1, height: 6, borderRadius: 3, bgcolor: 'rgba(0,0,0,0.08)', '& .MuiLinearProgress-bar': { bgcolor: failed > sent ? '#c62828' : '#2e7d32', borderRadius: 3 } }}
+                              />
+                              <Typography variant="caption" fontWeight={700} sx={{ color: 'text.secondary' }}>
+                                {sent.toLocaleString()}/{total.toLocaleString()} enviados
+                              </Typography>
+                            </Box>
+                            <Typography variant="caption" sx={{ display: 'block', mt: 0.25, color: 'text.disabled', fontSize: 11 }}>
+                              {failed > 0 && <Box component="span" sx={{ color: '#c62828', fontWeight: 700 }}>{failed.toLocaleString()} fallidos</Box>}
+                              {failed > 0 && (skipped > 0) && ' · '}
+                              {skipped > 0 && `${skipped.toLocaleString()} omitidos`}
+                              {failed === 0 && skipped === 0 && 'Todos enviados correctamente'}
+                            </Typography>
+                          </Box>
+                        )}
+                        {s.status === 'error' && (
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#c62828' }}>
+                            ⚠️ {s.result?.error || 'Error al enviar'}
+                          </Typography>
+                        )}
+                      </Box>
+                    );
+                  })}
+                </Stack>
+              </Paper>
+            );
+          })()}
 
           {/* Barra de GRUPOS: filtrar, crear y eliminar */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>

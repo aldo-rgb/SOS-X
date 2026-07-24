@@ -596,6 +596,8 @@ import {
   updateLeadStatus,
   createLeadFromSupport,
   bulkWhatsapp,
+  getScheduledBulkSends,
+  cancelScheduledBulkSend,
   getBulkWhatsappDefaults,
   getLeadGroups,
   createLeadGroup,
@@ -7288,6 +7290,9 @@ app.put('/api/admin/crm/leads/:id/status', authenticateToken, requireMinLevel(RO
 // Envío masivo de WhatsApp a leads (plantillas predefinidas). Send gateado a DIRECTOR+.
 app.get('/api/admin/crm/bulk-whatsapp/defaults', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBulkWhatsappDefaults);
 app.post('/api/admin/crm/bulk-whatsapp', authenticateToken, requireMinLevel(ROLES.DIRECTOR), bulkWhatsapp);
+// Estado de los envíos masivos PROGRAMADOS (widget del funnel) + cancelar pendientes
+app.get('/api/admin/crm/bulk-whatsapp/scheduled', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getScheduledBulkSends);
+app.delete('/api/admin/crm/bulk-whatsapp/scheduled/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), cancelScheduledBulkSend);
 // Administrar plantillas de envio masivo (CRUD)
 app.get('/api/admin/crm/bulk-templates', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBulkTemplates);
 app.post('/api/admin/crm/bulk-templates', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createBulkTemplate);

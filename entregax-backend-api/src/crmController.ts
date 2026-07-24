@@ -1062,6 +1062,65 @@ export const bulkWhatsapp = async (req: Request, res: Response): Promise<any> =>
   }
 };
 
+// GET /api/admin/crm/bulk-whatsapp/scheduled → estado de los envíos PROGRAMADOS
+// (pending → sending → done/error). Alimenta el widget del funnel.
+export const getScheduledBulkSends = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureScheduledBulkSchema();
+    const r = await pool.query(`
+      SELECT s.id, s.status, s.scheduled_at, s.sent_at, s.created_at,
+             -- Resumen compacto: NUNCA devolver result->details (puede pesar cientos de KB)
+             jsonb_strip_nulls(jsonb_build_object(
+               'total',   s.result->'total',
+               'sent',    s.result->'sent',
+               'skipped', s.result->'skipped',
+               'failed',  s.result->'failed',
+               'error',   s.result->'error'
+             )) AS result,
+             t.label AS template_label, t.template_name,
+             (CASE WHEN jsonb_typeof(s.lead_keys)   = 'array' THEN jsonb_array_length(s.lead_keys)   ELSE 0 END)
+           + (CASE WHEN jsonb_typeof(s.advisor_ids) = 'array' THEN jsonb_array_length(s.advisor_ids) ELSE 0 END) AS recipient_count
+        FROM scheduled_bulk_sends s
+        LEFT JOIN bulk_wa_templates t ON t.id = s.template_id
+       WHERE s.created_at > NOW() - INTERVAL '30 days'
+       ORDER BY (CASE s.status WHEN 'sending' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END), s.scheduled_at DESC
+       LIMIT 50
+    `);
+    const items = r.rows.map((row: any) => ({
+      id: row.id,
+      status: row.status,                       // pending | sending | done | error
+      scheduledAt: row.scheduled_at,
+      sentAt: row.sent_at,
+      createdAt: row.created_at,
+      templateLabel: row.template_label || row.template_name || 'Plantilla',
+      recipientCount: Number(row.recipient_count) || 0,
+      result: row.result || null,               // { total, sent, skipped, failed } | { error }
+    }));
+    const counts = items.reduce((acc: any, it: any) => { acc[it.status] = (acc[it.status] || 0) + 1; return acc; },
+      { pending: 0, sending: 0, done: 0, error: 0 });
+    return res.json({ success: true, items, counts });
+  } catch (error: any) {
+    console.error('Error en getScheduledBulkSends:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Error' });
+  }
+};
+
+// DELETE /api/admin/crm/bulk-whatsapp/scheduled/:id → cancelar un programado que
+// aún no se envía (solo status='pending').
+export const cancelScheduledBulkSend = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureScheduledBulkSchema();
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) return res.status(400).json({ success: false, error: 'ID inválido' });
+    const del = await pool.query(`DELETE FROM scheduled_bulk_sends WHERE id = $1 AND status = 'pending' RETURNING id`, [id]);
+    if (del.rowCount === 0) return res.status(409).json({ success: false, error: 'No se puede cancelar (ya se envió o está en curso)' });
+    return res.json({ success: true, id });
+  } catch (error: any) {
+    console.error('Error en cancelScheduledBulkSend:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Error' });
+  }
+};
+
 // Núcleo de envío masivo — reutilizado por el endpoint inmediato y por el cron de
 // programados. Lanza Error (con .statusCode) en validaciones; devuelve resultados.
 export const executeBulkSend = async (opts: { templateId: any; leadKeys?: any[] | null; advisorIds?: any[] | null; varValues?: any[] | null }): Promise<any> => {
