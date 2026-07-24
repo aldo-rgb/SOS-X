@@ -626,6 +626,18 @@ export const registerPushToken = async (req: AuthRequest, res: Response) => {
       [userId, token, platform, device_id || null, device_name || null, app_version || null]
     );
 
+    // 🔕 Anti-duplicado: desactivar tokens VIEJOS del MISMO dispositivo. Al reinstalar
+    // la app, Expo genera un token nuevo; sin esto el viejo quedaba activo y el push
+    // llegaba 2-3 veces al mismo teléfono. Se identifica el dispositivo por device_id
+    // (si viene) o por platform+device_name (fallback cuando no hay device_id).
+    await pool.query(
+      `UPDATE user_push_tokens SET is_active = FALSE
+        WHERE user_id = $1 AND token <> $2 AND is_active = TRUE
+          AND ( ($4::text IS NOT NULL AND device_id = $4)
+             OR ($4::text IS NULL AND platform = $3 AND COALESCE(device_name,'') = COALESCE($5::text,'')) )`,
+      [userId, token, platform, device_id || null, device_name || null]
+    ).catch(() => {});
+
     res.json({ ok: true });
   } catch (error: any) {
     console.error('[chat] registerPushToken:', error);
