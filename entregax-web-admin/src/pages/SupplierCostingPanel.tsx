@@ -511,17 +511,22 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                     </Grid>
                     <Grid size={{ xs: 12, sm: 6 }}>
                         {(() => {
-                            const L = parseFloat(quoter.largo), A = parseFloat(quoter.ancho), H = parseFloat(quoter.alto);
+                            const L = Number(quoter.largo), A = Number(quoter.ancho), H = Number(quoter.alto);
                             if (!(L > 0 && A > 0 && H > 0)) {
                                 return <Typography variant="body2" color="text.secondary">Ingresa L × A × H para cotizar</Typography>;
                             }
-                            const r = calculateCost(L, A, H);
-                            const pie3 = r.volume_adjusted / (config.dimensional_divisor || 10780);
+                            let r: { volume_adjusted?: number; cost?: number; cost_usd?: number } = {};
+                            try { r = calculateCost(L, A, H) || {}; } catch { return <Typography variant="body2" color="error">Error al calcular</Typography>; }
+                            const div = Number(config.dimensional_divisor) || 10780;
+                            const pie3 = Number(r.volume_adjusted || 0) / div;
+                            const costUsd = Number(r.cost_usd || 0);
+                            const costMxn = Number(r.cost || 0);
+                            const safe = (n: number, d = 2) => (Number.isFinite(n) ? n : 0).toFixed(d);
                             return (
                                 <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                                    <Box><Typography variant="caption" color="text.secondary" display="block">Pie³</Typography><Typography fontWeight={700}>{pie3.toFixed(4)}</Typography></Box>
-                                    <Box><Typography variant="caption" color="text.secondary" display="block">Costo USD</Typography><Typography fontWeight={700}>${r.cost_usd.toFixed(2)}</Typography></Box>
-                                    <Box><Typography variant="caption" color="text.secondary" display="block">Costo MXN</Typography><Typography variant="h6" fontWeight={800} color="error.main">${r.cost.toFixed(2)}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary" display="block">Pie³</Typography><Typography fontWeight={700}>{safe(pie3, 4)}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary" display="block">Costo USD</Typography><Typography fontWeight={700}>${safe(costUsd)}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary" display="block">Costo MXN</Typography><Typography variant="h6" fontWeight={800} color="error.main">${safe(costMxn)}</Typography></Box>
                                     <Button size="small" onClick={() => setQuoter({ largo: '', ancho: '', alto: '' })}>Limpiar</Button>
                                 </Box>
                             );
