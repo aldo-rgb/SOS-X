@@ -94,6 +94,8 @@ export default function AdvisorCommissionsLedgerPage() {
   const [payNotes, setPayNotes] = useState('');
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  // Vista: detalle (una fila por guía) o agrupada por Orden de Pago (compacta).
+  const [groupByOrder, setGroupByOrder] = useState(false);
 
   // Lista de asesores para el filtro
   const [advisorsList, setAdvisorsList] = useState<{ id: number; full_name: string }[]>([]);
@@ -185,6 +187,49 @@ export default function AdvisorCommissionsLedgerPage() {
   const selectedTotal = records
     .filter(r => selectedIds.includes(r.id))
     .reduce((sum, r) => sum + r.commissionAmount, 0);
+
+  // Agrupado por Orden de Pago: una fila por orden, con las guías compactadas.
+  // Las comisiones sin orden quedan como fila individual (clave única por id).
+  const groupedRows = (() => {
+    const groups = new Map<string, CommissionRecord[]>();
+    for (const r of records) {
+      const key = r.paymentOrder || `__single_${r.id}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(r);
+    }
+    return Array.from(groups.entries()).map(([key, recs]) => {
+      const first = recs[0];
+      const services = new Set(recs.map(r => r.serviceType));
+      const rates = new Set(recs.map(r => (r.gexCommission > 0 ? 'Fijo' : `${r.commissionRate}%`)));
+      const paidCount = recs.filter(r => r.status === 'paid').length;
+      const awaitingCount = recs.filter(r => r.awaitingClientPayment).length;
+      const pendingIds = recs.filter(r => r.status === 'pending' && !r.awaitingClientPayment).map(r => r.id);
+      const status = paidCount === recs.length ? 'paid'
+        : paidCount > 0 ? 'partial'
+        : (awaitingCount > 0 && awaitingCount + paidCount === recs.length) ? 'awaiting'
+        : 'pending';
+      return {
+        key,
+        paymentOrder: first.paymentOrder,
+        paymentOrderStatus: first.paymentOrderStatus,
+        advisorName: first.advisorName,
+        clientBox: first.clientBox,
+        serviceType: services.size === 1 ? first.serviceType : '',
+        createdAt: recs.map(r => r.createdAt).sort().slice(-1)[0] || first.createdAt,
+        count: recs.length,
+        trackings: recs.map(r => r.tracking).filter(Boolean),
+        montoBase: recs.reduce((s, r) => s + r.paymentAmount, 0),
+        comision: recs.reduce((s, r) => s + r.commissionAmount, 0),
+        rateLabel: rates.size === 1 ? [...rates][0] : 'Varias',
+        status,
+        pendingIds,
+      };
+    });
+  })();
+
+  const toggleSelectMany = (ids: number[], check: boolean) => {
+    setSelectedIds(prev => check ? Array.from(new Set([...prev, ...ids])) : prev.filter(id => !ids.includes(id)));
+  };
 
   // ─── Render ───
   return (
@@ -319,6 +364,31 @@ export default function AdvisorCommissionsLedgerPage() {
             </Paper>
           )}
 
+          {/* Toggle de vista: detalle vs agrupado por Orden de Pago */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+            <Button
+              size="small"
+              variant={!groupByOrder ? 'contained' : 'outlined'}
+              onClick={() => setGroupByOrder(false)}
+              sx={!groupByOrder ? { bgcolor: ORANGE, '&:hover': { bgcolor: '#e05a1a' } } : { color: ORANGE, borderColor: ORANGE }}
+            >
+              Detalle por guía
+            </Button>
+            <Button
+              size="small"
+              variant={groupByOrder ? 'contained' : 'outlined'}
+              onClick={() => setGroupByOrder(true)}
+              sx={groupByOrder ? { bgcolor: ORANGE, '&:hover': { bgcolor: '#e05a1a' } } : { color: ORANGE, borderColor: ORANGE }}
+            >
+              📦 Por Orden de Pago
+            </Button>
+            {groupByOrder && (
+              <Typography variant="caption" color="text.secondary">
+                {groupedRows.length} orden{groupedRows.length === 1 ? '' : 'es'} · guías compactadas
+              </Typography>
+            )}
+          </Box>
+
           {/* Table */}
           <Paper sx={{ borderRadius: 2, overflow: 'hidden' }}>
             {loading ? (
@@ -359,6 +429,64 @@ export default function AdvisorCommissionsLedgerPage() {
                             </Typography>
                           </TableCell>
                         </TableRow>
+                      ) : groupByOrder ? (
+                        groupedRows.map(g => {
+                          const allSel = g.pendingIds.length > 0 && g.pendingIds.every(id => selectedIds.includes(id));
+                          const someSel = g.pendingIds.some(id => selectedIds.includes(id));
+                          return (
+                          <TableRow key={g.key} hover>
+                            <TableCell padding="checkbox">
+                              {g.pendingIds.length > 0 && (
+                                <Checkbox size="small" checked={allSel} indeterminate={!allSel && someSel}
+                                  onChange={(e) => toggleSelectMany(g.pendingIds, e.target.checked)} />
+                              )}
+                            </TableCell>
+                            <TableCell><Typography variant="caption">{formatDate(g.createdAt)}</Typography></TableCell>
+                            <TableCell><Typography variant="body2" fontWeight={600} noWrap sx={{ maxWidth: 120 }}>{g.advisorName}</Typography></TableCell>
+                            <TableCell><Typography variant="body2">{g.serviceType ? (serviceLabels[g.serviceType] || g.serviceType) : 'Varios'}</Typography></TableCell>
+                            <TableCell>
+                              <Tooltip title={g.trackings.join(', ') || '—'}>
+                                <Chip label={`${g.count} guía${g.count === 1 ? '' : 's'}`} size="small"
+                                  sx={{ fontWeight: 700, bgcolor: 'rgba(0,0,0,0.06)' }} />
+                              </Tooltip>
+                            </TableCell>
+                            <TableCell>
+                              {g.paymentOrder ? (
+                                <Chip label={g.paymentOrder} size="small" variant="outlined"
+                                  sx={{ fontFamily: 'monospace', fontSize: '0.7rem', fontWeight: 600, borderColor: ORANGE, color: ORANGE }} />
+                              ) : <Typography variant="caption" color="text.secondary">Sin orden</Typography>}
+                            </TableCell>
+                            <TableCell align="center">
+                              {(() => {
+                                const st = String(g.paymentOrderStatus || '').toLowerCase();
+                                if (!st) return <Typography variant="caption" color="text.secondary">—</Typography>;
+                                const map: Record<string, { label: string; color: any }> = {
+                                  completed: { label: 'Pagado', color: 'success' }, paid: { label: 'Pagado', color: 'success' },
+                                  cancelled: { label: 'Cancelada', color: 'error' }, expired: { label: 'Expirada', color: 'error' },
+                                  pending_payment: { label: 'Pendiente', color: 'warning' }, pending: { label: 'Pendiente', color: 'warning' },
+                                  vouchers_submitted: { label: 'Procesando', color: 'info' }, vouchers_partial: { label: 'Procesando', color: 'info' },
+                                  completado: { label: 'Completada', color: 'success' }, en_proceso: { label: 'Pendiente', color: 'warning' },
+                                  esperando_comprobante: { label: 'Pendiente', color: 'warning' }, cancelado: { label: 'Cancelada', color: 'error' },
+                                  error_envio: { label: 'Error', color: 'error' }, active: { label: 'Pagada', color: 'success' },
+                                  generated: { label: 'Pendiente', color: 'warning' },
+                                };
+                                const c = map[st] || { label: g.paymentOrderStatus as string, color: 'default' };
+                                return <Chip label={c.label} size="small" color={c.color} variant={c.color === 'success' ? 'filled' : 'outlined'} sx={{ fontSize: '0.7rem' }} />;
+                              })()}
+                            </TableCell>
+                            <TableCell><Typography variant="body2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>{g.clientBox || '—'}</Typography></TableCell>
+                            <TableCell align="right">{formatMXN(g.montoBase)}</TableCell>
+                            <TableCell align="right"><Typography variant="caption" color="text.secondary">{g.rateLabel}</Typography></TableCell>
+                            <TableCell align="right"><Typography fontWeight={700} color="info.main">{formatMXN(g.comision)}</Typography></TableCell>
+                            <TableCell align="center">
+                              {g.status === 'paid' ? <Chip label="Pagado" size="small" color="success" variant="filled" sx={{ fontSize: '0.7rem' }} />
+                                : g.status === 'partial' ? <Chip label="Parcial" size="small" color="info" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                : g.status === 'awaiting' ? <Chip label="En crédito" size="small" color="default" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                : <Chip label="Pendiente" size="small" color="warning" variant="filled" sx={{ fontSize: '0.7rem' }} />}
+                            </TableCell>
+                          </TableRow>
+                          );
+                        })
                       ) : (
                         records.map(r => (
                           <TableRow key={r.id} hover selected={selectedIds.includes(r.id)}>
