@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
+import { ensureDesktopNotificationPermission, showDesktopNotification } from './utils/desktopNotifications';
 import {
   Box,
   Drawer,
@@ -311,6 +312,9 @@ function App() {
   const [notifAnchorEl, setNotifAnchorEl] = useState<null | HTMLElement>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Capa A: banner nativo de escritorio por notificaciones nuevas (pestaña abierta).
+  const desktopSeenIds = useRef<Set<number>>(new Set());
+  const desktopInit = useRef(false);
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [selectedNotifIds, setSelectedNotifIds] = useState<Set<number>>(new Set());
   const [userPanelPermissions, setUserPanelPermissions] = useState<Record<string, boolean>>({});
@@ -377,15 +381,35 @@ function App() {
           
           setNotifications(loadedNotifications);
           setUnreadCount(loadedUnread);
+
+          // ─── Capa A: banner nativo de escritorio por notificaciones NUEVAS ───
+          try {
+            const withId = (loadedNotifications as any[]).filter(n => typeof n.id === 'number' && n.id > 0);
+            if (!desktopInit.current) {
+              // Primera carga: solo marcar como vistas (no notificar lo ya existente).
+              withId.forEach(n => desktopSeenIds.current.add(n.id));
+              desktopInit.current = true;
+            } else {
+              const nuevas = withId.filter(n => !desktopSeenIds.current.has(n.id) && !n.is_read);
+              for (const n of nuevas) {
+                desktopSeenIds.current.add(n.id);
+                showDesktopNotification({ title: n.title || 'EntregaX', body: n.message || '', tag: `notif-${n.id}` });
+              }
+              // marcar también las ya-leídas nuevas para no re-notificar
+              withId.forEach(n => desktopSeenIds.current.add(n.id));
+            }
+          } catch { /* noop */ }
         }
       } catch (error) {
         console.error('Error cargando notificaciones:', error);
       }
     };
-    
+
+    // Pedir permiso de notificaciones de escritorio al autenticar.
+    ensureDesktopNotificationPermission();
     loadNotifications();
-    // Recargar cada 60 segundos
-    const interval = setInterval(loadNotifications, 60000);
+    // Recargar cada 30 segundos (más ágil para los banners de escritorio).
+    const interval = setInterval(loadNotifications, 30000);
     return () => clearInterval(interval);
   }, [isAuthenticated, currentUser]);
 
