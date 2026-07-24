@@ -7225,14 +7225,16 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
                  false, NULL, 1, 1, 'BODEGA', $11,
                  'México', 'En Bodega', 'Pendiente de asignar',
                  'POBOX_USA', 'usa_pobox', false,
-                 $12, $13, $14, $15, $16,
+                 $17, $13, $14, $15, $16,
                  $12, $13,
                  0, 0, 0, true)
          RETURNING id, tracking_internal, weight, pkg_length, pkg_width, pkg_height`,
         [
           master.user_id || null, master.box_id || null, brokerTracking, trackingCourier || null, cleanOriginCarrier,
           'Hidalgo TX - Recepción individual', w, l, wd, h, brokerReceiptId,
-          svcMxn, costUsd, ventaUsd, nivel, tc,
+          // $12 = svcMxn (COSTO interno → pobox_provider_cost_mxn)
+          // $17 = ventaMxn (VENTA → pobox_service_cost). El bug era usar $12 para ambos.
+          svcMxn, costUsd, ventaUsd, nivel, tc, ventaMxn,
         ]
       );
       await client.query('COMMIT');
