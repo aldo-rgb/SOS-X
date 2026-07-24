@@ -51,6 +51,9 @@ interface PushPayload {
   sound?: string;
   // Canal de Android (ej. 'altas'). Si no existe en el dispositivo, cae al default.
   channelId?: string;
+  // Tipo de notificación (ver NOTIFICATION_TYPES). Si se pasa, el tono/canal y el
+  // on/off se resuelven desde la config del panel de Ajustes del Sistema.
+  notificationType?: string;
 }
 
 function isExpoToken(token: string): boolean {
@@ -141,6 +144,21 @@ async function sendExpoPush(
 export async function sendPushToUsers(userIds: number[], payload: PushPayload): Promise<void> {
   if (!Array.isArray(userIds) || userIds.length === 0) return;
 
+  // Resolver tono / on-off desde la config del panel (Ajustes del Sistema).
+  if (payload.notificationType) {
+    try {
+      const { resolveSoundForType } = await import('./notificationSoundsController');
+      const resolved = await resolveSoundForType(payload.notificationType);
+      if (resolved) {
+        if (!resolved.enabled) return; // notificación APAGADA → no se envía
+        if (!payload.sound) payload.sound = resolved.iosSound;
+        if (!payload.channelId) payload.channelId = resolved.androidChannel;
+        // La url del mp3 custom viaja en data para que la app la reproduzca en primer plano.
+        if (resolved.customUrl) payload.data = { ...(payload.data || {}), _customSoundUrl: resolved.customUrl };
+      }
+    } catch { /* si falla, se envía con el sonido por defecto */ }
+  }
+
   // Recoger tokens activos
   const r = await pool.query(
     `SELECT id, token, platform FROM user_push_tokens
@@ -222,8 +240,7 @@ export async function notifyNewClientAlta(user: {
       title: '🔔 Nueva alta de cliente',
       body: `${user.full_name || 'Nuevo cliente'} se acaba de registrar`,
       data: { type: 'nueva_alta', userId: String(user.id), boxId: String(user.box_id || '') },
-      sound: 'gong.wav',   // requiere build nativo; si no existe en el device, cae a default
-      channelId: 'altas',  // canal Android con sonido Gong (se crea en la app)
+      notificationType: 'new_client_alta', // tono/on-off desde el panel de Ajustes
     });
   } catch (e) {
     console.error('[ALTA] push a super_admin falló:', (e as Error).message);

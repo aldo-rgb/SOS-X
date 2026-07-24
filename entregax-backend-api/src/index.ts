@@ -13700,6 +13700,19 @@ app.get('/account-deletion', renderAccountDeletionPage);
 // Iniciar CRON Jobs para automatización
 import { initCronJobs } from './cronJobs';
 
+// ─── Panel de tonos de notificaciones push (Ajustes del Sistema) ───
+import {
+  getNotificationSounds, setNotificationSound, setNotificationEnabled,
+  uploadNotificationSound, removeNotificationSound, getNotificationSoundsPublic,
+} from './notificationSoundsController';
+const notifSoundUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+app.get('/api/admin/notification-sounds', authenticateToken, requireRole(ROLES.SUPER_ADMIN), getNotificationSounds);
+app.put('/api/admin/notification-sounds/:type', authenticateToken, requireRole(ROLES.SUPER_ADMIN), setNotificationSound);
+app.put('/api/admin/notification-sounds/:type/enabled', authenticateToken, requireRole(ROLES.SUPER_ADMIN), setNotificationEnabled);
+app.post('/api/admin/notification-sounds/:type/custom', authenticateToken, requireRole(ROLES.SUPER_ADMIN), notifSoundUpload.single('file'), uploadNotificationSound);
+app.delete('/api/admin/notification-sounds/:type/custom', authenticateToken, requireRole(ROLES.SUPER_ADMIN), removeNotificationSound);
+app.get('/api/notification-sounds/config', authenticateToken, getNotificationSoundsPublic);
+
 // Auto-migración: asegura columnas requeridas por features recientes (idempotente)
 async function ensureRequiredColumns() {
   try {

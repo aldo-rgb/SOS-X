@@ -824,7 +824,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 // Push FCM según preferencias
                 if (wantPush && wantService) {
                     const { sendPushToUsers } = await import('./pushService');
-                    await sendPushToUsers([user.id!], { title: notifTitle, body: notifBody, data: notifData });
+                    await sendPushToUsers([user.id!], { title: notifTitle, body: notifBody, data: notifData, notificationType: 'package_received' });
                 }
 
                 // WhatsApp según preferencias (requiere template aprobado en Meta)
@@ -2614,7 +2614,7 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
 
                 if (prefs.notif_push !== false && prefs.notif_service !== false) {
                     const { sendPushToUsers } = await import('./pushService');
-                    await sendPushToUsers([pkg.user_id], { title: notifTitle, body: notifBody, data: notifData });
+                    await sendPushToUsers([pkg.user_id], { title: notifTitle, body: notifBody, data: notifData, notificationType: 'package_delivered' });
                 }
 
                 if (prefs.notif_whatsapp !== false && (prefs.phone_verified === true || prefs.whatsapp_verified === true) && prefs.notif_service !== false && prefs.phone) {
@@ -7748,7 +7748,7 @@ export const notifyBulkMasterReception = async (req: Request, res: Response): Pr
 
       if (pkg.notif_push !== false && pkg.notif_service !== false) {
         const { sendPushToUsers } = await import('./pushService');
-        await sendPushToUsers([pkg.user_id], { title: notifTitle, body: notifBody, data: notifData }).catch(() => {});
+        await sendPushToUsers([pkg.user_id], { title: notifTitle, body: notifBody, data: notifData, notificationType: 'package_received' }).catch(() => {});
       }
 
       const wantWhatsapp = pkg.notif_whatsapp !== false && pkg.notif_service !== false && pkg.phone;
@@ -7789,7 +7789,7 @@ export const notifyBulkMasterReception = async (req: Request, res: Response): Pr
       )).catch(() => {});
 
       import('./pushService').then(({ sendPushToRole }) => {
-        sendPushToRole(['asesor', 'sub_advisor', 'advisor'], { title: notifTitle, body: notifBody, data: notifData }).catch(() => {});
+        sendPushToRole(['asesor', 'sub_advisor', 'advisor'], { title: notifTitle, body: notifBody, data: notifData, notificationType: 'package_unassigned' }).catch(() => {});
       }).catch(() => {});
     }
 

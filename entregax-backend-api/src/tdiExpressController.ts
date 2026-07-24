@@ -665,7 +665,7 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
             createCustomNotification(row.id, notifTitle, notifBody, 'info', 'search', notifData)
           )).catch(() => {});
           import('./pushService').then(({ sendPushToRole }) => {
-            sendPushToRole(['asesor', 'sub_advisor', 'advisor'], { title: notifTitle, body: notifBody, data: notifData }).catch(() => {});
+            sendPushToRole(['asesor', 'sub_advisor', 'advisor'], { title: notifTitle, body: notifBody, data: notifData, notificationType: 'package_unassigned' }).catch(() => {});
           }).catch(() => {});
         } catch (notifErr: any) {
           console.warn('[addTdiBox] no se pudo notificar guía sin identificar:', notifErr.message);

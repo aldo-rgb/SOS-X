@@ -943,7 +943,7 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       if (wantPush && wantService) {
         const { sendPushToUsers } = await import('./pushService').catch(() => ({ sendPushToUsers: undefined })) as any;
         if (typeof sendPushToUsers === 'function') {
-          await sendPushToUsers([userId], { title: notifTitle, body: notifBody, data: notifData }).catch((e: any) => console.warn('[DHL/push] failed:', e?.message));
+          await sendPushToUsers([userId], { title: notifTitle, body: notifBody, data: notifData, notificationType: 'package_received' }).catch((e: any) => console.warn('[DHL/push] failed:', e?.message));
         }
       }
 

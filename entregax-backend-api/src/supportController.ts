@@ -1089,6 +1089,7 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
               ticket_id: String(id),
               ticket_folio: info.ticket_folio,
             },
+            notificationType: 'ticket_client_reply',
           }).catch((e: any) => console.error('Push error (client reply):', e));
         }
       }
@@ -1342,6 +1343,7 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
                 ticket_id: String(id),
                 ticket_folio: info.ticket_folio,
               },
+              notificationType: 'ticket_agent_reply',
             }).catch((e: any) => console.error('Push error (support reply):', e));
           }
         }

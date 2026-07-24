@@ -1759,7 +1759,7 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
                 await createCustomNotification(pkg.user_id, notifTitle, notifBody, 'success', 'package', notifData);
                 if (prefs.notif_push !== false && prefs.notif_service !== false) {
                     const { sendPushToUsers } = await import('./pushService');
-                    await sendPushToUsers([pkg.user_id], { title: notifTitle, body: notifBody, data: notifData });
+                    await sendPushToUsers([pkg.user_id], { title: notifTitle, body: notifBody, data: notifData, notificationType: 'package_delivered' });
                 }
                 if (prefs.notif_whatsapp !== false && (prefs.phone_verified === true || prefs.whatsapp_verified === true) && prefs.notif_service !== false && prefs.phone) {
                     const { sendTemplate } = await import('./whatsappService').catch(() => ({ sendTemplate: undefined })) as any;
@@ -2002,7 +2002,7 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                         await createCustomNotification(row.user_id, notifTitle, notifBody, 'success', 'package', notifData);
                         if (prefs.notif_push !== false && prefs.notif_service !== false) {
                             const { sendPushToUsers } = await import('./pushService');
-                            await sendPushToUsers([row.user_id], { title: notifTitle, body: notifBody, data: notifData });
+                            await sendPushToUsers([row.user_id], { title: notifTitle, body: notifBody, data: notifData, notificationType: 'package_delivered' });
                         }
                         if (prefs.notif_whatsapp !== false && (prefs.phone_verified === true || prefs.whatsapp_verified === true) && prefs.notif_service !== false && prefs.phone) {
                             const { sendTemplate } = await import('./whatsappService').catch(() => ({ sendTemplate: undefined })) as any;

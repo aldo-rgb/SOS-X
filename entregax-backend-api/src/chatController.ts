@@ -440,6 +440,7 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
           conversation_id: String(conversationId),
           message_id: String(messageId),
         },
+        notificationType: 'internal_chat',
       }).catch((err: any) => console.error('[chat] push:', err.message));
     }
 
