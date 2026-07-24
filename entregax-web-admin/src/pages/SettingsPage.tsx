@@ -40,6 +40,7 @@ import SyncIcon from '@mui/icons-material/Sync';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
 import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleFacturas, toggleGEX, toggleAdvisorInstructions, toggleAdvisorPaymentOrder, toggleAdvisorXpay, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleRequireInstructionsToLoadPobox, toggleExternalSync, toggleEntregaxPaymentQuery, toggleCajito, toggleMaintenanceMode, toggleNotifCajaRecibida, toggleNotifPago, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
+import NotificationSoundsManager from '../components/NotificationSoundsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
 import CajitoAuditDialog from '../components/CajitoAuditDialog';
 import HistoryIcon from '@mui/icons-material/History';
@@ -1194,6 +1195,9 @@ export default function SettingsPage() {
 
             {/* Identidad Visual / Logos (solo super_admin) */}
             {isSuperAdmin && <BrandAssetsManager />}
+
+            {/* Sonidos de Notificaciones (solo super_admin) */}
+            {isSuperAdmin && <NotificationSoundsManager />}
 
             {/* Integraciones Externas — solo super_admin */}
             {isSuperAdmin && (
