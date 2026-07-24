@@ -36,6 +36,23 @@ export const BUNDLED_SOUNDS: Array<{ key: string; label: string; file: string | 
   { key: 'gong',    label: 'Gong',                      file: 'gong.wav', channel: 'altas' },
 ];
 
+// Catálogo de roles que se pueden elegir como destinatarios EXTRA de cada notif.
+export const ROLE_OPTIONS: Array<{ key: string; label: string }> = [
+  { key: 'super_admin', label: 'Super Admin' },
+  { key: 'admin', label: 'Admin' },
+  { key: 'director', label: 'Director' },
+  { key: 'operaciones', label: 'Operaciones' },
+  { key: 'abogado', label: 'Abogado' },
+  { key: 'accountant', label: 'Contador' },
+  { key: 'customer_service', label: 'Servicio a Cliente' },
+  { key: 'counter_staff', label: 'Personal de Mostrador' },
+  { key: 'soporte_tecnico', label: 'Soporte Técnico' },
+  { key: 'monitoreo', label: 'Monitoreo' },
+  { key: 'advisor', label: 'Asesor' },
+  { key: 'sub_advisor', label: 'Sub Asesor' },
+  { key: 'branch_manager', label: 'Gerente Sucursal' },
+];
+
 let schemaReady = false;
 export const ensureNotificationSoundSchema = async (): Promise<void> => {
   if (schemaReady) return;
@@ -52,6 +69,7 @@ export const ensureNotificationSoundSchema = async (): Promise<void> => {
     )
   `);
   await pool.query(`ALTER TABLE notification_sound_config ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE`).catch(() => {});
+  await pool.query(`ALTER TABLE notification_sound_config ADD COLUMN IF NOT EXISTS recipient_roles JSONB`).catch(() => {});
   // Seed: por defecto la alta de cliente usa Gong (no pisa si ya hay config).
   await pool.query(
     `INSERT INTO notification_sound_config (notification_type, sound_key) VALUES ('new_client_alta', 'gong')
@@ -62,7 +80,7 @@ export const ensureNotificationSoundSchema = async (): Promise<void> => {
 
 // Resuelve el tono para un tipo (usado por pushService y por la app en primer plano).
 // Devuelve el filename iOS + channel Android para segundo plano, y la url custom para primer plano.
-export interface ResolvedSound { soundKey: string; iosSound: string; androidChannel: string; customUrl: string | null; enabled: boolean; }
+export interface ResolvedSound { soundKey: string; iosSound: string; androidChannel: string; customUrl: string | null; enabled: boolean; recipientRoles: string[]; }
 const soundCache = new Map<string, { v: ResolvedSound; exp: number }>();
 export const resolveSoundForType = async (type: string | undefined | null): Promise<ResolvedSound | null> => {
   if (!type) return null;
@@ -70,7 +88,7 @@ export const resolveSoundForType = async (type: string | undefined | null): Prom
   if (cached && cached.exp > Date.now()) return cached.v;
   try {
     await ensureNotificationSoundSchema();
-    const r = await pool.query(`SELECT sound_key, custom_sound_url, enabled FROM notification_sound_config WHERE notification_type = $1`, [type]);
+    const r = await pool.query(`SELECT sound_key, custom_sound_url, enabled, recipient_roles FROM notification_sound_config WHERE notification_type = $1`, [type]);
     const row = r.rows[0];
     const soundKey = row?.sound_key || 'default';
     const bundled = BUNDLED_SOUNDS.find(b => b.key === soundKey) || BUNDLED_SOUNDS[0];
@@ -80,6 +98,7 @@ export const resolveSoundForType = async (type: string | undefined | null): Prom
       androidChannel: bundled?.channel || 'default',
       customUrl: row?.custom_sound_url || null,
       enabled: row ? row.enabled !== false : true,
+      recipientRoles: Array.isArray(row?.recipient_roles) ? row.recipient_roles : [],
     };
     soundCache.set(type, { v, exp: Date.now() + 30_000 });
     return v;
@@ -91,18 +110,23 @@ const clearSoundCache = () => soundCache.clear();
 export const getNotificationSounds = async (_req: Request, res: Response): Promise<any> => {
   try {
     await ensureNotificationSoundSchema();
-    const cfg = await pool.query(`SELECT notification_type, sound_key, enabled, custom_sound_url, custom_sound_filename, updated_at FROM notification_sound_config`);
+    const cfg = await pool.query(`SELECT notification_type, sound_key, enabled, recipient_roles, custom_sound_url, custom_sound_filename, updated_at FROM notification_sound_config`);
     const byType: Record<string, any> = {};
     for (const row of cfg.rows) byType[row.notification_type] = row;
     const types = NOTIFICATION_TYPES.map(t => ({
       ...t,
       soundKey: byType[t.key]?.sound_key || 'default',
       enabled: byType[t.key] ? byType[t.key].enabled !== false : true,
+      recipientRoles: Array.isArray(byType[t.key]?.recipient_roles) ? byType[t.key].recipient_roles : [],
       customSoundUrl: byType[t.key]?.custom_sound_url || null,
       customSoundFilename: byType[t.key]?.custom_sound_filename || null,
       updatedAt: byType[t.key]?.updated_at || null,
     }));
-    res.json({ success: true, types, bundledSounds: BUNDLED_SOUNDS.map(({ key, label }) => ({ key, label })) });
+    res.json({
+      success: true, types,
+      bundledSounds: BUNDLED_SOUNDS.map(({ key, label }) => ({ key, label })),
+      roleOptions: ROLE_OPTIONS,
+    });
   } catch (e: any) {
     console.error('getNotificationSounds:', e);
     res.status(500).json({ success: false, error: e.message });
@@ -148,6 +172,29 @@ export const setNotificationEnabled = async (req: Request, res: Response): Promi
     res.json({ success: true });
   } catch (e: any) {
     console.error('setNotificationEnabled:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+};
+
+// PUT /api/admin/notification-sounds/:type/roles  { roles: string[] }
+// Roles EXTRA que también reciben esta notificación (aditivo, no quita los actuales).
+export const setNotificationRoles = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { type } = req.params;
+    const { roles } = req.body || {};
+    if (!NOTIFICATION_TYPES.find(t => t.key === type)) return res.status(400).json({ success: false, error: 'Tipo de notificación inválido' });
+    const valid = Array.isArray(roles) ? roles.filter((r: any) => ROLE_OPTIONS.some(o => o.key === r)) : [];
+    await ensureNotificationSoundSchema();
+    await pool.query(
+      `INSERT INTO notification_sound_config (notification_type, recipient_roles, updated_by, updated_at)
+       VALUES ($1, $2::jsonb, $3, NOW())
+       ON CONFLICT (notification_type) DO UPDATE SET recipient_roles = $2::jsonb, updated_by = $3, updated_at = NOW()`,
+      [type, JSON.stringify(valid), (req as any).user?.id || null]
+    );
+    clearSoundCache();
+    res.json({ success: true, roles: valid });
+  } catch (e: any) {
+    console.error('setNotificationRoles:', e);
     res.status(500).json({ success: false, error: e.message });
   }
 };

@@ -142,9 +142,9 @@ async function sendExpoPush(
 }
 
 export async function sendPushToUsers(userIds: number[], payload: PushPayload): Promise<void> {
-  if (!Array.isArray(userIds) || userIds.length === 0) return;
+  let recipientIds: number[] = Array.isArray(userIds) ? [...userIds] : [];
 
-  // Resolver tono / on-off desde la config del panel (Ajustes del Sistema).
+  // Resolver tono / on-off / roles extra desde la config del panel (Ajustes del Sistema).
   if (payload.notificationType) {
     try {
       const { resolveSoundForType } = await import('./notificationSoundsController');
@@ -155,15 +155,24 @@ export async function sendPushToUsers(userIds: number[], payload: PushPayload): 
         if (!payload.channelId) payload.channelId = resolved.androidChannel;
         // La url del mp3 custom viaja en data para que la app la reproduzca en primer plano.
         if (resolved.customUrl) payload.data = { ...(payload.data || {}), _customSoundUrl: resolved.customUrl };
+        // Roles EXTRA configurados en el panel → también notificar a esos usuarios.
+        if (resolved.recipientRoles && resolved.recipientRoles.length > 0) {
+          const rr = await pool.query(`SELECT id FROM users WHERE role = ANY($1::text[])`, [resolved.recipientRoles]);
+          const set = new Set(recipientIds);
+          for (const row of rr.rows) set.add(row.id);
+          recipientIds = Array.from(set);
+        }
       }
     } catch { /* si falla, se envía con el sonido por defecto */ }
   }
+
+  if (recipientIds.length === 0) return;
 
   // Recoger tokens activos
   const r = await pool.query(
     `SELECT id, token, platform FROM user_push_tokens
       WHERE user_id = ANY($1::int[]) AND is_active = TRUE`,
-    [userIds]
+    [recipientIds]
   );
   const allTokens: { id: number; token: string; platform: string }[] = r.rows;
   if (allTokens.length === 0) return;

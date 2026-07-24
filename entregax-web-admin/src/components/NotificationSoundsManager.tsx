@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Card, CardContent, Box, Typography, Chip, Alert, Stack, Switch,
   FormControl, Select, MenuItem, IconButton, Button, CircularProgress, Divider, Tooltip,
+  InputLabel, OutlinedInput, Checkbox, ListItemText,
 } from '@mui/material';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -14,11 +15,14 @@ const getToken = () => localStorage.getItem('token') || '';
 interface NotifType {
   key: string; label: string; description: string; group: string;
   soundKey: string; enabled: boolean; customSoundUrl: string | null; customSoundFilename: string | null;
+  recipientRoles: string[];
 }
+interface RoleOption { key: string; label: string; }
 
 export default function NotificationSoundsManager() {
   const [types, setTypes] = useState<NotifType[]>([]);
   const [bundled, setBundled] = useState<{ key: string; label: string }[]>([]);
+  const [roleOptions, setRoleOptions] = useState<RoleOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null); // key en proceso
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -29,7 +33,7 @@ export default function NotificationSoundsManager() {
     try {
       const res = await fetch(`${API_URL}/admin/notification-sounds`, { headers: { Authorization: `Bearer ${getToken()}` } });
       const data = await res.json();
-      if (data.success) { setTypes(data.types || []); setBundled(data.bundledSounds || []); }
+      if (data.success) { setTypes(data.types || []); setBundled(data.bundledSounds || []); setRoleOptions(data.roleOptions || []); }
     } catch { /* ignore */ } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
@@ -54,6 +58,16 @@ export default function NotificationSoundsManager() {
       await fetch(`${API_URL}/admin/notification-sounds/${t.key}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({ soundKey }),
+      });
+    } catch { /* ignore */ }
+  };
+
+  const changeRoles = async (t: NotifType, roles: string[]) => {
+    patch(t.key, { recipientRoles: roles });
+    try {
+      await fetch(`${API_URL}/admin/notification-sounds/${t.key}/roles`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ roles }),
       });
     } catch { /* ignore */ }
   };
@@ -97,9 +111,10 @@ export default function NotificationSoundsManager() {
           <Chip label="Super Admin" size="small" color="warning" sx={{ ml: 1 }} />
         </Box>
         <Alert severity="info" sx={{ mb: 2 }}>
-          Para cada notificación push puedes <strong>prenderla/apagarla</strong>, elegir su <strong>tono</strong> y
-          subir un <strong>MP3</strong>. El MP3 suena de inmediato con la <strong>app abierta / web</strong>; para el
-          <strong> segundo plano</strong> (app cerrada) el sistema usa el tono empaquetado y los MP3 nuevos requieren un build de la app.
+          Para cada notificación puedes <strong>prenderla/apagarla</strong>, elegir su <strong>tono</strong>, subir un
+          <strong> MP3</strong> y definir <strong>a qué roles extra</strong> se notifica (además de su destinatario normal).
+          El MP3 suena de inmediato con la <strong>app abierta / web</strong>; para el <strong>segundo plano</strong> (app
+          cerrada) se usa el tono empaquetado y los MP3 nuevos requieren un build de la app.
         </Alert>
 
         {loading ? (
@@ -117,6 +132,27 @@ export default function NotificationSoundsManager() {
                         <Typography variant="body2" fontWeight={700}>{t.label}</Typography>
                         <Typography variant="caption" color="text.secondary">{t.description}</Typography>
                       </Box>
+
+                      {/* Roles extra que también reciben la notificación */}
+                      <FormControl size="small" sx={{ minWidth: 190, maxWidth: 250 }} disabled={!t.enabled}>
+                        <InputLabel>Notificar a (extra)</InputLabel>
+                        <Select
+                          multiple
+                          value={t.recipientRoles || []}
+                          onChange={(e) => changeRoles(t, typeof e.target.value === 'string' ? e.target.value.split(',') : (e.target.value as string[]))}
+                          input={<OutlinedInput label="Notificar a (extra)" />}
+                          renderValue={(sel) => (sel as string[]).length === 0
+                            ? 'Nadie extra'
+                            : (sel as string[]).map(k => roleOptions.find(o => o.key === k)?.label || k).join(', ')}
+                        >
+                          {roleOptions.map(o => (
+                            <MenuItem key={o.key} value={o.key}>
+                              <Checkbox size="small" checked={(t.recipientRoles || []).includes(o.key)} />
+                              <ListItemText primary={o.label} />
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
 
                       {/* Tono empaquetado (segundo plano) */}
                       <FormControl size="small" sx={{ minWidth: 150 }} disabled={!t.enabled}>
