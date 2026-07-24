@@ -26,6 +26,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { API_URL, Package } from '../services/api';
+import { shortPqtxGuide } from '../utils/pqtx';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 
 const ORANGE = '#F05A28';
@@ -716,7 +717,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
               <View style={styles.infoRow}>
                 <MaterialCommunityIcons name="barcode-scan" size={20} color="#666" />
                 <Text style={styles.infoLabel}>Guía Nacional:</Text>
-                <Text style={styles.infoValue}>{details.national_folio_porte || details.national_tracking}</Text>
+                <Text style={styles.infoValue}>{details.national_folio_porte || shortPqtxGuide(details.national_tracking)}</Text>
               </View>
             )}
           </Card.Content>

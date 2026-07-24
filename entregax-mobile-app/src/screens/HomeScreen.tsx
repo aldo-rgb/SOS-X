@@ -45,6 +45,7 @@ import {
 } from '../services/followedTrackings';
 import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
 import { getPackageCostBreakdown } from '../utils/packageCosts';
+import { shortPqtxGuide } from '../utils/pqtx';
 import { setDeepLinkListener, consumePendingDeepLink, type DeepLinkTarget } from '../deepLink';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import { useBrandAsset } from '../hooks/useBrandAssets';
@@ -1436,7 +1437,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   return (
                     <Pressable
                       onPress={() => {
-                        const tn = (item as any).national_tracking;
+                        const tn = shortPqtxGuide((item as any).national_tracking);
                         if (tn) {
                           Clipboard.setString(String(tn));
                           if (Platform.OS === 'android') {
@@ -1461,7 +1462,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       {!!(item as any).national_tracking && (
                         <>
                           <Text style={[styles.assignedCarrierText, { fontWeight: '700', marginLeft: 6 }]}>
-                            · {(item as any).national_tracking}
+                            · {shortPqtxGuide((item as any).national_tracking)}
                           </Text>
                           <Icon source="content-copy" size={11} color={ORANGE} />
                         </>

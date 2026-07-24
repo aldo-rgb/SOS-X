@@ -7,6 +7,16 @@ import path from 'path';
 import fs from 'fs';
 import axios from 'axios';
 
+// Guía CORTA de Paquete Express (PQTX) para MOSTRAR al cliente: el national_tracking
+// se guarda como folio (14) + sufijo de caja/pieza (6) → 'MTY01WE6018254001001'.
+// El cliente debe ver solo el folio → 'MTY01WE6018254'. Solo aplica a vistas del
+// cliente/rastreo; NO se toca el valor operativo (etiqueta física / repartidor).
+export const shortPqtxTracking = (t?: string | null): string | null => {
+  if (!t) return t ?? null;
+  const m = String(t).trim().match(/^(MTY\d{2}[A-Z]{2}\d{7})\d{6}$/i);
+  return m && m[1] ? m[1].toUpperCase() : t;
+};
+
 // ============ TIPOS ============
 type PackageStatus =
     | 'received'
@@ -1732,7 +1742,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         destinationCountry: destCountry,
                         destinationCode,
                         nationalCarrier: fallbackRow.national_carrier || null,
-                        nationalTracking: fallbackRow.national_tracking || null,
+                        nationalTracking: shortPqtxTracking(fallbackRow.national_tracking),
                         nationalLabelUrl: fallbackRow.national_label_url || null,
                         // 🚢 ETA / semana / contenedor marítimo (containers.eta vía container_id)
                         eta: fallbackRow.container_eta || null,
@@ -2197,7 +2207,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     vehiclePlates: pkg.vehicle_license_plates || null,
                     destinationCity: destCityFull, destinationCountry: destCountry, destinationCode,
                     nationalCarrier: pkg.national_carrier || null,
-                    nationalTracking: pkg.national_tracking || null,
+                    nationalTracking: shortPqtxTracking(pkg.national_tracking),
                     nationalLabelUrl: pkg.national_label_url || null,
                     nationalPieces,
                     internationalTracking: pkg.international_tracking || null,
@@ -2402,7 +2412,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         width: parseFloat(c.pkg_width), height: parseFloat(c.pkg_height),
                         formatted: formatDimensions(parseFloat(c.pkg_length), parseFloat(c.pkg_width), parseFloat(c.pkg_height)) },
                     status: c.status, imageUrl: c.image_url || null,
-                    nationalTracking: c.national_tracking || null,
+                    nationalTracking: shortPqtxTracking(c.national_tracking),
                     nationalLabelUrl: c.national_label_url || null,
                     nationalCarrier: c.national_carrier || null,
                     // 💰 Tarifa PO Box por hija (para desglose en scanner multisucursal)
