@@ -311,14 +311,20 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
         resolvedClientName
     ]);
 
-    // Si encontramos el cliente y la orden es nueva, notificarlo
+    // Si encontramos el cliente y la orden es nueva, notificarlo.
+    // ⚠️ UNIFICADO POR GUÍA MASTER: claim ATÓMICO sobre arrival_notified_at para
+    // garantizar EXACTAMENTE UNA notificación por LOG (ordersn), sin importar
+    // cuántas veces corra el sync. El guard anterior (created_at < NOW()-1min)
+    // re-notificaba en cada ciclo durante el primer minuto → ráfaga de duplicados.
     if (userId) {
-        const existing = await pool.query(
-            'SELECT id FROM maritime_orders WHERE ordersn = $1 AND created_at < NOW() - INTERVAL \'1 minute\'',
+        const claim = await pool.query(
+            `UPDATE maritime_orders SET arrival_notified_at = NOW()
+              WHERE ordersn = $1 AND arrival_notified_at IS NULL
+              RETURNING id`,
             [order.ordersn]
         );
-        
-        if (existing.rows.length === 0) {
+
+        if (claim.rows.length > 0) {
             // Es una orden nueva, notificar al cliente
             const addressNote = defaultAddressId 
                 ? ' Se asignó tu dirección predeterminada automáticamente.'
