@@ -106,22 +106,32 @@ export const resolveSoundForType = async (type: string | undefined | null): Prom
 };
 const clearSoundCache = () => soundCache.clear();
 
+// Re-firma una URL fresca (7 días) desde la key guardada. Si no hay key, usa la
+// url guardada (compat). Evita que el mp3/wav "expire" (SigV4 máx 7 días).
+const freshCustomUrl = async (row: any): Promise<string | null> => {
+  if (!row) return null;
+  if (row.custom_sound_key) {
+    try { return await getSignedUrlForKey(row.custom_sound_key, 60 * 60 * 24 * 7); } catch { /* fallback */ }
+  }
+  return row.custom_sound_url || null;
+};
+
 // GET /api/admin/notification-sounds  → catálogo de tipos + config + tonos disponibles
 export const getNotificationSounds = async (_req: Request, res: Response): Promise<any> => {
   try {
     await ensureNotificationSoundSchema();
-    const cfg = await pool.query(`SELECT notification_type, sound_key, enabled, recipient_roles, custom_sound_url, custom_sound_filename, updated_at FROM notification_sound_config`);
+    const cfg = await pool.query(`SELECT notification_type, sound_key, enabled, recipient_roles, custom_sound_url, custom_sound_key, custom_sound_filename, updated_at FROM notification_sound_config`);
     const byType: Record<string, any> = {};
     for (const row of cfg.rows) byType[row.notification_type] = row;
-    const types = NOTIFICATION_TYPES.map(t => ({
+    const types = await Promise.all(NOTIFICATION_TYPES.map(async t => ({
       ...t,
       soundKey: byType[t.key]?.sound_key || 'default',
       enabled: byType[t.key] ? byType[t.key].enabled !== false : true,
       recipientRoles: Array.isArray(byType[t.key]?.recipient_roles) ? byType[t.key].recipient_roles : [],
-      customSoundUrl: byType[t.key]?.custom_sound_url || null,
+      customSoundUrl: await freshCustomUrl(byType[t.key]),
       customSoundFilename: byType[t.key]?.custom_sound_filename || null,
       updatedAt: byType[t.key]?.updated_at || null,
-    }));
+    })));
     res.json({
       success: true, types,
       bundledSounds: BUNDLED_SOUNDS.map(({ key, label }) => ({ key, label })),
@@ -215,8 +225,9 @@ export const uploadNotificationSound = async (req: Request, res: Response): Prom
     const ext = (file.originalname?.split('.').pop() || 'mp3').toLowerCase();
     const key = `notification-sounds/${type}_${Date.now()}.${ext}`;
     await uploadToS3(file.buffer, key, file.mimetype || 'audio/mpeg');
-    // URL firmada larga (bucket privado) para reproducir desde web/app.
-    const url = await getSignedUrlForKey(key, 60 * 60 * 24 * 365);
+    // URL firmada al MÁXIMO de SigV4 (7 días). Se re-firma fresca al leer la config
+    // (getNotificationSounds*), así nunca "expira" para la app/web.
+    const url = await getSignedUrlForKey(key, 60 * 60 * 24 * 7);
     await pool.query(
       `INSERT INTO notification_sound_config (notification_type, custom_sound_url, custom_sound_key, custom_sound_filename, updated_by, updated_at)
        VALUES ($1, $2, $3, $4, $5, NOW())
@@ -252,9 +263,9 @@ export const removeNotificationSound = async (req: Request, res: Response): Prom
 export const getNotificationSoundsPublic = async (_req: Request, res: Response): Promise<any> => {
   try {
     await ensureNotificationSoundSchema();
-    const cfg = await pool.query(`SELECT notification_type, sound_key, enabled, custom_sound_url FROM notification_sound_config`);
+    const cfg = await pool.query(`SELECT notification_type, sound_key, enabled, custom_sound_url, custom_sound_key FROM notification_sound_config`);
     const map: Record<string, { soundKey: string; enabled: boolean; customUrl: string | null }> = {};
-    for (const row of cfg.rows) map[row.notification_type] = { soundKey: row.sound_key, enabled: row.enabled !== false, customUrl: row.custom_sound_url };
+    for (const row of cfg.rows) map[row.notification_type] = { soundKey: row.sound_key, enabled: row.enabled !== false, customUrl: await freshCustomUrl(row) };
     res.json({ success: true, config: map });
   } catch (e: any) {
     res.status(500).json({ success: false, error: e.message });

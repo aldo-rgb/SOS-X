@@ -72,17 +72,24 @@ export default function NotificationSoundsManager() {
     } catch { /* ignore */ }
   };
 
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const uploadMp3 = async (t: NotifType, file: File) => {
-    setBusy(t.key);
+    setBusy(t.key); setUploadError(null);
     try {
       const fd = new FormData();
       fd.append('file', file);
       const res = await fetch(`${API_URL}/admin/notification-sounds/${t.key}/custom`, {
         method: 'POST', headers: { Authorization: `Bearer ${getToken()}` }, body: fd,
       });
-      const data = await res.json();
-      if (data.success) patch(t.key, { customSoundUrl: data.customSoundUrl, customSoundFilename: data.customSoundFilename });
-    } catch { /* ignore */ } finally { setBusy(null); }
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        patch(t.key, { customSoundUrl: data.customSoundUrl, customSoundFilename: data.customSoundFilename });
+      } else {
+        setUploadError(`${t.label}: ${data.error || `Error ${res.status} al subir`}`);
+      }
+    } catch (e: any) {
+      setUploadError(`${t.label}: ${e?.message || 'Error de red al subir'}`);
+    } finally { setBusy(null); }
   };
 
   const removeMp3 = async (t: NotifType) => {
@@ -117,6 +124,7 @@ export default function NotificationSoundsManager() {
           para el <strong>segundo plano</strong> (app cerrada) se usa el tono empaquetado y los sonidos nuevos requieren
           un build de la app. <strong>Usa WAV corto (2–6 s, ≤30 s)</strong> — es el único formato que sirve en segundo plano en iOS.
         </Alert>
+        {uploadError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setUploadError(null)}>{uploadError}</Alert>}
 
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
