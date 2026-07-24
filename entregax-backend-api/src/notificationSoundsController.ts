@@ -51,6 +51,7 @@ export const ROLE_OPTIONS: Array<{ key: string; label: string }> = [
   { key: 'advisor', label: 'Asesor' },
   { key: 'sub_advisor', label: 'Sub Asesor' },
   { key: 'branch_manager', label: 'Gerente Sucursal' },
+  { key: 'client', label: 'Cliente (todos)' },
 ];
 
 let schemaReady = false;
