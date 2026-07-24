@@ -112,9 +112,10 @@ export default function NotificationSoundsManager() {
         </Box>
         <Alert severity="info" sx={{ mb: 2 }}>
           Para cada notificación puedes <strong>prenderla/apagarla</strong>, elegir su <strong>tono</strong>, subir un
-          <strong> MP3</strong> y definir <strong>a qué roles extra</strong> se notifica (además de su destinatario normal).
-          El MP3 suena de inmediato con la <strong>app abierta / web</strong>; para el <strong>segundo plano</strong> (app
-          cerrada) se usa el tono empaquetado y los MP3 nuevos requieren un build de la app.
+          sonido <strong>WAV</strong> (también acepta MP3) y definir <strong>a qué roles extra</strong> se notifica
+          (además de su destinatario normal). El sonido suena de inmediato con la <strong>app abierta / web</strong>;
+          para el <strong>segundo plano</strong> (app cerrada) se usa el tono empaquetado y los sonidos nuevos requieren
+          un build de la app. <strong>Usa WAV corto (2–6 s, ≤30 s)</strong> — es el único formato que sirve en segundo plano en iOS.
         </Alert>
 
         {loading ? (
@@ -176,10 +177,10 @@ export default function NotificationSoundsManager() {
                         <Button size="small" variant="outlined" startIcon={busy === t.key ? <CircularProgress size={14} /> : <UploadFileIcon />}
                           disabled={!t.enabled || busy === t.key}
                           onClick={() => fileInputs.current[t.key]?.click()}>
-                          Subir MP3
+                          Subir WAV
                         </Button>
                       )}
-                      <input ref={el => { fileInputs.current[t.key] = el; }} type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/ogg,.mp3,.wav,.ogg"
+                      <input ref={el => { fileInputs.current[t.key] = el; }} type="file" accept="audio/wav,.wav,audio/mpeg,audio/mp3,.mp3,audio/ogg,.ogg"
                         style={{ display: 'none' }}
                         onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMp3(t, f); e.currentTarget.value = ''; }} />
 
