@@ -358,6 +358,16 @@ const formatMonthLabel = (ym: string) => {
   return `${months[parseInt(m) - 1]} ${y}`;
 };
 
+// Enruta URLs S3 (presigned) de adjuntos por nuestro proxy same-origin para
+// verlas inline. Evita que el navegador (o el wrapper de escritorio) codifique el
+// '?' de la URL firmada y S3 responda NoSuchKey. Las no-S3 se dejan tal cual.
+const attachmentViewHref = (u: string): string => {
+  if (!/amazonaws\.com/i.test(u)) return u;
+  const base = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api`;
+  const name = (u.split('?')[0].split('/').pop() || 'archivo');
+  return `${base}/files/download?inline=1&name=${encodeURIComponent(name)}&src=${encodeURIComponent(u)}`;
+};
+
 // ─── Component ───
 
 export default function DashboardAdvisor() {
@@ -5817,7 +5827,7 @@ export default function DashboardAdvisor() {
                                 );
                               }
                               return (
-                                <a key={i} href={u} target="_blank" rel="noreferrer"
+                                <a key={i} href={attachmentViewHref(u)} target="_blank" rel="noreferrer"
                                   style={{
                                     display: 'inline-flex', alignItems: 'center', gap: 4,
                                     padding: '4px 8px', borderRadius: 6, textDecoration: 'none',
@@ -7928,7 +7938,7 @@ export default function DashboardAdvisor() {
                             );
                           }
                           return (
-                            <a key={i} href={u} target="_blank" rel="noreferrer" download={fileName}
+                            <a key={i} href={attachmentViewHref(u)} target="_blank" rel="noreferrer"
                               style={{
                                 display: 'inline-flex', alignItems: 'center', gap: 6,
                                 padding: '6px 10px', borderRadius: 6, textDecoration: 'none',

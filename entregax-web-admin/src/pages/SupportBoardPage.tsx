@@ -1283,7 +1283,7 @@ export default function SupportBoardPage() {
                               } catch { fileName = `archivo-${i}`; }
                               return isPdf ? (
                                 <Box key={i} sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
-                                  <a href={u} target="_blank" rel="noreferrer"
+                                  <a href={/amazonaws\.com/i.test(u) ? `${API_URL}/files/download?inline=1&name=${encodeURIComponent(fileName)}&src=${encodeURIComponent(u)}` : u} target="_blank" rel="noreferrer"
                                     style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: '#fce4ec', borderRadius: 6, border: '1px solid #ef9a9a', textDecoration: 'none', color: '#c62828' }}>
                                     <PdfIcon sx={{ fontSize: 20 }} />
                                     <Typography variant="caption" fontWeight={600}>Ver PDF</Typography>
