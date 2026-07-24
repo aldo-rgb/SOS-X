@@ -161,6 +161,8 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
     const [dateTo, setDateTo] = useState<string>('');
     const [showPaidFilter, setShowPaidFilter] = useState<'all' | 'paid' | 'unpaid'>('unpaid');
     const [trackingFilter, setTrackingFilter] = useState<string>('');
+    // Cotizador rápido (dimensiones en cm)
+    const [quoter, setQuoter] = useState<{ largo: string; ancho: string; alto: string }>({ largo: '', ancho: '', alto: '' });
 
     // Selección para pago
     const [selectedPackages, setSelectedPackages] = useState<number[]>([]);
@@ -487,6 +489,46 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                     2. Pie³ × ${Number(config.base_rate || 75).toFixed(2)} USD × TC API ${Number(tcApi || 17.65).toFixed(2)} = Costo MXN
                 </Typography>
             </Alert>
+
+            {/* Cotizador rápido */}
+            <Paper variant="outlined" sx={{ p: 2, mb: 3, borderColor: 'primary.light' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+                    <Typography variant="subtitle1" fontWeight={700}>🧮 Cotizador rápido</Typography>
+                    <Typography variant="caption" color="text.secondary">Dimensiones en cm · TC ${Number(tcApi || 17.65).toFixed(2)} · ${Number(config.base_rate || 75).toFixed(0)} USD/pie³</Typography>
+                </Box>
+                <Grid container spacing={2} alignItems="center">
+                    <Grid size={{ xs: 4, sm: 2 }}>
+                        <TextField label="Largo (cm)" type="number" size="small" fullWidth
+                            value={quoter.largo} onChange={(e) => setQuoter({ ...quoter, largo: e.target.value })} />
+                    </Grid>
+                    <Grid size={{ xs: 4, sm: 2 }}>
+                        <TextField label="Ancho (cm)" type="number" size="small" fullWidth
+                            value={quoter.ancho} onChange={(e) => setQuoter({ ...quoter, ancho: e.target.value })} />
+                    </Grid>
+                    <Grid size={{ xs: 4, sm: 2 }}>
+                        <TextField label="Alto (cm)" type="number" size="small" fullWidth
+                            value={quoter.alto} onChange={(e) => setQuoter({ ...quoter, alto: e.target.value })} />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                        {(() => {
+                            const L = parseFloat(quoter.largo), A = parseFloat(quoter.ancho), H = parseFloat(quoter.alto);
+                            if (!(L > 0 && A > 0 && H > 0)) {
+                                return <Typography variant="body2" color="text.secondary">Ingresa L × A × H para cotizar</Typography>;
+                            }
+                            const r = calculateCost(L, A, H);
+                            const pie3 = r.volume_adjusted / (config.dimensional_divisor || 10780);
+                            return (
+                                <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                                    <Box><Typography variant="caption" color="text.secondary" display="block">Pie³</Typography><Typography fontWeight={700}>{pie3.toFixed(4)}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary" display="block">Costo USD</Typography><Typography fontWeight={700}>${r.cost_usd.toFixed(2)}</Typography></Box>
+                                    <Box><Typography variant="caption" color="text.secondary" display="block">Costo MXN</Typography><Typography variant="h6" fontWeight={800} color="error.main">${r.cost.toFixed(2)}</Typography></Box>
+                                    <Button size="small" onClick={() => setQuoter({ largo: '', ancho: '', alto: '' })}>Limpiar</Button>
+                                </Box>
+                            );
+                        })()}
+                    </Grid>
+                </Grid>
+            </Paper>
 
             {/* Stats */}
             <Grid container spacing={2} sx={{ mb: 3 }}>
