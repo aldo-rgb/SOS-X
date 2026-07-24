@@ -97,6 +97,32 @@ export async function registerForPushNotifications(authToken: string): Promise<s
         lightColor: '#F05A28',
         sound: 'default',
       });
+      // Canales por-tono personalizados (deben coincidir con `channel` de
+      // BUNDLED_SOUNDS del backend). Android usa el sonido del canal; los .wav se
+      // empaquetan vía app.json → expo-notifications sounds. Canales inmutables:
+      // si cambias un .wav, usa un id nuevo (p.ej. s_tarifa_v2).
+      const CUSTOM_CHANNELS: Array<{ id: string; name: string; sound: string }> = [
+        { id: 's_paquete_recibido',  name: 'Paquete recibido',     sound: 'notif_paquete_recibido.wav' },
+        { id: 's_guia_sin_id',       name: 'Guía sin identificar', sound: 'notif_guia_sin_id.wav' },
+        { id: 's_paquete_entregado', name: 'Paquete entregado',    sound: 'notif_paquete_entregado.wav' },
+        { id: 's_reempaque',         name: 'Reempaque',            sound: 'notif_reempaque.wav' },
+        { id: 's_bono_referido',     name: 'Bono de referido',     sound: 'notif_bono_referido.wav' },
+        { id: 's_regalo',            name: 'Regalo',               sound: 'notif_regalo.wav' },
+        { id: 's_estado_cuenta',     name: 'Estado de cuenta',     sound: 'notif_estado_cuenta.wav' },
+        { id: 's_ticket_agente',     name: 'Ticket (agente)',      sound: 'notif_ticket_agente.wav' },
+        { id: 's_ticket_cliente',    name: 'Ticket (cliente)',     sound: 'notif_ticket_cliente.wav' },
+        { id: 's_chat_interno',      name: 'Chat interno',         sound: 'notif_chat_interno.wav' },
+        { id: 's_tarifa',            name: 'Tarifa',               sound: 'notif_tarifa.wav' },
+      ];
+      for (const ch of CUSTOM_CHANNELS) {
+        await Notifications.setNotificationChannelAsync(ch.id, {
+          name: ch.name,
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#F05A28',
+          sound: ch.sound,
+        });
+      }
     }
 
     // Obtener Expo push token (ExponentPushToken[...])

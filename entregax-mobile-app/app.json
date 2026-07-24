@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.entregax.mobile",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "usesAppleSignIn": true,
       "associatedDomains": [
         "applinks:www.entregax.app",
@@ -43,7 +43,7 @@
     },
     "android": {
       "package": "com.entregax.mobile",
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -131,7 +131,20 @@
       [
         "expo-notifications",
         {
-          "sounds": ["./assets/sounds/gong.wav"]
+          "sounds": [
+            "./assets/sounds/gong.wav",
+            "./assets/sounds/notif_paquete_recibido.wav",
+            "./assets/sounds/notif_guia_sin_id.wav",
+            "./assets/sounds/notif_paquete_entregado.wav",
+            "./assets/sounds/notif_reempaque.wav",
+            "./assets/sounds/notif_bono_referido.wav",
+            "./assets/sounds/notif_regalo.wav",
+            "./assets/sounds/notif_estado_cuenta.wav",
+            "./assets/sounds/notif_ticket_agente.wav",
+            "./assets/sounds/notif_ticket_cliente.wav",
+            "./assets/sounds/notif_chat_interno.wav",
+            "./assets/sounds/notif_tarifa.wav"
+          ]
         }
       ]
     ],

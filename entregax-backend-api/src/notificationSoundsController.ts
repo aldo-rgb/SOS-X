@@ -33,8 +33,21 @@ export const NOTIFICATION_TYPES: Array<{ key: string; label: string; description
 // file = archivo .wav en assets/sounds; channel = canal Android creado en pushClient.
 // 'default' = tono del sistema. Al agregar tonos nuevos hay que empaquetarlos + build.
 export const BUNDLED_SOUNDS: Array<{ key: string; label: string; file: string | null; channel: string }> = [
-  { key: 'default', label: 'Predeterminado (sistema)', file: null, channel: 'default' },
-  { key: 'gong',    label: 'Gong',                      file: 'gong.wav', channel: 'altas' },
+  { key: 'default',            label: 'Predeterminado (sistema)', file: null,                          channel: 'default' },
+  { key: 'gong',               label: 'Gong',                     file: 'gong.wav',                    channel: 'altas' },
+  // Tonos personalizados empaquetados en el build (assets/sounds). El channel debe
+  // existir en pushClient.ts (mobile) para que Android use el sonido.
+  { key: 'paquete_recibido',   label: '📦 Paquete recibido',      file: 'notif_paquete_recibido.wav',  channel: 's_paquete_recibido' },
+  { key: 'guia_sin_id',        label: '📦 Guía sin identificar',  file: 'notif_guia_sin_id.wav',       channel: 's_guia_sin_id' },
+  { key: 'paquete_entregado',  label: '🎉 Paquete entregado',     file: 'notif_paquete_entregado.wav', channel: 's_paquete_entregado' },
+  { key: 'reempaque',          label: '📦 Reempaque',             file: 'notif_reempaque.wav',         channel: 's_reempaque' },
+  { key: 'bono_referido',      label: '💸 Bono de referido',      file: 'notif_bono_referido.wav',     channel: 's_bono_referido' },
+  { key: 'regalo',             label: '🎁 Regalo',                file: 'notif_regalo.wav',            channel: 's_regalo' },
+  { key: 'estado_cuenta',      label: '💳 Estado de cuenta',      file: 'notif_estado_cuenta.wav',     channel: 's_estado_cuenta' },
+  { key: 'ticket_agente',      label: '🎧 Ticket (agente)',       file: 'notif_ticket_agente.wav',     channel: 's_ticket_agente' },
+  { key: 'ticket_cliente',     label: '💬 Ticket (cliente)',      file: 'notif_ticket_cliente.wav',    channel: 's_ticket_cliente' },
+  { key: 'chat_interno',       label: '💬 Chat interno',          file: 'notif_chat_interno.wav',      channel: 's_chat_interno' },
+  { key: 'tarifa',             label: '💱 Tarifa',                file: 'notif_tarifa.wav',            channel: 's_tarifa' },
 ];
 
 // Catálogo de roles que se pueden elegir como destinatarios EXTRA de cada notif.
