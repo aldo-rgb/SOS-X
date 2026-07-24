@@ -147,6 +147,13 @@ export default function FCLManagementPage() {
     const [salePriceForm, setSalePriceForm] = useState<{ amount: string; currency: 'USD' | 'MXN' }>({ amount: '', currency: 'USD' });
     const [salePriceSaving, setSalePriceSaving] = useState(false);
     const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
+    // Asignar/editar cliente del contenedor
+    const [clientDialogOpen, setClientDialogOpen] = useState(false);
+    const [clientDialogContainer, setClientDialogContainer] = useState<FCLContainer | null>(null);
+    const [clientSearch, setClientSearch] = useState('');
+    const [clientResults, setClientResults] = useState<{ id: number; box_id: string; full_name: string }[]>([]);
+    const [clientSearchLoading, setClientSearchLoading] = useState(false);
+    const [assigningClient, setAssigningClient] = useState(false);
     
     // Estado para nuevo gasto extra
     const [newExtraCost, setNewExtraCost] = useState({
@@ -250,6 +257,43 @@ export default function FCLManagementPage() {
     useEffect(() => {
         fetchContainers();
     }, [fetchContainers]);
+
+    // ─── Asignar/editar cliente del contenedor ───
+    const openClientDialog = (container: FCLContainer) => {
+        setClientDialogContainer(container);
+        setClientSearch('');
+        setClientResults([]);
+        setClientDialogOpen(true);
+    };
+    const searchFclClients = useCallback(async (term: string) => {
+        if (!term.trim()) { setClientResults([]); return; }
+        setClientSearchLoading(true);
+        try {
+            const res = await axios.get(`${API_URL}/api/admin/fcl-rates/clients`, {
+                headers: { Authorization: `Bearer ${getToken()}` },
+                params: { search: term.trim(), limit: 20 },
+            });
+            setClientResults(res.data.clients || []);
+        } catch { setClientResults([]); } finally { setClientSearchLoading(false); }
+    }, []);
+    useEffect(() => {
+        const t = setTimeout(() => searchFclClients(clientSearch), 300);
+        return () => clearTimeout(t);
+    }, [clientSearch, searchFclClients]);
+    const assignClient = async (legacyClientId: number | null) => {
+        if (!clientDialogContainer) return;
+        setAssigningClient(true);
+        try {
+            await axios.put(`${API_URL}/api/maritime/containers/${clientDialogContainer.id}`,
+                { legacy_client_id: legacyClientId },
+                { headers: { Authorization: `Bearer ${getToken()}` } });
+            setSnackbar({ open: true, message: legacyClientId ? 'Cliente asignado' : 'Cliente quitado', severity: 'success' });
+            setClientDialogOpen(false);
+            fetchContainers();
+        } catch (e: any) {
+            setSnackbar({ open: true, message: e.response?.data?.error || 'Error al asignar cliente', severity: 'error' });
+        } finally { setAssigningClient(false); }
+    };
 
     // Abrir detalle del contenedor
     const handleOpenDetail = async (container: FCLContainer) => {
@@ -554,14 +598,23 @@ export default function FCLManagementPage() {
                                     </TableCell>
                                     <TableCell>{container.bl_number || '-'}</TableCell>
                                     <TableCell>
-                                        <Box>
-                                            <Typography variant="body2" fontWeight="bold">
-                                                {container.client_name || 'Sin asignar'}
-                                            </Typography>
-                                            {container.client_box_id && (
-                                                <Typography variant="caption" color="text.secondary">
-                                                    {container.client_box_id}
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                            <Box>
+                                                <Typography variant="body2" fontWeight="bold" color={container.client_name ? 'text.primary' : 'text.secondary'}>
+                                                    {container.client_name || 'Sin asignar'}
                                                 </Typography>
+                                                {container.client_box_id && (
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {container.client_box_id}
+                                                    </Typography>
+                                                )}
+                                            </Box>
+                                            {canEditSalePrice && (
+                                                <Tooltip title={container.client_name ? 'Cambiar cliente' : 'Asignar cliente'}>
+                                                    <IconButton size="small" onClick={() => openClientDialog(container)} sx={{ color: FCL_COLOR }}>
+                                                        <EditIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
                                             )}
                                         </Box>
                                     </TableCell>
@@ -971,6 +1024,49 @@ export default function FCLManagementPage() {
                     >
                         {salePriceSaving ? 'Guardando...' : 'Guardar'}
                     </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Diálogo: asignar/cambiar cliente del contenedor */}
+            <Dialog open={clientDialogOpen} onClose={() => !assigningClient && setClientDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>
+                    {clientDialogContainer?.client_name ? 'Cambiar cliente' : 'Asignar cliente'}
+                    {clientDialogContainer && (
+                        <Typography variant="caption" display="block" color="text.secondary">
+                            {clientDialogContainer.reference || clientDialogContainer.container_number}
+                            {clientDialogContainer.client_name ? ` · Actual: ${clientDialogContainer.client_name}` : ''}
+                        </Typography>
+                    )}
+                </DialogTitle>
+                <DialogContent dividers>
+                    <TextField
+                        autoFocus fullWidth size="small"
+                        placeholder="Buscar cliente por Box ID o nombre…"
+                        value={clientSearch}
+                        onChange={(e) => setClientSearch(e.target.value)}
+                        InputProps={{ startAdornment: <SearchIcon sx={{ mr: 1, color: '#888' }} fontSize="small" /> }}
+                        sx={{ mb: 1.5 }}
+                    />
+                    {clientSearchLoading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
+                    ) : clientResults.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 3 }}>
+                            {clientSearch.trim() ? 'Sin resultados' : 'Escribe para buscar un cliente'}
+                        </Typography>
+                    ) : (
+                        <List dense sx={{ maxHeight: 320, overflow: 'auto' }}>
+                            {clientResults.map((c) => (
+                                <ListItemButton key={c.id} disabled={assigningClient} onClick={() => assignClient(c.id)}>
+                                    <ListItemText
+                                        primary={<Typography fontWeight={700}>{c.box_id} <Typography component="span" fontWeight={400}>· {c.full_name}</Typography></Typography>}
+                                    />
+                                </ListItemButton>
+                            ))}
+                        </List>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setClientDialogOpen(false)} disabled={assigningClient}>Cancelar</Button>
                 </DialogActions>
             </Dialog>
 
