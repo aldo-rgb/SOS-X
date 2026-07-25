@@ -487,12 +487,23 @@ export default function SaldoFavorScreen({ navigation }: any) {
                     shouldPlay
                     isLooping={false}
                   />
-                ) : (kitDetail.photos?.[mainImgIndex]?.url) ? (
+                ) : ((kitDetail.photos || []).filter((ph: any) => ph?.url).length > 0) ? (
                   <View style={styles.kitDetailImg}>
                     <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
                       <ActivityIndicator color={SEA_COLOR} />
                     </View>
-                    <Image source={{ uri: kitDetail.photos[mainImgIndex].url }} style={[styles.kitDetailImg, { position: 'absolute' }]} resizeMode="cover" fadeDuration={0} />
+                    {/* Todas las fotos APILADAS: se decodifican una vez al abrir y el
+                        cambio entre miniaturas es solo opacidad → instantáneo (antes
+                        re-cargaba/decodificaba la imagen pesada en cada tap). */}
+                    {(kitDetail.photos || []).filter((ph: any) => ph?.url).map((ph: any, i: number) => (
+                      <Image
+                        key={ph.key || ph.url || i}
+                        source={{ uri: ph.url }}
+                        style={[styles.kitDetailImg, { position: 'absolute', opacity: i === mainImgIndex ? 1 : 0 }]}
+                        resizeMode="cover"
+                        fadeDuration={0}
+                      />
+                    ))}
                   </View>
                 ) : (
                   <View style={[styles.kitDetailImg, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#eee' }]}>
