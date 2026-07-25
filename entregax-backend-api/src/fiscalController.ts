@@ -348,18 +348,23 @@ export const createInvoice = async (
 
     // 3. Mapear método de pago a clave SAT
     let paymentForm: string;
-    switch (paymentData.paymentMethod) {
+    switch (String(paymentData.paymentMethod || '').toLowerCase()) {
       case 'card':
         paymentForm = '04'; // Tarjeta de crédito
         break;
       case 'spei':
+      case 'transferencia':
         paymentForm = '03'; // Transferencia electrónica
+        break;
+      case 'cash':
+      case 'efectivo':
+        paymentForm = '01'; // Efectivo
         break;
       case 'paypal':
         paymentForm = '31'; // Intermediario pagos
         break;
       default:
-        paymentForm = '99';
+        paymentForm = '99'; // Por definir (credit/wallet/otros)
     }
 
     // 4. Timbrar con Facturama
@@ -469,6 +474,88 @@ export const createInvoice = async (
   } catch (error: any) {
     console.error('❌ Error creando factura:', error);
     return { success: false, error: error.message };
+  }
+};
+
+// ============================================
+// AUTO-FACTURACIÓN de un pago PO Box (cualquier método: manual/transferencia/
+// cash/credit/wallet). Timbra si requiere_factura y aún no está facturada,
+// respetando el toggle. deferred (toggle off) → deja pendiente SIN error.
+// ============================================
+export const autoInvoicePoboxPayment = async (paymentId: number): Promise<void> => {
+  try {
+    const r = await pool.query(
+      `SELECT id, user_id, amount, currency, payment_method, requiere_factura,
+              facturada, factura_error, package_ids
+         FROM pobox_payments WHERE id = $1`,
+      [paymentId]
+    );
+    const pp = r.rows[0];
+    if (!pp) return;
+    if (!pp.requiere_factura || pp.facturada) return;
+
+    let pkgIds: number[] = [];
+    try { pkgIds = Array.isArray(pp.package_ids) ? pp.package_ids : JSON.parse(pp.package_ids || '[]'); } catch { pkgIds = []; }
+
+    const result = await createInvoice({
+      paymentId: String(pp.id),
+      paymentType: 'pobox',
+      userId: pp.user_id,
+      amount: parseFloat(pp.amount),
+      currency: pp.currency || 'MXN',
+      paymentMethod: String(pp.payment_method || 'cash'),
+      description: `Servicio PO Box USA - ${pkgIds.length || 1} paquete(s)`,
+      packageIds: pkgIds,
+      serviceType: 'po_box',
+    });
+
+    if (result.success) {
+      await pool.query(
+        `UPDATE pobox_payments SET facturada = TRUE, factura_uuid = $1,
+                factura_created_at = CURRENT_TIMESTAMP, factura_error = NULL WHERE id = $2`,
+        [result.uuid, pp.id]
+      );
+      console.log(`✅ [auto-factura] pago ${pp.id} timbrado: ${result.uuid}`);
+    } else if (result.deferred) {
+      // Toggle apagado → se queda pendiente por timbrar, sin marcar error.
+      return;
+    } else {
+      await pool.query(`UPDATE pobox_payments SET factura_error = $1 WHERE id = $2`, [result.error, pp.id]);
+      console.warn(`⚠️ [auto-factura] pago ${pp.id} falló: ${result.error}`);
+    }
+  } catch (e: any) {
+    console.warn(`⚠️ [auto-factura] excepción pago ${paymentId}: ${e?.message}`);
+  }
+};
+
+// ============================================
+// BARREDOR: timbra automáticamente los pagos PO Box completados con factura
+// pendiente (cualquier método). Cubre confirmaciones manuales / conciliación
+// bancaria sin tener que cablear cada punto. Salta los que ya tienen
+// factura_error (evita reintentar bugs en bucle) y respeta el toggle.
+// ============================================
+export const sweepPendingAutoInvoices = async (): Promise<void> => {
+  try {
+    if (!(await isAutoFacturaEnabled('po_box'))) return; // toggle POBOX apagado → no hacer nada
+    const pend = await pool.query(
+      `SELECT id FROM pobox_payments
+        WHERE requiere_factura = TRUE
+          AND COALESCE(facturada, FALSE) = FALSE
+          AND COALESCE(factura_archivada, FALSE) = FALSE
+          AND (factura_error IS NULL OR factura_error = '')
+          AND status IN ('completed','paid')
+          -- Solo recientes: evita timbrar backlog viejo con fecha fiscal actual.
+          AND COALESCE(paid_at, created_at) >= NOW() - INTERVAL '30 days'
+        ORDER BY paid_at ASC NULLS LAST
+        LIMIT 25`
+    );
+    if (pend.rows.length === 0) return;
+    console.log(`🧾 [auto-factura] barredor: ${pend.rows.length} pago(s) por timbrar`);
+    for (const row of pend.rows) {
+      await autoInvoicePoboxPayment(Number(row.id));
+    }
+  } catch (e: any) {
+    console.warn('[auto-factura] barredor falló:', e?.message);
   }
 };
 

@@ -1382,10 +1382,25 @@ export const startScheduledBulkCron = () => {
   console.log('✅ Cron de envíos masivos programados activo (cada minuto)');
 };
 
+// 🧾 Auto-facturación: timbra los pagos PO Box completados con factura pendiente
+// (cualquier método: manual/transferencia/cash/credit/wallet), respetando el toggle.
+export const startAutoInvoiceSweeperCron = () => {
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const { sweepPendingAutoInvoices } = await import('./fiscalController');
+      await sweepPendingAutoInvoices();
+    } catch (e) {
+      console.error('[CRON] startAutoInvoiceSweeperCron:', (e as Error).message);
+    }
+  });
+  console.log('✅ Cron de auto-facturación (barredor) activo (cada 5 min)');
+};
+
 export const initCronJobs = () => {
   startRecoveryCronJob();
   startWaSequenceCron();
   startScheduledBulkCron();
+  startAutoInvoiceSweeperCron();
   startBoxLinkReconcileCron();
   // Reactivado: procesarPrimerPago ya no usa transacción anidada (no puede colgar el pool).
   startReferralFirstShipmentCron();
