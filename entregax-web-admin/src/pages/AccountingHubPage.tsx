@@ -2392,8 +2392,9 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
 
   const loadAutoInv = async () => {
     try {
-      const res = await api.get('/system/payment-status');
-      setAutoInv(res.data?.facturas_enabled !== false);
+      // Estado POR EMPRESA (master ∧ por-empresa) del emisor actual.
+      const res = await api.get(`/accounting/${emitter.id}/auto-invoice-status`);
+      setAutoInv(res.data?.enabled !== false);
     } catch { setAutoInv(null); }
   };
 
@@ -2402,8 +2403,9 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
     setAutoInv(enabled);
     setAutoInvSaving(true);
     try {
-      await api.post('/admin/system/facturas-toggle', { enabled });
-      setSnackbar({ open: true, message: enabled ? '✅ Facturación automática ACTIVADA' : '🔴 Facturación automática DESACTIVADA', severity: enabled ? 'success' : 'warning' });
+      // Toggle POR EMPRESA: solo afecta a este emisor, no a todas las empresas.
+      await api.post('/admin/system/facturas-toggle', { emitterId: emitter.id, enabled });
+      setSnackbar({ open: true, message: enabled ? `✅ Facturación automática ACTIVADA · ${emitter.alias || 'esta empresa'}` : `🔴 Facturación automática DESACTIVADA · ${emitter.alias || 'esta empresa'}`, severity: enabled ? 'success' : 'warning' });
       load();
     } catch (e: any) {
       setAutoInv(prev);
@@ -2445,7 +2447,7 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
       <Paper variant="outlined" sx={{ p: 1.5, mb: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, borderColor: autoInv ? 'rgba(46,125,50,0.4)' : 'rgba(240,90,40,0.4)', bgcolor: autoInv ? 'rgba(46,125,50,0.05)' : 'rgba(240,90,40,0.05)' }}>
         <Box>
           <Typography variant="body2" fontWeight={700}>
-            🧾 Facturación automática {autoInv === null ? '' : autoInv ? '· ACTIVADA' : '· DESACTIVADA'}
+            🧾 Facturación automática · {emitter.alias || 'Empresa'} {autoInv === null ? '' : autoInv ? '· ACTIVADA' : '· DESACTIVADA'}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             {autoInv

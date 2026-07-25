@@ -249,7 +249,7 @@ const FACTURA_TOGGLE_KEY: Record<string, 'pobox' | 'maritimo' | 'aereo' | 'tdi_e
  *   (incluidos testers como S1).
  * - Falla en abierto (TRUE) si la consulta falla, para no romper la facturación.
  */
-export const isAutoFacturaEnabled = async (serviceShort?: string): Promise<boolean> => {
+export const isAutoFacturaEnabled = async (serviceShort?: string, emitterId?: number | null): Promise<boolean> => {
   try {
     const r = await pool.query(
       `SELECT config_value FROM system_configurations WHERE config_key = 'facturas_enabled' AND is_active = TRUE LIMIT 1`
@@ -257,9 +257,12 @@ export const isAutoFacturaEnabled = async (serviceShort?: string): Promise<boole
     const cfg = r.rows[0]?.config_value;
     if (!cfg) return true;                 // sin configurar → auto
     if (cfg.enabled === false) return false; // master apagado
+    // Por EMPRESA (emisor): si esta empresa está apagada, no se auto-timbra.
+    if (emitterId != null && cfg.by_emitter && cfg.by_emitter[String(emitterId)] === false) return false;
+    // Por SERVICIO.
     const key = FACTURA_TOGGLE_KEY[String(serviceShort || '').toLowerCase()];
-    if (!key) return true;                 // servicio sin toggle (ej. NATIONAL)
-    return cfg.by_service?.[key] !== false;
+    if (key && cfg.by_service?.[key] === false) return false;
+    return true;
   } catch {
     return true;
   }
@@ -344,6 +347,12 @@ export const createInvoice = async (
 
     if (!emitter) {
       return { success: false, error: 'No hay emisor con credenciales Facturama configurado para este servicio' };
+    }
+
+    // 2.5 Toggle POR EMPRESA: si la facturación automática está apagada para ESTA
+    //     empresa emisora, se difiere (queda Pendiente por Timbrar), sin error.
+    if (!(await isAutoFacturaEnabled(paymentData.serviceType, emitter.id))) {
+      return { success: false, deferred: true, error: 'Facturación automática desactivada para esta empresa — pendiente por timbrar' };
     }
 
     // 3. Mapear método de pago a clave SAT

@@ -14680,6 +14680,26 @@ app.post('/api/admin/system/facturas-toggle', authenticateToken, requireMinLevel
     );
     const current = cur.rows[0]?.config_value || {};
     const currentByService = current.by_service || { pobox: true, maritimo: true, aereo: true, tdi_express: true, dhl: true };
+    const currentByEmitter = current.by_emitter || {};
+
+    // 🏢 Toggle POR EMPRESA: si viene emitterId, solo cambia esa empresa; el master
+    // y el by_service quedan intactos (no prende/apaga todas las empresas).
+    const emitterIdRaw = req.body?.emitterId;
+    const emitterId = emitterIdRaw != null ? parseInt(String(emitterIdRaw), 10) : null;
+    if (emitterId != null && Number.isFinite(emitterId)) {
+      const enabledForEmitter = req.body?.enabled !== false;
+      const nextByEmitter = { ...currentByEmitter, [String(emitterId)]: enabledForEmitter };
+      const nextValue = { enabled: current.enabled !== false, by_service: currentByService, by_emitter: nextByEmitter };
+      await pool.query(
+        `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+         VALUES ('facturas_enabled', $1::jsonb, 'Facturación automática EntregaX (timbrado inmediato) — master + por servicio + por empresa. OFF = pendiente por timbrar', TRUE)
+         ON CONFLICT (config_key) DO UPDATE
+           SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+        [JSON.stringify(nextValue), userId]
+      );
+      console.log(`🧾 [FACTURAS] empresa #${emitterId} → ${enabledForEmitter} por user #${userId}`);
+      return res.json({ success: true, emitterId, enabled: enabledForEmitter, by_emitter: nextByEmitter });
+    }
 
     const nextEnabled = req.body?.enabled !== undefined ? !!req.body.enabled : (current.enabled !== false);
     const incomingByService = req.body?.by_service || {};
@@ -14690,7 +14710,7 @@ app.post('/api/admin/system/facturas-toggle', authenticateToken, requireMinLevel
       tdi_express: incomingByService.tdi_express !== undefined ? !!incomingByService.tdi_express : currentByService.tdi_express !== false,
       dhl:         incomingByService.dhl         !== undefined ? !!incomingByService.dhl         : currentByService.dhl         !== false,
     };
-    const nextValue = { enabled: nextEnabled, by_service: nextByService };
+    const nextValue = { enabled: nextEnabled, by_service: nextByService, by_emitter: currentByEmitter };
 
     await pool.query(
       `INSERT INTO system_configurations (config_key, config_value, description, is_active)
@@ -14704,6 +14724,21 @@ app.post('/api/admin/system/facturas-toggle', authenticateToken, requireMinLevel
   } catch (err: any) {
     console.error('[FACTURAS-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar facturación EntregaX' });
+  }
+});
+
+// GET /api/accounting/:emitterId/auto-invoice-status — estado de facturación
+// automática de UNA empresa emisora (master ∧ por-empresa).
+app.get('/api/accounting/:emitterId/auto-invoice-status', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response) => {
+  try {
+    const emitterId = parseInt(String(req.params.emitterId), 10);
+    const cur = await pool.query(`SELECT config_value FROM system_configurations WHERE config_key = 'facturas_enabled' LIMIT 1`);
+    const cfg = cur.rows[0]?.config_value || {};
+    const masterEnabled = cfg.enabled !== false;
+    const emitterEnabled = !(cfg.by_emitter && cfg.by_emitter[String(emitterId)] === false);
+    res.json({ success: true, master_enabled: masterEnabled, emitter_enabled: emitterEnabled, enabled: masterEnabled && emitterEnabled });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Error al consultar estado de facturación' });
   }
 });
 
