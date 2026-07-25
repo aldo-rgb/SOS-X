@@ -24,6 +24,7 @@ import { getSecure } from '../services/secureStorage';
 import { API_URL } from '../services/api';
 import { useTranslation } from 'react-i18next';
 import { Video, ResizeMode } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // Colores
 const SEA_COLOR = '#0097A7';
@@ -93,6 +94,9 @@ export default function SaldoFavorScreen({ navigation }: any) {
   const [kitDetail, setKitDetail] = useState<any | null>(null);
   const [mainImgIndex, setMainImgIndex] = useState(0);
   const [videoPlaying, setVideoPlaying] = useState(false);
+  // Caché local del video de cada regalo (productId → uri local). Se descarga al
+  // cargar el catálogo para que el video abra al instante, sin esperar streaming.
+  const [videoCache, setVideoCache] = useState<Record<number, string>>({});
 
   const openKitDetail = (p: any) => { setMainImgIndex(0); setVideoPlaying(false); setKitDetail(p); };
   const closeKitDetail = () => { setVideoPlaying(false); setKitDetail(null); };
@@ -128,6 +132,24 @@ export default function SaldoFavorScreen({ navigation }: any) {
           prods.forEach((p: any) => (p.photos || []).forEach((ph: any) => {
             if (ph?.url) { Image.prefetch(ph.url).catch(() => {}); }
           }));
+          // Precargar el VIDEO de cada regalo a un archivo local (caché) para que
+          // reproduzca al instante sin esperar el streaming del S3.
+          prods.forEach((p: any) => {
+            if (p?.video_url && p?.id != null) {
+              const dest = `${FileSystem.cacheDirectory}kitvid_${p.id}.mp4`;
+              (async () => {
+                try {
+                  const info: any = await FileSystem.getInfoAsync(dest);
+                  if (info?.exists && info?.size > 0) {
+                    setVideoCache(prev => ({ ...prev, [p.id]: dest }));
+                    return;
+                  }
+                  const dl = await FileSystem.downloadAsync(p.video_url, dest);
+                  if (dl?.uri) setVideoCache(prev => ({ ...prev, [p.id]: dl.uri }));
+                } catch { /* si falla, se usa el streaming remoto */ }
+              })();
+            }
+          });
         }
       }
 
@@ -458,7 +480,7 @@ export default function SaldoFavorScreen({ navigation }: any) {
                 {/* Visor principal: foto o video reproduciéndose */}
                 {videoPlaying && kitDetail.video_url ? (
                   <Video
-                    source={{ uri: kitDetail.video_url }}
+                    source={{ uri: videoCache[kitDetail.id] || kitDetail.video_url }}
                     style={styles.kitDetailImg}
                     useNativeControls
                     resizeMode={ResizeMode.CONTAIN}
