@@ -452,8 +452,10 @@ export const createInvoice = async (
       fiscalData.fiscal_uso_cfdi,
       factura.subtotal,
       factura.total,
-      factura.currency,
-      paymentForm,
+      // 🛡️ Clamp a 10 chars (columnas varchar(10)): evita "value too long".
+      // currency debe ser código ISO (MXN/USD); payment_form código SAT de 2 dígitos.
+      String(factura.currency || paymentData.currency || 'MXN').trim().slice(0, 10),
+      String(paymentForm).trim().slice(0, 10),
       factura.folio_number,
       factura.series || null,
       factura.pdf_url,
