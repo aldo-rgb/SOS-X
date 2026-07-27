@@ -815,10 +815,13 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     `;
 
     // Dynamic filters per sub-query.
-    // received_cdmx/received_cdx = recibido en sucursal CDMX (como received_mty en MTY):
-    // sigue "en tránsito" hasta entregarse. Sin ellos, las guías recibidas en CDMX no
+    // received_cdmx = recibido en sucursal CDMX (como received_mty en MTY): sigue
+    // "en tránsito" hasta entregarse. Sin él, las guías recibidas en CDMX no
     // aparecían (p.ej. en el modal "Nueva Orden CTZ" del asesor).
-    const extraAllTransit = ["'received_mty'", "'received_cdmx'", "'received_cdx'", "'ready_pickup'"];
+    // OJO: 'received_cdx' NO es un valor válido del enum package_status (el válido
+    // es 'received_cdmx'); incluirlo hacía que la consulta reventara con
+    // "invalid input value for enum package_status" y el modal saliera VACÍO.
+    const extraAllTransit = ["'received_mty'", "'received_cdmx'", "'ready_pickup'"];
     let pkgWhere = buildFilterSQL('p.status', 'p.saldo_pendiente', 'p.monto_pagado', "p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')", extraAllTransit);
     // Marítimo: para in_transit mostrar TODO lo que no esté entregado — evita tener que enumerar
     // cada posible status (consolidated, at_port, shipped, dispatched, processing, received_mty…)
