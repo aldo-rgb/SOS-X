@@ -397,6 +397,9 @@ export default function UnifiedLeadsPage() {
   const [blacklist, setBlacklist] = useState<Lead[]>([]);
   const [blacklistView, setBlacklistView] = useState(false);
   const [noPhoneFilter, setNoPhoneFilter] = useState(false);
+  // Filtros independientes: asesor asignado y clics en mensajes.
+  const [advisorFilter, setAdvisorFilter] = useState<'all' | 'with' | 'without'>('all');
+  const [msgClickFilter, setMsgClickFilter] = useState<'all' | 'clicked' | 'not_clicked'>('all');
   // Filtro por plantilla: quién dio clic (o recibió) una plantilla específica.
   const [templateFilter, setTemplateFilter] = useState<number | ''>('');
   const [clickFilter, setClickFilter] = useState<'all' | 'clicked' | 'not_clicked'>('all');
@@ -451,6 +454,19 @@ export default function UnifiedLeadsPage() {
           : leads);
     if (noPhoneFilter) {
       list = list.filter(l => String(l.phone || '').trim() === '');
+    }
+    // Filtro por asesor asignado (con/sin asesor).
+    if (advisorFilter === 'with') {
+      list = list.filter(l => String(l.assigned_advisor_name || '').trim() !== '');
+    } else if (advisorFilter === 'without') {
+      list = list.filter(l => String(l.assigned_advisor_name || '').trim() === '');
+    }
+    // Filtro por clic en mensajes: "con clic" = al menos un clic; "sin clic" =
+    // recibió mensajes pero ninguno con clic (segmento a re-impactar).
+    if (msgClickFilter === 'clicked') {
+      list = list.filter(l => (l.msgs_clicked || 0) > 0);
+    } else if (msgClickFilter === 'not_clicked') {
+      list = list.filter(l => (l.msgs_sent || 0) > 0 && (l.msgs_clicked || 0) === 0);
     }
     const q = leadSearch.trim().toLowerCase();
     if (q) {
@@ -1997,6 +2013,38 @@ export default function UnifiedLeadsPage() {
               onClick={() => setNoPhoneFilter(v => !v)}
               color={noPhoneFilter ? 'warning' : 'default'}
               variant={noPhoneFilter ? 'filled' : 'outlined'}
+              sx={{ fontWeight: 700 }}
+            />
+            <Chip
+              label="🧑‍💼 Con asesor"
+              size="small"
+              onClick={() => setAdvisorFilter(v => (v === 'with' ? 'all' : 'with'))}
+              color={advisorFilter === 'with' ? 'info' : 'default'}
+              variant={advisorFilter === 'with' ? 'filled' : 'outlined'}
+              sx={{ fontWeight: 700 }}
+            />
+            <Chip
+              label="🙅 Sin asesor"
+              size="small"
+              onClick={() => setAdvisorFilter(v => (v === 'without' ? 'all' : 'without'))}
+              color={advisorFilter === 'without' ? 'info' : 'default'}
+              variant={advisorFilter === 'without' ? 'filled' : 'outlined'}
+              sx={{ fontWeight: 700 }}
+            />
+            <Chip
+              label="👆 Con clic"
+              size="small"
+              onClick={() => setMsgClickFilter(v => (v === 'clicked' ? 'all' : 'clicked'))}
+              color={msgClickFilter === 'clicked' ? 'success' : 'default'}
+              variant={msgClickFilter === 'clicked' ? 'filled' : 'outlined'}
+              sx={{ fontWeight: 700 }}
+            />
+            <Chip
+              label="💤 Sin clic"
+              size="small"
+              onClick={() => setMsgClickFilter(v => (v === 'not_clicked' ? 'all' : 'not_clicked'))}
+              color={msgClickFilter === 'not_clicked' ? 'success' : 'default'}
+              variant={msgClickFilter === 'not_clicked' ? 'filled' : 'outlined'}
               sx={{ fontWeight: 700 }}
             />
             <Chip
