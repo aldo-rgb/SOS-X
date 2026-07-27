@@ -118,9 +118,9 @@ interface Lead {
   next_contact_at?: string | null;
   // Reclamado = ya existe un usuario en el sistema (match por Box ID)
   reclamado?: boolean;
-  // Recuperado orgánico = se marcó 'recovered' pero el cliente llegó solo
-  // (sin asesor de recuperación, sin referido, sin asesor). Cuenta como Reclamado.
-  recovered_organic?: boolean;
+  // Orgánico = el cliente llegó solo (sin asesor de recuperación, sin referido,
+  // sin asesor). Va a su propia sección "Orgánicos".
+  is_organic?: boolean;
   // Grupos a los que pertenece el lead
   groups?: Array<{ id: number; name: string; color: string }>;
   // Kit de bienvenida
@@ -231,6 +231,7 @@ interface LeadStats {
   converted: number;
   reclamados: number;
   recuperados: number;
+  organicos: number;
 }
 
 interface ProspectStats {
@@ -362,7 +363,7 @@ export default function UnifiedLeadsPage() {
   
   // ============ CRM LEADS STATE ============
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [leadStats, setLeadStats] = useState<LeadStats>({ prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0, reclamados: 0, recuperados: 0 });
+  const [leadStats, setLeadStats] = useState<LeadStats>({ prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0, reclamados: 0, recuperados: 0, organicos: 0 });
   const [leadsLoading, setLeadsLoading] = useState(true);
   const [leadTabValue, setLeadTabValue] = useState('prospected');
   
@@ -1101,7 +1102,7 @@ export default function UnifiedLeadsPage() {
       });
       if (res.data.success) {
         setLeads(res.data.leads || []);
-        setLeadStats(res.data.stats || { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0, reclamados: 0, recuperados: 0 });
+        setLeadStats(res.data.stats || { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0, reclamados: 0, recuperados: 0, organicos: 0 });
       }
     } catch {
       console.error('Error fetching leads');
@@ -1871,6 +1872,7 @@ export default function UnifiedLeadsPage() {
               <Tab value="contacted" label={`${t('leads.contacted')} (${leadStats.contacted})`} />
               <Tab value="reclamados" label={`Reclamados (${leadStats.reclamados})`} />
               <Tab value="recuperados" label={`Recuperados (${leadStats.recuperados})`} />
+              <Tab value="organicos" label={`🌱 Orgánicos (${leadStats.organicos})`} />
               <Tab value="advisors" label={`Asesores (${advisors.length})`} />
               <Tab value="all" label={t('leads.all')} />
             </Tabs>
@@ -2322,15 +2324,17 @@ export default function UnifiedLeadsPage() {
                         )}
                         {!blacklistView && lead.source === 'chartback' && (() => {
                           const st = String(lead.chartback_status || '').toLowerCase().trim();
-                          // Recuperado ORGÁNICO (llegó solo, sin asesor/referido) NO cuenta
-                          // como Recuperado: se muestra como Reclamado.
-                          const organicRecovered = st === 'recovered' && !!lead.recovered_organic;
-                          const meaningful = !organicRecovered && ['recovered', 'no_answer', 'callback', 'retention', 'not_interested'].includes(st);
+                          // ORGÁNICO (llegó solo, sin asesor/referido) tiene su propia
+                          // etiqueta; no cuenta como Recuperado ni Reclamado.
+                          const isOrganic = lead.status === 'converted' && !!lead.is_organic;
+                          const meaningful = !isOrganic && ['recovered', 'no_answer', 'callback', 'retention', 'not_interested'].includes(st);
                           // Si tiene actividad de reactivación real, muestra ese sub-estatus;
                           // si no, muestra si está reclamado (tiene usuario) o no.
-                          const label = meaningful
-                            ? getChartbackSubLabel(lead.chartback_status)
-                            : (lead.reclamado ? 'Reclamado ✅' : 'Sin reclamar');
+                          const label = isOrganic
+                            ? '🌱 Orgánico'
+                            : (meaningful
+                                ? getChartbackSubLabel(lead.chartback_status)
+                                : (lead.reclamado ? 'Reclamado ✅' : 'Sin reclamar'));
                           return (
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                               {label}

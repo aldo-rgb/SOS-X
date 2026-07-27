@@ -178,7 +178,9 @@ const LEADS_COMBINED_QUERY = `
           NULL::jsonb AS activity,
           NULL::timestamptz AS next_contact_at,
           true AS reclamado,
-          false AS recovered_organic
+          -- Orgánico también para leads de la app: sin asesor asignado, sin
+          -- referido y sin asesor vinculado al usuario.
+          (r.assigned_advisor_id IS NULL AND u.referred_by_id IS NULL AND u.advisor_id IS NULL) AS is_organic
         FROM crm_requests r
         JOIN users u ON r.user_id = u.id
         LEFT JOIN users a ON r.assigned_advisor_id = a.id
@@ -220,14 +222,13 @@ const LEADS_COMBINED_QUERY = `
           lc.chartback_activity AS activity,
           lc.next_contact_at,
           (mu.id IS NOT NULL) AS reclamado,
-          -- Recuperado ORGÁNICO: se auto-marcó 'recovered' al reclamar su cuenta,
-          -- pero NO hubo esfuerzo comercial (sin asesor de recuperación, sin
-          -- referido y sin asesor). Estos NO cuentan como Recuperados (van a
-          -- Reclamados): el cliente llegó solo, nadie lo trajo de vuelta.
-          (LOWER(TRIM(COALESCE(lc.chartback_status, ''))) = 'recovered'
-             AND lc.recovery_advisor_id IS NULL
+          -- ORGÁNICO: el cliente llegó SOLO, sin ningún esfuerzo comercial —
+          -- sin asesor de recuperación, sin referido y sin asesor asignado.
+          -- Estos van a su propia sección "Orgánicos" (ni Recuperados ni
+          -- Reclamados), sin importar si se auto-marcaron 'recovered'.
+          (lc.recovery_advisor_id IS NULL
              AND mu.referred_by_id IS NULL
-             AND mu.advisor_id IS NULL) AS recovered_organic
+             AND mu.advisor_id IS NULL) AS is_organic
         FROM legacy_clients lc
         LEFT JOIN users adv ON lc.recovery_advisor_id = adv.id
         LEFT JOIN LATERAL (
@@ -266,7 +267,7 @@ const LEADS_COMBINED_QUERY = `
           NULL::jsonb AS activity,
           NULL::timestamptz AS next_contact_at,
           true AS reclamado,
-          false AS recovered_organic
+          false AS is_organic
         FROM prospects p
         JOIN users u ON p.converted_user_id = u.id
         LEFT JOIN users padv ON p.assigned_advisor_id = padv.id
@@ -331,18 +332,18 @@ export async function fetchLeads(opts: { status?: any; search?: any }): Promise<
   // pestañas separadas):
   //   - RECUPERADOS: reactivación exitosa (chartback_status='recovered').
   //   - RECLAMADOS:  el resto de convertidos (match por Box ID / funnel).
-  const convertedKind = (r: any): 'recuperados' | 'reclamados' | null => {
+  const convertedKind = (r: any): 'organicos' | 'recuperados' | 'reclamados' | null => {
     if (r.status !== 'converted') return null;
-    // Solo cuenta como RECUPERADO si fue una reactivación REAL (asesor/referido).
-    // Los recuperados ORGÁNICOS (alta por su cuenta, sin nada) van a Reclamados.
+    // Prioridad: ORGÁNICO (llegó sin nada) → RECUPERADO (reactivación real) → RECLAMADO.
+    if (r.is_organic) return 'organicos';
     const isRecovered = String(r.chartback_status || '').toLowerCase().trim() === 'recovered';
-    return (isRecovered && !r.recovered_organic) ? 'recuperados' : 'reclamados';
+    return isRecovered ? 'recuperados' : 'reclamados';
   };
 
   // Stats sobre TODAS las fuentes (funnel combinado, sin los sin-reclamar).
   // Se conserva `converted` (total) por compatibilidad y se agregan los dos
   // sub-conteos reclamados/recuperados para las pestañas nuevas.
-  const stats = { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0, reclamados: 0, recuperados: 0 };
+  const stats = { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0, reclamados: 0, recuperados: 0, organicos: 0 };
   for (const row of rows) {
     if (row.status && Object.prototype.hasOwnProperty.call(stats, row.status)) {
       stats[row.status as keyof typeof stats]++;
@@ -369,7 +370,7 @@ export async function fetchLeads(opts: { status?: any; search?: any }): Promise<
         || name.includes(q) || email.includes(q) || adv.includes(q)
         || (qDigits.length >= 4 && phone.includes(qDigits));
     });
-  } else if (status === 'reclamados' || status === 'recuperados') {
+  } else if (status === 'reclamados' || status === 'recuperados' || status === 'organicos') {
     // Pestañas nuevas: filtran DENTRO de los convertidos por sub-tipo.
     leads = rows.filter((r: any) => convertedKind(r) === status);
   } else {
