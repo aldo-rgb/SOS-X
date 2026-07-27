@@ -438,6 +438,20 @@ export async function fetchLeads(opts: { status?: any; search?: any }): Promise<
            SELECT ds.box_id AS box, ds.user_id AS uid, 'dhl' AS servicio
            FROM dhl_shipments ds
            WHERE ds.user_id = ANY($1::int[]) OR UPPER(TRIM(ds.box_id)) = ANY($2::text[])
+           UNION ALL
+           -- X-Pay (entangled): pago internacional; se liga solo por user_id.
+           -- Cuenta si tiene una operación real (no cancelada/error/rechazada).
+           SELECT NULL AS box, epr.user_id AS uid, 'xpay' AS servicio
+           FROM entangled_payment_requests epr
+           WHERE epr.user_id = ANY($1::int[])
+             AND epr.estatus_global NOT IN ('cancelado','error_envio','rechazado')
+           UNION ALL
+           -- GEX (Garantía Extendida): póliza contratada; se liga solo por user_id.
+           -- Cuenta si tiene una póliza real (no rechazada ni borrador).
+           SELECT NULL AS box, w.user_id AS uid, 'gex' AS servicio
+           FROM warranties w
+           WHERE w.user_id = ANY($1::int[])
+             AND w.status NOT IN ('rejected','draft')
          ) s
          WHERE servicio IS NOT NULL`,
         [userIds, boxIds]
@@ -449,7 +463,7 @@ export async function fetchLeads(opts: { status?: any; search?: any }): Promise<
         if (r.uid != null) (byUser[String(r.uid)] = byUser[String(r.uid)] || new Set()).add(r.servicio);
       }
       // Orden de despliegue consistente de los servicios.
-      const ORDER = ['po_box', 'aereo', 'maritimo', 'tdi_express', 'dhl'];
+      const ORDER = ['po_box', 'aereo', 'maritimo', 'tdi_express', 'dhl', 'xpay', 'gex'];
       for (const l of leads) {
         const set = new Set<string>();
         const bk = String(l.box_id || '').trim().toUpperCase();

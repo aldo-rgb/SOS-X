@@ -143,8 +143,10 @@ const SERVICE_CATALOG: Record<string, { icon: string; label: string }> = {
   maritimo: { icon: '🚢', label: 'Marítimo' },
   tdi_express: { icon: '⚡', label: 'TDI Express' },
   dhl: { icon: '🚚', label: 'DHL / Nacional' },
+  xpay: { icon: '💱', label: 'X-Pay' },
+  gex: { icon: '🛡️', label: 'GEX (Garantía)' },
 };
-const SERVICE_KEYS = ['po_box', 'aereo', 'maritimo', 'tdi_express', 'dhl'];
+const SERVICE_KEYS = ['po_box', 'aereo', 'maritimo', 'tdi_express', 'dhl', 'xpay', 'gex'];
 
 // Grupo de leads
 interface LeadGroup {
