@@ -2171,6 +2171,21 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             } catch { /* tabla pqtx_shipments opcional / no crítico */ }
         }
 
+        // Aéreo/TDI: air_sale_price está en USD (kg × tarifa USD). Para el total en
+        // MXN se convierte con el TC. Si la guía ya está costeada, assigned_cost_mxn
+        // ya trae el MXN; si NO, se estima con el TC aéreo vigente.
+        let airTc = parseFloat(pkg.registered_exchange_rate) || 0;
+        if (!airTc && (parseFloat(pkg.air_sale_price) || 0) > 0) {
+            try {
+                const svc = String(pkg.service_type || '').toUpperCase();
+                const cfgSvc = (svc === 'AIR_CHN_MX' || svc === 'TDI_EXPRESS' || svc === 'TDI_AEREO') ? 'tdi' : null;
+                if (cfgSvc) {
+                    const tcr = await pool.query(`SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = $1 AND estado = true LIMIT 1`, [cfgSvc]);
+                    airTc = parseFloat(tcr.rows[0]?.tipo_cambio_final) || 0;
+                }
+            } catch { /* TC opcional */ }
+        }
+
         res.json({
             success: true,
             shipment: {
@@ -2249,14 +2264,14 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     totalCost: (() => {
                         const tc = parseFloat(pkg.registered_exchange_rate) || 0;
                         const ventaMxn = (parseFloat(pkg.pobox_venta_usd) || 0) * tc;
-                        // Aéreo China / TDI: el precio de venta vive en air_sale_price
-                        // (kg × tarifa), NO en pobox_venta_usd. Sin esto, una guía aérea
-                        // ya costeada mostraba $0 en "Total a cobrar" de Cajito.
-                        const airSale = parseFloat(pkg.air_sale_price) || 0;
                         const gex = parseFloat(pkg.gex_total_cost) || 0;
                         const envio = parseFloat(pkg.national_shipping_cost) || 0;
-                        const computed = ventaMxn + airSale + gex + envio;
                         const assigned = parseFloat(pkg.assigned_cost_mxn) || 0;
+                        // Aéreo China / TDI: el precio de venta vive en air_sale_price y está
+                        // en USD (kg × tarifa USD). Si YA está costeada, assigned_cost_mxn trae
+                        // el MXN correcto; si NO, se estima con el TC aéreo (air_sale_price × TC).
+                        const airSaleMxn = assigned > 0 ? 0 : (parseFloat(pkg.air_sale_price) || 0) * airTc;
+                        const computed = ventaMxn + airSaleMxn + gex + envio;
                         const total = Math.max(computed, assigned);
                         return total > 0 ? total : null;
                     })(),
