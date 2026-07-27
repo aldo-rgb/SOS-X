@@ -8398,6 +8398,10 @@ app.get('/api/admin/payment-invoices', authenticateToken, requireMinLevel(ROLES.
 app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: Request, res: Response): Promise<any> => {
   try {
     const { date_from, date_to, empresa_id, service_type } = req.query;
+    // Búsqueda de la lista de transacciones (box / nombre / referencia). Se aplica
+    // en el BACKEND (antes del LIMIT) para que no se pierdan transacciones viejas
+    // dentro del rango — el filtro client-side corría DESPUÉS del LIMIT global.
+    const clientSearch = String((req.query as any).client_search || '').trim();
     
     // Fechas por defecto: hoy y mes actual
     const today = new Date();
@@ -8598,9 +8602,20 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     // ============================================
     // TRANSACCIONES RECIENTES (con filtro de servicio)
     // ============================================
+    // Parámetros dinámicos: $1/$2 fechas; luego servicio y/o búsqueda según apliquen.
+    const txParams: any[] = [startDate, endDate];
+    let svcIdx = 0;
+    if (serviceFilter) { txParams.push(serviceFilter); svcIdx = txParams.length; }
+    let searchIdx = 0;
+    if (clientSearch) { txParams.push(`%${clientSearch}%`); searchIdx = txParams.length; }
+    const cashSvc = svcIdx ? `AND t.service_type = ANY($${svcIdx})` : '';
+    const owlSvc = svcIdx ? `AND owl.service_type = ANY($${svcIdx})` : '';
+    const cashSearch = searchIdx ? `AND (UPPER(COALESCE(u.box_id,'')) LIKE UPPER($${searchIdx}) OR UPPER(COALESCE(u.full_name,'')) LIKE UPPER($${searchIdx}))` : '';
+    const owlSearch = searchIdx ? `AND (UPPER(COALESCE(u.box_id,'')) LIKE UPPER($${searchIdx}) OR UPPER(COALESCE(u.full_name,'')) LIKE UPPER($${searchIdx}) OR UPPER(COALESCE(owl.transaction_id,'')) LIKE UPPER($${searchIdx}))` : '';
+
     const transaccionesRes = await pool.query(`
       (
-        SELECT 
+        SELECT
           t.id,
           t.created_at as fecha_hora,
           u.full_name as cliente,
@@ -8633,13 +8648,14 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
                 t.referencia
               )
           )
-          ${serviceFilter ? "AND t.service_type = ANY($3)" : ""}
+          ${cashSvc}
+          ${cashSearch}
         ORDER BY t.created_at DESC
         LIMIT 50
       )
       UNION ALL
       (
-        SELECT 
+        SELECT
           owl.id,
           COALESCE(pp.paid_at, owl.processed_at, owl.fecha_pago, owl.created_at) as fecha_hora,
           u.full_name as cliente,
@@ -8677,13 +8693,14 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
             (COALESCE(pp.paid_at, owl.processed_at, owl.fecha_pago, owl.created_at) >= $1
              AND COALESCE(pp.paid_at, owl.processed_at, owl.fecha_pago, owl.created_at) <= $2)
           )
-          ${serviceFilter ? "AND owl.service_type = ANY($3)" : ""}
+          ${owlSvc}
+          ${owlSearch}
         ORDER BY COALESCE(pp.paid_at, owl.processed_at, owl.fecha_pago, owl.created_at) DESC
         LIMIT 50
       )
       ORDER BY fecha_hora DESC
       LIMIT 100
-    `, serviceFilter ? [startDate, endDate, serviceFilter] : [startDate, endDate]);
+    `, txParams);
 
     // Calcular totales consolidados
     const efectivoHoy = parseFloat(ingresosHoyRes.rows[0].efectivo_hoy) || 0;

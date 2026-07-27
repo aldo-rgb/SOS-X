@@ -4,7 +4,7 @@
 // SOPORTE MULTI-EMPRESA
 // ============================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -236,6 +236,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   });
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
   const [filterCliente, setFilterCliente] = useState('');
+  // Búsqueda debounced que se envía al backend (client_search) para que el filtro
+  // por box/nombre se aplique ANTES del LIMIT y no se pierdan transacciones viejas.
+  const [debouncedCliente, setDebouncedCliente] = useState('');
   const [filterMetodo, setFilterMetodo] = useState('all');
   const [filterServicio, setFilterServicio] = useState('all');
 
@@ -818,12 +821,17 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const currentUserRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; } })();
   const isSuperAdmin = currentUserRole === 'super_admin';
 
-  const fetchDashboard = useCallback(async () => {
-    setLoading(true);
+  // `silent` = recarga en segundo plano (por búsqueda): no blanquea la página ni
+  // pierde el foco del input; solo actualiza la tabla de transacciones.
+  const fetchDashboard = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
       if (filterServicio !== 'all') {
         params.service_type = filterServicio;
+      }
+      if (debouncedCliente) {
+        params.client_search = debouncedCliente;
       }
       const response = await api.get('/admin/finance/dashboard', {
         headers: { Authorization: `Bearer ${token}` },
@@ -835,13 +843,27 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     } catch (error) {
       console.error('Error fetching dashboard:', error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
+  }, [token, dateFrom, dateTo, filterServicio, debouncedCliente]);
+
+  // Recarga COMPLETA cuando cambian fechas o servicio (con spinner).
+  useEffect(() => {
+    fetchDashboard(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, dateFrom, dateTo, filterServicio]);
 
+  // Debounce del buscador de cliente/box → recarga SILENCIOSA con el filtro server-side.
+  const clienteFirstRun = useRef(true);
   useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
+    const t = setTimeout(() => setDebouncedCliente(filterCliente.trim()), 450);
+    return () => clearTimeout(t);
+  }, [filterCliente]);
+  useEffect(() => {
+    if (clienteFirstRun.current) { clienteFirstRun.current = false; return; }
+    fetchDashboard(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedCliente]);
 
   // Auto-cargar historial de estado de cuenta al entrar al tab 2 o al cambiar empresa
   useEffect(() => {
