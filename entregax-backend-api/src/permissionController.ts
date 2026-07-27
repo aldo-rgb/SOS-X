@@ -471,6 +471,26 @@ const PANEL_MODULE_SEEDS: Record<string, Array<[string, string, string, string, 
     ['reception_fcl', 'Actualizar Status Full Conteiner','Actualiza el status de contenedores FCL (un solo cliente) y confirma llegada a CEDIS', 'Scanner',   2],
     ['inventory',     'Inventario',                      'Consulta las órdenes marítimas en bodega, su contenedor y estado',          'Inventory', 3],
   ],
+  // Hub Administrativo Marítimo China (AdminHubPage → china_sea service).
+  // Refleja los módulos de add_module_permissions.sql + API ELP (proveedor
+  // externo de trámite/CBP USA), que faltaba registrar y por eso no aparecía
+  // a roles distintos de super_admin.
+  admin_china_sea: [
+    ['costing',         'Costeo Internacional',   'Costeo de importación marítima',                          'Calculate',     1],
+    ['inventory',       'Inventario',             'Órdenes marítimas en bodega y su estado',                 'Inventory',     2],
+    ['pricing',         'Tarifas',                'Configuración de tarifas por CBM',                        'PriceChange',   3],
+    ['invoicing',       'Facturación',            'Emisión y gestión de facturas marítimo',                  'Receipt',       4],
+    ['instructions',    'Direcciones',            'Configuración de direcciones/instrucciones de entrega',   'Description',   5],
+    ['carrier_options', 'Paqueterías',            'Paqueterías nacionales disponibles',                      'LocalShipping', 6],
+    ['routes',          'Rutas',                  'Rutas marítimas y contenedores',                          'Route',         7],
+    ['consolidations',  'Gestión LCL - LOGS',     'Consolidaciones LCL y LOGs',                              'Inventory',     8],
+    ['fcl_management',  'Gestión FCL - Dedicados','Contenedores FCL (dedicados)',                            'Inventory',     9],
+    ['inbound_emails',  'Correos Marítimo',       'Correos entrantes del servicio marítimo',                 'Email',        10],
+    ['maritime_api',    'API China Marítimo',     'Integración con la API marítima de origen China',         'CloudSync',    11],
+    ['elp_api',         'API ELP',                'Proveedor externo de trámite/CBP (USA): contenedores ELP, documentos y status', 'CloudSync', 12],
+    ['anticipos',       'Control de Anticipos',   'Anticipos y control financiero',                          'Payments',     13],
+    ['reports',         'Reportes',               'Reportes y métricas marítimo',                            'TrendingUp',   14],
+  ],
   // Hub Administrativo PO Box USA (AdminHubPage → usa_pobox service)
   admin_usa_pobox: [
     ['pobox_rates',           'Tarifas PO Box',      'Configuración de tarifas por volumen (CBM) y tipo de cambio',                 'PriceChange',   1],
