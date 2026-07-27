@@ -989,7 +989,7 @@
     "externalProspects": "Prospectos Externos",
     "crmLeadsDescription": "Usuarios de la app que solicitaron asesor + clientes en Reactivación (Chartback). Funnel: Pendientes (sin reclamar) → Asignados → Contactados (con respuesta del asesor) → Convertidos (recuperados).",
     "pending": "Pendientes",
-    "assigned": "Asignados",
+    "assigned": "No Contactados",
     "contacted": "Contactados",
     "converted": "Convertidos",
     "all": "Todos",
