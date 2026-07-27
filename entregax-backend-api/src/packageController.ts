@@ -2758,10 +2758,15 @@ const getMaritimeOrderBaseByTracking = async (tracking: string) => {
 };
 
 const getPackageMovementsBaseById = async (id: number) => {
+    // Trae los MISMOS campos que la versión por tracking. Sin service_type/
+    // warehouse_location el detector de China daba falso y agregaba por error el
+    // hito "Recibido Hidalgo TX" (PO Box USA) a guías Aéreo/Marítimo China.
     const result = await pool.query(
         `SELECT p.id, p.user_id, p.box_id, p.status, p.created_at, p.updated_at, p.tracking_internal, p.tracking_provider,
-                p.is_master
+                p.is_master, p.current_branch_id, p.warehouse_location, p.service_type,
+                b.name AS current_branch_name, b.code AS current_branch_code
          FROM packages p
+         LEFT JOIN branches b ON b.id = p.current_branch_id
          WHERE p.id = $1
          LIMIT 1`,
         [id]
