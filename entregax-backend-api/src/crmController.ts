@@ -317,12 +317,27 @@ export async function fetchLeads(opts: { status?: any; search?: any }): Promise<
   // en Prospectos Externos. Aquí se excluyen por completo.
   const rows = all.rows.filter((r: any) => r.status !== 'pending');
 
-  // Stats sobre TODAS las fuentes (funnel combinado, sin los sin-reclamar)
-  const stats = { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 };
+  // Los "Convertidos" se sub-clasifican en dos grupos (la UI los muestra en
+  // pestañas separadas):
+  //   - RECUPERADOS: reactivación exitosa (chartback_status='recovered').
+  //   - RECLAMADOS:  el resto de convertidos (match por Box ID / funnel).
+  const convertedKind = (r: any): 'recuperados' | 'reclamados' | null => {
+    if (r.status !== 'converted') return null;
+    return String(r.chartback_status || '').toLowerCase().trim() === 'recovered'
+      ? 'recuperados'
+      : 'reclamados';
+  };
+
+  // Stats sobre TODAS las fuentes (funnel combinado, sin los sin-reclamar).
+  // Se conserva `converted` (total) por compatibilidad y se agregan los dos
+  // sub-conteos reclamados/recuperados para las pestañas nuevas.
+  const stats = { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0, reclamados: 0, recuperados: 0 };
   for (const row of rows) {
     if (row.status && Object.prototype.hasOwnProperty.call(stats, row.status)) {
       stats[row.status as keyof typeof stats]++;
     }
+    const kind = convertedKind(row);
+    if (kind) stats[kind]++;
   }
 
   // Búsqueda global: si viene `search`, busca en TODAS las listas (ignora la
@@ -343,6 +358,9 @@ export async function fetchLeads(opts: { status?: any; search?: any }): Promise<
         || name.includes(q) || email.includes(q) || adv.includes(q)
         || (qDigits.length >= 4 && phone.includes(qDigits));
     });
+  } else if (status === 'reclamados' || status === 'recuperados') {
+    // Pestañas nuevas: filtran DENTRO de los convertidos por sub-tipo.
+    leads = rows.filter((r: any) => convertedKind(r) === status);
   } else {
     leads = (status && status !== 'all')
       ? rows.filter((r: any) => r.status === status)

@@ -226,6 +226,8 @@ interface LeadStats {
   assigned: number;
   contacted: number;
   converted: number;
+  reclamados: number;
+  recuperados: number;
 }
 
 interface ProspectStats {
@@ -357,7 +359,7 @@ export default function UnifiedLeadsPage() {
   
   // ============ CRM LEADS STATE ============
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [leadStats, setLeadStats] = useState<LeadStats>({ prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 });
+  const [leadStats, setLeadStats] = useState<LeadStats>({ prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0, reclamados: 0, recuperados: 0 });
   const [leadsLoading, setLeadsLoading] = useState(true);
   const [leadTabValue, setLeadTabValue] = useState('prospected');
   
@@ -1080,7 +1082,7 @@ export default function UnifiedLeadsPage() {
       });
       if (res.data.success) {
         setLeads(res.data.leads || []);
-        setLeadStats(res.data.stats || { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0 });
+        setLeadStats(res.data.stats || { prospected: 0, waiting: 0, pending: 0, assigned: 0, contacted: 0, converted: 0, reclamados: 0, recuperados: 0 });
       }
     } catch {
       console.error('Error fetching leads');
@@ -1848,7 +1850,8 @@ export default function UnifiedLeadsPage() {
               <Tab value="waiting" label={`En espera (${leadStats.waiting})`} />
               <Tab value="assigned" label={`${t('leads.assigned')} (${leadStats.assigned})`} />
               <Tab value="contacted" label={`${t('leads.contacted')} (${leadStats.contacted})`} />
-              <Tab value="converted" label={`${t('leads.converted')} (${leadStats.converted})`} />
+              <Tab value="reclamados" label={`Reclamados (${leadStats.reclamados})`} />
+              <Tab value="recuperados" label={`Recuperados (${leadStats.recuperados})`} />
               <Tab value="advisors" label={`Asesores (${advisors.length})`} />
               <Tab value="all" label={t('leads.all')} />
             </Tabs>
