@@ -843,6 +843,30 @@ async function ensureClickLinksSchema(): Promise<void> {
   clickLinksReady = true;
 }
 
+// ============================================================================
+// 🛡️ IDEMPOTENCIA de envíos masivos: evita mandar la MISMA plantilla al MISMO
+// teléfono dos veces dentro de una ventana (doble-clic, reintento por timeout
+// del gateway, recarga de página, dos pestañas). El dedup por teléfono dentro
+// de una sola llamada NO cubre esto porque cada llamada tiene su propio Set.
+// Aquí registramos cada envío exitoso (teléfono compacto + plantilla) y antes
+// de enviar hacemos un "claim" atómico: si ya hay un envío reciente, se omite.
+const BULK_DEDUP_WINDOW_HOURS = 24;
+let bulkDedupReady = false;
+async function ensureBulkDedupSchema(): Promise<void> {
+  if (bulkDedupReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wa_bulk_send_log (
+      id SERIAL PRIMARY KEY,
+      phone_compact TEXT NOT NULL,
+      template_id INTEGER NOT NULL,
+      lead_key TEXT,
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_wa_bulk_dedup ON wa_bulk_send_log(phone_compact, template_id, sent_at DESC);`).catch(() => {});
+  bulkDedupReady = true;
+}
+
 // GET /r/:token → registra el clic y redirige al destino real.
 export const trackClickRedirect = async (req: Request, res: Response): Promise<any> => {
   const fallback = (process.env.WEB_BASE_URL || 'https://www.entregax.app').replace(/\/$/, '');
@@ -1213,6 +1237,7 @@ export const executeBulkSend = async (opts: { templateId: any; leadKeys?: any[] 
     const linkDest = String(tpl.link_dest || '').trim();
     const trackClicks = !!linkDest;
     if (trackClicks) await ensureClickLinksSchema();
+    await ensureBulkDedupSchema();
     const { randomBytes } = await import('crypto');
 
     // 1) Pre-filtrar (rápido, sin red): descartar sin teléfono y duplicados.
@@ -1239,6 +1264,37 @@ export const executeBulkSend = async (opts: { templateId: any; leadKeys?: any[] 
     const sendOne = async (row: any) => {
       const nombre = String(row.full_name || 'Cliente').trim().split(/\s+/)[0] || 'Cliente';
       const phone = row.phone;
+
+      // 🛡️ Claim atómico anti-duplicado: si a ESTE teléfono ya se le envió ESTA
+      // plantilla en las últimas 24h, se omite (protege contra doble-clic,
+      // reintento por timeout del gateway, recarga o dos pestañas). Insertamos
+      // ANTES de enviar; si el envío falla, borramos el claim para permitir
+      // reintento. El INSERT condicional gana la carrera entre llamadas.
+      const compact = String(phone).replace(/\D/g, '');
+      let claimId: number | null = null;
+      try {
+        const claim = await pool.query(
+          `INSERT INTO wa_bulk_send_log (phone_compact, template_id, lead_key)
+           SELECT $1, $2, $3
+            WHERE NOT EXISTS (
+              SELECT 1 FROM wa_bulk_send_log
+               WHERE phone_compact = $1 AND template_id = $2
+                 AND sent_at > NOW() - INTERVAL '${BULK_DEDUP_WINDOW_HOURS} hours'
+            )
+           RETURNING id`,
+          [compact, tpl.id, row.lead_key]
+        );
+        if (claim.rowCount === 0) {
+          results.skipped++;
+          results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'skipped', reason: `Ya enviado (${BULK_DEDUP_WINDOW_HOURS}h)` });
+          return;
+        }
+        claimId = claim.rows[0].id;
+      } catch (e) {
+        // Si el claim falla por infra, NO bloqueamos el envío (mejor enviar que perder el mensaje).
+        console.warn('[CRM] claim anti-duplicado falló, se envía igual:', (e as Error).message);
+      }
+
       const parameters = usesName
         ? [nombre, ...vals.slice(0, tplVars.length)]
         : vals.slice(0, tplVars.length);
@@ -1254,19 +1310,27 @@ export const executeBulkSend = async (opts: { templateId: any; leadKeys?: any[] 
           urlButtonParam = token;
         } catch (e) { console.warn('[CRM] no se pudo crear token de rastreo:', (e as Error).message); }
       }
+      // Libera el claim anti-duplicado (el envío NO se concretó) para permitir reintento.
+      const releaseClaim = async () => {
+        if (claimId == null) return;
+        await pool.query(`DELETE FROM wa_bulk_send_log WHERE id = $1`, [claimId]).catch(() => {});
+      };
       try {
         const r = await sendTemplate({ to: phone, template, languageCode: langCode, parameters, ...(headerImageUrl ? { headerImageUrl } : {}), ...(urlButtonParam ? { urlButtonParam } : {}), useMarketingApi: !!tpl.use_mm_lite });
         if (r.ok) {
           results.sent++;
           results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'sent' });
         } else if (r.skipped) {
+          await releaseClaim();
           results.skipped++;
           results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'skipped', reason: 'WhatsApp no configurado' });
         } else {
+          await releaseClaim();
           results.failed++;
           results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'failed', reason: r.error || 'Error' });
         }
       } catch (e: any) {
+        await releaseClaim();
         results.failed++;
         results.details.push({ lead_key: row.lead_key, name: row.full_name, status: 'failed', reason: e?.message || 'Error' });
       }
