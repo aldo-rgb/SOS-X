@@ -11,7 +11,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   TextField, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions,
   Stepper, Step, StepLabel, CircularProgress, Alert, Grid, Card, CardContent,
-  List, ListItem, ListItemText, ListItemIcon,
+  List, ListItem, ListItemText, ListItemIcon, Tooltip,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -49,6 +49,8 @@ interface Shipment {
   status: string;
   total_boxes: number | null;
   weight: string | number | null;
+  // CW (peso cobrable): mayor entre peso real y volumétrico (IATA L×A×H/5000), por caja
+  cw?: string | number | null;
   air_sale_price: string | number | null;
   client_name: string | null;
   captured_boxes: string | number;
@@ -588,7 +590,13 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: BLACK }}>
-              {['tracking', 'originGuide', 'client', 'boxes', 'weight', 'dimensions', 'productType', 'extraCharge', 'status', 'received'].map((c) => (
+              {['tracking', 'originGuide', 'client', 'boxes', 'weight'].map((c) => (
+                <TableCell key={c} sx={{ color: '#FFF', fontWeight: 700 }}>{t(`tdiExpress.table.${c}`)}</TableCell>
+              ))}
+              <Tooltip title="Peso cobrable = mayor entre peso real y volumétrico (L×A×H / 5000)">
+                <TableCell sx={{ color: '#FFF', fontWeight: 700 }}>CW (kg)</TableCell>
+              </Tooltip>
+              {['dimensions', 'productType', 'extraCharge', 'status', 'received'].map((c) => (
                 <TableCell key={c} sx={{ color: '#FFF', fontWeight: 700 }}>{t(`tdiExpress.table.${c}`)}</TableCell>
               ))}
               <TableCell align="center" sx={{ color: '#FFF', fontWeight: 700 }}>{t('tdiExpress.table.photos')}</TableCell>
@@ -596,9 +604,9 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
             </TableRow>
           </TableHead>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={12} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={13} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
             {!loading && shipments.length === 0 && (
-              <TableRow><TableCell colSpan={12} align="center" sx={{ py: 4, color: '#999' }}>
+              <TableRow><TableCell colSpan={13} align="center" sx={{ py: 4, color: '#999' }}>
                 {t('tdiExpress.noShipments')}
               </TableCell></TableRow>
             )}
@@ -609,6 +617,16 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                 <TableCell sx={{ fontWeight: 600 }}>{s.box_id || '—'}</TableCell>
                 <TableCell><Chip size="small" icon={<InventoryIcon />} label={`${s.captured_boxes}/${s.total_boxes ?? 1}`} /></TableCell>
                 <TableCell>{Number(s.weight || 0).toFixed(2)}</TableCell>
+                {(() => {
+                  const real = Number(s.weight || 0);
+                  const cw = Number(s.cw || 0) > 0 ? Number(s.cw) : real;
+                  const volApplies = cw > real + 0.01; // el volumétrico manda
+                  return (
+                    <TableCell sx={{ fontWeight: 700, color: volApplies ? '#b45309' : 'inherit' }}>
+                      {cw.toFixed(2)}
+                    </TableCell>
+                  );
+                })()}
                 <TableCell>{shipmentDims(s)}</TableCell>
                 <TableCell>
                   <TextField

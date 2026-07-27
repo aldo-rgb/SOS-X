@@ -199,6 +199,14 @@ export const listTdiShipments = async (req: Request, res: Response): Promise<any
          (SELECT c.pkg_length || '×' || c.pkg_width || '×' || c.pkg_height
             FROM packages c WHERE c.master_id = m.id AND c.pkg_length IS NOT NULL
             ORDER BY c.box_number LIMIT 1) AS first_dims,
+         -- CW (peso cobrable): por caja, el MAYOR entre el chargeable capturado, el
+         -- peso real y el volumétrico IATA (L×A×H / 5000); sumado sobre las cajas.
+         (SELECT COALESCE(SUM(GREATEST(
+                    COALESCE(c.air_chargeable_weight, 0),
+                    COALESCE(c.weight, 0),
+                    (COALESCE(c.pkg_length,0) * COALESCE(c.pkg_width,0) * COALESCE(c.pkg_height,0)) / 5000.0
+                  )), 0)
+            FROM packages c WHERE c.master_id = m.id) AS cw,
          -- Guía origen: string_agg de tracking_provider distintos entre las cajas hijas.
          (SELECT string_agg(DISTINCT c.tracking_provider, ', ')
             FROM packages c WHERE c.master_id = m.id AND c.tracking_provider IS NOT NULL AND c.tracking_provider <> '') AS origin_guides,
