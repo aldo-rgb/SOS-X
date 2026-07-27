@@ -284,6 +284,10 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const dhlExchangeRate = (m as any).exchangeRate != null ? Number((m as any).exchangeRate) : null;
   const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
   const saldoPendiente = m.saldoPendiente ?? m.saldo_pendiente ?? null;
+  // Aéreo/TDI: desglose CW (peso cobrable) × costo/kg (USD) × TC = total.
+  const airCw = (m as any).airChargeableWeight != null ? Number((m as any).airChargeableWeight) : null;
+  const airPerKgUsd = (m as any).airPricePerKgUsd != null ? Number((m as any).airPricePerKgUsd) : null;
+  const airTc = (m as any).airExchangeRate != null ? Number((m as any).airExchangeRate) : null;
   const hasCosts = lastMileCost != null || providerCostMxn != null || ventaUsd != null || totalCost != null || (importTax != null && importTax > 0);
   // 🩹 Si la guía ya está marcada como pagada, el desglose NO debe mostrar saldo
   // pendiente fantasma (caso: costo nunca congelado → assigned_cost_mxn=0 pero
@@ -647,6 +651,24 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Typography variant="caption" color="text.secondary">Venta al cliente</Typography>
                 <Typography variant="caption" fontWeight={600} color="success.main">{fmtMoney(ventaUsd, 'USD')}</Typography>
+              </Box>
+            )}
+            {airCw != null && airCw > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">CW (peso cobrable)</Typography>
+                <Typography variant="caption" fontWeight={600}>{airCw.toFixed(2)} kg</Typography>
+              </Box>
+            )}
+            {airPerKgUsd != null && airPerKgUsd > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Costo por kg</Typography>
+                <Typography variant="caption" fontWeight={600}>{fmtMoney(airPerKgUsd, 'USD')} /kg</Typography>
+              </Box>
+            )}
+            {airTc != null && airTc > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Tipo de cambio</Typography>
+                <Typography variant="caption" fontWeight={600}>${airTc.toFixed(2)}</Typography>
               </Box>
             )}
             {importCostUsd != null && importCostUsd > 0 && (

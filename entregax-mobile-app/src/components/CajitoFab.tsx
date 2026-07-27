@@ -193,6 +193,10 @@ export default function CajitoFab({ user, token }: Props) {
     const totalCost = m.totalCost != null ? Number(m.totalCost) : null;
     const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
     const saldo = m.saldoPendiente ?? m.saldo_pendiente ?? null;
+    // Aéreo/TDI: desglose CW × costo/kg (USD) × TC = total.
+    const airCw = (m as any).airChargeableWeight != null ? Number((m as any).airChargeableWeight) : null;
+    const airPerKgUsd = (m as any).airPricePerKgUsd != null ? Number((m as any).airPricePerKgUsd) : null;
+    const airTc = (m as any).airExchangeRate != null ? Number((m as any).airExchangeRate) : null;
     const hasCosts = lastMile != null || provMxn != null || ventaUsd != null || totalCost != null;
     // 🩹 Si ya está pagada, no mostrar saldo pendiente fantasma (assigned_cost_mxn=0).
     const dispMontoPagado = paid && totalCost != null ? totalCost : (montoPagado != null ? Number(montoPagado) : null);
@@ -312,6 +316,9 @@ export default function CajitoFab({ user, token }: Props) {
             {lastMile != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Paquetería (última milla)</Text><Text style={[styles.costVal, { color: '#dc2626' }]}>{fmtMoney(lastMile)}</Text></View> : null}
             {provMxn != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Costo proveedor</Text><Text style={styles.costVal}>{fmtMoney(Number(provMxn))}{provUsd ? ` (${fmtMoney(Number(provUsd), 'USD')})` : ''}</Text></View> : null}
             {ventaUsd != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Venta al cliente</Text><Text style={[styles.costVal, { color: '#16a34a' }]}>{fmtMoney(ventaUsd, 'USD')}</Text></View> : null}
+            {airCw != null && airCw > 0 ? <View style={styles.costRow}><Text style={styles.costLbl}>CW (peso cobrable)</Text><Text style={styles.costVal}>{airCw.toFixed(2)} kg</Text></View> : null}
+            {airPerKgUsd != null && airPerKgUsd > 0 ? <View style={styles.costRow}><Text style={styles.costLbl}>Costo por kg</Text><Text style={styles.costVal}>{fmtMoney(airPerKgUsd, 'USD')} /kg</Text></View> : null}
+            {airTc != null && airTc > 0 ? <View style={styles.costRow}><Text style={styles.costLbl}>Tipo de cambio</Text><Text style={styles.costVal}>${airTc.toFixed(2)}</Text></View> : null}
             {totalCost != null ? <View style={[styles.costRow, styles.costTotal]}><Text style={[styles.costLbl, { fontWeight: '800', color: DARK }]}>Total a cobrar</Text><Text style={[styles.costVal, { color: '#b45309', fontWeight: '800' }]}>{fmtMoney(totalCost)}</Text></View> : null}
             {dispMontoPagado != null ? <View style={styles.costRow}><Text style={styles.costLbl}>Monto pagado{clientPaidAt ? ` · ${fmtDT(clientPaidAt)}` : ''}</Text><Text style={[styles.costVal, { color: '#16a34a' }]}>{fmtMoney(dispMontoPagado)}</Text></View> : null}
             {dispSaldo != null && dispSaldo > 0 ? <View style={styles.costRow}><Text style={styles.costLbl}>Saldo pendiente</Text><Text style={[styles.costVal, { color: '#dc2626' }]}>{fmtMoney(dispSaldo)}</Text></View> : null}

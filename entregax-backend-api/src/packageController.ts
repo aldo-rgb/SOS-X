@@ -2175,15 +2175,27 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         // MXN se convierte con el TC. Si la guía ya está costeada, assigned_cost_mxn
         // ya trae el MXN; si NO, se estima con el TC aéreo vigente.
         let airTc = parseFloat(pkg.registered_exchange_rate) || 0;
+        const isAirSvc = ['AIR_CHN_MX', 'TDI_EXPRESS', 'TDI_AEREO'].includes(String(pkg.service_type || '').toUpperCase());
         if (!airTc && (parseFloat(pkg.air_sale_price) || 0) > 0) {
             try {
-                const svc = String(pkg.service_type || '').toUpperCase();
-                const cfgSvc = (svc === 'AIR_CHN_MX' || svc === 'TDI_EXPRESS' || svc === 'TDI_AEREO') ? 'tdi' : null;
+                const cfgSvc = isAirSvc ? 'tdi' : null;
                 if (cfgSvc) {
                     const tcr = await pool.query(`SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = $1 AND estado = true LIMIT 1`, [cfgSvc]);
                     airTc = parseFloat(tcr.rows[0]?.tipo_cambio_final) || 0;
                 }
             } catch { /* TC opcional */ }
+        }
+        // Costo por kg (USD): el master no lo guarda; se toma de una caja hija (moda).
+        let airPerKgUsd = parseFloat(pkg.air_price_per_kg) || 0;
+        if (isAirSvc && !airPerKgUsd) {
+            try {
+                const pkr = await pool.query(
+                    `SELECT MODE() WITHIN GROUP (ORDER BY air_price_per_kg) AS per_kg
+                       FROM packages WHERE master_id = $1 AND air_price_per_kg IS NOT NULL`,
+                    [pkg.id]
+                );
+                airPerKgUsd = parseFloat(pkr.rows[0]?.per_kg) || 0;
+            } catch { /* opcional */ }
         }
 
         res.json({
@@ -2307,6 +2319,11 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     gexFolio: pkg.gex_folio || null,
                     totalBoxesCount: pkg.total_boxes || (children?.length || 1),
                     assignedCostMxn: pkg.assigned_cost_mxn != null ? parseFloat(pkg.assigned_cost_mxn) : null,
+                    // Aéreo/TDI: desglose para Cajito (CW, costo por kg USD, TC aplicado).
+                    airChargeableWeight: pkg.air_chargeable_weight != null ? parseFloat(pkg.air_chargeable_weight) : null,
+                    airPricePerKgUsd: airPerKgUsd > 0 ? airPerKgUsd : null,
+                    airSalePriceUsd: pkg.air_sale_price != null ? parseFloat(pkg.air_sale_price) : null,
+                    airExchangeRate: airTc > 0 ? airTc : null,
                     montoPagado: pkg.monto_pagado != null ? parseFloat(pkg.monto_pagado) : null,
                     saldoPendiente: pkg.saldo_pendiente != null ? parseFloat(pkg.saldo_pendiente) : null,
                     currentBranch: (() => {
