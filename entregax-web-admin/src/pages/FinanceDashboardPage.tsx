@@ -1146,7 +1146,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
             Exportar CSV
           </Button>
           <Tooltip title="Actualizar">
-            <IconButton onClick={fetchDashboard} sx={{ bgcolor: 'grey.100' }}>
+            <IconButton onClick={() => fetchDashboard()} sx={{ bgcolor: 'grey.100' }}>
               <Refresh />
             </IconButton>
           </Tooltip>
