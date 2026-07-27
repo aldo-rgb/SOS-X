@@ -598,6 +598,10 @@ import {
   bulkWhatsapp,
   getScheduledBulkSends,
   cancelScheduledBulkSend,
+  getFunnelRules,
+  saveFunnelRule,
+  deleteFunnelRule,
+  previewFunnelSegment,
   getBulkWhatsappDefaults,
   getLeadGroups,
   createLeadGroup,
@@ -7293,6 +7297,11 @@ app.post('/api/admin/crm/bulk-whatsapp', authenticateToken, requireMinLevel(ROLE
 // Estado de los envíos masivos PROGRAMADOS (widget del funnel) + cancelar pendientes
 app.get('/api/admin/crm/bulk-whatsapp/scheduled', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getScheduledBulkSends);
 app.delete('/api/admin/crm/bulk-whatsapp/scheduled/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), cancelScheduledBulkSend);
+// 🔁 Configurar funnel — reglas de campañas automáticas por segmento de servicio
+app.get('/api/admin/crm/funnel-rules', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getFunnelRules);
+app.post('/api/admin/crm/funnel-rules', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveFunnelRule);
+app.delete('/api/admin/crm/funnel-rules/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteFunnelRule);
+app.post('/api/admin/crm/funnel-rules/preview', authenticateToken, requireMinLevel(ROLES.DIRECTOR), previewFunnelSegment);
 // Administrar plantillas de envio masivo (CRUD)
 app.get('/api/admin/crm/bulk-templates', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBulkTemplates);
 app.post('/api/admin/crm/bulk-templates', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createBulkTemplate);

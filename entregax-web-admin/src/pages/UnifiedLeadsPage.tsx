@@ -158,6 +158,42 @@ interface LeadGroup {
 }
 
 // Plantilla de envío masivo (administrable)
+// 🔁 Regla de funnel (campaña automática por segmento de servicio)
+interface FunnelRuleSegment { services: string[]; mode: 'all' | 'any' | 'exact'; none: boolean }
+interface FunnelRule {
+  id?: number;
+  name: string;
+  enabled: boolean;
+  template_id: number | '';
+  var_values?: string[];
+  segment: FunnelRuleSegment;
+  frequency: 'weekly' | 'daily';
+  day_of_week: number | null;
+  hour: number;
+  last_run_at?: string | null;
+  last_result?: { total?: number; sent?: number; failed?: number; audience?: number } | null;
+  template_label?: string | null;
+  template_name?: string | null;
+}
+const DOW_LABELS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const blankFunnelRule = (): FunnelRule => ({
+  name: '', enabled: true, template_id: '', var_values: [],
+  segment: { services: [], mode: 'any', none: false },
+  frequency: 'weekly', day_of_week: 1, hour: 10,
+});
+const funnelSegmentLabel = (seg?: FunnelRuleSegment): string => {
+  if (!seg) return 'Todos';
+  if (seg.none) return '🚫 Sin ningún servicio';
+  if (!seg.services || seg.services.length === 0) return 'Todos los clientes';
+  const icons = seg.services.map(s => SERVICE_CATALOG[s]?.icon || s).join(' ');
+  const modeWord = seg.mode === 'all' ? 'Tiene todos' : seg.mode === 'exact' ? 'Exactamente' : 'Alguno de';
+  return `${modeWord}: ${icons}`;
+};
+const funnelFreqLabel = (r: FunnelRule): string => {
+  const hh = String(r.hour).padStart(2, '0');
+  return r.frequency === 'daily' ? `Diario · ${hh}:00` : `Cada ${DOW_LABELS[r.day_of_week ?? 1]} · ${hh}:00`;
+};
+
 interface BulkTemplateVar { label: string; defaultKey?: string }
 interface BulkTemplate {
   id: number;
@@ -404,6 +440,12 @@ export default function UnifiedLeadsPage() {
   // Programación opcional: hora a la que se enviará (datetime-local). Vacío = ahora.
   const [bulkScheduleAt, setBulkScheduleAt] = useState<string>('');
   const [bulkScheduled, setBulkScheduled] = useState<{ scheduledAt: string; recipientCount: number } | null>(null);
+  // 🔁 Configurar funnel — reglas de campañas automáticas por segmento
+  const [funnelOpen, setFunnelOpen] = useState(false);
+  const [funnelRules, setFunnelRules] = useState<FunnelRule[]>([]);
+  const [funnelEditing, setFunnelEditing] = useState<FunnelRule | null>(null);
+  const [funnelSaving, setFunnelSaving] = useState(false);
+  const [funnelPreviewCount, setFunnelPreviewCount] = useState<number | null>(null);
   // Administración de plantillas
   const [tplManagerOpen, setTplManagerOpen] = useState(false);
   const [tplEditing, setTplEditing] = useState<BulkTemplate | null>(null);
@@ -772,6 +814,67 @@ export default function UnifiedLeadsPage() {
     setBulkTemplates(tpls);
     setBulkDefaults(defs);
     return { tpls, defs };
+  };
+
+  // 🔁 ── Configurar funnel ──
+  const loadFunnelRules = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/funnel-rules`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setFunnelRules(res.data?.rules || []);
+    } catch { /* noop */ }
+  };
+  const openFunnelDialog = async () => {
+    setFunnelEditing(null);
+    setFunnelOpen(true);
+    if (bulkTemplates.length === 0) loadBulkTemplates().catch(() => {});
+    loadFunnelRules();
+  };
+  const startNewFunnelRule = () => { setFunnelPreviewCount(null); setFunnelEditing(blankFunnelRule()); };
+  const editFunnelRule = (r: FunnelRule) => {
+    setFunnelPreviewCount(null);
+    setFunnelEditing({
+      ...r,
+      segment: r.segment || { services: [], mode: 'any', none: false },
+      var_values: Array.isArray(r.var_values) ? r.var_values : [],
+    });
+  };
+  const previewFunnelSegment = async () => {
+    if (!funnelEditing) return;
+    try {
+      const res = await axios.post(`${API_URL}/admin/crm/funnel-rules/preview`, { segment: funnelEditing.segment }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setFunnelPreviewCount(res.data?.count ?? 0);
+    } catch { setFunnelPreviewCount(null); }
+  };
+  const saveFunnelRule = async () => {
+    if (!funnelEditing) return;
+    if (!funnelEditing.name.trim()) { setSnackbar({ open: true, message: 'Ponle un nombre a la regla', severity: 'error' }); return; }
+    if (!funnelEditing.template_id) { setSnackbar({ open: true, message: 'Selecciona una plantilla', severity: 'error' }); return; }
+    setFunnelSaving(true);
+    try {
+      await axios.post(`${API_URL}/admin/crm/funnel-rules`, {
+        id: funnelEditing.id,
+        name: funnelEditing.name.trim(),
+        enabled: funnelEditing.enabled,
+        templateId: funnelEditing.template_id,
+        varValues: funnelEditing.var_values || [],
+        segment: funnelEditing.segment,
+        frequency: funnelEditing.frequency,
+        dayOfWeek: funnelEditing.day_of_week,
+        hour: funnelEditing.hour,
+      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({ open: true, message: '✅ Regla guardada', severity: 'success' });
+      setFunnelEditing(null);
+      loadFunnelRules();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al guardar', severity: 'error' });
+    } finally { setFunnelSaving(false); }
+  };
+  const deleteFunnelRule = async (id?: number) => {
+    if (!id) return;
+    try {
+      await axios.delete(`${API_URL}/admin/crm/funnel-rules/${id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      loadFunnelRules();
+    } catch { /* noop */ }
   };
 
   // Abrir diálogo de envío masivo: carga plantillas + valores vigentes.
@@ -2143,6 +2246,14 @@ export default function UnifiedLeadsPage() {
             >
               Enviar WhatsApp ({leadTabValue === 'advisors' ? selectedAdvisorIds.size : selectedLeadKeys.size})
             </Button>
+            <Button
+              variant="outlined"
+              startIcon={<span>🔁</span>}
+              onClick={openFunnelDialog}
+              sx={{ fontWeight: 700, borderColor: '#7b1fa2', color: '#7b1fa2', '&:hover': { borderColor: '#6a1b9a', bgcolor: 'rgba(123,31,162,0.06)' } }}
+            >
+              Configurar funnel
+            </Button>
             {selectedLeadKeys.size > 0 && groups.length > 0 && (
               <FormControl size="small" sx={{ minWidth: 190 }}>
                 <InputLabel id="assign-grp-label">Asignar a grupo</InputLabel>
@@ -3406,6 +3517,165 @@ export default function UnifiedLeadsPage() {
           <MenuItem key={a.id} onClick={() => assignAdvisorToLead(a.id)}>{a.full_name}</MenuItem>
         ))}
       </Menu>
+
+      {/* 🔁 Configurar funnel Dialog */}
+      <Dialog open={funnelOpen} onClose={() => !funnelSaving && setFunnelOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>🔁 Configurar funnel — campañas automáticas por segmento</DialogTitle>
+        <DialogContent dividers>
+          {!funnelEditing ? (
+            <>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, gap: 1, flexWrap: 'wrap' }}>
+                <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 520 }}>
+                  Reglas que se envían <b>solas</b> en su horario. Ej: <i>TC semanal a usuarios X-Pay</i>, <i>tarifas a marítimo</i>, <i>invitación a quien no ha usado ningún servicio</i>.
+                </Typography>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={startNewFunnelRule}>Nueva regla</Button>
+              </Box>
+              {funnelRules.length === 0 ? (
+                <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>Aún no hay reglas. Crea una con “Nueva regla”.</Typography>
+              ) : (
+                <Stack spacing={1}>
+                  {funnelRules.map((r) => (
+                    <Box key={r.id} sx={{ p: 1.25, border: '1px solid rgba(0,0,0,0.12)', borderRadius: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', bgcolor: r.enabled ? 'rgba(46,125,50,0.03)' : 'rgba(0,0,0,0.03)' }}>
+                      <Chip size="small" label={r.enabled ? 'Activa' : 'Pausada'} color={r.enabled ? 'success' : 'default'} sx={{ fontWeight: 700 }} />
+                      <Typography variant="body2" fontWeight={800}>{r.name}</Typography>
+                      <Chip size="small" variant="outlined" label={`📄 ${r.template_label || r.template_name || 'Plantilla'}`} />
+                      <Chip size="small" variant="outlined" label={funnelSegmentLabel(r.segment)} />
+                      <Chip size="small" variant="outlined" label={`🕒 ${funnelFreqLabel(r)}`} />
+                      <Box sx={{ flexGrow: 1 }} />
+                      {r.last_result && (
+                        <Typography variant="caption" color="text.secondary">últ: {r.last_result.sent || 0} env / {r.last_result.audience || 0} aud</Typography>
+                      )}
+                      <IconButton size="small" onClick={() => editFunnelRule(r)}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" color="error" onClick={() => deleteFunnelRule(r.id)}><DeleteIcon fontSize="small" /></IconButton>
+                    </Box>
+                  ))}
+                </Stack>
+              )}
+            </>
+          ) : (() => {
+            const tpl = bulkTemplates.find(t => t.id === funnelEditing.template_id);
+            const vars = tpl?.variables || [];
+            const seg = funnelEditing.segment;
+            return (
+              <Stack spacing={2}>
+                <TextField
+                  label="Nombre de la regla" fullWidth size="small"
+                  placeholder="Ej. TC semanal a usuarios X-Pay"
+                  value={funnelEditing.name}
+                  onChange={(e) => setFunnelEditing({ ...funnelEditing, name: e.target.value })}
+                />
+                {/* Plantilla */}
+                <FormControl fullWidth size="small">
+                  <InputLabel>Plantilla</InputLabel>
+                  <Select
+                    label="Plantilla"
+                    value={funnelEditing.template_id === '' ? '' : funnelEditing.template_id}
+                    onChange={(e) => {
+                      const id = Number(e.target.value);
+                      const t = bulkTemplates.find(x => x.id === id);
+                      setFunnelEditing({ ...funnelEditing, template_id: id, var_values: (t?.variables || []).map((_, i) => funnelEditing.var_values?.[i] || '') });
+                    }}
+                  >
+                    {bulkTemplates.map(t => <MenuItem key={t.id} value={t.id}>{t.label}</MenuItem>)}
+                  </Select>
+                </FormControl>
+                {/* Variables de la plantilla */}
+                {vars.map((v, i) => (
+                  <TextField
+                    key={i} size="small" fullWidth
+                    label={`Valor: ${v.label || `Variable ${i + 1}`}`}
+                    value={funnelEditing.var_values?.[i] || ''}
+                    onChange={(e) => {
+                      const nv = [...(funnelEditing.var_values || [])]; nv[i] = e.target.value;
+                      setFunnelEditing({ ...funnelEditing, var_values: nv });
+                    }}
+                  />
+                ))}
+                <Divider textAlign="left"><Typography variant="caption" fontWeight={700}>AUDIENCIA (segmento)</Typography></Divider>
+                <FormControlLabel
+                  control={<Switch checked={seg.none} onChange={(e) => { setFunnelPreviewCount(null); setFunnelEditing({ ...funnelEditing, segment: { ...seg, none: e.target.checked, services: e.target.checked ? [] : seg.services } }); }} />}
+                  label="Sin ningún servicio (para invitación / activación)"
+                />
+                {!seg.none && (
+                  <>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                      {SERVICE_KEYS.map((s) => {
+                        const active = seg.services.includes(s);
+                        return (
+                          <Chip
+                            key={s} size="small"
+                            label={`${SERVICE_CATALOG[s].icon} ${SERVICE_CATALOG[s].label}`}
+                            color={active ? 'primary' : 'default'} variant={active ? 'filled' : 'outlined'}
+                            onClick={() => { setFunnelPreviewCount(null); const n = active ? seg.services.filter(x => x !== s) : [...seg.services, s]; setFunnelEditing({ ...funnelEditing, segment: { ...seg, services: n } }); }}
+                            sx={{ fontWeight: 700 }}
+                          />
+                        );
+                      })}
+                    </Box>
+                    {seg.services.length > 0 && (
+                      <ToggleButtonGroup
+                        size="small" exclusive value={seg.mode}
+                        onChange={(_, v) => { if (v) { setFunnelPreviewCount(null); setFunnelEditing({ ...funnelEditing, segment: { ...seg, mode: v } }); } }}
+                        sx={{ '& .MuiToggleButton-root': { textTransform: 'none', py: 0.3, px: 1.2 } }}
+                      >
+                        <ToggleButton value="all">Tiene todos</ToggleButton>
+                        <ToggleButton value="exact">Exactamente</ToggleButton>
+                        <ToggleButton value="any">Alguno</ToggleButton>
+                      </ToggleButtonGroup>
+                    )}
+                  </>
+                )}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Button size="small" variant="outlined" onClick={previewFunnelSegment}>Previsualizar audiencia</Button>
+                  {funnelPreviewCount != null && <Chip size="small" color="info" label={`${funnelPreviewCount} cliente(s)`} />}
+                </Box>
+                <Divider textAlign="left"><Typography variant="caption" fontWeight={700}>FRECUENCIA</Typography></Divider>
+                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <ToggleButtonGroup
+                    size="small" exclusive value={funnelEditing.frequency}
+                    onChange={(_, v) => { if (v) setFunnelEditing({ ...funnelEditing, frequency: v }); }}
+                    sx={{ '& .MuiToggleButton-root': { textTransform: 'none', py: 0.3, px: 1.2 } }}
+                  >
+                    <ToggleButton value="weekly">Semanal</ToggleButton>
+                    <ToggleButton value="daily">Diario</ToggleButton>
+                  </ToggleButtonGroup>
+                  {funnelEditing.frequency === 'weekly' && (
+                    <FormControl size="small" sx={{ minWidth: 130 }}>
+                      <InputLabel>Día</InputLabel>
+                      <Select label="Día" value={funnelEditing.day_of_week ?? 1} onChange={(e) => setFunnelEditing({ ...funnelEditing, day_of_week: Number(e.target.value) })}>
+                        {DOW_LABELS.map((d, i) => <MenuItem key={i} value={i}>{d}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  )}
+                  <FormControl size="small" sx={{ minWidth: 110 }}>
+                    <InputLabel>Hora (MX)</InputLabel>
+                    <Select label="Hora (MX)" value={funnelEditing.hour} onChange={(e) => setFunnelEditing({ ...funnelEditing, hour: Number(e.target.value) })}>
+                      {Array.from({ length: 24 }, (_, h) => <MenuItem key={h} value={h}>{String(h).padStart(2, '0')}:00</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <FormControlLabel
+                    control={<Switch checked={funnelEditing.enabled} onChange={(e) => setFunnelEditing({ ...funnelEditing, enabled: e.target.checked })} />}
+                    label={funnelEditing.enabled ? 'Activa' : 'Pausada'}
+                  />
+                </Box>
+                <Typography variant="caption" color="text.secondary">
+                  Se enviará automáticamente {funnelFreqLabel(funnelEditing).toLowerCase()} a la audiencia del segmento. Respeta blacklist y no repite el mismo mensaje al mismo número en 24h.
+                </Typography>
+              </Stack>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions>
+          {funnelEditing ? (
+            <>
+              <Button onClick={() => setFunnelEditing(null)} disabled={funnelSaving}>Cancelar</Button>
+              <Button variant="contained" onClick={saveFunnelRule} disabled={funnelSaving} startIcon={funnelSaving ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}>Guardar regla</Button>
+            </>
+          ) : (
+            <Button onClick={() => setFunnelOpen(false)}>Cerrar</Button>
+          )}
+        </DialogActions>
+      </Dialog>
 
       {/* Nuevo grupo Dialog */}
       <Dialog open={newGroupOpen} onClose={() => !savingGroup && setNewGroupOpen(false)} maxWidth="xs" fullWidth>

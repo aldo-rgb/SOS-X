@@ -1389,6 +1389,20 @@ export const startScheduledBulkCron = () => {
   console.log('✅ Cron de envíos masivos programados activo (cada minuto)');
 };
 
+// 🔁 Configurar funnel — dispara reglas de campañas automáticas por segmento.
+// Corre cada 30 min; cada regla se evalúa contra la hora MX y su frecuencia.
+export const startFunnelRulesCron = () => {
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      const { drainFunnelRules } = await import('./crmController');
+      await drainFunnelRules();
+    } catch (e) {
+      console.error('[CRON] startFunnelRulesCron:', (e as Error).message);
+    }
+  });
+  console.log('✅ Cron de reglas de funnel activo (cada 30 min)');
+};
+
 // 🧾 Auto-facturación: timbra los pagos PO Box completados con factura pendiente
 // (cualquier método: manual/transferencia/cash/credit/wallet), respetando el toggle.
 export const startAutoInvoiceSweeperCron = () => {
@@ -1407,6 +1421,7 @@ export const initCronJobs = () => {
   startRecoveryCronJob();
   startWaSequenceCron();
   startScheduledBulkCron();
+  startFunnelRulesCron();
   startAutoInvoiceSweeperCron();
   startBoxLinkReconcileCron();
   // Reactivado: procesarPrimerPago ya no usa transacción anidada (no puede colgar el pool).

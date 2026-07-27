@@ -1433,6 +1433,173 @@ export const executeBulkSend = async (opts: { templateId: any; leadKeys?: any[] 
 };
 
 // ============================================================================
+// 🔁 CONFIGURAR FUNNEL — Reglas de campañas automáticas por SEGMENTO de servicio.
+// Cada regla = audiencia (por servicios usados) + plantilla + frecuencia. Un cron
+// evalúa las reglas activas y dispara executeBulkSend (respeta blacklist y la
+// guardia anti-duplicado de 24h). Ej: "TC semanal a usuarios X-Pay".
+// ============================================================================
+let funnelRulesReady = false;
+export const ensureFunnelRulesSchema = async (): Promise<void> => {
+  if (funnelRulesReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS funnel_rules (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      template_id INTEGER NOT NULL,
+      var_values JSONB,
+      -- segmento: { services: string[], mode: 'all'|'any'|'exact', none: boolean }
+      segment JSONB NOT NULL DEFAULT '{}'::jsonb,
+      frequency TEXT NOT NULL DEFAULT 'weekly',   -- 'weekly' | 'daily'
+      day_of_week INTEGER,                        -- 0=Dom..6=Sáb (solo weekly)
+      hour INTEGER NOT NULL DEFAULT 10,           -- hora MX (0-23)
+      last_run_at TIMESTAMPTZ,
+      last_result JSONB,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  funnelRulesReady = true;
+};
+
+// ¿El set de servicios del cliente cumple el segmento de la regla?
+const matchServiceSegment = (services: string[] | undefined, seg: any): boolean => {
+  const have = new Set(services || []);
+  if (seg && seg.none) return have.size === 0;          // "sin ningún servicio"
+  const sel: string[] = Array.isArray(seg?.services) ? seg.services : [];
+  if (sel.length === 0) return true;                    // sin filtro → todos
+  if (seg.mode === 'any') return sel.some((s: string) => have.has(s));
+  if (seg.mode === 'exact') return have.size === sel.length && sel.every((s: string) => have.has(s));
+  return sel.every((s: string) => have.has(s));         // 'all' (default)
+};
+
+// Devuelve los lead_keys de TODOS los clientes que cumplen el segmento (con teléfono).
+const audienceForSegment = async (seg: any): Promise<string[]> => {
+  const { leads } = await fetchLeads({ status: 'all', search: '' });
+  return leads
+    .filter((l: any) => String(l.phone || '').trim() !== '' && matchServiceSegment(l.services, seg))
+    .map((l: any) => l.lead_key)
+    .filter(Boolean);
+};
+
+// Ejecuta UNA regla: calcula audiencia y envía. Actualiza last_run_at/last_result.
+export const runFunnelRule = async (rule: any): Promise<any> => {
+  const seg = typeof rule.segment === 'string' ? JSON.parse(rule.segment) : (rule.segment || {});
+  const vars = Array.isArray(rule.var_values) ? rule.var_values : (typeof rule.var_values === 'string' ? JSON.parse(rule.var_values || '[]') : (rule.var_values || []));
+  const audience = await audienceForSegment(seg);
+  let out: any;
+  if (audience.length === 0) {
+    out = { success: true, total: 0, sent: 0, skipped: 0, failed: 0, note: 'Sin audiencia' };
+  } else {
+    out = await executeBulkSend({ templateId: rule.template_id, leadKeys: audience, varValues: vars });
+  }
+  await pool.query(
+    `UPDATE funnel_rules SET last_run_at = NOW(), last_result = $2 WHERE id = $1`,
+    [rule.id, JSON.stringify({ total: out.total || 0, sent: out.sent || 0, skipped: out.skipped || 0, failed: out.failed || 0, firstError: out.firstError || null, audience: audience.length })]
+  );
+  console.log(`[FUNNEL] Regla #${rule.id} "${rule.name}": audiencia ${audience.length}, ${out.sent || 0} enviados, ${out.failed || 0} fallidos`);
+  return out;
+};
+
+// Barredor del cron: dispara las reglas activas que "tocan" en la hora MX actual.
+export const drainFunnelRules = async (): Promise<void> => {
+  await ensureFunnelRulesSchema();
+  // Hora de pared en México (UTC-6 todo el año desde 2022).
+  const mx = new Date(Date.now() - 6 * 3600 * 1000);
+  const mxHour = mx.getUTCHours();
+  const mxDow = mx.getUTCDay();
+  const rules = await pool.query(`SELECT * FROM funnel_rules WHERE enabled = true`);
+  for (const rule of rules.rows) {
+    try {
+      const dueThisHour = rule.frequency === 'daily'
+        ? (rule.hour === mxHour)
+        : (rule.day_of_week === mxDow && rule.hour === mxHour);
+      if (!dueThisHour) continue;
+      // Guardia anti-doble-disparo: no correr si ya corrió en las últimas 12h.
+      if (rule.last_run_at) {
+        const hoursSince = (Date.now() - new Date(rule.last_run_at).getTime()) / 3600000;
+        if (hoursSince < 12) continue;
+      }
+      await runFunnelRule(rule);
+    } catch (e) {
+      console.error(`[FUNNEL] Regla #${rule.id} falló:`, (e as Error).message);
+    }
+  }
+};
+
+// ── CRUD de reglas (panel "Configurar funnel") ──
+export const getFunnelRules = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureFunnelRulesSchema();
+    const r = await pool.query(`
+      SELECT f.*, t.label AS template_label, t.template_name
+        FROM funnel_rules f
+        LEFT JOIN bulk_wa_templates t ON t.id = f.template_id
+       ORDER BY f.created_at DESC`);
+    return res.json({ success: true, rules: r.rows });
+  } catch (error: any) {
+    console.error('Error en getFunnelRules:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Error' });
+  }
+};
+
+export const saveFunnelRule = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureFunnelRulesSchema();
+    const { id, name, enabled, templateId, varValues, segment, frequency, dayOfWeek, hour } = req.body || {};
+    if (!name || !String(name).trim()) return res.status(400).json({ success: false, error: 'Falta el nombre' });
+    if (!templateId) return res.status(400).json({ success: false, error: 'Selecciona una plantilla' });
+    const freq = (frequency === 'daily') ? 'daily' : 'weekly';
+    const hr = Math.max(0, Math.min(23, parseInt(String(hour), 10) || 10));
+    const dow = freq === 'weekly' ? (parseInt(String(dayOfWeek), 10) || 0) : null;
+    const seg = segment && typeof segment === 'object' ? segment : {};
+    const vars = Array.isArray(varValues) ? varValues : [];
+    if (id) {
+      const upd = await pool.query(
+        `UPDATE funnel_rules SET name=$2, enabled=$3, template_id=$4, var_values=$5, segment=$6, frequency=$7, day_of_week=$8, hour=$9 WHERE id=$1 RETURNING id`,
+        [id, String(name).trim(), enabled !== false, parseInt(String(templateId), 10), JSON.stringify(vars), JSON.stringify(seg), freq, dow, hr]
+      );
+      if (upd.rowCount === 0) return res.status(404).json({ success: false, error: 'Regla no encontrada' });
+      return res.json({ success: true, id });
+    }
+    const ins = await pool.query(
+      `INSERT INTO funnel_rules (name, enabled, template_id, var_values, segment, frequency, day_of_week, hour, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [String(name).trim(), enabled !== false, parseInt(String(templateId), 10), JSON.stringify(vars), JSON.stringify(seg), freq, dow, hr, (req as any).user?.id || null]
+    );
+    return res.json({ success: true, id: ins.rows[0].id });
+  } catch (error: any) {
+    console.error('Error en saveFunnelRule:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Error' });
+  }
+};
+
+export const deleteFunnelRule = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureFunnelRulesSchema();
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) return res.status(400).json({ success: false, error: 'ID inválido' });
+    await pool.query(`DELETE FROM funnel_rules WHERE id=$1`, [id]);
+    return res.json({ success: true, id });
+  } catch (error: any) {
+    console.error('Error en deleteFunnelRule:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Error' });
+  }
+};
+
+// Previsualiza cuántos clientes caen en el segmento (para el panel, sin enviar).
+export const previewFunnelSegment = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const seg = req.body?.segment && typeof req.body.segment === 'object' ? req.body.segment : {};
+    const audience = await audienceForSegment(seg);
+    return res.json({ success: true, count: audience.length });
+  } catch (error: any) {
+    console.error('Error en previewFunnelSegment:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Error' });
+  }
+};
+
+// ============================================================================
 // 👥 GRUPOS DE LEADS (para segmentar y automatizar mensajes por grupo)
 // ============================================================================
 // Un lead se identifica por lead_key ('crm_<id>' | 'lc_<id>'), la misma llave que
