@@ -118,6 +118,9 @@ interface Lead {
   next_contact_at?: string | null;
   // Reclamado = ya existe un usuario en el sistema (match por Box ID)
   reclamado?: boolean;
+  // Recuperado orgánico = se marcó 'recovered' pero el cliente llegó solo
+  // (sin asesor de recuperación, sin referido, sin asesor). Cuenta como Reclamado.
+  recovered_organic?: boolean;
   // Grupos a los que pertenece el lead
   groups?: Array<{ id: number; name: string; color: string }>;
   // Kit de bienvenida
@@ -2319,7 +2322,10 @@ export default function UnifiedLeadsPage() {
                         )}
                         {!blacklistView && lead.source === 'chartback' && (() => {
                           const st = String(lead.chartback_status || '').toLowerCase().trim();
-                          const meaningful = ['recovered', 'no_answer', 'callback', 'retention', 'not_interested'].includes(st);
+                          // Recuperado ORGÁNICO (llegó solo, sin asesor/referido) NO cuenta
+                          // como Recuperado: se muestra como Reclamado.
+                          const organicRecovered = st === 'recovered' && !!lead.recovered_organic;
+                          const meaningful = !organicRecovered && ['recovered', 'no_answer', 'callback', 'retention', 'not_interested'].includes(st);
                           // Si tiene actividad de reactivación real, muestra ese sub-estatus;
                           // si no, muestra si está reclamado (tiene usuario) o no.
                           const label = meaningful

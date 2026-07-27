@@ -177,7 +177,8 @@ const LEADS_COMBINED_QUERY = `
           NULL::text AS advisor_response,
           NULL::jsonb AS activity,
           NULL::timestamptz AS next_contact_at,
-          true AS reclamado
+          true AS reclamado,
+          false AS recovered_organic
         FROM crm_requests r
         JOIN users u ON r.user_id = u.id
         LEFT JOIN users a ON r.assigned_advisor_id = a.id
@@ -218,11 +219,19 @@ const LEADS_COMBINED_QUERY = `
           lc.chartback_notes AS advisor_response,
           lc.chartback_activity AS activity,
           lc.next_contact_at,
-          (mu.id IS NOT NULL) AS reclamado
+          (mu.id IS NOT NULL) AS reclamado,
+          -- Recuperado ORGÁNICO: se auto-marcó 'recovered' al reclamar su cuenta,
+          -- pero NO hubo esfuerzo comercial (sin asesor de recuperación, sin
+          -- referido y sin asesor). Estos NO cuentan como Recuperados (van a
+          -- Reclamados): el cliente llegó solo, nadie lo trajo de vuelta.
+          (LOWER(TRIM(COALESCE(lc.chartback_status, ''))) = 'recovered'
+             AND lc.recovery_advisor_id IS NULL
+             AND mu.referred_by_id IS NULL
+             AND mu.advisor_id IS NULL) AS recovered_organic
         FROM legacy_clients lc
         LEFT JOIN users adv ON lc.recovery_advisor_id = adv.id
         LEFT JOIN LATERAL (
-          SELECT u2.id, u2.full_name, u2.email, u2.phone
+          SELECT u2.id, u2.full_name, u2.email, u2.phone, u2.referred_by_id, u2.advisor_id
             FROM users u2
            WHERE lc.box_id IS NOT NULL AND UPPER(TRIM(u2.box_id)) = UPPER(TRIM(lc.box_id))
            ORDER BY u2.id ASC
@@ -256,7 +265,8 @@ const LEADS_COMBINED_QUERY = `
           NULL::text AS advisor_response,
           NULL::jsonb AS activity,
           NULL::timestamptz AS next_contact_at,
-          true AS reclamado
+          true AS reclamado,
+          false AS recovered_organic
         FROM prospects p
         JOIN users u ON p.converted_user_id = u.id
         LEFT JOIN users padv ON p.assigned_advisor_id = padv.id
@@ -323,9 +333,10 @@ export async function fetchLeads(opts: { status?: any; search?: any }): Promise<
   //   - RECLAMADOS:  el resto de convertidos (match por Box ID / funnel).
   const convertedKind = (r: any): 'recuperados' | 'reclamados' | null => {
     if (r.status !== 'converted') return null;
-    return String(r.chartback_status || '').toLowerCase().trim() === 'recovered'
-      ? 'recuperados'
-      : 'reclamados';
+    // Solo cuenta como RECUPERADO si fue una reactivación REAL (asesor/referido).
+    // Los recuperados ORGÁNICOS (alta por su cuenta, sin nada) van a Reclamados.
+    const isRecovered = String(r.chartback_status || '').toLowerCase().trim() === 'recovered';
+    return (isRecovered && !r.recovered_organic) ? 'recuperados' : 'reclamados';
   };
 
   // Stats sobre TODAS las fuentes (funnel combinado, sin los sin-reclamar).
