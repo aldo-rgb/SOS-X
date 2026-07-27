@@ -407,6 +407,61 @@ export async function fetchLeads(opts: { status?: any; search?: any }): Promise<
     }
   } catch (e) { /* no romper la lista si falla el resumen de mensajes */ }
 
+  // Servicios usados por cada cliente (para la columna "Servicios" del CRM).
+  // Se unen packages (PO Box / Aéreo / Marítimo / DHL / TDI), maritime_orders
+  // y dhl_shipments, y se agrega el set distinto por box_id (fallback user_id).
+  try {
+    const boxIds = Array.from(new Set(leads.map((l: any) => String(l.box_id || '').trim().toUpperCase()).filter(Boolean)));
+    const userIds = Array.from(new Set(leads.map((l: any) => l.user_id).filter((x: any) => x != null)));
+    for (const l of leads) l.services = [];
+    if (boxIds.length > 0 || userIds.length > 0) {
+      const svcRes = await pool.query(
+        `SELECT DISTINCT UPPER(TRIM(box)) AS box, uid, servicio FROM (
+           -- packages: cubre PO Box, Aéreo, Marítimo (copiado), DHL y TDI.
+           SELECT p.box_id AS box, p.user_id AS uid,
+             CASE
+               WHEN p.air_source = 'tdi_express' OR LOWER(COALESCE(p.service_type,'')) = 'tdi_express' THEN 'tdi_express'
+               WHEN p.service_type IN ('AIR_CHN_MX','china_air','aereo','air') THEN 'aereo'
+               WHEN p.service_type IN ('SEA_CHN_MX','china_sea','maritime','maritimo','fcl') THEN 'maritimo'
+               WHEN p.service_type IN ('POBOX_USA','usa_pobox','po_box','pobox','usa') THEN 'po_box'
+               WHEN p.service_type IN ('AA_DHL','dhl','mty','NATIONAL','TERRESTRE_NAL') THEN 'dhl'
+             END AS servicio
+           FROM packages p
+           WHERE p.user_id = ANY($1::int[]) OR UPPER(TRIM(p.box_id)) = ANY($2::text[])
+           UNION ALL
+           -- maritime_orders: todo es marítimo (por user_id o por shipping_mark = box).
+           SELECT mo.shipping_mark AS box, mo.user_id AS uid, 'maritimo' AS servicio
+           FROM maritime_orders mo
+           WHERE mo.user_id = ANY($1::int[]) OR UPPER(TRIM(mo.shipping_mark)) = ANY($2::text[])
+           UNION ALL
+           -- dhl_shipments: todo es DHL/Nacional.
+           SELECT ds.box_id AS box, ds.user_id AS uid, 'dhl' AS servicio
+           FROM dhl_shipments ds
+           WHERE ds.user_id = ANY($1::int[]) OR UPPER(TRIM(ds.box_id)) = ANY($2::text[])
+         ) s
+         WHERE servicio IS NOT NULL`,
+        [userIds, boxIds]
+      );
+      const byBox: Record<string, Set<string>> = {};
+      const byUser: Record<string, Set<string>> = {};
+      for (const r of svcRes.rows) {
+        if (r.box) (byBox[r.box] = byBox[r.box] || new Set()).add(r.servicio);
+        if (r.uid != null) (byUser[String(r.uid)] = byUser[String(r.uid)] || new Set()).add(r.servicio);
+      }
+      // Orden de despliegue consistente de los servicios.
+      const ORDER = ['po_box', 'aereo', 'maritimo', 'tdi_express', 'dhl'];
+      for (const l of leads) {
+        const set = new Set<string>();
+        const bk = String(l.box_id || '').trim().toUpperCase();
+        const fromBox = bk ? byBox[bk] : undefined;
+        if (fromBox) fromBox.forEach(s => set.add(s));
+        const fromUser = l.user_id != null ? byUser[String(l.user_id)] : undefined;
+        if (fromUser) fromUser.forEach(s => set.add(s));
+        l.services = ORDER.filter(s => set.has(s));
+      }
+    }
+  } catch (e) { /* no romper la lista si falla el resumen de servicios */ }
+
   return { leads, stats, isSearch: !!q };
 }
 

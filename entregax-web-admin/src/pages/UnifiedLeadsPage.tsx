@@ -37,6 +37,8 @@ import {
   InputAdornment,
   Button,
   Tooltip,
+  ToggleButton,
+  ToggleButtonGroup,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -130,7 +132,19 @@ interface Lead {
   msgs_clicked?: number;
   msgs_last_sent?: string | null;
   msgs_last_click?: string | null;
+  // Servicios de paquetería que ha usado el cliente (po_box, aereo, maritimo, tdi_express, dhl)
+  services?: string[];
 }
+
+// Catálogo de servicios: icono + nombre legible (columna "Servicios" y filtro).
+const SERVICE_CATALOG: Record<string, { icon: string; label: string }> = {
+  po_box: { icon: '📦', label: 'PO Box (USA)' },
+  aereo: { icon: '✈️', label: 'Aéreo China' },
+  maritimo: { icon: '🚢', label: 'Marítimo' },
+  tdi_express: { icon: '⚡', label: 'TDI Express' },
+  dhl: { icon: '🚚', label: 'DHL / Nacional' },
+};
+const SERVICE_KEYS = ['po_box', 'aereo', 'maritimo', 'tdi_express', 'dhl'];
 
 // Grupo de leads
 interface LeadGroup {
@@ -404,6 +418,12 @@ export default function UnifiedLeadsPage() {
   // Filtros independientes: asesor asignado y clics en mensajes.
   const [advisorFilter, setAdvisorFilter] = useState<'all' | 'with' | 'without'>('all');
   const [msgClickFilter, setMsgClickFilter] = useState<'all' | 'clicked' | 'not_clicked'>('all');
+  // Filtro por servicios usados: set de servicios seleccionados + modo de coincidencia.
+  //   all   = tiene TODOS los seleccionados   (ej. "po box Y tdi express")
+  //   exact = usa EXACTAMENTE esos servicios  (ej. "solo marítimo")
+  //   any   = tiene ALGUNO de los seleccionados
+  const [serviceFilter, setServiceFilter] = useState<Set<string>>(new Set());
+  const [serviceFilterMode, setServiceFilterMode] = useState<'all' | 'exact' | 'any'>('all');
   // Filtro por plantilla: quién dio clic (o recibió) una plantilla específica.
   const [templateFilter, setTemplateFilter] = useState<number | ''>('');
   const [clickFilter, setClickFilter] = useState<'all' | 'clicked' | 'not_clicked'>('all');
@@ -471,6 +491,16 @@ export default function UnifiedLeadsPage() {
       list = list.filter(l => (l.msgs_clicked || 0) > 0);
     } else if (msgClickFilter === 'not_clicked') {
       list = list.filter(l => (l.msgs_sent || 0) > 0 && (l.msgs_clicked || 0) === 0);
+    }
+    // Filtro por servicios usados (según el modo: todos / exacto / alguno).
+    if (serviceFilter.size > 0) {
+      const sel = Array.from(serviceFilter);
+      list = list.filter(l => {
+        const have = new Set(l.services || []);
+        if (serviceFilterMode === 'any') return sel.some(s => have.has(s));
+        if (serviceFilterMode === 'exact') return have.size === sel.length && sel.every(s => have.has(s));
+        return sel.every(s => have.has(s)); // 'all'
+      });
     }
     const q = leadSearch.trim().toLowerCase();
     if (q) {
@@ -2062,6 +2092,44 @@ export default function UnifiedLeadsPage() {
             />
           </Box>
 
+          {/* Filtro por SERVICIOS usados por el cliente */}
+          {!blacklistView && leadTabValue !== 'advisors' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+              <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>Servicios:</Typography>
+              {SERVICE_KEYS.map((s) => {
+                const svc = SERVICE_CATALOG[s];
+                const active = serviceFilter.has(s);
+                return (
+                  <Chip
+                    key={s}
+                    size="small"
+                    label={`${svc.icon} ${svc.label}`}
+                    onClick={() => setServiceFilter(prev => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; })}
+                    color={active ? 'primary' : 'default'}
+                    variant={active ? 'filled' : 'outlined'}
+                    sx={{ fontWeight: 700 }}
+                  />
+                );
+              })}
+              {serviceFilter.size > 0 && (
+                <>
+                  <ToggleButtonGroup
+                    size="small"
+                    exclusive
+                    value={serviceFilterMode}
+                    onChange={(_, v) => v && setServiceFilterMode(v)}
+                    sx={{ ml: 0.5, '& .MuiToggleButton-root': { py: 0.2, px: 1, textTransform: 'none', fontSize: 12 } }}
+                  >
+                    <ToggleButton value="all">Tiene todos</ToggleButton>
+                    <ToggleButton value="exact">Exactamente</ToggleButton>
+                    <ToggleButton value="any">Alguno</ToggleButton>
+                  </ToggleButtonGroup>
+                  <Chip size="small" variant="outlined" label="Limpiar" onClick={() => setServiceFilter(new Set())} sx={{ fontWeight: 700 }} />
+                </>
+              )}
+            </Box>
+          )}
+
           {/* Barra de acciones: envío masivo por WhatsApp + asignar a grupo */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
             <Button
@@ -2250,6 +2318,7 @@ export default function UnifiedLeadsPage() {
                     <TableCell>{t('leads.state')}</TableCell>
                     <TableCell>{t('leads.assignedAdvisor')}</TableCell>
                     <TableCell align="center">Mensajes</TableCell>
+                    <TableCell align="center">Servicios</TableCell>
                     <TableCell align="right">{t('common.actions')}</TableCell>
                   </TableRow>
                 </TableHead>
@@ -2405,6 +2474,23 @@ export default function UnifiedLeadsPage() {
                           <Typography variant="caption" color="text.secondary">—</Typography>
                         )}
                       </TableCell>
+                      <TableCell align="center">
+                        {(lead.services && lead.services.length > 0) ? (
+                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'center' }}>
+                            {lead.services.map((s) => {
+                              const svc = SERVICE_CATALOG[s];
+                              if (!svc) return null;
+                              return (
+                                <Tooltip key={s} title={svc.label}>
+                                  <Box component="span" sx={{ fontSize: 18, lineHeight: 1, cursor: 'default' }}>{svc.icon}</Box>
+                                </Tooltip>
+                              );
+                            })}
+                          </Box>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">—</Typography>
+                        )}
+                      </TableCell>
                       <TableCell align="right">
                         {blacklistView ? (
                           <Button size="small" variant="outlined" color="inherit" onClick={() => unBlacklist(leadKeyOf(lead))}>
@@ -2438,7 +2524,7 @@ export default function UnifiedLeadsPage() {
                   ))}
                   {displayedLeads.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} align="center" sx={{ py: 5 }}>
+                      <TableCell colSpan={10} align="center" sx={{ py: 5 }}>
                         <Typography variant="body1" color="text.secondary">
                           {leadTabValue === 'pending'
                             ? `${t('leads.noRequests')} 🎉`
