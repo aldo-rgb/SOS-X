@@ -2249,9 +2249,13 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     totalCost: (() => {
                         const tc = parseFloat(pkg.registered_exchange_rate) || 0;
                         const ventaMxn = (parseFloat(pkg.pobox_venta_usd) || 0) * tc;
+                        // Aéreo China / TDI: el precio de venta vive en air_sale_price
+                        // (kg × tarifa), NO en pobox_venta_usd. Sin esto, una guía aérea
+                        // ya costeada mostraba $0 en "Total a cobrar" de Cajito.
+                        const airSale = parseFloat(pkg.air_sale_price) || 0;
                         const gex = parseFloat(pkg.gex_total_cost) || 0;
                         const envio = parseFloat(pkg.national_shipping_cost) || 0;
-                        const computed = ventaMxn + gex + envio;
+                        const computed = ventaMxn + airSale + gex + envio;
                         const assigned = parseFloat(pkg.assigned_cost_mxn) || 0;
                         const total = Math.max(computed, assigned);
                         return total > 0 ? total : null;
