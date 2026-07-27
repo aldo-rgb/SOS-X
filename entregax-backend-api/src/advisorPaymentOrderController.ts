@@ -1023,11 +1023,15 @@ export const requestAdvisorOrderInvoice = async (req: Request, res: Response): P
     });
 
     if (!result.success) {
-      // Errores de datos fiscales (RFC/régimen/CP) → mensaje limpio "RFC inválido".
+      // Errores de datos fiscales (RFC/régimen/uso/CP) → devolver el MOTIVO REAL
+      // del PAC/SAT, no un genérico "RFC inválido" que oculta la causa (p.ej.
+      // razón social que no coincide con la constancia, régimen↔uso incompatible,
+      // RFC no inscrito en ListaSAT, CP que no cuadra, etc.).
       const errStr = String(result.error || '').toLowerCase();
       const isFiscalErr = /rfc|regime|regimen|receiver|postal|zip|c[oó]digo|tax id|datos fiscales/.test(errStr);
       if (isFiscalErr) {
-        return res.status(400).json({ error: 'RFC inválido' });
+        console.error('[invoice] Error fiscal del PAC:', result.error);
+        return res.status(400).json({ error: `No se pudo timbrar: ${result.error || 'datos fiscales inválidos'}` });
       }
       // Cualquier otro fallo (PAC/red/credenciales): NO bloquear. Dejar el pago
       // como pendiente por timbrar para emitirlo manualmente desde Contabilidad.
