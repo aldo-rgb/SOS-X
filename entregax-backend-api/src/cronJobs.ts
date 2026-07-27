@@ -1363,8 +1363,15 @@ export const drainScheduledBulkSends = async () => {
           advisorIds: job.advisor_ids || undefined,
           varValues: job.var_values || undefined,
         });
-        await pool.query(`UPDATE scheduled_bulk_sends SET status='done', result=$2, sent_at=NOW() WHERE id=$1`, [job.id, JSON.stringify(out)]);
-        console.log(`[BULK-CRON] Programado #${job.id} enviado: ${out.sent} enviados, ${out.failed} fallidos`);
+        // El status debe reflejar la REALIDAD del envío, no solo que el job terminó.
+        //  - 'done'    → todos salieron (sent>0 y sin fallos)
+        //  - 'partial' → unos sí y otros no
+        //  - 'error'   → no salió ninguno (ej. plantilla rechazada por Meta → 0 enviados)
+        const sent = Number(out.sent) || 0;
+        const failed = Number(out.failed) || 0;
+        const finalStatus = sent === 0 ? 'error' : (failed > 0 ? 'partial' : 'done');
+        await pool.query(`UPDATE scheduled_bulk_sends SET status=$3, result=$2, sent_at=NOW() WHERE id=$1`, [job.id, JSON.stringify(out), finalStatus]);
+        console.log(`[BULK-CRON] Programado #${job.id} (${finalStatus}): ${out.sent} enviados, ${out.failed} fallidos${out.firstError ? ' | 1er error: ' + out.firstError : ''}`);
       } catch (e) {
         await pool.query(`UPDATE scheduled_bulk_sends SET status='error', result=$2, sent_at=NOW() WHERE id=$1`, [job.id, JSON.stringify({ error: (e as Error).message })]).catch(() => {});
         console.error(`[BULK-CRON] Programado #${job.id} falló:`, (e as Error).message);

@@ -1071,11 +1071,12 @@ export const getScheduledBulkSends = async (_req: Request, res: Response): Promi
       SELECT s.id, s.status, s.scheduled_at, s.sent_at, s.created_at,
              -- Resumen compacto: NUNCA devolver result->details (puede pesar cientos de KB)
              jsonb_strip_nulls(jsonb_build_object(
-               'total',   s.result->'total',
-               'sent',    s.result->'sent',
-               'skipped', s.result->'skipped',
-               'failed',  s.result->'failed',
-               'error',   s.result->'error'
+               'total',      s.result->'total',
+               'sent',       s.result->'sent',
+               'skipped',    s.result->'skipped',
+               'failed',     s.result->'failed',
+               'error',      s.result->'error',
+               'firstError', s.result->'firstError'
              )) AS result,
              t.label AS template_label, t.template_name,
              (CASE WHEN jsonb_typeof(s.lead_keys)   = 'array' THEN jsonb_array_length(s.lead_keys)   ELSE 0 END)
@@ -1088,7 +1089,7 @@ export const getScheduledBulkSends = async (_req: Request, res: Response): Promi
     `);
     const items = r.rows.map((row: any) => ({
       id: row.id,
-      status: row.status,                       // pending | sending | done | error
+      status: row.status,                       // pending | sending | done | partial | error
       scheduledAt: row.scheduled_at,
       sentAt: row.sent_at,
       createdAt: row.created_at,

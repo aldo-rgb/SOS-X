@@ -914,9 +914,9 @@ export default function UnifiedLeadsPage() {
 
   // ── Envíos masivos PROGRAMADOS (bulk-whatsapp con hora futura) ──
   type ScheduledSend = {
-    id: number; status: 'pending' | 'sending' | 'done' | 'error';
+    id: number; status: 'pending' | 'sending' | 'done' | 'partial' | 'error';
     scheduledAt: string; sentAt: string | null; templateLabel: string; recipientCount: number;
-    result: { total?: number; sent?: number; skipped?: number; failed?: number; error?: string } | null;
+    result: { total?: number; sent?: number; skipped?: number; failed?: number; error?: string; firstError?: string } | null;
   };
   const [scheduledSends, setScheduledSends] = useState<ScheduledSend[]>([]);
   const fetchScheduledSends = async () => {
@@ -1865,7 +1865,8 @@ export default function UnifiedLeadsPage() {
                 case 'pending': return { label: 'Programado', bg: '#0277bd', pulse: false };
                 case 'sending': return { label: 'Enviando…', bg: '#25D366', pulse: true };
                 case 'done': return { label: 'Enviado', bg: '#2e7d32', pulse: false };
-                default: return { label: 'Error', bg: '#c62828', pulse: false };
+                case 'partial': return { label: 'Parcial', bg: '#ed6c02', pulse: false };
+                default: return { label: 'Falló', bg: '#c62828', pulse: false };
               }
             };
             const pendientes = scheduledSends.filter(s => s.status === 'pending').length;
@@ -1888,7 +1889,8 @@ export default function UnifiedLeadsPage() {
                     const sent = r.sent ?? 0;
                     const failed = r.failed ?? 0;
                     const skipped = r.skipped ?? 0;
-                    const pct = total > 0 && (s.status === 'done') ? Math.round((sent / total) * 100) : 0;
+                    const showProgress = s.status === 'done' || s.status === 'partial';
+                    const pct = total > 0 && showProgress ? Math.round((sent / total) * 100) : 0;
                     return (
                       <Box key={s.id} sx={{ p: 1.25, borderRadius: 2, border: '1px solid rgba(0,0,0,0.1)', bgcolor: 'rgba(0,0,0,0.015)' }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
@@ -1914,7 +1916,7 @@ export default function UnifiedLeadsPage() {
                             </Tooltip>
                           )}
                         </Box>
-                        {s.status === 'done' && (
+                        {showProgress && (
                           <Box sx={{ mt: 0.75 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                               <LinearProgress
@@ -1931,12 +1933,23 @@ export default function UnifiedLeadsPage() {
                               {skipped > 0 && `${skipped.toLocaleString()} omitidos`}
                               {failed === 0 && skipped === 0 && 'Todos enviados correctamente'}
                             </Typography>
+                            {/* Motivo del primer fallo (código de Meta) para diagnosticar sin entrar a la BD */}
+                            {failed > 0 && s.result?.firstError && (
+                              <Typography variant="caption" sx={{ display: 'block', mt: 0.25, color: '#c62828', fontSize: 11 }}>
+                                ⚠️ Motivo: {s.result.firstError}
+                              </Typography>
+                            )}
                           </Box>
                         )}
                         {s.status === 'error' && (
-                          <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#c62828' }}>
-                            ⚠️ {s.result?.error || 'Error al enviar'}
-                          </Typography>
+                          <Box sx={{ mt: 0.5 }}>
+                            <Typography variant="caption" sx={{ display: 'block', color: '#c62828', fontWeight: 700 }}>
+                              ⚠️ No se envió ninguno{(failed || 0) > 0 ? ` (${failed.toLocaleString()} fallidos)` : ''}
+                            </Typography>
+                            <Typography variant="caption" sx={{ display: 'block', color: '#c62828', fontSize: 11 }}>
+                              Motivo: {s.result?.firstError || s.result?.error || 'Error al enviar'}
+                            </Typography>
+                          </Box>
                         )}
                       </Box>
                     );
