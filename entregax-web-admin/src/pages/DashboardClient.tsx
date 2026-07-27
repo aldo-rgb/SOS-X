@@ -10034,6 +10034,16 @@ export default function DashboardClient() {
                     return String(pkg?.shipment_type || pkg?.servicio || '').toUpperCase() === 'POBOX_USA';
                   });
 
+                  // Kit de Bienvenida (guía USK-): la tarifa Estafeta prepagado $99
+                  // (1 Kilo) es EXCLUSIVA del kit. Se oculta en guías normales.
+                  const isKitSelection = selectedPackageIds.some(pkgId => {
+                    const pkg = packages.find(p => p.id === pkgId);
+                    return String(pkg?.tracking_internal || '').toUpperCase().startsWith('USK-');
+                  });
+                  const KIT_ONLY_CARRIERS = ['estafeta_pre'];
+                  const isKitOnlyCarrier = (s: { id: string }) =>
+                    KIT_ONLY_CARRIERS.includes(String(s.id || '').toLowerCase());
+
                   // Reglas de filtrado:
                   //  - PO Box USA → nunca CDMX local
                   //  - MTY metro  → Entregax Local MTY + (Paquete Express si !TDI) + Por Cobrar
@@ -10064,9 +10074,11 @@ export default function DashboardClient() {
                     return !isLocalMty && !isLocalCdmx;
                   };
 
-                  const standardCarriers = carrierServices.filter(s => !s.isCollect && filterByZip(s));
+                  // Ocultar carriers exclusivos de kit (ej. Estafeta $99) si la guía NO es USK.
+                  const visibleCarriers = carrierServices.filter(s => isKitSelection || !isKitOnlyCarrier(s));
+                  const standardCarriers = visibleCarriers.filter(s => !s.isCollect && filterByZip(s));
                   // Por Cobrar disponible en todas las zonas (antes estaba bloqueado en metro)
-                  const collectCarriers = carrierServices.filter(s => s.isCollect);
+                  const collectCarriers = visibleCarriers.filter(s => s.isCollect);
                   void inMetro;
                   return (
                 <FormControl component="fieldset" fullWidth>
