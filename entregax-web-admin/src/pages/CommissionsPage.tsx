@@ -26,8 +26,10 @@ import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import SecurityIcon from '@mui/icons-material/Security';
 import PaymentIcon from '@mui/icons-material/Payment';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import ScienceIcon from '@mui/icons-material/Science';
 import AdvisorCommissionsLedgerPage from './AdvisorCommissionsLedgerPage';
 import CommissionsBoardTab from './CommissionsBoardTab';
+import CommissionSimulatorTab from './CommissionSimulatorTab';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
@@ -266,8 +268,14 @@ export default function CommissionsPage() {
           <Tab value={1} icon={<PaymentIcon />} label={i18n.language === 'es' ? 'Comisiones Generadas' : 'Commissions Ledger'} />
           {/* Pestaña "Tarifas" ocultada a pedido; el contenido (tabValue===2) queda inaccesible. */}
           {canSeeAsesores && <Tab value={3} icon={<AccountTreeIcon />} label={i18n.language === 'es' ? 'Asesores' : 'Hierarchy'} />}
+          <Tab value={4} icon={<ScienceIcon />} label={i18n.language === 'es' ? 'Simulador' : 'Simulator'} />
         </Tabs>
       </Paper>
+
+      {/* Tab Simulador (propuesta del nuevo esquema, informativo) */}
+      {tabValue === 4 && (
+        <CommissionSimulatorTab />
+      )}
 
       {/* Tab General (board de asesores) */}
       {tabValue === 0 && (

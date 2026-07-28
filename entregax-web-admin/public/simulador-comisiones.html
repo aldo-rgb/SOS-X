@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador de Comisiones · EntregaX (Propuesta)</title>
+<style>
+  :root {
+    --accent: #C2571E; --accent-strong: #A84612; --accent-soft: #F6E3D5;
+    --bg: #FAF6F1; --surface: #FFFFFF; --surface-2: #F3ECE3; --border: #E6DDD2;
+    --text: #2B2320; --muted: #8A7D72;
+    --good: #2E7D46; --good-bg: #E4F0E7; --bad: #C0392B; --bad-bg: #F7E3E0;
+    --warn: #B06B0C; --warn-bg: #F6EAD3;
+    --shadow: 0 1px 2px rgba(43,35,32,.06), 0 8px 24px rgba(43,35,32,.05);
+    --radius: 14px;
+    --mono: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent: #E4813F; --accent-strong: #F0985C; --accent-soft: #3A2A1C;
+      --bg: #17130F; --surface: #211B16; --surface-2: #2A231D; --border: #3A322A;
+      --text: #F0E9E1; --muted: #A99C8E;
+      --good: #6FC28A; --good-bg: #1D2E22; --bad: #E8776A; --bad-bg: #33201D;
+      --warn: #E3A44A; --warn-bg: #33280F;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --accent: #E4813F; --accent-strong: #F0985C; --accent-soft: #3A2A1C;
+    --bg: #17130F; --surface: #211B16; --surface-2: #2A231D; --border: #3A322A;
+    --text: #F0E9E1; --muted: #A99C8E;
+    --good: #6FC28A; --good-bg: #1D2E22; --bad: #E8776A; --bad-bg: #33201D;
+    --warn: #E3A44A; --warn-bg: #33280F;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"] {
+    --accent: #C2571E; --accent-strong: #A84612; --accent-soft: #F6E3D5;
+    --bg: #FAF6F1; --surface: #FFFFFF; --surface-2: #F3ECE3; --border: #E6DDD2;
+    --text: #2B2320; --muted: #8A7D72;
+    --good: #2E7D46; --good-bg: #E4F0E7; --bad: #C0392B; --bad-bg: #F7E3E0;
+    --warn: #B06B0C; --warn-bg: #F6EAD3;
+    --shadow: 0 1px 2px rgba(43,35,32,.06), 0 8px 24px rgba(43,35,32,.05);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 28px 20px 80px; }
+
+  header.hd { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 22px; }
+  .eyebrow { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+  h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.05; margin: 6px 0 4px; letter-spacing: -.02em; text-wrap: balance; font-weight: 800; }
+  .sub { color: var(--muted); max-width: 62ch; font-size: 15px; }
+  .databadge { display: inline-flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 8px 14px; font-size: 12.5px; box-shadow: var(--shadow); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 3px var(--good-bg); }
+
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 22px 0 26px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+  .kpi .lab { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .kpi .val { font-family: var(--mono); font-size: clamp(22px, 3.4vw, 30px); font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .kpi.delta .val { color: var(--good); }
+  .kpi .foot { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .kpi::before { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background: var(--accent); opacity:.7; }
+  .kpi.delta::before { background: var(--good); }
+
+  .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border); margin-bottom: 20px; flex-wrap: wrap; }
+  .tab { appearance: none; background: none; border: none; font: inherit; font-weight: 600; color: var(--muted); padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; border-radius: 8px 8px 0 0; }
+  .tab:hover { color: var(--text); background: var(--surface-2); }
+  .tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .grid { display: grid; grid-template-columns: 320px 1fr; gap: 22px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } .kpis { grid-template-columns: 1fr; } }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .card .hdr { padding: 14px 18px; border-bottom: 1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .card .hdr h3 { margin: 0; font-size: 14px; letter-spacing: .02em; }
+  .card .bd { padding: 16px 18px; }
+  .section-note { font-size: 12.5px; color: var(--muted); }
+
+  .param { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 6px 0; }
+  .param + .param { border-top: 1px dashed var(--border); }
+  .param label { font-size: 13px; display:flex; align-items:center; gap:7px; }
+  .param .cur { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+  .param .two { display:flex; gap:6px; }
+  input[type="number"], select { font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+  input[type="number"] { width: 74px; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  input.sm { width: 60px; }
+  input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .grouplab { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; margin: 15px 0 4px; }
+  .grouplab:first-child { margin-top: 0; }
+
+  .tblwrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: right; padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; background: var(--surface-2); position: sticky; top: 0; }
+  td.num, th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  tbody tr:hover td { background: var(--surface-2); }
+  tr.tot td { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; background: var(--surface-2); }
+  .pos { color: var(--good); } .neg { color: var(--bad); }
+  .svc { display:inline-flex; align-items:center; gap:7px; }
+
+  .selrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .selrow select { font-size: 15px; padding: 9px 12px; min-width: 240px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:4px 10px; border-radius:999px; background:var(--surface-2); border:1px solid var(--border); color:var(--muted); }
+
+  .gate { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:10px; font-size:13px; font-weight:700; margin:4px 0 12px; }
+  .gate.g100 { background:var(--good-bg); color:var(--good); border:1px solid var(--good); }
+  .gate.g90  { background:var(--warn-bg); color:var(--warn); border:1px solid var(--warn); }
+  .gate.g80  { background:var(--bad-bg); color:var(--bad); border:1px solid var(--bad); }
+  .gate small { font-weight:500; opacity:.85; }
+
+  .results { display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin:14px 0 4px; }
+  @media (max-width:560px){ .results{ grid-template-columns:1fr; } .manual{ grid-template-columns:1fr!important; } }
+  .rc { border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; }
+  .rc.actual { background: var(--surface-2); }
+  .rc.prop { background: linear-gradient(180deg, var(--accent-soft), var(--surface)); border-color: var(--accent); }
+  .rc .t { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:700; }
+  .rc .big { font-family:var(--mono); font-size:30px; font-weight:700; font-variant-numeric:tabular-nums; margin-top:6px; letter-spacing:-.01em; }
+  .rc.prop .big { color: var(--accent-strong); }
+
+  .ladder { display:grid; gap:2px; margin-top:14px; }
+  .ladder .row { display:flex; justify-content:space-between; gap:12px; font-size:13px; padding:6px 0; border-bottom:1px dashed var(--border); }
+  .ladder .row:last-child { border-bottom:none; }
+  .ladder .row .v { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .ladder .row.sub { font-weight:700; }
+
+  .manual { display:grid; grid-template-columns:repeat(3,1fr); gap:12px 16px; margin-top:6px; }
+  .field { display:flex; flex-direction:column; gap:4px; }
+  .field label { font-size:12px; color:var(--muted); }
+  .field input { width:100%; text-align:left; }
+  .pill { display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; }
+  .pill.reward { background:var(--good-bg); color:var(--good); }
+  .pill.pen { background:var(--bad-bg); color:var(--bad); }
+  .flag { font-size:12.5px; color:var(--warn); background:var(--warn-bg); border:1px solid var(--warn); border-radius:8px; padding:8px 11px; margin-top:12px; display:flex; gap:8px; }
+
+  .phase { border:1px solid var(--border); border-radius:var(--radius); margin-bottom:14px; overflow:hidden; }
+  .phase > .ph { padding:12px 16px; background:var(--surface-2); font-weight:700; display:flex; align-items:center; gap:10px; }
+  .phase .pb { padding:6px 16px 14px; }
+  .item { padding:11px 0; border-bottom:1px dashed var(--border); }
+  .item:last-child { border-bottom:none; }
+  .item h4 { margin:0 0 3px; font-size:14px; }
+  .item p { margin:2px 0; font-size:13px; color:var(--muted); }
+  .item code { font-size:12px; }
+  .tag { font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:5px; text-transform:uppercase; letter-spacing:.03em; }
+  .tag.have { background:var(--good-bg); color:var(--good); }
+  .tag.build { background:var(--warn-bg); color:var(--warn); }
+  .foot-note { font-size:12px; color:var(--muted); margin-top:26px; text-align:center; border-top:1px solid var(--border); padding-top:16px; }
+  a { color: var(--accent); }
+  .hide { display:none !important; }
+</style>
+
+<div class="wrap">
+  <header class="hd">
+    <div>
+      <div class="eyebrow">Propuesta · no conectada al sistema</div>
+      <h1>Simulador de comisiones</h1>
+      <p class="sub">Modelo de <strong>recompensas y consecuencias</strong> por servicio, calculado sobre el <strong>historial real</strong> de EntregaX. Base + acelerador selectivo, bonos de volumen/attach/combo y el <strong>gate de venta cruzada</strong>.</p>
+    </div>
+    <div class="databadge"><span class="dot"></span> <span id="dataMode">Foto de solo lectura</span> · <strong id="advCount">—</strong> asesores</div>
+  </header>
+
+  <div class="kpis">
+    <div class="kpi"><div class="lab">Comisión actual (histórico)</div><div class="val" id="kActual">—</div><div class="foot">esquema vigente</div></div>
+    <div class="kpi"><div class="lab">Comisión propuesta (modelo)</div><div class="val" id="kProp">—</div><div class="foot">con parámetros actuales</div></div>
+    <div class="kpi delta"><div class="lab">Diferencia</div><div class="val" id="kDelta">—</div><div class="foot" id="kDeltaPct">—</div></div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab on" data-tab="asesor" role="tab">Por asesor</button>
+    <button class="tab" data-tab="equipo" role="tab">Equipo completo</button>
+    <button class="tab" data-tab="modelo" role="tab">El modelo</button>
+  </div>
+
+  <!-- ============ POR ASESOR ============ -->
+  <div class="grid" id="tab-asesor">
+    <aside class="card">
+      <div class="hdr"><h3>Parámetros del modelo</h3></div>
+      <div class="bd" id="params">
+        <div class="grouplab">Tarifas base por servicio</div>
+        <div class="param"><label>📦 PO Box USA</label><span class="two"><input type="number" id="rPobox" value="10" step="0.25" min="0"><span class="cur">%</span></span></div>
+        <div class="param"><label>✈️ Aéreo China</label><span class="two"><input type="number" id="rAereo" value="2.5" step="0.25" min="0"><span class="cur">%</span></span></div>
+        <div class="param"><label>🚀 TDI Express</label><span class="two"><input type="number" id="rTdi" value="2.75" step="0.25" min="0"><span class="cur">%</span></span></div>
+        <div class="param"><label>🚢 Marítimo</label><span class="two"><input type="number" id="rMaritimo" value="3.75" step="0.25" min="0"><span class="cur">%</span></span></div>
+        <div class="param"><label>🚚 DHL Nacional</label><span class="two"><input type="number" id="rDhl" value="10" step="0.25" min="0"><span class="cur">%</span></span></div>
+        <div class="param"><label>🛡️ GEX (fijo)</label><span class="two"><span class="cur">$</span><input type="number" id="rGex" value="325" step="25" min="0"></span></div>
+        <div class="param"><label>💱 X-Pay</label><span class="cur">margen real</span></div>
+
+        <div class="grouplab">Acelerador 1.5× (Aéreo/TDI/Marítimo)</div>
+        <div class="param"><label>Meta = % de sus ventas <span class="cur">aéreas</span></label><input type="number" id="pMetaPct" value="75" step="5" min="1" max="100"></div>
+        <div class="param"><label>Umbral acelerador <span class="cur">% meta</span></label><input type="number" id="pThr" value="120" step="5" min="100"></div>
+        <div class="param"><label>Multiplicador excedente</label><input type="number" id="pMult" value="1.5" step="0.1" min="1"></div>
+
+        <div class="grouplab">Escalones de volumen (PO Box + DHL)</div>
+        <div class="param"><label><input type="number" class="sm" id="vg1" value="80" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb1" value="500" step="50" min="0"></span></div>
+        <div class="param"><label><input type="number" class="sm" id="vg2" value="150" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb2" value="1200" step="50" min="0"></span></div>
+        <div class="param"><label><input type="number" class="sm" id="vg3" value="250" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb3" value="2500" step="50" min="0"></span></div>
+
+        <div class="grouplab">Attach GEX (mensual)</div>
+        <div class="param"><label>≥ <input type="number" class="sm" id="gexT1" value="30" min="0" max="100">% →</label><span class="two"><span class="cur">$</span><input type="number" id="gexB1" value="500" step="50" min="0"></span></div>
+        <div class="param"><label>≥ <input type="number" class="sm" id="gexT2" value="50" min="0" max="100">% →</label><span class="two"><span class="cur">$</span><input type="number" id="gexB2" value="1000" step="50" min="0"></span></div>
+
+        <div class="grouplab">Venta cruzada</div>
+        <div class="param"><label>Cuota X-Pay <span class="cur">ops/mes</span></label><input type="number" id="qXpay" value="3" min="0"></div>
+        <div class="param"><label>Cuota Seguros <span class="cur">pólizas/mes</span></label><input type="number" id="qSeg" value="3" min="0"></div>
+        <div class="param"><label>Bono combo <span class="cur">envío+seg+xpay</span></label><span class="two"><span class="cur">$</span><input type="number" id="comboAmt" value="500" step="50" min="0"></span></div>
+        <div class="param"><label>Bono venta limpia <span class="cur">$/cliente</span></label><span class="two"><span class="cur">$</span><input type="number" id="cleanAmt" value="300" step="50" min="0"></span></div>
+      </div>
+    </aside>
+
+    <section class="card">
+      <div class="hdr"><h3>Detalle del asesor</h3><span class="section-note">historial real + modelo encima</span></div>
+      <div class="bd">
+        <div class="selrow">
+          <select id="advSel" aria-label="Seleccionar asesor"></select>
+          <span class="chip" id="advRole">—</span>
+          <span class="chip" id="advVentas">—</span>
+        </div>
+
+        <div id="gateBox"></div>
+
+        <div class="tblwrap">
+          <table>
+            <thead><tr><th>Servicio</th><th class="num">Ventas / Guías</th><th class="num">Base actual</th><th class="num">Base propuesta</th></tr></thead>
+            <tbody id="svcBody"></tbody>
+          </table>
+        </div>
+
+        <div class="results">
+          <div class="rc actual"><div class="t">Esquema actual</div><div class="big" id="rActual">—</div><div class="section-note" style="margin-top:6px">comisión + override (real)</div></div>
+          <div class="rc prop"><div class="t">Esquema propuesto</div><div class="big" id="rProp">—</div><div class="ladder" id="ladder"></div></div>
+        </div>
+
+        <div class="grouplab">Datos de este asesor (recompensas y consecuencias)</div>
+        <div class="manual">
+          <div class="field"><label>Combos cerrados (envío+seg+xpay) <span class="pill reward">bono</span></label><input type="number" id="mCombos" value="0" min="0"></div>
+          <div class="field"><label>Clientes sin quejas (venta limpia) <span class="pill reward">bono</span></label><input type="number" id="mClean" value="0" min="0"></div>
+          <div class="field"><label>N2 · Comisión a retirar (overpromise) <span class="pill pen">castigo</span></label><input type="number" id="mPenN2" value="0" min="0"></div>
+        </div>
+        <div class="flag"><span>⚠️</span><span>El <strong>gate de venta cruzada</strong> y las consecuencias (N2) los <strong>calcula</strong> el sistema pero los <strong>confirma gerencia</strong>. Los combos se capturan por venta (no están en el histórico agregado).</span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ EQUIPO ============ -->
+  <section class="card hide" id="tab-equipo">
+    <div class="hdr"><h3>Comparativa de todo el equipo</h3><span class="section-note">acelerador + volumen + attach + gate · sin combos/limpia (manuales)</span></div>
+    <div class="bd tblwrap">
+      <table>
+        <thead><tr><th>Asesor</th><th class="num">Ventas</th><th class="num">Actual</th><th class="num">Propuesto</th><th class="num">Δ</th><th class="num">Gate</th></tr></thead>
+        <tbody id="teamBody"></tbody>
+        <tbody id="teamTot"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ EL MODELO ============ -->
+  <section class="hide" id="tab-modelo">
+    <div class="phase">
+      <div class="ph">🎯 Fase 1 · Recompensas</div>
+      <div class="pb">
+        <div class="item"><h4>Base por servicio + acelerador selectivo <span class="tag build">crear metas</span></h4><p>Aéreo <b>2.5%</b> · TDI Express <b>2.75%</b> · Marítimo <b>3.75%</b> llevan <b>acelerador 1.5×</b> sobre el excedente por encima del 120% de meta. PO Box y DHL <b>(10%)</b> y X-Pay/GEX <b>no</b> llevan acelerador.</p></div>
+        <div class="item"><h4>🎯 ¿Cómo funcionan las metas? <span class="tag build">crear tabla</span></h4>
+          <p><b>La meta</b> es un objetivo <b>mensual de ventas (MXN)</b> por asesor, solo para los servicios acelerados (Aéreo/TDI/Marítimo).</p>
+          <p><b>0–120% de la meta</b> → comisión normal (su % base). <b>El excedente por encima del 120%</b> → esa porción se paga a <b>1.5×</b> (un 50% extra). Así el vendedor no se "relaja" al llegar al 100%: pasar del 120% vale más.</p>
+          <p><b>Ejemplo:</b> meta $100,000. Vende $150,000 → los primeros $120,000 pagan comisión normal; los $30,000 que pasan del 120% pagan al 1.5×.</p>
+          <p><b>En este simulador</b> (aún sin la tabla real de metas) la meta se estima como un <b>% de las propias ventas aéreas</b> del asesor — el control <i>"Meta = % de sus ventas"</i>. Ej: al 75%, la meta = 75% de lo que vendió, así siempre queda por arriba y se ve el acelerador. <b>En producción</b> la meta sería un <b>objetivo fijo en MXN por asesor/mes</b> (tabla <code>advisor_sales_targets</code>), no un % de sus propias ventas.</p></div>
+        <div class="item"><h4>Escalones de volumen — PO Box + DHL <span class="tag have">guías: dato existe</span></h4><p>Como el 10% ya es alto, el premio va por # de guías/mes: 80→$500 · 150→$1,200 · 250→$2,500.</p></div>
+        <div class="item"><h4>Venta cruzada — la zanahoria <span class="tag have">X-Pay/GEX: dato existe</span></h4><p><b>Bono combo:</b> envío + Seguro + X-Pay en la misma venta → <b>+$500</b> inmediato. <b>Attach GEX mensual:</b> ≥30% guías con seguro → $500 · ≥50% → $1,000.</p></div>
+        <div class="item"><h4>Bonos globales <span class="tag have">dato existe</span></h4><p>Venta Limpia (trimestral, clientes sin quejas) + Premio de Lealtad (retención, no financiero: Kit de Bienvenida "Gold").</p></div>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="ph">🛑 Fase 2 · Consecuencias (gerencia confirma)</div>
+      <div class="pb">
+        <div class="item"><h4>Gate de venta cruzada — freno al bono total <span class="tag build">calcular mensual</span></h4><p>Cuota: <b>≥3 X-Pay y ≥3 Seguros</b>. Cumple ambas → cobra <b>100%</b>. Solo una → <b>90%</b>. Ninguna (llegó a su meta pero sin cross-sell) → <b>80%</b>. No le quitas dinero arbitrario: su trabajo está incompleto.</p></div>
+        <div class="item"><h4>Palanca operativa — asignación de leads <span class="tag have">ya existe (manual)</span></h4><p>Los mejores contactos van a los vendedores integrales. Quien no ofrece seguro/X-Pay recibe clientes chicos/fríos. Hoy la asignación es manual (Central de Leads → "En espera"); futuro: reparto ponderado.</p></div>
+        <div class="item"><h4>N2 · Overpromise <span class="tag build">falta captura</span></h4><p>Prometió 3 días sabiendo que eran 7 → pierde la comisión de ese cliente. Requiere capturar la promesa del vendedor.</p></div>
+        <div class="item"><h4>N3 · Robo / descuento oculto · N4 · Fraude <span class="tag build">reforzar</span></h4><p>Descuento sin autorización o robo de cliente → corte de bono. Fraude (crear-y-cancelar) → despido. Requiere regla de propiedad y atribución de cancelaciones.</p></div>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="ph">🚀 Fase 3 · Lanzamiento</div>
+      <div class="pb">
+        <div class="item"><h4>Regla de Propiedad del Cliente</h4><p>"Quien registre primero en el CRM tiene 30 días de exclusividad; si no hay avance, se libera." Elimina el 90% de las peleas.</p></div>
+        <div class="item"><h4>Kick-off + firma del reglamento</h4><p>"Con honestidad el esquema no tiene tope; si rompen las reglas, hay penalizaciones." Se firma y entra en vigor.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot-note">
+    Simulación sobre historial real de <code>advisor_commissions</code> · foto de solo lectura, sin conexión al sistema en vivo · la comisión base es el histórico real (ya con el split líder/subasesor); las capas nuevas se aplican encima.
+  </div>
+</div>
+
+<script>
+  // ── Historial real embebido ──
+  let DATA = [
+    {"id":20,"name":"ALDO JOSE CAMPOS LOMAS","override_actual":103.08,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":273892.48,"comision":27389.23,"guias":37},"maritimo_china_mx":{"ventas":166596.32,"comision":6247.36,"guias":1},"liberacion_aa_dhl":{"ventas":30477.10,"comision":3047.71,"guias":10},"gex_warranty":{"ventas":11250.00,"comision":5850.00,"guias":18}}},
+    {"id":21,"name":"Antonio Hernandez","override_actual":0,"sub_count":0,"servicios":{"aereo_china_mx":{"ventas":1394346.08,"comision":34858.61,"guias":109}}},
+    {"id":18,"name":"Andres Campos","override_actual":315.16,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":336253.54,"comision":33625.47,"guias":122}}},
+    {"id":46,"name":"Marcelo González Márquez","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":210993.31,"comision":21099.34,"guias":97}}},
+    {"id":28,"name":"Christian Gonzalez","override_actual":12561.98,"sub_count":2,"servicios":{"xpay":{"ventas":55752.13,"comision":1409.51,"guias":2},"pobox_usa_mx":{"ventas":175134.21,"comision":17513.54,"guias":91},"aereo_china_mx":{"ventas":76281.08,"comision":1907.05,"guias":9}}},
+    {"id":23,"name":"Jorge Campos","override_actual":34.50,"sub_count":1,"servicios":{"xpay":{"ventas":297174.54,"comision":4457.62,"guias":1},"pobox_usa_mx":{"ventas":132808.65,"comision":13280.90,"guias":73}}},
+    {"id":66,"name":"Jaqueline Minero","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":137835.88,"comision":13783.70,"guias":63}}},
+    {"id":25,"name":"Jesus Campos","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":130981.97,"comision":13098.23,"guias":101},"aereo_china_mx":{"ventas":25525.10,"comision":638.13,"guias":3}}},
+    {"id":37,"name":"Pedro Hernadez","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":212254.78,"comision":10612.83,"guias":106}}},
+    {"id":15,"name":"Juan Carlos Segura","override_actual":2829.43,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":74334.58,"comision":7433.45,"guias":24}}},
+    {"id":32,"name":"Víctor García","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":46758.21,"comision":4675.82,"guias":26}}},
+    {"id":17,"name":"Mendez","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":30506.00,"comision":3050.63,"guias":23}}},
+    {"id":51,"name":"Andres Villasana","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":56589.12,"comision":2829.43,"guias":42}}},
+    {"id":19,"name":"Angel Quiroz","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":20470.31,"comision":2047.04,"guias":20}}},
+    {"id":44,"name":"Hugo Hernandez","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":38982.52,"comision":1949.15,"guias":23}}},
+    {"id":52,"name":"Oscar Aldana","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":12974.72,"comision":1297.48,"guias":7}}},
+    {"id":14,"name":"Juan Leal","override_actual":137.74,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":10984.61,"comision":1098.46,"guias":12}}},
+    {"id":24,"name":"Paula Campos","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":4052.43,"comision":405.24,"guias":1}}},
+    {"id":33,"name":"Ricardo Oscar Cortez Vera","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":7042.72,"comision":352.13,"guias":3}}},
+    {"id":48,"name":"Andres Mireles","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":6303.14,"comision":315.16,"guias":3}}},
+    {"id":42,"name":"Daniel Alberto Martinez","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":2754.57,"comision":137.74,"guias":4}}},
+    {"id":54,"name":"ALDO JOSE CAMPOS LOMAS","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":2061.54,"comision":103.08,"guias":1}}},
+    {"id":49,"name":"Juan Gerardo Espronceda","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":689.91,"comision":34.50,"guias":1}}}
+  ];
+
+  const SERVICES = {
+    pobox_usa_mx:      {label:"PO Box USA",   icon:"📦", rateKey:"rPobox",   pct:true,  vol:true},
+    aereo_china_mx:    {label:"Aéreo China",  icon:"✈️", rateKey:"rAereo",   pct:true,  accel:true},
+    tdi_express:       {label:"TDI Express",  icon:"🚀", rateKey:"rTdi",     pct:true,  accel:true},
+    maritimo_china_mx: {label:"Marítimo",     icon:"🚢", rateKey:"rMaritimo",pct:true,  accel:true},
+    liberacion_aa_dhl: {label:"DHL Nacional", icon:"🚚", rateKey:"rDhl",     pct:true,  vol:true},
+    xpay:              {label:"X-Pay",        icon:"💱", xpay:true},
+    gex_warranty:      {label:"GEX",          icon:"🛡️", gex:true}
+  };
+  const SVC_ORDER = ["pobox_usa_mx","aereo_china_mx","tdi_express","maritimo_china_mx","liberacion_aa_dhl","xpay","gex_warranty"];
+  // Tarifas históricas (para preservar el split 50/50 al recalcular la base).
+  const HIST_RATE = { rPobox:10, rAereo:2.5, rTdi:2.75, rMaritimo:3.75, rDhl:10 };
+  const HIST_GEX = 325;
+
+  const fmt  = (n) => "$" + (Math.round(n*100)/100).toLocaleString("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmt0 = (n) => "$" + Math.round(n).toLocaleString("es-MX");
+  const el = (id) => document.getElementById(id);
+  const num = (id) => parseFloat(el(id).value) || 0;
+
+  function getParams() {
+    return {
+      rates: { rPobox:num("rPobox"), rAereo:num("rAereo"), rTdi:num("rTdi"), rMaritimo:num("rMaritimo"), rDhl:num("rDhl") },
+      gexFijo: num("rGex"),
+      metaPct: num("pMetaPct"), thr: num("pThr")/100, mult: num("pMult"),
+      vol: [ {g:num("vg1"),b:num("vb1")}, {g:num("vg2"),b:num("vb2")}, {g:num("vg3"),b:num("vb3")} ].sort((a,b)=>b.g-a.g),
+      gexT1:num("gexT1")/100, gexB1:num("gexB1"), gexT2:num("gexT2")/100, gexB2:num("gexB2"),
+      qXpay:num("qXpay"), qSeg:num("qSeg"), comboAmt:num("comboAmt"), cleanAmt:num("cleanAmt")
+    };
+  }
+
+  function compute(a, p, manual) {
+    const m = manual || {combos:0, clean:0, penN2:0};
+    let base = 0, baseReal = 0, totalVentas = 0, totalGuias = 0;
+    let accelBase = 0, ventasAccel = 0, poboxDhlGuias = 0, gexGuias = 0, xpayOps = 0;
+    const rows = [];
+    for (const k of SVC_ORDER) {
+      const v = a.servicios[k]; if (!v) continue;
+      const s = SERVICES[k];
+      totalVentas += v.ventas; totalGuias += v.guias; baseReal += v.comision;
+      // Base = comisión histórica × ratio de tarifa (nueva/vieja). Así se conserva
+      // el split 50/50: un subasesor que cobraba la mitad sigue cobrando la mitad,
+      // y si la tarifa no cambia, la base propuesta = la real (comparación justa).
+      let svcBase;
+      if (s.gex) { svcBase = v.comision * (p.gexFijo / HIST_GEX); gexGuias = v.guias; }
+      else if (s.xpay) { svcBase = v.comision; xpayOps = v.guias; }
+      else { // %-service
+        const rate = p.rates[s.rateKey] || 0;
+        const hist = HIST_RATE[s.rateKey] || rate;
+        svcBase = hist > 0 ? v.comision * (rate / hist) : v.ventas * rate/100;
+        if (s.accel) { accelBase += svcBase; ventasAccel += v.ventas; }
+        if (s.vol) poboxDhlGuias += v.guias;
+      }
+      base += svcBase;
+      rows.push({ k, ventas:v.ventas, guias:v.guias, com:v.comision, svcBase });
+    }
+    base += a.override_actual; baseReal += a.override_actual;
+
+    // Acelerador (sobre ventas aéreas/TDI/marítimo)
+    let accel = 0, attain = 0, meta = 0;
+    if (p.metaPct > 0 && ventasAccel > 0) {
+      meta = ventasAccel * p.metaPct/100;
+      attain = ventasAccel/meta;
+      if (ventasAccel > p.thr*meta) accel = accelBase * ((ventasAccel - p.thr*meta)/ventasAccel) * (p.mult-1);
+    }
+    // Bono volumen PO Box + DHL
+    let volBonus = 0;
+    for (const st of p.vol) { if (poboxDhlGuias >= st.g) { volBonus = st.b; break; } }
+    // Attach GEX
+    const attach = totalGuias > 0 ? gexGuias/totalGuias : 0;
+    const gexBonus = attach >= p.gexT2 ? p.gexB2 : attach >= p.gexT1 ? p.gexB1 : 0;
+    // Combo + venta limpia (manuales)
+    const comboBonus = (m.combos||0) * p.comboAmt;
+    const cleanBonus = (m.clean||0) * p.cleanAmt;
+
+    const subtotal = base + accel + volBonus + gexBonus + comboBonus + cleanBonus;
+
+    // Gate de venta cruzada
+    const okXpay = xpayOps >= p.qXpay, okSeg = gexGuias >= p.qSeg;
+    const metQuota = (okXpay?1:0) + (okSeg?1:0);
+    const capPct = metQuota === 2 ? 100 : metQuota === 1 ? 90 : 80;
+    const afterCap = subtotal * (capPct/100);
+    const capCut = subtotal - afterCap;
+
+    const penN2 = m.penN2 || 0;
+    const propuesto = afterCap - penN2;
+
+    return { rows, totalVentas, ventasAccel, baseReal, base, accel, attain, meta, volBonus, poboxDhlGuias,
+             gexBonus, attach, gexGuias, xpayOps, comboBonus, cleanBonus, subtotal, okXpay, okSeg, capPct, capCut, penN2, propuesto };
+  }
+
+  // ── Por asesor ──
+  const advSel = el("advSel");
+  function buildAdvOptions(){ advSel.innerHTML=""; DATA.forEach((a,i) => { const o=document.createElement("option"); o.value=i; o.textContent=a.name; advSel.appendChild(o); }); } buildAdvOptions();
+
+  function renderAsesor() {
+    const a = DATA[advSel.value], p = getParams();
+    const manual = { combos:num("mCombos"), clean:num("mClean"), penN2:num("mPenN2") };
+    const r = compute(a, p, manual);
+
+    el("advRole").textContent = a.sub_count>0 ? ("Líder · "+a.sub_count+" subasesor(es)") : "Asesor";
+    el("advVentas").textContent = "Ventas " + fmt0(r.totalVentas);
+
+    // Gate badge
+    const cls = r.capPct===100?"g100":r.capPct===90?"g90":"g80";
+    const icon = r.capPct===100?"✅":r.capPct===90?"⚠️":"⛔";
+    el("gateBox").innerHTML = `<div class="gate ${cls}">${icon} Gate de venta cruzada: cobra ${r.capPct}%
+      <small>· X-Pay ${r.xpayOps}/${p.qXpay} ${r.okXpay?'✓':'✗'} · Seguros ${r.gexGuias}/${p.qSeg} ${r.okSeg?'✓':'✗'}</small></div>`;
+
+    // Tabla servicios
+    const tb = el("svcBody"); tb.innerHTML="";
+    r.rows.forEach(row => {
+      const s = SERVICES[row.k];
+      const tr=document.createElement("tr");
+      tr.innerHTML = `<td><span class="svc">${s.icon} ${s.label}</span></td>
+        <td class="num">${fmt0(row.ventas)} · ${row.guias}g</td>
+        <td class="num">${fmt(row.com)}</td><td class="num">${fmt(row.svcBase)}</td>`;
+      tb.appendChild(tr);
+    });
+    if (a.override_actual>0) tb.insertAdjacentHTML("beforeend",
+      `<tr><td><span class="svc">👥 Override de líder</span></td><td class="num">—</td><td class="num">${fmt(a.override_actual)}</td><td class="num">${fmt(a.override_actual)}</td></tr>`);
+
+    el("rActual").textContent = fmt(r.baseReal);
+    el("rProp").textContent = fmt(r.propuesto);
+
+    const L = [];
+    L.push(["Base por servicio", fmt(r.base), ""]);
+    L.push([`Acelerador (${r.ventasAccel>0?(r.attain*100).toFixed(0)+"% meta aérea":"n/a"})`, (r.accel>0?"+ ":"")+fmt(r.accel), r.accel>0?"pos":""]);
+    L.push([`Bono volumen (${r.poboxDhlGuias} guías PO Box+DHL)`, (r.volBonus>0?"+ ":"")+fmt(r.volBonus), r.volBonus>0?"pos":""]);
+    L.push([`Attach GEX (${(r.attach*100).toFixed(0)}%)`, (r.gexBonus>0?"+ ":"")+fmt(r.gexBonus), r.gexBonus>0?"pos":""]);
+    if (r.comboBonus>0) L.push(["Bono combo", "+ "+fmt(r.comboBonus), "pos"]);
+    if (r.cleanBonus>0) L.push(["Bono venta limpia", "+ "+fmt(r.cleanBonus), "pos"]);
+    L.push(["Subtotal", fmt(r.subtotal), "sub"]);
+    if (r.capCut>0) L.push([`Gate venta cruzada (tope ${r.capPct}%)`, "− "+fmt(r.capCut), "neg"]);
+    if (r.penN2>0) L.push(["N2 · comisión retirada", "− "+fmt(r.penN2), "neg"]);
+    const diff = r.propuesto - r.baseReal;
+    L.push(["Δ vs actual", (diff>=0?"+ ":"− ")+fmt(Math.abs(diff)), diff>=0?"pos":"neg"]);
+    el("ladder").innerHTML = L.map(([k,v,c]) => `<div class="row ${c==='sub'?'sub':''}"><span>${k}</span><span class="v ${c==='pos'||c==='neg'?c:''}">${v}</span></div>`).join("");
+  }
+
+  // ── Equipo ──
+  function renderEquipo() {
+    const p = getParams();
+    let tA=0,tP=0,tV=0;
+    const rows = DATA.map(a => {
+      const r = compute(a, p, null);
+      tA+=r.baseReal; tP+=r.propuesto; tV+=r.totalVentas;
+      return {name:a.name, ventas:r.totalVentas, actual:r.baseReal, prop:r.propuesto, capPct:r.capPct};
+    }).sort((x,y)=> y.prop - x.prop);
+    const tb = el("teamBody"); tb.innerHTML="";
+    rows.forEach(x => {
+      const d = x.prop - x.actual;
+      const gcls = x.capPct===100?"pos":x.capPct===80?"neg":"";
+      tb.insertAdjacentHTML("beforeend", `<tr><td>${x.name}</td><td class="num">${fmt0(x.ventas)}</td><td class="num">${fmt(x.actual)}</td>
+        <td class="num">${fmt(x.prop)}</td><td class="num ${d>=0?'pos':'neg'}">${(d>=0?'+':'−')+fmt(Math.abs(d))}</td>
+        <td class="num ${gcls}">${x.capPct}%</td></tr>`);
+    });
+    const dt = tP-tA;
+    el("teamTot").innerHTML = `<tr class="tot"><td>Total equipo</td><td class="num">${fmt0(tV)}</td><td class="num">${fmt(tA)}</td><td class="num">${fmt(tP)}</td><td class="num ${dt>=0?'pos':'neg'}">${(dt>=0?'+':'−')+fmt(Math.abs(dt))}</td><td class="num">—</td></tr>`;
+  }
+
+  function renderKpis() {
+    const p = getParams();
+    let tA=0,tP=0;
+    DATA.forEach(a => { const r=compute(a,p,null); tA+=r.baseReal; tP+=r.propuesto; });
+    el("kActual").textContent = fmt0(tA);
+    el("kProp").textContent = fmt0(tP);
+    const d = tP-tA;
+    el("kDelta").textContent = (d>=0?"+":"−")+fmt0(Math.abs(d));
+    el("kDelta").style.color = d>=0 ? "var(--good)" : "var(--bad)";
+    el("kDeltaPct").textContent = (d>=0?"+":"")+((tA? d/tA*100:0).toFixed(1))+"% vs esquema actual";
+    el("advCount").textContent = DATA.length;
+  }
+
+  function renderAll(){ renderKpis(); renderAsesor(); renderEquipo(); }
+
+  el("params").addEventListener("input", renderAll);
+  ["advSel","mCombos","mClean","mPenN2"].forEach(id => el(id).addEventListener("input", () => { renderKpis(); renderAsesor(); }));
+
+  document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
+    t.classList.add("on");
+    const w = t.dataset.tab;
+    el("tab-asesor").classList.toggle("hide", w!=="asesor");
+    el("tab-equipo").classList.toggle("hide", w!=="equipo");
+    el("tab-modelo").classList.toggle("hide", w!=="modelo");
+  }));
+
+
+  // ── Puente de datos vivos (cuando corre embebido en la app EntregaX) ──
+  window.addEventListener("message", (ev) => {
+    const d = ev && ev.data;
+    if (!d || d.type !== "ENTREGAX_SIM_DATA") return;
+    if (Array.isArray(d.advisors) && d.advisors.length) {
+      DATA = d.advisors;
+      if (advSel.value >= DATA.length) advSel.value = 0;
+      buildAdvOptions();
+      const mode = document.getElementById("dataMode");
+      if (mode) mode.textContent = d.asOfLabel || "Datos en vivo";
+      renderAll();
+    }
+  });
+  try { (window.parent && window.parent !== window ? window.parent : window).postMessage({type:"ENTREGAX_SIM_READY"}, "*"); } catch(e){}
+
+  renderAll();
+</script>
+
+</html>

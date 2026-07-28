@@ -211,6 +211,7 @@ import {
   getAdvisorCommissionsList,
   markCommissionsAsPaid,
   getCommissionsByAdvisor,
+  getCommissionSimulatorData,
   runCommissionBackfill,
   toggleAdvisorRecovery,
   toggleAdvisorActive,
@@ -5576,6 +5577,7 @@ app.get('/api/admin/commissions/stats', authenticateToken, requireMinLevel(ROLES
 // Admin: Gestión de comisiones generadas
 app.get('/api/admin/commissions/ledger', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAdvisorCommissionsList);
 app.get('/api/admin/commissions/by-advisor', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionsByAdvisor);
+app.get('/api/admin/commissions/simulator-data', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionSimulatorData);
 app.post('/api/admin/commissions/pay', authenticateToken, requireMinLevel(ROLES.DIRECTOR), markCommissionsAsPaid);
 app.post('/api/admin/commissions/backfill', authenticateToken, requireMinLevel(ROLES.DIRECTOR), runCommissionBackfill);
 

@@ -890,6 +890,117 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
     }
 };
 
+// 13b. ADMIN: Datos para el SIMULADOR de comisiones (propuesta de nuevo esquema).
+// Devuelve, por asesor, el desglose por servicio { ventas, comision, guias } tal
+// como lo consume simulador-comisiones.html. Usa datos VIVOS de advisor_commissions
+// con los MISMOS filtros de "pagado" que el board, para que el simulador "vaya
+// sumando lo que sigue en ventas" a medida que se generan comisiones. No modifica
+// nada: es solo lectura para mostrar el impacto del esquema propuesto.
+export const getCommissionSimulatorData = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { from_date, to_date, service_type } = req.query;
+        const rowConds: string[] = [];
+        const params: any[] = [];
+        let paramIdx = 1;
+
+        if (from_date) { rowConds.push(`ac.created_at >= $${paramIdx++}`); params.push(from_date); }
+        if (to_date) { rowConds.push(`ac.created_at <= $${paramIdx++}::date + interval '1 day'`); params.push(to_date); }
+        if (service_type) { rowConds.push(`ac.service_type = $${paramIdx++}`); params.push(service_type); }
+
+        // Mismos criterios de "orden pagada" que getCommissionsByAdvisor.
+        const PAID_ORDER = `pp_x.status IN ('completed','paid') AND (LOWER(COALESCE(pp_x.payment_method,'')) <> 'credit' OR COALESCE(pp_x.credit_settled,false) = true)`;
+        rowConds.push(`(
+            ac.service_type <> 'pobox_usa_mx'
+            OR EXISTS (SELECT 1 FROM pobox_payments pp_x WHERE pp_x.package_ids @> to_jsonb(ac.shipment_id) AND ${PAID_ORDER})
+            OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk ON pk.pobox_payment_id = pp_x.id WHERE pk.id = ac.shipment_id AND ${PAID_ORDER})
+            OR EXISTS (SELECT 1 FROM pobox_payments pp_x JOIN packages pk2 ON NULLIF(pk2.payment_reference,'') = pp_x.payment_reference WHERE pk2.id = ac.shipment_id AND ${PAID_ORDER})
+        )`);
+        rowConds.push(AEREO_PAID_ORDER_SQL);
+        rowConds.push(XPAY_COMPLETED_SQL);
+        rowConds.push(GEX_PAID_SQL);
+
+        const rowWhere = rowConds.length > 0 ? `WHERE ${rowConds.join(' AND ')}` : '';
+
+        const result = await pool.query(`
+            WITH filtered AS (
+                SELECT ac.advisor_id, ac.leader_id, ac.service_type,
+                       ac.commission_amount_mxn, COALESCE(ac.leader_override_amount, 0) AS leader_override_amount,
+                       ac.payment_amount_mxn
+                  FROM advisor_commissions ac
+                  ${rowWhere}
+            ),
+            by_svc AS (
+                SELECT advisor_id, service_type,
+                       COALESCE(SUM(payment_amount_mxn), 0) AS ventas,
+                       COALESCE(SUM(commission_amount_mxn), 0) AS comision,
+                       COUNT(*) AS guias
+                  FROM filtered
+                 GROUP BY advisor_id, service_type
+            ),
+            ov AS (
+                SELECT leader_id AS advisor_id,
+                       COALESCE(SUM(leader_override_amount), 0) AS override_actual,
+                       COUNT(DISTINCT advisor_id) AS sub_count
+                  FROM filtered
+                 WHERE leader_id IS NOT NULL AND leader_override_amount > 0
+                 GROUP BY leader_id
+            ),
+            ids AS (
+                SELECT advisor_id FROM by_svc
+                UNION
+                SELECT advisor_id FROM ov
+            )
+            SELECT i.advisor_id,
+                   u.full_name AS advisor_name,
+                   COALESCE(v.override_actual, 0) AS override_actual,
+                   COALESCE(v.sub_count, 0) AS sub_count,
+                   COALESCE(
+                     jsonb_object_agg(s.service_type, jsonb_build_object(
+                       'ventas', s.ventas, 'comision', s.comision, 'guias', s.guias
+                     )) FILTER (WHERE s.service_type IS NOT NULL),
+                     '{}'::jsonb
+                   ) AS servicios
+              FROM ids i
+              JOIN users u ON u.id = i.advisor_id
+              LEFT JOIN ov v ON v.advisor_id = i.advisor_id
+              LEFT JOIN by_svc s ON s.advisor_id = i.advisor_id
+             WHERE COALESCE(u.is_active, true) = true
+               AND COALESCE(u.hide_from_commission_board, false) = false
+             GROUP BY i.advisor_id, u.full_name, v.override_actual, v.sub_count
+        `, params);
+
+        const advisors = result.rows
+            .map(r => {
+                const servicios: Record<string, { ventas: number; comision: number; guias: number }> = {};
+                const raw = r.servicios || {};
+                for (const k of Object.keys(raw)) {
+                    servicios[k] = {
+                        ventas: Math.round((parseFloat(raw[k].ventas) || 0) * 100) / 100,
+                        comision: Math.round((parseFloat(raw[k].comision) || 0) * 100) / 100,
+                        guias: parseInt(raw[k].guias) || 0,
+                    };
+                }
+                return {
+                    id: r.advisor_id,
+                    name: r.advisor_name,
+                    override_actual: Math.round((parseFloat(r.override_actual) || 0) * 100) / 100,
+                    sub_count: parseInt(r.sub_count) || 0,
+                    servicios,
+                };
+            })
+            .filter(a => Object.keys(a.servicios).length > 0)
+            .sort((a, b) => {
+                const sum = (x: any) => Object.values(x.servicios).reduce((t: number, s: any) => t + s.comision, 0) + x.override_actual;
+                return sum(b) - sum(a);
+            });
+
+        res.json({ asOf: new Date().toISOString(), count: advisors.length, advisors });
+    } catch (error) {
+        console.error('Error getting commission simulator data:', error);
+        res.status(500).json({ error: 'Error al obtener datos del simulador' });
+    }
+};
+
 // 14. ADMIN: Backfill - generar comisiones faltantes para pagos históricos
 export const runCommissionBackfill = async (req: Request, res: Response): Promise<any> => {
     try {
