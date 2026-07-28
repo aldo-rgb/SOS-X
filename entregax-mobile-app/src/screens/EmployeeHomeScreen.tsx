@@ -169,7 +169,12 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     panelKey: 'ops_inventory',
   },
   
-  // === MOSTRADOR (counter_staff) - Hub PO Box USA ===
+  // === ORDEN DE MÓDULOS (prioridad definida por operaciones) ===
+  // 1. PO Box · 2. TDI Aéreo · 3. DHL Monterrey · 4. Control de Gastos ·
+  // 5. Etiquetado · 6. Tickets · 7. Flotilla · luego el resto (Marítimo,
+  // Nacional, Sucursales). Cada usuario solo ve los que su rol/panel permite.
+
+  // 1) PO Box USA
   {
     id: 'panel_usa_pobox',
     title: 'PO Box USA',
@@ -183,21 +188,35 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     panelKey: 'ops_usa_pobox',
   },
 
-  // === GESTIÓN DE FLOTILLA ===
+  // 2) TDI Aéreo China
   {
-    id: 'fleet_vehicles',
-    title: 'Gestión de Flotilla',
-    subtitle: 'Unidades, kilometraje y servicios',
-    icon: 'directions-car',
-    iconFamily: 'material',
-    color: '#795548',
-    screen: 'FleetVehicles',
-    roles: ['branch_manager', 'operaciones', 'counter_staff', 'warehouse_ops', 'director', 'admin', 'super_admin'],
-    requiresOnboarding: false,
-    panelKey: 'admin_fleet',
+    id: 'panel_china_air',
+    title: 'TDI Aéreo China',
+    subtitle: 'Recepción de envíos aéreos desde China',
+    icon: 'airplane-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'ChinaAirHub',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    panelKey: 'ops_china_air',
   },
 
-  // === CAJA CHICA SUCURSALES ===
+  // 3) DHL Monterrey
+  {
+    id: 'panel_mx_cedis',
+    title: 'DHL Monterrey',
+    subtitle: 'Liberación AA DHL',
+    icon: 'business-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'DhlOperations',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    panelKey: 'ops_mx_cedis',
+  },
+
+  // 4) Control de Gastos
   {
     id: 'petty_cash_admin',
     title: 'Control de Gastos',
@@ -211,67 +230,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     panelKey: 'admin_petty_cash',
   },
 
-  // === PANELES DE OPERACIONES (panelKey - permisos por panel) ===
-  {
-    id: 'panel_china_air',
-    title: 'TDI Aéreo China',
-    subtitle: 'Recepción de envíos aéreos desde China',
-    icon: 'airplane-outline',
-    iconFamily: 'ionicons',
-    color: '#F05A28',
-    screen: 'ChinaAirHub',
-    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
-    requiresOnboarding: true,
-    panelKey: 'ops_china_air',
-  },
-  {
-    id: 'panel_china_sea',
-    title: 'Marítimo China',
-    subtitle: 'Recepción de consolidados marítimos',
-    icon: 'boat-outline',
-    iconFamily: 'ionicons',
-    color: '#F05A28',
-    screen: 'ChinaSeaHub',
-    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
-    requiresOnboarding: true,
-    panelKey: 'ops_china_sea',
-  },
-  {
-    id: 'panel_mx_cedis',
-    title: 'DHL Monterrey',
-    subtitle: 'Liberación AA DHL',
-    icon: 'business-outline',
-    iconFamily: 'ionicons',
-    color: '#F05A28',
-    screen: 'DhlOperations',
-    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
-    requiresOnboarding: true,
-    panelKey: 'ops_mx_cedis',
-  },
-  {
-    id: 'panel_mx_national',
-    title: 'Nacional México',
-    subtitle: 'Envíos nacionales',
-    icon: 'location-outline',
-    iconFamily: 'ionicons',
-    color: '#F05A28',
-    screen: 'EmployeeHome',
-    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
-    requiresOnboarding: true,
-    panelKey: 'ops_mx_national',
-    comingSoon: true,
-  },
-  {
-    id: 'panel_branches',
-    title: 'Sucursales',
-    subtitle: 'Escáner Multi-Sucursal e Inventario por Sucursal',
-    icon: 'business-outline',
-    iconFamily: 'ionicons',
-    color: '#F05A28',
-    screen: 'BranchesHub',
-    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin', 'director'],
-    requiresOnboarding: true,
-  },
+  // 5) Módulo de etiquetado
   {
     id: 'panel_relabeling',
     title: 'Módulo de etiquetado',
@@ -285,9 +244,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     panelKey: 'ops_relabeling',
   },
 
-  // Legacy counter modules (mantener compatibilidad)
-
-  // === SERVICIO A CLIENTE ===
+  // 6) Tickets de Soporte
   {
     id: 'support_tickets',
     title: 'Tickets de Soporte',
@@ -299,6 +256,58 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     roles: ['customer_service', 'branch_manager', 'admin', 'super_admin', 'operaciones'],
     requiresOnboarding: false,
     panelKey: 'cs_support',
+  },
+
+  // 7) Gestión de Flotilla
+  {
+    id: 'fleet_vehicles',
+    title: 'Gestión de Flotilla',
+    subtitle: 'Unidades, kilometraje y servicios',
+    icon: 'directions-car',
+    iconFamily: 'material',
+    color: '#795548',
+    screen: 'FleetVehicles',
+    roles: ['branch_manager', 'operaciones', 'counter_staff', 'warehouse_ops', 'director', 'admin', 'super_admin'],
+    requiresOnboarding: false,
+    panelKey: 'admin_fleet',
+  },
+
+  // === RESTO DE OPERACIONES (no priorizados) ===
+  {
+    id: 'panel_china_sea',
+    title: 'Marítimo China',
+    subtitle: 'Recepción de consolidados marítimos',
+    icon: 'boat-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'ChinaSeaHub',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    panelKey: 'ops_china_sea',
+  },
+  {
+    id: 'panel_branches',
+    title: 'Sucursales',
+    subtitle: 'Escáner Multi-Sucursal e Inventario por Sucursal',
+    icon: 'business-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'BranchesHub',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin', 'director'],
+    requiresOnboarding: true,
+  },
+  {
+    id: 'panel_mx_national',
+    title: 'Nacional México',
+    subtitle: 'Envíos nacionales',
+    icon: 'location-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'EmployeeHome',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    panelKey: 'ops_mx_national',
+    comingSoon: true,
   },
 
   // === ASESORES ===
