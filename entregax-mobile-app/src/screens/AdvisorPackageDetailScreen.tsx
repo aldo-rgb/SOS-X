@@ -58,6 +58,8 @@ interface ShipmentDetail {
   origin_carrier: string | null;
   description: string | null;
   weight: number | null;
+  air_chargeable_weight?: number | null;
+  air_source?: string | null;
   length_cm: number | null;
   width_cm: number | null;
   height_cm: number | null;
@@ -201,7 +203,15 @@ export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
           {/* Detalles */}
           <Section title="Detalles del Paquete" icon="cube-outline">
             {pkg.description ? <InfoRow label="Descripción" value={pkg.description} /> : null}
-            {pkg.weight ? <InfoRow label="Peso" value={`${pkg.weight.toFixed(2)} kg`} /> : null}
+            {/* TDI Express (TDX): se cobra por CW (peso cobrable), no por el neto. */}
+            {pkg.air_source === 'tdi_express' && (pkg.air_chargeable_weight ?? 0) > 0 ? (
+              <>
+                <InfoRow label="Peso cobrable (CW)" value={`${Number(pkg.air_chargeable_weight).toFixed(2)} kg`} />
+                {pkg.weight ? <InfoRow label="Peso neto" value={`${pkg.weight.toFixed(2)} kg`} /> : null}
+              </>
+            ) : (
+              pkg.weight ? <InfoRow label="Peso" value={`${pkg.weight.toFixed(2)} kg`} /> : null
+            )}
             {dimensions ? <InfoRow label="Dimensiones" value={dimensions} /> : null}
             {pkg.warehouse_location ? <InfoRow label="Ubicación en Bodega" value={pkg.warehouse_location} /> : null}
             {pkg.is_master && pkg.total_boxes > 0 ? <InfoRow label="Cajas Totales" value={String(pkg.total_boxes)} /> : null}
