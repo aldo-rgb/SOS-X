@@ -2215,9 +2215,11 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     // (cash, transferencia, paypal, card, credit, wallet…)
                     paymentMethod: paymentMethodRef,
                     description: pkg.description, weight: pkg.weight ? parseFloat(pkg.weight) : null,
-                    length: pkg.pkg_length != null ? parseFloat(pkg.pkg_length) : null,
-                    width: pkg.pkg_width != null ? parseFloat(pkg.pkg_width) : null,
-                    height: pkg.pkg_height != null ? parseFloat(pkg.pkg_height) : null,
+                    // Aéreo China guarda las medidas en long_cm/width_cm/height_cm;
+                    // PO Box/TDX en pkg_length/pkg_width/pkg_height. Fallback entre ambos.
+                    length: pkg.pkg_length != null ? parseFloat(pkg.pkg_length) : (pkg.long_cm != null ? parseFloat(pkg.long_cm) : null),
+                    width: pkg.pkg_width != null ? parseFloat(pkg.pkg_width) : (pkg.width_cm != null ? parseFloat(pkg.width_cm) : null),
+                    height: pkg.pkg_height != null ? parseFloat(pkg.pkg_height) : (pkg.height_cm != null ? parseFloat(pkg.height_cm) : null),
                     declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
                     isMaster: pkg.is_master, totalBoxes: pkg.total_boxes || 1,
                     status: pkg.status, statusLabel: getStatusLabel(pkg.status, pkg.national_carrier),
@@ -2246,10 +2248,10 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         tracking: pkg.tracking_internal,
                         masterTracking: pkg._master_tracking_internal || null,
                         weight: pkg.weight != null ? parseFloat(pkg.weight) : null,
-                        length: pkg.pkg_length != null ? parseFloat(pkg.pkg_length) : null,
-                        width: pkg.pkg_width != null ? parseFloat(pkg.pkg_width) : null,
-                        height: pkg.pkg_height != null ? parseFloat(pkg.pkg_height) : null,
-                        captured: !!(pkg.weight && pkg.pkg_length && pkg.pkg_width && pkg.pkg_height),
+                        length: pkg.pkg_length != null ? parseFloat(pkg.pkg_length) : (pkg.long_cm != null ? parseFloat(pkg.long_cm) : null),
+                        width: pkg.pkg_width != null ? parseFloat(pkg.pkg_width) : (pkg.width_cm != null ? parseFloat(pkg.width_cm) : null),
+                        height: pkg.pkg_height != null ? parseFloat(pkg.pkg_height) : (pkg.height_cm != null ? parseFloat(pkg.height_cm) : null),
+                        captured: !!(pkg.weight && (pkg.pkg_length || pkg.long_cm) && (pkg.pkg_width || pkg.width_cm) && (pkg.pkg_height || pkg.height_cm)),
                     } : null,
                     // Foto del paquete (PO Box scan o foto MoJie del flujo China)
                     imageUrl: resolvedImageUrl,
