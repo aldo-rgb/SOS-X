@@ -80,6 +80,8 @@ import DhlOperationsScreen from './src/screens/DhlOperationsScreen';
 import ChinaAirHubScreen from './src/screens/ChinaAirHubScreen';
 import ChinaAirReceptionScreen from './src/screens/ChinaAirReceptionScreen';
 import ChinaAirInventoryScreen from './src/screens/ChinaAirInventoryScreen';
+import TdiCedisMtyReceptionScreen from './src/screens/TdiCedisMtyReceptionScreen';
+import POBoxConsolidationReceptionScreen from './src/screens/POBoxConsolidationReceptionScreen';
 import ChinaSeaHubScreen from './src/screens/ChinaSeaHubScreen';
 import BranchInventoryReportScreen from './src/screens/BranchInventoryReportScreen';
 import BranchesHubScreen from './src/screens/BranchesHubScreen';
@@ -202,7 +204,9 @@ export type RootStackParamList = {
   DhlOperations: { user: any; token: string };
   ChinaAirHub: { user: any; token: string };
   ChinaAirReception: { user: any; token: string };
-  ChinaAirInventory: { user: any; token: string };
+  ChinaAirInventory: { user: any; token: string; source?: 'air' | 'tdi' };
+  TdiCedisMtyReception: { user: any; token: string };
+  POBoxConsolidationReception: { user: any; token: string };
   ChinaSeaHub: { user: any; token: string };
   ChinaSeaReception: { user: any; token: string; mode?: 'LCL' | 'FCL' };
   ChinaSeaInventory: { user: any; token: string };
@@ -512,6 +516,8 @@ function App() {
           <Stack.Screen name="ChinaAirHub" component={ChinaAirHubScreen} />
           <Stack.Screen name="ChinaAirReception" component={ChinaAirReceptionScreen} />
           <Stack.Screen name="ChinaAirInventory" component={ChinaAirInventoryScreen} />
+          <Stack.Screen name="TdiCedisMtyReception" component={TdiCedisMtyReceptionScreen} />
+          <Stack.Screen name="POBoxConsolidationReception" component={POBoxConsolidationReceptionScreen} />
           <Stack.Screen name="ChinaSeaHub" component={ChinaSeaHubScreen} />
           <Stack.Screen name="BranchInventoryReport" component={BranchInventoryReportScreen} />
           <Stack.Screen name="BranchesHub" component={BranchesHubScreen} />

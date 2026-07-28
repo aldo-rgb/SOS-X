@@ -43,7 +43,9 @@ const POBOX_MODULES: POBoxModule[] = [
     icon: 'camera-outline',
     color: '#E91E63',
     screen: 'POBoxPhoto',
-    moduleKey: 'photos',
+    // Fotografiar es parte de la RECEPCIÓN (Bodega Hidalgo). Se gatea por el
+    // permiso 'receive' — así los de Monterrey (sin recepción) no la ven.
+    moduleKey: 'receive',
   },
   {
     id: 'exit',
@@ -71,6 +73,15 @@ const POBOX_MODULES: POBoxModule[] = [
     color: '#E91E63',
     screen: 'POBoxRepack',
     moduleKey: 'repack',
+  },
+  {
+    id: 'receive_consolidation',
+    title: 'Recibir Consolidación',
+    subtitle: 'Escanear y validar consolidaciones que llegan a MTY',
+    icon: 'download-outline',
+    color: '#2E7D32',
+    screen: 'POBoxConsolidationReception',
+    moduleKey: 'receive_consolidation',
   },
   {
     id: 'inventory',
@@ -137,10 +148,8 @@ export default function POBoxHubScreen({ route, navigation }: any) {
     navigation.navigate(module.screen, { user, token });
   };
 
-  // 'photos' siempre visible si el usuario puede acceder al hub PO Box
-  const visibleModules = POBOX_MODULES.filter((m) =>
-    m.moduleKey === 'photos' ? permissions.length > 0 : permissions.includes(m.moduleKey)
-  );
+  // Cada módulo se muestra SOLO si el usuario tiene su permiso (can_view).
+  const visibleModules = POBOX_MODULES.filter((m) => permissions.includes(m.moduleKey));
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>

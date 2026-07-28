@@ -20,6 +20,7 @@ interface Module {
   color: string;
   // Debe coincidir con el module_key de admin_panel_modules (panel ops_china_air).
   moduleKey: string;
+  params?: Record<string, any>;
 }
 
 // Los moduleKey coinciden EXACTAMENTE con el catálogo del panel 'ops_china_air'
@@ -42,6 +43,26 @@ const MODULES: Module[] = [
     screen: 'ChinaAirInventory',
     color: '#1976D2',
     moduleKey: 'inventory',
+    params: { source: 'air' },
+  },
+  {
+    id: 'tdi_cedis_mty',
+    title: 'Recibir en CEDIS MTY',
+    subtitle: 'Escanea guías TDX que llegaron a Monterrey para marcarlas como Recibido MTY',
+    icon: 'download-outline',
+    screen: 'TdiCedisMtyReception',
+    color: '#2E7D32',
+    moduleKey: 'tdi_cedis_mty',
+  },
+  {
+    id: 'tdx_inventory',
+    title: 'Inventario TDX',
+    subtitle: 'Consulta los paquetes TDI Express (TDX) en bodega y su estado',
+    icon: 'file-tray-stacked-outline',
+    screen: 'ChinaAirInventory',
+    color: '#6A1B9A',
+    moduleKey: 'tdx_inventory',
+    params: { source: 'tdi' },
   },
 ];
 
@@ -115,7 +136,7 @@ export default function ChinaAirHubScreen({ route, navigation }: any) {
               key={mod.id}
               style={styles.card}
               activeOpacity={0.85}
-              onPress={() => navigation.navigate(mod.screen, { user, token })}
+              onPress={() => navigation.navigate(mod.screen, { user, token, ...(mod.params || {}) })}
             >
               <View style={[styles.cardTop, { backgroundColor: mod.color }]}>
                 <Ionicons name={mod.icon} size={48} color="#fff" />

@@ -45,6 +45,8 @@ const STATUS_FILTERS = [
 
 export default function ChinaAirInventoryScreen({ route, navigation }: any) {
   const { token } = route.params;
+  // source: 'air' (Aéreo China / AIR) | 'tdi' (TDI Express / TDX). Default 'air'.
+  const source: string = route.params?.source === 'tdi' ? 'tdi' : 'air';
   const [packages, setPackages] = useState<InvPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -54,7 +56,7 @@ export default function ChinaAirInventoryScreen({ route, navigation }: any) {
 
   const load = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ limit: '500' });
+      const params = new URLSearchParams({ limit: '500', source });
       const res = await fetch(`${API_URL}/api/admin/china-air/inventory?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -67,7 +69,7 @@ export default function ChinaAirInventoryScreen({ route, navigation }: any) {
     } finally {
       setLoading(false); setRefreshing(false);
     }
-  }, [token]);
+  }, [token, source]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -127,7 +129,7 @@ export default function ChinaAirInventoryScreen({ route, navigation }: any) {
           <Ionicons name="chevron-back" size={26} color="#fff" />
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: 10 }}>
-          <Text style={styles.headerTitle}>Inventario Aéreo China</Text>
+          <Text style={styles.headerTitle}>{source === 'tdi' ? 'Inventario TDX' : 'Inventario Aéreo China'}</Text>
           <Text style={styles.headerSubtitle}>{packages.length} paquetes totales</Text>
         </View>
         <TouchableOpacity onPress={onRefresh} disabled={loading}>
