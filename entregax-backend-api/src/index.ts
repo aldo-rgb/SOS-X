@@ -13378,6 +13378,7 @@ app.post('/api/admin/carousel/upload', authenticateToken, requireRole('super_adm
 import {
   listBrandAssets,
   getActiveBrandAssets,
+  getBrandAssetDataUri,
   uploadBrandAsset,
   activateBrandAsset,
   deleteBrandAsset,
@@ -13396,6 +13397,7 @@ const brandAssetUpload = multer({
 
 // Público — obtiene los logos activos para que cualquier frontend los consuma
 app.get('/api/brand-assets/active', getActiveBrandAssets);
+app.get('/api/brand-assets/:slot/data-uri', getBrandAssetDataUri);
 // Admin
 app.get('/api/admin/brand-assets', authenticateToken, requireRole('super_admin'), listBrandAssets);
 app.post('/api/admin/brand-assets/upload', authenticateToken, requireRole('super_admin'), brandAssetUpload.single('file'), uploadBrandAsset);

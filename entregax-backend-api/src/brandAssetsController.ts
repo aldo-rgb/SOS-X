@@ -138,6 +138,46 @@ export const listBrandAssets = async (_req: Request, res: Response) => {
 // GET /api/brand-assets/active
 // Endpoint público — devuelve el logo activo de cada slot
 // ============================================
+// Devuelve un logo (por slot) como data URI base64, listo para embeber en un
+// PDF/HTML (html2canvas) sin depender de CORS de S3. Cache 10 min por slot.
+const _dataUriCache: Record<string, { dataUri: string; ts: number }> = {};
+export const getBrandAssetDataUri = async (req: Request, res: Response) => {
+  try {
+    const slot = String(req.params.slot || '').trim();
+    if (!slot) return res.status(400).json({ success: false, message: 'slot requerido' });
+    const cached = _dataUriCache[slot];
+    if (cached && Date.now() - cached.ts < 10 * 60 * 1000) {
+      return res.json({ success: true, slot, dataUri: cached.dataUri });
+    }
+    await ensureTable();
+    const r = await pool.query(
+      `SELECT url, storage_key, mime_type FROM brand_assets
+        WHERE slot = $1 AND is_active = TRUE ORDER BY created_at DESC LIMIT 1`,
+      [slot]
+    );
+    if (!r.rows.length) return res.status(404).json({ success: false, message: 'Logo no encontrado' });
+    const row = r.rows[0];
+    const resolved = await resolveAssetUrl(row);
+    let buf: Buffer | null = null;
+    if (/^https?:\/\//.test(resolved)) {
+      const resp = await fetch(resolved);
+      if (!resp.ok) return res.status(502).json({ success: false, message: 'No se pudo descargar el logo' });
+      buf = Buffer.from(await resp.arrayBuffer());
+    } else if (resolved.startsWith('/uploads/')) {
+      const localPath = path.join(process.cwd(), resolved.replace(/^\//, ''));
+      if (fs.existsSync(localPath)) buf = fs.readFileSync(localPath);
+    }
+    if (!buf) return res.status(404).json({ success: false, message: 'Sin archivo' });
+    const mime = row.mime_type || 'image/png';
+    const dataUri = `data:${mime};base64,${buf.toString('base64')}`;
+    _dataUriCache[slot] = { dataUri, ts: Date.now() };
+    return res.json({ success: true, slot, dataUri });
+  } catch (err: any) {
+    console.error('❌ getBrandAssetDataUri:', err);
+    return res.status(500).json({ success: false, message: 'Error', error: err.message });
+  }
+};
+
 export const getActiveBrandAssets = async (_req: Request, res: Response) => {
   try {
     await ensureTable();

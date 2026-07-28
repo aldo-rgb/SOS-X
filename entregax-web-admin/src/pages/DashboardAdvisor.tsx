@@ -420,6 +420,8 @@ export default function DashboardAdvisor() {
   // ── Xpay (asesor crea operaciones a nombre de un cliente asignado) ──
   const [xpayLogoUrl, setXpayLogoUrl] = useState<string>('');        // negro (para el tab sobre blanco)
   const [xpayLogoWhiteUrl, setXpayLogoWhiteUrl] = useState<string>(''); // blanco (para el hero negro)
+  // Logo EntregaX completo (negro) en base64 para embeber en el PDF (evita CORS en html2canvas).
+  const [entregaxLogoDataUri, setEntregaxLogoDataUri] = useState<string>('');
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -432,6 +434,10 @@ export default function DashboardAdvisor() {
           if (white) setXpayLogoWhiteUrl(white);
         }
       } catch { /* ignore */ }
+      try {
+        const r2 = await api.get('/brand-assets/entregax_full_black/data-uri');
+        if (!cancelled && r2.data?.dataUri) setEntregaxLogoDataUri(r2.data.dataUri);
+      } catch { /* si falla, el PDF usa el logo de texto */ }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -3625,7 +3631,9 @@ export default function DashboardAdvisor() {
 
                   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>
                     <div class="header">
-                      <div><div class="logo-text">EntregaX</div><div class="logo-sub">Paquetería Internacional</div></div>
+                      <div>${entregaxLogoDataUri
+                        ? `<img src="${entregaxLogoDataUri}" alt="EntregaX" style="height:52px;object-fit:contain;display:block" />`
+                        : `<div class="logo-text">EntregaX</div><div class="logo-sub">Paquetería Internacional</div>`}</div>
                       <div class="company-info"><strong>ENTREGAX</strong><br>📍 Monterrey, Nuevo León, México<br>📧 contacto@entregax.com<br>🌐 www.entregax.com</div>
                     </div>
                     <div class="title-bar">
