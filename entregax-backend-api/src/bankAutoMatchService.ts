@@ -357,9 +357,12 @@ const notifyStatementSynced = async (emitterId: number, summary: {
     // mostradores en USA (Hidalgo TX, code HGO): sus usuarios no deben recibir
     // estas notificaciones de pagos.
     const recipients = await pool.query(
+      // Resumen de COBRANZA/finanzas (link a /admin/dashboard-cobranza): va a
+      // asesores (ven sus cobros) y a finanzas/dirección. NO a operaciones
+      // (branch_manager/CEDIS): a ellos no les corresponde este aviso de pagos.
       `SELECT u.id FROM users u
          LEFT JOIN branches b ON b.id = u.branch_id
-        WHERE u.role IN ('advisor','sub_advisor','director','admin','super_admin','branch_manager')
+        WHERE u.role IN ('advisor','sub_advisor','director','admin','super_admin','accountant')
           AND COALESCE(u.is_active, true) = true
           AND UPPER(COALESCE(b.code, '')) <> 'HGO'`
     );
