@@ -634,7 +634,17 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           WHEN p.service_type = 'POBOX_USA' THEN
             COALESCE(NULLIF(p.pobox_service_cost, 0), NULLIF(p.assigned_cost_mxn, 0), NULLIF(p.saldo_pendiente, 0), 0)
           ELSE
-            COALESCE(NULLIF(p.assigned_cost_mxn, 0), NULLIF(p.saldo_pendiente, 0), NULLIF(p.pobox_service_cost, 0), NULLIF(p.air_sale_price, 0), NULLIF(p.pobox_venta_usd, 0), 0)
+            -- Aéreo/TDI sin costear: air_sale_price está en USD → convertir a MXN
+            -- (× TC de la guía si existe, si no el TC aéreo vigente). Sin esto se
+            -- mostraba el USD como pesos en la Nueva Orden CTZ.
+            COALESCE(
+              NULLIF(p.assigned_cost_mxn, 0),
+              NULLIF(p.saldo_pendiente, 0),
+              NULLIF(p.pobox_service_cost, 0),
+              NULLIF(p.air_sale_price, 0) * COALESCE(NULLIF(p.registered_exchange_rate, 0),
+                (SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'tdi' AND estado = true LIMIT 1), 1),
+              NULLIF(p.pobox_venta_usd, 0),
+              0)
         END as monto,
         CASE WHEN p.client_paid = TRUE OR p.payment_status = 'paid' OR (COALESCE(NULLIF(p.saldo_pendiente, 0), NULLIF(p.pobox_service_cost, 0), NULLIF(p.air_sale_price, 0), NULLIF(p.pobox_venta_usd, 0), 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0) THEN true ELSE false END as client_paid,
         p.updated_at as paid_at,
