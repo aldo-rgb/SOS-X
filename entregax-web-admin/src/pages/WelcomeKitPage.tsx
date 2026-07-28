@@ -13,7 +13,7 @@ import {
   TableRow, Chip, IconButton, Button, TextField, InputAdornment, CircularProgress,
   FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent,
   DialogActions, Snackbar, Alert, Tooltip, Grid, Tabs, Tab, Card, CardMedia,
-  CardContent, Switch, FormControlLabel,
+  CardContent, Switch, FormControlLabel, Divider,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -25,6 +25,7 @@ import Inventory2Icon from '@mui/icons-material/Inventory2';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import CloseIcon from '@mui/icons-material/Close';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -123,6 +124,7 @@ export default function WelcomeKitPage() {
   const currentRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; } })();
   const canDelete = ['super_admin', 'admin', 'director'].includes(currentRole);
   const [tab, setTab] = useState<'requests' | 'catalog'>('requests');
+  const [infoOpen, setInfoOpen] = useState(false);
   const [rows, setRows] = useState<KitRequest[]>([]);
   const [stats, setStats] = useState<KitStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -359,9 +361,81 @@ export default function WelcomeKitPage() {
               Nuevo producto
             </Button>
           )}
+          <Button variant="outlined" color="info" startIcon={<InfoOutlinedIcon />} onClick={() => setInfoOpen(true)}>Info</Button>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => tab === 'requests' ? fetchData() : fetchProducts()}>Actualizar</Button>
         </Box>
       </Box>
+
+      {/* Diálogo Info: cómo funciona el Kit de Bienvenida */}
+      <Dialog open={infoOpen} onClose={() => setInfoOpen(false)} maxWidth="md" fullWidth scroll="paper">
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 6 }}>
+          <InfoOutlinedIcon color="info" /> ¿Cómo funciona el Kit de Bienvenida?
+          <IconButton onClick={() => setInfoOpen(false)} sx={{ position: 'absolute', right: 8, top: 8 }}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            El Kit de Bienvenida es un <strong>regalo</strong> (una báscula + su PO Box) que se envía al cliente.
+            Se maneja como una guía de PO Box USA <strong>simulada</strong>: aparenta llegar desde EE. UU. (Hidalgo TX),
+            pero físicamente <strong>sale de CEDIS MTY con Estafeta por cobrar</strong>. Su avance es automático.
+          </Typography>
+
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mt: 1, mb: 1 }}>🔀 Dos estados en paralelo</Typography>
+          <Typography variant="body2" sx={{ mb: 1.5 }}>
+            Cada fila muestra <strong>dos cosas distintas</strong>:
+          </Typography>
+          <Box component="ul" sx={{ pl: 3, m: 0, mb: 2, '& li': { mb: 0.75 } }}>
+            <li><Typography variant="body2"><strong>ESTADO</strong> (chip de la derecha) = avance del <em>trámite del kit</em>.</Typography></li>
+            <li><Typography variant="body2"><strong>ESTATUS DE GUÍA</strong> = ubicación real de la guía USK (Hidalgo TX → tránsito → CEDIS MTY → entrega).</Typography></li>
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>📋 Los estados del kit</Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mb: 2 }}>
+            {[
+              ['Solicitado', '#1976d2', 'El cliente está en la lista del kit (por premio de referido o alta manual). Recibe un push: "🎁 ¡Tienes un regalo!". Aún no elige su regalo.'],
+              ['Con instrucciones', '#ed6c02', 'El cliente YA eligió su regalo. En ese momento se crea automáticamente la guía USK en estado "Recibido CEDIS Hidalgo TX". Falta que capture su dirección de entrega.'],
+              ['Por enviar', '#7b1fa2', 'La guía ya tiene instrucciones de envío y está pagada (EntregaX Local se paga solo; la paquetería tras el pago del cliente). Lista para despachar desde MTY.'],
+              ['Enviado', '#2e7d32', 'Un operador despachó la guía desde CEDIS MTY con Estafeta por cobrar; va en ruta al cliente.'],
+              ['Entregado', '#1b5e20', 'La guía se entregó al cliente.'],
+              ['Cancelado', '#9e9e9e', 'La solicitud se canceló; no cuenta ni bloquea un nuevo kit.'],
+            ].map(([label, color, desc]) => (
+              <Box key={label as string} sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+                <Chip label={label as string} size="small" sx={{ bgcolor: color as string, color: '#fff', fontWeight: 700, minWidth: 130 }} />
+                <Typography variant="body2" color="text.secondary">{desc as string}</Typography>
+              </Box>
+            ))}
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>⏱️ El recorrido (paso a paso)</Typography>
+          <Box component="ol" sx={{ pl: 3, m: 0, mb: 2, '& li': { mb: 1 } }}>
+            <li><Typography variant="body2"><strong>Solicitado</strong> → al cliente le llega el aviso del regalo en la app.</Typography></li>
+            <li><Typography variant="body2"><strong>El cliente elige su regalo</strong> → se genera la guía <strong>USK-…</strong> y aparece de inmediato como <em>"Recibido CEDIS Hidalgo TX"</em> (recepción USA simulada). El kit pasa a <strong>Con instrucciones</strong>.</Typography></li>
+            <li><Typography variant="body2"><strong>El cliente captura su dirección de entrega.</strong> Este es el disparador del avance automático.</Typography></li>
+            <li><Typography variant="body2"><strong>+12 h</strong> (cron cada 30 min) → la guía pasa a <em>"EN TRÁNSITO A MTY"</em>.</Typography></li>
+            <li><Typography variant="body2"><strong>+24 h más</strong> → la guía pasa a <em>"RECIBIDO EN CEDIS MTY"</em> y se asigna a la sucursal MTY (aparece en "Asignados Hoy" del repartidor local).</Typography></li>
+            <li><Typography variant="body2">Pagada + con instrucciones → <strong>Por enviar</strong>. El operador despacha con Estafeta → <strong>Enviado</strong> → <strong>Entregado</strong>.</Typography></li>
+          </Box>
+
+          <Box sx={{ bgcolor: '#FFF4E5', border: '1px solid #FFD8A8', borderRadius: 1, p: 1.5, mb: 1 }}>
+            <Typography variant="body2" sx={{ color: '#8a5200' }}>
+              <strong>⚠️ Si una guía se queda atorada en "Solicitado" o "Con instrucciones":</strong> casi siempre es porque
+              el cliente <strong>nunca eligió su regalo</strong> o <strong>no capturó su dirección de entrega</strong>.
+              El avance automático a CEDIS MTY solo arranca <em>después</em> de que el cliente asigna sus instrucciones.
+            </Typography>
+          </Box>
+
+          <Typography variant="caption" color="text.secondary">
+            Nota: el envío real sale de CEDIS MTY; "Hidalgo TX" es solo la etiqueta de la recepción simulada para que el
+            rastreo se vea como una importación normal de PO Box.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInfoOpen(false)} variant="contained">Entendido</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Tabs */}
       <Paper sx={{ mb: 3 }}>
