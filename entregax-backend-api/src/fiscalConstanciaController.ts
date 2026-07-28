@@ -142,9 +142,28 @@ export const uploadConstancia = async (req: Request, res: Response): Promise<any
 };
 
 /**
+ * ¿El asesor puede gestionar los datos fiscales de este cliente?
+ * Sí cuando: (a) es su cliente asignado (advisor_id / referred_by_id), o
+ * (b) tiene una ORDEN DE PAGO para ese cliente (la creó para facturarla),
+ * aunque el cliente no esté formalmente asignado a él. Esto evita el falso
+ * "Cliente fuera de tu alcance" al facturar una orden propia de un cliente
+ * que otro asesor refirió o que aún no tiene asesor asignado.
+ */
+const advisorScopeOwnsClient = async (advisorId: number, clientId: number): Promise<boolean> => {
+  const r = await pool.query(
+    `SELECT 1 FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2)
+     UNION ALL
+     SELECT 1 FROM advisor_payment_orders WHERE client_id = $1 AND advisor_id = $2
+     LIMIT 1`,
+    [clientId, advisorId]
+  );
+  return r.rows.length > 0;
+};
+
+/**
  * POST /api/advisor/clients/:clientId/constancia
  * Mismo flujo que uploadConstancia pero el asesor sube en nombre de un
- * cliente. El asesor debe ser dueño del cliente (advisor_id o referred_by_id).
+ * cliente. El asesor debe poder gestionar al cliente (asignado o con orden).
  */
 export const uploadConstanciaForClient = async (req: Request, res: Response): Promise<any> => {
   const advisorIdNum = (req as any).user?.userId;
@@ -152,15 +171,13 @@ export const uploadConstanciaForClient = async (req: Request, res: Response): Pr
   const role = String((req as any).user?.role || '').toLowerCase();
   const clientId = Number(req.params.clientId);
   if (!clientId) return res.status(400).json({ error: 'clientId inválido' });
-  // Staff con rol elevado puede subir por cualquier cliente; asesores solo
-  // por sus clientes asignados.
-  const elevatedRoles = ['super_admin', 'admin', 'director', 'branch_manager'];
+  // Staff con rol elevado puede subir por cualquier cliente; asesores por sus
+  // clientes asignados o aquellos para los que tienen una orden de pago.
+  const elevatedRoles = ['super_admin', 'admin', 'director', 'branch_manager', 'customer_service', 'accountant', 'counter_staff'];
   if (!elevatedRoles.includes(role)) {
-    const owns = await pool.query(
-      `SELECT 1 FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) LIMIT 1`,
-      [clientId, advisorIdNum]
-    );
-    if (owns.rows.length === 0) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+    if (!(await advisorScopeOwnsClient(advisorIdNum, clientId))) {
+      return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+    }
   }
   return _upsertConstancia(clientId, req, res);
 };
@@ -174,13 +191,11 @@ export const getClientConstanciaStatus = async (req: Request, res: Response): Pr
   const role = String((req as any).user?.role || '').toLowerCase();
   const clientId = Number(req.params.clientId);
   if (!clientId) return res.status(400).json({ error: 'clientId inválido' });
-  const elevatedRoles = ['super_admin', 'admin', 'director', 'branch_manager'];
+  const elevatedRoles = ['super_admin', 'admin', 'director', 'branch_manager', 'customer_service', 'accountant', 'counter_staff'];
   if (!elevatedRoles.includes(role)) {
-    const owns = await pool.query(
-      `SELECT 1 FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) LIMIT 1`,
-      [clientId, advisorIdNum]
-    );
-    if (owns.rows.length === 0) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+    if (!(await advisorScopeOwnsClient(advisorIdNum, clientId))) {
+      return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+    }
   }
   return _readConstanciaStatus(clientId, res);
 };

@@ -1078,9 +1078,23 @@ const ensureFiscalProfilesTable = async () => {
 };
 
 // El asesor solo puede gestionar datos de sus clientes
+// Staff interno que factura para cualquier cliente (no está acotado a "sus"
+// clientes como un asesor): Soporte, facturación y mostrador, además de la
+// dirección. Para estos roles no aplica el filtro de "cliente asignado".
+const INVOICING_STAFF_ROLES = ['super_admin', 'admin', 'director', 'branch_manager', 'customer_service', 'accountant', 'counter_staff'];
+const isInvoicingStaff = (req: Request): boolean =>
+  INVOICING_STAFF_ROLES.includes(String((req as any).user?.role || '').toLowerCase());
+
 const advisorOwnsClient = async (aid: number, clientId: any): Promise<boolean> => {
+  // El asesor "posee" al cliente si es su cliente asignado (advisor_id /
+  // referred_by_id) O si tiene una orden de pago para ese cliente (la creó
+  // para facturarla). Evita el falso "Cliente fuera de tu alcance" al operar
+  // sobre órdenes de clientes que otro asesor refirió o sin asesor asignado.
   const r = await pool.query(
-    `SELECT 1 FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) LIMIT 1`,
+    `SELECT 1 FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2)
+     UNION ALL
+     SELECT 1 FROM advisor_payment_orders WHERE client_id = $1 AND advisor_id = $2
+     LIMIT 1`,
     [clientId, aid]
   );
   return r.rows.length > 0;
@@ -1092,7 +1106,7 @@ export const listClientFiscalProfiles = async (req: Request, res: Response): Pro
     const aid = advisorId(req);
     if (!aid) return res.status(401).json({ error: 'No autenticado' });
     const { clientId } = req.params;
-    if (!(await advisorOwnsClient(aid, clientId))) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+    if (!isInvoicingStaff(req) && !(await advisorOwnsClient(aid, clientId))) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
     await ensureFiscalProfilesTable();
     const r = await pool.query(
       `SELECT id, razon_social, rfc, codigo_postal, regimen_fiscal, uso_cfdi, is_default
@@ -1112,7 +1126,7 @@ export const addClientFiscalProfile = async (req: Request, res: Response): Promi
     const aid = advisorId(req);
     if (!aid) return res.status(401).json({ error: 'No autenticado' });
     const { clientId } = req.params;
-    if (!(await advisorOwnsClient(aid, clientId))) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+    if (!isInvoicingStaff(req) && !(await advisorOwnsClient(aid, clientId))) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
     await ensureFiscalProfilesTable();
 
     const { razon_social, rfc, codigo_postal, regimen_fiscal, uso_cfdi } = req.body || {};
@@ -1153,7 +1167,7 @@ export const deleteClientFiscalProfile = async (req: Request, res: Response): Pr
     const aid = advisorId(req);
     if (!aid) return res.status(401).json({ error: 'No autenticado' });
     const { clientId, profileId } = req.params;
-    if (!(await advisorOwnsClient(aid, clientId))) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
+    if (!isInvoicingStaff(req) && !(await advisorOwnsClient(aid, clientId))) return res.status(403).json({ error: 'Cliente fuera de tu alcance' });
     await ensureFiscalProfilesTable();
     await pool.query(`DELETE FROM client_fiscal_profiles WHERE id = $1 AND user_id = $2`, [profileId, clientId]);
     return res.json({ success: true });
