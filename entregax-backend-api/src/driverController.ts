@@ -2458,6 +2458,40 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                     }
                 }
             }
+            // ── Fallback DHL: la guía puede ser un envío DHL vía courier externo
+            // (Paquete Express, FedEx…), que vive en dhl_shipments y NO en packages.
+            // Estos SÍ entran a "Salidas Paqueterías", pero antes no se podían
+            // escanear porque el lookup solo miraba packages → "no encontrada".
+            if (result.rows.length === 0 && mode === 'cargar_unidad') {
+                const compact = code.replace(/-/g, '');
+                const dhlRes = await pool.query(
+                    `SELECT id, secondary_tracking, inbound_tracking, national_carrier, status
+                       FROM dhl_shipments
+                      WHERE UPPER(COALESCE(secondary_tracking,'')) = $1
+                         OR UPPER(COALESCE(inbound_tracking,'')) = $1
+                         OR REPLACE(UPPER(COALESCE(secondary_tracking,'')),'-','') = $2
+                         OR REPLACE(UPPER(COALESCE(inbound_tracking,'')),'-','') = $2
+                      LIMIT 1`,
+                    [code, compact]
+                );
+                if (dhlRes.rows.length === 1) {
+                    const d = dhlRes.rows[0];
+                    const normCarrier = (c: any) => String(c || '').toLowerCase().replace(/[\s_-]+/g, '');
+                    const dc = normCarrier(d.national_carrier), rc = normCarrier(carrier);
+                    if (rc && dc && !dc.includes(rc) && !rc.includes(dc)) {
+                        return res.status(400).json({ error: `⚠️ Esta guía es de ${d.national_carrier || 'otra paquetería'}, no de ${carrier}` });
+                    }
+                    const dhlTracking = d.secondary_tracking || d.inbound_tracking || String(d.id);
+                    // Sale vía courier externo → 'shipped'. dhl_shipments no maneja
+                    // out_for_delivery; 'shipped' = entregado a la paquetería / en ruta.
+                    await pool.query(`UPDATE dhl_shipments SET status = 'shipped', updated_at = NOW() WHERE id = $1`, [d.id]);
+                    return res.json({
+                        success: true, phase: 'complete', mode, isDhl: true,
+                        packageId: `dhl-${d.id}`, tracking: dhlTracking, newStatus: 'shipped',
+                        message: `✅ Cargado a unidad (DHL vía ${d.national_carrier || carrier})`
+                    });
+                }
+            }
             if (result.rows.length === 0) {
                 return res.status(404).json({ error: `❌ Guía ${code} no encontrada en el sistema` });
             }
