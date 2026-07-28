@@ -2508,6 +2508,7 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
         creator.full_name as created_by_name,
         cl.clicks AS link_clicks,
         cl.last_click_at AS last_click_at,
+        cl.clicked_funnel AS clicked_funnel,
         se.status AS seq_status,
         se.current_step AS seq_step,
         se.next_send_at AS seq_next_send_at,
@@ -2520,7 +2521,14 @@ export const getProspects = async (req: Request, res: Response): Promise<any> =>
       LEFT JOIN users advisor ON b.assigned_advisor_id = advisor.id
       LEFT JOIN users creator ON b.created_by_id = creator.id
       LEFT JOIN LATERAL (
-        SELECT COALESCE(SUM(click_count), 0)::int AS clicks, MAX(last_click_at) AS last_click_at
+        SELECT COALESCE(SUM(click_count), 0)::int AS clicks, MAX(last_click_at) AS last_click_at,
+               -- Funnel/plantilla del ÚLTIMO enlace clicado (a qué le dieron clic)
+               (SELECT COALESCE(NULLIF(TRIM(t.label), ''), t.template_name)
+                  FROM wa_click_links wl2
+                  LEFT JOIN bulk_wa_templates t ON t.id = wl2.template_id
+                 WHERE wl2.lead_key = b.lead_key AND wl2.click_count > 0
+                 ORDER BY wl2.last_click_at DESC NULLS LAST
+                 LIMIT 1) AS clicked_funnel
           FROM wa_click_links wl
          WHERE wl.lead_key = b.lead_key AND wl.click_count > 0
       ) cl ON true

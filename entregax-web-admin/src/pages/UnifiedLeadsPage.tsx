@@ -237,6 +237,7 @@ interface Prospect {
   // Rastreo de clics en botones de WhatsApp
   link_clicks?: number | null;
   last_click_at?: string | null;
+  clicked_funnel?: string | null; // funnel/plantilla del último enlace clicado
   // Secuencia automática
   seq_status?: string | null;
   seq_step?: number | null;
@@ -3066,7 +3067,7 @@ export default function UnifiedLeadsPage() {
                                 <Typography variant="body2" fontWeight={500}>{prospect.full_name}</Typography>
                                 {prospect.follow_up_today && <EventIcon fontSize="small" color="warning" />}
                                 {!!(prospect.link_clicks && prospect.link_clicks > 0) && (
-                                  <Tooltip title={`Hizo clic en el botón de WhatsApp${prospect.last_click_at ? ` · ${formatDate(prospect.last_click_at)}` : ''}${prospect.link_clicks > 1 ? ` · ${prospect.link_clicks} clics` : ''}`}>
+                                  <Tooltip title={`Hizo clic en ${prospect.clicked_funnel ? `"${prospect.clicked_funnel}"` : 'el botón de WhatsApp'}${prospect.last_click_at ? ` · ${formatDate(prospect.last_click_at)}` : ''}${prospect.link_clicks > 1 ? ` · ${prospect.link_clicks} clics` : ''}`}>
                                     <Chip size="small" color="success" variant="outlined" label={`🔗 Clic${prospect.link_clicks > 1 ? ` ×${prospect.link_clicks}` : ''}`} sx={{ height: 20, '& .MuiChip-label': { px: 0.75, fontSize: 11 } }} />
                                   </Tooltip>
                                 )}
@@ -3152,7 +3153,14 @@ export default function UnifiedLeadsPage() {
                             if (!st) return <Typography variant="caption" color="text.secondary">—</Typography>;
                             if (st === 'responded' && reason === 'clicked') {
                               const day = DAYS[Math.max(0, step - 1)] || `paso ${step}`;
-                              return <Chip size="small" color="success" label={`🔗 Clic · ${day}`} sx={{ height: 22 }} />;
+                              // Mostrar A QUÉ funnel/plantilla le dio clic; si no se conoce, el día.
+                              const funnel = prospect.clicked_funnel;
+                              const label = funnel ? `🔗 Clic · ${funnel}` : `🔗 Clic · ${day}`;
+                              return (
+                                <Tooltip title={funnel ? `Hizo clic en "${funnel}" (${day})` : `Hizo clic en ${day}`}>
+                                  <Chip size="small" color="success" label={label} sx={{ height: 22, maxWidth: 220, '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }} />
+                                </Tooltip>
+                              );
                             }
                             if (st === 'responded') return <Chip size="small" color="info" label="💬 Respondió" sx={{ height: 22 }} />;
                             if (st === 'completed') return <Chip size="small" color="secondary" variant="outlined" label="✅ Terminada" sx={{ height: 22 }} />;
