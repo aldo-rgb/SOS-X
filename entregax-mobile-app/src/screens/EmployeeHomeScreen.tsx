@@ -1401,8 +1401,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                 { key: 'asignados', label: 'Asignados Hoy', sub: 'ruta sucursal MTY', icon: 'file-tray-full', color: '#F05A28', value: Number(d.totalAssigned ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'assigned' }) },
                 { key: 'salidas_paq', label: 'Salidas Paqueterías', sub: 'handoff a courier', icon: 'send', color: '#7B1FA2', value: Number(d.paqueteriaCount ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'paqueteria' }) },
                 { key: 'salidas_loc', label: 'Salidas Locales', sub: 'carga a unidad', icon: 'cube', color: '#0097A7', value: Number(d.pendingToLoad ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'local' }) },
-                { key: 'cobro', label: 'Pendientes de Cobro', sub: 'guías por cobrar', icon: 'cash', color: '#C2410C', value: Number(p.pendientes_cobro ?? 0), onPress: () => nav('POBoxInventory') },
-                { key: 'tickets', label: 'Tickets Abiertos', sub: 'soporte CEDIS', icon: 'headset', color: '#3F51B5', value: Number(cedisStats?.tickets_abiertos ?? 0), onPress: () => nav('SupportTickets') },
+                { key: 'tickets', label: 'Tickets Abiertos', sub: 'soporte CEDIS MTY', icon: 'headset', color: '#3F51B5', value: Number(cedisStats?.tickets_abiertos ?? 0), onPress: () => nav('SupportTickets') },
               ];
               return (
                 <View style={styles.modulesSection}>

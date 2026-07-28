@@ -1368,7 +1368,29 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             enTurno = turnoResult.rows[0]?.total_en_turno || 0;
         }
 
+        // 🎫 Tickets ABIERTOS del departamento de soporte de esta sucursal (CEDIS).
+        // Mismo mapeo que la web/app: MTY→'CEDIS MTY', CDMX→'CEDIS CDMX', USA→'CEDIS USA'.
+        let ticketsAbiertos = 0;
+        try {
+            const c = String(branchCode || '').toUpperCase();
+            const n = String(branchName || '').toUpperCase();
+            let deptName: string | null = null;
+            if (c === 'MTY' || n.includes('MTY') || n.includes('MONTERREY')) deptName = 'CEDIS MTY';
+            else if (c === 'CDMX' || n.includes('CDMX') || n.includes('CIUDAD DE MEXICO') || n.includes('CIUDAD DE MÉXICO')) deptName = 'CEDIS CDMX';
+            else if (c === 'TX' || c === 'USA' || n.includes('HIDALGO') || n.includes('TEXAS') || n.includes('USA')) deptName = 'CEDIS USA';
+            if (deptName) {
+                const tk = await pool.query(
+                    `SELECT COUNT(*)::int AS n FROM support_tickets t
+                       JOIN support_departments d ON d.id = t.department_id
+                      WHERE d.name = $1 AND t.status::text NOT IN ('resolved','closed')`,
+                    [deptName]
+                );
+                ticketsAbiertos = parseInt(tk.rows[0]?.n || 0) || 0;
+            }
+        } catch (e: any) { console.warn('[branch-dashboard] tickets abiertos:', e?.message); }
+
         res.json({
+            tickets_abiertos: ticketsAbiertos,
             sucursal: {
                 nombre: branchName || 'CEDIS MTY',
                 codigo: branchCode || 'MTY',
