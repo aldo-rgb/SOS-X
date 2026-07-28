@@ -120,6 +120,20 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const [assignedStatusFilter, setAssignedStatusFilter] = useState<'all' | 'delivered' | 'loaded' | 'pending'>('all');
   const [assignedCarrierFilter, setAssignedCarrierFilter] = useState<'all' | 'po_box' | 'tdi' | 'dhl'>('all');
 
+  // 🏢 Apertura directa desde los widgets del Panel de Operación (EmployeeHome):
+  // autoOpen = 'assigned' (Asignados Hoy) | 'paqueteria' (Salidas Paqueterías) |
+  // 'local' (Salidas Locales → carga a unidad).
+  const autoOpen: string | undefined = route?.params?.autoOpen;
+  useEffect(() => {
+    if (!autoOpen) return;
+    const t = setTimeout(() => {
+      if (autoOpen === 'assigned') setShowAssignedModal(true);
+      else if (autoOpen === 'paqueteria') setShowPaqueteriaModal(true);
+      else if (autoOpen === 'local') navigation.navigate('LoadingVan', { user, token });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [autoOpen]);
+
   // Actualizar hora cada minuto
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);

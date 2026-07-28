@@ -162,7 +162,7 @@ export type RootStackParamList = {
   EmployeeOnboarding: { user: any; token: string };
   // Pantallas del Chofer
   VehicleInspection: { user: any; token: string };
-  DriverHome: { user: any; token: string };
+  DriverHome: { user: any; token: string; autoOpen?: 'assigned' | 'paqueteria' | 'local'; directTo?: string; preloadedRoute?: any };
   PettyCash: { user: any; token: string };
   PettyCashAdmin: { user: any; token: string };
   MonitorContainers: { user: any; token: string; mode?: 'start-monitoring' | 'confirm-delivery' };

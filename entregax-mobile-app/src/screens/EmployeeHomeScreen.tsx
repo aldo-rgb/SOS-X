@@ -431,6 +431,10 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [stats, setStats] = useState<any>(null);
+  const [cedisStats, setCedisStats] = useState<any>(null);       // /api/dashboard/branch-manager
+  const [driverStats, setDriverStats] = useState<any>(null);     // /api/driver/route-today (para widgets CEDIS)
+  // Operador de CEDIS/sucursal: ve el panel de widgets de operación.
+  const isCedisOps = ['branch_manager', 'operaciones', 'warehouse_ops', 'counter_staff'].includes(String(user?.role || ''));
   const [poboxPermissions, setPOBoxPermissions] = useState<string[]>([]);
   const [panelPermissions, setPanelPermissions] = useState<string[]>([]);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
@@ -747,7 +751,15 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           setStats(res.data.route);
         }
       }
-      // Agregar más stats para otros roles según se desarrollen
+      // 🏢 Operador de CEDIS: panel de widgets de operación (contadores vivos).
+      if (isCedisOps) {
+        const [cedisRes, routeRes] = await Promise.all([
+          api.get('/api/dashboard/branch-manager').catch(() => null),
+          api.get('/api/driver/route-today').catch(() => null),
+        ]);
+        if (cedisRes?.data) setCedisStats(cedisRes.data);
+        if (routeRes?.data?.success) setDriverStats(routeRes.data.route);
+      }
     } catch (error) {
       console.error('Error loading stats:', error);
       if (isNetworkError(error)) setIsOffline(true);
@@ -1377,6 +1389,40 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               </View>
             )}
 
+            {/* =============== PANEL DE OPERACIÓN CEDIS (widgets) =============== */}
+            {isCedisOps && (() => {
+              const p = cedisStats?.paquetes || {};
+              const d = driverStats || {};
+              const nav = (screen: string, params?: any) => navigation.navigate(screen as any, { user, token, ...(params || {}) });
+              const widgets = [
+                { key: 'entregas', label: 'Entregas Hoy', sub: 'completadas', icon: 'checkmark-done-circle', color: '#2E7D32', value: Number(d.deliveredToday ?? p.entregados_hoy ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'assigned' }) },
+                { key: 'transito', label: 'En Tránsito a MTY', sub: 'PO Box · cruce USA→MTY', icon: 'car', color: '#1976D2', value: Number(p.en_transito_pobox ?? 0), onPress: () => nav('POBoxConsolidationReception') },
+                { key: 'tdx', label: 'TDX por Recibir', sub: 'cajas → CEDIS MTY', icon: 'airplane', color: '#F05A28', value: Number(p.tdx_por_recibir ?? 0), onPress: () => nav('TdiCedisMtyReception') },
+                { key: 'asignados', label: 'Asignados Hoy', sub: 'ruta sucursal MTY', icon: 'file-tray-full', color: '#F05A28', value: Number(d.totalAssigned ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'assigned' }) },
+                { key: 'salidas_paq', label: 'Salidas Paqueterías', sub: 'handoff a courier', icon: 'send', color: '#7B1FA2', value: Number(d.paqueteriaCount ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'paqueteria' }) },
+                { key: 'salidas_loc', label: 'Salidas Locales', sub: 'carga a unidad', icon: 'cube', color: '#0097A7', value: Number(d.pendingToLoad ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'local' }) },
+                { key: 'cobro', label: 'Pendientes de Cobro', sub: 'guías por cobrar', icon: 'cash', color: '#C2410C', value: Number(p.pendientes_cobro ?? 0), onPress: () => nav('POBoxInventory') },
+                { key: 'tickets', label: 'Tickets Abiertos', sub: 'soporte CEDIS', icon: 'headset', color: '#3F51B5', value: Number(cedisStats?.tickets_abiertos ?? 0), onPress: () => nav('SupportTickets') },
+              ];
+              return (
+                <View style={styles.modulesSection}>
+                  <Text style={styles.sectionTitle}>🏢 Panel de Operación</Text>
+                  <View style={styles.widgetGrid}>
+                    {widgets.map((w) => (
+                      <TouchableOpacity key={w.key} style={styles.widgetCard} activeOpacity={0.85} onPress={w.onPress}>
+                        <View style={[styles.widgetIcon, { backgroundColor: w.color + '22' }]}>
+                          <Ionicons name={w.icon as any} size={20} color={w.color} />
+                        </View>
+                        <Text style={styles.widgetValue}>{w.value}</Text>
+                        <Text style={styles.widgetLabel} numberOfLines={1}>{w.label}</Text>
+                        <Text style={styles.widgetSub} numberOfLines={1}>{w.sub}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              );
+            })()}
+
             {/* =============== CONTENIDO PARA OTROS EMPLEADOS =============== */}
             {/* Módulos Disponibles */}
             <View style={styles.modulesSection}>
@@ -1729,6 +1775,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
+  widgetGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 },
+  widgetCard: {
+    width: '48%', backgroundColor: '#fff', borderRadius: 14, padding: 12, marginBottom: 2,
+    elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4,
+  },
+  widgetIcon: { width: 34, height: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  widgetValue: { fontSize: 26, fontWeight: '900', color: '#111', lineHeight: 30 },
+  widgetLabel: { fontSize: 13, fontWeight: '700', color: '#111', marginTop: 2 },
+  widgetSub: { fontSize: 11, color: '#888', marginTop: 1 },
   sectionTitle: {
     fontSize: 15,
     fontWeight: 'bold',
