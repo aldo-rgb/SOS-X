@@ -45,6 +45,7 @@ import {
   LocalShipping as ShippingIcon,
   Inventory as InventoryIcon
 } from '@mui/icons-material';
+import PoboxClientRatesSection from '../components/PoboxClientRatesSection';
 
 interface TarifaVolumen {
   id: number;
@@ -501,6 +502,9 @@ export default function POBoxRatesPage() {
           </Table>
         </TableContainer>
       </Paper>
+
+      {/* Precios preferenciales por cliente */}
+      <PoboxClientRatesSection />
 
       {/* Dialog Cotizador */}
       <Dialog open={cotizadorOpen} onClose={() => setCotizadorOpen(false)} maxWidth="sm" fullWidth>

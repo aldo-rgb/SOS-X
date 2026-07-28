@@ -251,6 +251,171 @@ export const createServicioExtra = async (req: Request, res: Response): Promise<
 };
 
 // ============================================
+// TARIFAS PREFERENCIALES POR CLIENTE (PO Box)
+// Sobrescriben el "costo" (precio de venta) de cada NIVEL para un
+// cliente específico. Los rangos de CBM siguen viniendo de la tarifa
+// global (pobox_tarifas_volumen); aquí solo se personaliza el precio.
+// ============================================
+
+const ensureClientTarifasTable = async (): Promise<void> => {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS pobox_client_tarifas (
+            id             SERIAL PRIMARY KEY,
+            client_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            nivel          INTEGER NOT NULL,
+            costo          NUMERIC(10,2) NOT NULL,
+            tipo_cobro     VARCHAR(20) NOT NULL DEFAULT 'fijo',
+            moneda         VARCHAR(3) DEFAULT 'USD',
+            estado         BOOLEAN DEFAULT TRUE,
+            notas          TEXT,
+            created_by     INTEGER REFERENCES users(id),
+            created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (client_user_id, nivel)
+        )
+    `);
+};
+
+// Buscar clientes para asignarles tarifa preferencial
+export const searchPoboxClients = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const q = String(req.query.q || '').trim();
+        if (q.length < 2) { res.json({ clients: [] }); return; }
+        const like = `%${q}%`;
+        const result = await pool.query(`
+            SELECT u.id, u.full_name, u.email, u.box_id, u.phone,
+                   EXISTS (SELECT 1 FROM pobox_client_tarifas t WHERE t.client_user_id = u.id AND t.estado = TRUE) AS tiene_tarifa
+            FROM users u
+            WHERE (u.full_name ILIKE $1 OR u.email ILIKE $1 OR u.box_id ILIKE $1 OR u.phone ILIKE $1)
+              AND COALESCE(u.is_active, true) = true
+            ORDER BY u.full_name ASC
+            LIMIT 20
+        `, [like]);
+        res.json({ clients: result.rows });
+    } catch (error) {
+        console.error('Error buscando clientes PO Box:', error);
+        res.status(500).json({ error: 'Error al buscar clientes' });
+    }
+};
+
+// Listar clientes que YA tienen tarifa preferencial configurada
+export const listPoboxClientTarifas = async (_req: Request, res: Response): Promise<void> => {
+    try {
+        await ensureClientTarifasTable();
+        const result = await pool.query(`
+            SELECT u.id AS client_user_id, u.full_name, u.email, u.box_id,
+                   COUNT(t.*)::int AS niveles_personalizados,
+                   MAX(t.updated_at) AS updated_at
+            FROM pobox_client_tarifas t
+            JOIN users u ON u.id = t.client_user_id
+            WHERE t.estado = TRUE
+            GROUP BY u.id, u.full_name, u.email, u.box_id
+            ORDER BY MAX(t.updated_at) DESC
+        `);
+        res.json({ clients: result.rows });
+    } catch (error) {
+        console.error('Error listando tarifas por cliente:', error);
+        res.status(500).json({ error: 'Error al listar tarifas por cliente' });
+    }
+};
+
+// Obtener los niveles de un cliente: cada nivel global + su override (si existe)
+export const getPoboxClientTarifas = async (req: Request, res: Response): Promise<void> => {
+    try {
+        await ensureClientTarifasTable();
+        const clientUserId = parseInt(String(req.params.userId));
+        if (!clientUserId) { res.status(400).json({ error: 'userId inválido' }); return; }
+
+        const clienteRes = await pool.query('SELECT id, full_name, email, box_id FROM users WHERE id = $1', [clientUserId]);
+        if (clienteRes.rows.length === 0) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
+
+        const globalRes = await pool.query('SELECT * FROM pobox_tarifas_volumen WHERE estado = TRUE ORDER BY nivel ASC');
+        const ovRes = await pool.query('SELECT nivel, costo, tipo_cobro, moneda, estado FROM pobox_client_tarifas WHERE client_user_id = $1', [clientUserId]);
+        const ovByNivel = new Map<number, any>(ovRes.rows.map((r: any) => [Number(r.nivel), r]));
+
+        const niveles = globalRes.rows.map((g: any) => {
+            const ov = ovByNivel.get(Number(g.nivel));
+            return {
+                nivel: g.nivel,
+                cbm_min: g.cbm_min,
+                cbm_max: g.cbm_max,
+                costo_global: parseFloat(g.costo),
+                tipo_cobro_global: g.tipo_cobro,
+                moneda: g.moneda || 'USD',
+                // Override del cliente (null = usa el global)
+                costo_cliente: ov && ov.estado ? parseFloat(ov.costo) : null,
+                tipo_cobro_cliente: ov && ov.estado ? ov.tipo_cobro : null,
+                personalizado: !!(ov && ov.estado),
+            };
+        });
+
+        res.json({ cliente: clienteRes.rows[0], niveles });
+    } catch (error) {
+        console.error('Error obteniendo tarifas del cliente:', error);
+        res.status(500).json({ error: 'Error al obtener tarifas del cliente' });
+    }
+};
+
+// Guardar (upsert) los niveles personalizados de un cliente.
+// Body: { niveles: [{ nivel, costo, tipo_cobro }] }
+//   - costo null/undefined/'' en un nivel => se ELIMINA el override (vuelve al global).
+export const savePoboxClientTarifas = async (req: Request, res: Response): Promise<void> => {
+    try {
+        await ensureClientTarifasTable();
+        const clientUserId = parseInt(String(req.params.userId));
+        const { niveles } = req.body || {};
+        const createdBy = (req as any).user?.userId || (req as any).user?.id || null;
+
+        if (!clientUserId) { res.status(400).json({ error: 'userId inválido' }); return; }
+        if (!Array.isArray(niveles)) { res.status(400).json({ error: 'Se requiere el arreglo "niveles"' }); return; }
+
+        const clienteRes = await pool.query('SELECT id FROM users WHERE id = $1', [clientUserId]);
+        if (clienteRes.rows.length === 0) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
+
+        for (const n of niveles) {
+            const nivel = parseInt(n.nivel);
+            if (!nivel) continue;
+            const costoRaw = n.costo;
+            const vacio = costoRaw === null || costoRaw === undefined || String(costoRaw).trim() === '';
+            if (vacio) {
+                // Sin precio => quitar override de ese nivel
+                await pool.query('DELETE FROM pobox_client_tarifas WHERE client_user_id = $1 AND nivel = $2', [clientUserId, nivel]);
+                continue;
+            }
+            const costo = parseFloat(costoRaw);
+            if (isNaN(costo) || costo < 0) continue;
+            const tipoCobro = (n.tipo_cobro === 'por_unidad') ? 'por_unidad' : 'fijo';
+            await pool.query(`
+                INSERT INTO pobox_client_tarifas (client_user_id, nivel, costo, tipo_cobro, moneda, estado, created_by, updated_at)
+                VALUES ($1, $2, $3, $4, 'USD', TRUE, $5, CURRENT_TIMESTAMP)
+                ON CONFLICT (client_user_id, nivel)
+                DO UPDATE SET costo = EXCLUDED.costo, tipo_cobro = EXCLUDED.tipo_cobro,
+                              estado = TRUE, updated_at = CURRENT_TIMESTAMP
+            `, [clientUserId, nivel, costo, tipoCobro, createdBy]);
+        }
+
+        res.json({ success: true, message: 'Tarifa preferencial guardada' });
+    } catch (error) {
+        console.error('Error guardando tarifas del cliente:', error);
+        res.status(500).json({ error: 'Error al guardar tarifas del cliente' });
+    }
+};
+
+// Eliminar TODA la tarifa preferencial de un cliente (vuelve al precio global)
+export const deletePoboxClientTarifas = async (req: Request, res: Response): Promise<void> => {
+    try {
+        await ensureClientTarifasTable();
+        const clientUserId = parseInt(String(req.params.userId));
+        if (!clientUserId) { res.status(400).json({ error: 'userId inválido' }); return; }
+        await pool.query('DELETE FROM pobox_client_tarifas WHERE client_user_id = $1', [clientUserId]);
+        res.json({ success: true, message: 'Tarifa preferencial eliminada; el cliente vuelve al precio global' });
+    } catch (error) {
+        console.error('Error eliminando tarifas del cliente:', error);
+        res.status(500).json({ error: 'Error al eliminar tarifas del cliente' });
+    }
+};
+
+// ============================================
 // COSTING - PANEL DE COSTEO PO BOX
 // Fórmula: Costo = (Volumen Ajustado / 10,780) × 75
 // Volumen Ajustado = Largo × Alto × Ancho × 2.45

@@ -506,7 +506,13 @@ import {
   updatePackageCost,
   markPackagesAsPaid,
   getPaymentHistory,
-  getUtilidadesData
+  getUtilidadesData,
+  // PO Box tarifas preferenciales por cliente
+  searchPoboxClients,
+  listPoboxClientTarifas,
+  getPoboxClientTarifas,
+  savePoboxClientTarifas,
+  deletePoboxClientTarifas
 } from './poboxRatesController';
 import {
   getCajaChicaStats,
@@ -13269,6 +13275,12 @@ app.post('/api/pobox/cotizar', calcularCotizacionPOBox);
 app.get('/api/admin/pobox/tarifas-volumen', authenticateToken, requireRole('super_admin'), getTarifasVolumen);
 app.put('/api/admin/pobox/tarifas-volumen/:id', authenticateToken, requireRole('super_admin'), updateTarifaVolumen);
 app.post('/api/admin/pobox/tarifas-volumen', authenticateToken, requireRole('super_admin'), createTarifaVolumen);
+// Tarifas preferenciales por cliente (precios especiales por nivel)
+app.get('/api/admin/pobox/client-tarifas', authenticateToken, requireRole('super_admin'), listPoboxClientTarifas);
+app.get('/api/admin/pobox/client-tarifas/search', authenticateToken, requireRole('super_admin'), searchPoboxClients);
+app.get('/api/admin/pobox/client-tarifas/:userId', authenticateToken, requireRole('super_admin'), getPoboxClientTarifas);
+app.put('/api/admin/pobox/client-tarifas/:userId', authenticateToken, requireRole('super_admin'), savePoboxClientTarifas);
+app.delete('/api/admin/pobox/client-tarifas/:userId', authenticateToken, requireRole('super_admin'), deletePoboxClientTarifas);
 // Gestión de servicios extra (Admin)
 app.get('/api/admin/pobox/servicios-extra', authenticateToken, requireRole('super_admin'), getServiciosExtra);
 app.put('/api/admin/pobox/servicios-extra/:id', authenticateToken, requireRole('super_admin'), updateServicioExtra);

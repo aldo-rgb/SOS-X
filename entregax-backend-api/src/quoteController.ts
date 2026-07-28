@@ -65,7 +65,9 @@ export const quotePOBox = async (req: Request, res: Response): Promise<any> => {
         // calculatePOBoxCost recibe N cajas individuales y suma precios por
         // caja (no CBM combinado), respetando los niveles de pobox_tarifas_volumen.
         const boxes = Array.from({ length: qty }, () => ({ weight: w, length: l, width: wd, height: h }));
-        const result = await calculatePOBoxCost(pool, boxes);
+        // Si el cotizador viene de un cliente autenticado, aplica su tarifa preferencial.
+        const quoteUserId = (req as any).user?.userId || (req as any).user?.id || null;
+        const result = await calculatePOBoxCost(pool, boxes, undefined, quoteUserId);
 
         const gex = computeGex(declaredValueMxn, includeGex);
         const totalMxn = +(result.precioVentaMxn || 0) + gex.gexTotalCost;

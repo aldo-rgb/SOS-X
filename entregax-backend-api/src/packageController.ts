@@ -150,9 +150,10 @@ interface POBoxCostResult {
 }
 
 export const calculatePOBoxCost = async (
-    client: PoolClient | Pool, 
-    boxes: BoxItem[], 
-    gexData?: { included: boolean; costMxn?: number; insuranceCost?: number; fixedCost?: number; declaredValueMxn?: number }
+    client: PoolClient | Pool,
+    boxes: BoxItem[],
+    gexData?: { included: boolean; costMxn?: number; insuranceCost?: number; fixedCost?: number; declaredValueMxn?: number },
+    clientUserId?: number | null
 ): Promise<POBoxCostResult> => {
     try {
         // 1. Obtener configuración de costeo PO Box (COSTO INTERNO)
@@ -176,6 +177,34 @@ export const calculatePOBoxCost = async (
             'SELECT * FROM pobox_tarifas_volumen WHERE estado = TRUE ORDER BY nivel'
         );
         const tarifas = tarifasResult.rows;
+
+        // 3b. 🎯 TARIFA PREFERENCIAL POR CLIENTE: si este cliente tiene precios
+        // especiales configurados por nivel (pobox_client_tarifas), sobrescribimos
+        // el costo/tipo de cobro del nivel correspondiente. Los rangos de CBM
+        // (cbm_min/cbm_max) se mantienen de la tarifa global. Si algún nivel no
+        // está personalizado, ese cliente paga el precio global para ese nivel.
+        if (clientUserId) {
+            try {
+                const ovRes = await client.query(
+                    'SELECT nivel, costo, tipo_cobro, moneda FROM pobox_client_tarifas WHERE client_user_id = $1 AND estado = TRUE',
+                    [clientUserId]
+                );
+                if (ovRes.rows.length > 0) {
+                    const porNivel = new Map<number, any>(ovRes.rows.map((r: any) => [Number(r.nivel), r]));
+                    for (const t of tarifas) {
+                        const o = porNivel.get(Number(t.nivel));
+                        if (o) {
+                            t.costo = o.costo;
+                            t.tipo_cobro = o.tipo_cobro || t.tipo_cobro;
+                            if (o.moneda) t.moneda = o.moneda;
+                        }
+                    }
+                }
+            } catch (ovErr) {
+                // Si la tabla aún no existe en este entorno, se ignora y se usa la tarifa global.
+                console.warn('[calculatePOBoxCost] No se pudieron aplicar tarifas por cliente:', (ovErr as any)?.message);
+            }
+        }
 
         // 4. 🎯 CALCULAR PRECIO POR CAJA INDIVIDUAL (no CBM combinado)
         let totalCostUsd = 0;
@@ -609,7 +638,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 declaredValueMxn: declaredValueMxn
             } : undefined;
             
-            costResult = await calculatePOBoxCost(client, boxes as BoxItem[], gexData);
+            costResult = await calculatePOBoxCost(client, boxes as BoxItem[], gexData, user?.id || null);
         }
 
         await client.query('BEGIN');
@@ -5973,7 +6002,7 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
         
         let poboxCost;
         try {
-            poboxCost = await calculatePOBoxCost(pool, repackBoxItem as BoxItem[]);
+            poboxCost = await calculatePOBoxCost(pool, repackBoxItem as BoxItem[], undefined, packagesOwner || null);
         } catch (calcError) {
             console.error('Error calculando costo PO Box:', calcError);
             poboxCost = { totalMxn: 0, cbm: 0, poboxServiceCost: 0, registeredExchangeRate: 0 };
@@ -7267,7 +7296,7 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
       let svcMxn = 0, costUsd: number | null = null, ventaUsd: number | null = null, nivel: number | null = null, tc: number | null = null;
       if ((master.service_type || 'POBOX_USA') === 'POBOX_USA') {
         try {
-          const cr = await calculatePOBoxCost(client, [{ weight: w, length: l, width: wd, height: h }]);
+          const cr = await calculatePOBoxCost(client, [{ weight: w, length: l, width: wd, height: h }], undefined, master.user_id || null);
           svcMxn = cr.poboxServiceCost || 0; costUsd = cr.poboxCostUsd ?? null;
           ventaUsd = cr.precioVentaUsd ?? null; nivel = cr.nivelTarifa ?? null; tc = cr.registeredExchangeRate || null;
         } catch (calcErr) {
@@ -7354,7 +7383,7 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
       let tcInd: number | null = null;
       if ((master.service_type || 'POBOX_USA') === 'POBOX_USA') {
         try {
-          const cr = await calculatePOBoxCost(client, [{ weight: w, length: l, width: wd, height: h }]);
+          const cr = await calculatePOBoxCost(client, [{ weight: w, length: l, width: wd, height: h }], undefined, master.user_id || null);
           serviceMxnInd = cr.poboxServiceCost || 0;
           costUsdInd = cr.poboxCostUsd ?? null;
           ventaUsdInd = cr.precioVentaUsd ?? null;
@@ -7512,7 +7541,7 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
     let childTc: number | null = null;
     if ((master.service_type || 'POBOX_USA') === 'POBOX_USA') {
       try {
-        const cr = await calculatePOBoxCost(client, [{ weight: w, length: l, width: wd, height: h }]);
+        const cr = await calculatePOBoxCost(client, [{ weight: w, length: l, width: wd, height: h }], undefined, master.user_id || null);
         childServiceMxn = cr.poboxServiceCost || 0;
         childCostUsd = cr.poboxCostUsd ?? null;
         childVentaUsd = cr.precioVentaUsd ?? null;
