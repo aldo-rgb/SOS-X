@@ -228,6 +228,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
   const { token } = route.params;
   const insets = useSafeAreaInsets();
   const [orders, setOrders]       = useState<PaymentOrder[]>([]);
+  const [tab, setTab]             = useState<'pending' | 'history'>('pending');
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -781,6 +782,14 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
     );
   };
 
+  // Las órdenes PAGADAS/CANCELADAS pasan a "Historial"; la vista "Por pagar"
+  // (por defecto) muestra solo lo que sigue pendiente — así el número cuadra
+  // con "Por Pagar" del dashboard y las pagadas no estorban.
+  const isHistoryStatus = (s: string) => s === 'pagado' || s === 'completed' || s === 'paid' || s === 'cancelado';
+  const pendingOrders = orders.filter(o => !isHistoryStatus(o.status));
+  const historyOrders = orders.filter(o => isHistoryStatus(o.status));
+  const visibleOrders = tab === 'pending' ? pendingOrders : historyOrders;
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
@@ -789,23 +798,49 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: 8 }}>
           <Text style={styles.headerTitle}>Órdenes de Pago</Text>
-          <Text style={styles.headerSub}>{orders.length} órdenes</Text>
+          <Text style={styles.headerSub}>
+            {tab === 'pending' ? `${pendingOrders.length} por pagar` : `${historyOrders.length} en historial`}
+          </Text>
         </View>
+      </View>
+
+      {/* Segmentado: Por pagar / Historial */}
+      <View style={styles.tabsRow}>
+        <TouchableOpacity
+          style={[styles.tabBtn, tab === 'pending' && styles.tabBtnActive]}
+          onPress={() => setTab('pending')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.tabText, tab === 'pending' && styles.tabTextActive]}>
+            Por pagar{pendingOrders.length > 0 ? ` (${pendingOrders.length})` : ''}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabBtn, tab === 'history' && styles.tabBtnActive]}
+          onPress={() => setTab('history')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.tabText, tab === 'history' && styles.tabTextActive]}>
+            Historial{historyOrders.length > 0 ? ` (${historyOrders.length})` : ''}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {loading ? (
         <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 60 }} />
       ) : (
         <FlatList
-          data={orders}
+          data={visibleOrders}
           keyExtractor={o => `${o.created_by}-${o.id}`}
           renderItem={renderOrder}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} colors={[ORANGE]} />}
           contentContainerStyle={{ padding: 12, paddingBottom: 24 }}
           ListEmptyComponent={
             <View style={{ alignItems: 'center', marginTop: 60 }}>
-              <Ionicons name="receipt-outline" size={48} color="#ccc" />
-              <Text style={{ color: '#999', marginTop: 12, fontSize: 14 }}>No hay órdenes de pago</Text>
+              <Ionicons name={tab === 'pending' ? 'checkmark-done-circle-outline' : 'receipt-outline'} size={48} color="#ccc" />
+              <Text style={{ color: '#999', marginTop: 12, fontSize: 14 }}>
+                {tab === 'pending' ? 'No hay órdenes por pagar 🎉' : 'No hay órdenes en historial'}
+              </Text>
             </View>
           }
         />
@@ -1104,6 +1139,17 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: '#fff', fontWeight: '800', fontSize: 16 },
   headerSub:   { color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 1 },
+  tabsRow: {
+    flexDirection: 'row', backgroundColor: '#fff', paddingHorizontal: 12, paddingTop: 10, paddingBottom: 8,
+    gap: 8, borderBottomWidth: 1, borderBottomColor: '#EEE',
+  },
+  tabBtn: {
+    flex: 1, paddingVertical: 9, borderRadius: 999, alignItems: 'center',
+    backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB',
+  },
+  tabBtnActive: { backgroundColor: ORANGE, borderColor: ORANGE },
+  tabText: { fontSize: 13, fontWeight: '700', color: '#6B7280' },
+  tabTextActive: { color: '#fff' },
   card: {
     backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 10,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06,
