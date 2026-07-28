@@ -103,6 +103,7 @@ export const quoteAirChina = async (req: Request, res: Response): Promise<any> =
         const {
             weightKg, lengthCm = 0, widthCm = 0, heightCm = 0,
             tariffType = 'G', declaredValueMxn, includeGex = false,
+            subservicio,
         } = req.body || {};
 
         const userId = (req as any).user?.id;
@@ -120,8 +121,20 @@ export const quoteAirChina = async (req: Request, res: Response): Promise<any> =
         const volKg = (l * wd * h) / 5000;
         const chargeableKg = Math.max(realKg, volKg);
 
-        // 1. Ruta activa
-        const routeRes = await pool.query(`SELECT id FROM air_routes WHERE is_active = true LIMIT 1`);
+        // 1. Ruta según el subservicio elegido:
+        //    - tdi_express  → ruta 'TDI-EXPRES' (TODO INCLUIDO DHL EXPRESS, ~$19.49/kg)
+        //    - tdi_aereo    → ruta 'AIFA'       (Hong Kong → CDMX, ~$18.00/kg)
+        //    Sin subservicio, se toma AIFA (aéreo China estándar).
+        const sub = String(subservicio || 'tdi_aereo').toLowerCase();
+        const routeCode = sub === 'tdi_express' ? 'TDI-EXPRES' : 'AIFA';
+        let routeRes = await pool.query(
+            `SELECT id FROM air_routes WHERE is_active = true AND code = $1 LIMIT 1`,
+            [routeCode]
+        );
+        // Fallback: si no existe esa ruta por código, cae a cualquier ruta activa.
+        if (routeRes.rows.length === 0) {
+            routeRes = await pool.query(`SELECT id FROM air_routes WHERE is_active = true ORDER BY id LIMIT 1`);
+        }
         const airRouteId = routeRes.rows.length > 0 ? routeRes.rows[0].id : null;
         if (!airRouteId) {
             return res.status(503).json({ error: 'No hay ruta aérea activa configurada' });
@@ -195,7 +208,9 @@ export const quoteAirChina = async (req: Request, res: Response): Promise<any> =
 
         return res.json({
             service: 'china_air',
-            serviceName: 'TDI Aéreo China',
+            subservicio: sub,
+            routeCode,
+            serviceName: sub === 'tdi_express' ? 'TDI Express (DHL)' : 'TDI Aéreo China',
             realKg,
             volKg: +volKg.toFixed(3),
             chargeableKg: +chargeableKg.toFixed(3),
