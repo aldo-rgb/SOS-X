@@ -2,10 +2,11 @@
  * ChinaAirHubScreen - TDI Aéreo China
  * Hub con 2 módulos: Recibir AWB · Inventario
  */
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
 const BLACK = '#1A1A1A';
@@ -17,8 +18,12 @@ interface Module {
   icon: keyof typeof Ionicons.glyphMap;
   screen: string;
   color: string;
+  // Debe coincidir con el module_key de admin_panel_modules (panel ops_china_air).
+  moduleKey: string;
 }
 
+// Los moduleKey coinciden EXACTAMENTE con el catálogo del panel 'ops_china_air'
+// (mismo que usa la web). Cada usuario ve SOLO los módulos que su permiso permite.
 const MODULES: Module[] = [
   {
     id: 'reception',
@@ -27,19 +32,53 @@ const MODULES: Module[] = [
     icon: 'qr-code-outline',
     screen: 'ChinaAirReception',
     color: ORANGE,
+    moduleKey: 'reception',
   },
   {
     id: 'inventory',
-    title: 'Inventario',
-    subtitle: 'Consulta los paquetes del servicio aéreo en bodega y su estado',
+    title: 'Inventario Aéreo',
+    subtitle: 'Consulta los paquetes del servicio aéreo (AIR) en bodega y su estado',
     icon: 'archive-outline',
     screen: 'ChinaAirInventory',
     color: '#1976D2',
+    moduleKey: 'inventory',
   },
 ];
 
 export default function ChinaAirHubScreen({ route, navigation }: any) {
   const { user, token } = route.params;
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadPermissions = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/modules/ops_china_air/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const allowed = (data.modules || [])
+          .filter((m: any) => m.can_view)
+          .map((m: any) => m.module_key);
+        setPermissions(allowed);
+      } else if (user?.role === 'super_admin' || user?.role === 'admin') {
+        setPermissions(MODULES.map((m) => m.moduleKey));
+      }
+    } catch (err) {
+      console.error('Error loading China Air permissions:', err);
+      if (user?.role === 'super_admin' || user?.role === 'admin') {
+        setPermissions(MODULES.map((m) => m.moduleKey));
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [token, user]);
+
+  useEffect(() => { loadPermissions(); }, [loadPermissions]);
+
+  const visibleModules = MODULES.filter((m) => permissions.includes(m.moduleKey));
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -57,27 +96,41 @@ export default function ChinaAirHubScreen({ route, navigation }: any) {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.body}>
-        {MODULES.map((mod) => (
-          <TouchableOpacity
-            key={mod.id}
-            style={styles.card}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate(mod.screen, { user, token })}
-          >
-            <View style={[styles.cardTop, { backgroundColor: mod.color }]}>
-              <Ionicons name={mod.icon} size={48} color="#fff" />
+      {loading ? (
+        <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 60 }} />
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.body}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadPermissions(); }} colors={[ORANGE]} />}
+        >
+          {visibleModules.length === 0 ? (
+            <View style={{ alignItems: 'center', marginTop: 50, paddingHorizontal: 24 }}>
+              <Ionicons name="lock-closed-outline" size={44} color="#ccc" />
+              <Text style={{ color: '#999', marginTop: 12, fontSize: 14, textAlign: 'center' }}>
+                No tienes módulos de Aéreo China habilitados. Pídele a tu administrador que te asigne los permisos.
+              </Text>
             </View>
-            <View style={styles.cardBody}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>{mod.title}</Text>
-                <Text style={styles.cardSubtitle}>{mod.subtitle}</Text>
+          ) : visibleModules.map((mod) => (
+            <TouchableOpacity
+              key={mod.id}
+              style={styles.card}
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate(mod.screen, { user, token })}
+            >
+              <View style={[styles.cardTop, { backgroundColor: mod.color }]}>
+                <Ionicons name={mod.icon} size={48} color="#fff" />
               </View>
-              <Ionicons name="chevron-forward" size={20} color={ORANGE} />
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+              <View style={styles.cardBody}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>{mod.title}</Text>
+                  <Text style={styles.cardSubtitle}>{mod.subtitle}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={ORANGE} />
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
