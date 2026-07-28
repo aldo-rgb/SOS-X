@@ -451,8 +451,8 @@ export const updateTdiShipment = async (req: Request, res: Response): Promise<an
     }
 
     // Tipo de producto → recalcula tarifa y precio de cada caja. Respeta la
-    // tarifa Start Up (plana ≤15 kg real): si la caja califica, mantiene el
-    // precio plano en vez del per-kg del nuevo tipo de producto.
+    // tarifa Start Up (plana ≤15 kg real): si la caja califica en su ruta, mantiene
+    // el precio plano en vez del per-kg del nuevo tipo de producto.
     if (newTariff) {
       const ppk = await getTariffPerKg(client, routeId, newTariff);
       await client.query(
@@ -564,8 +564,8 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
     let salePrice = +(pricePerKg * billWeight).toFixed(2);
 
     // 🚀 TDI Start Up: tarifa PLANA por rango de peso (peso REAL ≤ 15 kg). Aplica
-    // ANTES que Logo/Genérico (per-kg), igual que la importación China por correo
-    // (chinaController) y el cotizador. Se evalúa POR CAJA con el peso real.
+    // ANTES que Logo/Genérico (per-kg) para AMBAS rutas (AIFA y TDI Express), si la
+    // ruta tiene tiers configurados en air_startup_tiers. Se evalúa POR CAJA.
     const startupWeight = gw > 0 ? gw : billWeight;
     if (routeId && startupWeight > 0 && startupWeight <= 15) {
       try {
