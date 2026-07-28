@@ -577,7 +577,11 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     const pkgSelect = `
       SELECT 
         'PKG-' || p.id::text as uid,
-        p.id, p.tracking_internal as tracking, COALESCE(p.tracking_provider, p.international_tracking) as international_tracking, p.child_no,
+        p.id,
+        -- Aéreo China: mostrar la guía AIR completa (child_no) en vez del código
+        -- interno corto (CN-...). Para el resto, el tracking_internal normal.
+        CASE WHEN p.child_no IS NOT NULL AND UPPER(p.child_no) LIKE 'AIR%' THEN p.child_no ELSE p.tracking_internal END as tracking,
+        COALESCE(p.tracking_provider, p.international_tracking) as international_tracking, p.child_no,
         COALESCE(
           CASE WHEN COALESCE(p.is_master, false) THEN (
             SELECT c.status::text
