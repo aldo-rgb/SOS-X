@@ -368,6 +368,12 @@ const attachmentViewHref = (u: string): string => {
   return `${base}/files/download?inline=1&name=${encodeURIComponent(name)}&src=${encodeURIComponent(u)}`;
 };
 
+// TDI Aéreo / TDI Express: la paquetería nacional (última milla, Paquete Express)
+// YA viene incluida en el flete ("TODO INCLUIDO"). No se cobra aparte ni se suma.
+const paqIncluidaEnFlete = (st?: string): boolean =>
+  /air_chn|tdi_express|tdi_aereo/i.test(String(st || '')) ||
+  ['AIR_CHN_MX', 'TDI_EXPRESS'].includes(String(st || '').toUpperCase());
+
 // ─── Component ───
 
 export default function DashboardAdvisor() {
@@ -914,7 +920,7 @@ export default function DashboardAdvisor() {
       const selected = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid));
       const first = selected[0];
       const autoTotal = selected.reduce((sum, s) =>
-        sum + (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.extraChargesTotal || 0), 0);
+        sum + (s.amount || 0) + (paqIncluidaEnFlete(s.serviceType) ? 0 : (s.nationalShippingCost || 0)) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.extraChargesTotal || 0), 0);
       const total = autoTotal > 0 ? autoTotal : (parseFloat(newOrderManualTotal) || 0);
       const res = await api.post('/advisor/payment-orders', {
         client_id: first?.clientId,
@@ -4367,9 +4373,11 @@ export default function DashboardAdvisor() {
                               }
                             </TableCell>
                             <TableCell align="right">
-                              {(s.nationalShippingCost || 0) > 0
-                                ? <Typography variant="body2" sx={{ fontSize: '0.78rem' }} color="text.secondary">${(s.nationalShippingCost || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
-                                : <Typography color="text.disabled" variant="body2">—</Typography>
+                              {paqIncluidaEnFlete(s.serviceType)
+                                ? <Typography variant="caption" sx={{ fontSize: '0.7rem', fontWeight: 700 }} color="success.main">Incluido</Typography>
+                                : (s.nationalShippingCost || 0) > 0
+                                  ? <Typography variant="body2" sx={{ fontSize: '0.78rem' }} color="text.secondary">${(s.nationalShippingCost || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                                  : <Typography color="text.disabled" variant="body2">—</Typography>
                               }
                             </TableCell>
                             <TableCell align="right">
@@ -4387,7 +4395,7 @@ export default function DashboardAdvisor() {
                             <TableCell align="right">
                               {hasAmount
                                 ? (() => {
-                                    const rowTotal = (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.extraChargesTotal || 0);
+                                    const rowTotal = (s.amount || 0) + (paqIncluidaEnFlete(s.serviceType) ? 0 : (s.nationalShippingCost || 0)) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.extraChargesTotal || 0);
                                     return <Typography variant="body2" fontWeight={700} color="warning.main">${rowTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>;
                                   })()
                                 : isPdteClasif
@@ -4406,7 +4414,7 @@ export default function DashboardAdvisor() {
 
             {newOrderSelectedUids.size > 0 && (() => {
               const autoTotal = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid)).reduce((sum, s) =>
-                sum + (s.amount || 0) + (s.nationalShippingCost || 0) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.extraChargesTotal || 0), 0);
+                sum + (s.amount || 0) + (paqIncluidaEnFlete(s.serviceType) ? 0 : (s.nationalShippingCost || 0)) + (s.serviceType === 'AA_DHL' ? 0 : (s.gexCost || 0)) + (s.extraChargesTotal || 0), 0);
               const manualVal = parseFloat(newOrderManualTotal) || 0;
               const displayTotal = autoTotal > 0 ? autoTotal : manualVal;
               return (
