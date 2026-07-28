@@ -450,18 +450,30 @@ export const updateTdiShipment = async (req: Request, res: Response): Promise<an
       );
     }
 
-    // Tipo de producto → recalcula tarifa y precio de cada caja
+    // Tipo de producto → recalcula tarifa y precio de cada caja. Respeta la
+    // tarifa Start Up (plana ≤15 kg real): si la caja califica, mantiene el
+    // precio plano en vez del per-kg del nuevo tipo de producto.
     if (newTariff) {
       const ppk = await getTariffPerKg(client, routeId, newTariff);
       await client.query(
-        `UPDATE packages SET
-           air_tariff_type = $1,
-           air_price_per_kg = $2,
-           air_sale_price = CASE WHEN $2 IS NULL THEN NULL
-             ELSE ROUND($2 * COALESCE(air_chargeable_weight, weight, 0), 2) END,
+        `UPDATE packages p SET
+           air_tariff_type = CASE
+             WHEN COALESCE(p.weight,0) > 0 AND COALESCE(p.weight,0) <= 15
+                  AND (SELECT price_usd FROM air_startup_tiers t WHERE t.route_id = $4 AND t.is_active = true AND p.weight >= t.min_weight AND p.weight <= t.max_weight LIMIT 1) IS NOT NULL
+               THEN 'SU' ELSE $1 END,
+           air_price_per_kg = CASE
+             WHEN COALESCE(p.weight,0) > 0 AND COALESCE(p.weight,0) <= 15
+                  AND (SELECT price_usd FROM air_startup_tiers t WHERE t.route_id = $4 AND t.is_active = true AND p.weight >= t.min_weight AND p.weight <= t.max_weight LIMIT 1) IS NOT NULL
+               THEN 0 ELSE $2 END,
+           air_sale_price = CASE
+             WHEN COALESCE(p.weight,0) > 0 AND COALESCE(p.weight,0) <= 15
+                  AND (SELECT price_usd FROM air_startup_tiers t WHERE t.route_id = $4 AND t.is_active = true AND p.weight >= t.min_weight AND p.weight <= t.max_weight LIMIT 1) IS NOT NULL
+               THEN (SELECT ROUND(price_usd, 2) FROM air_startup_tiers t WHERE t.route_id = $4 AND t.is_active = true AND p.weight >= t.min_weight AND p.weight <= t.max_weight LIMIT 1)
+             WHEN $2 IS NULL THEN NULL
+             ELSE ROUND($2 * COALESCE(p.air_chargeable_weight, p.weight, 0), 2) END,
            updated_at = NOW()
-         WHERE master_id = $3`,
-        [newTariff, ppk > 0 ? ppk : null, id]
+         WHERE p.master_id = $3`,
+        [newTariff, ppk > 0 ? ppk : null, id, routeId]
       );
       await client.query(
         `UPDATE packages SET
@@ -537,7 +549,7 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
     }
     if (gw <= 0) return res.status(400).json({ error: 'Peso VW debe ser mayor a 0' });
 
-    const tariffType = PRODUCT_TO_TARIFF[String(productType || 'generico').toLowerCase()] || 'G';
+    let tariffType = PRODUCT_TO_TARIFF[String(productType || 'generico').toLowerCase()] || 'G';
 
     const m = await client.query(
       `SELECT id, tracking_internal, total_boxes, box_id, user_id, air_route_id FROM packages
@@ -548,8 +560,29 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
     const master = m.rows[0];
     const routeId = master.air_route_id;
 
-    const pricePerKg = await getTariffPerKg(client, routeId, tariffType);
-    const salePrice = +(pricePerKg * billWeight).toFixed(2);
+    let pricePerKg = await getTariffPerKg(client, routeId, tariffType);
+    let salePrice = +(pricePerKg * billWeight).toFixed(2);
+
+    // 🚀 TDI Start Up: tarifa PLANA por rango de peso (peso REAL ≤ 15 kg). Aplica
+    // ANTES que Logo/Genérico (per-kg), igual que la importación China por correo
+    // (chinaController) y el cotizador. Se evalúa POR CAJA con el peso real.
+    const startupWeight = gw > 0 ? gw : billWeight;
+    if (routeId && startupWeight > 0 && startupWeight <= 15) {
+      try {
+        const su = await client.query(
+          `SELECT price_usd FROM air_startup_tiers
+             WHERE route_id = $1 AND is_active = true
+               AND $2 >= min_weight AND $2 <= max_weight
+           ORDER BY min_weight LIMIT 1`,
+          [routeId, startupWeight]
+        );
+        if (su.rows[0]?.price_usd != null) {
+          salePrice = +parseFloat(su.rows[0].price_usd).toFixed(2);
+          pricePerKg = 0;        // plana: no hay costo por kg
+          tariffType = 'SU';     // Start Up
+        }
+      } catch { /* si falla la consulta, se queda con la tarifa per-kg */ }
+    }
 
     // TC USD→MXN de TDI, se GUARDA con la caja para que el flete quede fijo
     // (no se recalcula en cada vista). Fallback 17.77 si no hay config.
