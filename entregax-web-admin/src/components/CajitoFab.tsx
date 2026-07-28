@@ -277,7 +277,11 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const lastMileCost = m.nationalLabelCost != null ? Number(m.nationalLabelCost) : null;
   const providerCostMxn = isTrackOnly ? null : (m.poboxProviderCostMxn ?? m.poboxServiceCost ?? null);
   const providerCostUsd = isTrackOnly ? null : (m.poboxProviderCostUsd ?? m.poboxCostUsd ?? null);
-  const ventaUsd = m.poboxVentaUsd != null ? Number(m.poboxVentaUsd) : null;
+  // Venta al cliente en USD: PO Box usa poboxVentaUsd; Aéreo/TDI usa air_sale_price.
+  const airSaleUsd = (m as any).airSalePriceUsd != null ? Number((m as any).airSalePriceUsd) : null;
+  const ventaUsd = (m.poboxVentaUsd != null && Number(m.poboxVentaUsd) > 0)
+    ? Number(m.poboxVentaUsd)
+    : (airSaleUsd && airSaleUsd > 0 ? airSaleUsd : null);
   const totalCost = m.totalCost != null ? Number(m.totalCost) : null;
   const importTax = (m as any).importTaxMxn != null ? Number((m as any).importTaxMxn) : null;
   const importCostUsd = (m as any).importCostUsd != null ? Number((m as any).importCostUsd) : null;

@@ -189,7 +189,11 @@ export default function CajitoFab({ user, token }: Props) {
     const lastMile = m.nationalLabelCost != null ? Number(m.nationalLabelCost) : null;
     const provMxn = isTrackOnly ? null : (m.poboxProviderCostMxn ?? m.poboxServiceCost ?? null);
     const provUsd = isTrackOnly ? null : (m.poboxProviderCostUsd ?? m.poboxCostUsd ?? null);
-    const ventaUsd = m.poboxVentaUsd != null ? Number(m.poboxVentaUsd) : null;
+    // Venta al cliente en USD: PO Box usa poboxVentaUsd; Aéreo/TDI usa air_sale_price.
+    const airSaleUsd = (m as any).airSalePriceUsd != null ? Number((m as any).airSalePriceUsd) : null;
+    const ventaUsd = (m.poboxVentaUsd != null && Number(m.poboxVentaUsd) > 0)
+      ? Number(m.poboxVentaUsd)
+      : (airSaleUsd && airSaleUsd > 0 ? airSaleUsd : null);
     const totalCost = m.totalCost != null ? Number(m.totalCost) : null;
     const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
     const saldo = m.saldoPendiente ?? m.saldo_pendiente ?? null;
