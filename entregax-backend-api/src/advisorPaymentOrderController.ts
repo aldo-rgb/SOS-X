@@ -646,6 +646,11 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
       for (const m of masters) {
         const children = pkgRes.rows.filter((r: any) => r.master_id === m.id);
         const tc = parseFloat(m.registered_exchange_rate) || (children.find((c: any) => c.registered_exchange_rate) as any)?.registered_exchange_rate || 18.5;
+        // REPACK (US-REPACK-*): UNA caja consolidada; sus hijas van adentro y NO se
+        // cobran por separado (el master lleva el precio del reempaque). Multi-pieza
+        // NORMAL (US-XXXX con -0001, -0002…): cada hija tiene su PROPIO costo y el
+        // master es la suma → hay que mostrar el costo por caja, no $0.
+        const isRepack = !!m.is_master && /^US-REPACK-/i.test(String(m.tracking_internal || ''));
         items.push({
           id: m.id,
           tracking: m.tracking_internal,
@@ -672,8 +677,9 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
             child_no: c.child_no,
             n_level: c.pobox_tarifa_nivel ? `N${c.pobox_tarifa_nivel}` : null,
             venta_usd: parseFloat(c.pobox_venta_usd) || 0,
-            // Las hijas de un REPACK no se cobran por separado (van dentro del master).
-            venta_mxn: null,
+            // REPACK → sin monto por hija (van dentro del master). Multi-pieza normal →
+            // costo individual de la caja (pobox_service_cost).
+            venta_mxn: isRepack ? null : (parseFloat(c.pobox_service_cost) || parseFloat(c.assigned_cost_mxn) || parseFloat(c.saldo_pendiente) || 0),
             weight: parseFloat(c.weight) || 0,
             lengthCm: parseFloat(c.pkg_length) || parseFloat(c.long_cm) || 0,
             widthCm: parseFloat(c.pkg_width) || parseFloat(c.width_cm) || 0,
