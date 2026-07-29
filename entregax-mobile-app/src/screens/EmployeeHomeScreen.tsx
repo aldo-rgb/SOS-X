@@ -1393,16 +1393,25 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             {isCedisOps && (() => {
               const p = cedisStats?.paquetes || {};
               const d = driverStats || {};
+              const suc = cedisStats?.sucursal || {};
+              const branchCode = String(suc.codigo || '').toUpperCase();
+              const branchName = String(suc.nombre || '').toUpperCase();
+              // Solo CEDIS Monterrey hace entrega local / recepción MTY. Sucursales
+              // como Hidalgo (recepción USA) NO ven esos widgets de MTY.
+              const isMty = branchCode === 'MTY' || branchName.includes('MONTERREY') || branchName.includes('MTY');
+              const branchLabel = isMty
+                ? 'CEDIS MTY'
+                : (branchName.includes('HIDALGO') || branchCode === 'HGO' ? 'CEDIS Hidalgo' : (suc.nombre || 'CEDIS'));
               const nav = (screen: string, params?: any) => navigation.navigate(screen as any, { user, token, ...(params || {}) });
               const widgets = [
-                { key: 'entregas', label: 'Entregas Hoy', sub: 'completadas', icon: 'checkmark-done-circle', color: '#2E7D32', value: Number(d.deliveredToday ?? p.entregados_hoy ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'assigned' }) },
-                { key: 'transito', label: 'En Tránsito a MTY', sub: 'PO Box · cruce USA→MTY', icon: 'car', color: '#1976D2', value: Number(p.en_transito_pobox ?? 0), onPress: () => nav('POBoxConsolidationReception') },
-                { key: 'tdx', label: 'TDX por Recibir', sub: 'cajas → CEDIS MTY', icon: 'airplane', color: '#F05A28', value: Number(p.tdx_por_recibir ?? 0), onPress: () => nav('TdiCedisMtyReception') },
-                { key: 'asignados', label: 'Asignados Hoy', sub: 'ruta sucursal MTY', icon: 'file-tray-full', color: '#F05A28', value: Number(d.totalAssigned ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'assigned' }) },
-                { key: 'salidas_paq', label: 'Salidas Paqueterías', sub: 'handoff a courier', icon: 'send', color: '#7B1FA2', value: Number(d.paqueteriaCount ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'paqueteria' }) },
-                { key: 'salidas_loc', label: 'Salidas Locales', sub: 'carga a unidad', icon: 'cube', color: '#0097A7', value: Number(d.pendingToLoad ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'local' }) },
-                { key: 'tickets', label: 'Tickets Abiertos', sub: 'soporte CEDIS MTY', icon: 'headset', color: '#3F51B5', value: Number(cedisStats?.tickets_abiertos ?? 0), onPress: () => nav('SupportTickets') },
-              ];
+                { key: 'entregas', mtyOnly: true, label: 'Entregas Hoy', sub: 'completadas', icon: 'checkmark-done-circle', color: '#2E7D32', value: Number(d.deliveredToday ?? p.entregados_hoy ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'assigned' }) },
+                { key: 'transito', mtyOnly: false, label: 'En Tránsito a MTY', sub: 'PO Box · cruce USA→MTY', icon: 'car', color: '#1976D2', value: Number(p.en_transito_pobox ?? 0), onPress: () => nav('POBoxConsolidationReception') },
+                { key: 'tdx', mtyOnly: true, label: 'TDX por Recibir', sub: 'cajas → CEDIS MTY', icon: 'airplane', color: '#F05A28', value: Number(p.tdx_por_recibir ?? 0), onPress: () => nav('TdiCedisMtyReception') },
+                { key: 'asignados', mtyOnly: true, label: 'Asignados Hoy', sub: 'ruta sucursal MTY', icon: 'file-tray-full', color: '#F05A28', value: Number(d.totalAssigned ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'assigned' }) },
+                { key: 'salidas_paq', mtyOnly: true, label: 'Salidas Paqueterías', sub: 'handoff a courier', icon: 'send', color: '#7B1FA2', value: Number(d.paqueteriaCount ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'paqueteria' }) },
+                { key: 'salidas_loc', mtyOnly: true, label: 'Salidas Locales', sub: 'carga a unidad', icon: 'cube', color: '#0097A7', value: Number(d.pendingToLoad ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'local' }) },
+                { key: 'tickets', mtyOnly: false, label: 'Tickets Abiertos', sub: `soporte ${branchLabel}`, icon: 'headset', color: '#3F51B5', value: Number(cedisStats?.tickets_abiertos ?? 0), onPress: () => nav('SupportTickets') },
+              ].filter((w) => isMty || !w.mtyOnly);
               return (
                 <View style={styles.modulesSection}>
                   <Text style={styles.sectionTitle}>🏢 Panel de Operación</Text>
