@@ -205,6 +205,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     id: number; name: string; code: string | null;
     tipo_cambio_usd: number | string; tipo_cambio_rmb: number | string;
     porcentaje_compra: number | string; costo_operacion_usd: number | string;
+    venta_fija?: number | string; // % mínimo que un asesor puede cobrar al cliente
     bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }>;
     is_default: boolean;
     has_override_usd?: boolean;
@@ -214,6 +215,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
   const [providers, setProviders] = useState<EntProviderPub[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<number | null>(null);
+  // % de comisión que el ASESOR captura para cobrar al cliente (editable, como en web).
+  // Vacío = usa el % configurado. Mínimo = venta fija del proveedor (el backend valida).
+  const [advisorCommissionPct, setAdvisorCommissionPct] = useState<string>('');
   const authHeaders = { Authorization: `Bearer ${token}` };
   const [editingFiscalData, setEditingFiscalData] = useState(false);
   // Constancia de Situación Fiscal (CSF) — estado + subida (como en web)
@@ -593,8 +597,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       tipo_cambio_rmb: Number(p.tipo_cambio_rmb),
       porcentaje_compra: Number(p.porcentaje_compra),
       costo_operacion_usd: Number(p.costo_operacion_usd || 0),
+      venta_fija: Number(p.venta_fija ?? 0) || 0,
     };
   })();
+
+  // Mínimo que el asesor puede cobrar (venta fija del proveedor) y si capturó menos.
+  const ventaFijaPct = Number(pricing?.venta_fija ?? 0) || 0;
+  const advisorBelowMin = isAdvisorMode && advisorCommissionPct.trim() !== ''
+    && Number(advisorCommissionPct) < ventaFijaPct - 0.001;
 
   const quote = (() => {
     const m = parseFloat(monto);
@@ -602,12 +612,16 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     // 🇲🇽 MXN: pesos a pesos, TC = 1 (sin conversión).
     const tc = divisa === 'MXN' ? 1 : divisa === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd;
     const base = m * tc;
-    // Usar comisión de la config XPAY→Cliente final; fallback al % del proveedor
-    const clientPct = clientCommissionCfg
+    // Comisión configurada (config XPAY→Cliente final; fallback al % del proveedor)
+    const configPct = clientCommissionCfg
       ? Number(requiereFactura
           ? clientCommissionCfg.pago_con_factura.comision_porcentaje
           : clientCommissionCfg.pago_sin_factura.comision_porcentaje)
       : pricing.porcentaje_compra;
+    // 🎯 Modo asesor: si capturó un % válido, ese manda (mínimo = venta fija; el
+    // backend valida). Igual que la web.
+    const advisorCustom = isAdvisorMode && advisorCommissionPct.trim() !== '' ? Number(advisorCommissionPct) : NaN;
+    const clientPct = Number.isFinite(advisorCustom) && advisorCustom > 0 ? advisorCustom : configPct;
     const comision = base * (clientPct / 100);
     const costoOpMxn = (pricing.costo_operacion_usd || 0) * tc;
     const total = base + comision + costoOpMxn;
@@ -1051,6 +1065,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       if (!selectedProviderId) return 'Selecciona un proveedor ENTANGLED';
       if (!monto || parseFloat(monto) <= 0) return 'Captura un monto válido';
       if (!quote) return 'No se pudo calcular la cotización';
+      if (advisorBelowMin) return `La comisión no puede ser menor a la venta fija (${ventaFijaPct.toFixed(2)}%)`;
       return null;
     }
     if (step === 2) {
@@ -2145,6 +2160,31 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 </TouchableOpacity>
               ))}
             </View>
+
+            {/* Comisión XPAY editable — SOLO para asesor (mínimo = venta fija) */}
+            {isAdvisorMode && (
+              <>
+                <Text style={styles.label}>Comisión XPAY (%)</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                  <TextInput
+                    style={[styles.input, { flex: 1, marginBottom: 0, borderColor: advisorBelowMin ? '#C0392B' : undefined }]}
+                    value={advisorCommissionPct}
+                    onChangeText={setAdvisorCommissionPct}
+                    keyboardType="decimal-pad"
+                    placeholder={quote ? String(quote.porcentaje_compra) : '5.5'}
+                    placeholderTextColor={TEXT_MUTED}
+                  />
+                  <Text style={{ fontSize: 16, fontWeight: '600', color: ORANGE, marginLeft: 6 }}>%</Text>
+                </View>
+                {ventaFijaPct > 0 && (
+                  <Text style={{ fontSize: 12, color: advisorBelowMin ? '#C0392B' : TEXT_MUTED, marginBottom: 8 }}>
+                    {advisorBelowMin
+                      ? `No puedes cobrar menos que la venta fija (${ventaFijaPct.toFixed(2)}%)`
+                      : `Mínimo (venta fija): ${ventaFijaPct.toFixed(2)}% · puedes cobrar más`}
+                  </Text>
+                )}
+              </>
+            )}
 
             {quote && (
               <View style={styles.quoteBox}>
