@@ -1,0 +1,551 @@
+<title>Módulo Tareas · EntregaX — Diseño para aprobar</title>
+<style>
+  :root {
+    --bg: #FAF6F1; --surface: #FFFFFF; --surface-2: #F4EEE6; --raise: #FFFFFF;
+    --ink: #221C16; --muted: #7C7268; --faint: #A99D90;
+    --accent: #D6521C; --accent-2: #B23F12; --accent-soft: #FBE6D8;
+    --border: #E8DFD3; --border-strong: #DBCFBF;
+    --red: #C0392B; --red-bg: #F9E5E2;
+    --green: #2E7D46; --green-bg: #E4F1E8;
+    --amber: #B07206; --amber-bg: #F7ECD5;
+    --blue: #1D6FB8; --blue-bg: #E1EEF9;
+    --purple: #7A3FA0; --purple-bg: #F0E6F6;
+    --shadow: 0 1px 2px rgba(34,28,22,.05), 0 8px 24px rgba(34,28,22,.06);
+    --radius: 14px;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, sans-serif;
+    --maxw: 1180px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16120E; --surface: #201A15; --surface-2: #2A231B; --raise: #241D17;
+      --ink: #F1EAE1; --muted: #A99C8E; --faint: #7E7264;
+      --accent: #EE8646; --accent-2: #F29C62; --accent-soft: #3A2A1B;
+      --border: #362E25; --border-strong: #443A2E;
+      --red: #E8776A; --red-bg: #34201D;
+      --green: #6FC28A; --green-bg: #1D2E22;
+      --amber: #E0A94C; --amber-bg: #33280F;
+      --blue: #6BB0EC; --blue-bg: #16273A;
+      --purple: #C79AE0; --purple-bg: #271A33;
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 10px 30px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"] {
+      --bg: #16120E; --surface: #201A15; --surface-2: #2A231B; --raise: #241D17;
+      --ink: #F1EAE1; --muted: #A99C8E; --faint: #7E7264;
+      --accent: #EE8646; --accent-2: #F29C62; --accent-soft: #3A2A1B;
+      --border: #362E25; --border-strong: #443A2E;
+      --red: #E8776A; --red-bg: #34201D; --green: #6FC28A; --green-bg: #1D2E22;
+      --amber: #E0A94C; --amber-bg: #33280F; --blue: #6BB0EC; --blue-bg: #16273A;
+      --purple: #C79AE0; --purple-bg: #271A33;
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 10px 30px rgba(0,0,0,.4);
+  }
+  :root[data-theme="light"] {
+      --bg: #FAF6F1; --surface: #FFFFFF; --surface-2: #F4EEE6; --raise: #FFFFFF;
+      --ink: #221C16; --muted: #7C7268; --faint: #A99D90;
+      --accent: #D6521C; --accent-2: #B23F12; --accent-soft: #FBE6D8;
+      --border: #E8DFD3; --border-strong: #DBCFBF;
+      --red: #C0392B; --red-bg: #F9E5E2; --green: #2E7D46; --green-bg: #E4F1E8;
+      --amber: #B07206; --amber-bg: #F7ECD5; --blue: #1D6FB8; --blue-bg: #E1EEF9;
+      --purple: #7A3FA0; --purple-bg: #F0E6F6;
+      --shadow: 0 1px 2px rgba(34,28,22,.05), 0 8px 24px rgba(34,28,22,.06);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans);
+    line-height: 1.62; font-size: 16px; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 20px; }
+
+  /* Header */
+  header.hero { border-bottom: 1px solid var(--border); background:
+    linear-gradient(180deg, var(--surface-2), transparent); }
+  .hero-in { max-width: var(--maxw); margin: 0 auto; padding: 40px 20px 30px; }
+  .eyebrow { font-size: 12px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent); font-weight: 800; }
+  h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.05; margin: 10px 0 8px;
+    letter-spacing: -.02em; text-wrap: balance; font-weight: 850; }
+  .lede { font-size: clamp(15px, 2.2vw, 18px); color: var(--muted); max-width: 62ch; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .pill { font-size: 12.5px; font-weight: 700; padding: 5px 11px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+  .pill.ok { background: var(--green-bg); border-color: transparent; color: var(--green); }
+  .pill.accent { background: var(--accent-soft); border-color: transparent; color: var(--accent-2); }
+
+  /* Layout with TOC */
+  .layout { display: grid; grid-template-columns: 230px 1fr; gap: 40px; align-items: start;
+    padding: 34px 0 60px; }
+  nav.toc { position: sticky; top: 20px; font-size: 13.5px; }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+  nav.toc a { display: block; padding: 6px 10px; border-radius: 8px; color: var(--muted);
+    text-decoration: none; border-left: 2px solid transparent; }
+  nav.toc a:hover { background: var(--surface-2); color: var(--ink); }
+  nav.toc .tt { font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--faint); font-weight: 800; margin: 4px 10px 8px; }
+
+  main { min-width: 0; }
+  section { margin-bottom: 46px; scroll-margin-top: 20px; }
+  section > h2 { font-size: 23px; letter-spacing: -.01em; margin: 0 0 4px; font-weight: 800;
+    display: flex; align-items: baseline; gap: 10px; }
+  section > h2 .num { font-family: var(--mono); font-size: 14px; color: var(--accent);
+    font-weight: 700; }
+  section > .sub { color: var(--muted); margin: 0 0 18px; max-width: 66ch; }
+  h3 { font-size: 16px; margin: 26px 0 8px; font-weight: 800; letter-spacing: -.01em; }
+  p { margin: 0 0 12px; }
+  strong { font-weight: 700; }
+  code { font-family: var(--mono); font-size: .86em; background: var(--surface-2);
+    padding: 1.5px 6px; border-radius: 5px; border: 1px solid var(--border); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px 20px; box-shadow: var(--shadow); }
+  .grid { display: grid; gap: 14px; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+
+  ul.clean { margin: 0 0 12px; padding-left: 20px; }
+  ul.clean li { margin-bottom: 7px; }
+
+  /* Callouts */
+  .callout { border-radius: 12px; padding: 14px 16px; margin: 14px 0; border: 1px solid var(--border);
+    display: flex; gap: 12px; }
+  .callout .ic { font-size: 20px; flex: none; line-height: 1.3; }
+  .callout.rule { background: var(--accent-soft); border-color: transparent; }
+  .callout.warn { background: var(--amber-bg); border-color: transparent; }
+  .callout.decide { background: var(--red-bg); border-color: transparent; }
+  .callout .t { font-weight: 800; margin-bottom: 2px; }
+  .callout small { color: var(--muted); }
+
+  /* Chips */
+  .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 700;
+    padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .c-red { background: var(--red-bg); color: var(--red); }
+  .c-green { background: var(--green-bg); color: var(--green); }
+  .c-amber { background: var(--amber-bg); color: var(--amber); }
+  .c-blue { background: var(--blue-bg); color: var(--blue); }
+  .c-purple { background: var(--purple-bg); color: var(--purple); }
+  .c-gray { background: var(--surface-2); color: var(--muted); }
+
+  /* Kanban board */
+  .board-scroll { overflow-x: auto; margin: 0 -20px; padding: 4px 20px 12px; }
+  .board { display: grid; grid-auto-flow: column; grid-auto-columns: 260px; gap: 12px; }
+  .col { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    overflow: hidden; display: flex; flex-direction: column; }
+  .col .ch { padding: 11px 13px; font-weight: 800; font-size: 13.5px; display: flex; align-items: center; gap: 7px;
+    border-top: 3px solid var(--cc, var(--accent)); }
+  .col .cb { padding: 0 13px 13px; font-size: 12.5px; color: var(--muted); }
+  .col .fake { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 10px; margin-bottom: 8px; }
+  .col .fake .ft { font-weight: 700; color: var(--ink); font-size: 12.5px; }
+  .col .rule-mini { font-size: 11.5px; margin-top: 6px; padding: 7px 8px; border-radius: 7px;
+    background: var(--surface-2); }
+  .lane-label { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 800;
+    color: var(--faint); }
+
+  /* Table */
+  .tbl-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 560px; }
+  th, td { text-align: left; padding: 9px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--surface-2); font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--muted); font-weight: 800; position: sticky; top: 0; }
+  tr:last-child td { border-bottom: none; }
+  td code { white-space: nowrap; }
+
+  /* Task anatomy card */
+  .task-demo { border: 1px solid var(--border-strong); border-radius: 12px; overflow: hidden; }
+  .task-demo .th { background: var(--surface-2); padding: 12px 15px; display: flex; align-items: center;
+    gap: 10px; flex-wrap: wrap; }
+  .task-demo .th .title { font-weight: 800; font-size: 15px; }
+  .task-demo .tb { padding: 14px 15px; }
+  .sub-item { display: flex; align-items: center; gap: 9px; padding: 6px 0; font-size: 13.5px;
+    border-bottom: 1px dashed var(--border); }
+  .sub-item:last-child { border-bottom: none; }
+  .box { width: 16px; height: 16px; border-radius: 4px; border: 2px solid var(--accent); flex: none;
+    display: grid; place-items: center; color: #fff; font-size: 10px; }
+  .box.on { background: var(--accent); }
+  .kv { display: flex; gap: 8px; font-size: 13px; color: var(--muted); margin: 2px 0; }
+  .kv b { color: var(--ink); font-weight: 700; }
+
+  /* phase timeline */
+  .phase { border-left: 3px solid var(--accent); padding: 2px 0 2px 16px; margin-bottom: 16px; }
+  .phase h4 { margin: 0 0 4px; font-size: 15px; }
+  .phase .tag { font-size: 11px; font-weight: 800; color: var(--accent); letter-spacing: .06em; }
+
+  .flow-note { font-size: 13px; color: var(--muted); }
+  .divide { height: 1px; background: var(--border); margin: 26px 0; border: 0; }
+  footer { border-top: 1px solid var(--border); color: var(--faint); font-size: 13px;
+    padding: 24px 0 50px; }
+  .arrow { color: var(--accent); font-weight: 800; }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; gap: 0; }
+    nav.toc { display: none; }
+    .g2, .g3 { grid-template-columns: 1fr; }
+  }
+</style>
+
+<header class="hero">
+  <div class="hero-in">
+    <div class="eyebrow">EntregaX · Panel administrativo</div>
+    <h1>Módulo <span style="color:var(--accent)">Tareas</span> — Diseño operativo</h1>
+    <p class="lede">La capa de <strong>responsabilidad absoluta</strong> de EntregaX: un tablero conectado a tu operación real que convierte el sistema de <em>premio&nbsp;/&nbsp;castigo</em> en datos duros, sin discusiones.</p>
+    <div class="meta">
+      <span class="pill accent">Documento de diseño · para aprobar</span>
+      <span class="pill ok">✔ Arquitectura: Opción B (conectada)</span>
+      <span class="pill">Visible: super_admin · admin · director</span>
+      <span class="pill">Web (gerencia) + App (Mis Tareas)</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+ <div class="layout">
+  <nav class="toc" aria-label="Contenido">
+    <div class="tt">Contenido</div>
+    <ol>
+      <li><a href="#filosofia">0 · Filosofía</a></li>
+      <li><a href="#alcance">1 · Alcance y roles</a></li>
+      <li><a href="#arquitectura">2 · Arquitectura (B)</a></li>
+      <li><a href="#tablero">3 · Tablero Flujo Operativo</a></li>
+      <li><a href="#tarea">4 · La Tarea Perfecta</a></li>
+      <li><a href="#campos">5 · Campos de fábrica</a></li>
+      <li><a href="#reportes">6 · Premio/Castigo → Reportes</a></li>
+      <li><a href="#proyectos">7 · Proyectos y líder</a></li>
+      <li><a href="#datos">8 · Modelo de datos</a></li>
+      <li><a href="#notifs">9 · Notificaciones</a></li>
+      <li><a href="#fases">10 · Fases</a></li>
+      <li><a href="#decisiones">11 · Decisiones abiertas</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <!-- 0 -->
+    <section id="filosofia">
+      <h2><span class="num">0</span> Filosofía — por qué existe</h2>
+      <p class="sub">El objetivo no es "otra app de pendientes". Es eliminar la ambigüedad que le da al empleado la excusa perfecta: <em>"yo no entendí", "pensé que le tocaba a Carlos", "no sabía que urgía"</em>. Cada tarea tiene un dueño, una fecha y un rastro.</p>
+      <div class="grid g3">
+        <div class="card">
+          <div class="chip c-red">Regla de oro 1</div>
+          <h3 style="margin-top:10px">Si no está en Tareas, no existe</h3>
+          <p class="flow-note">"Sí le ofrecí el seguro por teléfono" no cuenta si no hay comentario en la tarea. Para la empresa, no sucedió.</p>
+        </div>
+        <div class="card">
+          <div class="chip c-blue">Regla de oro 2</div>
+          <h3 style="margin-top:10px">Comunicación centralizada</h3>
+          <p class="flow-note">Nada de aprobar descuentos por WhatsApp. Todo se etiqueta <code>@nombre</code> en los comentarios → Rastro Oficial con fecha, hora y autor.</p>
+        </div>
+        <div class="card">
+          <div class="chip c-green">Regla de oro 3</div>
+          <h3 style="margin-top:10px">Responsabilidad absoluta</h3>
+          <p class="flow-note">Un único responsable + una fecha límite por tarea. El sistema mide impuntualidad y cumplimiento de proceso; <strong>gerencia confirma</strong> el premio o castigo.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 1 -->
+    <section id="alcance">
+      <h2><span class="num">1</span> Alcance, roles y plataformas</h2>
+      <p class="sub">La sección <strong>Tareas</strong> aparece en el sidebar solo para <strong>super_admin, admin y director</strong>. Pero una tarea vive en dos frentes, porque el que la cierra suele estar en piso.</p>
+      <div class="grid g2">
+        <div class="card">
+          <div class="lane-label">Panel Web · Gerencia</div>
+          <h3 style="margin-top:8px">Gestiona todo</h3>
+          <ul class="clean">
+            <li>Ve el tablero completo "Flujo Operativo" y todos los proyectos.</li>
+            <li>Crea, asigna, recategoriza (Eisenhower) y cierra/forza cierre.</li>
+            <li>Lee los reportes de premio/castigo.</li>
+            <li>Revisa la columna <strong>🚨 Problemas</strong> 5 min al día.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="lane-label">App móvil · Personal de piso</div>
+          <h3 style="margin-top:8px">"Mis Tareas"</h3>
+          <ul class="clean">
+            <li>Asesores, operadores de bodega y repartidores ven <strong>solo sus tareas</strong>.</li>
+            <li>Palomean el checklist, <strong>suben la foto de evidencia</strong>, comentan.</li>
+            <li>Reciben push al asignarles y al acercarse/pasar la fecha límite.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout rule"><div class="ic">👥</div><div>
+        <div class="t">Quién puede ser responsable</div>
+        <small>Cualquier empleado (no solo gerencia). Sin esto, la "responsabilidad absoluta" no existe: el que empaca debe poder cerrar SU tarea con su foto desde el celular.</small>
+      </div></div>
+    </section>
+
+    <!-- 2 -->
+    <section id="arquitectura">
+      <h2><span class="num">2</span> Arquitectura — Opción B (conectada) <span class="chip c-green" style="font-size:11px">Aprobada</span></h2>
+      <p class="sub">El tablero <strong>no es un lienzo manual paralelo</strong> a lo que ya tienes. Con 583 clientes y creciendo, nadie arrastraría 583 tarjetas al día — se moriría en dos semanas. En cambio: la tarjeta se <strong>liga a datos reales</strong> y se mueve casi sola.</p>
+      <div class="card">
+        <div class="grid g3" style="text-align:center; gap:10px">
+          <div>
+            <div class="chip c-blue" style="margin-bottom:8px">Ventas (col. 1–3)</div>
+            <p class="flow-note">La posición lee el <strong>funnel del CRM</strong> del cliente (prospecto → cotizado → cerrado).</p>
+          </div>
+          <div>
+            <div class="chip c-amber" style="margin-bottom:8px">Logística (col. 4–6)</div>
+            <p class="flow-note">La posición lee el <strong>estatus real de la guía</strong> (bodega → tránsito → entregado).</p>
+          </div>
+          <div>
+            <div class="chip c-purple" style="margin-bottom:8px">Capa de Tareas (nueva)</div>
+            <p class="flow-note">Encima: checklist‑gate, campos de color, Eisenhower, comentarios, SLA, Problemas.</p>
+          </div>
+        </div>
+        <hr class="divide">
+        <p style="margin:0"><strong>La tarjeta = el viaje completo de un cliente</strong>, ligada por <code>Box ID</code> / <code>tracking</code>. Adiós al "a mí no me avisó ventas": cuando la venta se cierra, la misma tarjeta cruza sola a Logística.</p>
+      </div>
+      <div class="callout rule"><div class="ic">🎯</div><div>
+        <div class="t">El súper‑poder: verificación contra datos reales</div>
+        <small>El campo <strong>Estatus Xpay/Seguro</strong> no depende de que el vendedor palomee "ofrecí". Se cruza con la realidad: ¿vendió X‑Pay? lo sabemos por <code>entangled_payment_requests</code>. ¿Vendió Seguro? por <code>warranties</code>. El 🟢 significa <em>cerró de verdad</em> — no su palabra.</small>
+      </div></div>
+    </section>
+
+    <!-- 3 -->
+    <section id="tablero">
+      <h2><span class="num">3</span> El Tablero "Flujo Operativo"</h2>
+      <p class="sub">Un solo tablero de 7 columnas. La tarjeta avanza de izquierda a derecha. Cada columna tiene sus reglas de premio/castigo. (Desliza →)</p>
+      <div class="board-scroll">
+        <div class="board">
+          <div class="col" style="--cc:var(--blue)">
+            <div class="ch">📥 Nuevos Prospectos</div>
+            <div class="cb">
+              <div class="fake"><div class="ft">Cerrar importación — Juan</div><div class="lane-label" style="margin-top:4px">Sin asignar</div></div>
+              <div class="rule-mini"><span class="chip c-red">SLA</span> &gt;24h sin moverse → <strong>Advertencia N1</strong> por lentitud.</div>
+            </div>
+          </div>
+          <div class="col" style="--cc:var(--blue)">
+            <div class="ch">💬 Cotización y Negociación</div>
+            <div class="cb">
+              <div class="fake"><div class="ft">Cerrar importación — Juan</div>
+                <div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap">
+                  <span class="chip c-green">🟩 Seguro ofrecido</span><span class="chip c-blue">🟦 X‑Pay en proceso</span>
+                </div></div>
+              <div class="rule-mini">Etiquetas de color = ver de reojo qué falta ofrecer.</div>
+            </div>
+          </div>
+          <div class="col" style="--cc:var(--accent)">
+            <div class="ch">🛡️ Filtro de Cierre</div>
+            <div class="cb">
+              <div class="fake"><div class="ft">Checklist obligatorio</div>
+                <div class="lane-label" style="margin-top:4px">☑ X‑Pay ofrecido · ☑ Seguro cotizado</div></div>
+              <div class="rule-mini"><span class="chip c-red">GATE</span> No avanza a Almacén sin palomear. Saltárselo → <strong>bono topado</strong>.</div>
+            </div>
+          </div>
+          <div class="col" style="--cc:var(--amber)">
+            <div class="ch">📦 Almacén y Empaque</div>
+            <div class="cb">
+              <div class="fake"><div class="ft">Despachar lote — Juan</div><div class="lane-label" style="margin-top:4px">↳ Reasignada: Jefe de Almacén</div></div>
+              <div class="rule-mini"><span class="chip c-purple">AUTO</span> Al entrar, se reasigna al rol de Almacén. Debe subir <strong>foto de seguridad</strong>.</div>
+            </div>
+          </div>
+          <div class="col" style="--cc:var(--amber)">
+            <div class="ch">🚚 En Tránsito</div>
+            <div class="cb">
+              <div class="fake"><div class="ft">Guía US‑2420587025</div><div class="lane-label" style="margin-top:4px">📅 Prometida: 02/08</div></div>
+              <div class="rule-mini">Etiqueta con la <strong>fecha prometida</strong> de entrega.</div>
+            </div>
+          </div>
+          <div class="col" style="--cc:var(--green)">
+            <div class="ch">✅ Completado Exitoso</div>
+            <div class="cb">
+              <div class="fake"><div class="ft">Entregado · cliente feliz</div></div>
+              <div class="rule-mini"><span class="chip c-green">PREMIO</span> Cero errores en el mes → <strong>Bono de Precisión</strong>.</div>
+            </div>
+          </div>
+          <div class="col" style="--cc:var(--red)">
+            <div class="ch">🚨 Problemas y Retrasos</div>
+            <div class="cb">
+              <div class="fake"><div class="ft">Retenido en aduana / dañado</div></div>
+              <div class="rule-mini"><span class="chip c-red">ZONA ROJA</span> Cualquiera arrastra aquí. Error humano → <strong>disciplina documentada</strong> en comentarios.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="callout warn"><div class="ic">⚙️</div><div>
+        <div class="t">Los 3 automatismos que Asana no puede hacer (y aquí sí)</div>
+        <small>
+          <strong>1. Gate al avanzar:</strong> no se cruza el "Filtro de Cierre" sin checklist. ·
+          <strong>2. Auto‑reasignación por columna:</strong> caer en Almacén reasigna al rol responsable. ·
+          <strong>3. SLA por columna:</strong> tiempo máximo por etapa → alerta / N1.
+          <em>El fino de la reasignación y los SLA se afinan en Fase&nbsp;2.</em>
+        </small>
+      </div></div>
+    </section>
+
+    <!-- 4 -->
+    <section id="tarea">
+      <h2><span class="num">4</span> La anatomía de la "Tarea Perfecta"</h2>
+      <p class="sub">Cuatro reglas obligatorias para que no haya margen de excusa. La subtarea‑checklist es el corazón: fuerza el proceso.</p>
+      <div class="task-demo card" style="padding:0">
+        <div class="th">
+          <span class="box on">✓</span>
+          <span class="title">🟢 Cerrar importación (China→MTY) — Cliente Juan</span>
+          <span class="chip c-red" style="margin-left:auto">🔥 Fuego</span>
+          <span class="chip c-amber">⏰ Vie 17:00</span>
+        </div>
+        <div class="tb">
+          <div class="kv"><b>Responsable:</b> Pedro Hernández (único)</div>
+          <div class="kv"><b>Ligada a:</b> <code>S1965 · Cliente Juan</code></div>
+          <div class="kv"><b>Descripción:</b> Atender al prospecto, enviar cotización final y concretar el pago.</div>
+          <h3 style="margin:16px 0 6px">Checklist obligatorio (bloquea el cierre)</h3>
+          <div class="sub-item"><span class="box on">✓</span> Enviar cotización base al cliente</div>
+          <div class="sub-item"><span class="box on">✓</span> Ofrecer explícitamente el Seguro de Mercancía</div>
+          <div class="sub-item"><span class="box"></span> Explicar beneficios de pagar con X‑Pay</div>
+          <div class="sub-item"><span class="box"></span> Confirmar depósito / método de pago</div>
+          <div class="sub-item"><span class="box"></span> Entregar expediente a Logística <span class="chip c-gray">handoff →</span></div>
+        </div>
+      </div>
+      <div class="grid g2" style="margin-top:14px">
+        <div class="callout rule" style="margin:0"><div class="ic">🔒</div><div>
+          <div class="t">Bloqueo con escape auditado</div>
+          <small>Por default no se cierra con subtareas pendientes. <strong>Solo gerencia</strong> puede forzar el cierre dejando <strong>motivo obligatorio</strong> → queda "Fulano forzó con 2 pendientes: 'razón'". Operación no se traba, pero nadie se salta el proceso sin rastro.</small>
+        </div></div>
+        <div class="callout rule" style="margin:0"><div class="ic">📸</div><div>
+          <div class="t">Evidencia en la subtarea</div>
+          <small>Subtareas de logística exigen <strong>foto/archivo</strong> ("caja sellada", "comprobante"). Sin foto, la subtarea no se palomea → la tarea no cierra.</small>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section id="campos">
+      <h2><span class="num">5</span> Campos de fábrica (los dos "botones de color")</h2>
+      <p class="sub">Con solo mirar el tablero 5 minutos sabes la salud de la empresa. Dos campos vienen predefinidos en cada tarjeta.</p>
+      <div class="grid g2">
+        <div class="card">
+          <h3 style="margin-top:0">🧭 Matriz de Prioridad (Eisenhower)</h3>
+          <p class="flow-note"><strong>Obligatoria al dar de alta</strong> — no se guarda sin ella. Solo gerencia la mueve.</p>
+          <div style="display:flex; flex-direction:column; gap:8px; margin-top:10px">
+            <div class="sub-item" style="border:0"><span class="chip c-red">🔥 Fuego</span> Urgente + Importante · &lt;24h · te etiqueta si se retrasa</div>
+            <div class="sub-item" style="border:0"><span class="chip c-green">⭐ Estrella</span> Importante, no urgente · aquí viven los <strong>premios</strong></div>
+            <div class="sub-item" style="border:0"><span class="chip c-amber">🔄 Delegar</span> Urgente, no importante · mantenimiento</div>
+            <div class="sub-item" style="border:0"><span class="chip c-gray">⚪ Eliminar</span> <em>No existe como tarea</em> (bloqueado)</div>
+          </div>
+          <div class="callout warn" style="margin:12px 0 0"><div class="ic">📉</div><div>
+            <div class="t">Detector de negligencia operativa</div>
+            <small>Si una tarea <span class="chip c-green">⭐</span> se convierte en <span class="chip c-red">🔥</span> por procrastinar (prevención → crisis) de forma repetida → reporte para el <strong>corte por negligencia</strong>.</small>
+          </div></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">💱 Estatus X‑Pay / Seguro</h3>
+          <p class="flow-note">El semáforo del premio/castigo de ventas. <strong>Verificado contra datos reales</strong>, no autodeclarado.</p>
+          <div style="display:flex; flex-direction:column; gap:8px; margin-top:10px">
+            <div class="sub-item" style="border:0"><span class="chip c-green">🟢 Vendido</span> Cerró X‑Pay y/o Seguro → <strong>Acelerador</strong> de bono</div>
+            <div class="sub-item" style="border:0"><span class="chip c-amber">🟡 Ofrecido, rechazado</span> Cumplió el proceso → comisión normal</div>
+            <div class="sub-item" style="border:0"><span class="chip c-red">🔴 No ofrecido</span> Rompió el proceso → <strong>castigo al bono</strong></div>
+          </div>
+          <p class="flow-note" style="margin-top:12px">Fuente de verdad: <code>entangled_payment_requests</code> (X‑Pay) y <code>warranties</code> (GEX/Seguro).</p>
+        </div>
+      </div>
+      <p class="flow-note" style="margin-top:12px">Los campos son <strong>extensibles</strong>: gerencia podrá crear otros menús de color por proyecto (Fase&nbsp;2).</p>
+    </section>
+
+    <!-- 6 -->
+    <section id="reportes">
+      <h2><span class="num">6</span> Premio / Castigo → Reportes</h2>
+      <p class="sub">Capturar sin leer no sirve. Estos tableros convierten el trabajo diario en tu dato para fin de mes. <strong>El sistema mide y alerta; gerencia confirma la sanción</strong> (nunca automática).</p>
+      <div class="grid g2">
+        <div class="card"><div class="chip c-blue">Puntualidad</div><h3 style="margin:8px 0 4px">A tiempo vs. vencidas</h3><p class="flow-note">% de tareas cerradas a tiempo por persona → dato para topar bono al 80%.</p></div>
+        <div class="card"><div class="chip c-green">Cumplimiento</div><h3 style="margin:8px 0 4px">Checklist de venta</h3><p class="flow-note">¿En cuántas palomeó y <em>vendió</em> Seguro / X‑Pay? → quién no ofrece el portafolio → acelerador o castigo.</p></div>
+        <div class="card"><div class="chip c-amber">Precisión</div><h3 style="margin:8px 0 4px">Evidencia logística</h3><p class="flow-note">% de despachos con foto de seguridad. Cero errores en el mes → Bono de Precisión.</p></div>
+        <div class="card"><div class="chip c-red">Negligencia</div><h3 style="margin:8px 0 4px">Prevención → crisis</h3><p class="flow-note">Cuántas ⭐ se volvieron 🔥 por procrastinar → corte por negligencia operativa.</p></div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section id="proyectos">
+      <h2><span class="num">7</span> Proyectos y "premio espiritual"</h2>
+      <p class="sub">Además del Flujo Operativo, gerencia puede crear <strong>proyectos</strong> (p. ej. "Mejora del Almacén") con sus propias columnas y un <strong>líder</strong>. Darle un proyecto a un empleado estrella = autonomía = premio no financiero.</p>
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr><th>Rol</th><th>En el Flujo Operativo</th><th>En un proyecto propio</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Gerencia</strong><br><span class="chip c-gray">super_admin · admin · director</span></td><td>Todo: crear, asignar, recategorizar, forzar cierre, reportes.</td><td>Crea proyectos y nombra líderes.</td></tr>
+            <tr><td><strong>Líder de proyecto</strong><br><span class="chip c-purple">empleado estrella</span></td><td>Solo sus tareas asignadas.</td><td>Manda <strong>dentro de su proyecto</strong>: crea, asigna, comenta, mueve tarjetas.</td></tr>
+            <tr><td><strong>Asignado</strong><br><span class="chip c-gray">cualquier empleado</span></td><td>Ve y cierra lo suyo (app), sube evidencia, comenta.</td><td>Igual: ejecuta sus tareas.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section id="datos">
+      <h2><span class="num">8</span> Modelo de datos (borrador)</h2>
+      <p class="sub">Tablas nuevas, aisladas del resto (no tocan comisiones ni el CRM existente; solo <em>leen</em> para conectar).</p>
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr><th>Tabla</th><th>Campos clave</th><th>Para qué</th></tr></thead>
+          <tbody>
+            <tr><td><code>task_boards</code></td><td>id, nombre, tipo (operativo/proyecto), columnas[], lider_user_id</td><td>El Flujo Operativo + proyectos con líder.</td></tr>
+            <tr><td><code>task_columns</code></td><td>id, board_id, nombre, orden, color, sla_horas, auto_assign_role, gate_checklist</td><td>Las 7 columnas y sus reglas (gate/SLA/auto‑assign).</td></tr>
+            <tr><td><code>tasks</code></td><td>id, board_id, column_id, titulo, descripcion, assignee_id, due_at, eisenhower, status, forced_close_by, forced_reason, linked_type, linked_id</td><td>La tarjeta. <code>linked_*</code> = vínculo a cliente/guía/lead.</td></tr>
+            <tr><td><code>task_subtasks</code></td><td>id, task_id, texto, done, done_by, done_at, requires_photo, evidence_url, assignee_id</td><td>El checklist que bloquea el cierre + evidencia + handoff.</td></tr>
+            <tr><td><code>task_fields</code> / <code>task_field_values</code></td><td>field_id, task_id, valor (dropdown color)</td><td>Campos de fábrica (Xpay/Seguro, Eisenhower) y los de proyecto.</td></tr>
+            <tr><td><code>task_comments</code></td><td>id, task_id, author_id, texto, mentions[], attachment_url, created_at</td><td>El Rastro Oficial (@menciones, timestamp, autor).</td></tr>
+            <tr><td><code>task_activity</code></td><td>id, task_id, actor_id, accion, meta, created_at</td><td>Bitácora inmutable: quién movió, cerró, reasignó, forzó.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="flow-note" style="margin-top:10px"><strong>Conexión (Opción B):</strong> la columna de una tarea ligada a un cliente/guía se deriva del funnel del CRM y del estatus real de la guía; la capa de Tareas guarda checklist, campos, comentarios y SLA.</p>
+    </section>
+
+    <!-- 9 -->
+    <section id="notifs">
+      <h2><span class="num">9</span> Notificaciones (reusa el sistema actual)</h2>
+      <div class="grid g2">
+        <div class="card"><ul class="clean" style="margin:0">
+          <li><strong>Te asignaron</strong> una tarea → push + campana.</li>
+          <li><strong>Te mencionaron</strong> (<code>@tú</code>) en un comentario → push.</li>
+          <li><strong>Vence pronto / venció</strong> → al asignado (y al gerente si es 🔥).</li>
+        </ul></div>
+        <div class="card"><ul class="clean" style="margin:0">
+          <li>Tarjeta movida a <strong>🚨 Problemas</strong> → aviso a gerencia.</li>
+          <li><strong>Cierre forzado</strong> → aviso a gerencia con el motivo.</li>
+          <li>Resumen diario opcional: "3 tareas 🔥 vencen hoy".</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section id="fases">
+      <h2><span class="num">10</span> Fases de entrega</h2>
+      <div class="phase">
+        <div class="tag">FASE 1 · NÚCLEO</div>
+        <h4>Tablero conectado + responsabilidad</h4>
+        <p class="flow-note">Sección en sidebar (3 roles) · Flujo Operativo con columnas leyendo CRM/guía · tarjeta ligada a cliente/guía · la Tarea Perfecta (responsable, fecha, descripción) · <strong>subtareas‑checklist que bloquean el cierre</strong> con foto · comentarios + @menciones · los 2 campos de color (Eisenhower obligatoria + Xpay/Seguro verificado) · columna 🚨 Problemas · <strong>"Mis Tareas" en la app</strong> + notificaciones · reportes base (puntualidad, cumplimiento).</p>
+      </div>
+      <div class="phase">
+        <div class="tag">FASE 2 · AUTOMATISMOS + PROYECTOS</div>
+        <h4>Gates finos, SLA, auto‑reasignación, proyectos con líder</h4>
+        <p class="flow-note">SLA por columna → alertas/N1 · auto‑reasignación por etapa (rol) · proyectos configurables con líder · campos personalizados extra · detector de negligencia (⭐→🔥).</p>
+      </div>
+      <div class="phase">
+        <div class="tag">FASE 3 · AUTO‑TAREAS</div>
+        <h4>El sistema crea tareas solo</h4>
+        <p class="flow-note">Guía atorada en aduana → tarea automática con responsable y fecha · pago vencido → tarea · enganche con disciplina progresiva (N1–N4).</p>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section id="decisiones">
+      <h2><span class="num">11</span> Decisiones <span class="chip c-green" style="font-size:11px">Cerradas ✔</span></h2>
+      <div class="callout rule"><div class="ic">✅</div><div>
+        <div class="t">A · Responsable por etapa → <strong>por ROL</strong></div>
+        <small>La auto‑reasignación cae en <strong>un rol</strong> (quien tenga "Jefe de Almacén" ese día), no en una persona fija. Más robusto: si alguien falta, la tarea sigue teniendo dueño.</small>
+      </div></div>
+      <div class="callout rule"><div class="ic">✅</div><div>
+        <div class="t">B · Columnas de ventas → <strong>solo reflejan el CRM</strong></div>
+        <small>Las columnas 1–3 son <strong>lectura</strong> del funnel del CRM. No se le pone gate al CRM; el <strong>gate del checklist vive en la capa de Tareas</strong> (Filtro de Cierre). Menos intrusivo, no toca el flujo de ventas existente.</small>
+      </div></div>
+      <div class="callout rule"><div class="ic">✅</div><div>
+        <div class="t">C · "Completada" vs. columna → <strong>separadas</strong></div>
+        <small><strong>"Completada" = el checkbox que gatea el checklist</strong>; las <strong>columnas = la etapa</strong>. Una tarjeta puede estar en "Seguro Ofrecido" y aún no completada.</small>
+      </div></div>
+      <p class="flow-note" style="margin-top:16px">Diseño cerrado. Construcción por hitos: <strong>1)</strong> base de datos + backend + sección en sidebar → <strong>2)</strong> tablero web + detalle de tarea (checklist/comentarios) → <strong>3)</strong> conexión con CRM/guía + verificación Xpay/Seguro → <strong>4)</strong> "Mis Tareas" en la app → <strong>5)</strong> reportes.</p>
+    </section>
+
+    <footer>
+      EntregaX · Documento de diseño del Módulo Tareas — borrador para revisión. No modifica el sistema en producción.
+    </footer>
+  </main>
+ </div>
+</div>

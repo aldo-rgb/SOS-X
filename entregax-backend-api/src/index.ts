@@ -13379,6 +13379,22 @@ import {
   listBrandAssets,
   getActiveBrandAssets,
   getBrandAssetDataUri,
+} from './brandAssetsController';
+import {
+  listBoards as tasksListBoards,
+  listTasks as tasksList,
+  myTasks as tasksMine,
+  getTask as tasksGet,
+  createTask as tasksCreate,
+  updateTask as tasksUpdate,
+  completeTask as tasksComplete,
+  deleteTask as tasksDelete,
+  addSubtask as tasksAddSubtask,
+  toggleSubtask as tasksToggleSubtask,
+  deleteSubtask as tasksDeleteSubtask,
+  addComment as tasksAddComment,
+} from './tasksController';
+import {
   uploadBrandAsset,
   activateBrandAsset,
   deleteBrandAsset,
@@ -13398,6 +13414,23 @@ const brandAssetUpload = multer({
 // Público — obtiene los logos activos para que cualquier frontend los consuma
 app.get('/api/brand-assets/active', getActiveBrandAssets);
 app.get('/api/brand-assets/:slot/data-uri', getBrandAssetDataUri);
+
+// ── MÓDULO TAREAS (Fase 1) ──────────────────────────────────
+// Gestión (crear/editar/mover/borrar/forzar) se valida por rol/líder DENTRO
+// del controlador; el asignado puede palomear checklist, comentar y cerrar lo
+// suyo. /mine y /boards van antes de /:id para no capturar la ruta.
+app.get('/api/tasks/boards', authenticateToken, tasksListBoards);
+app.get('/api/tasks/mine', authenticateToken, tasksMine);
+app.get('/api/tasks', authenticateToken, tasksList);
+app.post('/api/tasks', authenticateToken, tasksCreate);
+app.get('/api/tasks/:id', authenticateToken, tasksGet);
+app.put('/api/tasks/:id', authenticateToken, tasksUpdate);
+app.post('/api/tasks/:id/complete', authenticateToken, tasksComplete);
+app.delete('/api/tasks/:id', authenticateToken, tasksDelete);
+app.post('/api/tasks/:id/subtasks', authenticateToken, tasksAddSubtask);
+app.put('/api/tasks/subtasks/:subId', authenticateToken, tasksToggleSubtask);
+app.delete('/api/tasks/subtasks/:subId', authenticateToken, tasksDeleteSubtask);
+app.post('/api/tasks/:id/comments', authenticateToken, tasksAddComment);
 // Admin
 app.get('/api/admin/brand-assets', authenticateToken, requireRole('super_admin'), listBrandAssets);
 app.post('/api/admin/brand-assets/upload', authenticateToken, requireRole('super_admin'), brandAssetUpload.single('file'), uploadBrandAsset);

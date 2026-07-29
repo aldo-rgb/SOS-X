@@ -44,6 +44,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import CloseIcon from '@mui/icons-material/Close';
 import PeopleIcon from '@mui/icons-material/People';
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 // StoreIcon, AssessmentIcon, InventoryIcon removidos - secciones eliminadas del sidebar
 import SettingsIcon from '@mui/icons-material/Settings';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -57,6 +58,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 import AssetDetailPage from './pages/AssetDetailPage';
 import PublicTrackingPage from './pages/PublicTrackingPage';
 import ClientsPage from './pages/ClientsPage';
+import TareasPage from './pages/TareasPage';
 import CajitoFab from './components/CajitoFab';
 // QuotesPage removido - ahora se accede desde PanelsHubPage > Nacional México
 // ConsolidationsPage removido - ahora se accede desde PanelsHubPage > PO Box USA > Salida
@@ -215,6 +217,7 @@ const menuItemsConfig: Array<{
   { key: 'dashboard', icon: <DashboardIcon /> },
   { key: 'salesReport', icon: <BarChartIcon /> }, // CRM - Reportes de Ventas
   { key: 'clients', icon: <PeopleIcon /> },
+  { key: 'tasks', icon: <AssignmentTurnedInIcon /> }, // Tareas - super_admin/admin/director
   { 
     key: 'panels', 
     icon: <DashboardCustomizeIcon />, 
@@ -700,12 +703,12 @@ function App() {
       
       // admin: Dashboard, Reportes Ventas, Usuarios, Herramientas (incluye Contabilidad/Tesoreria), Caja, Comisiones, Permisos
       if (role === 'admin') {
-        return ['dashboard', 'salesReport', 'clients', 'panels', 'cajaChicaGroup', 'commissions', 'permissions'].includes(item.key);
+        return ['dashboard', 'salesReport', 'clients', 'tasks', 'panels', 'cajaChicaGroup', 'commissions', 'permissions'].includes(item.key);
       }
       
       // director: Dashboard, Herramientas (incluye Contabilidad/Tesorería), Caja CC, Comisiones, Empresas (solo Banco/Syncfy)
       if (role === 'director') {
-        return ['dashboard', 'panels', 'cajaChicaGroup', 'commissions', 'fiscal'].includes(item.key);
+        return ['dashboard', 'tasks', 'panels', 'cajaChicaGroup', 'commissions', 'fiscal'].includes(item.key);
       }
       
       // finanzas: Dashboard, Herramientas (incluye Contabilidad/Tesorería), Caja CC
@@ -1836,6 +1839,7 @@ function App() {
         }
       case 'salesReport': return <SalesReportPage />; // CRM - Reportes de Ventas
       case 'clients': return <ClientsPage users={users} loading={loading} onRefresh={fetchUsers} currentUser={currentUser} />;
+      case 'tasks': return <TareasPage />; // Módulo Tareas (Fase 1)
       case 'panels':
         // Si panels está seleccionado pero no hay submenú, expandir automáticamente
         if (!panelsExpanded) {
