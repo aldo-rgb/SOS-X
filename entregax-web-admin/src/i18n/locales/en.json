@@ -944,7 +944,7 @@
     "externalProspects": "External Prospects",
     "crmLeadsDescription": "Users already registered in the app who requested advisor attention. They already have an account and assigned mailbox.",
     "pending": "Pending",
-    "assigned": "Assigned",
+    "assigned": "Not Contacted",
     "contacted": "Contacted",
     "converted": "Converted",
     "all": "All",

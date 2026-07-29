@@ -90,7 +90,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
 
   const [containers, setContainers] = useState<Container[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('customs_cleared');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selected, setSelected] = useState<Container | null>(null);
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -837,7 +837,9 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                   (c.voyage_number || '').toLowerCase().includes(q)
                 )
               : containers;
-            const filtered = byText.filter((c) => (c.status || '') === statusFilter);
+            const filtered = statusFilter === 'all'
+              ? byText
+              : byText.filter((c) => (c.status || '') === statusFilter);
 
             // Mapa de status (mismo que web)
             const statusBadgeMap: Record<string, { label: string; bg: string }> = {
@@ -852,14 +854,14 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
               in_transit_clientfinal: { label: 'EN TRÁNSITO DESTINO', bg: '#E65100' },
               delivered:              { label: 'ENTREGADO',           bg: '#1B5E20' },
             };
-            const filterOptions: { value: string; label: string }[] = isFCL
-              ? [
-                  { value: 'customs_cleared',         label: 'Liberado aduana' },
-                  { value: 'arrived_port',             label: 'Llegó a puerto' },
-                  { value: 'in_transit_clientfinal',  label: 'En ruta destino' },
-                  { value: 'delivered',               label: 'Entregados' },
-                ]
-              : [];
+            // Mismos chips en LCL y FCL (mirror web): status principales del flujo marítimo
+            const filterOptions: { value: string; label: string }[] = [
+              { value: 'in_transit',              label: 'En tránsito (zarpado)' },
+              { value: 'arrived_port',            label: 'Llegó al puerto' },
+              { value: 'customs_cleared',         label: 'Liberado de aduana' },
+              { value: 'in_transit_clientfinal',  label: 'En tránsito a destino' },
+              { value: 'delivered',               label: 'Entregado' },
+            ];
 
             return (
               <>
@@ -881,27 +883,33 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                   )}
                 </View>
 
-                {isFCL && filterOptions.length > 0 && (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }} contentContainerStyle={{ gap: 6, paddingRight: 12 }}>
-                    {filterOptions.map((opt) => {
-                      const active = statusFilter === opt.value;
-                      const meta = statusBadgeMap[opt.value];
-                      const bg = active ? (meta?.bg || accent) : '#ECEFF1';
-                      const fg = active ? '#FFF' : BLACK;
-                      const count = containers.filter((c) => (c.status || '') === opt.value).length;
-                      return (
-                        <TouchableOpacity
-                          key={opt.value}
-                          onPress={() => setStatusFilter(opt.value)}
-                          style={[styles.filterChip, { backgroundColor: bg }]}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={[styles.filterChipText, { color: fg }]}>{opt.label} · {count}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                )}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }} contentContainerStyle={{ gap: 6, paddingRight: 12 }}>
+                  {/* Chip Todos */}
+                  <TouchableOpacity
+                    onPress={() => setStatusFilter('all')}
+                    style={[styles.filterChip, { backgroundColor: statusFilter === 'all' ? accent : '#ECEFF1' }]}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.filterChipText, { color: statusFilter === 'all' ? '#FFF' : BLACK }]}>Todos · {containers.length}</Text>
+                  </TouchableOpacity>
+                  {filterOptions.map((opt) => {
+                    const active = statusFilter === opt.value;
+                    const meta = statusBadgeMap[opt.value];
+                    const bg = active ? (meta?.bg || accent) : '#ECEFF1';
+                    const fg = active ? '#FFF' : BLACK;
+                    const count = containers.filter((c) => (c.status || '') === opt.value).length;
+                    return (
+                      <TouchableOpacity
+                        key={opt.value}
+                        onPress={() => setStatusFilter(opt.value)}
+                        style={[styles.filterChip, { backgroundColor: bg }]}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.filterChipText, { color: fg }]}>{opt.label} · {count}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
 
                 {filtered.length === 0 ? (
                   <View style={styles.emptyState}>
