@@ -252,6 +252,17 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
             }
         }
 
+        // 7.2 Si se registró con el enlace de un ASESOR, es beneficiario del
+        //     Kit de Bienvenida (regalo por darse de alta con su asesor).
+        //     Idempotente por user_id; no rompe el registro si falla.
+        if (advisorId) {
+            import('./welcomeKitController').then(({ addUserToKit }) =>
+                addUserToKit(savedUser.id, 'Alta con enlace de asesor (Kit de Bienvenida)')
+            ).then((added) => {
+                if (added) console.log(`[KIT] ✅ Kit de Bienvenida asignado a ${fullName} (alta con asesor #${advisorId})`);
+            }).catch((e) => console.warn('[KIT] addUserToKit en registro:', (e as Error).message));
+        }
+
         // 7.5 Vincular órdenes y paquetes pendientes de TODOS los servicios
         try {
             // ===== MARÍTIMO (LOG) - por shipping_mark =====
