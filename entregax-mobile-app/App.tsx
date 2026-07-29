@@ -86,6 +86,7 @@ import ChinaSeaHubScreen from './src/screens/ChinaSeaHubScreen';
 import BranchInventoryReportScreen from './src/screens/BranchInventoryReportScreen';
 import BranchesHubScreen from './src/screens/BranchesHubScreen';
 import UsersAdminScreen from './src/screens/UsersAdminScreen';
+import WelcomeKitAdminScreen from './src/screens/WelcomeKitAdminScreen';
 import SystemSettingsScreen from './src/screens/SystemSettingsScreen';
 import PanelPermissionsScreen from './src/screens/PanelPermissionsScreen';
 import VerificacionesAdminScreen from './src/screens/VerificacionesAdminScreen';
@@ -214,6 +215,7 @@ export type RootStackParamList = {
   BranchInventoryReport: { user: any; token: string };
   BranchesHub: { user: any; token: string };
   UsersAdmin: { user: any; token: string };
+  WelcomeKitAdmin: { user: any; token: string };
   SystemSettings: { user: any; token: string };
   PanelPermissions: { user: any; token: string };
   VerificacionesAdmin: { user: any; token: string };
@@ -522,6 +524,7 @@ function App() {
           <Stack.Screen name="BranchInventoryReport" component={BranchInventoryReportScreen} />
           <Stack.Screen name="BranchesHub" component={BranchesHubScreen} />
           <Stack.Screen name="UsersAdmin" component={UsersAdminScreen} />
+          <Stack.Screen name="WelcomeKitAdmin" component={WelcomeKitAdminScreen} />
           <Stack.Screen name="SystemSettings" component={SystemSettingsScreen} />
           <Stack.Screen name="PanelPermissions" component={PanelPermissionsScreen} />
           <Stack.Screen name="VerificacionesAdmin" component={VerificacionesAdminScreen} />

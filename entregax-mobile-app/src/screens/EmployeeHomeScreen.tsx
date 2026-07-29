@@ -383,6 +383,17 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     requiresOnboarding: false,
   },
   {
+    id: 'admin_welcome_kit',
+    title: 'Centro de Soporte',
+    subtitle: 'Kit de Bienvenida: asignar y dar seguimiento',
+    icon: 'headset-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'WelcomeKitAdmin',
+    roles: ['super_admin', 'admin', 'director'],
+    requiresOnboarding: false,
+  },
+  {
     id: 'admin_panel_permissions',
     title: 'Permisos',
     subtitle: 'Paneles por usuario (la matriz por rol sigue en Web)',
