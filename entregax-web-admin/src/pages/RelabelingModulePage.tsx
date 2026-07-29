@@ -1397,7 +1397,9 @@ ${body}
         // Quitamos el sufijo si existe para reconstruir cada caja del rango.
         const baseTracking = reprintLabel.tracking.replace(/-\d{1,4}$/, '');
         for (let i = from; i <= to; i++) {
-            const suffix = String(i).padStart(2, '0');
+            // El sufijo de caja SIEMPRE es de 4 dígitos (US-XXXX-0001..0014). Antes
+            // se paddeaba a 2 (-14) y el escáner/sistema no lo leía como la guía real.
+            const suffix = String(i).padStart(4, '0');
             labels.push({
                 ...reprintLabel,
                 boxNumber: i,
