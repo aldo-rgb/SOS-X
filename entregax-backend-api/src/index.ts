@@ -7022,7 +7022,7 @@ app.post('/api/advisor/formal-quotes', authenticateToken, createAdvisorFormalQuo
 app.get('/api/advisor/formal-quotes/:id/pdf', authenticateToken, getAdvisorFormalQuotePdfUrl);
 app.post('/api/advisor/quote-requests', authenticateToken, uploadAdvisorQuoteFiles, createAdvisorQuoteRequest);
 
-import { listAdvisorPaymentOrders, createAdvisorPaymentOrder, updateAdvisorPaymentOrderStatus, deleteAdvisorPaymentOrder, getAdvisorPaymentOrderDetail, getAdvisorOrderInvoiceInfo, getAdvisorOrderInvoiceFile, requestAdvisorOrderInvoice, listClientFiscalProfiles, addClientFiscalProfile, deleteClientFiscalProfile, shareAdvisorPaymentOrderPdf } from './advisorPaymentOrderController';
+import { listAdvisorPaymentOrders, createAdvisorPaymentOrder, updateAdvisorPaymentOrderStatus, deleteAdvisorPaymentOrder, getAdvisorPaymentOrderDetail, getAdvisorOrderInvoiceInfo, getAdvisorOrderInvoiceFile, requestAdvisorOrderInvoice, listClientFiscalProfiles, addClientFiscalProfile, deleteClientFiscalProfile, shareAdvisorPaymentOrderPdf, getSharedQuotePdf } from './advisorPaymentOrderController';
 app.get('/api/advisor/payment-orders', authenticateToken, listAdvisorPaymentOrders);
 app.get('/api/advisor/payment-orders/:id/detail', authenticateToken, getAdvisorPaymentOrderDetail);
 app.get('/api/advisor/payment-orders/:id/invoice-info', authenticateToken, getAdvisorOrderInvoiceInfo);
@@ -7037,6 +7037,8 @@ app.delete('/api/advisor/payment-orders/:id', authenticateToken, deleteAdvisorPa
 app.get('/api/advisor/payment-orders/:orderId/proofs', authenticateToken, getAdvisorPaymentProofs);
 app.post('/api/advisor/payment-orders/:orderId/proof', authenticateToken, advisorProofUpload.single('proof'), uploadAdvisorPaymentProof);
 app.post('/api/advisor/payment-orders/:id/share-pdf', authenticateToken, advisorProofUpload.single('pdf'), shareAdvisorPaymentOrderPdf);
+// Enlace corto PÚBLICO para descargar la cotización PDF (compartido por WhatsApp).
+app.get('/api/ctz/:code', getSharedQuotePdf);
 app.delete('/api/advisor/payment-orders/:orderId/proof/:voucherId', authenticateToken, deleteAdvisorPaymentProof);
 app.patch('/api/advisor/payment-orders/:orderId/proof/:voucherId', authenticateToken, updateAdvisorProofAmount);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);

@@ -3,7 +3,15 @@ import * as crypto from 'crypto';
 import { pool } from './db';
 import { createInvoice, isAutoFacturaEnabled } from './fiscalController';
 import { FacturamaClient } from './facturamaClient';
-import { uploadToS3WithSignedUrl, headS3Object, isS3Configured } from './s3Service';
+import { uploadToS3WithSignedUrl, headS3Object, isS3Configured, getSignedUrlForKey } from './s3Service';
+
+// Nombre de archivo/clave S3 determinístico para la cotización de una orden.
+// Permite que un enlace corto (/api/ctz/:code) reconstruya la misma clave y
+// re-firme la URL sin guardar nada en BD.
+const quotePdfKeyFromRef = (ref: string): string => {
+  const safe = String(ref || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60) || 'ctz';
+  return `payment-orders/cotizacion-${safe}.pdf`;
+};
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 const genRef = (prefix = 'EX'): string => {
@@ -1185,8 +1193,9 @@ export const deleteClientFiscalProfile = async (req: Request, res: Response): Pr
 };
 
 // POST /api/advisor/payment-orders/:id/share-pdf
-// Recibe el PDF de la cotización (generado en el navegador), lo sube a S3 y
-// devuelve una URL firmada válida 7 días para compartir por WhatsApp/link.
+// Recibe el PDF de la cotización (generado en el navegador), lo sube a S3 con
+// una clave determinística y devuelve una URL CORTA (/api/ctz/:ref) para
+// compartir por WhatsApp. La URL corta redirige al PDF re-firmado cada vez.
 export const shareAdvisorPaymentOrderPdf = async (req: Request, res: Response): Promise<any> => {
   try {
     const orderId = parseInt(String(req.params.id), 10);
@@ -1197,19 +1206,43 @@ export const shareAdvisorPaymentOrderPdf = async (req: Request, res: Response): 
     if (!isS3Configured()) {
       return res.status(501).json({ error: 'Almacenamiento de archivos no configurado' });
     }
-    // Nombre seguro a partir de la referencia (o el id de la orden).
+    // Referencia segura (se usa como código del enlace corto y como clave S3).
     const rawRef = String(req.body?.ref || `orden-${orderId || 'ctz'}`);
-    const safeRef = rawRef.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || `orden-${orderId || 'ctz'}`;
-    const key = `payment-orders/cotizacion-${safeRef}-${Date.now()}.pdf`;
-    const { signedUrl } = await uploadToS3WithSignedUrl(file.buffer, key, 'application/pdf', 60 * 60 * 24 * 7);
+    const safeRef = rawRef.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60) || `orden-${orderId || 'ctz'}`;
+    const key = quotePdfKeyFromRef(safeRef);
+    await uploadToS3WithSignedUrl(file.buffer, key, 'application/pdf', 60 * 60 * 24 * 7);
     // Verificar que el objeto quedó bien subido.
     const head = await headS3Object(key);
     if (!head.exists || (head.size || 0) < 512) {
       return res.status(502).json({ error: 'No se pudo almacenar el PDF' });
     }
-    return res.json({ pdfUrl: signedUrl });
+    // URL corta que redirige al PDF (usa el host desde el que llegó la petición;
+    // en prod = https://api.entregax.app).
+    const base = `${req.protocol}://${req.get('host')}`;
+    const shortUrl = `${base}/api/ctz/${encodeURIComponent(safeRef)}`;
+    return res.json({ pdfUrl: shortUrl });
   } catch (e: any) {
     console.error('[share-pdf] error:', e?.message);
     return res.status(500).json({ error: e?.message || 'Error al compartir el PDF' });
+  }
+};
+
+// GET /api/ctz/:code  (PÚBLICO, sin auth)
+// Enlace corto para el cliente: reconstruye la clave S3 de la cotización a
+// partir del código (referencia) y redirige (302) al PDF re-firmado.
+export const getSharedQuotePdf = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (!isS3Configured()) return res.status(404).send('No disponible');
+    const code = String(req.params.code || '');
+    const safeRef = code.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60);
+    if (!safeRef) return res.status(404).send('Cotización no encontrada');
+    const key = quotePdfKeyFromRef(safeRef);
+    const head = await headS3Object(key);
+    if (!head.exists) return res.status(404).send('Cotización no encontrada o expirada');
+    const url = await getSignedUrlForKey(key, 60 * 60); // 1h para la descarga inmediata
+    return res.redirect(302, url);
+  } catch (e: any) {
+    console.error('[ctz] error:', e?.message);
+    return res.status(500).send('Error al abrir la cotización');
   }
 };
