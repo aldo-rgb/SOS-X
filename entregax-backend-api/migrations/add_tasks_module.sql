@@ -106,7 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_activity_task ON task_activity(task_id, created_a
 -- Solo etapas de cliente/venta. NO se monitorean guías aquí (sin
 -- Almacén/Tránsito/Completado/Problemas): el CRM de guías no se conecta.
 INSERT INTO task_boards (board_key, name, board_type)
-SELECT 'flujo_operativo', 'Flujo Operativo', 'operativo'
+SELECT 'flujo_operativo', 'Flujo de Ventas', 'operativo'
 WHERE NOT EXISTS (SELECT 1 FROM task_boards WHERE board_key = 'flujo_operativo');
 
 INSERT INTO task_columns (board_id, col_key, name, sort_order, color, sla_hours, auto_assign_role, gate_checklist, crm_stage, guide_stage)
