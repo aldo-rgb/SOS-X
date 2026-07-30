@@ -2636,6 +2636,88 @@ export const updateProspect = async (req: Request, res: Response): Promise<any> 
 };
 
 /**
+ * Asignación masiva de prospectos a un asesor (para el "Reparto aleatorio").
+ * PATCH /api/admin/crm/prospects/assign  body: { ids: number[], advisor_id: number|null }
+ * Análogo a assignChartbackAdvisor. Crea la tarjeta en Flujo de Ventas por cada
+ * prospecto asignado (idempotente por pr_<id>).
+ */
+export const bulkAssignProspects = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { ids, advisor_id } = req.body || {};
+    const cleanIds = Array.isArray(ids) ? ids.map((x: any) => parseInt(String(x))).filter((n: number) => Number.isFinite(n) && n > 0) : [];
+    if (cleanIds.length === 0) return res.status(400).json({ success: false, error: 'ids requerido' });
+    const advId = advisor_id ? parseInt(String(advisor_id)) : null;
+    await pool.query(`UPDATE prospects SET assigned_advisor_id = $1, updated_at = NOW() WHERE id = ANY($2::int[])`, [advId, cleanIds]);
+    // Crear/actualizar la tarjeta del prospecto en Flujo de Ventas para el asesor.
+    if (advId) {
+      try {
+        const { upsertSalesLeadTask } = require('./tasksController');
+        const rows = await pool.query(`SELECT id, full_name, whatsapp FROM prospects WHERE id = ANY($1::int[])`, [cleanIds]);
+        for (const p of rows.rows) {
+          await upsertSalesLeadTask({ leadKey: `pr_${p.id}`, advisorId: advId, leadName: p.full_name || 'Prospecto', leadPhone: p.whatsapp || null, actorId: (req as any).user?.userId });
+        }
+      } catch (e: any) { console.warn('[crm] bulkAssignProspects task:', e?.message); }
+    }
+    res.json({ success: true, assigned: cleanIds.length });
+  } catch (error: any) {
+    console.error('Error bulkAssignProspects:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * Convierte un cliente RECUPERADO (chartback) en un PROSPECTO "prospectado",
+ * con el asesor que lo recuperó asignado, y crea la tarjeta en Flujo de Ventas.
+ * Idempotente por converted_user_id / teléfono. No lanza.
+ */
+export async function upsertRecoveredProspect(legacyId: number, advisorId: number, actorId?: number | null): Promise<void> {
+  try {
+    if (!legacyId || !advisorId) return;
+    const lc = await pool.query(`SELECT full_name, phone, email, box_id, chartback_notes FROM legacy_clients WHERE id = $1`, [legacyId]);
+    const row = lc.rows[0];
+    if (!row) return;
+    const phone = String(row.phone || '').trim() || null;
+    // Resolver el usuario real por Box ID → converted_user_id (para que aparezca
+    // como "Prospectado" en el funnel, que requiere ese join).
+    let convertedUserId: number | null = null;
+    if (row.box_id) {
+      const u = await pool.query(`SELECT id FROM users WHERE UPPER(TRIM(box_id)) = UPPER(TRIM($1)) AND role='client' LIMIT 1`, [row.box_id]);
+      convertedUserId = u.rows[0]?.id || null;
+    }
+    // Dedup: ¿ya hay un prospecto para este usuario o teléfono?
+    const existing = await pool.query(
+      `SELECT id FROM prospects
+        WHERE (converted_user_id IS NOT NULL AND converted_user_id = $1)
+           OR (whatsapp IS NOT NULL AND whatsapp <> '' AND whatsapp = $2)
+        ORDER BY id DESC LIMIT 1`,
+      [convertedUserId, phone]);
+    let prospectId: number | null = existing.rows[0]?.id || null;
+    if (prospectId) {
+      await pool.query(
+        `UPDATE prospects SET assigned_advisor_id = $1, status = 'converted',
+                converted_user_id = COALESCE($2, converted_user_id),
+                acquisition_channel = COALESCE(NULLIF(acquisition_channel,''), 'reactivacion'),
+                updated_at = NOW()
+          WHERE id = $3`,
+        [advisorId, convertedUserId, prospectId]);
+    } else {
+      const ins = await pool.query(
+        `INSERT INTO prospects (full_name, whatsapp, email, acquisition_channel, assigned_advisor_id, status, notes, converted_user_id, created_by_id)
+         VALUES ($1,$2,$3,'reactivacion',$4,'converted',$5,$6,$7) RETURNING id`,
+        [row.full_name || 'Cliente', phone, row.email || null, advisorId, row.chartback_notes || null, convertedUserId, actorId || advisorId]);
+      prospectId = ins.rows[0]?.id || null;
+    }
+    // Tarjeta en Flujo de Ventas → Nuevos Prospectos para el asesor.
+    if (prospectId) {
+      try {
+        const { upsertSalesLeadTask } = require('./tasksController');
+        await upsertSalesLeadTask({ leadKey: `pr_${prospectId}`, advisorId, leadName: row.full_name || 'Cliente', leadPhone: phone, actorId });
+      } catch (e: any) { console.warn('[crm] upsertRecoveredProspect task:', e?.message); }
+    }
+  } catch (e: any) { console.warn('[crm] upsertRecoveredProspect:', e?.message); }
+}
+
+/**
  * Convertir prospecto a cliente
  * POST /api/admin/crm/prospects/:id/convert
  */

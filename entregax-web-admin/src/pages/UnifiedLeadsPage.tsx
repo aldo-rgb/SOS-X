@@ -92,6 +92,7 @@ import ImageIcon from '@mui/icons-material/Image';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
+import CasinoIcon from '@mui/icons-material/Casino';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import * as XLSX from 'xlsx';
 
@@ -432,6 +433,10 @@ export default function UnifiedLeadsPage() {
   const [selectedLeadKeys, setSelectedLeadKeys] = useState<Set<string>>(new Set());
   // Selección de PROSPECTOS externos para envío masivo (lead_key = 'pr_<id>').
   const [selectedProspectKeys, setSelectedProspectKeys] = useState<Set<string>>(new Set());
+  // Reparto aleatorio de prospectos externos entre asesores (como chartback).
+  const [randomProspectOpen, setRandomProspectOpen] = useState(false);
+  const [randomProspectAdvisorIds, setRandomProspectAdvisorIds] = useState<Set<number>>(new Set());
+  const [randomAssigning, setRandomAssigning] = useState(false);
   const [selectedAdvisorIds, setSelectedAdvisorIds] = useState<Set<number>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkTemplates, setBulkTemplates] = useState<BulkTemplate[]>([]);
@@ -787,6 +792,41 @@ export default function UnifiedLeadsPage() {
 
   // ===== Selección de PROSPECTOS externos (mismo sistema, key 'pr_<id>') =====
   const prospectKeyOf = (p: Prospect): string => p.lead_key || `pr_${p.id}`;
+  // ── Reparto aleatorio de prospectos entre asesores (round-robin) ──
+  const openRandomProspect = () => {
+    setRandomProspectAdvisorIds(new Set(advisors.map(a => a.id)));
+    setRandomProspectOpen(true);
+  };
+  const handleRandomAssignProspects = async () => {
+    const selectedProspects = prospects.filter(p => selectedProspectKeys.has(prospectKeyOf(p)));
+    const ids = selectedProspects.map(p => p.id).filter(Boolean);
+    const pool = advisors.filter(a => randomProspectAdvisorIds.has(a.id));
+    if (ids.length === 0) { setSnackbar({ open: true, message: 'Selecciona prospectos primero', severity: 'error' }); return; }
+    if (pool.length === 0) { setSnackbar({ open: true, message: 'Selecciona al menos un asesor', severity: 'error' }); return; }
+    const shuffledIds = [...ids].sort(() => Math.random() - 0.5);
+    const shuffledAdv = [...pool].sort(() => Math.random() - 0.5);
+    const groups = new Map<number, number[]>();
+    shuffledIds.forEach((id, i) => {
+      const a = shuffledAdv[i % shuffledAdv.length];
+      if (!groups.has(a.id)) groups.set(a.id, []);
+      groups.get(a.id)!.push(id);
+    });
+    setRandomAssigning(true);
+    try {
+      await Promise.all(Array.from(groups.entries()).map(([advisorId, gids]) =>
+        axios.patch(`${API_URL}/admin/crm/prospects/assign`, { ids: gids, advisor_id: advisorId }, { headers: { Authorization: `Bearer ${getToken()}` } })
+      ));
+      const per = Math.floor(ids.length / shuffledAdv.length);
+      const extra = ids.length % shuffledAdv.length;
+      const dist = extra === 0 ? `${per} c/u` : `${per}-${per + 1} c/u`;
+      setSnackbar({ open: true, message: `${ids.length} prospecto(s) repartidos entre ${groups.size} asesor(es) (${dist})`, severity: 'success' });
+      setRandomProspectOpen(false);
+      setSelectedProspectKeys(new Set());
+      fetchProspects();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al repartir', severity: 'error' });
+    } finally { setRandomAssigning(false); }
+  };
   const toggleProspectSelected = (key: string) => {
     setSelectedProspectKeys(prev => {
       const next = new Set(prev);
@@ -2923,6 +2963,15 @@ export default function UnifiedLeadsPage() {
             </Button>
             <Button
               variant="outlined"
+              startIcon={<CasinoIcon />}
+              disabled={selectedProspectKeys.size === 0}
+              onClick={openRandomProspect}
+              sx={{ borderColor: '#5B3FD9', color: '#5B3FD9' }}
+            >
+              Reparto aleatorio ({selectedProspectKeys.size})
+            </Button>
+            <Button
+              variant="outlined"
               color="error"
               startIcon={<BlockIcon />}
               disabled={selectedProspectKeys.size === 0}
@@ -4362,6 +4411,34 @@ export default function UnifiedLeadsPage() {
             </Typography>
           )}
         </Box>
+      </Dialog>
+
+      {/* Reparto aleatorio de prospectos externos entre asesores */}
+      <Dialog open={randomProspectOpen} onClose={() => setRandomProspectOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 800 }}>
+          <CasinoIcon sx={{ color: '#5B3FD9' }} /> Reparto aleatorio
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Se repartirán <b>{selectedProspectKeys.size}</b> prospecto(s) entre los asesores seleccionados. Desmarca los que no deban recibir.
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, maxHeight: 340, overflowY: 'auto' }}>
+            {advisors.map(a => (
+              <FormControlLabel key={a.id} sx={{ m: 0, px: 1, borderRadius: 1.5, bgcolor: randomProspectAdvisorIds.has(a.id) ? 'rgba(91,63,217,0.06)' : 'transparent' }}
+                control={<Checkbox size="small" checked={randomProspectAdvisorIds.has(a.id)}
+                  onChange={() => setRandomProspectAdvisorIds(prev => { const n = new Set(prev); n.has(a.id) ? n.delete(a.id) : n.add(a.id); return n; })} />}
+                label={<Typography fontSize={14} fontWeight={600}>{a.full_name}</Typography>} />
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRandomProspectOpen(false)}>Cancelar</Button>
+          <Button variant="contained" startIcon={<CasinoIcon />} onClick={handleRandomAssignProspects}
+            disabled={randomAssigning || randomProspectAdvisorIds.size === 0}
+            sx={{ background: 'linear-gradient(90deg,#5B3FD9,#D6521C)' }}>
+            {randomAssigning ? 'Repartiendo…' : `Repartir entre ${randomProspectAdvisorIds.size} asesor(es)`}
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Snackbar */}

@@ -1470,6 +1470,12 @@ export const chartbackAction = async (req: Request, res: Response): Promise<any>
                     AND UPPER(TRIM(u.box_id)) = UPPER(TRIM(lc.box_id)) AND u.role = 'client'`,
                 [userId, id]
             );
+            // 🔗 Pasar el recuperado a "Prospectado" con el asesor asignado + tarjeta
+            //    en Flujo de Ventas.
+            try {
+                const { upsertRecoveredProspect } = require('./crmController');
+                await upsertRecoveredProspect(id, userId, userId);
+            } catch (e: any) { console.warn('[chartback] upsertRecoveredProspect:', e?.message); }
             return res.json({ success: true, action: 'recovered' });
         } else if (action === 'retention') {
             if (!notes || !String(notes).trim()) {
@@ -1605,6 +1611,22 @@ export const adminMarkRecovered = async (req: Request, res: Response): Promise<a
 
         if (result.rowCount === 0) {
             return res.status(404).json({ error: 'Cliente no encontrado' });
+        }
+        // 🔗 Restaurar asesor en la cuenta del cliente y pasarlo a "Prospectado"
+        //    con el asesor de recuperación + tarjeta en Flujo de Ventas.
+        const recoveryAdvisorId: number | null = clientRes.rows[0]?.recovery_advisor_id || null;
+        if (recoveryAdvisorId) {
+            await pool.query(
+                `UPDATE users u SET advisor_id = $1
+                   FROM legacy_clients lc
+                  WHERE lc.id = $2 AND lc.box_id IS NOT NULL
+                    AND UPPER(TRIM(u.box_id)) = UPPER(TRIM(lc.box_id)) AND u.role = 'client'`,
+                [recoveryAdvisorId, id]
+            );
+            try {
+                const { upsertRecoveredProspect } = require('./crmController');
+                await upsertRecoveredProspect(id, recoveryAdvisorId, userId);
+            } catch (e: any) { console.warn('[chartback] upsertRecoveredProspect (admin):', e?.message); }
         }
         return res.json({ success: true, box_id: result.rows[0].box_id, asesor: result.rows[0].asesor });
     } catch (error: any) {

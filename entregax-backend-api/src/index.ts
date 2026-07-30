@@ -636,6 +636,7 @@ import {
   detectAtRiskClients,
   getProspects,
   createProspect,
+  bulkAssignProspects,
   updateProspect,
   convertProspectToClient,
   deleteProspect,
@@ -7407,6 +7408,7 @@ app.patch('/api/admin/crm/clients/:id/toggle-broker', authenticateToken, require
 app.get('/api/admin/crm/prospects', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProspects);
 app.post('/api/admin/crm/prospects', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createProspect);
 app.post('/api/admin/crm/prospects/bulk', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), bulkCreateProspects);
+app.patch('/api/admin/crm/prospects/assign', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), bulkAssignProspects);
 app.put('/api/admin/crm/prospects/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateProspect);
 app.post('/api/admin/crm/prospects/:id/convert', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), convertProspectToClient);
 app.delete('/api/admin/crm/prospects/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), deleteProspect);
