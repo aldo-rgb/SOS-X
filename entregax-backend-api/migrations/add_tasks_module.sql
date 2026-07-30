@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS task_columns (
   sla_hours        INTEGER,                         -- SLA por etapa (Fase 2)
   auto_assign_role TEXT,                            -- reasignación por ROL al entrar (Fase 2)
   gate_checklist   BOOLEAN DEFAULT FALSE,           -- exige checklist para avanzar
+  is_done          BOOLEAN NOT NULL DEFAULT FALSE,  -- columna terminal: cierra la tarea y sella el tiempo
   crm_stage        TEXT,                            -- si refleja etapa del CRM (lectura)
   guide_stage      TEXT,                            -- si refleja estatus real de la guía
   created_at       TIMESTAMPTZ DEFAULT NOW(),

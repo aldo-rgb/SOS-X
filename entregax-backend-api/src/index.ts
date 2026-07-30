@@ -13385,6 +13385,8 @@ import {
 } from './brandAssetsController';
 import {
   listBoards as tasksListBoards,
+  createBoard as tasksCreateBoard,
+  deleteBoard as tasksDeleteBoard,
   listTasks as tasksList,
   myTasks as tasksMine,
   getTask as tasksGet,
@@ -13423,6 +13425,8 @@ app.get('/api/brand-assets/:slot/data-uri', getBrandAssetDataUri);
 // del controlador; el asignado puede palomear checklist, comentar y cerrar lo
 // suyo. /mine y /boards van antes de /:id para no capturar la ruta.
 app.get('/api/tasks/boards', authenticateToken, tasksListBoards);
+app.post('/api/tasks/boards', authenticateToken, tasksCreateBoard);
+app.delete('/api/tasks/boards/:id', authenticateToken, tasksDeleteBoard);
 app.get('/api/tasks/mine', authenticateToken, tasksMine);
 app.get('/api/tasks', authenticateToken, tasksList);
 app.post('/api/tasks', authenticateToken, tasksCreate);

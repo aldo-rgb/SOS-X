@@ -1,5 +1,8 @@
 // ============================================================
-// TareasPage — Módulo Tareas (Fase 1) · tablero "Flujo Operativo"
+// TareasPage — Módulo Tareas · tableros multi-departamento
+// - "Flujo Operativo" (funnel de clientes, con gate de checklist).
+// - Tableros por departamento (Sistemas, etc.): Nueva → En proceso → Terminado.
+// - Control de tiempo: cada tarea mide creación → término (métricas).
 // Solo super_admin / admin / director. Ver propuestas/tareas-diseno.html.
 // ============================================================
 import { useState, useEffect, useCallback } from 'react';
@@ -7,7 +10,7 @@ import axios from 'axios';
 import {
   Box, Typography, Button, IconButton, Chip, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
-  Avatar, Divider, Checkbox, Tooltip, Snackbar, Alert, LinearProgress,
+  Avatar, Divider, Checkbox, Tooltip, Snackbar, Alert, LinearProgress, Tabs, Tab,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -15,6 +18,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import SendIcon from '@mui/icons-material/Send';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -32,17 +37,38 @@ const XPS: Record<string, { label: string; color: string }> = {
   rojo:     { label: '🔴 No ofrecido', color: '#C0392B' },
 };
 
-interface Col { id: number; col_key: string; name: string; color: string; gate_checklist: boolean; sort_order: number; }
-interface Board { id: number; name: string; board_type: string; columns: Col[]; }
+// Duración legible (min → "45m", "2h 10m", "3d 4h").
+const fmtDur = (ms: number): string => {
+  if (!isFinite(ms) || ms < 0) return '—';
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return '<1m';
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60), mm = min % 60;
+  if (h < 24) return `${h}h ${mm}m`;
+  const d = Math.floor(h / 24), hh = h % 24;
+  return `${d}d ${hh}h`;
+};
+// Tiempo de una tarea: total si está terminada, o transcurrido si sigue abierta.
+const taskTime = (t: { created_at?: string; completed_at?: string; status?: string }) => {
+  if (!t.created_at) return null;
+  const start = new Date(t.created_at).getTime();
+  const end = t.completed_at ? new Date(t.completed_at).getTime() : Date.now();
+  return { done: !!t.completed_at, ms: end - start };
+};
+
+interface Col { id: number; col_key: string; name: string; color: string; gate_checklist: boolean; is_done?: boolean; sort_order: number; }
+interface Board { id: number; name: string; board_type: string; columns: Col[]; lead_name?: string | null; }
 interface Task {
   id: number; column_id: number; title: string; description?: string; assignee_id?: number;
   assignee_name?: string; due_at?: string; eisenhower: string; xpay_seguro?: string; status: string;
+  created_at?: string; completed_at?: string;
   subtasks_total: number; subtasks_done: number; comments: number; overdue: boolean;
 }
 interface UserOpt { id: number; full_name: string; role?: string; }
 
 export default function TareasPage() {
-  const [board, setBoard] = useState<Board | null>(null);
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [activeId, setActiveId] = useState<number | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,26 +78,41 @@ export default function TareasPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '' });
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [newBoardOpen, setNewBoardOpen] = useState(false);
+  const [newBoardName, setNewBoardName] = useState('');
 
-  const load = useCallback(async () => {
+  const board = boards.find(b => b.id === activeId) || null;
+
+  const loadBoards = useCallback(async (preferId?: number) => {
     try {
       const br = await axios.get(`${API_URL}/tasks/boards`, H());
-      const flujo = (br.data?.boards || []).find((b: Board) => b.board_type === 'operativo') || br.data?.boards?.[0] || null;
-      setBoard(flujo);
-      if (flujo) {
-        const tk = await axios.get(`${API_URL}/tasks?board_id=${flujo.id}`, H());
-        setTasks(tk.data?.tasks || []);
-      }
-    } catch (e) { console.error(e); notify('No se pudieron cargar las tareas', 'error'); }
+      const list: Board[] = br.data?.boards || [];
+      setBoards(list);
+      setActiveId(prev => {
+        const want = preferId ?? prev;
+        if (want && list.some(b => b.id === want)) return want;
+        return (list.find(b => b.board_type === 'operativo') || list[0])?.id ?? null;
+      });
+    } catch (e) { console.error(e); notify('No se pudieron cargar los tableros', 'error'); }
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadTasks = useCallback(async (boardId: number) => {
+    try {
+      const tk = await axios.get(`${API_URL}/tasks?board_id=${boardId}`, H());
+      setTasks(tk.data?.tasks || []);
+    } catch { notify('No se pudieron cargar las tareas', 'error'); }
+  }, []);
+
+  useEffect(() => { loadBoards(); }, [loadBoards]);
+  useEffect(() => { if (activeId) loadTasks(activeId); }, [activeId, loadTasks]);
   useEffect(() => {
     axios.get(`${API_URL}/admin/users`, H())
       .then(r => setUsers((Array.isArray(r.data) ? r.data : r.data?.users || []).map((u: any) => ({ id: u.id, full_name: u.full_name, role: u.role }))))
       .catch(() => {});
   }, []);
+
+  const refresh = () => { if (activeId) loadTasks(activeId); };
 
   const createTask = async () => {
     if (!form.title.trim()) return notify('El título es obligatorio', 'error');
@@ -84,28 +125,75 @@ export default function TareasPage() {
       setCreateOpen(false);
       setForm({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '' });
       notify('Tarea creada');
-      load();
+      refresh();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear', 'error'); }
   };
 
+  const createBoard = async () => {
+    const name = newBoardName.trim();
+    if (!name) return notify('Escribe el nombre del departamento/tablero', 'error');
+    try {
+      const r = await axios.post(`${API_URL}/tasks/boards`, { name }, H());
+      setNewBoardOpen(false); setNewBoardName('');
+      notify('Tablero creado');
+      await loadBoards(r.data?.board?.id);
+    } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear tablero', 'error'); }
+  };
+
+  const deleteBoard = async (b: Board) => {
+    if (!window.confirm(`¿Eliminar el tablero "${b.name}"? Sus tareas dejarán de mostrarse.`)) return;
+    try {
+      await axios.delete(`${API_URL}/tasks/boards/${b.id}`, H());
+      notify('Tablero eliminado');
+      await loadBoards();
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); }
+  };
+
   const initials = (n?: string) => (n || '?').split(' ').map(x => x[0]).slice(0, 2).join('').toUpperCase();
+  const isOperativo = board?.board_type === 'operativo';
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
         <Box>
           <Typography variant="h5" fontWeight={800} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <AssignmentTurnedInIcon sx={{ color: '#D6521C' }} /> Tareas · Flujo Operativo
+            <AssignmentTurnedInIcon sx={{ color: '#D6521C' }} /> Tareas{board ? ` · ${board.name}` : ''}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Responsabilidad absoluta: un responsable, una fecha, un rastro. El checklist bloquea el avance.
+            {isOperativo
+              ? 'Responsabilidad absoluta: un responsable, una fecha, un rastro. El checklist bloquea el avance.'
+              : 'Asigna tareas al departamento. El tiempo se mide de la creación al término.'}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)} disabled={!board}
             sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
-          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load}>Actualizar</Button>
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={refresh}>Actualizar</Button>
         </Box>
+      </Box>
+
+      {/* Selector de tableros (departamentos) */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, borderBottom: '1px solid #E0E0E0' }}>
+        <Tabs value={activeId ?? false} onChange={(_, v) => setActiveId(v)} variant="scrollable" scrollButtons="auto"
+          sx={{ minHeight: 40, flex: 1, '& .MuiTab-root': { minHeight: 40, textTransform: 'none', fontWeight: 700 } }}>
+          {boards.map(b => (
+            <Tab key={b.id} value={b.id} label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {b.board_type === 'operativo' ? '🎯' : '🗂️'} {b.name}
+                {b.board_type !== 'operativo' && b.id === activeId && (
+                  <Tooltip title="Eliminar tablero">
+                    <IconButton component="span" size="small" onClick={(e) => { e.stopPropagation(); deleteBoard(b); }} sx={{ p: 0.2, ml: 0.3 }}>
+                      <DeleteOutlineIcon sx={{ fontSize: 15 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
+            } />
+          ))}
+        </Tabs>
+        <Button size="small" startIcon={<AddIcon />} onClick={() => setNewBoardOpen(true)} sx={{ textTransform: 'none', flex: 'none' }}>
+          Nuevo tablero
+        </Button>
       </Box>
 
       {loading ? (
@@ -122,35 +210,47 @@ export default function TareasPage() {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 0.5, py: 0.5, borderTop: `3px solid ${col.color}`, borderRadius: '3px 3px 0 0' }}>
                     <Typography fontWeight={800} fontSize={13.5} sx={{ flex: 1 }}>{col.name}</Typography>
                     {col.gate_checklist && <Tooltip title="Requiere checklist para avanzar"><Chip label="gate" size="small" sx={{ height: 18, fontSize: 10, bgcolor: '#FBE6D8', color: '#B23F12' }} /></Tooltip>}
+                    {col.is_done && <Tooltip title="Al mover aquí se cierra la tarea y se sella el tiempo"><Chip label="cierra" size="small" sx={{ height: 18, fontSize: 10, bgcolor: '#E4F1E8', color: '#2E7D46' }} /></Tooltip>}
                     <Chip label={colTasks.length} size="small" sx={{ height: 20 }} />
                   </Box>
                   <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {colTasks.map((t) => (
-                      <Box key={t.id} onClick={() => setDetailId(t.id)}
-                        sx={{ bgcolor: '#fff', borderRadius: 1.5, p: 1.25, cursor: 'pointer', border: '1px solid #E8DFD3',
-                          '&:hover': { boxShadow: 2 }, borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3' }}>
-                        <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
-                          <Chip label={EIS[t.eisenhower]?.label || t.eisenhower} size="small"
-                            sx={{ height: 20, fontSize: 11, bgcolor: EIS[t.eisenhower]?.bg, color: EIS[t.eisenhower]?.color, fontWeight: 700 }} />
-                          {t.xpay_seguro && <Chip label={XPS[t.xpay_seguro]?.label} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
-                        </Box>
-                        <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3 }}>{t.title}</Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
-                          {t.assignee_name ? (
-                            <Tooltip title={t.assignee_name}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#D6521C' }}>{initials(t.assignee_name)}</Avatar></Tooltip>
-                          ) : <Chip label="Sin asignar" size="small" variant="outlined" sx={{ height: 18, fontSize: 10 }} />}
-                          <Box sx={{ flex: 1 }} />
-                          {t.subtasks_total > 0 && (
-                            <Typography fontSize={11} color={t.subtasks_done === t.subtasks_total ? 'success.main' : 'text.secondary'}>
-                              ☑ {t.subtasks_done}/{t.subtasks_total}
-                            </Typography>
+                    {colTasks.map((t) => {
+                      const tt = taskTime(t);
+                      return (
+                        <Box key={t.id} onClick={() => setDetailId(t.id)}
+                          sx={{ bgcolor: '#fff', borderRadius: 1.5, p: 1.25, cursor: 'pointer', border: '1px solid #E8DFD3',
+                            '&:hover': { boxShadow: 2 }, borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3', opacity: t.status === 'completed' ? 0.72 : 1 }}>
+                          <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
+                            <Chip label={EIS[t.eisenhower]?.label || t.eisenhower} size="small"
+                              sx={{ height: 20, fontSize: 11, bgcolor: EIS[t.eisenhower]?.bg, color: EIS[t.eisenhower]?.color, fontWeight: 700 }} />
+                            {t.xpay_seguro && <Chip label={XPS[t.xpay_seguro]?.label} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
+                          </Box>
+                          <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: t.status === 'completed' ? 'line-through' : 'none' }}>{t.title}</Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
+                            {t.assignee_name ? (
+                              <Tooltip title={t.assignee_name}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#D6521C' }}>{initials(t.assignee_name)}</Avatar></Tooltip>
+                            ) : <Chip label="Sin asignar" size="small" variant="outlined" sx={{ height: 18, fontSize: 10 }} />}
+                            <Box sx={{ flex: 1 }} />
+                            {t.subtasks_total > 0 && (
+                              <Typography fontSize={11} color={t.subtasks_done === t.subtasks_total ? 'success.main' : 'text.secondary'}>
+                                ☑ {t.subtasks_done}/{t.subtasks_total}
+                              </Typography>
+                            )}
+                            {t.due_at && <Typography fontSize={11} color={t.overdue ? 'error.main' : 'text.secondary'}>
+                              {new Date(t.due_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+                            </Typography>}
+                          </Box>
+                          {tt && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mt: 0.5 }}>
+                              <AccessTimeIcon sx={{ fontSize: 13, color: tt.done ? '#2E7D46' : '#8A8A8A' }} />
+                              <Typography fontSize={11} color={tt.done ? 'success.main' : 'text.secondary'}>
+                                {tt.done ? `Resuelta en ${fmtDur(tt.ms)}` : `${fmtDur(tt.ms)} en curso`}
+                              </Typography>
+                            </Box>
                           )}
-                          {t.due_at && <Typography fontSize={11} color={t.overdue ? 'error.main' : 'text.secondary'}>
-                            {new Date(t.due_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
-                          </Typography>}
                         </Box>
-                      </Box>
-                    ))}
+                      );
+                    })}
                     {colTasks.length === 0 && <Typography fontSize={12} color="text.disabled" sx={{ px: 0.5, py: 2, textAlign: 'center' }}>—</Typography>}
                   </Box>
                 </Box>
@@ -162,10 +262,10 @@ export default function TareasPage() {
 
       {/* Crear tarea */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 800 }}>Nueva tarea</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 800 }}>Nueva tarea{board ? ` · ${board.name}` : ''}</DialogTitle>
         <DialogContent>
           <TextField autoFocus fullWidth label="Título (usa un verbo de acción)" margin="dense"
-            placeholder="Ej: Cerrar importación — Cliente Juan"
+            placeholder={isOperativo ? 'Ej: Cerrar importación — Cliente Juan' : 'Ej: Reparar impresora de mostrador'}
             value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
           <TextField fullWidth label="Descripción" margin="dense" multiline rows={2}
             value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
@@ -201,8 +301,26 @@ export default function TareasPage() {
         </DialogActions>
       </Dialog>
 
+      {/* Nuevo tablero (departamento) */}
+      <Dialog open={newBoardOpen} onClose={() => setNewBoardOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>Nuevo tablero de departamento</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Se crea con el flujo: <b>📥 Nueva tarea → ⚙️ En proceso → ✅ Terminado</b>. Al mover una tarjeta a “Terminado” se cierra y se sella el tiempo.
+          </Typography>
+          <TextField autoFocus fullWidth label="Nombre del departamento / tablero" margin="dense"
+            placeholder="Ej: Sistemas, Contabilidad, Marketing…"
+            value={newBoardName} onChange={e => setNewBoardName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') createBoard(); }} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNewBoardOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={createBoard} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Crear tablero</Button>
+        </DialogActions>
+      </Dialog>
+
       {detailId && (
-        <TaskDetail id={detailId} board={board} onClose={() => setDetailId(null)} onChanged={() => { load(); }} notify={notify} />
+        <TaskDetail id={detailId} board={board} onClose={() => setDetailId(null)} onChanged={refresh} notify={notify} />
       )}
 
       <Snackbar open={snack.open} autoHideDuration={4000} onClose={() => setSnack({ ...snack, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
@@ -226,6 +344,7 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
   const t = data?.task;
   const subs = data?.subtasks || [];
   const pending = subs.filter((s: any) => !s.done).length;
+  const tt = t ? taskTime(t) : null;
 
   const toggleSub = async (sub: any) => {
     if (!sub.done && sub.requires_photo && !sub.evidence_url) { notify('Esta subtarea requiere evidencia (foto) — se sube desde la app', 'error'); return; }
@@ -276,10 +395,24 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
               {t.linked_id && <Typography variant="body2"><b>Ligada:</b> {t.linked_id}</Typography>}
             </Box>
 
+            {/* Control de tiempo */}
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2, p: 1.25, bgcolor: '#F7F4EF', borderRadius: 1.5, border: '1px solid #ECE4D8' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <AccessTimeIcon sx={{ fontSize: 16, color: '#8A8A8A' }} />
+                <Typography variant="body2"><b>Creada:</b> {t.created_at ? new Date(t.created_at).toLocaleString('es-MX') : '—'}</Typography>
+              </Box>
+              {t.completed_at && <Typography variant="body2"><b>Terminada:</b> {new Date(t.completed_at).toLocaleString('es-MX')}</Typography>}
+              {tt && (
+                <Chip size="small" icon={<AccessTimeIcon />} color={tt.done ? 'success' : 'default'}
+                  label={tt.done ? `Resuelta en ${fmtDur(tt.ms)}` : `${fmtDur(tt.ms)} transcurrido`}
+                  sx={{ fontWeight: 700 }} />
+              )}
+            </Box>
+
             <FormControl size="small" sx={{ minWidth: 220, mb: 2 }}>
               <InputLabel>Mover a columna</InputLabel>
-              <Select label="Mover a columna" value={t.column_id || ''} onChange={e => move(Number(e.target.value))} disabled={t.status === 'completed'}>
-                {board?.columns.map((c: Col) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              <Select label="Mover a columna" value={t.column_id || ''} onChange={e => move(Number(e.target.value))}>
+                {board?.columns.map((c: Col) => <MenuItem key={c.id} value={c.id}>{c.name}{c.is_done ? ' (cierra)' : ''}</MenuItem>)}
               </Select>
             </FormControl>
 

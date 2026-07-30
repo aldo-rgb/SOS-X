@@ -77,6 +77,56 @@ export const listBoards = async (req: Request, res: Response): Promise<any> => {
   }
 };
 
+// ─── TABLEROS: crear (departamento con flujo Nueva→Proceso→Terminado) ──
+export const createBoard = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (!isManager(req)) return res.status(403).json({ error: 'Solo gerencia puede crear tableros' });
+    const uid = authUserId(req);
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'El nombre del tablero es obligatorio' });
+    const leadId = req.body?.lead_user_id ? parseInt(String(req.body.lead_user_id)) : null;
+    // board_type 'department': flujo simple con control de tiempo.
+    const bRes = await pool.query(
+      `INSERT INTO task_boards (board_key, name, board_type, lead_user_id, created_by)
+       VALUES (NULL, $1, 'department', $2, $3) RETURNING *`,
+      [name, leadId, uid]
+    );
+    const board = bRes.rows[0];
+    // Columnas por defecto del flujo de departamento.
+    const cols = [
+      { key: 'nueva',      name: '📥 Nueva tarea', ord: 1, color: '#1D6FB8', done: false },
+      { key: 'en_proceso', name: '⚙️ En proceso',  ord: 2, color: '#B07206', done: false },
+      { key: 'terminado',  name: '✅ Terminado',   ord: 3, color: '#2E7D46', done: true  },
+    ];
+    for (const c of cols) {
+      await pool.query(
+        `INSERT INTO task_columns (board_id, col_key, name, sort_order, color, is_done)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [board.id, c.key, c.name, c.ord, c.color, c.done]
+      );
+    }
+    const colRows = await pool.query(`SELECT * FROM task_columns WHERE board_id = $1 ORDER BY sort_order`, [board.id]);
+    res.json({ board: { ...board, columns: colRows.rows } });
+  } catch (e: any) {
+    console.error('[tasks] createBoard:', e); res.status(500).json({ error: 'Error al crear tablero' });
+  }
+};
+
+// ─── TABLEROS: eliminar (soft-delete). No el operativo. ─────
+export const deleteBoard = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (!isManager(req)) return res.status(403).json({ error: 'Solo gerencia puede eliminar tableros' });
+    const id = parseInt(String(req.params.id));
+    const b = await pool.query(`SELECT board_type FROM task_boards WHERE id = $1`, [id]);
+    if (b.rows.length === 0) return res.status(404).json({ error: 'Tablero no encontrado' });
+    if (b.rows[0].board_type === 'operativo') return res.status(400).json({ error: 'No se puede eliminar el tablero operativo' });
+    await pool.query(`UPDATE task_boards SET is_active = FALSE, updated_at = NOW() WHERE id = $1`, [id]);
+    res.json({ success: true });
+  } catch (e: any) {
+    console.error('[tasks] deleteBoard:', e); res.status(500).json({ error: 'Error al eliminar tablero' });
+  }
+};
+
 // ─── TAREAS: lista de un tablero ────────────────────────────
 export const listTasks = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -232,9 +282,9 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
     // gate_checklist sin completar el checklist.)
     if (b.column_id !== undefined && Number(b.column_id) !== Number(task.column_id)) {
       const fromCol = task.column_id
-        ? (await pool.query(`SELECT gate_checklist, sort_order FROM task_columns WHERE id = $1`, [task.column_id])).rows[0]
+        ? (await pool.query(`SELECT gate_checklist, sort_order, is_done FROM task_columns WHERE id = $1`, [task.column_id])).rows[0]
         : null;
-      const toCol = (await pool.query(`SELECT sort_order FROM task_columns WHERE id = $1`, [Number(b.column_id)])).rows[0];
+      const toCol = (await pool.query(`SELECT sort_order, is_done, auto_assign_role FROM task_columns WHERE id = $1`, [Number(b.column_id)])).rows[0];
       const advancing = fromCol && toCol && Number(toCol.sort_order) > Number(fromCol.sort_order);
       if (fromCol?.gate_checklist && advancing) {
         const pend = await pool.query(`SELECT COUNT(*)::int AS n FROM task_subtasks WHERE task_id = $1 AND done = FALSE`, [id]);
@@ -243,8 +293,19 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
         }
       }
       set('column_id', Number(b.column_id));
+      // 🏁 Columna terminal (is_done): mover aquí CIERRA la tarea y sella el
+      //    tiempo (completed_at). Sacarla de la columna terminal la reabre.
+      if (toCol?.is_done && task.status !== 'completed') {
+        set('status', 'completed');
+        set('completed_at', new Date().toISOString());
+        await logActivity(id, uid, 'completed', { via: 'move_to_done' });
+      } else if (fromCol?.is_done && !toCol?.is_done && task.status === 'completed') {
+        set('status', 'open');
+        set('completed_at', null);
+        await logActivity(id, uid, 'reopened', {});
+      }
       // Auto-reasignación por ROL al entrar a la columna destino.
-      const destRole = (await pool.query(`SELECT auto_assign_role FROM task_columns WHERE id = $1`, [Number(b.column_id)])).rows[0]?.auto_assign_role;
+      const destRole = toCol?.auto_assign_role;
       if (destRole && b.assignee_id === undefined) {
         const cand = await pool.query(
           `SELECT id FROM users WHERE role = $1 AND COALESCE(is_active,true)=true ORDER BY id LIMIT 1`, [destRole]);
