@@ -21,9 +21,10 @@ const getToken = () => localStorage.getItem('token') || '';
 const H = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
 
 const EIS: Record<string, { label: string; color: string; bg: string }> = {
-  fuego:    { label: '🔥 Fuego',    color: '#C0392B', bg: '#F9E5E2' },
-  estrella: { label: '⭐ Estrella', color: '#2E7D46', bg: '#E4F1E8' },
-  delegar:  { label: '🔄 Delegar',  color: '#B07206', bg: '#F7ECD5' },
+  fuego:    { label: '🔥 Urgente e importante',       color: '#C0392B', bg: '#F9E5E2' },
+  estrella: { label: '⭐ Importante y no urgente',    color: '#2E7D46', bg: '#E4F1E8' },
+  delegar:  { label: '🔄 Urgente y no importante',    color: '#B07206', bg: '#F7ECD5' },
+  eliminar: { label: '🗑️ No importante y no urgente', color: '#5A6472', bg: '#ECEEF0' },
 };
 const XPS: Record<string, { label: string; color: string }> = {
   verde:    { label: '🟢 Vendido',   color: '#2E7D46' },

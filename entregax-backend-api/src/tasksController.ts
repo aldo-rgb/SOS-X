@@ -18,7 +18,7 @@ const authRole = (req: Request): string =>
 const MANAGER_ROLES = ['super_admin', 'admin', 'director'];
 const isManager = (req: Request): boolean => MANAGER_ROLES.includes(authRole(req));
 
-const EISENHOWER = ['fuego', 'estrella', 'delegar'];
+const EISENHOWER = ['fuego', 'estrella', 'delegar', 'eliminar'];
 const XPAY_SEGURO = ['verde', 'amarillo', 'rojo'];
 
 // Bitácora inmutable (no crítica: si falla, no rompe la acción).
