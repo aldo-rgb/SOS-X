@@ -22,7 +22,9 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
-import { Checkbox as MCheckbox, FormControlLabel, ListItemText, OutlinedInput } from '@mui/material';
+import { Checkbox as MCheckbox, FormControlLabel, ListItemText, OutlinedInput, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import ViewColumnIcon from '@mui/icons-material/ViewColumn';
+import GridViewIcon from '@mui/icons-material/GridView';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -30,12 +32,19 @@ const H = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
 const myRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; } })();
 const isSuperAdmin = myRole === 'super_admin';
 
-const EIS: Record<string, { label: string; color: string; bg: string }> = {
-  fuego:    { label: '🔥 Urgente e importante',       color: '#C0392B', bg: '#F9E5E2' },
-  estrella: { label: '⭐ Importante y no urgente',    color: '#2E7D46', bg: '#E4F1E8' },
-  delegar:  { label: '🔄 Urgente y no importante',    color: '#B07206', bg: '#F7ECD5' },
-  eliminar: { label: '🗑️ No importante y no urgente', color: '#5A6472', bg: '#ECEEF0' },
+const EIS: Record<string, { label: string; short: string; color: string; bg: string }> = {
+  fuego:    { label: '🔥 Urgente e importante',       short: '🔥 Urgente',           color: '#C0392B', bg: '#F9E5E2' },
+  estrella: { label: '⭐ Importante y no urgente',    short: '⭐ Importante',         color: '#2E7D46', bg: '#E4F1E8' },
+  delegar:  { label: '🔄 Urgente y no importante',    short: '🔄 Atención Inmediata', color: '#B07206', bg: '#F7ECD5' },
+  eliminar: { label: '🗑️ No importante y no urgente', short: '🗑️ Algún día',         color: '#5A6472', bg: '#ECEEF0' },
 };
+// Matriz Eisenhower — 2×2 (orden de lectura: Q1 ↖, Q2 ↗, Q3 ↙, Q4 ↘).
+const QUADRANTS: Array<{ key: string; title: string; color: string; bg: string }> = [
+  { key: 'fuego',    title: 'Importante y urgente',       color: '#C0392B', bg: '#FCEDEA' },
+  { key: 'estrella', title: 'Importante y no urgente',    color: '#2E7D46', bg: '#ECF6EF' },
+  { key: 'delegar',  title: 'Urgente y no importante',    color: '#B07206', bg: '#FAF3E4' },
+  { key: 'eliminar', title: 'No importante y no urgente', color: '#5A6472', bg: '#F1F3F5' },
+];
 const XPS: Record<string, { label: string; color: string }> = {
   verde:    { label: '🟢 Vendido',   color: '#2E7D46' },
   amarillo: { label: '🟡 Ofrecido',  color: '#B07206' },
@@ -62,7 +71,7 @@ const taskTime = (t: { created_at?: string; completed_at?: string; status?: stri
 };
 
 interface Col { id: number; col_key: string; name: string; color: string; gate_checklist: boolean; is_done?: boolean; sort_order: number; }
-interface Sec { id: number; board_id: number; name: string; sort_order: number; }
+interface Sec { id: number; board_id: number; name: string; sort_order: number; is_someday?: boolean; }
 interface Board { id: number; name: string; board_type: string; columns: Col[]; sections?: Sec[]; lead_name?: string | null; }
 interface Task {
   id: number; column_id: number; section_id?: number | null; title: string; description?: string; assignee_id?: number;
@@ -94,9 +103,14 @@ export default function TareasPage() {
   const [cfgUserIds, setCfgUserIds] = useState<number[]>([]);
   // Sub-sección activa (null = Todas) para filtrar el tablero.
   const [activeSection, setActiveSection] = useState<number | null>(null);
+  // Vista del tablero: 'columns' (Kanban) o 'matrix' (Eisenhower 2×2).
+  const [view, setView] = useState<'columns' | 'matrix'>('columns');
 
   const board = boards.find(b => b.id === activeId) || null;
   const sections = board?.sections || [];
+  const somedaySection = sections.find(s => s.is_someday) || null;
+  const somedayId = somedaySection?.id ?? null;
+  const sectionName = (id?: number | null) => sections.find(s => s.id === id)?.name;
 
   const loadBoards = useCallback(async (preferId?: number) => {
     try {
@@ -220,6 +234,47 @@ export default function TareasPage() {
   const initials = (n?: string) => (n || '?').split(' ').map(x => x[0]).slice(0, 2).join('').toUpperCase();
   const isOperativo = board?.board_type === 'operativo';
 
+  // Tarjeta de tarea (reutilizada en vista Columnas y Matriz).
+  const renderTaskCard = (t: Task) => {
+    const tt = taskTime(t);
+    const secName = t.section_id ? sectionName(t.section_id) : null;
+    return (
+      <Box key={t.id} onClick={() => setDetailId(t.id)}
+        sx={{ bgcolor: '#fff', borderRadius: 1.5, p: 1.25, cursor: 'pointer', border: '1px solid #E8DFD3',
+          '&:hover': { boxShadow: 2 }, borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3', opacity: t.status === 'completed' ? 0.72 : 1 }}>
+        <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
+          <Chip label={EIS[t.eisenhower]?.short || t.eisenhower} size="small"
+            sx={{ height: 20, fontSize: 11, bgcolor: EIS[t.eisenhower]?.bg, color: EIS[t.eisenhower]?.color, fontWeight: 700 }} />
+          {t.xpay_seguro && <Chip label={XPS[t.xpay_seguro]?.label} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
+          {secName && <Chip label={`🗂️ ${secName}`} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700 }} />}
+        </Box>
+        <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: t.status === 'completed' ? 'line-through' : 'none' }}>{t.title}</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
+          {t.assignee_name ? (
+            <Tooltip title={t.assignee_name}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#D6521C' }}>{initials(t.assignee_name)}</Avatar></Tooltip>
+          ) : <Chip label="Sin asignar" size="small" variant="outlined" sx={{ height: 18, fontSize: 10 }} />}
+          <Box sx={{ flex: 1 }} />
+          {t.subtasks_total > 0 && (
+            <Typography fontSize={11} color={t.subtasks_done === t.subtasks_total ? 'success.main' : 'text.secondary'}>
+              ☑ {t.subtasks_done}/{t.subtasks_total}
+            </Typography>
+          )}
+          {t.due_at && <Typography fontSize={11} color={t.overdue ? 'error.main' : 'text.secondary'}>
+            {new Date(t.due_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+          </Typography>}
+        </Box>
+        {tt && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mt: 0.5 }}>
+            <AccessTimeIcon sx={{ fontSize: 13, color: tt.done ? '#2E7D46' : '#8A8A8A' }} />
+            <Typography fontSize={11} color={tt.done ? 'success.main' : 'text.secondary'}>
+              {tt.done ? `Resuelta en ${fmtDur(tt.ms)}` : `${fmtDur(tt.ms)} en curso`}
+            </Typography>
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
@@ -272,8 +327,20 @@ export default function TareasPage() {
         </Button>
       </Box>
 
-      {/* Sub-secciones (categorías dentro del tablero, ej. App / Web) */}
+      {/* Selector de vista: Columnas (Kanban) o Matriz Eisenhower */}
       {board && (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
+          <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}
+            sx={{ '& .MuiToggleButton-root': { textTransform: 'none', px: 1.5, gap: 0.5 }, '& .Mui-selected': { color: '#D6521C !important', bgcolor: '#FBE6D8 !important' } }}>
+            <ToggleButton value="columns"><ViewColumnIcon sx={{ fontSize: 18 }} /> Columnas</ToggleButton>
+            <ToggleButton value="matrix"><GridViewIcon sx={{ fontSize: 18 }} /> Matriz Eisenhower</ToggleButton>
+          </ToggleButtonGroup>
+          {view === 'matrix' && <Typography fontSize={12} color="text.secondary">Muestra todas las tareas por cuadrante de prioridad.</Typography>}
+        </Box>
+      )}
+
+      {/* Sub-secciones (solo en vista Columnas) */}
+      {board && view === 'columns' && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5, flexWrap: 'wrap' }}>
           <Typography fontSize={12} color="text.secondary" sx={{ mr: 0.5 }}>Sub-secciones:</Typography>
           <Chip label="Todas" size="small" onClick={() => setActiveSection(null)}
@@ -282,9 +349,9 @@ export default function TareasPage() {
             sx={{ fontWeight: 700, ...(activeSection === null ? { bgcolor: '#D6521C' } : {}) }} />
           {sections.map(s => (
             <Chip key={s.id} size="small"
-              label={s.name}
+              label={s.is_someday ? `💤 ${s.name}` : s.name}
               onClick={() => setActiveSection(s.id)}
-              onDelete={() => deleteSection(s)}
+              onDelete={s.is_someday ? undefined : () => deleteSection(s)}
               color={activeSection === s.id ? 'primary' : 'default'}
               variant={activeSection === s.id ? 'filled' : 'outlined'}
               sx={{ fontWeight: 700, ...(activeSection === s.id ? { bgcolor: '#D6521C' } : {}) }} />
@@ -299,11 +366,33 @@ export default function TareasPage() {
         <Box sx={{ textAlign: 'center', mt: 8 }}><CircularProgress /></Box>
       ) : !board ? (
         <Alert severity="info">No hay tablero configurado.</Alert>
+      ) : view === 'matrix' ? (
+        // ── Vista MATRIZ EISENHOWER (2×2) — muestra TODAS las tareas ──
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
+          {QUADRANTS.map((q) => {
+            const qTasks = tasks.filter(t => t.eisenhower === q.key);
+            return (
+              <Box key={q.key} sx={{ bgcolor: q.bg, borderRadius: 2, p: 1.25, borderTop: `3px solid ${q.color}`, minHeight: 160 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <Typography fontWeight={800} fontSize={14} sx={{ flex: 1, color: q.color }}>{q.title}</Typography>
+                  <Chip label={qTasks.length} size="small" sx={{ height: 20 }} />
+                </Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {qTasks.map(renderTaskCard)}
+                  {qTasks.length === 0 && <Typography fontSize={12} color="text.disabled" sx={{ px: 0.5, py: 2, textAlign: 'center' }}>—</Typography>}
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
       ) : (
+        // ── Vista COLUMNAS (Kanban). En "Todas" se oculta la sección "Algún día" ──
         <Box sx={{ overflowX: 'auto', pb: 2 }}>
           <Box sx={{ display: 'flex', gap: 1.5, minWidth: 'min-content' }}>
             {board.columns.map((col) => {
-              const colTasks = tasks.filter(t => t.column_id === col.id && (activeSection === null || t.section_id === activeSection));
+              const colTasks = tasks.filter(t => t.column_id === col.id && (
+                activeSection === null ? t.section_id !== somedayId : t.section_id === activeSection
+              ));
               return (
                 <Box key={col.id} sx={{ width: 268, flex: 'none', bgcolor: '#F4EEE6', borderRadius: 2, p: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 0.5, py: 0.5, borderTop: `3px solid ${col.color}`, borderRadius: '3px 3px 0 0' }}>
@@ -313,47 +402,7 @@ export default function TareasPage() {
                     <Chip label={colTasks.length} size="small" sx={{ height: 20 }} />
                   </Box>
                   <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {colTasks.map((t) => {
-                      const tt = taskTime(t);
-                      return (
-                        <Box key={t.id} onClick={() => setDetailId(t.id)}
-                          sx={{ bgcolor: '#fff', borderRadius: 1.5, p: 1.25, cursor: 'pointer', border: '1px solid #E8DFD3',
-                            '&:hover': { boxShadow: 2 }, borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3', opacity: t.status === 'completed' ? 0.72 : 1 }}>
-                          <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
-                            <Chip label={EIS[t.eisenhower]?.label || t.eisenhower} size="small"
-                              sx={{ height: 20, fontSize: 11, bgcolor: EIS[t.eisenhower]?.bg, color: EIS[t.eisenhower]?.color, fontWeight: 700 }} />
-                            {t.xpay_seguro && <Chip label={XPS[t.xpay_seguro]?.label} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
-                            {activeSection === null && t.section_id && sections.find(s => s.id === t.section_id) && (
-                              <Chip label={`🗂️ ${sections.find(s => s.id === t.section_id)?.name}`} size="small"
-                                sx={{ height: 20, fontSize: 11, bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700 }} />
-                            )}
-                          </Box>
-                          <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: t.status === 'completed' ? 'line-through' : 'none' }}>{t.title}</Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
-                            {t.assignee_name ? (
-                              <Tooltip title={t.assignee_name}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#D6521C' }}>{initials(t.assignee_name)}</Avatar></Tooltip>
-                            ) : <Chip label="Sin asignar" size="small" variant="outlined" sx={{ height: 18, fontSize: 10 }} />}
-                            <Box sx={{ flex: 1 }} />
-                            {t.subtasks_total > 0 && (
-                              <Typography fontSize={11} color={t.subtasks_done === t.subtasks_total ? 'success.main' : 'text.secondary'}>
-                                ☑ {t.subtasks_done}/{t.subtasks_total}
-                              </Typography>
-                            )}
-                            {t.due_at && <Typography fontSize={11} color={t.overdue ? 'error.main' : 'text.secondary'}>
-                              {new Date(t.due_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
-                            </Typography>}
-                          </Box>
-                          {tt && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mt: 0.5 }}>
-                              <AccessTimeIcon sx={{ fontSize: 13, color: tt.done ? '#2E7D46' : '#8A8A8A' }} />
-                              <Typography fontSize={11} color={tt.done ? 'success.main' : 'text.secondary'}>
-                                {tt.done ? `Resuelta en ${fmtDur(tt.ms)}` : `${fmtDur(tt.ms)} en curso`}
-                              </Typography>
-                            </Box>
-                          )}
-                        </Box>
-                      );
-                    })}
+                    {colTasks.map(renderTaskCard)}
                     {colTasks.length === 0 && <Typography fontSize={12} color="text.disabled" sx={{ px: 0.5, py: 2, textAlign: 'center' }}>—</Typography>}
                   </Box>
                 </Box>
@@ -386,13 +435,17 @@ export default function TareasPage() {
               </Select>
             </FormControl>
           </Box>
-          {sections.length > 0 && (
+          {form.eisenhower === 'eliminar' ? (
+            <Box sx={{ mt: 1.5 }}>
+              <Alert severity="info" sx={{ py: 0.25 }}>Esta tarea se asignará automáticamente a la sub-sección <b>💤 Algún día</b> y no se mostrará en “Todas”.</Alert>
+            </Box>
+          ) : sections.filter(s => !s.is_someday).length > 0 && (
             <Box sx={{ mt: 1.5 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>Sub-sección</InputLabel>
                 <Select label="Sub-sección" value={form.section_id || ''} onChange={e => setForm({ ...form, section_id: e.target.value })}>
                   <MenuItem value="">Sin sub-sección</MenuItem>
-                  {sections.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                  {sections.filter(s => !s.is_someday).map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
                 </Select>
               </FormControl>
             </Box>

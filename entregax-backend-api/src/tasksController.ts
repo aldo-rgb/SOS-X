@@ -86,6 +86,18 @@ export async function upsertSalesLeadTask(opts: {
   } catch (e: any) { console.warn('[tasks] upsertSalesLeadTask:', e?.message); }
 }
 
+// Devuelve (creándola si falta) la sección "Algún día" del tablero, donde
+// caen las tareas "No importante y no urgente" (eisenhower='eliminar').
+async function getOrCreateSomedaySection(boardId: number): Promise<number | null> {
+  try {
+    const ex = await pool.query(`SELECT id FROM task_sections WHERE board_id=$1 AND is_someday=TRUE ORDER BY id LIMIT 1`, [boardId]);
+    if (ex.rows[0]) return ex.rows[0].id;
+    const ins = await pool.query(
+      `INSERT INTO task_sections (board_id, name, sort_order, is_someday) VALUES ($1,'Algún día',999,TRUE) RETURNING id`, [boardId]);
+    return ins.rows[0]?.id || null;
+  } catch (e: any) { console.warn('[tasks] getOrCreateSomedaySection:', e?.message); return null; }
+}
+
 // ¿Puede GESTIONAR este tablero? (manager global o líder del tablero)
 async function canManageBoard(req: Request, boardId: number): Promise<boolean> {
   if (isManager(req)) return true;
@@ -151,6 +163,8 @@ export const createBoard = async (req: Request, res: Response): Promise<any> => 
         [board.id, c.key, c.name, c.ord, c.color, c.done]
       );
     }
+    // Toda flujo nace con la sección "Algún día" (para 'no importante/no urgente').
+    await getOrCreateSomedaySection(board.id);
     const colRows = await pool.query(`SELECT * FROM task_columns WHERE board_id = $1 ORDER BY sort_order`, [board.id]);
     res.json({ board: { ...board, columns: colRows.rows } });
   } catch (e: any) {
@@ -179,8 +193,9 @@ export const createSection = async (req: Request, res: Response): Promise<any> =
 export const deleteSection = async (req: Request, res: Response): Promise<any> => {
   try {
     const id = parseInt(String(req.params.id));
-    const s = await pool.query(`SELECT board_id FROM task_sections WHERE id = $1`, [id]);
+    const s = await pool.query(`SELECT board_id, is_someday FROM task_sections WHERE id = $1`, [id]);
     if (s.rows.length === 0) return res.status(404).json({ error: 'Sub-sección no encontrada' });
+    if (s.rows[0].is_someday) return res.status(400).json({ error: 'La sección "Algún día" no se puede eliminar' });
     if (!(await canManageBoard(req, s.rows[0].board_id))) return res.status(403).json({ error: 'Sin permiso' });
     await pool.query(`DELETE FROM task_sections WHERE id = $1`, [id]); // tasks.section_id → NULL (ON DELETE SET NULL)
     res.json({ success: true });
@@ -371,7 +386,10 @@ export const createTask = async (req: Request, res: Response): Promise<any> => {
       const c = await pool.query(`SELECT id FROM task_columns WHERE board_id = $1 ORDER BY sort_order LIMIT 1`, [boardId]);
       columnId = c.rows[0]?.id || null;
     }
-    const sectionId = b.section_id ? parseInt(String(b.section_id)) : null;
+    // Regla "Algún día": prioridad 'eliminar' (no importante/no urgente) se
+    // auto-asigna a la sección Algún día del tablero, sin importar lo elegido.
+    let sectionId = b.section_id ? parseInt(String(b.section_id)) : null;
+    if (eisenhower === 'eliminar') { sectionId = await getOrCreateSomedaySection(boardId); }
     const r = await pool.query(`
       INSERT INTO tasks (board_id, column_id, section_id, title, description, assignee_id, due_at, eisenhower,
                          xpay_seguro, linked_type, linked_id, priority, created_by)
@@ -467,6 +485,19 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
     params.push(id);
     const r = await pool.query(`UPDATE tasks SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);
     const updated = r.rows[0];
+    // Regla "Algún día": si la prioridad pasa a 'eliminar' → mover a esa sección;
+    // si deja de ser 'eliminar' y estaba en Algún día → sacarla.
+    if (b.eisenhower !== undefined && EISENHOWER.includes(b.eisenhower)) {
+      if (b.eisenhower === 'eliminar') {
+        const sid = await getOrCreateSomedaySection(updated.board_id);
+        if (sid) { await pool.query(`UPDATE tasks SET section_id=$2, updated_at=NOW() WHERE id=$1`, [id, sid]); updated.section_id = sid; }
+      } else {
+        await pool.query(
+          `UPDATE tasks SET section_id=NULL, updated_at=NOW()
+            WHERE id=$1 AND section_id IN (SELECT id FROM task_sections WHERE board_id=$2 AND is_someday=TRUE)`,
+          [id, updated.board_id]);
+      }
+    }
     if (b.assignee_id !== undefined && Number(b.assignee_id) && Number(b.assignee_id) !== Number(task.assignee_id)) {
       await logActivity(id, uid, 'assigned', { assignee_id: updated.assignee_id });
       await notify(updated.assignee_id, '📋 Te asignaron una tarea', updated.title, { task_id: id });

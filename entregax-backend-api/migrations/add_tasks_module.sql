@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS task_sections (
   board_id    INTEGER NOT NULL REFERENCES task_boards(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
   sort_order  INTEGER NOT NULL DEFAULT 0,
+  is_someday  BOOLEAN NOT NULL DEFAULT FALSE,  -- "Algún día": no importante/no urgente; oculta en "Todas"
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_sections_board ON task_sections(board_id, sort_order);
