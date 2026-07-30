@@ -21,6 +21,7 @@ import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import { Checkbox as MCheckbox, FormControlLabel, ListItemText, OutlinedInput } from '@mui/material';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
@@ -82,6 +83,7 @@ export default function TareasPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '' });
+  const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [newBoardOpen, setNewBoardOpen] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
@@ -151,14 +153,23 @@ export default function TareasPage() {
   const createTask = async () => {
     if (!form.title.trim()) return notify('El título es obligatorio', 'error');
     try {
-      await axios.post(`${API_URL}/tasks`, {
+      const res = await axios.post(`${API_URL}/tasks`, {
         board_id: board?.id, title: form.title.trim(), description: form.description || null,
         eisenhower: form.eisenhower, assignee_id: form.assignee_id || null,
         due_at: form.due_at || null, column_id: form.column_id || null,
         section_id: form.section_id || activeSection || null,
       }, H());
+      const newId = res.data?.task?.id;
+      // Subir fotos adjuntas (si el usuario agregó alguna).
+      if (newId && newPhotos.length) {
+        for (const f of newPhotos) {
+          const fd = new FormData(); fd.append('photo', f);
+          try { await axios.post(`${API_URL}/tasks/${newId}/attachments`, fd, { headers: { ...H().headers, 'Content-Type': 'multipart/form-data' } }); } catch { /* continúa */ }
+        }
+      }
       setCreateOpen(false);
       setForm({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '', section_id: '' });
+      setNewPhotos([]);
       notify('Tarea creada');
       refresh();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear', 'error'); }
@@ -223,7 +234,7 @@ export default function TareasPage() {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setForm((f: any) => ({ ...f, section_id: activeSection || '' })); setCreateOpen(true); }} disabled={!board}
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setForm((f: any) => ({ ...f, section_id: activeSection || '', column_id: board?.columns?.[0]?.id || '' })); setNewPhotos([]); setCreateOpen(true); }} disabled={!board}
             sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={refresh}>Actualizar</Button>
         </Box>
@@ -405,12 +416,34 @@ export default function TareasPage() {
                 {assignees.length === 0 && <MenuItem value="" disabled>No hay responsables configurados</MenuItem>}
               </Select>
             </FormControl>
-            <TextField fullWidth size="small" type="datetime-local" label="Fecha límite" InputLabelProps={{ shrink: true }}
+            <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
               value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
+          </Box>
+          {/* Fotos adjuntas */}
+          <Box sx={{ mt: 2 }}>
+            <Button component="label" size="small" startIcon={<PhotoCameraIcon />} sx={{ textTransform: 'none' }}>
+              Agregar fotos
+              <input hidden type="file" accept="image/*" multiple
+                onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) setNewPhotos(prev => [...prev, ...fs]); e.currentTarget.value = ''; }} />
+            </Button>
+            {newPhotos.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+                {newPhotos.map((f, idx) => (
+                  <Box key={idx} sx={{ position: 'relative' }}>
+                    <Box component="img" src={URL.createObjectURL(f)} alt={f.name}
+                      sx={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                    <IconButton size="small" onClick={() => setNewPhotos(prev => prev.filter((_, i) => i !== idx))}
+                      sx={{ position: 'absolute', top: -8, right: -8, bgcolor: '#fff', boxShadow: 1, p: 0.2, '&:hover': { bgcolor: '#fff' } }}>
+                      <CloseIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                ))}
+              </Box>
+            )}
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateOpen(false)}>Cancelar</Button>
+          <Button onClick={() => { setCreateOpen(false); setNewPhotos([]); }}>Cancelar</Button>
           <Button variant="contained" onClick={createTask} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Crear</Button>
         </DialogActions>
       </Dialog>
@@ -532,6 +565,23 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
     try { await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim() }, H()); setComment(''); reload(); }
     catch { notify('Error al comentar', 'error'); }
   };
+  const uploadPhotos = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    setBusy(true);
+    try {
+      for (const f of Array.from(files)) {
+        const fd = new FormData(); fd.append('photo', f);
+        await axios.post(`${API_URL}/tasks/${id}/attachments`, fd, { headers: { ...H().headers, 'Content-Type': 'multipart/form-data' } });
+      }
+      notify('Foto(s) agregada(s)'); reload();
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo subir la foto', 'error'); }
+    finally { setBusy(false); }
+  };
+  const deletePhoto = async (attId: number) => {
+    if (!window.confirm('¿Eliminar esta foto?')) return;
+    try { await axios.delete(`${API_URL}/tasks/attachments/${attId}`, H()); reload(); }
+    catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); }
+  };
 
   return (
     <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
@@ -549,7 +599,7 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
             {t.description && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{t.description}</Typography>}
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1.5 }}>
               <Typography variant="body2"><b>Responsable:</b> {t.assignee_name || '—'}</Typography>
-              {t.due_at && <Typography variant="body2" color={t.overdue ? 'error.main' : 'inherit'}><b>Vence:</b> {new Date(t.due_at).toLocaleString('es-MX')}</Typography>}
+              {t.due_at && <Typography variant="body2" color={t.overdue ? 'error.main' : 'inherit'}><b>Fecha deseada:</b> {new Date(t.due_at).toLocaleString('es-MX')}</Typography>}
               {t.linked_id && <Typography variant="body2"><b>Ligada:</b> {t.linked_id}</Typography>}
             </Box>
 
@@ -590,6 +640,33 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
                   </Box>
                 </Box>
               ))}
+
+            <Divider sx={{ my: 2 }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography fontWeight={800} fontSize={14}>Fotos {(data.attachments || []).length > 0 && `(${(data.attachments || []).length})`}</Typography>
+              <Button component="label" size="small" startIcon={<PhotoCameraIcon />} disabled={busy} sx={{ textTransform: 'none' }}>
+                Agregar foto
+                <input hidden type="file" accept="image/*" multiple onChange={e => uploadPhotos(e.target.files)} />
+              </Button>
+            </Box>
+            {(data.attachments || []).length === 0 ? (
+              <Typography variant="caption" color="text.secondary">Sin fotos.</Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                {(data.attachments || []).map((a: any) => (
+                  <Box key={a.id} sx={{ position: 'relative' }}>
+                    <a href={a.url || '#'} target="_blank" rel="noreferrer">
+                      <Box component="img" src={a.url} alt={a.file_name || 'foto'}
+                        sx={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                    </a>
+                    <IconButton size="small" onClick={() => deletePhoto(a.id)}
+                      sx={{ position: 'absolute', top: -8, right: -8, bgcolor: '#fff', boxShadow: 1, p: 0.2, '&:hover': { bgcolor: '#fff' } }}>
+                      <CloseIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                ))}
+              </Box>
+            )}
 
             <Divider sx={{ my: 2 }} />
             <Typography fontWeight={800} fontSize={14} sx={{ mb: 1 }}>Comentarios (rastro oficial)</Typography>

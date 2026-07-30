@@ -92,6 +92,17 @@ CREATE TABLE IF NOT EXISTS task_subtasks (
 );
 CREATE INDEX IF NOT EXISTS idx_subtasks_task ON task_subtasks(task_id);
 
+-- Adjuntos (fotos) de la tarea, en S3.
+CREATE TABLE IF NOT EXISTS task_attachments (
+  id           SERIAL PRIMARY KEY,
+  task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  file_key     TEXT NOT NULL,
+  file_name    TEXT,
+  uploaded_by  INTEGER REFERENCES users(id),
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_task_attachments_task ON task_attachments(task_id);
+
 -- Comentarios = el Rastro Oficial (@menciones, timestamp, autor).
 CREATE TABLE IF NOT EXISTS task_comments (
   id             SERIAL PRIMARY KEY,

@@ -7,6 +7,7 @@
 // ============================================================
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { uploadToS3WithSignedUrl, getSignedUrlForKey } from './s3Service';
 
 const authUserId = (req: Request): number | null => {
   const u = (req as any).user;
@@ -338,7 +339,16 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
     const activity = await pool.query(
       `SELECT a.*, u.full_name AS actor_name FROM task_activity a
          LEFT JOIN users u ON u.id = a.actor_id WHERE a.task_id = $1 ORDER BY a.created_at DESC LIMIT 50`, [id]);
-    res.json({ task: t.rows[0], subtasks: subs.rows, comments: comments.rows, activity: activity.rows });
+    // Adjuntos (fotos): re-firmar la URL de S3 para poder mostrarlas.
+    const attRows = await pool.query(
+      `SELECT at.*, u.full_name AS uploaded_by_name FROM task_attachments at
+         LEFT JOIN users u ON u.id = at.uploaded_by WHERE at.task_id = $1 ORDER BY at.id DESC`, [id]);
+    const attachments = await Promise.all(attRows.rows.map(async (a: any) => {
+      let url: string | null = null;
+      try { url = await getSignedUrlForKey(a.file_key, 6 * 3600); } catch { /* ignore */ }
+      return { id: a.id, file_name: a.file_name, uploaded_by_name: a.uploaded_by_name, created_at: a.created_at, url };
+    }));
+    res.json({ task: t.rows[0], subtasks: subs.rows, comments: comments.rows, activity: activity.rows, attachments });
   } catch (e: any) {
     console.error('[tasks] getTask:', e); res.status(500).json({ error: 'Error al obtener tarea' });
   }
@@ -511,6 +521,47 @@ export const deleteTask = async (req: Request, res: Response): Promise<any> => {
     res.json({ success: true });
   } catch (e: any) {
     console.error('[tasks] deleteTask:', e); res.status(500).json({ error: 'Error al eliminar tarea' });
+  }
+};
+
+// ─── ADJUNTOS (fotos) ───────────────────────────────────────
+export const addTaskAttachment = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const uid = authUserId(req);
+    const id = parseInt(String(req.params.id));
+    const file = (req as any).file;
+    if (!file || !file.buffer) return res.status(400).json({ error: 'Falta el archivo' });
+    const t = await pool.query(`SELECT id FROM tasks WHERE id = $1`, [id]);
+    if (t.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
+    const orig = String(file.originalname || 'foto').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60);
+    const key = `task-attachments/task-${id}-${Date.now()}-${orig}`;
+    await uploadToS3WithSignedUrl(file.buffer, key, file.mimetype || 'image/jpeg', 6 * 3600);
+    const r = await pool.query(
+      `INSERT INTO task_attachments (task_id, file_key, file_name, uploaded_by) VALUES ($1,$2,$3,$4) RETURNING id, created_at`,
+      [id, key, orig, uid]);
+    let url: string | null = null;
+    try { url = await getSignedUrlForKey(key, 6 * 3600); } catch { /* ignore */ }
+    await logActivity(id, uid, 'attachment_added', { file_name: orig });
+    res.json({ attachment: { id: r.rows[0].id, file_name: orig, url, created_at: r.rows[0].created_at } });
+  } catch (e: any) {
+    console.error('[tasks] addTaskAttachment:', e); res.status(500).json({ error: 'Error al subir la foto' });
+  }
+};
+
+export const deleteTaskAttachment = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const attId = parseInt(String(req.params.attId));
+    const a = await pool.query(
+      `SELECT at.uploaded_by, t.board_id FROM task_attachments at JOIN tasks t ON t.id = at.task_id WHERE at.id = $1`, [attId]);
+    if (a.rows.length === 0) return res.status(404).json({ error: 'Adjunto no encontrado' });
+    const mgr = await canManageBoard(req, a.rows[0].board_id);
+    if (!mgr && Number(a.rows[0].uploaded_by) !== Number(authUserId(req))) {
+      return res.status(403).json({ error: 'Solo quien la subió o gerencia puede eliminarla' });
+    }
+    await pool.query(`DELETE FROM task_attachments WHERE id = $1`, [attId]);
+    res.json({ success: true });
+  } catch (e: any) {
+    console.error('[tasks] deleteTaskAttachment:', e); res.status(500).json({ error: 'Error al eliminar el adjunto' });
   }
 };
 

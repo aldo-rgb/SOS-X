@@ -13391,6 +13391,8 @@ import {
   setBoardAssignees as tasksSetBoardAssignees,
   createSection as tasksCreateSection,
   deleteSection as tasksDeleteSection,
+  addTaskAttachment as tasksAddAttachment,
+  deleteTaskAttachment as tasksDeleteAttachment,
   listTasks as tasksList,
   myTasks as tasksMine,
   getTask as tasksGet,
@@ -13435,6 +13437,8 @@ app.get('/api/tasks/boards/:id/assignees', authenticateToken, tasksGetBoardAssig
 app.put('/api/tasks/boards/:id/assignees', authenticateToken, tasksSetBoardAssignees);
 app.post('/api/tasks/boards/:id/sections', authenticateToken, tasksCreateSection);
 app.delete('/api/tasks/sections/:id', authenticateToken, tasksDeleteSection);
+app.post('/api/tasks/:id/attachments', authenticateToken, advisorProofUpload.single('photo'), tasksAddAttachment);
+app.delete('/api/tasks/attachments/:attId', authenticateToken, tasksDeleteAttachment);
 app.get('/api/tasks/mine', authenticateToken, tasksMine);
 app.get('/api/tasks', authenticateToken, tasksList);
 app.post('/api/tasks', authenticateToken, tasksCreate);
