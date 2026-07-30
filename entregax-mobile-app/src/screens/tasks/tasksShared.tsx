@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Modal, Alert,
-  ActivityIndicator, TextInput, Image, Platform,
+  ActivityIndicator, TextInput, Image, Platform, Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -186,6 +186,18 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   };
 
   const eis = t ? EIS[t.eisenhower] : null;
+  const contactPhone: string = t?.contact_phone || '';
+  const callProspect = () => { if (contactPhone) Linking.openURL(`tel:${contactPhone.replace(/[^\d+]/g, '')}`); };
+  const waProspect = () => {
+    if (!contactPhone) return;
+    const digits = contactPhone.replace(/\D/g, '');
+    const waPhone = digits.length === 10 ? `52${digits}` : digits; // MX 10 dígitos → +52
+    const name = (t.title || '').split('—').pop()?.trim() || '';
+    const ref = t.assignee_referral_code;
+    const link = ref ? `https://entregax.app/register?ref=${ref}` : 'https://entregax.app';
+    const msg = `¡Hola ${name}! 👋 Te saluda tu asesor de *EntregaX*. Gracias por tu interés en nuestros envíos internacionales 🌎📦.\n\nDescarga la app y regístrate con mi enlace para cotizar y dar seguimiento a tus envíos:\n${link}`;
+    Linking.openURL(`https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`);
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -206,6 +218,22 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
               {!!t.description && <Text style={styles.desc}>{t.description}</Text>}
               <Text style={styles.metaLine}><Text style={styles.metaB}>Responsable:</Text> {t.assignee_name || '—'}</Text>
               {!!t.due_at && <Text style={[styles.metaLine, t.overdue && { color: '#C0392B' }]}><Text style={styles.metaB}>Fecha deseada:</Text> {fmtDate(t.due_at)}</Text>}
+
+              {/* Contacto del prospecto: llamar / WhatsApp */}
+              {!!contactPhone && (
+                <View style={styles.contactBox}>
+                  <Text style={styles.contactLabel}>📞 Contacto del prospecto</Text>
+                  <TouchableOpacity onPress={callProspect}><Text style={styles.contactPhone}>{contactPhone}</Text></TouchableOpacity>
+                  <View style={styles.contactBtns}>
+                    <TouchableOpacity style={styles.callBtn} onPress={callProspect}>
+                      <Ionicons name="call" size={16} color="#fff" /><Text style={styles.contactBtnTxt}>Llamar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.waBtn} onPress={waProspect}>
+                      <Ionicons name="logo-whatsapp" size={16} color="#fff" /><Text style={styles.contactBtnTxt}>WhatsApp</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
 
               {/* Tiempo */}
               <View style={styles.timeBox}>
@@ -358,6 +386,13 @@ export const styles = StyleSheet.create({
   metaLine: { fontSize: 13, color: '#333', marginTop: 2 },
   metaB: { fontWeight: '700' },
   timeBox: { backgroundColor: '#F7F4EF', borderRadius: 10, padding: 10, marginTop: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: '#ECE4D8' },
+  contactBox: { backgroundColor: '#FFF7F3', borderRadius: 12, padding: 12, marginTop: 12, borderWidth: 1, borderColor: '#F3D9CC' },
+  contactLabel: { fontSize: 12, fontWeight: '700', color: '#B23F12' },
+  contactPhone: { fontSize: 20, fontWeight: '800', color: '#222', marginTop: 2, letterSpacing: 0.5 },
+  contactBtns: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  callBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: ORANGE, borderRadius: 10, height: 42 },
+  waBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#25D366', borderRadius: 10, height: 42 },
+  contactBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 14 },
   sectionTitle: { fontSize: 14, fontWeight: '800', color: '#222', marginTop: 18, marginBottom: 6 },
   colRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   colChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 18, backgroundColor: '#F0F0F0' },

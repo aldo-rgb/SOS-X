@@ -48,10 +48,11 @@ async function notify(userId: number | null, title: string, message: string, dat
 //    Prospectos, para el asesor asignado. Idempotente por lead (linked_id).
 //    Si ya existe tarjeta del lead → la reasigna y reabre. No lanza.
 export async function upsertSalesLeadTask(opts: {
-  leadKey: string; advisorId: number; leadName?: string; actorId?: number | null;
+  leadKey: string; advisorId: number; leadName?: string; leadPhone?: string | null; actorId?: number | null;
 }): Promise<void> {
   try {
     const { leadKey, advisorId } = opts;
+    const leadPhone = (opts.leadPhone || '').trim() || null;
     if (!leadKey || !advisorId) return;
     const board = await pool.query(`SELECT id FROM task_boards WHERE board_key='flujo_operativo' AND is_active=TRUE LIMIT 1`);
     const boardId = board.rows[0]?.id;
@@ -69,15 +70,18 @@ export async function upsertSalesLeadTask(opts: {
         ORDER BY id DESC LIMIT 1`, [boardId, leadKey]);
     if (existing.rows[0]) {
       const tid = existing.rows[0].id;
-      await pool.query(`UPDATE tasks SET assignee_id=$2, status='open', completed_at=NULL, updated_at=NOW() WHERE id=$1`, [tid, advisorId]);
+      await pool.query(
+        `UPDATE tasks SET assignee_id=$2, status='open', completed_at=NULL,
+                contact_phone=COALESCE(NULLIF($3,''), contact_phone), updated_at=NOW() WHERE id=$1`,
+        [tid, advisorId, leadPhone]);
       await logActivity(tid, actor, 'assigned', { via: 'lead_assign', leadKey, assignee_id: advisorId });
       await notify(advisorId, '📥 Prospecto reasignado', title, { task_id: tid });
       return;
     }
     const ins = await pool.query(
-      `INSERT INTO tasks (board_id, column_id, title, assignee_id, eisenhower, linked_type, linked_id, created_by)
-       VALUES ($1,$2,$3,$4,'estrella','lead',$5,$6) RETURNING id`,
-      [boardId, columnId, title, advisorId, leadKey, actor]);
+      `INSERT INTO tasks (board_id, column_id, title, assignee_id, eisenhower, linked_type, linked_id, contact_phone, created_by)
+       VALUES ($1,$2,$3,$4,'estrella','lead',$5,$6,$7) RETURNING id`,
+      [boardId, columnId, title, advisorId, leadKey, leadPhone, actor]);
     const tid = ins.rows[0]?.id;
     if (tid) {
       await logActivity(tid, actor, 'created', { via: 'lead_assign', leadKey, assignee_id: advisorId });
@@ -334,7 +338,8 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
   try {
     const id = parseInt(String(req.params.id));
     const t = await pool.query(`
-      SELECT t.*, u.full_name AS assignee_name, cu.full_name AS created_by_name,
+      SELECT t.*, u.full_name AS assignee_name, u.referral_code AS assignee_referral_code,
+             cu.full_name AS created_by_name,
              fc.full_name AS forced_close_name, col.name AS column_name
         FROM tasks t
         LEFT JOIN users u ON u.id = t.assignee_id

@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   forced_reason     TEXT,
   linked_type       TEXT,                           -- 'client' | 'guide' | 'lead'
   linked_id         TEXT,                           -- box_id / tracking / lead_key
+  contact_phone     TEXT,                           -- teléfono del prospecto (para llamar / WhatsApp)
   priority          INTEGER DEFAULT 0,
   created_by        INTEGER REFERENCES users(id),
   created_at        TIMESTAMPTZ DEFAULT NOW(),

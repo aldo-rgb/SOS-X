@@ -1857,22 +1857,22 @@ export const assignLeadAdvisor = async (req: Request, res: Response): Promise<an
     const id = leadKeyId(String(leadKey || ''));
     const advId = parseInt(String(advisorId), 10);
     if (!id || !advId) return res.status(400).json({ success: false, error: 'Falta lead o asesor' });
-    let leadName = '';
+    let leadName = ''; let leadPhone = '';
     if (String(leadKey).startsWith('crm_')) {
       await pool.query(`UPDATE users SET referred_by_id = $1 WHERE id = (SELECT user_id FROM crm_requests WHERE id = $2)`, [advId, id]);
       await pool.query(`UPDATE crm_requests SET status = 'assigned', assigned_advisor_id = $1, updated_at = NOW() WHERE id = $2`, [advId, id]);
-      const info = await pool.query(`SELECT u.full_name FROM crm_requests cr LEFT JOIN users u ON u.id = cr.user_id WHERE cr.id = $1`, [id]);
-      leadName = info.rows[0]?.full_name || '';
+      const info = await pool.query(`SELECT u.full_name, u.phone FROM crm_requests cr LEFT JOIN users u ON u.id = cr.user_id WHERE cr.id = $1`, [id]);
+      leadName = info.rows[0]?.full_name || ''; leadPhone = info.rows[0]?.phone || '';
     } else {
       // Legacy → asesor de recuperación (recovery_advisor_id)
       await pool.query(`UPDATE legacy_clients SET recovery_advisor_id = $1 WHERE id = $2`, [advId, id]);
-      const info = await pool.query(`SELECT full_name FROM legacy_clients WHERE id = $1`, [id]);
-      leadName = info.rows[0]?.full_name || '';
+      const info = await pool.query(`SELECT full_name, phone FROM legacy_clients WHERE id = $1`, [id]);
+      leadName = info.rows[0]?.full_name || ''; leadPhone = info.rows[0]?.phone || '';
     }
     // 🔗 Activar la tarjeta del prospecto en "Flujo de Ventas" para el asesor.
     try {
       const { upsertSalesLeadTask } = require('./tasksController');
-      await upsertSalesLeadTask({ leadKey: String(leadKey), advisorId: advId, leadName, actorId: (req as any).user?.userId });
+      await upsertSalesLeadTask({ leadKey: String(leadKey), advisorId: advId, leadName, leadPhone, actorId: (req as any).user?.userId });
     } catch (taskErr: any) { console.warn('[crm] upsertSalesLeadTask:', taskErr?.message); }
     const adv = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [advId]);
     res.json({ success: true, advisorName: adv.rows[0]?.full_name || null });
