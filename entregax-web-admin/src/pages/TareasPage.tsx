@@ -526,6 +526,8 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
   const [data, setData] = useState<any>(null);
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
+  const [newSub, setNewSub] = useState('');
+  const [subPhoto, setSubPhoto] = useState(false);
 
   const reload = useCallback(async () => {
     try { const r = await axios.get(`${API_URL}/tasks/${id}`, H()); setData(r.data); } catch { /* */ }
@@ -582,6 +584,17 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
     try { await axios.delete(`${API_URL}/tasks/attachments/${attId}`, H()); reload(); }
     catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); }
   };
+  const addSub = async () => {
+    if (!newSub.trim()) return;
+    try {
+      await axios.post(`${API_URL}/tasks/${id}/subtasks`, { body: newSub.trim(), requires_photo: subPhoto }, H());
+      setNewSub(''); setSubPhoto(false); reload(); onChanged();
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo agregar la subtarea', 'error'); }
+  };
+  const deleteSub = async (subId: number) => {
+    try { await axios.delete(`${API_URL}/tasks/subtasks/${subId}`, H()); reload(); onChanged(); }
+    catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); }
+  };
 
   return (
     <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
@@ -628,7 +641,7 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
               Checklist {subs.length > 0 && `(${subs.length - pending}/${subs.length})`}
             </Typography>
             {subs.length > 0 && <LinearProgress variant="determinate" value={subs.length ? ((subs.length - pending) / subs.length) * 100 : 0} sx={{ mb: 1, borderRadius: 1 }} />}
-            {subs.length === 0 ? <Typography variant="caption" color="text.secondary">Sin subtareas.</Typography> :
+            {subs.length === 0 ? <Typography variant="caption" color="text.secondary">Sin subtareas todavía.</Typography> :
               subs.map((s: any) => (
                 <Box key={s.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5, py: 0.25 }}>
                   <Checkbox size="small" checked={!!s.done} onChange={() => toggleSub(s)} disabled={t.status === 'completed'} sx={{ p: 0.5 }} />
@@ -638,8 +651,26 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
                     </Typography>
                     {s.done && s.done_by_name && <Typography variant="caption" color="text.secondary">✔ {s.done_by_name}</Typography>}
                   </Box>
+                  {t.status !== 'completed' && (
+                    <IconButton size="small" onClick={() => deleteSub(s.id)} sx={{ p: 0.3 }}>
+                      <DeleteOutlineIcon sx={{ fontSize: 16, color: '#B0B0B0' }} />
+                    </IconButton>
+                  )}
                 </Box>
               ))}
+            {t.status !== 'completed' && (
+              <Box sx={{ mt: 1 }}>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <TextField fullWidth size="small" placeholder="Nueva subtarea del checklist…" value={newSub}
+                    onChange={e => setNewSub(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addSub(); }} />
+                  <Button variant="outlined" size="small" onClick={addSub} disabled={!newSub.trim()}
+                    sx={{ textTransform: 'none', flex: 'none', borderColor: '#D6521C', color: '#D6521C' }}>Agregar</Button>
+                </Box>
+                <FormControlLabel sx={{ mt: 0.25 }} control={
+                  <MCheckbox size="small" checked={subPhoto} onChange={e => setSubPhoto(e.target.checked)} />
+                } label={<Typography fontSize={12} color="text.secondary">Requiere evidencia (foto) para palomearla</Typography>} />
+              </Box>
+            )}
 
             <Divider sx={{ my: 2 }} />
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
