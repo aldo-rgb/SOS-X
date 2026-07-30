@@ -733,20 +733,20 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           </View>
         )}
 
-        {/* Widget: Mis Tareas pendientes (solo si hay) */}
-        {myTaskCount > 0 && (
-          <TouchableOpacity activeOpacity={0.85} style={s.taskWidget}
-            onPress={() => navigation.navigate('MyTasks', { user, token })}>
-            <View style={s.taskWidgetIcon}>
-              <Ionicons name="checkbox-outline" size={24} color="#fff" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.taskWidgetNum}>{myTaskCount}</Text>
-              <Text style={s.taskWidgetLabel}>Tarea{myTaskCount === 1 ? '' : 's'} pendiente{myTaskCount === 1 ? '' : 's'}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={22} color="#fff" />
-          </TouchableOpacity>
-        )}
+        {/* Mis Tareas (botón) */}
+        <View style={s.sectionHeader}>
+          <View style={s.sectionBar} />
+          <Text style={s.sectionTitle}>MIS TAREAS</Text>
+        </View>
+        <TouchableOpacity style={s.myTasksBtn} activeOpacity={0.85} onPress={() => navigation.navigate('MyTasks', { user, token })}>
+          <View style={s.myTasksIcon}><Ionicons name="checkbox-outline" size={24} color={ORANGE} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.myTasksTitle}>Mis Tareas</Text>
+            <Text style={s.myTasksSub}>{myTaskCount > 0 ? `${myTaskCount} pendiente${myTaskCount === 1 ? '' : 's'} · Lista y Matriz` : 'Lista y Matriz'}</Text>
+          </View>
+          {myTaskCount > 0 && <View style={s.myTasksBadge}><Text style={s.myTasksBadgeTxt}>{myTaskCount}</Text></View>}
+          <Ionicons name="chevron-forward" size={22} color="#BBB" />
+        </TouchableOpacity>
 
         {/* Embarques */}
         <View style={s.sectionHeader}>
@@ -867,21 +867,6 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             </TouchableOpacity>
           </>
         )}
-
-        {/* Mis Tareas */}
-        <View style={s.sectionHeader}>
-          <View style={s.sectionBar} />
-          <Text style={s.sectionTitle}>MIS TAREAS</Text>
-        </View>
-        <TouchableOpacity style={s.myTasksBtn} activeOpacity={0.85} onPress={() => navigation.navigate('MyTasks', { user, token })}>
-          <View style={s.myTasksIcon}><Ionicons name="checkbox-outline" size={24} color={ORANGE} /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.myTasksTitle}>Mis Tareas</Text>
-            <Text style={s.myTasksSub}>{myTaskCount > 0 ? `${myTaskCount} pendiente${myTaskCount === 1 ? '' : 's'} · Lista y Matriz` : 'Lista y Matriz'}</Text>
-          </View>
-          {myTaskCount > 0 && <View style={s.myTasksBadge}><Text style={s.myTasksBadgeTxt}>{myTaskCount}</Text></View>}
-          <Ionicons name="chevron-forward" size={22} color="#BBB" />
-        </TouchableOpacity>
 
         {/* Cotizaciones */}
         <View style={s.sectionHeader}>

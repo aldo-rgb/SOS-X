@@ -111,15 +111,17 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const [busy, setBusy] = useState(false);
 
   const H = { Authorization: `Bearer ${token}` };
-  const reload = useCallback(async () => {
+  // silent = refresco en segundo plano (sin spinner) para no tapar el contenido
+  // al palomear una subtarea, comentar o subir foto.
+  const reload = useCallback(async (silent = false) => {
     if (!taskId) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const r = await fetch(`${API_URL}/api/tasks/${taskId}`, { headers: H });
       setData(await r.json());
-    } catch { /* */ } finally { setLoading(false); }
+    } catch { /* */ } finally { if (!silent) setLoading(false); }
   }, [taskId, token]);
-  useEffect(() => { if (visible && taskId) reload(); }, [visible, taskId, reload]);
+  useEffect(() => { if (visible && taskId) { setData(null); reload(); } }, [visible, taskId, reload]);
 
   const t = data?.task;
   const subs = data?.subtasks || [];
@@ -132,21 +134,24 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
 
   const toggleSub = async (s: any) => {
     if (!s.done && s.requires_photo && !s.evidence_url) { Alert.alert('Evidencia requerida', 'Esta subtarea requiere una foto para completarse.'); return; }
-    try { await put(`${API_URL}/api/tasks/subtasks/${s.id}`, { done: !s.done }); reload(); onChanged(); } catch { /* */ }
+    // Optimista: palomea al instante; luego confirma con el backend en silencio.
+    setData((prev: any) => prev ? { ...prev, subtasks: (prev.subtasks || []).map((x: any) => x.id === s.id ? { ...x, done: !x.done } : x) } : prev);
+    try { await put(`${API_URL}/api/tasks/subtasks/${s.id}`, { done: !s.done }); reload(true); onChanged(); }
+    catch { reload(true); }
   };
   const addSub = async () => {
     if (!newSub.trim()) return;
-    try { await post(`${API_URL}/api/tasks/${taskId}/subtasks`, { body: newSub.trim() }); setNewSub(''); reload(); onChanged(); }
+    try { await post(`${API_URL}/api/tasks/${taskId}/subtasks`, { body: newSub.trim() }); setNewSub(''); reload(true); onChanged(); }
     catch (e: any) { Alert.alert('Error', 'No se pudo agregar la subtarea'); }
   };
   const deleteSub = async (id: number) => {
-    try { await fetch(`${API_URL}/api/tasks/subtasks/${id}`, { method: 'DELETE', headers: H }); reload(); onChanged(); } catch { /* */ }
+    try { await fetch(`${API_URL}/api/tasks/subtasks/${id}`, { method: 'DELETE', headers: H }); reload(true); onChanged(); } catch { /* */ }
   };
   const move = async (colId: number) => {
     try {
       const r = await put(`${API_URL}/api/tasks/${taskId}`, { column_id: colId });
       if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo mover', e.error || ''); return; }
-      reload(); onChanged();
+      reload(true); onChanged();
     } catch { /* */ }
   };
   const complete = async () => {
@@ -164,7 +169,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   };
   const addComment = async () => {
     if (!comment.trim()) return;
-    try { await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim() }); setComment(''); reload(); } catch { /* */ }
+    try { await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim() }); setComment(''); reload(true); } catch { /* */ }
   };
   const addPhoto = async () => {
     try {
