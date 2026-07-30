@@ -167,6 +167,12 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     const tracking = p.tracking_internal || p.tracking || '';
     return tracking.startsWith('US-REPACK-') || tracking.includes('-REPACK-');
   };
+
+  // 🎁 Kit de Bienvenida (USK): sale de CEDIS MTY. Entrega local MTY GRATIS;
+  //    fuera de MTY se ofrece Estafeta $99 (1 kg). Sin Pick Up ni Paquete Express.
+  const isUskPackage = (p: any): boolean =>
+    String(p?.tracking_internal || p?.tracking || '').toUpperCase().startsWith('USK-');
+  const isUsk = allPackages.length > 0 && allPackages.every(isUskPackage);
   
   // Detectar si hay paquetes con child_packages (multi-paquetes)
   // NOTA: Los REPACK tienen child_packages pero son 1 sola caja física
@@ -355,7 +361,12 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     });
   })();
 
-  const CARRIER_OPTIONS: CarrierOption[] = [
+  // Opciones para USK: solo local MTY gratis (en MTY) o Estafeta $99 (fuera).
+  const uskCarrierOptions: CarrierOption[] = inMtyMetro
+    ? [{ id: 'entregax_local_mty', name: 'EntregaX Local MTY', price: 0, estimatedDays: 'Entrega local · 1-3 días hábiles', isExternal: false }]
+    : [{ id: 'estafeta', name: 'Estafeta', price: 99, currency: 'MXN' as const, estimatedDays: 'Terrestre · 2-5 días hábiles', isExternal: true }];
+
+  const CARRIER_OPTIONS: CarrierOption[] = isUsk ? uskCarrierOptions : [
     ...localEntregaxOptions,
     // 💰 Paquete Express POR COBRAR — el destinatario paga al recibir
     //    NO aplica para paquetes aéreos (china_air)
@@ -378,7 +389,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     // paquete_express se carga dinámicamente desde la API con cotización PQTX
   ];
 
-  const [selectedCarrier, setSelectedCarrier] = useState<string>(localEntregaxOptions[0]?.id || 'entregax_local');
+  const [selectedCarrier, setSelectedCarrier] = useState<string>(CARRIER_OPTIONS[0]?.id || localEntregaxOptions[0]?.id || 'entregax_local');
   const [loadingCarrierRates, setLoadingCarrierRates] = useState(false);
   const [carrierRates, setCarrierRates] = useState<CarrierOption[]>(CARRIER_OPTIONS);
   const [pqtxNoCoverage, setPqtxNoCoverage] = useState(false);
@@ -477,6 +488,18 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     setPqtxOcurreInfo(null);
     try {
       const selectedAddress = addresses.find(a => a.id === selectedAddressId);
+      // 🎁 USK (Kit de Bienvenida): opciones fijas — local MTY gratis o Estafeta
+      //    $99. No se cotiza Paquete Express ni se ofrece Pick Up.
+      if (isUsk) {
+        const zip = selectedAddress?.zip_code || '';
+        const mty = isMtyMetroZip(zip);
+        setCarrierRates(mty
+          ? [{ id: 'entregax_local_mty', name: 'EntregaX Local MTY', price: 0, estimatedDays: 'Entrega local · 1-3 días hábiles', isExternal: false }]
+          : [{ id: 'estafeta', name: 'Estafeta', price: 99, currency: 'MXN', estimatedDays: 'Terrestre · 2-5 días hábiles', isExternal: true }]);
+        setSelectedCarrier(mty ? 'entregax_local_mty' : 'estafeta');
+        setLoadingCarrierRates(false);
+        return;
+      }
       if (!selectedAddress) {
         // Si no hay dirección, usar opciones locales por defecto
         setCarrierRates(CARRIER_OPTIONS);
@@ -587,7 +610,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     } finally {
       setLoadingCarrierRates(false);
     }
-  }, [addresses, selectedAddressId, allPackages, token]);
+  }, [addresses, selectedAddressId, allPackages, token, isUsk]);
 
   // Cargar tarifas de paquetería cuando se selecciona dirección
   useEffect(() => {
