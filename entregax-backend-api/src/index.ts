@@ -13389,6 +13389,8 @@ import {
   deleteBoard as tasksDeleteBoard,
   getBoardAssignees as tasksGetBoardAssignees,
   setBoardAssignees as tasksSetBoardAssignees,
+  createSection as tasksCreateSection,
+  deleteSection as tasksDeleteSection,
   listTasks as tasksList,
   myTasks as tasksMine,
   getTask as tasksGet,
@@ -13431,6 +13433,8 @@ app.post('/api/tasks/boards', authenticateToken, tasksCreateBoard);
 app.delete('/api/tasks/boards/:id', authenticateToken, tasksDeleteBoard);
 app.get('/api/tasks/boards/:id/assignees', authenticateToken, tasksGetBoardAssignees);
 app.put('/api/tasks/boards/:id/assignees', authenticateToken, tasksSetBoardAssignees);
+app.post('/api/tasks/boards/:id/sections', authenticateToken, tasksCreateSection);
+app.delete('/api/tasks/sections/:id', authenticateToken, tasksDeleteSection);
 app.get('/api/tasks/mine', authenticateToken, tasksMine);
 app.get('/api/tasks', authenticateToken, tasksList);
 app.post('/api/tasks', authenticateToken, tasksCreate);

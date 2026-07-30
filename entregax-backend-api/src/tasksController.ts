@@ -71,7 +71,10 @@ export const listBoards = async (req: Request, res: Response): Promise<any> => {
     const cols = await pool.query(`SELECT * FROM task_columns ORDER BY board_id, sort_order`);
     const byBoard: Record<number, any[]> = {};
     for (const c of cols.rows) (byBoard[c.board_id] ||= []).push(c);
-    res.json({ boards: boards.rows.map((b: any) => ({ ...b, columns: byBoard[b.id] || [] })) });
+    const secs = await pool.query(`SELECT * FROM task_sections ORDER BY board_id, sort_order, id`);
+    const secsByBoard: Record<number, any[]> = {};
+    for (const s of secs.rows) (secsByBoard[s.board_id] ||= []).push(s);
+    res.json({ boards: boards.rows.map((b: any) => ({ ...b, columns: byBoard[b.id] || [], sections: secsByBoard[b.id] || [] })) });
   } catch (e: any) {
     console.error('[tasks] listBoards:', e); res.status(500).json({ error: 'Error al listar tableros' });
   }
@@ -109,6 +112,37 @@ export const createBoard = async (req: Request, res: Response): Promise<any> => 
     res.json({ board: { ...board, columns: colRows.rows } });
   } catch (e: any) {
     console.error('[tasks] createBoard:', e); res.status(500).json({ error: 'Error al crear tablero' });
+  }
+};
+
+// ─── SUB-SECCIONES: crear (categoría dentro del tablero, ej. App/Web) ──
+export const createSection = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const boardId = parseInt(String(req.params.id));
+    if (!(await canManageBoard(req, boardId))) return res.status(403).json({ error: 'Sin permiso para este tablero' });
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'El nombre de la sub-sección es obligatorio' });
+    const ord = (await pool.query(`SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM task_sections WHERE board_id = $1`, [boardId])).rows[0]?.n || 1;
+    const r = await pool.query(
+      `INSERT INTO task_sections (board_id, name, sort_order) VALUES ($1,$2,$3) RETURNING *`,
+      [boardId, name, ord]);
+    res.json({ section: r.rows[0] });
+  } catch (e: any) {
+    console.error('[tasks] createSection:', e); res.status(500).json({ error: 'Error al crear sub-sección' });
+  }
+};
+
+// ─── SUB-SECCIONES: eliminar (las tareas quedan sin sub-sección) ──
+export const deleteSection = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const id = parseInt(String(req.params.id));
+    const s = await pool.query(`SELECT board_id FROM task_sections WHERE id = $1`, [id]);
+    if (s.rows.length === 0) return res.status(404).json({ error: 'Sub-sección no encontrada' });
+    if (!(await canManageBoard(req, s.rows[0].board_id))) return res.status(403).json({ error: 'Sin permiso' });
+    await pool.query(`DELETE FROM task_sections WHERE id = $1`, [id]); // tasks.section_id → NULL (ON DELETE SET NULL)
+    res.json({ success: true });
+  } catch (e: any) {
+    console.error('[tasks] deleteSection:', e); res.status(500).json({ error: 'Error al eliminar sub-sección' });
   }
 };
 
@@ -274,11 +308,12 @@ export const createTask = async (req: Request, res: Response): Promise<any> => {
       const c = await pool.query(`SELECT id FROM task_columns WHERE board_id = $1 ORDER BY sort_order LIMIT 1`, [boardId]);
       columnId = c.rows[0]?.id || null;
     }
+    const sectionId = b.section_id ? parseInt(String(b.section_id)) : null;
     const r = await pool.query(`
-      INSERT INTO tasks (board_id, column_id, title, description, assignee_id, due_at, eisenhower,
+      INSERT INTO tasks (board_id, column_id, section_id, title, description, assignee_id, due_at, eisenhower,
                          xpay_seguro, linked_type, linked_id, priority, created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-      [boardId, columnId, String(b.title).trim(), b.description || null, b.assignee_id || null,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [boardId, columnId, sectionId, String(b.title).trim(), b.description || null, b.assignee_id || null,
        b.due_at || null, eisenhower, XPAY_SEGURO.includes(b.xpay_seguro) ? b.xpay_seguro : null,
        b.linked_type || null, b.linked_id || null, parseInt(String(b.priority || 0)) || 0, uid]);
     const task = r.rows[0];
@@ -324,6 +359,7 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
     if (b.xpay_seguro !== undefined) set('xpay_seguro', XPAY_SEGURO.includes(b.xpay_seguro) ? b.xpay_seguro : null);
     if (b.linked_type !== undefined) set('linked_type', b.linked_type || null);
     if (b.linked_id !== undefined) set('linked_id', b.linked_id || null);
+    if (b.section_id !== undefined) set('section_id', b.section_id ? parseInt(String(b.section_id)) : null);
     if (b.priority !== undefined) set('priority', parseInt(String(b.priority)) || 0);
 
     // Mover de columna: si la columna DESTINO exige checklist para AVANZAR desde

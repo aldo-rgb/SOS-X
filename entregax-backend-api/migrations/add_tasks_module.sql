@@ -39,11 +39,22 @@ CREATE TABLE IF NOT EXISTS task_columns (
   UNIQUE (board_id, col_key)
 );
 
+-- Sub-secciones (categorías dentro de un tablero, ej. App / Web).
+CREATE TABLE IF NOT EXISTS task_sections (
+  id          SERIAL PRIMARY KEY,
+  board_id    INTEGER NOT NULL REFERENCES task_boards(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sections_board ON task_sections(board_id, sort_order);
+
 -- Tareas (la tarjeta = el viaje de un cliente / un pendiente).
 CREATE TABLE IF NOT EXISTS tasks (
   id                SERIAL PRIMARY KEY,
   board_id          INTEGER NOT NULL REFERENCES task_boards(id) ON DELETE CASCADE,
   column_id         INTEGER REFERENCES task_columns(id),
+  section_id        INTEGER REFERENCES task_sections(id) ON DELETE SET NULL,
   title             TEXT NOT NULL,                  -- con verbo de acción
   description       TEXT,
   assignee_id       INTEGER REFERENCES users(id),   -- ÚNICO responsable

@@ -61,9 +61,10 @@ const taskTime = (t: { created_at?: string; completed_at?: string; status?: stri
 };
 
 interface Col { id: number; col_key: string; name: string; color: string; gate_checklist: boolean; is_done?: boolean; sort_order: number; }
-interface Board { id: number; name: string; board_type: string; columns: Col[]; lead_name?: string | null; }
+interface Sec { id: number; board_id: number; name: string; sort_order: number; }
+interface Board { id: number; name: string; board_type: string; columns: Col[]; sections?: Sec[]; lead_name?: string | null; }
 interface Task {
-  id: number; column_id: number; title: string; description?: string; assignee_id?: number;
+  id: number; column_id: number; section_id?: number | null; title: string; description?: string; assignee_id?: number;
   assignee_name?: string; due_at?: string; eisenhower: string; xpay_seguro?: string; status: string;
   created_at?: string; completed_at?: string;
   subtasks_total: number; subtasks_done: number; comments: number; overdue: boolean;
@@ -89,8 +90,11 @@ export default function TareasPage() {
   const [cfgOpen, setCfgOpen] = useState(false);
   const [cfgRoles, setCfgRoles] = useState<string[]>([]);
   const [cfgUserIds, setCfgUserIds] = useState<number[]>([]);
+  // Sub-sección activa (null = Todas) para filtrar el tablero.
+  const [activeSection, setActiveSection] = useState<number | null>(null);
 
   const board = boards.find(b => b.id === activeId) || null;
+  const sections = board?.sections || [];
 
   const loadBoards = useCallback(async (preferId?: number) => {
     try {
@@ -123,7 +127,7 @@ export default function TareasPage() {
   }, []);
 
   useEffect(() => { loadBoards(); }, [loadBoards]);
-  useEffect(() => { if (activeId) { loadTasks(activeId); loadAssignees(activeId); } }, [activeId, loadTasks, loadAssignees]);
+  useEffect(() => { if (activeId) { loadTasks(activeId); loadAssignees(activeId); setActiveSection(null); } }, [activeId, loadTasks, loadAssignees]);
   useEffect(() => {
     axios.get(`${API_URL}/admin/users`, H())
       .then(r => setUsers((Array.isArray(r.data) ? r.data : r.data?.users || []).map((u: any) => ({ id: u.id, full_name: u.full_name, role: u.role }))))
@@ -151,9 +155,10 @@ export default function TareasPage() {
         board_id: board?.id, title: form.title.trim(), description: form.description || null,
         eisenhower: form.eisenhower, assignee_id: form.assignee_id || null,
         due_at: form.due_at || null, column_id: form.column_id || null,
+        section_id: form.section_id || activeSection || null,
       }, H());
       setCreateOpen(false);
-      setForm({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '' });
+      setForm({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '', section_id: '' });
       notify('Tarea creada');
       refresh();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear', 'error'); }
@@ -168,6 +173,28 @@ export default function TareasPage() {
       notify('Tablero creado');
       await loadBoards(r.data?.board?.id);
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear tablero', 'error'); }
+  };
+
+  const createSection = async () => {
+    if (!activeId) return;
+    const name = window.prompt('Nombre de la sub-sección (ej. App, Web):');
+    if (!name || !name.trim()) return;
+    try {
+      await axios.post(`${API_URL}/tasks/boards/${activeId}/sections`, { name: name.trim() }, H());
+      notify('Sub-sección creada');
+      await loadBoards(activeId);
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo crear', 'error'); }
+  };
+
+  const deleteSection = async (s: Sec) => {
+    if (!window.confirm(`¿Eliminar la sub-sección "${s.name}"? Sus tareas quedarán sin sub-sección.`)) return;
+    try {
+      await axios.delete(`${API_URL}/tasks/sections/${s.id}`, H());
+      notify('Sub-sección eliminada');
+      if (activeSection === s.id) setActiveSection(null);
+      await loadBoards(activeId ?? undefined);
+      if (activeId) loadTasks(activeId);
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); }
   };
 
   const deleteBoard = async (b: Board) => {
@@ -196,7 +223,7 @@ export default function TareasPage() {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)} disabled={!board}
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setForm((f: any) => ({ ...f, section_id: activeSection || '' })); setCreateOpen(true); }} disabled={!board}
             sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={refresh}>Actualizar</Button>
         </Box>
@@ -234,6 +261,29 @@ export default function TareasPage() {
         </Button>
       </Box>
 
+      {/* Sub-secciones (categorías dentro del tablero, ej. App / Web) */}
+      {board && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5, flexWrap: 'wrap' }}>
+          <Typography fontSize={12} color="text.secondary" sx={{ mr: 0.5 }}>Sub-secciones:</Typography>
+          <Chip label="Todas" size="small" onClick={() => setActiveSection(null)}
+            color={activeSection === null ? 'primary' : 'default'}
+            variant={activeSection === null ? 'filled' : 'outlined'}
+            sx={{ fontWeight: 700, ...(activeSection === null ? { bgcolor: '#D6521C' } : {}) }} />
+          {sections.map(s => (
+            <Chip key={s.id} size="small"
+              label={s.name}
+              onClick={() => setActiveSection(s.id)}
+              onDelete={() => deleteSection(s)}
+              color={activeSection === s.id ? 'primary' : 'default'}
+              variant={activeSection === s.id ? 'filled' : 'outlined'}
+              sx={{ fontWeight: 700, ...(activeSection === s.id ? { bgcolor: '#D6521C' } : {}) }} />
+          ))}
+          <Button size="small" startIcon={<AddIcon />} onClick={createSection} sx={{ textTransform: 'none', minWidth: 0 }}>
+            Sub-sección
+          </Button>
+        </Box>
+      )}
+
       {loading ? (
         <Box sx={{ textAlign: 'center', mt: 8 }}><CircularProgress /></Box>
       ) : !board ? (
@@ -242,7 +292,7 @@ export default function TareasPage() {
         <Box sx={{ overflowX: 'auto', pb: 2 }}>
           <Box sx={{ display: 'flex', gap: 1.5, minWidth: 'min-content' }}>
             {board.columns.map((col) => {
-              const colTasks = tasks.filter(t => t.column_id === col.id);
+              const colTasks = tasks.filter(t => t.column_id === col.id && (activeSection === null || t.section_id === activeSection));
               return (
                 <Box key={col.id} sx={{ width: 268, flex: 'none', bgcolor: '#F4EEE6', borderRadius: 2, p: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 0.5, py: 0.5, borderTop: `3px solid ${col.color}`, borderRadius: '3px 3px 0 0' }}>
@@ -262,6 +312,10 @@ export default function TareasPage() {
                             <Chip label={EIS[t.eisenhower]?.label || t.eisenhower} size="small"
                               sx={{ height: 20, fontSize: 11, bgcolor: EIS[t.eisenhower]?.bg, color: EIS[t.eisenhower]?.color, fontWeight: 700 }} />
                             {t.xpay_seguro && <Chip label={XPS[t.xpay_seguro]?.label} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
+                            {activeSection === null && t.section_id && sections.find(s => s.id === t.section_id) && (
+                              <Chip label={`🗂️ ${sections.find(s => s.id === t.section_id)?.name}`} size="small"
+                                sx={{ height: 20, fontSize: 11, bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700 }} />
+                            )}
                           </Box>
                           <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: t.status === 'completed' ? 'line-through' : 'none' }}>{t.title}</Typography>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
@@ -321,6 +375,17 @@ export default function TareasPage() {
               </Select>
             </FormControl>
           </Box>
+          {sections.length > 0 && (
+            <Box sx={{ mt: 1.5 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Sub-sección</InputLabel>
+                <Select label="Sub-sección" value={form.section_id || ''} onChange={e => setForm({ ...form, section_id: e.target.value })}>
+                  <MenuItem value="">Sin sub-sección</MenuItem>
+                  {sections.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                </Select>
+              </FormControl>
+            </Box>
+          )}
           <Box sx={{ display: 'flex', gap: 1.5, mt: 1.5 }}>
             <FormControl fullWidth size="small">
               <InputLabel>Responsable</InputLabel>
