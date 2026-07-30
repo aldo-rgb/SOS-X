@@ -1460,6 +1460,16 @@ export const chartbackAction = async (req: Request, res: Response): Promise<any>
                  WHERE id = $3`,
                 [userId, JSON.stringify(entry), id]
             );
+            // 🔗 Restaurar el asesor en la cuenta del cliente. El chartback puso
+            //    users.advisor_id = NULL; al recuperar, el asesor de recuperación
+            //    queda como su asesor (para que aparezca en "Mis Clientes").
+            await pool.query(
+                `UPDATE users u SET advisor_id = $1
+                   FROM legacy_clients lc
+                  WHERE lc.id = $2 AND lc.box_id IS NOT NULL
+                    AND UPPER(TRIM(u.box_id)) = UPPER(TRIM(lc.box_id)) AND u.role = 'client'`,
+                [userId, id]
+            );
             return res.json({ success: true, action: 'recovered' });
         } else if (action === 'retention') {
             if (!notes || !String(notes).trim()) {
@@ -1475,6 +1485,14 @@ export const chartbackAction = async (req: Request, res: Response): Promise<any>
                      chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $3::jsonb
                  WHERE id = $4`,
                 [String(notes).trim(), userId, JSON.stringify(entry), id]
+            );
+            // 🔗 El asesor de retención queda como asesor del cliente (Mis Clientes).
+            await pool.query(
+                `UPDATE users u SET advisor_id = $1
+                   FROM legacy_clients lc
+                  WHERE lc.id = $2 AND lc.box_id IS NOT NULL
+                    AND UPPER(TRIM(u.box_id)) = UPPER(TRIM(lc.box_id)) AND u.role = 'client'`,
+                [userId, id]
             );
             return res.json({ success: true, action: 'retention' });
         } else if (action === 'not_interested') {
