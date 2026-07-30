@@ -43,6 +43,48 @@ async function notify(userId: number | null, title: string, message: string, dat
   } catch { /* opcional */ }
 }
 
+// 🔗 Activa/asigna la tarjeta de un LEAD en "Flujo de Ventas" → Nuevos
+//    Prospectos, para el asesor asignado. Idempotente por lead (linked_id).
+//    Si ya existe tarjeta del lead → la reasigna y reabre. No lanza.
+export async function upsertSalesLeadTask(opts: {
+  leadKey: string; advisorId: number; leadName?: string; actorId?: number | null;
+}): Promise<void> {
+  try {
+    const { leadKey, advisorId } = opts;
+    if (!leadKey || !advisorId) return;
+    const board = await pool.query(`SELECT id FROM task_boards WHERE board_key='flujo_operativo' AND is_active=TRUE LIMIT 1`);
+    const boardId = board.rows[0]?.id;
+    if (!boardId) return;
+    const col = await pool.query(
+      `SELECT id FROM task_columns WHERE board_id=$1 AND col_key='nuevos_prospectos' ORDER BY sort_order LIMIT 1`, [boardId]);
+    const columnId = col.rows[0]?.id || null;
+    const name = String(opts.leadName || '').trim() || 'prospecto';
+    const title = `Atender prospecto — ${name}`;
+    const actor = opts.actorId || advisorId;
+    // ¿Ya hay tarjeta para este lead? (idempotente por linked_id)
+    const existing = await pool.query(
+      `SELECT id, assignee_id FROM tasks
+        WHERE board_id=$1 AND linked_type='lead' AND linked_id=$2 AND status<>'cancelled'
+        ORDER BY id DESC LIMIT 1`, [boardId, leadKey]);
+    if (existing.rows[0]) {
+      const tid = existing.rows[0].id;
+      await pool.query(`UPDATE tasks SET assignee_id=$2, status='open', completed_at=NULL, updated_at=NOW() WHERE id=$1`, [tid, advisorId]);
+      await logActivity(tid, actor, 'assigned', { via: 'lead_assign', leadKey, assignee_id: advisorId });
+      await notify(advisorId, '📥 Prospecto reasignado', title, { task_id: tid });
+      return;
+    }
+    const ins = await pool.query(
+      `INSERT INTO tasks (board_id, column_id, title, assignee_id, eisenhower, linked_type, linked_id, created_by)
+       VALUES ($1,$2,$3,$4,'estrella','lead',$5,$6) RETURNING id`,
+      [boardId, columnId, title, advisorId, leadKey, actor]);
+    const tid = ins.rows[0]?.id;
+    if (tid) {
+      await logActivity(tid, actor, 'created', { via: 'lead_assign', leadKey, assignee_id: advisorId });
+      await notify(advisorId, '📥 Nuevo prospecto asignado', title, { task_id: tid });
+    }
+  } catch (e: any) { console.warn('[tasks] upsertSalesLeadTask:', e?.message); }
+}
+
 // ¿Puede GESTIONAR este tablero? (manager global o líder del tablero)
 async function canManageBoard(req: Request, boardId: number): Promise<boolean> {
   if (isManager(req)) return true;
