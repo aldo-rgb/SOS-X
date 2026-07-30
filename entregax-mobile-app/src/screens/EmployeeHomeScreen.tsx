@@ -491,6 +491,16 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [leadsWidgets, setLeadsWidgets] = useState<{ today: number; week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number; awbWeek: number; kgWeek: number; xpayOps: number; xpayUsd: number } | null>(null);
   const [seriesConfig, setSeriesConfig] = useState<SeriesConfig | null>(null);
   const isAdminLevel = ['admin', 'super_admin'].includes(user.role);
+  // Contador de mis tareas pendientes (para el widget del home, todos los roles).
+  const [myTaskCount, setMyTaskCount] = useState<number | null>(null);
+  const loadMyTaskCount = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/tasks/mine`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) { setMyTaskCount(null); return; }
+      const d = await r.json();
+      setMyTaskCount(Array.isArray(d.tasks) ? d.tasks.length : 0);
+    } catch { setMyTaskCount(null); }
+  }, [token]);
 
   const loadLeadsWidgets = useCallback(async () => {
     if (!['admin', 'super_admin'].includes(user.role)) return;
@@ -677,6 +687,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
 
   useEffect(() => {
     loadLeadsWidgets();
+    loadMyTaskCount();
   }, [loadLeadsWidgets]);
 
   // 🔔 Registrar push token y suscribir a notificaciones de chat (deep-link)
@@ -823,6 +834,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       loadAdvisorData();
     }
     loadLeadsWidgets();
+    loadMyTaskCount();
     setTimeout(() => setRefreshing(false), 1000);
   };
 
@@ -1354,6 +1366,24 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           </View>
         ) : (
           <>
+            {/* =============== WIDGET: MIS TAREAS PENDIENTES (todos) =============== */}
+            {myTaskCount !== null && (
+              <TouchableOpacity activeOpacity={0.85}
+                onPress={() => navigation.navigate('MyTasks', { user, token })}
+                style={styles.taskWidget}>
+                <View style={styles.taskWidgetIcon}>
+                  <Ionicons name="checkbox-outline" size={26} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.taskWidgetNum}>{myTaskCount}</Text>
+                  <Text style={styles.taskWidgetLabel}>
+                    {myTaskCount === 0 ? 'Sin tareas pendientes 🎉' : `Tarea${myTaskCount === 1 ? '' : 's'} pendiente${myTaskCount === 1 ? '' : 's'}`}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={22} color="#fff" />
+              </TouchableOpacity>
+            )}
+
             {/* =============== WIDGETS DE LEADS (admin / super_admin) =============== */}
             {isAdminLevel && leadsWidgets && (
               <View style={styles.leadsSection}>
@@ -1783,6 +1813,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 10,
   },
+  taskWidget: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#D6521C',
+    borderRadius: 14,
+    padding: 14,
+    marginHorizontal: 16,
+    marginTop: 12,
+  },
+  taskWidgetIcon: {
+    width: 46, height: 46, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  taskWidgetNum: { color: '#fff', fontSize: 26, fontWeight: '800', lineHeight: 30 },
+  taskWidgetLabel: { color: '#FFE7DC', fontSize: 13, fontWeight: '600', marginTop: 1 },
   leadsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
