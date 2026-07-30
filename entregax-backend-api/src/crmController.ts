@@ -1854,9 +1854,31 @@ export const updateLeadPhone = async (req: Request, res: Response): Promise<any>
 export const assignLeadAdvisor = async (req: Request, res: Response): Promise<any> => {
   try {
     const { leadKey, advisorId } = req.body || {};
-    const id = leadKeyId(String(leadKey || ''));
+    const key = String(leadKey || '');
     const advId = parseInt(String(advisorId), 10);
-    if (!id || !advId) return res.status(400).json({ success: false, error: 'Falta lead o asesor' });
+    if (!advId) return res.status(400).json({ success: false, error: 'Falta lead o asesor' });
+
+    // 🎯 Prospecto externo (pr_<id>): asigna el asesor en prospects, restaura el
+    //    asesor del usuario (si ya está registrado) y crea la tarjeta en Ventas.
+    if (key.startsWith('pr_')) {
+      const pid = parseInt(key.slice(3), 10);
+      if (!pid) return res.status(400).json({ success: false, error: 'Falta lead o asesor' });
+      await pool.query(`UPDATE prospects SET assigned_advisor_id = $1, updated_at = NOW() WHERE id = $2`, [advId, pid]);
+      const p = await pool.query(`SELECT full_name, whatsapp, converted_user_id FROM prospects WHERE id = $1`, [pid]);
+      const pr = p.rows[0];
+      if (pr?.converted_user_id) {
+        await pool.query(`UPDATE users SET advisor_id = $1 WHERE id = $2 AND role = 'client'`, [advId, pr.converted_user_id]);
+      }
+      try {
+        const { upsertSalesLeadTask } = require('./tasksController');
+        await upsertSalesLeadTask({ leadKey: key, advisorId: advId, leadName: pr?.full_name || 'Prospecto', leadPhone: pr?.whatsapp || null, actorId: (req as any).user?.userId });
+      } catch (e: any) { console.warn('[crm] upsertSalesLeadTask (pr):', e?.message); }
+      const advP = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [advId]);
+      return res.json({ success: true, advisorName: advP.rows[0]?.full_name || null });
+    }
+
+    const id = leadKeyId(key);
+    if (!id) return res.status(400).json({ success: false, error: 'Falta lead o asesor' });
     let leadName = ''; let leadPhone = '';
     if (String(leadKey).startsWith('crm_')) {
       await pool.query(`UPDATE users SET referred_by_id = $1 WHERE id = (SELECT user_id FROM crm_requests WHERE id = $2)`, [advId, id]);
