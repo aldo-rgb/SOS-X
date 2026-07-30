@@ -101,7 +101,9 @@ CREATE TABLE IF NOT EXISTS task_activity (
 );
 CREATE INDEX IF NOT EXISTS idx_activity_task ON task_activity(task_id, created_at DESC);
 
--- ── Seed: tablero "Flujo Operativo" con sus 7 columnas ──────
+-- ── Seed: tablero "Flujo Operativo" (funnel de CLIENTES) ────
+-- Solo etapas de cliente/venta. NO se monitorean guías aquí (sin
+-- Almacén/Tránsito/Completado/Problemas): el CRM de guías no se conecta.
 INSERT INTO task_boards (board_key, name, board_type)
 SELECT 'flujo_operativo', 'Flujo Operativo', 'operativo'
 WHERE NOT EXISTS (SELECT 1 FROM task_boards WHERE board_key = 'flujo_operativo');
@@ -110,13 +112,9 @@ INSERT INTO task_columns (board_id, col_key, name, sort_order, color, sla_hours,
 SELECT b.id, c.col_key, c.name, c.ord, c.color, c.sla, c.role, c.gate, c.crm, c.guide
 FROM task_boards b
 CROSS JOIN (VALUES
-  ('nuevos_prospectos', '📥 Nuevos Prospectos',        1, '#1D6FB8', 24,   NULL,            FALSE, 'prospectado', NULL),
-  ('cotizacion',        '💬 Cotización y Negociación',  2, '#1D6FB8', NULL, NULL,            FALSE, 'contactado',  NULL),
-  ('filtro_cierre',     '🛡️ Filtro de Cierre',          3, '#D6521C', NULL, NULL,            TRUE,  'reclamado',   NULL),
-  ('almacen',           '📦 Almacén y Empaque',         4, '#B07206', NULL, 'warehouse_ops', FALSE, NULL,          'received_mty'),
-  ('transito',          '🚚 En Tránsito',               5, '#B07206', NULL, NULL,            FALSE, NULL,          'out_for_delivery'),
-  ('completado',        '✅ Completado Exitoso',        6, '#2E7D46', NULL, NULL,            FALSE, NULL,          'delivered'),
-  ('problemas',         '🚨 Problemas y Retrasos',      7, '#C0392B', NULL, NULL,            FALSE, NULL,          NULL)
+  ('nuevos_prospectos', '📥 Nuevos Prospectos',        1, '#1D6FB8', 24,   NULL, FALSE, 'prospectado', NULL),
+  ('cotizacion',        '💬 Cotización y Negociación',  2, '#1D6FB8', NULL, NULL, FALSE, 'contactado',  NULL),
+  ('filtro_cierre',     '🛡️ Filtro de Cierre',          3, '#D6521C', NULL, NULL, TRUE,  'reclamado',   NULL)
 ) AS c(col_key, name, ord, color, sla, role, gate, crm, guide)
 WHERE b.board_key = 'flujo_operativo'
   AND NOT EXISTS (SELECT 1 FROM task_columns tc WHERE tc.board_id = b.id AND tc.col_key = c.col_key);
