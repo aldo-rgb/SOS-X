@@ -22,6 +22,23 @@ const isManager = (req: Request): boolean => MANAGER_ROLES.includes(authRole(req
 const EISENHOWER = ['fuego', 'estrella', 'delegar', 'eliminar'];
 const XPAY_SEGURO = ['verde', 'amarillo', 'rojo'];
 
+// Checklist estándar del "Filtro de Cierre" (Flujo de Ventas). Se agrega
+// automáticamente a las tareas del funnel para que el gate bloquee el cierre.
+const FILTRO_CIERRE_CHECKLIST = [
+  'Contacté al prospecto (llamada / WhatsApp)',
+  'Ofrecí X-Pay (pago seguro a proveedor)',
+  'Ofrecí el Seguro GEX (Garantía Extendida)',
+  'Envié la cotización formal (PDF)',
+  'Confirmé datos fiscales / dirección de entrega',
+  'Cliente confirmó y realizó pago o anticipo',
+];
+async function seedChecklist(taskId: number, items: string[]): Promise<void> {
+  for (let k = 0; k < items.length; k++) {
+    try { await pool.query(`INSERT INTO task_subtasks (task_id, body, sort_order) VALUES ($1,$2,$3)`, [taskId, items[k], k]); }
+    catch (e: any) { console.warn('[tasks] seedChecklist:', e?.message); }
+  }
+}
+
 // Bitácora inmutable (no crítica: si falla, no rompe la acción).
 async function logActivity(taskId: number, actorId: number | null, action: string, meta: any = {}): Promise<void> {
   try {
@@ -84,6 +101,7 @@ export async function upsertSalesLeadTask(opts: {
       [boardId, columnId, title, advisorId, leadKey, leadPhone, actor]);
     const tid = ins.rows[0]?.id;
     if (tid) {
+      await seedChecklist(tid, FILTRO_CIERRE_CHECKLIST); // checklist del Filtro de Cierre
       await logActivity(tid, actor, 'created', { via: 'lead_assign', leadKey, assignee_id: advisorId });
       await notify(advisorId, '📥 Nuevo prospecto asignado', title, { task_id: tid });
     }
@@ -413,6 +431,14 @@ export const createTask = async (req: Request, res: Response): Promise<any> => {
            VALUES ($1,$2,$3,$4,$5)`,
           [task.id, String(s.body).trim(), !!s.requires_photo, s.assignee_id || null, k]);
       }
+    }
+    // Flujo de Ventas: si no se mandó checklist y no es "Algún día", agregar
+    // automáticamente el checklist del Filtro de Cierre (para que el gate aplique).
+    if (!Array.isArray(b.subtasks) && eisenhower !== 'eliminar') {
+      try {
+        const bk = await pool.query(`SELECT board_key FROM task_boards WHERE id = $1`, [boardId]);
+        if (bk.rows[0]?.board_key === 'flujo_operativo') await seedChecklist(task.id, FILTRO_CIERRE_CHECKLIST);
+      } catch (e: any) { console.warn('[tasks] seed filtro cierre:', e?.message); }
     }
     await logActivity(task.id, uid, 'created', { title: task.title });
     if (task.assignee_id) await notify(task.assignee_id, '📋 Nueva tarea asignada', task.title, { task_id: task.id });

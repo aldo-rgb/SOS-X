@@ -602,15 +602,11 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
     catch (e: any) { notify(e?.response?.data?.error || 'No se pudo mover', 'error'); }
   };
   const complete = async () => {
+    // Gate: no se puede completar con checklist pendiente (Filtro de Cierre).
+    if (pending > 0) { notify(`Completa el checklist antes de terminar (${pending} pendiente${pending === 1 ? '' : 's'}).`, 'error'); return; }
     setBusy(true);
     try {
-      if (pending > 0) {
-        const reason = window.prompt(`Faltan ${pending} subtarea(s). Solo gerencia puede forzar el cierre. Motivo:`);
-        if (!reason) { setBusy(false); return; }
-        await axios.post(`${API_URL}/tasks/${id}/complete`, { forced_reason: reason }, H());
-      } else {
-        await axios.post(`${API_URL}/tasks/${id}/complete`, {}, H());
-      }
+      await axios.post(`${API_URL}/tasks/${id}/complete`, {}, H());
       notify('Tarea completada'); onChanged(); onClose();
     } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo completar', 'error'); }
     finally { setBusy(false); }
@@ -768,8 +764,8 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
           </DialogContent>
           <DialogActions>
             {t.status !== 'completed' && (
-              <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={complete} disabled={busy}>
-                {pending > 0 ? `Forzar cierre (${pending} pendientes)` : 'Completar'}
+              <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={complete} disabled={busy || pending > 0}>
+                {pending > 0 ? `Completa el checklist (${pending})` : 'Completar'}
               </Button>
             )}
             <Button onClick={onClose}>Cerrar</Button>

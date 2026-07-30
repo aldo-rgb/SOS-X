@@ -868,6 +868,21 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           </>
         )}
 
+        {/* Mis Tareas */}
+        <View style={s.sectionHeader}>
+          <View style={s.sectionBar} />
+          <Text style={s.sectionTitle}>MIS TAREAS</Text>
+        </View>
+        <TouchableOpacity style={s.myTasksBtn} activeOpacity={0.85} onPress={() => navigation.navigate('MyTasks', { user, token })}>
+          <View style={s.myTasksIcon}><Ionicons name="checkbox-outline" size={24} color={ORANGE} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.myTasksTitle}>Mis Tareas</Text>
+            <Text style={s.myTasksSub}>{myTaskCount > 0 ? `${myTaskCount} pendiente${myTaskCount === 1 ? '' : 's'} · Lista y Matriz` : 'Lista y Matriz'}</Text>
+          </View>
+          {myTaskCount > 0 && <View style={s.myTasksBadge}><Text style={s.myTasksBadgeTxt}>{myTaskCount}</Text></View>}
+          <Ionicons name="chevron-forward" size={22} color="#BBB" />
+        </TouchableOpacity>
+
         {/* Cotizaciones */}
         <View style={s.sectionHeader}>
           <View style={s.sectionBar} />
@@ -1640,6 +1655,12 @@ const s = StyleSheet.create({
 
 
   // Section header
+  myTasksBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 14, padding: 14, marginHorizontal: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: '#E4E4E4' },
+  myTasksIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#FFF3EE', alignItems: 'center', justifyContent: 'center' },
+  myTasksTitle: { fontSize: 16, fontWeight: '800', color: '#222' },
+  myTasksSub: { fontSize: 12.5, color: '#888', marginTop: 1 },
+  myTasksBadge: { backgroundColor: '#D6521C', borderRadius: 12, minWidth: 24, height: 24, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center' },
+  myTasksBadgeTxt: { color: '#fff', fontWeight: '800', fontSize: 13 },
   taskWidget: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#D6521C', borderRadius: 14, padding: 14, marginHorizontal: 16, marginTop: 18 },
   taskWidgetIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   taskWidgetNum: { color: '#fff', fontSize: 24, fontWeight: '800', lineHeight: 28 },

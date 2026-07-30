@@ -150,14 +150,14 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     } catch { /* */ }
   };
   const complete = async () => {
+    // Gate: no se puede completar con checklist pendiente (Filtro de Cierre).
+    if (pending > 0) {
+      Alert.alert('Checklist pendiente', `Completa el checklist antes de terminar (${pending} pendiente${pending === 1 ? '' : 's'}).`);
+      return;
+    }
     setBusy(true);
     try {
-      let body: any = {};
-      if (pending > 0) {
-        if (!canManage) { Alert.alert('Faltan subtareas', `Completa el checklist (${pending} pendientes).`); setBusy(false); return; }
-        body = { forced_reason: 'Cerrada desde la app con pendientes' };
-      }
-      const r = await post(`${API_URL}/api/tasks/${taskId}/complete`, body);
+      const r = await post(`${API_URL}/api/tasks/${taskId}/complete`, {});
       if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo completar', e.error || ''); setBusy(false); return; }
       onChanged(); onClose();
     } catch { /* */ } finally { setBusy(false); }
@@ -312,10 +312,10 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
           )}
           {t && t.status !== 'completed' && (
             <View style={styles.modalFoot}>
-              <TouchableOpacity style={styles.completeBtn} onPress={complete} disabled={busy}>
+              <TouchableOpacity style={[styles.completeBtn, pending > 0 && { backgroundColor: '#B7C3BB' }]} onPress={complete} disabled={busy || pending > 0}>
                 {busy ? <ActivityIndicator color="#fff" /> : <>
-                  <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                  <Text style={styles.completeTxt}>{pending > 0 ? (canManage ? `Forzar cierre (${pending})` : `Faltan ${pending}`) : 'Completar'}</Text>
+                  <Ionicons name={pending > 0 ? 'lock-closed' : 'checkmark-circle'} size={18} color="#fff" />
+                  <Text style={styles.completeTxt}>{pending > 0 ? `Completa el checklist (${pending})` : 'Completar'}</Text>
                 </>}
               </TouchableOpacity>
             </View>
