@@ -679,6 +679,7 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                       <TableCell><strong>Recibida MTY</strong></TableCell>
                       <TableCell><strong>Cliente</strong></TableCell>
                       <TableCell align="right"><strong>Peso (lb)</strong></TableCell>
+                      <TableCell align="center"><strong>Medidas (in)</strong></TableCell>
                       <TableCell align="right"><strong>USD</strong></TableCell>
                       <TableCell align="right"><strong>MXN</strong></TableCell>
                       <TableCell align="center"><strong>Estatus</strong></TableCell>
@@ -709,6 +710,13 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                             <Typography variant="caption" color="text.secondary">{p.client_box_id}</Typography>
                           </TableCell>
                           <TableCell align="right">{Number(p.weight || 0).toFixed(2)}</TableCell>
+                          <TableCell align="center">
+                            <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {(p.pkg_length && p.pkg_width && p.pkg_height)
+                                ? `${(Number(p.pkg_length) * 0.393701).toFixed(1)}×${(Number(p.pkg_width) * 0.393701).toFixed(1)}×${(Number(p.pkg_height) * 0.393701).toFixed(1)}`
+                                : '—'}
+                            </Typography>
+                          </TableCell>
                           <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>${Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0).toFixed(2)}</TableCell>
                           <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>{formatCurrency(Number(p.pobox_provider_cost_mxn ?? 0) || (Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0) * Number(p.registered_exchange_rate ?? 0)))}</TableCell>
                           <TableCell align="center">
