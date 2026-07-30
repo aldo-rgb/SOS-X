@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import { pool } from './db';
 import { createInvoice, isAutoFacturaEnabled } from './fiscalController';
 import { FacturamaClient } from './facturamaClient';
+import { uploadToS3WithSignedUrl, headS3Object, isS3Configured } from './s3Service';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 const genRef = (prefix = 'EX'): string => {
@@ -1180,5 +1181,35 @@ export const deleteClientFiscalProfile = async (req: Request, res: Response): Pr
   } catch (e: any) {
     console.error('[fiscal-profiles] delete:', e);
     return res.status(500).json({ error: 'Error al eliminar datos fiscales' });
+  }
+};
+
+// POST /api/advisor/payment-orders/:id/share-pdf
+// Recibe el PDF de la cotización (generado en el navegador), lo sube a S3 y
+// devuelve una URL firmada válida 7 días para compartir por WhatsApp/link.
+export const shareAdvisorPaymentOrderPdf = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const orderId = parseInt(String(req.params.id), 10);
+    const file = (req as any).file;
+    if (!file || !file.buffer) {
+      return res.status(400).json({ error: 'Falta el archivo PDF' });
+    }
+    if (!isS3Configured()) {
+      return res.status(501).json({ error: 'Almacenamiento de archivos no configurado' });
+    }
+    // Nombre seguro a partir de la referencia (o el id de la orden).
+    const rawRef = String(req.body?.ref || `orden-${orderId || 'ctz'}`);
+    const safeRef = rawRef.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || `orden-${orderId || 'ctz'}`;
+    const key = `payment-orders/cotizacion-${safeRef}-${Date.now()}.pdf`;
+    const { signedUrl } = await uploadToS3WithSignedUrl(file.buffer, key, 'application/pdf', 60 * 60 * 24 * 7);
+    // Verificar que el objeto quedó bien subido.
+    const head = await headS3Object(key);
+    if (!head.exists || (head.size || 0) < 512) {
+      return res.status(502).json({ error: 'No se pudo almacenar el PDF' });
+    }
+    return res.json({ pdfUrl: signedUrl });
+  } catch (e: any) {
+    console.error('[share-pdf] error:', e?.message);
+    return res.status(500).json({ error: e?.message || 'Error al compartir el PDF' });
   }
 };

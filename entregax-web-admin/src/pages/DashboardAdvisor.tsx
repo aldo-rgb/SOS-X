@@ -3572,7 +3572,10 @@ export default function DashboardAdvisor() {
                   isSettledCredit || (!isCreditPay && isPaidStatus && withinPaidWindow)
                 );
 
-                const downloadPDF = async () => {
+                // Construye el PDF de la cotización y devuelve { doc, html }.
+                // doc = documento jsPDF (null si falló el render → usar html para
+                // imprimir). Reutilizado por la descarga y por compartir en WhatsApp.
+                const buildOrderPdfDoc = async (): Promise<{ doc: any | null; html: string }> => {
                   // Detalle de la orden (master + guías hijas + desglose). Usa el
                   // MISMO endpoint que la app del asesor para que el PDF se vea igual
                   // en todos los puntos de descarga.
@@ -3740,14 +3743,71 @@ export default function DashboardAdvisor() {
                       doc.addImage(imgData, 'PNG', 0, position, imgW, imgH);
                       heightLeft -= pageH;
                     }
-                    doc.save(`orden-${op.payment_reference || op.id}.pdf`);
+                    return { doc, html };
                   } catch (err) {
-                    // Fallback: si algo falla, abrir en ventana nueva para imprimir/guardar.
-                    const w = window.open('', '_blank');
-                    if (w) { w.document.write(html); w.document.close(); }
+                    return { doc: null, html };
                   } finally {
                     iframe.remove();
                   }
+                };
+
+                // Descargar el PDF de la cotización.
+                const downloadPDF = async () => {
+                  const { doc, html } = await buildOrderPdfDoc();
+                  if (doc) {
+                    doc.save(`orden-${op.payment_reference || op.id}.pdf`);
+                  } else {
+                    // Fallback: abrir en ventana nueva para imprimir/guardar.
+                    const w = window.open('', '_blank');
+                    if (w) { w.document.write(html); w.document.close(); }
+                  }
+                };
+
+                // Compartir la cotización POR WhatsApp: genera el PDF, lo sube a S3
+                // (via backend) y manda el LINK del PDF por WhatsApp. WhatsApp no
+                // permite adjuntar archivos por deep-link, así que se comparte el
+                // enlace de descarga (válido 7 días). Fallback: mensaje con la app.
+                const shareOrderWhatsApp = async () => {
+                  const refX = op.payment_reference || op.folio || `#${op.id}`;
+                  const name = (op.client_name || '').split(' ')[0];
+                  const mxn = Number(op.total_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+                  // Abrir la pestaña YA (en el gesto del clic) para evitar el bloqueo
+                  // de pop-ups; luego redirigimos a wa.me cuando tengamos el link.
+                  const waWin = window.open('about:blank', '_blank');
+                  if (waWin) {
+                    try { waWin.document.write('<p style="font-family:sans-serif;padding:24px">Generando cotización PDF…</p>'); } catch { /* noop */ }
+                  }
+                  let pdfUrl = '';
+                  try {
+                    const { doc } = await buildOrderPdfDoc();
+                    if (doc) {
+                      const blob: Blob = doc.output('blob');
+                      const fd = new FormData();
+                      fd.append('pdf', blob, `cotizacion-${refX}.pdf`);
+                      fd.append('ref', String(refX));
+                      const up = await api.post(`/advisor/payment-orders/${op.id}/share-pdf`, fd, {
+                        headers: { 'Content-Type': 'multipart/form-data' },
+                      });
+                      pdfUrl = up.data?.pdfUrl || '';
+                    }
+                  } catch { /* si falla la subida, se comparte solo el texto */ }
+
+                  const lines = [
+                    `Hola ${name}! 👋`,
+                    '',
+                    `Aquí está tu cotización de *EntregaX*.`,
+                    '',
+                    `💰 Monto: *$${mxn} MXN*`,
+                    `📋 Referencia: *${refX}*`,
+                  ];
+                  if (pdfUrl) {
+                    lines.push('', `📄 Descarga tu cotización en PDF aquí:`, pdfUrl);
+                  } else {
+                    lines.push('', `Abre la app EntregaX → *Mis Pagos* para ver el desglose y realizar tu pago. 💳`);
+                  }
+                  const waUrl = `https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`;
+                  if (waWin && !waWin.closed) { waWin.location.href = waUrl; }
+                  else { window.open(waUrl, '_blank'); }
                 };
 
                 return (
@@ -3812,27 +3872,8 @@ export default function DashboardAdvisor() {
                       </TableCell>
                       <TableCell align="center">
                         <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                          <Tooltip title="Compartir por WhatsApp">
-                            <IconButton size="small" sx={{ color: '#25D366' }} onClick={() => {
-                              const ref   = op.payment_reference || op.folio || '—';
-                              const name  = (op.client_name || '').split(' ')[0];
-                              const mxn   = Number(op.total_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 });
-                              const lines = [
-                                `Hola ${name}! 👋`,
-                                '',
-                                `Tienes una orden de pago pendiente en *EntregaX*.`,
-                                '',
-                                `💰 Monto: *$${mxn} MXN*`,
-                                `📋 Referencia: *${ref}*`,
-                                '',
-                                `Abre la app EntregaX → *Mis Pagos* para ver el desglose y realizar tu pago. 💳`,
-                                '',
-                                `📱 Si no tienes la app descárgala aquí:`,
-                                `iOS → https://apps.apple.com/mx/app/entregax/id6443608707`,
-                                `Android → https://play.google.com/store/apps/details?id=com.entregax.mobile`,
-                              ];
-                              window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
-                            }}>
+                          <Tooltip title="Compartir cotización PDF por WhatsApp">
+                            <IconButton size="small" sx={{ color: '#25D366' }} onClick={shareOrderWhatsApp}>
                               <WhatsAppIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
