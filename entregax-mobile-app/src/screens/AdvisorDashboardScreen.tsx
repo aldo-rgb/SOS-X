@@ -87,6 +87,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [unreadNotif, setUnreadNotif]   = useState(0);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(user.profilePhotoUrl || null);
   const [showQrModal, setShowQrModal]   = useState(false);
+  const [myTaskCount, setMyTaskCount]   = useState(0); // tareas pendientes asignadas
 
   // Modal selector de cliente (En Tránsito)
   const [showTransitModal, setShowTransitModal]     = useState(false);
@@ -188,12 +189,16 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const loadDashboard = useCallback(async () => {
     try {
       setError(null);
-      const [dashRes, photoRes, notifRes, ratesRes] = await Promise.allSettled([
+      const [dashRes, photoRes, notifRes, ratesRes, tasksRes] = await Promise.allSettled([
         fetch(`${API_URL}/api/advisor/dashboard`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/api/auth/profile-photo`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/api/notifications/unread-count`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/api/advisor/rates`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/tasks/mine`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
+      if (tasksRes.status === 'fulfilled' && tasksRes.value.ok) {
+        try { const td = await tasksRes.value.json(); setMyTaskCount(Array.isArray(td.tasks) ? td.tasks.length : 0); } catch { /* */ }
+      }
       if (dashRes.status === 'fulfilled' && dashRes.value.ok) {
         const dashData = await dashRes.value.json();
         setData(dashData);
@@ -726,6 +731,21 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
               </View>
             </View>
           </View>
+        )}
+
+        {/* Widget: Mis Tareas pendientes (solo si hay) */}
+        {myTaskCount > 0 && (
+          <TouchableOpacity activeOpacity={0.85} style={s.taskWidget}
+            onPress={() => navigation.navigate('MyTasks', { user, token })}>
+            <View style={s.taskWidgetIcon}>
+              <Ionicons name="checkbox-outline" size={24} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.taskWidgetNum}>{myTaskCount}</Text>
+              <Text style={s.taskWidgetLabel}>Tarea{myTaskCount === 1 ? '' : 's'} pendiente{myTaskCount === 1 ? '' : 's'}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color="#fff" />
+          </TouchableOpacity>
         )}
 
         {/* Embarques */}
@@ -1620,6 +1640,10 @@ const s = StyleSheet.create({
 
 
   // Section header
+  taskWidget: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#D6521C', borderRadius: 14, padding: 14, marginHorizontal: 16, marginTop: 18 },
+  taskWidgetIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  taskWidgetNum: { color: '#fff', fontSize: 24, fontWeight: '800', lineHeight: 28 },
+  taskWidgetLabel: { color: '#FFE7DC', fontSize: 13, fontWeight: '600', marginTop: 1 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginTop: 20, marginBottom: 10, gap: 8 },
   sectionBar:    { width: 3, height: 16, backgroundColor: ORANGE, borderRadius: 2 },
   sectionTitle:  { color: '#888', fontSize: 11, fontWeight: '800', letterSpacing: 1.5 },
