@@ -11,8 +11,10 @@ CREATE TABLE IF NOT EXISTS task_boards (
   id            SERIAL PRIMARY KEY,
   board_key     TEXT UNIQUE,                       -- 'flujo_operativo' | null (proyectos)
   name          TEXT NOT NULL,
-  board_type    TEXT NOT NULL DEFAULT 'project',   -- 'operativo' | 'project'
+  board_type    TEXT NOT NULL DEFAULT 'project',   -- 'operativo' | 'department' | 'project'
   lead_user_id  INTEGER REFERENCES users(id),      -- líder (premio espiritual)
+  assignable_roles     JSONB NOT NULL DEFAULT '[]'::jsonb, -- roles elegibles como responsable
+  assignable_user_ids  JSONB NOT NULL DEFAULT '[]'::jsonb, -- usuarios específicos elegibles
   is_active     BOOLEAN DEFAULT TRUE,
   created_by    INTEGER REFERENCES users(id),
   created_at    TIMESTAMPTZ DEFAULT NOW(),
@@ -105,8 +107,8 @@ CREATE INDEX IF NOT EXISTS idx_activity_task ON task_activity(task_id, created_a
 -- ── Seed: tablero "Flujo Operativo" (funnel de CLIENTES) ────
 -- Solo etapas de cliente/venta. NO se monitorean guías aquí (sin
 -- Almacén/Tránsito/Completado/Problemas): el CRM de guías no se conecta.
-INSERT INTO task_boards (board_key, name, board_type)
-SELECT 'flujo_operativo', 'Flujo de Ventas', 'operativo'
+INSERT INTO task_boards (board_key, name, board_type, assignable_roles)
+SELECT 'flujo_operativo', 'Flujo de Ventas', 'operativo', '["advisor","sub_advisor"]'::jsonb
 WHERE NOT EXISTS (SELECT 1 FROM task_boards WHERE board_key = 'flujo_operativo');
 
 INSERT INTO task_columns (board_id, col_key, name, sort_order, color, sla_hours, auto_assign_role, gate_checklist, crm_stage, guide_stage)

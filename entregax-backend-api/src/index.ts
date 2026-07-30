@@ -13387,6 +13387,8 @@ import {
   listBoards as tasksListBoards,
   createBoard as tasksCreateBoard,
   deleteBoard as tasksDeleteBoard,
+  getBoardAssignees as tasksGetBoardAssignees,
+  setBoardAssignees as tasksSetBoardAssignees,
   listTasks as tasksList,
   myTasks as tasksMine,
   getTask as tasksGet,
@@ -13427,6 +13429,8 @@ app.get('/api/brand-assets/:slot/data-uri', getBrandAssetDataUri);
 app.get('/api/tasks/boards', authenticateToken, tasksListBoards);
 app.post('/api/tasks/boards', authenticateToken, tasksCreateBoard);
 app.delete('/api/tasks/boards/:id', authenticateToken, tasksDeleteBoard);
+app.get('/api/tasks/boards/:id/assignees', authenticateToken, tasksGetBoardAssignees);
+app.put('/api/tasks/boards/:id/assignees', authenticateToken, tasksSetBoardAssignees);
 app.get('/api/tasks/mine', authenticateToken, tasksMine);
 app.get('/api/tasks', authenticateToken, tasksList);
 app.post('/api/tasks', authenticateToken, tasksCreate);

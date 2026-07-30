@@ -20,10 +20,14 @@ import SendIcon from '@mui/icons-material/Send';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import { Checkbox as MCheckbox, FormControlLabel, ListItemText, OutlinedInput } from '@mui/material';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
 const H = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
+const myRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; } })();
+const isSuperAdmin = myRole === 'super_admin';
 
 const EIS: Record<string, { label: string; color: string; bg: string }> = {
   fuego:    { label: '🔥 Urgente e importante',       color: '#C0392B', bg: '#F9E5E2' },
@@ -80,6 +84,11 @@ export default function TareasPage() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [newBoardOpen, setNewBoardOpen] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
+  // Responsables elegibles del tablero activo (según su config por rol/usuarios).
+  const [assignees, setAssignees] = useState<UserOpt[]>([]);
+  const [cfgOpen, setCfgOpen] = useState(false);
+  const [cfgRoles, setCfgRoles] = useState<string[]>([]);
+  const [cfgUserIds, setCfgUserIds] = useState<number[]>([]);
 
   const board = boards.find(b => b.id === activeId) || null;
 
@@ -104,13 +113,34 @@ export default function TareasPage() {
     } catch { notify('No se pudieron cargar las tareas', 'error'); }
   }, []);
 
+  const loadAssignees = useCallback(async (boardId: number) => {
+    try {
+      const r = await axios.get(`${API_URL}/tasks/boards/${boardId}/assignees`, H());
+      setAssignees((r.data?.users || []).map((u: any) => ({ id: u.id, full_name: u.full_name, role: u.role })));
+      setCfgRoles(r.data?.config?.roles || []);
+      setCfgUserIds(r.data?.config?.user_ids || []);
+    } catch { setAssignees([]); }
+  }, []);
+
   useEffect(() => { loadBoards(); }, [loadBoards]);
-  useEffect(() => { if (activeId) loadTasks(activeId); }, [activeId, loadTasks]);
+  useEffect(() => { if (activeId) { loadTasks(activeId); loadAssignees(activeId); } }, [activeId, loadTasks, loadAssignees]);
   useEffect(() => {
     axios.get(`${API_URL}/admin/users`, H())
       .then(r => setUsers((Array.isArray(r.data) ? r.data : r.data?.users || []).map((u: any) => ({ id: u.id, full_name: u.full_name, role: u.role }))))
       .catch(() => {});
   }, []);
+
+  const saveCfg = async () => {
+    if (!activeId) return;
+    try {
+      await axios.put(`${API_URL}/tasks/boards/${activeId}/assignees`, { roles: cfgRoles, user_ids: cfgUserIds }, H());
+      setCfgOpen(false);
+      notify('Responsables del tablero actualizados');
+      loadAssignees(activeId);
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo guardar', 'error'); }
+  };
+  // Roles disponibles (derivados de los usuarios) para el configurador.
+  const allRoles = Array.from(new Set(users.map(u => u.role).filter(Boolean))) as string[];
 
   const refresh = () => { if (activeId) loadTasks(activeId); };
 
@@ -180,8 +210,8 @@ export default function TareasPage() {
             <Tab key={b.id} value={b.id} label={
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 {b.board_type === 'operativo' ? '🎯' : '🗂️'} {b.name}
-                {b.board_type !== 'operativo' && b.id === activeId && (
-                  <Tooltip title="Eliminar tablero">
+                {isSuperAdmin && b.board_type !== 'operativo' && b.id === activeId && (
+                  <Tooltip title="Eliminar tablero (solo super admin)">
                     <IconButton component="span" size="small" onClick={(e) => { e.stopPropagation(); deleteBoard(b); }} sx={{ p: 0.2, ml: 0.3 }}>
                       <DeleteOutlineIcon sx={{ fontSize: 15 }} />
                     </IconButton>
@@ -191,6 +221,14 @@ export default function TareasPage() {
             } />
           ))}
         </Tabs>
+        <Tooltip title="Configurar quién puede ser responsable en este tablero">
+          <span>
+            <Button size="small" startIcon={<ManageAccountsIcon />} onClick={() => setCfgOpen(true)} disabled={!board}
+              sx={{ textTransform: 'none', flex: 'none' }}>
+              Responsables
+            </Button>
+          </span>
+        </Tooltip>
         <Button size="small" startIcon={<AddIcon />} onClick={() => setNewBoardOpen(true)} sx={{ textTransform: 'none', flex: 'none' }}>
           Nuevo tablero
         </Button>
@@ -288,7 +326,8 @@ export default function TareasPage() {
               <InputLabel>Responsable</InputLabel>
               <Select label="Responsable" value={form.assignee_id} onChange={e => setForm({ ...form, assignee_id: e.target.value })}>
                 <MenuItem value="">Sin asignar</MenuItem>
-                {users.map(u => <MenuItem key={u.id} value={u.id}>{u.full_name} {u.role ? `· ${u.role}` : ''}</MenuItem>)}
+                {assignees.map(u => <MenuItem key={u.id} value={u.id}>{u.full_name} {u.role ? `· ${u.role}` : ''}</MenuItem>)}
+                {assignees.length === 0 && <MenuItem value="" disabled>No hay responsables configurados</MenuItem>}
               </Select>
             </FormControl>
             <TextField fullWidth size="small" type="datetime-local" label="Fecha límite" InputLabelProps={{ shrink: true }}
@@ -316,6 +355,50 @@ export default function TareasPage() {
         <DialogActions>
           <Button onClick={() => setNewBoardOpen(false)}>Cancelar</Button>
           <Button variant="contained" onClick={createBoard} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Crear tablero</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Configurar responsables elegibles del tablero */}
+      <Dialog open={cfgOpen} onClose={() => setCfgOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>Responsables · {board?.name}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Define quién puede aparecer como <b>Responsable</b> al crear una tarea en este tablero.
+            Si no eliges nada, se muestran todos los usuarios activos.
+          </Typography>
+          <Typography fontWeight={700} fontSize={14} sx={{ mb: 0.5 }}>Por rol</Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', mb: 2 }}>
+            {allRoles.map(r => (
+              <FormControlLabel key={r} sx={{ width: '48%', m: 0 }} control={
+                <MCheckbox size="small" checked={cfgRoles.includes(r)}
+                  onChange={() => setCfgRoles(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])} />
+              } label={<Typography fontSize={13}>{r}</Typography>} />
+            ))}
+          </Box>
+          <Typography fontWeight={700} fontSize={14} sx={{ mb: 0.5 }}>Usuarios específicos (se suman a los roles)</Typography>
+          <FormControl fullWidth size="small">
+            <InputLabel>Usuarios</InputLabel>
+            <Select multiple value={cfgUserIds} input={<OutlinedInput label="Usuarios" />}
+              onChange={e => setCfgUserIds(typeof e.target.value === 'string' ? [] : (e.target.value as number[]))}
+              renderValue={(sel) => `${(sel as number[]).length} usuario(s) seleccionado(s)`}
+              MenuProps={{ PaperProps: { style: { maxHeight: 320 } } }}>
+              {users.map(u => (
+                <MenuItem key={u.id} value={u.id}>
+                  <MCheckbox size="small" checked={cfgUserIds.includes(u.id)} />
+                  <ListItemText primary={`${u.full_name}${u.role ? ` · ${u.role}` : ''}`} />
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+            Elegibles actuales: <b>{assignees.length}</b> usuario(s).
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setCfgRoles([]); setCfgUserIds([]); }}>Limpiar</Button>
+          <Box sx={{ flex: 1 }} />
+          <Button onClick={() => setCfgOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={saveCfg} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Guardar</Button>
         </DialogActions>
       </Dialog>
 

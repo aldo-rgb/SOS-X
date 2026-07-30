@@ -112,10 +112,59 @@ export const createBoard = async (req: Request, res: Response): Promise<any> => 
   }
 };
 
+// ─── TABLEROS: responsables elegibles (por rol y/o usuarios) ──
+// Resuelve QUÉ usuarios pueden ser responsables en este tablero.
+// Config del tablero: assignable_roles + assignable_user_ids.
+//   - ambos vacíos → todos los usuarios activos (comportamiento previo).
+//   - si hay config → usuarios activos con ese rol O en la lista.
+export const getBoardAssignees = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const boardId = parseInt(String(req.params.id));
+    const b = await pool.query(`SELECT assignable_roles, assignable_user_ids FROM task_boards WHERE id = $1`, [boardId]);
+    if (b.rows.length === 0) return res.status(404).json({ error: 'Tablero no encontrado' });
+    const roles: string[] = Array.isArray(b.rows[0].assignable_roles) ? b.rows[0].assignable_roles : [];
+    const userIds: number[] = Array.isArray(b.rows[0].assignable_user_ids) ? b.rows[0].assignable_user_ids : [];
+    let r;
+    if (roles.length === 0 && userIds.length === 0) {
+      r = await pool.query(
+        `SELECT id, full_name, role FROM users WHERE COALESCE(is_active,true)=true ORDER BY full_name`);
+    } else {
+      r = await pool.query(
+        `SELECT id, full_name, role FROM users
+          WHERE COALESCE(is_active,true)=true AND (role = ANY($1::text[]) OR id = ANY($2::int[]))
+          ORDER BY full_name`,
+        [roles, userIds]);
+    }
+    res.json({ users: r.rows, config: { roles, user_ids: userIds } });
+  } catch (e: any) {
+    console.error('[tasks] getBoardAssignees:', e); res.status(500).json({ error: 'Error al obtener responsables' });
+  }
+};
+
+// ─── TABLEROS: configurar responsables elegibles (gerencia) ──
+export const setBoardAssignees = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (!isManager(req)) return res.status(403).json({ error: 'Solo gerencia puede configurar responsables' });
+    const boardId = parseInt(String(req.params.id));
+    const roles = Array.isArray(req.body?.roles)
+      ? req.body.roles.filter((x: any) => typeof x === 'string' && x.trim()).map((x: string) => x.trim()) : [];
+    const userIds = Array.isArray(req.body?.user_ids)
+      ? req.body.user_ids.map((x: any) => parseInt(String(x))).filter((n: number) => Number.isFinite(n) && n > 0) : [];
+    const upd = await pool.query(
+      `UPDATE task_boards SET assignable_roles = $2::jsonb, assignable_user_ids = $3::jsonb, updated_at = NOW()
+        WHERE id = $1 RETURNING id`,
+      [boardId, JSON.stringify(roles), JSON.stringify(userIds)]);
+    if (upd.rows.length === 0) return res.status(404).json({ error: 'Tablero no encontrado' });
+    res.json({ success: true, config: { roles, user_ids: userIds } });
+  } catch (e: any) {
+    console.error('[tasks] setBoardAssignees:', e); res.status(500).json({ error: 'Error al configurar responsables' });
+  }
+};
+
 // ─── TABLEROS: eliminar (soft-delete). No el operativo. ─────
 export const deleteBoard = async (req: Request, res: Response): Promise<any> => {
   try {
-    if (!isManager(req)) return res.status(403).json({ error: 'Solo gerencia puede eliminar tableros' });
+    if (authRole(req) !== 'super_admin') return res.status(403).json({ error: 'Solo super_admin puede eliminar tableros' });
     const id = parseInt(String(req.params.id));
     const b = await pool.query(`SELECT board_type FROM task_boards WHERE id = $1`, [id]);
     if (b.rows.length === 0) return res.status(404).json({ error: 'Tablero no encontrado' });
