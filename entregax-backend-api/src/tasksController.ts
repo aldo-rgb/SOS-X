@@ -200,15 +200,26 @@ export const getBoardAssignees = async (req: Request, res: Response): Promise<an
     if (b.rows.length === 0) return res.status(404).json({ error: 'Tablero no encontrado' });
     const roles: string[] = Array.isArray(b.rows[0].assignable_roles) ? b.rows[0].assignable_roles : [];
     const userIds: number[] = Array.isArray(b.rows[0].assignable_user_ids) ? b.rows[0].assignable_user_ids : [];
+    // Tiempo PROMEDIO de resolución del usuario (creación → término) sobre sus
+    // tareas ya cerradas, en segundos. Base para el desempeño. Se excluye el
+    // usuario de sistema "Administrador EntregaX".
+    const avgSelect = `(SELECT AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)))
+                          FROM tasks t
+                         WHERE t.assignee_id = u.id AND t.completed_at IS NOT NULL) AS avg_resolution_seconds`;
     let r;
     if (roles.length === 0 && userIds.length === 0) {
       r = await pool.query(
-        `SELECT id, full_name, role FROM users WHERE COALESCE(is_active,true)=true ORDER BY full_name`);
+        `SELECT u.id, u.full_name, u.role, ${avgSelect}
+           FROM users u
+          WHERE COALESCE(u.is_active,true)=true AND LOWER(TRIM(u.full_name)) <> 'administrador entregax'
+          ORDER BY u.full_name`);
     } else {
       r = await pool.query(
-        `SELECT id, full_name, role FROM users
-          WHERE COALESCE(is_active,true)=true AND (role = ANY($1::text[]) OR id = ANY($2::int[]))
-          ORDER BY full_name`,
+        `SELECT u.id, u.full_name, u.role, ${avgSelect}
+           FROM users u
+          WHERE COALESCE(u.is_active,true)=true AND LOWER(TRIM(u.full_name)) <> 'administrador entregax'
+            AND (u.role = ANY($1::text[]) OR u.id = ANY($2::int[]))
+          ORDER BY u.full_name`,
         [roles, userIds]);
     }
     res.json({ users: r.rows, config: { roles, user_ids: userIds } });

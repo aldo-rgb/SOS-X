@@ -69,7 +69,7 @@ interface Task {
   created_at?: string; completed_at?: string;
   subtasks_total: number; subtasks_done: number; comments: number; overdue: boolean;
 }
-interface UserOpt { id: number; full_name: string; role?: string; }
+interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; }
 
 export default function TareasPage() {
   const [boards, setBoards] = useState<Board[]>([]);
@@ -120,7 +120,7 @@ export default function TareasPage() {
   const loadAssignees = useCallback(async (boardId: number) => {
     try {
       const r = await axios.get(`${API_URL}/tasks/boards/${boardId}/assignees`, H());
-      setAssignees((r.data?.users || []).map((u: any) => ({ id: u.id, full_name: u.full_name, role: u.role })));
+      setAssignees((r.data?.users || []).map((u: any) => ({ id: u.id, full_name: u.full_name, role: u.role, avg_resolution_seconds: u.avg_resolution_seconds })));
       setCfgRoles(r.data?.config?.roles || []);
       setCfgUserIds(r.data?.config?.user_ids || []);
     } catch { setAssignees([]); }
@@ -391,7 +391,17 @@ export default function TareasPage() {
               <InputLabel>Responsable</InputLabel>
               <Select label="Responsable" value={form.assignee_id} onChange={e => setForm({ ...form, assignee_id: e.target.value })}>
                 <MenuItem value="">Sin asignar</MenuItem>
-                {assignees.map(u => <MenuItem key={u.id} value={u.id}>{u.full_name} {u.role ? `· ${u.role}` : ''}</MenuItem>)}
+                {assignees.map(u => {
+                  const avg = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
+                  return (
+                    <MenuItem key={u.id} value={u.id}>
+                      {u.full_name}
+                      <Typography component="span" fontSize={12} color="text.secondary" sx={{ ml: 0.75 }}>
+                        · ⏱ {avg && avg > 0 ? `${fmtDur(avg * 1000)} prom.` : 'sin datos'}
+                      </Typography>
+                    </MenuItem>
+                  );
+                })}
                 {assignees.length === 0 && <MenuItem value="" disabled>No hay responsables configurados</MenuItem>}
               </Select>
             </FormControl>
