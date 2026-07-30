@@ -3814,6 +3814,27 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                     const pagado = parseFloat(pkg.monto_pagado) || 0;
                     const tc = parseFloat(pkg.registered_exchange_rate) || 0;
 
+                    // 🚚 Pick Up: cobrar SOLO la tarifa de recolección ya asignada por el
+                    //   backend (assigned_cost_mxn / saldo_pendiente). NO recalcular con
+                    //   pobox_service_cost, que queda "stale" de la recepción e inflaba el
+                    //   saldo (p. ej. $582.27 en vez de $52.95). Se anula pobox_service_cost
+                    //   para que el front no lo sume.
+                    const isPickup = pkg.status === 'ready_pickup'
+                        || String(pkg.carrier || '').toLowerCase().includes('pick up');
+                    if (isPickup) {
+                        const fee = parseFloat(pkg.assigned_cost_mxn)
+                            || parseFloat(pkg.national_shipping_cost)
+                            || (pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0);
+                        const saldoPickup = pkg.saldo_pendiente != null
+                            ? parseFloat(pkg.saldo_pendiente)
+                            : Math.max(0, fee - pagado);
+                        return {
+                            saldo_pendiente: saldoPickup,
+                            pobox_service_cost: null,
+                            national_shipping_cost: parseFloat(pkg.national_shipping_cost) || fee,
+                        };
+                    }
+
                     const resolvePobox = (p: any, fallbackTc: number): number => {
                         const s = parseFloat(p.pobox_service_cost) || 0;
                         if (s > 0) return s;
