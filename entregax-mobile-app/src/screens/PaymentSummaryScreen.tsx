@@ -117,6 +117,14 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
 
   const totalMXN = packages.reduce((sum, p) => {
     const pp = p as any;
+    // 🚚 Pick Up: cobrar SOLO la tarifa de recolección (saldo_pendiente real del
+    //    backend). NUNCA recalcular con pobox_service_cost, que queda "stale" de la
+    //    recepción e inflaba el cobro (p. ej. $582.27 en vez de $52.95).
+    const isPickup = pp.status === 'ready_pickup'
+      || String(pp.carrier || '').toLowerCase().includes('pick up');
+    if (isPickup) {
+      return sum + (parseFloat(String(pp.saldo_pendiente ?? pp.assigned_cost_mxn ?? 0)) || 0);
+    }
     const gex = parseFloat(pp.gex_total_cost) || 0;
     const ship = parseFloat(pp.national_shipping_cost) || 0;
     const extra = parseFloat(pp.extra_charges_total) || 0;
@@ -911,9 +919,14 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                   }, 0);
                   if (sumHijas > 0) poboxMxn = sumHijas;
                 }
-                const totalCost = poboxMxn > 0
-                  ? Math.max(0, poboxMxn + gex + ship + extra - pagado)
-                  : Math.max(0, gex + ship + extra - pagado);
+                // 🚚 Pick Up: cobrar SOLO la tarifa de recolección (saldo_pendiente real).
+                const isPickup = pp.status === 'ready_pickup'
+                  || String(pp.carrier || '').toLowerCase().includes('pick up');
+                const totalCost = isPickup
+                  ? (parseFloat(String(pp.saldo_pendiente ?? pp.assigned_cost_mxn ?? 0)) || 0)
+                  : (poboxMxn > 0
+                      ? Math.max(0, poboxMxn + gex + ship + extra - pagado)
+                      : Math.max(0, gex + ship + extra - pagado));
                 const hasChildren = pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0;
                 const isExpanded = expandedPkgs.has(pkg.id);
                 const carrier = pp.national_carrier || pp.carrier || null;

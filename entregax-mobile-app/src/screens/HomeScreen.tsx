@@ -3128,11 +3128,22 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           firstSelectedPkg?.status === 'in_transit' ||
           firstSelectedPkg?.status === 'received_mty'
         );
-        
-        // 🔍 Verificar si TODOS los paquetes seleccionados ya tienen instrucciones
+
+        // 🚚 Pick Up en sucursal: ya tiene "instrucciones" (recoge el cliente, sin
+        //   dirección) y saldo pendiente = tarifa de pickup. Debe poder pagarse.
+        const isPickupSelection = isPOBoxUSA && (
+          firstSelectedPkg?.status === 'ready_pickup' ||
+          String((firstSelectedPkg as any)?.carrier || '').toLowerCase().includes('pick up')
+        );
+
+        // 🔍 Verificar si TODOS los paquetes seleccionados ya tienen instrucciones.
+        //   El Pick Up cuenta como "con instrucciones" (needs_instructions=false),
+        //   aunque no tenga dirección de entrega.
         const allSelectedHaveInstructions = packages
           .filter(p => selectedIds.includes(p.id))
-          .every(p => (p as any).delivery_address_id || (p as any).assigned_address_id);
+          .every(p => (p as any).delivery_address_id || (p as any).assigned_address_id
+            || (p as any).status === 'ready_pickup'
+            || (p as any).needs_instructions === false);
         
         // 🎯 Paquetes en bodega necesitan instrucciones (dirección de envío) - SOLO si NO tienen instrucciones
         const needsInstructions = (isMaritimeSelection || isChinaAirSelection || isDHLSelection || isTdiExpressSelection || isWarehouseSelection) && !allSelectedHaveInstructions;
@@ -3158,6 +3169,14 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         });
         const totalToPay = selectedPackages.reduce((sum, p) => {
           const pp = p as any;
+          // 🚚 Pick Up: cobrar SOLO la tarifa de recolección (saldo_pendiente real del
+          //    backend), NUNCA el recálculo PO Box (usa pobox_service_cost stale que
+          //    inflaba el saldo, p. ej. $582.27 en vez de $52.95).
+          const isPickupPkg = pp.status === 'ready_pickup'
+            || String(pp.carrier || '').toLowerCase().includes('pick up');
+          if (isPickupPkg) {
+            return sum + parseFloat(String(pp.saldo_pendiente ?? pp.assigned_cost_mxn ?? 0));
+          }
           // 📦 Helper canónico: lee pobox_service_cost / national_shipping_cost / gex_total_cost
           // y, si el master no los tiene, los suma desde child_packages.
           const breakdown = getPackageCostBreakdown(pp);
@@ -3170,6 +3189,15 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         
         // 💰 Paquetes en bodega con instrucciones pueden pagar
         const canPayFromWarehouse = isWarehouseSelection && allSelectedHaveInstructions;
+
+        // 🚚 Pick Up con saldo pendiente puede pagar (ya tiene instrucciones)
+        const pickupHasPendingBalance = packages
+          .filter(p => selectedIds.includes(p.id))
+          .some(p => {
+            const saldo = parseFloat(String((p as any).saldo_pendiente || p.assigned_cost_mxn || 0));
+            return saldo > 0 && (p as any).client_paid !== true;
+          });
+        const canPayPickup = isPickupSelection && pickupHasPendingBalance;
 
         // � China Air / Marítimo / DHL con instrucciones asignadas y saldo pendiente → pueden pagar
         const selectedHasPendingBalance = packages
@@ -3184,7 +3212,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
         // 🚫 "Solicitar Envío" está desactivado: solo se muestra el FAB cuando hay
         // una acción real (asignar instrucciones o pagar). En cualquier otro caso, ocultamos el botón.
-        const showFab = needsInstructions || isProcessingSelection || canPayFromWarehouse || canPayChinaMaritimeDHL;
+        const showFab = needsInstructions || isProcessingSelection || canPayFromWarehouse || canPayChinaMaritimeDHL || canPayPickup;
         if (!showFab) return null;
 
         return (
@@ -3195,7 +3223,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             label={needsInstructions 
               ? `📋 Asignar Instrucciones (${selectedIds.length})`
               : `💳 Pagar $${totalToPay.toFixed(2)} (${selectedIds.length})`}
-            style={[styles.fabSend, (isProcessingSelection || canPayFromWarehouse || canPayChinaMaritimeDHL) && { backgroundColor: '#4CAF50' }]}
+            style={[styles.fabSend, (isProcessingSelection || canPayFromWarehouse || canPayChinaMaritimeDHL || canPayPickup) && { backgroundColor: '#4CAF50' }]}
             color="white"
             onPress={() => {
               if (needsInstructions) {

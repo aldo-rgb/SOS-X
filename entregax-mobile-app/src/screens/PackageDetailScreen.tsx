@@ -217,6 +217,35 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
     const tc = Number(details.registered_exchange_rate) || 18.09;
     const nivel = details.pobox_tarifa_nivel || 1;
 
+    // 🚚 Pick Up: el cliente recoge en sucursal. Se cobra SOLO la tarifa de pickup
+    //   ($3 USD/caja × TC), NO el servicio PO Box. La fuente de verdad es el saldo
+    //   ya asignado por el backend (assigned_cost_mxn / saldo_pendiente). NUNCA se
+    //   recalcula con pobox_service_cost, que queda "stale" de la recepción y
+    //   inflaba el saldo (p. ej. $582.27 en vez de $52.95).
+    if (isPickUpService()) {
+      const paid = Number(details.monto_pagado) || 0;
+      const feeMxn = Number(details.assigned_cost_mxn)
+        || Number(details.national_shipping_cost)
+        || (totalBoxes * 3 * tc);
+      const saldoPickup = details.saldo_pendiente != null
+        ? Number(details.saldo_pendiente)
+        : Math.max(feeMxn - paid, 0);
+      const pickupUsdTotal = tc > 0 ? feeMxn / tc : totalBoxes * 3;
+      return {
+        costoMxn: 0,
+        costoTotal: feeMxn,
+        saldo: saldoPickup,
+        totalBoxes,
+        precioUnitarioUsd: totalBoxes > 0 ? pickupUsdTotal / totalBoxes : 3,
+        tc,
+        nivel: 0,
+        gexInsurance: 0,
+        gexFixed: 0,
+        gexTotal: 0,
+        extraCharges: 0,
+      };
+    }
+
     // ✅ Fuente de verdad: pobox_service_cost (MXN ya calculado por el backend al recibir).
     // pobox_venta_usd es el total USD para todas las cajas (NO por caja), así que NO se
     // multiplica por totalBoxes.
@@ -933,11 +962,16 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
 
             ) : isPickUpService() ? (
               <>
-                {/* Para Pick Up: mostrar costo de envío nacional o el monto pagado */}
+                {/* Para Pick Up: tarifa de recolección en sucursal ($3 USD/caja × TC) */}
                 <View style={styles.costRow}>
                   <Text style={styles.costLabel}>{`🚚 Pick Up (${details.carrier ?? ''})`}</Text>
                   <Text style={styles.costValue}>
-                    {`$${(details.national_shipping_cost ?? details.monto_pagado ?? 0).toFixed(2)} MXN`}
+                    {`$${costSummary.costoTotal.toFixed(2)} MXN`}
+                  </Text>
+                </View>
+                <View style={[styles.costRow, { paddingLeft: 16, marginTop: -4 }]}>
+                  <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
+                    {`💵 ${costSummary.totalBoxes > 1 ? `${costSummary.totalBoxes} cajas × ` : ''}$${costSummary.precioUnitarioUsd.toFixed(2)} USD × TC $${costSummary.tc.toFixed(2)}`}
                   </Text>
                 </View>
                 {isPaid() && (
