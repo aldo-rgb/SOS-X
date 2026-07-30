@@ -23,6 +23,8 @@ import {
 } from '@mui/material';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import CloseIcon from '@mui/icons-material/Close';
+import OpenInFullIcon from '@mui/icons-material/OpenInFull';
+import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen';
 import SendIcon from '@mui/icons-material/Send';
 import BuildIcon from '@mui/icons-material/Build';
 import SearchIcon from '@mui/icons-material/Search';
@@ -1017,6 +1019,7 @@ function ClientLookupResult({ data }: { data: PackageData }) {
 export default function CajitoFab() {
   const { cajitoEnabled, cajitoAvatarUrl, loading } = usePaymentStatus();
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false); // ventana grande / pantalla casi completa
   // Los asesores solo tienen la versión "Rastrear guía" (sin Chat IA), por eso
   // arrancan en modo track.
   const [mode, setMode] = useState<'chat' | 'track'>(() => {
@@ -1287,7 +1290,11 @@ export default function CajitoFab() {
 
       {/* Panel principal */}
       <Slide direction="up" in={open} mountOnEnter unmountOnExit>
-        <Paper elevation={12} sx={{ position: 'fixed', bottom: 130, right: 24, width: { xs: 'calc(100vw - 48px)', sm: 380 }, maxWidth: 400, height: 580, maxHeight: 'calc(100vh - 160px)', zIndex: 1299, borderRadius: 3, overflow: 'hidden', display: 'flex', flexDirection: 'column', border: `2px solid ${CAJITO_RING}` }}>
+        <Paper elevation={12} sx={{ position: 'fixed',
+          ...(expanded
+            ? { bottom: 24, right: 24, width: 'calc(100vw - 48px)', maxWidth: 1100, height: 'calc(100vh - 48px)', maxHeight: 'calc(100vh - 48px)' }
+            : { bottom: 130, right: 24, width: { xs: 'calc(100vw - 48px)', sm: 380 }, maxWidth: 400, height: 580, maxHeight: 'calc(100vh - 160px)' }),
+          zIndex: 1299, borderRadius: 3, overflow: 'hidden', display: 'flex', flexDirection: 'column', border: `2px solid ${CAJITO_RING}` }}>
 
           {/* Header con selector de modo */}
           <Box sx={{ background: CAJITO_GRADIENT, color: 'white', p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -1305,6 +1312,11 @@ export default function CajitoFab() {
                 </IconButton>
               </Tooltip>
             )}
+            <Tooltip title={expanded ? 'Reducir' : 'Pantalla completa'}>
+              <IconButton size="small" onClick={() => setExpanded(v => !v)} sx={{ color: 'white', mr: 0.5 }}>
+                {expanded ? <CloseFullscreenIcon fontSize="small" /> : <OpenInFullIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
             <IconButton size="small" onClick={() => setOpen(false)} sx={{ color: 'white' }}>
               <CloseIcon />
             </IconButton>
