@@ -20,7 +20,16 @@ import {
   Chip,
   Divider,
   InputAdornment,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
 } from '@mui/material';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
+import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import EditIcon from '@mui/icons-material/Edit';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import CloseIcon from '@mui/icons-material/Close';
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
@@ -1034,6 +1043,12 @@ export default function CajitoFab() {
   // Chat state
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
+  // Base de conocimiento (curada, solo super_admin)
+  const [kbDialog, setKbDialog] = useState<{ id?: number; title: string; content: string; tags: string } | null>(null);
+  const [kbSaving, setKbSaving] = useState(false);
+  const [kbManagerOpen, setKbManagerOpen] = useState(false);
+  const [kbList, setKbList] = useState<any[]>([]);
+  const [kbLoading, setKbLoading] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [thinkingLabel, setThinkingLabel] = useState('Cajito está pensando…');
   const [conversationId, setConversationId] = useState<number | null>(() => {
@@ -1108,6 +1123,35 @@ export default function CajitoFab() {
   if (!isSuperAdmin && !isTrackOnly && !hasCapAccess) return null;
 
   const avatar = imgError ? null : resolveUrl(cajitoAvatarUrl);
+
+  // --- Base de conocimiento ---
+  const openKbFromMessage = (text: string) => {
+    const firstLine = (text || '').split('\n').find(l => l.trim())?.trim() || 'Nuevo conocimiento';
+    setKbDialog({ title: firstLine.slice(0, 120), content: text || '', tags: '' });
+  };
+  const saveKb = async () => {
+    if (!kbDialog) return;
+    if (!kbDialog.title.trim() || !kbDialog.content.trim()) return;
+    setKbSaving(true);
+    try {
+      if (kbDialog.id) {
+        await api.put(`/cajito/knowledge/${kbDialog.id}`, { title: kbDialog.title.trim(), content: kbDialog.content.trim(), tags: kbDialog.tags.trim() || null });
+      } else {
+        await api.post('/cajito/knowledge', { title: kbDialog.title.trim(), content: kbDialog.content.trim(), tags: kbDialog.tags.trim() || null });
+      }
+      setKbDialog(null);
+      if (kbManagerOpen) loadKb();
+    } catch { /* noop */ } finally { setKbSaving(false); }
+  };
+  const loadKb = async () => {
+    setKbLoading(true);
+    try { const r = await api.get('/cajito/knowledge'); setKbList(r.data?.items || []); }
+    catch { /* */ } finally { setKbLoading(false); }
+  };
+  const openKbManager = () => { setKbManagerOpen(true); loadKb(); };
+  const deleteKb = async (id: number) => {
+    try { await api.delete(`/cajito/knowledge/${id}`); loadKb(); } catch { /* */ }
+  };
 
   const handleSend = async () => {
     const text = input.trim();
@@ -1305,6 +1349,13 @@ export default function CajitoFab() {
               <Typography variant="subtitle1" fontWeight={700} lineHeight={1.1}>Cajito</Typography>
               <Typography variant="caption" sx={{ opacity: 0.9 }}>Asistente IA · Solo lectura{isSuperAdmin ? ' · Super Admin' : (isAdvisor ? ' · Mis clientes' : (isCustomerService ? ' · Servicio a cliente' : ''))}</Typography>
             </Box>
+            {mode === 'chat' && isSuperAdmin && (
+              <Tooltip title="Base de conocimiento">
+                <IconButton size="small" onClick={openKbManager} sx={{ color: 'white', mr: 0.5 }}>
+                  <MenuBookIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
             {mode === 'chat' && (
               <Tooltip title="Nueva conversación">
                 <IconButton size="small" onClick={startNewConversation} sx={{ color: 'white', mr: 0.5 }}>
@@ -1366,6 +1417,15 @@ export default function CajitoFab() {
                   return (
                     <Box key={m.id} sx={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', bgcolor: m.role === 'user' ? CAJITO_RING : 'white', color: m.role === 'user' ? 'white' : 'text.primary', border: m.role === 'user' ? 'none' : '1px solid #FFE0B2', borderRadius: 2, px: 1.25, py: 0.75, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}>
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.text}</Typography>
+                      {isSuperAdmin && m.role === 'cajito' && (m.text || '').trim().length > 0 && (
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
+                          <Tooltip title="Guardar como conocimiento (revisa/edita antes)">
+                            <IconButton size="small" onClick={() => openKbFromMessage(m.text || '')} sx={{ color: CAJITO_RING, p: 0.25 }}>
+                              <BookmarkAddIcon sx={{ fontSize: 16 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      )}
                     </Box>
                   );
                 })}
@@ -1474,6 +1534,68 @@ export default function CajitoFab() {
 
         </Paper>
       </Slide>
+
+      {/* Guardar / editar conocimiento (curado, solo super_admin) */}
+      <Dialog open={kbDialog != null} onClose={() => setKbDialog(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <BookmarkAddIcon sx={{ color: CAJITO_RING }} /> {kbDialog?.id ? 'Editar conocimiento' : 'Guardar como conocimiento'}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+            Revisa y edita antes de guardar. Cajito usará este texto para responder preguntas similares.
+          </Typography>
+          <TextField fullWidth size="small" label="Título / pregunta" margin="dense"
+            value={kbDialog?.title || ''} onChange={e => setKbDialog(d => d ? { ...d, title: e.target.value } : d)} />
+          <TextField fullWidth size="small" label="Respuesta / procedimiento" margin="dense" multiline minRows={4}
+            value={kbDialog?.content || ''} onChange={e => setKbDialog(d => d ? { ...d, content: e.target.value } : d)} />
+          <TextField fullWidth size="small" label="Etiquetas (opcional, separadas por coma)" margin="dense"
+            placeholder="xpay, correo, notificaciones"
+            value={kbDialog?.tags || ''} onChange={e => setKbDialog(d => d ? { ...d, tags: e.target.value } : d)} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setKbDialog(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={saveKb} disabled={kbSaving || !kbDialog?.title.trim() || !kbDialog?.content.trim()}
+            sx={{ background: CAJITO_GRADIENT }}>Guardar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Administrar base de conocimiento */}
+      <Dialog open={kbManagerOpen} onClose={() => setKbManagerOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <MenuBookIcon sx={{ color: CAJITO_RING }} /> Base de conocimiento de Cajito
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+            <Button size="small" startIcon={<BookmarkAddIcon />} onClick={() => setKbDialog({ title: '', content: '', tags: '' })}>Nuevo</Button>
+          </Box>
+          {kbLoading ? (
+            <Box sx={{ textAlign: 'center', py: 3 }}><CircularProgress size={22} sx={{ color: CAJITO_RING }} /></Box>
+          ) : kbList.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+              Aún no hay conocimiento guardado. Usa el ícono 🔖 en las respuestas de Cajito o «Nuevo».
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {kbList.map((k) => (
+                <Box key={k.id} sx={{ border: '1px solid #eee', borderRadius: 1.5, p: 1.25 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={700}>{k.title}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{k.content}</Typography>
+                      {k.tags && <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.25 }}>🏷️ {k.tags}</Typography>}
+                    </Box>
+                    <IconButton size="small" onClick={() => setKbDialog({ id: k.id, title: k.title, content: k.content, tags: k.tags || '' })}><EditIcon sx={{ fontSize: 18 }} /></IconButton>
+                    <IconButton size="small" onClick={() => deleteKb(k.id)}><DeleteOutlineIcon sx={{ fontSize: 18, color: '#C0392B' }} /></IconButton>
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setKbManagerOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

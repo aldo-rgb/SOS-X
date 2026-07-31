@@ -941,6 +941,10 @@ import {
   getMyAccess as cajitoGetMyAccess,
   clientLookup as cajitoClientLookup,
   ticketLookup as cajitoTicketLookup,
+  listKnowledge as cajitoListKnowledge,
+  createKnowledge as cajitoCreateKnowledge,
+  updateKnowledge as cajitoUpdateKnowledge,
+  deleteKnowledge as cajitoDeleteKnowledge,
 } from './cajitoController';
 import {
   listAwbCosts,
@@ -15794,6 +15798,11 @@ app.get('/api/cajito/my-access', authenticateToken, cajitoGetMyAccess);
 app.get('/api/cajito/client-lookup', authenticateToken, cajitoClientLookup);
 app.get('/api/cajito/ticket-lookup', authenticateToken, cajitoTicketLookup);
 app.get('/api/admin/cajito/audit', authenticateToken, requireRole('super_admin'), cajitoGetAudit);
+// Base de conocimiento curada (solo super_admin edita)
+app.get('/api/cajito/knowledge', authenticateToken, requireRole('super_admin'), cajitoListKnowledge);
+app.post('/api/cajito/knowledge', authenticateToken, requireRole('super_admin'), cajitoCreateKnowledge);
+app.put('/api/cajito/knowledge/:id', authenticateToken, requireRole('super_admin'), cajitoUpdateKnowledge);
+app.delete('/api/cajito/knowledge/:id', authenticateToken, requireRole('super_admin'), cajitoDeleteKnowledge);
 
 // ============================================================
 // MIDDLEWARES FINALES — deben ir DESPUÉS de TODAS las rutas

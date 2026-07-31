@@ -63,6 +63,21 @@ async function ensureChatTables() {
       created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_cajito_msg_conv ON cajito_messages(conversation_id, created_at);
+
+    -- Base de conocimiento curada (solo super_admin la edita). Cajito la
+    -- consulta con el tool search_knowledge para responder "cómo/dónde hacer X".
+    CREATE TABLE IF NOT EXISTS cajito_knowledge (
+      id           SERIAL PRIMARY KEY,
+      title        TEXT NOT NULL,             -- pregunta / tema
+      content      TEXT NOT NULL,             -- respuesta / procedimiento
+      tags         TEXT,                      -- palabras clave separadas por coma
+      is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+      created_by   INTEGER REFERENCES users(id),
+      updated_by   INTEGER REFERENCES users(id),
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_cajito_knowledge_active ON cajito_knowledge(is_active);
   `);
   _tablesReady = true;
 }
@@ -107,6 +122,38 @@ type ToolDef = {
 };
 
 const TOOLS: ToolDef[] = [
+  // -------------------- BASE DE CONOCIMIENTO --------------------
+  {
+    name: 'search_knowledge',
+    requiredCapability: 'cajito.access',
+    readOnly: true,
+    description: 'Busca en la base de conocimiento curada de EntregaX (procedimientos, "cómo/dónde configuro X", políticas internas). ÚSALA SIEMPRE PRIMERO para preguntas de tipo cómo hacer algo, dónde está una función, o procedimientos internos, antes de responder. Si no hay resultados, dilo y NO inventes pasos.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Términos de búsqueda (tema/pregunta). Ej: "configurar correo xpay", "dar de alta empleado".' },
+      },
+      required: ['query'],
+    },
+    handler: async ({ query }) => {
+      const q = String(query || '').trim();
+      if (!q) return { results: [], note: 'Consulta vacía.' };
+      const r = await pool.query(
+        `SELECT id, title, content, tags
+           FROM cajito_knowledge
+          WHERE is_active = TRUE
+            AND (title ILIKE $1 OR content ILIKE $1 OR COALESCE(tags,'') ILIKE $1)
+          ORDER BY (title ILIKE $1) DESC, updated_at DESC
+          LIMIT 5`,
+        [`%${q}%`]
+      );
+      if (r.rows.length === 0) {
+        return { results: [], note: 'No hay conocimiento registrado sobre esto. Dile al usuario que no tienes esa información documentada y NO inventes pasos.' };
+      }
+      return { results: r.rows.map((k: any) => ({ id: k.id, title: k.title, content: k.content, tags: k.tags || undefined })) };
+    },
+  },
+
   // -------------------- PAQUETES --------------------
   {
     name: 'lookup_package',
@@ -551,6 +598,7 @@ function buildSystemPrompt(user: { userId: number; role: string; full_name?: str
     'Si el usuario pide una acción de escritura (modificar guías, aplicar descuentos, enviar mensajes, cambiar status, aprobar/rechazar, asignar, cancelar, condonar, etc.), NIÉGATE educadamente y dile que debe hacerlo desde el módulo correspondiente del panel administrativo. NO intentes invocar ninguna herramienta para ese fin.',
     'El sistema bloquea a nivel de runtime cualquier herramienta que no esté marcada como readOnly — así que aunque lo intentes, será rechazada.',
     'Cuando necesites datos del sistema, USA las herramientas disponibles. NO inventes trackings, montos ni nombres.',
+    'CONOCIMIENTO / PROCEDIMIENTOS: para preguntas de "cómo hago X", "dónde configuro/encuentro Y", pasos o políticas internas, USA SIEMPRE PRIMERO la herramienta search_knowledge. Si devuelve resultados, responde basándote SOLO en ellos. Si NO hay resultados, di claramente que no tienes esa información documentada y NO inventes pasos ni rutas del panel.',
     'Si una herramienta devuelve resultados, formatea la respuesta de forma corta y útil (lista breve o tabla en texto). Cita IDs/trackings textuales.',
     'Si el usuario te pregunta algo fuera de operaciones de paquetería, responde brevemente y vuelve al tema operativo.',
     '',
@@ -1354,5 +1402,83 @@ export const ticketLookup = async (req: AuthRequest, res: Response): Promise<voi
   } catch (err: any) {
     console.error('[cajito/ticket-lookup] error:', err);
     res.status(500).json({ error: err?.message || 'Error en lookup de ticket' });
+  }
+};
+
+// ============================================================
+// BASE DE CONOCIMIENTO (curada, solo super_admin) — CRUD
+// ============================================================
+export const listKnowledge = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await ensureChatTables();
+    const q = String(req.query?.q || '').trim();
+    const includeInactive = String(req.query?.all || '') === 'true';
+    const conds: string[] = []; const params: any[] = []; let i = 1;
+    if (!includeInactive) conds.push('is_active = TRUE');
+    if (q) { conds.push(`(title ILIKE $${i} OR content ILIKE $${i} OR COALESCE(tags,'') ILIKE $${i})`); params.push(`%${q}%`); i++; }
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    const r = await pool.query(
+      `SELECT k.id, k.title, k.content, k.tags, k.is_active, k.created_at, k.updated_at,
+              cu.full_name AS created_by_name, uu.full_name AS updated_by_name
+         FROM cajito_knowledge k
+         LEFT JOIN users cu ON cu.id = k.created_by
+         LEFT JOIN users uu ON uu.id = k.updated_by
+         ${where}
+        ORDER BY k.updated_at DESC LIMIT 500`, params);
+    res.json({ items: r.rows });
+  } catch (err: any) {
+    console.error('[cajito/knowledge:list]', err); res.status(500).json({ error: 'Error al listar conocimiento' });
+  }
+};
+
+export const createKnowledge = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await ensureChatTables();
+    const uid = req.user?.userId;
+    const { title, content, tags } = req.body || {};
+    if (!String(title || '').trim() || !String(content || '').trim()) {
+      res.status(400).json({ error: 'Título y contenido son obligatorios' }); return;
+    }
+    const r = await pool.query(
+      `INSERT INTO cajito_knowledge (title, content, tags, created_by, updated_by)
+       VALUES ($1,$2,$3,$4,$4) RETURNING *`,
+      [String(title).trim(), String(content).trim(), (tags && String(tags).trim()) || null, uid]);
+    res.json({ item: r.rows[0] });
+  } catch (err: any) {
+    console.error('[cajito/knowledge:create]', err); res.status(500).json({ error: 'Error al guardar conocimiento' });
+  }
+};
+
+export const updateKnowledge = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await ensureChatTables();
+    const uid = req.user?.userId;
+    const id = parseInt(String(req.params.id));
+    const b = req.body || {};
+    const sets: string[] = []; const params: any[] = []; let i = 1;
+    if (b.title !== undefined && String(b.title).trim()) { sets.push(`title = $${i++}`); params.push(String(b.title).trim()); }
+    if (b.content !== undefined && String(b.content).trim()) { sets.push(`content = $${i++}`); params.push(String(b.content).trim()); }
+    if (b.tags !== undefined) { sets.push(`tags = $${i++}`); params.push((b.tags && String(b.tags).trim()) || null); }
+    if (b.is_active !== undefined) { sets.push(`is_active = $${i++}`); params.push(!!b.is_active); }
+    if (sets.length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
+    sets.push(`updated_by = $${i++}`); params.push(uid);
+    sets.push(`updated_at = NOW()`);
+    params.push(id);
+    const r = await pool.query(`UPDATE cajito_knowledge SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);
+    if (r.rows.length === 0) { res.status(404).json({ error: 'No encontrado' }); return; }
+    res.json({ item: r.rows[0] });
+  } catch (err: any) {
+    console.error('[cajito/knowledge:update]', err); res.status(500).json({ error: 'Error al actualizar conocimiento' });
+  }
+};
+
+export const deleteKnowledge = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await ensureChatTables();
+    const id = parseInt(String(req.params.id));
+    await pool.query(`UPDATE cajito_knowledge SET is_active = FALSE, updated_at = NOW() WHERE id = $1`, [id]);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[cajito/knowledge:delete]', err); res.status(500).json({ error: 'Error al eliminar conocimiento' });
   }
 };
