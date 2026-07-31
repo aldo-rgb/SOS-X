@@ -272,7 +272,9 @@ export default function MisTareasPage() {
         {involved.length > 1 && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
             {involved.map((name, i) => (
-              <Tooltip key={i} title={name}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#5E35B1' }}>{initials(name)}</Avatar></Tooltip>
+              <Tooltip key={i} title={i === 0 ? `${name} · Responsable` : name}>
+                <Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: i === 0 ? '#D6521C' : '#5E35B1', border: i === 0 ? '2px solid #B07206' : 'none', fontWeight: i === 0 ? 800 : 400 }}>{initials(name)}</Avatar>
+              </Tooltip>
             ))}
             <Typography fontSize={11} color="text.secondary">{involved.length} involucrados</Typography>
           </Box>

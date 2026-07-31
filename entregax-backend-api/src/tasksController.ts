@@ -651,14 +651,17 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
     const statusCond = includeAll ? `t.status <> 'cancelled'` : `t.status = 'open'`;
     const r = await pool.query(`
       SELECT t.*, b.name AS board_name, b.board_key, col.name AS column_name, col.is_done AS column_is_done,
+             au.full_name AS assignee_name,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id)::int AS subtasks_total,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id AND s.done)::int AS subtasks_done,
              (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
-             (SELECT array_agg(u2.full_name ORDER BY u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_names,
+             -- Responsable (assignee) primero; luego el resto por nombre.
+             (SELECT array_agg(u2.full_name ORDER BY (u2.id = t.assignee_id) DESC, u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_names,
              (t.due_at IS NOT NULL AND t.status='open' AND t.due_at < NOW()) AS overdue
         FROM tasks t
         JOIN task_boards b ON b.id = t.board_id
         LEFT JOIN task_columns col ON col.id = t.column_id
+        LEFT JOIN users au ON au.id = t.assignee_id
        WHERE (t.assignee_id = $1 OR EXISTS (SELECT 1 FROM task_participants tp WHERE tp.task_id = t.id AND tp.user_id = $1))
          AND ${statusCond}
        ORDER BY (t.status='open') DESC, (t.eisenhower='fuego') DESC, t.due_at NULLS LAST, t.id DESC`, [uid]);
