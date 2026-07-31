@@ -107,6 +107,13 @@ interface PackageCosting {
     is_lost?: boolean;
 }
 
+// Fecha corta legible (o '—' si no hay).
+const fmtShortDate = (iso?: string): string => {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }); }
+    catch { return '—'; }
+};
+
 interface Consolidation {
     id: number;
     status: string;
@@ -653,6 +660,8 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                             <TableHead>
                                 <TableRow sx={{ bgcolor: 'grey.100' }}>
                                     <TableCell><strong>Tracking</strong></TableCell>
+                                    <TableCell align="center"><strong>Recepción</strong></TableCell>
+                                    <TableCell align="center"><strong>Entrada</strong></TableCell>
                                     <TableCell align="center"><strong>Dimensiones</strong></TableCell>
                                     <TableCell align="right"><strong>Pie³</strong></TableCell>
                                     <TableCell align="right"><strong>USD</strong></TableCell>
@@ -673,6 +682,8 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                             <Typography variant="body2" fontWeight="medium">{pkg.tracking}</Typography>
                                             {pkg.user_name && <Typography variant="caption" color="text.secondary">{pkg.user_name}</Typography>}
                                         </TableCell>
+                                        <TableCell align="center"><Typography variant="caption">{fmtShortDate(pkg.received_at)}</Typography></TableCell>
+                                        <TableCell align="center"><Typography variant="caption">{fmtShortDate(pkg.created_at)}</Typography></TableCell>
                                         <TableCell align="center">
                                             {pkg.pkg_length > 0 && pkg.pkg_width > 0 && pkg.pkg_height > 0 ? (
                                                 <Typography variant="caption">{pkg.pkg_length}×{pkg.pkg_width}×{pkg.pkg_height} cm</Typography>
