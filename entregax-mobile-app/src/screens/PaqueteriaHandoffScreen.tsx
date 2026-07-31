@@ -229,7 +229,23 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           phase: 'internal',
         }, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
 
-        if (mode === 'cargar_unidad') {
+        if (res.data.phase === 'complete' || res.data.isDhl) {
+          // Escaneo único (Paquete Express / courier externo): ya quedó con salida,
+          // no requiere fase 2 (guía de carrier).
+          if (completed.find(c => c.packageId === res.data.packageId)) {
+            showFeedback('warn', `⚠️ ${res.data.tracking} ya fue escaneado antes`);
+            setTimeout(() => inputRef.current?.focus(), 200);
+            return;
+          }
+          setCompleted(prev => [...prev, {
+            packageId: res.data.packageId,
+            tracking: res.data.tracking,
+            externalTracking: res.data.tracking,
+          }]);
+          showFeedback('ok', res.data.message || `✅ ${res.data.tracking} — Salida registrada`);
+          setManualCode('');
+          setTimeout(() => inputRef.current?.focus(), 100);
+        } else if (mode === 'cargar_unidad') {
           // Verificar duplicado
           if (completed.find(c => c.packageId === res.data.packageId)) {
             showFeedback('warn', `⚠️ ${res.data.tracking} ya fue escaneado antes`);

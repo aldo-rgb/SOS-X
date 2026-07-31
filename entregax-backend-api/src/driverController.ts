@@ -2462,7 +2462,10 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             // (Paquete Express, FedEx…), que vive en dhl_shipments y NO en packages.
             // Estos SÍ entran a "Salidas Paqueterías", pero antes no se podían
             // escanear porque el lookup solo miraba packages → "no encontrada".
-            if (result.rows.length === 0 && mode === 'cargar_unidad') {
+            // Aplica en CUALQUIER modo (antes solo cargar_unidad): las guías de
+            // Paquete Express / courier externo viven en dhl_shipments, no en
+            // packages. Es un escaneo único (no requiere fase 2).
+            if (result.rows.length === 0) {
                 const compact = code.replace(/-/g, '');
                 const dhlRes = await pool.query(
                     `SELECT id, secondary_tracking, inbound_tracking, national_carrier, status
@@ -2482,13 +2485,18 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                         return res.status(400).json({ error: `⚠️ Esta guía es de ${d.national_carrier || 'otra paquetería'}, no de ${carrier}` });
                     }
                     const dhlTracking = d.secondary_tracking || d.inbound_tracking || String(d.id);
+                    if (d.status === 'shipped') {
+                        return res.status(400).json({ error: `⚠️ ${dhlTracking} ya tenía salida (enviada)` });
+                    }
                     // Sale vía courier externo → 'shipped'. dhl_shipments no maneja
                     // out_for_delivery; 'shipped' = entregado a la paquetería / en ruta.
                     await pool.query(`UPDATE dhl_shipments SET status = 'shipped', updated_at = NOW() WHERE id = $1`, [d.id]);
                     return res.json({
                         success: true, phase: 'complete', mode, isDhl: true,
                         packageId: `dhl-${d.id}`, tracking: dhlTracking, newStatus: 'shipped',
-                        message: `✅ Cargado a unidad (DHL vía ${d.national_carrier || carrier})`
+                        message: mode === 'cargar_unidad'
+                            ? `✅ Cargado a unidad (${d.national_carrier || carrier})`
+                            : `✅ ${dhlTracking} — Salida registrada (${d.national_carrier || carrier})`
                     });
                 }
             }
