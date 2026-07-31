@@ -32,6 +32,16 @@ const SERVICES = [
   { key: 'dhl',         label: 'DHL Monterrey',     emoji: '📦',  color: '#F9A825' },
 ];
 
+// Días naturales de "Max Time Arrival" (MTA) por tipo de servicio. Se usan
+// para calcular la fecha límite de arribo = fecha ingreso + N días.
+const SERVICE_MTA_DAYS: Record<string, number> = {
+  maritimo:    60,
+  tdi_aereo:   15,
+  tdi_express: 10,
+  pobox_usa:   10,
+  dhl:          3,
+};
+
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   received:              { label: 'Recibido',              color: '#1565C0', bg: '#E3F2FD' },
   received_china:        { label: 'Recibido en China',     color: '#E65100', bg: '#FFF3E0' },
@@ -251,6 +261,41 @@ export default function ServiceInventoryPage() {
 
   const fmt = (d?: string | null) =>
     d ? new Date(d).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+
+  // Celda MTA (Max Time Arrival): fecha máxima de arribo = received_at + N días
+  // naturales según el servicio. Muestra chip verde si aún hay tiempo, naranja
+  // si faltan ≤3 días y rojo si ya se venció.
+  const mtaCell = (receivedAt?: string | null, small = false) => {
+    const days = SERVICE_MTA_DAYS[service];
+    if (!days || !receivedAt) {
+      return <TableCell><Typography variant="caption" color="text.disabled">—</Typography></TableCell>;
+    }
+    const start = new Date(receivedAt);
+    if (Number.isNaN(start.getTime())) {
+      return <TableCell><Typography variant="caption" color="text.disabled">—</Typography></TableCell>;
+    }
+    const deadline = new Date(start.getTime() + days * 24 * 60 * 60 * 1000);
+    const diffDays = Math.floor((deadline.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+    const overdue = diffDays < 0;
+    const soon = !overdue && diffDays <= 3;
+    const color = overdue ? '#B71C1C' : soon ? '#EF6C00' : '#2E7D32';
+    const bg    = overdue ? '#FFEBEE' : soon ? '#FFF3E0' : '#E8F5E9';
+    const label = deadline.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    const tip = overdue
+      ? `Vencido hace ${Math.abs(diffDays)} día(s) · MTA base ${days} días`
+      : `Faltan ${diffDays} día(s) · MTA base ${days} días desde ingreso`;
+    return (
+      <TableCell>
+        <Tooltip title={tip}>
+          <Chip
+            size="small"
+            label={label}
+            sx={{ bgcolor: bg, color, fontWeight: 600, fontSize: small ? '0.6rem' : '0.65rem', height: small ? 18 : 20 }}
+          />
+        </Tooltip>
+      </TableCell>
+    );
+  };
 
   const activeStatusLabels =
     service === 'maritimo' ? MARITIME_STATUS_LABELS :
@@ -851,6 +896,7 @@ export default function ServiceInventoryPage() {
         </TableCell>
       )}
       <TableCell><Typography variant="caption">{fmt(r.received_at)}</Typography></TableCell>
+      {mtaCell(r.received_at)}
       <TableCell><Typography variant="caption" color="text.secondary">{fmt(r.updated_at)}</Typography></TableCell>
       <TableCell>{statusChip(r.status)}</TableCell>
       {renderPagoInst(r.costing_paid, r.has_instructions, false, r)}
@@ -968,6 +1014,7 @@ export default function ServiceInventoryPage() {
               : <Typography variant="caption" color="text.disabled">—</Typography>}
           </TableCell>
           <TableCell><Typography variant="caption">{fmt(r.received_at)}</Typography></TableCell>
+          {mtaCell(r.received_at)}
           <TableCell><Typography variant="caption" color="text.secondary">{fmt(r.updated_at)}</Typography></TableCell>
           <TableCell>{statusChip(r.status)}</TableCell>
           {renderPagoInst(r.costing_paid, r.has_instructions, false, r)}
@@ -994,6 +1041,7 @@ export default function ServiceInventoryPage() {
                 : <Typography variant="caption" color="text.disabled">—</Typography>}
             </TableCell>
             <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{fmt(child.received_at)}</Typography></TableCell>
+            {mtaCell(child.received_at, true)}
             <TableCell><Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>{fmt(child.updated_at)}</Typography></TableCell>
             <TableCell>{statusChip(child.status)}</TableCell>
             {renderPagoInst(r.costing_paid, r.has_instructions, true, r)}
@@ -1187,6 +1235,11 @@ export default function ServiceInventoryPage() {
               {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>PAQUETERÍA</TableCell>}
               {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>GUÍA SALIDA</TableCell>}
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>FECHA INGRESO</TableCell>
+              <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>
+                <Tooltip title={`MTA — Max Time Arrival (${SERVICE_MTA_DAYS[service] ?? '—'} días naturales desde ingreso)`}>
+                  <span>MTA</span>
+                </Tooltip>
+              </TableCell>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>ÚLTIMO MOVIMIENTO</TableCell>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>ÚLTIMO STATUS</TableCell>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }} align="center">
@@ -1213,10 +1266,10 @@ export default function ServiceInventoryPage() {
           </TableHead>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={12} align="center" sx={{ py: 4 }}><CircularProgress size={28} /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={13} align="center" sx={{ py: 4 }}><CircularProgress size={28} /></TableCell></TableRow>
             ) : displayRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={12} align="center" sx={{ py: 4, color: '#999' }}>
+                <TableCell colSpan={13} align="center" sx={{ py: 4, color: '#999' }}>
                   {syncFilter ? 'Sin resultados para este filtro. Consulta EntregaX para ver el estado de sincronización.' : 'Sin resultados'}
                 </TableCell>
               </TableRow>
