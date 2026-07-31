@@ -10,6 +10,7 @@ import {
   Box, Typography, Button, IconButton, Chip, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
   Avatar, Divider, Checkbox, Snackbar, Alert, LinearProgress, ToggleButton, ToggleButtonGroup, Tooltip,
+  ListItemText, OutlinedInput,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -25,6 +26,8 @@ import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
 const H = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
+const ME = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } })();
+const MY_ID = Number(ME?.id) || 0;
 
 const EIS: Record<string, { label: string; short: string; color: string; bg: string }> = {
   fuego:    { label: '🔥 Urgente e importante',       short: '🔥 Urgente',           color: '#C0392B', bg: '#F9E5E2' },
@@ -77,7 +80,8 @@ export default function MisTareasPage() {
   const notify = (msg: string, sev: 'success' | 'error' = 'success') => setSnack({ open: true, msg, sev });
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '' });
+  const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
+  const [involvedIds, setInvolvedIds] = useState<number[]>(MY_ID ? [MY_ID] : []);
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [detailId, setDetailId] = useState<number | null>(null);
 
@@ -99,7 +103,7 @@ export default function MisTareasPage() {
     try {
       const res = await axios.post(`${API_URL}/tasks/personal`, {
         title: form.title.trim(), description: form.description || null,
-        eisenhower: form.eisenhower, assignee_id: form.assignee_id || null, due_at: form.due_at || null,
+        eisenhower: form.eisenhower, involved_ids: involvedIds, due_at: form.due_at || null,
       }, H());
       const newId = res.data?.task?.id;
       if (newId && newPhotos.length) {
@@ -109,8 +113,8 @@ export default function MisTareasPage() {
         }
       }
       setCreateOpen(false);
-      setForm({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '' });
-      setNewPhotos([]);
+      setForm({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
+      setInvolvedIds(MY_ID ? [MY_ID] : []); setNewPhotos([]);
       notify('Tarea creada');
       load();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear', 'error'); }
@@ -162,7 +166,7 @@ export default function MisTareasPage() {
           <Typography variant="body2" color="text.secondary">Tus tareas asignadas. Crea tareas y asígnalas a quien corresponda.</Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setInvolvedIds(MY_ID ? [MY_ID] : []); setCreateOpen(true); }} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load}>Actualizar</Button>
         </Box>
       </Box>
@@ -224,12 +228,31 @@ export default function MisTareasPage() {
               value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
           </Box>
           <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
-            <InputLabel>Asignar a</InputLabel>
-            <Select label="Asignar a" value={form.assignee_id} onChange={e => setForm({ ...form, assignee_id: e.target.value })}>
-              <MenuItem value="">Para mí</MenuItem>
-              {users.map(u => <MenuItem key={u.id} value={u.id}>{u.full_name}{u.role ? ` · ${u.role}` : ''}</MenuItem>)}
+            <InputLabel>Involucrados</InputLabel>
+            <Select multiple label="Involucrados" value={involvedIds} input={<OutlinedInput label="Involucrados" />}
+              onChange={e => {
+                const v = (typeof e.target.value === 'string' ? [] : e.target.value) as number[];
+                setInvolvedIds(MY_ID && !v.includes(MY_ID) ? [MY_ID, ...v] : v); // el creador siempre incluido
+              }}
+              renderValue={(sel) => (sel as number[]).map(idv => idv === MY_ID ? 'Yo' : (users.find(u => u.id === idv)?.full_name || idv)).join(', ')}
+              MenuProps={{ PaperProps: { style: { maxHeight: 340 } } }}>
+              {MY_ID > 0 && (
+                <MenuItem value={MY_ID} disabled>
+                  <Checkbox size="small" checked readOnly />
+                  <ListItemText primary="Yo (creador · siempre involucrado)" />
+                </MenuItem>
+              )}
+              {users.filter(u => u.id !== MY_ID).map(u => (
+                <MenuItem key={u.id} value={u.id}>
+                  <Checkbox size="small" checked={involvedIds.includes(u.id)} />
+                  <ListItemText primary={`${u.full_name}${u.role ? ` · ${u.role}` : ''}`} />
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            Puedes involucrar a varias personas. Tú siempre quedas incluido.
+          </Typography>
           {/* Fotos adjuntas */}
           <Box sx={{ mt: 2 }}>
             <Button component="label" size="small" startIcon={<PhotoCameraIcon />} sx={{ textTransform: 'none' }}>
@@ -340,6 +363,14 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               <Typography variant="body2"><b>Responsable:</b> {t.assignee_name || '—'}</Typography>
               {t.due_at && <Typography variant="body2" color={t.overdue ? 'error.main' : 'inherit'}><b>Fecha deseada:</b> {fmtDate(t.due_at)}</Typography>}
             </Box>
+            {(data.participants || []).length > 0 && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mb: 1.5 }}>
+                <Typography variant="body2" fontWeight={700}>Involucrados:</Typography>
+                {(data.participants || []).map((p: any) => (
+                  <Chip key={p.id} label={p.full_name} size="small" sx={{ bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 600 }} />
+                ))}
+              </Box>
+            )}
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2, p: 1.25, bgcolor: '#F7F4EF', borderRadius: 1.5, border: '1px solid #ECE4D8' }}>
               <Typography variant="body2"><b>Creada:</b> {fmtDate(t.created_at)}</Typography>
               {t.completed_at && <Typography variant="body2"><b>Terminada:</b> {fmtDate(t.completed_at)}</Typography>}

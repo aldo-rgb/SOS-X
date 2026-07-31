@@ -268,12 +268,20 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
     const col = await pool.query(`SELECT id FROM task_columns WHERE board_id = $1 ORDER BY sort_order LIMIT 1`, [boardId]);
     const columnId = col.rows[0]?.id || null;
     const eisenhower = EISENHOWER.includes(b.eisenhower) ? b.eisenhower : 'estrella';
-    const assigneeId = b.assignee_id ? parseInt(String(b.assignee_id)) : uid; // por defecto: para mí
+    // Involucrados: el creador SIEMPRE + los seleccionados. Compat: assignee_id único.
+    const extra: number[] = Array.isArray(b.involved_ids)
+      ? b.involved_ids.map((x: any) => parseInt(String(x))).filter((n: number) => Number.isFinite(n) && n > 0) : [];
+    if (b.assignee_id) extra.push(parseInt(String(b.assignee_id)));
+    const participants = Array.from(new Set<number>([uid, ...extra]));
+    const primaryAssignee = extra.length ? extra[0] : uid; // responsable principal
     const r = await pool.query(
       `INSERT INTO tasks (board_id, column_id, title, description, assignee_id, due_at, eisenhower, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [boardId, columnId, String(b.title).trim(), b.description || null, assigneeId, b.due_at || null, eisenhower, uid]);
+      [boardId, columnId, String(b.title).trim(), b.description || null, primaryAssignee, b.due_at || null, eisenhower, uid]);
     const task = r.rows[0];
+    for (const p of participants) {
+      await pool.query(`INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [task.id, p]);
+    }
     if (Array.isArray(b.subtasks)) {
       for (let k = 0; k < b.subtasks.length; k++) {
         const s = b.subtasks[k];
@@ -281,9 +289,9 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
         await pool.query(`INSERT INTO task_subtasks (task_id, body, sort_order) VALUES ($1,$2,$3)`, [task.id, String(s.body).trim(), k]);
       }
     }
-    await logActivity(task.id, uid, 'created', { title: task.title, personal: true });
-    if (assigneeId && Number(assigneeId) !== Number(uid)) {
-      await notify(assigneeId, '📋 Nueva tarea asignada', task.title, { task_id: task.id });
+    await logActivity(task.id, uid, 'created', { title: task.title, personal: true, participants });
+    for (const p of participants) {
+      if (Number(p) !== Number(uid)) await notify(p, '📋 Te involucraron en una tarea', task.title, { task_id: task.id });
     }
     res.json({ task });
   } catch (e: any) {
@@ -426,7 +434,8 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
         FROM tasks t
         JOIN task_boards b ON b.id = t.board_id
         LEFT JOIN task_columns col ON col.id = t.column_id
-       WHERE t.assignee_id = $1 AND ${statusCond}
+       WHERE (t.assignee_id = $1 OR EXISTS (SELECT 1 FROM task_participants tp WHERE tp.task_id = t.id AND tp.user_id = $1))
+         AND ${statusCond}
        ORDER BY (t.status='open') DESC, (t.eisenhower='fuego') DESC, t.due_at NULLS LAST, t.id DESC`, [uid]);
     res.json({ tasks: r.rows });
   } catch (e: any) {
@@ -469,7 +478,10 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
       try { url = await getSignedUrlForKey(a.file_key, 6 * 3600); } catch { /* ignore */ }
       return { id: a.id, file_name: a.file_name, uploaded_by_name: a.uploaded_by_name, created_at: a.created_at, url };
     }));
-    res.json({ task: t.rows[0], subtasks: subs.rows, comments: comments.rows, activity: activity.rows, attachments });
+    // Involucrados (participantes) de la tarea.
+    const parts = await pool.query(
+      `SELECT tp.user_id AS id, u.full_name FROM task_participants tp JOIN users u ON u.id = tp.user_id WHERE tp.task_id = $1 ORDER BY u.full_name`, [id]);
+    res.json({ task: t.rows[0], subtasks: subs.rows, comments: comments.rows, activity: activity.rows, attachments, participants: parts.rows });
   } catch (e: any) {
     console.error('[tasks] getTask:', e); res.status(500).json({ error: 'Error al obtener tarea' });
   }
@@ -598,6 +610,16 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
     params.push(id);
     const r = await pool.query(`UPDATE tasks SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);
     const updated = r.rows[0];
+    // Participantes: en tableros NO personales, mirror del asignado (al reasignar,
+    // el anterior deja de "estar involucrado"). Las tareas personales mantienen
+    // su lista de involucrados propia.
+    if (b.assignee_id !== undefined) {
+      const bk = await pool.query(`SELECT board_key FROM task_boards WHERE id = $1`, [updated.board_id]);
+      if (bk.rows[0]?.board_key !== 'personales') {
+        await pool.query(`DELETE FROM task_participants WHERE task_id = $1`, [id]);
+        if (updated.assignee_id) await pool.query(`INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [id, updated.assignee_id]);
+      }
+    }
     // Regla "Algún día": si la prioridad pasa a 'eliminar' → mover a esa sección;
     // si deja de ser 'eliminar' y estaba en Algún día → sacarla.
     if (b.eisenhower !== undefined && EISENHOWER.includes(b.eisenhower)) {

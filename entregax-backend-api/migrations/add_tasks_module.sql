@@ -94,6 +94,15 @@ CREATE TABLE IF NOT EXISTS task_subtasks (
 );
 CREATE INDEX IF NOT EXISTS idx_subtasks_task ON task_subtasks(task_id);
 
+-- Involucrados (participantes) de una tarea — soporta múltiples usuarios.
+CREATE TABLE IF NOT EXISTS task_participants (
+  task_id  INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  added_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (task_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_participants_user ON task_participants(user_id);
+
 -- Adjuntos (fotos) de la tarea, en S3.
 CREATE TABLE IF NOT EXISTS task_attachments (
   id           SERIAL PRIMARY KEY,
