@@ -1245,3 +1245,59 @@ export const checkOnboardingStatus = async (req: Request, res: Response): Promis
     res.status(500).json({ error: 'Error al verificar estado' });
   }
 };
+
+// ============================================
+// DATOS DE EMPLEADO (autoservicio desde Mi Perfil)
+// Contacto de emergencia + tallas. NO toca flags de alta/verificación.
+// ============================================
+export const getMyEmployeeData = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    const r = await pool.query(
+      `SELECT emergency_contact, pants_size, shirt_size, shoe_size FROM users WHERE id = $1`,
+      [user.userId]
+    );
+    const d = r.rows[0] || {};
+    res.json({
+      emergency_contact: d.emergency_contact || '',
+      pants_size: d.pants_size || '',
+      shirt_size: d.shirt_size || '',
+      shoe_size: d.shoe_size || '',
+    });
+  } catch (error) {
+    console.error('Error obteniendo datos de empleado:', error);
+    res.status(500).json({ error: 'Error al obtener datos' });
+  }
+};
+
+export const updateMyEmployeeData = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    const { emergencyContact, pantsSize, shirtSize, shoeSize } = req.body || {};
+    const clean = (v: any) => (v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim());
+    await pool.query(
+      `UPDATE users SET
+         emergency_contact = COALESCE($1, emergency_contact),
+         pants_size        = COALESCE($2, pants_size),
+         shirt_size        = COALESCE($3, shirt_size),
+         shoe_size         = COALESCE($4, shoe_size)
+       WHERE id = $5`,
+      [clean(emergencyContact), clean(pantsSize), clean(shirtSize), clean(shoeSize), user.userId]
+    );
+    const r = await pool.query(
+      `SELECT emergency_contact, pants_size, shirt_size, shoe_size FROM users WHERE id = $1`,
+      [user.userId]
+    );
+    const d = r.rows[0] || {};
+    res.json({
+      success: true,
+      emergency_contact: d.emergency_contact || '',
+      pants_size: d.pants_size || '',
+      shirt_size: d.shirt_size || '',
+      shoe_size: d.shoe_size || '',
+    });
+  } catch (error) {
+    console.error('Error guardando datos de empleado:', error);
+    res.status(500).json({ error: 'Error al guardar datos' });
+  }
+};

@@ -1238,6 +1238,8 @@ import {
   getWorkLocations,
   createWorkLocation,
   checkOnboardingStatus,
+  getMyEmployeeData,
+  updateMyEmployeeData,
   createEmployee,
   updateEmployee,
   deleteEmployee
@@ -11805,6 +11807,8 @@ app.post('/api/hr/accept-privacy', authenticateToken, acceptPrivacyNotice);
 app.post('/api/hr/accept-advisor-privacy', authenticateToken, acceptAdvisorPrivacyNotice);
 app.post('/api/hr/onboarding', authenticateToken, saveEmployeeOnboarding);
 app.get('/api/hr/onboarding-status', authenticateToken, checkOnboardingStatus);
+app.get('/api/hr/my-employee-data', authenticateToken, getMyEmployeeData);
+app.post('/api/hr/my-employee-data', authenticateToken, updateMyEmployeeData);
 
 // Checador GPS
 app.post('/api/hr/check-in', authenticateToken, checkIn);

@@ -119,6 +119,13 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [showFiscalModal, setShowFiscalModal] = useState(false);
   const [fiscalLoading, setFiscalLoading] = useState(false);
   const [savingFiscal, setSavingFiscal] = useState(false);
+
+  // 👷 Datos de empleado (contacto de emergencia + tallas) — autoservicio.
+  const [empData, setEmpData] = useState({ emergency_contact: '', pants_size: '', shirt_size: '', shoe_size: '' });
+  const [showEmpModal, setShowEmpModal] = useState(false);
+  const [savingEmp, setSavingEmp] = useState(false);
+  const [empForm, setEmpForm] = useState({ emgName: '', emgPhone: '', pantsSize: '', shirtSize: '' });
+  const SHIRT_SIZES = ['Chica', 'Mediana', 'Grande', 'Extra Grande'];
   const [fiscalData, setFiscalData] = useState({
     razon_social: '',
     rfc: '',
@@ -208,12 +215,48 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     fetchProfilePhoto();
     fetchGexAutoConfig();
     fetchNotifPrefs();
+    if (!isClient) fetchEmployeeData();
     // Obtener phone_verified directamente del perfil (no depender del user object de nav)
     fetch(`${API_URL}/api/auth/profile`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.phone_verified != null) setIsPhoneVerified(data.phone_verified === true); })
       .catch(() => {});
   }, []);
+
+  // 👷 Datos de empleado
+  const fetchEmployeeData = async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/hr/my-employee-data`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) setEmpData(await r.json());
+    } catch { /* */ }
+  };
+  // Separa "Nombre 8112345678" en nombre + teléfono (heurística: teléfono al final).
+  const splitEmergency = (raw: string): { name: string; phone: string } => {
+    const s = (raw || '').trim();
+    const m = s.match(/^(.*?)[\s-]*(\+?[\d][\d\s()-]{6,})$/);
+    if (m) return { name: (m[1] || '').trim(), phone: (m[2] || '').trim() };
+    return { name: s, phone: '' };
+  };
+  const openEmpModal = () => {
+    const { name, phone } = splitEmergency(empData.emergency_contact);
+    setEmpForm({ emgName: name, emgPhone: phone, pantsSize: empData.pants_size || '', shirtSize: empData.shirt_size || '' });
+    setShowEmpModal(true);
+  };
+  const saveEmployeeData = async () => {
+    setSavingEmp(true);
+    try {
+      const emergencyContact = [empForm.emgName.trim(), empForm.emgPhone.trim()].filter(Boolean).join(' ');
+      const r = await fetch(`${API_URL}/api/hr/my-employee-data`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emergencyContact, pantsSize: empForm.pantsSize, shirtSize: empForm.shirtSize }),
+      });
+      if (!r.ok) throw new Error();
+      setEmpData(await r.json());
+      setShowEmpModal(false);
+    } catch { Alert.alert('Error', 'No se pudieron guardar tus datos'); }
+    finally { setSavingEmp(false); }
+  };
 
   // Auto-abrir QR de supervisor si se navega con openQr=true
   useEffect(() => {
@@ -1231,6 +1274,36 @@ export default function MyProfileScreen({ navigation, route }: Props) {
           </Card.Content>
         </Card>
 
+        {/* 👷 Datos de Empleado — SOLO empleados (contacto de emergencia + tallas) */}
+        {!isClient && (
+        <>
+        <Text style={styles.sectionTitle}>👷 Datos de Empleado</Text>
+        <Card style={styles.card}>
+          <Card.Content>
+            <TouchableOpacity style={styles.menuItem} onPress={openEmpModal}>
+              <Ionicons name="people-outline" size={24} color={ORANGE} />
+              <View style={styles.menuItemContent}>
+                <Text style={styles.menuItemTitle}>Contacto de emergencia</Text>
+                <Text style={styles.menuItemSubtitle}>{empData.emergency_contact || 'Agrega nombre y teléfono'}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#999" />
+            </TouchableOpacity>
+            <Divider style={styles.divider} />
+            <TouchableOpacity style={styles.menuItem} onPress={openEmpModal}>
+              <Ionicons name="shirt-outline" size={24} color={ORANGE} />
+              <View style={styles.menuItemContent}>
+                <Text style={styles.menuItemTitle}>Tallas</Text>
+                <Text style={styles.menuItemSubtitle}>
+                  Camiseta: {empData.shirt_size || '—'}  ·  Pantalón: {empData.pants_size || '—'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#999" />
+            </TouchableOpacity>
+          </Card.Content>
+        </Card>
+        </>
+        )}
+
         {/* Información de la Cuenta */}
         <Text style={styles.sectionTitle}>{t('profile.accountInfo')}</Text>
         <Card style={styles.card}>
@@ -1484,6 +1557,72 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 ) : (
                   <Text style={styles.saveButtonText}>Guardar Teléfono</Text>
                 )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Datos de Empleado */}
+      <Modal visible={showEmpModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>👷 Datos de Empleado</Text>
+              <TouchableOpacity onPress={() => setShowEmpModal(false)}>
+                <Ionicons name="close" size={24} color={BLACK} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalForm}>
+              <Text style={styles.inputLabel}>Contacto de emergencia — Nombre</Text>
+              <TextInput
+                style={styles.inputFull}
+                placeholder="Ej: Laura Martínez"
+                value={empForm.emgName}
+                onChangeText={(v) => setEmpForm({ ...empForm, emgName: v })}
+              />
+
+              <Text style={styles.inputLabel}>Contacto de emergencia — Teléfono</Text>
+              <TextInput
+                style={styles.inputFull}
+                placeholder="Ej: 8112345678"
+                value={empForm.emgPhone}
+                onChangeText={(v) => setEmpForm({ ...empForm, emgPhone: v })}
+                keyboardType="phone-pad"
+              />
+
+              <Text style={styles.inputLabel}>Talla de camiseta</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
+                {SHIRT_SIZES.map((s) => {
+                  const on = empForm.shirtSize === s;
+                  return (
+                    <TouchableOpacity
+                      key={s}
+                      onPress={() => setEmpForm({ ...empForm, shirtSize: s })}
+                      style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, borderWidth: 1, borderColor: on ? ORANGE : '#ccc', backgroundColor: on ? ORANGE : 'transparent' }}
+                    >
+                      <Text style={{ color: on ? '#fff' : '#555', fontWeight: '700', fontSize: 13 }}>{s}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.inputLabel}>Talla de pantalón</Text>
+              <TextInput
+                style={styles.inputFull}
+                placeholder="Ej: 30, 32, 36…"
+                value={empForm.pantsSize}
+                onChangeText={(v) => setEmpForm({ ...empForm, pantsSize: v })}
+                keyboardType="numbers-and-punctuation"
+              />
+
+              <TouchableOpacity
+                style={[styles.saveButton, savingEmp && styles.saveButtonDisabled]}
+                onPress={saveEmployeeData}
+                disabled={savingEmp}
+              >
+                {savingEmp ? <ActivityIndicator color="white" /> : <Text style={styles.saveButtonText}>Guardar</Text>}
               </TouchableOpacity>
             </View>
           </View>
