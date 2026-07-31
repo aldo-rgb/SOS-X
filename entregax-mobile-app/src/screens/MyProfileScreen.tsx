@@ -931,7 +931,12 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     // 👷 Detectar si es empleado (incluye asesores — tienen expediente digital como empleados)
     const employeeRoles = ['repartidor', 'monitoreo', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor'];
     const isEmployee = employeeRoles.includes(user.role);
-    const isEmployeeOnboarded = user.isEmployeeOnboarded === true;
+    // El alta se considera completa si:
+    //  • ya se marcó is_employee_onboarded (wizard de empleado de campo), O
+    //  • el expediente quedó verificado (asesores completan por verificación:
+    //    su is_employee_onboarded nunca se pone en true — ver checkOnboardingStatus
+    //    en el backend, que NO exige onboarding a asesores).
+    const isEmployeeOnboarded = user.isEmployeeOnboarded === true || isVerified || status === 'verified';
 
     // Si es empleado, mostrar estado de onboarding de empleado
     if (isEmployee) {
@@ -1269,11 +1274,13 @@ export default function MyProfileScreen({ navigation, route }: Props) {
           </Card.Content>
         </Card>
 
-        {/* 🧾 Datos Fiscales */}
+        {/* 🧾 Datos Fiscales — SOLO clientes (los empleados no facturan). */}
+        {isClient && (
+        <>
         <Text style={styles.sectionTitle}>🧾 Datos Fiscales</Text>
         <Card style={styles.card}>
           <Card.Content>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.menuItem}
               onPress={() => {
                 loadFiscalData();
@@ -1284,8 +1291,8 @@ export default function MyProfileScreen({ navigation, route }: Props) {
               <View style={styles.menuItemContent}>
                 <Text style={styles.menuItemTitle}>Configurar Datos de Facturación</Text>
                 <Text style={styles.menuItemSubtitle}>
-                  {fiscalData.rfc 
-                    ? `RFC: ${fiscalData.rfc}` 
+                  {fiscalData.rfc
+                    ? `RFC: ${fiscalData.rfc}`
                     : 'Agrega tus datos para solicitar facturas'}
                 </Text>
               </View>
@@ -1293,6 +1300,8 @@ export default function MyProfileScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           </Card.Content>
         </Card>
+        </>
+        )}
 
         {/* 🔔 Notificaciones — SOLO clientes (los empleados no ven este centro). */}
         {isClient && (
