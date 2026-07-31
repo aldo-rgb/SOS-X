@@ -49,6 +49,7 @@ import HistoryIcon from '@mui/icons-material/History';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
+import DescriptionIcon from '@mui/icons-material/Description';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -66,6 +67,7 @@ interface MaritimeOrder {
   status: string;
   needs_packing_list: boolean;
   packing_list_url: string | null;
+  provider_packing_list_url?: string | null;
   ship_number: string | null;
   bl_number?: string | null;
   container_number?: string | null;
@@ -644,19 +646,20 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
                   <TableCell>Fecha</TableCell>
                   <TableCell>Buque / BL</TableCell>
                   <TableCell>Estado</TableCell>
+                  <TableCell align="center">Packing list</TableCell>
                   <TableCell align="center">Acciones</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
                       <CircularProgress />
                     </TableCell>
                   </TableRow>
                 ) : orders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">No hay órdenes</Typography>
                     </TableCell>
                   </TableRow>
@@ -747,6 +750,17 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
                         )}
                       </TableCell>
                       <TableCell>{getOrderStatusDisplay(order)}</TableCell>
+                      <TableCell align="center">
+                        {order.provider_packing_list_url ? (
+                          <Tooltip title="Abrir packing list del proveedor">
+                            <IconButton size="small" color="success" component="a" href={order.provider_packing_list_url} target="_blank" rel="noreferrer">
+                              <DescriptionIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        ) : (
+                          <Typography variant="caption" color="text.disabled">—</Typography>
+                        )}
+                      </TableCell>
                       <TableCell align="center">
                         <Tooltip title="Ver detalle">
                           <IconButton size="small" onClick={() => handleViewDetail(order)}>

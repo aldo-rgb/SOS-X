@@ -31,6 +31,7 @@ interface ChinaOrderItem {
     volume: string;
     shipping_mark: string;
     createtime: string;
+    packing_list_path?: string;   // NUEVO: packing list que ahora manda el proveedor
 }
 
 interface ChinaTrackingResponse {
@@ -268,16 +269,23 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
         }
     }
 
+    // Packing list del proveedor (nuevo campo packing_list_path). Si viene como
+    // ruta relativa, se prefija con el host del proveedor para tener URL abrible.
+    const rawPacking = String(order.packing_list_path || '').trim();
+    const providerPackingUrl = rawPacking
+        ? (/^https?:\/\//i.test(rawPacking) ? rawPacking : `https://yajie.uxphp.net/${rawPacking.replace(/^\/+/, '')}`)
+        : null;
+
     // Insertar o actualizar la orden
     await pool.query(`
-        INSERT INTO maritime_orders 
+        INSERT INTO maritime_orders
         (ordersn, user_id, shipping_mark, bl_client_code, bl_client_name,
-         goods_type, goods_name, goods_num, 
+         goods_type, goods_name, goods_num,
          weight, volume, api_raw_data, sync_source, synced_at,
          delivery_address_id, instructions_assigned_at,
-         brand_type, merchandise_type)
+         brand_type, merchandise_type, provider_packing_list_url)
         VALUES ($1, $2, $3, $12, $13, $4, $5, $6, $7, $8, $9, 'api', NOW(), $10, $11,
-                'pending', 'pending')
+                'pending', 'pending', $14)
         ON CONFLICT (ordersn) DO UPDATE SET
             goods_type = EXCLUDED.goods_type,
             goods_name = EXCLUDED.goods_name,
@@ -287,6 +295,8 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
             api_raw_data = EXCLUDED.api_raw_data,
             synced_at = NOW(),
             updated_at = NOW(),
+            -- Packing list del proveedor: guardar cuando llegue (sin borrar si ya existe)
+            provider_packing_list_url = COALESCE(EXCLUDED.provider_packing_list_url, maritime_orders.provider_packing_list_url),
             -- Solo actualizar dirección si no tiene una asignada manualmente
             delivery_address_id = COALESCE(maritime_orders.delivery_address_id, EXCLUDED.delivery_address_id),
             instructions_assigned_at = COALESCE(maritime_orders.instructions_assigned_at, EXCLUDED.instructions_assigned_at),
@@ -308,7 +318,8 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
         defaultAddressId,
         defaultAddressId ? new Date() : null,
         resolvedClientCode,
-        resolvedClientName
+        resolvedClientName,
+        providerPackingUrl
     ]);
 
     // Si encontramos el cliente y la orden es nueva, notificarlo.
