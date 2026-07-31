@@ -160,7 +160,7 @@ export default function MisTareasPage() {
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
-  const [catId, setCatId] = useState<number | ''>('');
+  const [catId, setCatId] = useState<number>(0); // 0 = Sin categoría (Tareas Personales)
 
   // Programar tareas (futuras / recurrentes).
   const [schedOpen, setSchedOpen] = useState(false);
@@ -181,22 +181,19 @@ export default function MisTareasPage() {
       .then(r => setUsers(r.data?.users || [])).catch(() => {});
     axios.get(`${API_URL}/tasks/categories`, H())
       .then(r => {
-        const cats = r.data?.categories || [];
+        // Excluye el tablero personal: se representa como "Sin categoría".
+        const cats = (r.data?.categories || []).filter((c: any) => c.board_key !== 'personales');
         setCategories(cats);
-        // Default: Tareas Personales si existe.
-        const personal = cats.find((c: any) => c.board_key === 'personales');
-        setCatId(personal?.id || cats[0]?.id || '');
       }).catch(() => {});
   }, []);
 
   const createTask = async () => {
     if (!form.title.trim()) return notify('El título es obligatorio', 'error');
-    if (!catId) return notify('Elige una categoría', 'error');
     try {
       const res = await axios.post(`${API_URL}/tasks/personal`, {
         title: form.title.trim(), description: form.description || null,
         eisenhower: form.eisenhower, involved_ids: involvedIds, due_at: form.due_at || null,
-        board_id: catId,
+        board_id: catId || null, // 0/'' = Sin categoría → Tareas Personales
       }, H());
       const newId = res.data?.task?.id;
       if (newId && newPhotos.length) {
@@ -217,26 +214,21 @@ export default function MisTareasPage() {
     try { const r = await axios.get(`${API_URL}/tasks/schedules`, H()); setSchedules(r.data?.schedules || []); }
     catch { /* opcional */ }
   }, []);
-  const emptySched = { title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none', recur_ordinal: 1, recur_weekday: 1, time: '09:00', board_id: '' as number | '' };
-  const defaultCatId = () => {
-    const personal = categories.find(c => c.board_key === 'personales');
-    return personal?.id || categories[0]?.id || '';
-  };
+  const emptySched = { title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none', recur_ordinal: 1, recur_weekday: 1, time: '09:00', board_id: 0 as number };
   const openSchedule = () => {
-    setSchedForm({ ...emptySched, board_id: defaultCatId() });
+    setSchedForm({ ...emptySched, board_id: 0 }); // 0 = Sin categoría
     setSchedInvolved(MY_ID ? [MY_ID] : []);
     setSchedOpen(true); loadSchedules();
   };
   const createSchedule = async () => {
     if (!schedForm.title.trim()) return notify('El título es obligatorio', 'error');
-    if (!schedForm.board_id) return notify('Elige una categoría', 'error');
     const isWeekday = schedForm.recurrence === 'monthly_weekday';
     if (!isWeekday && !schedForm.first_run_at) return notify('Elige la fecha y hora de la primera tarea', 'error');
     try {
       const [hh, mm] = String(schedForm.time || '09:00').split(':');
       await axios.post(`${API_URL}/tasks/schedules`, {
         title: schedForm.title.trim(), description: schedForm.description || null,
-        eisenhower: schedForm.eisenhower, involved_ids: schedInvolved, board_id: schedForm.board_id,
+        eisenhower: schedForm.eisenhower, involved_ids: schedInvolved, board_id: schedForm.board_id || null,
         recurrence: schedForm.recurrence,
         ...(isWeekday
           ? { recur_ordinal: schedForm.recur_ordinal, recur_weekday: schedForm.recur_weekday, hour: parseInt(hh), minute: parseInt(mm || '0') }
@@ -314,7 +306,7 @@ export default function MisTareasPage() {
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button variant="outlined" startIcon={<ScheduleIcon />} onClick={openSchedule} sx={{ color: '#B07206', borderColor: '#B07206', '&:hover': { borderColor: '#8a5a05', bgcolor: 'rgba(176,114,6,0.06)' } }}>Programar tarea</Button>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setInvolvedIds(MY_ID ? [MY_ID] : []); setCreateOpen(true); }} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setInvolvedIds(MY_ID ? [MY_ID] : []); setCatId(0); setCreateOpen(true); }} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load}>Actualizar</Button>
         </Box>
       </Box>
@@ -365,12 +357,13 @@ export default function MisTareasPage() {
             value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
           <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
             <InputLabel>Categoría (flujo)</InputLabel>
-            <Select label="Categoría (flujo)" value={catId} onChange={e => setCatId(e.target.value as number)}>
+            <Select label="Categoría (flujo)" value={catId} onChange={e => setCatId(Number(e.target.value))}>
+              <MenuItem value={0}>Sin categoría (personal)</MenuItem>
               {categories.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </Select>
           </FormControl>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-            La tarea aparecerá en el flujo de esta categoría. (Flujo de Ventas es automático y no aplica aquí.)
+            «Sin categoría» solo aparece en tu panel personal de Mis Tareas. Con categoría, la tarea aparece en ese flujo.
           </Typography>
           <TextField fullWidth label="Descripción" margin="dense" multiline rows={2}
             value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
@@ -437,7 +430,8 @@ export default function MisTareasPage() {
             value={schedForm.title} onChange={e => setSchedForm({ ...schedForm, title: e.target.value })} />
           <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
             <InputLabel>Categoría (flujo)</InputLabel>
-            <Select label="Categoría (flujo)" value={schedForm.board_id} onChange={e => setSchedForm({ ...schedForm, board_id: e.target.value })}>
+            <Select label="Categoría (flujo)" value={schedForm.board_id} onChange={e => setSchedForm({ ...schedForm, board_id: Number(e.target.value) })}>
+              <MenuItem value={0}>Sin categoría (personal)</MenuItem>
               {categories.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </Select>
           </FormControl>
@@ -535,6 +529,8 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<any>({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
   const [editInvolved, setEditInvolved] = useState<number[]>([]);
+  const [editCat, setEditCat] = useState<number>(0); // 0 = Sin categoría
+  const [cats, setCats] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [delAttId, setDelAttId] = useState<number | null>(null); // confirmar borrar archivo
 
@@ -616,26 +612,29 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     if (!a || !b) return null;
     return fmtDur(new Date(b).getTime() - new Date(a).getTime());
   };
-  const isPersonal = t?.board_key === 'personales';
   const openEdit = () => {
     setEdit({ title: t.title || '', description: t.description || '', eisenhower: t.eisenhower || 'estrella', due_at: toLocalInput(t.due_at) });
+    // Categoría actual: 0 (Sin categoría) si es tablero personal.
+    setEditCat(t.board_key === 'personales' ? 0 : (Number(t.board_id) || 0));
     // Involucrados actuales (participantes). El creador siempre queda incluido.
     const parts = (data.participants || []).map((p: any) => Number(p.id));
     setEditInvolved(parts.length ? parts : (t.created_by ? [Number(t.created_by)] : []));
-    if (isPersonal && users.length === 0) {
-      axios.get(`${API_URL}/tasks/assignable-users`, H()).then(r => setUsers(r.data?.users || [])).catch(() => {});
-    }
+    if (users.length === 0) axios.get(`${API_URL}/tasks/assignable-users`, H()).then(r => setUsers(r.data?.users || [])).catch(() => {});
+    if (cats.length === 0) axios.get(`${API_URL}/tasks/categories`, H()).then(r => setCats((r.data?.categories || []).filter((c: any) => c.board_key !== 'personales'))).catch(() => {});
     setEditing(true);
   };
   const saveEdit = async () => {
     if (!edit.title.trim()) { notify('El título es obligatorio', 'error'); return; }
     setBusy(true);
     try {
+      const willBePersonal = !editCat;
       const payload: any = {
         title: edit.title.trim(), description: edit.description || null,
         eisenhower: edit.eisenhower, due_at: edit.due_at || null,
+        board_id: editCat || null, // 0 = Sin categoría (personal)
       };
-      if (isPersonal) payload.involved_ids = editInvolved;
+      // involucrados solo aplican en el tablero personal
+      if (willBePersonal) payload.involved_ids = editInvolved;
       await axios.put(`${API_URL}/tasks/${id}`, payload, H());
       setEditing(false); notify('Tarea actualizada'); reload(); onChanged();
     } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo editar', 'error'); }
@@ -674,7 +673,14 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                   <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
                     value={edit.due_at} onChange={e => setEdit({ ...edit, due_at: e.target.value })} />
                 </Box>
-                {isPersonal && (
+                <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
+                  <InputLabel>Categoría (flujo)</InputLabel>
+                  <Select label="Categoría (flujo)" value={editCat} onChange={e => setEditCat(Number(e.target.value))}>
+                    <MenuItem value={0}>Sin categoría (personal)</MenuItem>
+                    {cats.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+                  </Select>
+                </FormControl>
+                {!editCat && (
                   <>
                     <InvolvedPicker users={users} involvedIds={editInvolved} setInvolvedIds={setEditInvolved}
                       fixedId={Number(t.created_by) || undefined} fixedLabel={t.created_by_name || 'Creador'} />

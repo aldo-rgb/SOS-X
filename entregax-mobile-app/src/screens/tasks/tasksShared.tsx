@@ -182,10 +182,9 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
       .then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H })
       .then(r => r.json()).then(d => {
-        const cats = d.categories || [];
-        setCategories(cats);
-        const personal = cats.find((c: any) => c.board_key === 'personales');
-        setCatId(personal?.id || cats[0]?.id || null);
+        // Excluye el tablero personal: se representa como "Sin categoría".
+        setCategories((d.categories || []).filter((c: any) => c.board_key !== 'personales'));
+        setCatId(null); // Sin categoría por defecto
       }).catch(() => {});
   }, [visible]);
 
@@ -220,7 +219,6 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
 
   const submit = async () => {
     if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
-    if (!catId) { Alert.alert('Falta categoría', 'Elige una categoría (flujo).'); return; }
     setBusy(true);
     try {
       const r = await fetch(`${API_URL}/api/tasks/personal`, {
@@ -259,6 +257,9 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
             <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
             <View style={styles.eisRow}>
+              <TouchableOpacity onPress={() => setCatId(null)} style={[styles.dateChip, !catId && styles.dateChipOn]}>
+                <Text style={[styles.dateChipTxt, !catId && { color: '#fff' }]}>Sin categoría</Text>
+              </TouchableOpacity>
               {categories.map(c => {
                 const on = catId === c.id;
                 return (
@@ -268,7 +269,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
                 );
               })}
             </View>
-            <Text style={styles.helpTxt}>La tarea aparecerá en el flujo de esta categoría.</Text>
+            <Text style={styles.helpTxt}>«Sin categoría» solo va a tu panel personal. Con categoría, aparece en ese flujo.</Text>
             <Text style={styles.fieldLbl}>Descripción</Text>
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
@@ -348,10 +349,8 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
     setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H }).then(r => r.json()).then(d => {
-      const cats = d.categories || [];
-      setCategories(cats);
-      const personal = cats.find((c: any) => c.board_key === 'personales');
-      setCatId(personal?.id || cats[0]?.id || null);
+      setCategories((d.categories || []).filter((c: any) => c.board_key !== 'personales'));
+      setCatId(null); // Sin categoría por defecto
     }).catch(() => {});
     loadSchedules();
   }, [visible]);
@@ -368,7 +367,6 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
 
   const submit = async () => {
     if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
-    if (!catId) { Alert.alert('Falta categoría', 'Elige una categoría (flujo).'); return; }
     setBusy(true);
     try {
       const involvedIds = myId ? [myId, ...involved] : involved;
@@ -415,6 +413,9 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
             <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
             <View style={styles.eisRow}>
+              <TouchableOpacity onPress={() => setCatId(null)} style={[styles.dateChip, !catId && styles.dateChipOn]}>
+                <Text style={[styles.dateChipTxt, !catId && { color: '#fff' }]}>Sin categoría</Text>
+              </TouchableOpacity>
               {categories.map(c => {
                 const on = catId === c.id;
                 return (
@@ -578,6 +579,8 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const [eDue, setEDue] = useState('keep');
   const [eUsers, setEUsers] = useState<UserOpt[]>([]);
   const [eInvolved, setEInvolved] = useState<number[]>([]);
+  const [eCats, setECats] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
+  const [eCat, setECat] = useState<number>(0); // 0 = Sin categoría
 
   const H = { Authorization: `Bearer ${token}` };
   // silent = refresco en segundo plano (sin spinner) para no tapar el contenido
@@ -595,20 +598,18 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const beginEdit = () => {
     if (!t) return;
     setETitle(t.title || ''); setEDesc(t.description || ''); setEEis(t.eisenhower || 'estrella'); setEDue('keep');
-    if (t.board_key === 'personales') {
-      const creatorId = Number(t.created_by) || 0;
-      const parts = (data?.participants || []).map((p: any) => Number(p.id)).filter((pid: number) => pid !== creatorId);
-      setEInvolved(parts);
-      if (eUsers.length === 0) {
-        fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => setEUsers(d.users || [])).catch(() => {});
-      }
-    }
+    setECat(t.board_key === 'personales' ? 0 : (Number(t.board_id) || 0));
+    const creatorId = Number(t.created_by) || 0;
+    const parts = (data?.participants || []).map((p: any) => Number(p.id)).filter((pid: number) => pid !== creatorId);
+    setEInvolved(parts);
+    if (eUsers.length === 0) fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => setEUsers(d.users || [])).catch(() => {});
+    if (eCats.length === 0) fetch(`${API_URL}/api/tasks/categories`, { headers: H }).then(r => r.json()).then(d => setECats((d.categories || []).filter((c: any) => c.board_key !== 'personales'))).catch(() => {});
     setEditing(true);
   };
   const saveEdit = async () => {
     if (!eTitle.trim()) { Alert.alert('Falta título', 'El título no puede quedar vacío.'); return; }
-    const body: any = { title: eTitle.trim(), description: eDesc || null, eisenhower: eEis };
-    if (t.board_key === 'personales') { const cid = Number(t.created_by) || 0; body.involved_ids = cid ? [cid, ...eInvolved] : eInvolved; }
+    const body: any = { title: eTitle.trim(), description: eDesc || null, eisenhower: eEis, board_id: eCat || null };
+    if (!eCat) { const cid = Number(t.created_by) || 0; body.involved_ids = cid ? [cid, ...eInvolved] : eInvolved; }
     if (eDue !== 'keep') {
       if (eDue === 'none') body.due_at = null;
       else {
@@ -757,7 +758,18 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                     ))}
                   </View>
                   {eDue === 'keep' && !!t.due_at && <Text style={styles.helpTxt}>Actual: {fmtDate(t.due_at)}</Text>}
-                  {t.board_key === 'personales' && (
+                  <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
+                  <View style={styles.eisRow}>
+                    <TouchableOpacity onPress={() => setECat(0)} style={[styles.dateChip, !eCat && styles.dateChipOn]}>
+                      <Text style={[styles.dateChipTxt, !eCat && { color: '#fff' }]}>Sin categoría</Text>
+                    </TouchableOpacity>
+                    {eCats.map(c => (
+                      <TouchableOpacity key={c.id} onPress={() => setECat(c.id)} style={[styles.dateChip, eCat === c.id && styles.dateChipOn]}>
+                        <Text style={[styles.dateChipTxt, eCat === c.id && { color: '#fff' }]}>{c.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {!eCat && (
                     <>
                       <Text style={styles.fieldLbl}>Responsables</Text>
                       <InvolvedPicker users={eUsers} myId={Number(t.created_by) || 0} selected={eInvolved} onChange={setEInvolved} fixedLabel={t.created_by_name || 'Creador'} />

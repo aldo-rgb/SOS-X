@@ -776,6 +776,27 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
     if (b.section_id !== undefined) set('section_id', b.section_id ? parseInt(String(b.section_id)) : null);
     if (b.priority !== undefined) set('priority', parseInt(String(b.priority)) || 0);
 
+    // Cambiar de categoría (tablero). board_id falsy → "Sin categoría" = Tareas
+    // Personales. Al mover, se ubica en la 1a columna del tablero destino y se
+    // limpia la sub-sección (pertenece al tablero anterior).
+    if (b.board_id !== undefined) {
+      let target: number | null = null;
+      if (b.board_id) {
+        const bd = await pool.query(`SELECT id FROM task_boards WHERE id=$1 AND is_active=TRUE AND COALESCE(board_key,'')<>'flujo_operativo'`, [parseInt(String(b.board_id))]);
+        target = bd.rows[0]?.id || null;
+        if (!target) return res.status(400).json({ error: 'Categoría no válida' });
+      } else {
+        target = await getOrCreatePersonalBoard();
+      }
+      if (target && Number(target) !== Number(task.board_id)) {
+        const firstCol = (await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [target])).rows[0]?.id || null;
+        set('board_id', target);
+        if (firstCol) set('column_id', firstCol);
+        set('section_id', null);
+        await logActivity(id, uid, 'moved_board', { board_id: target });
+      }
+    }
+
     // Mover de columna: si la columna DESTINO exige checklist para AVANZAR desde
     // el Filtro de Cierre, validar. (Regla: no avanzas de una columna con
     // gate_checklist sin completar el checklist.)
