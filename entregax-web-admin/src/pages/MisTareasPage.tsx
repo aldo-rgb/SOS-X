@@ -68,7 +68,11 @@ interface Task {
   due_at?: string; created_at?: string; completed_at?: string; assignee_name?: string;
   board_name?: string; column_name?: string; subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
 }
-interface UserOpt { id: number; full_name: string; role?: string; }
+interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; }
+const avgLabel = (u: UserOpt): string => {
+  const s = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
+  return s && s > 0 ? `⏱ ${fmtDur(s * 1000)} prom.` : '⏱ sin datos';
+};
 
 export default function MisTareasPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -245,7 +249,7 @@ export default function MisTareasPage() {
               {users.filter(u => u.id !== MY_ID).map(u => (
                 <MenuItem key={u.id} value={u.id}>
                   <Checkbox size="small" checked={involvedIds.includes(u.id)} />
-                  <ListItemText primary={`${u.full_name}${u.role ? ` · ${u.role}` : ''}`} />
+                  <ListItemText primary={u.full_name} secondary={avgLabel(u)} />
                 </MenuItem>
               ))}
             </Select>

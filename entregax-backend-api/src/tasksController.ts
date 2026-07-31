@@ -303,11 +303,16 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
 export const getAssignableUsers = async (req: Request, res: Response): Promise<any> => {
   try {
     if (authRole(req) === 'client') return res.status(403).json({ error: 'No disponible' });
+    // Tiempo PROMEDIO de resolución (creación → término) de las tareas cerradas
+    // del usuario, en segundos — como estimado de respuesta.
     const r = await pool.query(
-      `SELECT id, full_name, role FROM users
-        WHERE role <> 'client' AND COALESCE(is_active,true)=true
-          AND LOWER(TRIM(full_name)) <> 'administrador entregax'
-        ORDER BY full_name`);
+      `SELECT u.id, u.full_name, u.role,
+              (SELECT AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)))
+                 FROM tasks t WHERE t.assignee_id = u.id AND t.completed_at IS NOT NULL) AS avg_resolution_seconds
+         FROM users u
+        WHERE u.role <> 'client' AND COALESCE(u.is_active,true)=true
+          AND LOWER(TRIM(u.full_name)) <> 'administrador entregax'
+        ORDER BY u.full_name`);
     res.json({ users: r.rows });
   } catch (e: any) {
     console.error('[tasks] getAssignableUsers:', e); res.status(500).json({ error: 'Error al obtener usuarios' });
