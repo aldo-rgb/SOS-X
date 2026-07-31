@@ -661,7 +661,6 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                 <TableRow sx={{ bgcolor: 'grey.100' }}>
                                     <TableCell><strong>Tracking</strong></TableCell>
                                     <TableCell align="center"><strong>Recepción</strong></TableCell>
-                                    <TableCell align="center"><strong>Entrada</strong></TableCell>
                                     <TableCell align="center"><strong>Dimensiones</strong></TableCell>
                                     <TableCell align="right"><strong>Pie³</strong></TableCell>
                                     <TableCell align="right"><strong>USD</strong></TableCell>
@@ -683,7 +682,6 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                             {pkg.user_name && <Typography variant="caption" color="text.secondary">{pkg.user_name}</Typography>}
                                         </TableCell>
                                         <TableCell align="center"><Typography variant="caption">{fmtShortDate(pkg.received_at)}</Typography></TableCell>
-                                        <TableCell align="center"><Typography variant="caption">{fmtShortDate(pkg.created_at)}</Typography></TableCell>
                                         <TableCell align="center">
                                             {pkg.pkg_length > 0 && pkg.pkg_width > 0 && pkg.pkg_height > 0 ? (
                                                 <Typography variant="caption">{pkg.pkg_length}×{pkg.pkg_width}×{pkg.pkg_height} cm</Typography>
