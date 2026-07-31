@@ -32,7 +32,12 @@ const H = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
 const ME = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } })();
 const MY_ID = Number(ME?.id) || 0;
 
-const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual' };
+const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual', monthly_weekday: 'Mensual (día de semana)' };
+const ORDINAL_LABEL: Record<number, string> = { 1: 'Primer', 2: 'Segundo', 3: 'Tercer', 4: 'Cuarto', [-1]: 'Último' };
+const WEEKDAY_LABEL = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const schedLabel = (s: any): string => s.recurrence === 'monthly_weekday' && s.recur_ordinal != null
+  ? `${ORDINAL_LABEL[s.recur_ordinal] || ''} ${WEEKDAY_LABEL[s.recur_weekday] || ''} del mes`.trim()
+  : (RECUR_LABEL[s.recurrence] || 'Una vez');
 
 // Adjuntos: fotos + documentos (PDF, Excel, Word, CSV, texto).
 const ACCEPT_FILES = 'image/*,.pdf,.xls,.xlsx,.csv,.doc,.docx,.txt,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -200,21 +205,27 @@ export default function MisTareasPage() {
     try { const r = await axios.get(`${API_URL}/tasks/schedules`, H()); setSchedules(r.data?.schedules || []); }
     catch { /* opcional */ }
   }, []);
+  const emptySched = { title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none', recur_ordinal: 1, recur_weekday: 1, time: '09:00' };
   const openSchedule = () => {
-    setSchedForm({ title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none' });
+    setSchedForm({ ...emptySched });
     setSchedInvolved(MY_ID ? [MY_ID] : []);
     setSchedOpen(true); loadSchedules();
   };
   const createSchedule = async () => {
     if (!schedForm.title.trim()) return notify('El título es obligatorio', 'error');
-    if (!schedForm.first_run_at) return notify('Elige la fecha y hora de la primera tarea', 'error');
+    const isWeekday = schedForm.recurrence === 'monthly_weekday';
+    if (!isWeekday && !schedForm.first_run_at) return notify('Elige la fecha y hora de la primera tarea', 'error');
     try {
+      const [hh, mm] = String(schedForm.time || '09:00').split(':');
       await axios.post(`${API_URL}/tasks/schedules`, {
         title: schedForm.title.trim(), description: schedForm.description || null,
         eisenhower: schedForm.eisenhower, involved_ids: schedInvolved,
-        first_run_at: schedForm.first_run_at, recurrence: schedForm.recurrence,
+        recurrence: schedForm.recurrence,
+        ...(isWeekday
+          ? { recur_ordinal: schedForm.recur_ordinal, recur_weekday: schedForm.recur_weekday, hour: parseInt(hh), minute: parseInt(mm || '0') }
+          : { first_run_at: schedForm.first_run_at }),
       }, H());
-      setSchedForm({ title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none' });
+      setSchedForm({ ...emptySched });
       setSchedInvolved(MY_ID ? [MY_ID] : []);
       notify('Programación creada'); loadSchedules(); load();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al programar', 'error'); }
@@ -413,12 +424,36 @@ export default function MisTareasPage() {
                 <MenuItem value="none">Una vez</MenuItem>
                 <MenuItem value="daily">Diaria</MenuItem>
                 <MenuItem value="weekly">Semanal</MenuItem>
-                <MenuItem value="monthly">Mensual</MenuItem>
+                <MenuItem value="monthly">Mensual (mismo día)</MenuItem>
+                <MenuItem value="monthly_weekday">Mensual (día de la semana)</MenuItem>
               </Select>
             </FormControl>
           </Box>
-          <TextField fullWidth size="small" type="datetime-local" label="Primera ejecución" InputLabelProps={{ shrink: true }} sx={{ mt: 1.5 }}
-            value={schedForm.first_run_at} onChange={e => setSchedForm({ ...schedForm, first_run_at: e.target.value })} />
+          {schedForm.recurrence === 'monthly_weekday' ? (
+            <Box sx={{ display: 'flex', gap: 1.5, mt: 1.5 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Ocurrencia</InputLabel>
+                <Select label="Ocurrencia" value={schedForm.recur_ordinal} onChange={e => setSchedForm({ ...schedForm, recur_ordinal: e.target.value })}>
+                  <MenuItem value={1}>Primer</MenuItem>
+                  <MenuItem value={2}>Segundo</MenuItem>
+                  <MenuItem value={3}>Tercer</MenuItem>
+                  <MenuItem value={4}>Cuarto</MenuItem>
+                  <MenuItem value={-1}>Último</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl fullWidth size="small">
+                <InputLabel>Día</InputLabel>
+                <Select label="Día" value={schedForm.recur_weekday} onChange={e => setSchedForm({ ...schedForm, recur_weekday: e.target.value })}>
+                  {['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map((d, i) => <MenuItem key={i} value={i}>{d}</MenuItem>)}
+                </Select>
+              </FormControl>
+              <TextField size="small" type="time" label="Hora" InputLabelProps={{ shrink: true }} sx={{ width: 130 }}
+                value={schedForm.time} onChange={e => setSchedForm({ ...schedForm, time: e.target.value })} />
+            </Box>
+          ) : (
+            <TextField fullWidth size="small" type="datetime-local" label="Primera ejecución" InputLabelProps={{ shrink: true }} sx={{ mt: 1.5 }}
+              value={schedForm.first_run_at} onChange={e => setSchedForm({ ...schedForm, first_run_at: e.target.value })} />
+          )}
           <InvolvedPicker users={users} involvedIds={schedInvolved} setInvolvedIds={setSchedInvolved} />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
@@ -433,7 +468,7 @@ export default function MisTareasPage() {
                     <Box sx={{ minWidth: 0 }}>
                       <Typography variant="body2" fontWeight={700} noWrap>{s.title}</Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {RECUR_LABEL[s.recurrence] || 'Una vez'} · próxima: {s.next_run_at ? new Date(s.next_run_at).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                        {schedLabel(s)} · próxima: {s.next_run_at ? new Date(s.next_run_at).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
                       </Typography>
                     </Box>
                     <IconButton size="small" onClick={() => deleteSchedule(s.id)}><CloseIcon sx={{ fontSize: 18 }} /></IconButton>

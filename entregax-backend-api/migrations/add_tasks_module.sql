@@ -126,7 +126,9 @@ CREATE TABLE IF NOT EXISTS task_schedules (
   created_by    INTEGER REFERENCES users(id),
   involved_ids  JSONB NOT NULL DEFAULT '[]'::jsonb,  -- participantes extra
   next_run_at   TIMESTAMPTZ NOT NULL,                -- próxima materialización
-  recurrence    TEXT NOT NULL DEFAULT 'none',        -- 'none'|'daily'|'weekly'|'monthly'
+  recurrence    TEXT NOT NULL DEFAULT 'none',        -- 'none'|'daily'|'weekly'|'monthly'|'monthly_weekday'
+  recur_ordinal SMALLINT,                            -- monthly_weekday: 1..4 o -1 (último)
+  recur_weekday SMALLINT,                            -- monthly_weekday: 0=domingo..6=sábado
   active        BOOLEAN NOT NULL DEFAULT TRUE,
   last_task_id  INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
   created_at    TIMESTAMPTZ DEFAULT NOW()

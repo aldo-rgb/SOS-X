@@ -311,6 +311,8 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
   const [dayOpt, setDayOpt] = useState('tomorrow');
   const [hour, setHour] = useState(9);
   const [recurrence, setRecurrence] = useState('none');
+  const [ordinal, setOrdinal] = useState(1);   // 1..4 o -1 (último)
+  const [weekday, setWeekday] = useState(1);   // 0=domingo..6=sábado
   const [involved, setInvolved] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const H = { Authorization: `Bearer ${token}` };
@@ -319,7 +321,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
     .then(r => r.json()).then(d => setSchedules(d.schedules || [])).catch(() => {});
   useEffect(() => {
     if (!visible) return;
-    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setHour(9); setRecurrence('none'); setInvolved([]);
+    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
     loadSchedules();
   }, [visible]);
@@ -338,9 +340,13 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
     if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
     setBusy(true);
     try {
+      const involvedIds = myId ? [myId, ...involved] : involved;
+      const body: any = { title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: involvedIds, recurrence };
+      if (recurrence === 'monthly_weekday') { body.recur_ordinal = ordinal; body.recur_weekday = weekday; body.hour = hour; body.minute = 0; }
+      else { body.first_run_at = firstRunStamp(); }
       const r = await fetch(`${API_URL}/api/tasks/schedules`, {
         method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, first_run_at: firstRunStamp(), recurrence }),
+        body: JSON.stringify(body),
       });
       if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo programar', e.error || ''); setBusy(false); return; }
       setTitle(''); setDesc(''); setInvolved([]);
@@ -354,8 +360,15 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
 
   const DAY_OPTS = [{ k: 'today', l: 'Hoy' }, { k: 'tomorrow', l: 'Mañana' }, { k: 'd3', l: '+3 días' }, { k: 'week', l: 'Próx. semana' }];
   const HOURS = [9, 12, 15, 18];
-  const RECUR = [{ k: 'none', l: 'Una vez' }, { k: 'daily', l: 'Diaria' }, { k: 'weekly', l: 'Semanal' }, { k: 'monthly', l: 'Mensual' }];
-  const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual' };
+  const RECUR = [{ k: 'none', l: 'Una vez' }, { k: 'daily', l: 'Diaria' }, { k: 'weekly', l: 'Semanal' }, { k: 'monthly', l: 'Mensual' }, { k: 'monthly_weekday', l: 'Día de semana' }];
+  const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual', monthly_weekday: 'Mensual (día de semana)' };
+  const ORDINALS = [{ v: 1, l: '1er' }, { v: 2, l: '2do' }, { v: 3, l: '3er' }, { v: 4, l: '4to' }, { v: -1, l: 'Último' }];
+  const WEEKDAYS = [{ v: 1, l: 'Lun' }, { v: 2, l: 'Mar' }, { v: 3, l: 'Mié' }, { v: 4, l: 'Jue' }, { v: 5, l: 'Vie' }, { v: 6, l: 'Sáb' }, { v: 0, l: 'Dom' }];
+  const WD_FULL = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const ORD_FULL: Record<number, string> = { 1: 'Primer', 2: 'Segundo', 3: 'Tercer', 4: 'Cuarto', [-1]: 'Último' };
+  const schedLabel = (s: any): string => s.recurrence === 'monthly_weekday' && s.recur_ordinal != null
+    ? `${ORD_FULL[s.recur_ordinal] || ''} ${WD_FULL[s.recur_weekday] || ''} del mes`.trim()
+    : (RECUR_LABEL[s.recurrence] || 'Una vez');
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -373,21 +386,6 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
             <EisPicker value={eis} onChange={setEis} />
-            <Text style={styles.fieldLbl}>Primera ejecución</Text>
-            <View style={styles.eisRow}>
-              {DAY_OPTS.map(o => (
-                <TouchableOpacity key={o.k} onPress={() => setDayOpt(o.k)} style={[styles.dateChip, dayOpt === o.k && styles.dateChipOn]}>
-                  <Text style={[styles.dateChipTxt, dayOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={[styles.eisRow, { marginTop: 6 }]}>
-              {HOURS.map(h => (
-                <TouchableOpacity key={h} onPress={() => setHour(h)} style={[styles.dateChip, hour === h && styles.dateChipOn]}>
-                  <Text style={[styles.dateChipTxt, hour === h && { color: '#fff' }]}>{String(h).padStart(2, '0')}:00</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
             <Text style={styles.fieldLbl}>Repetir</Text>
             <View style={styles.eisRow}>
               {RECUR.map(o => (
@@ -396,6 +394,53 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
                 </TouchableOpacity>
               ))}
             </View>
+
+            {recurrence === 'monthly_weekday' ? (
+              <>
+                <Text style={styles.fieldLbl}>Ocurrencia</Text>
+                <View style={styles.eisRow}>
+                  {ORDINALS.map(o => (
+                    <TouchableOpacity key={o.v} onPress={() => setOrdinal(o.v)} style={[styles.dateChip, ordinal === o.v && styles.dateChipOn]}>
+                      <Text style={[styles.dateChipTxt, ordinal === o.v && { color: '#fff' }]}>{o.l}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={styles.fieldLbl}>Día de la semana</Text>
+                <View style={styles.eisRow}>
+                  {WEEKDAYS.map(o => (
+                    <TouchableOpacity key={o.v} onPress={() => setWeekday(o.v)} style={[styles.dateChip, weekday === o.v && styles.dateChipOn]}>
+                      <Text style={[styles.dateChipTxt, weekday === o.v && { color: '#fff' }]}>{o.l}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={styles.fieldLbl}>Hora</Text>
+                <View style={styles.eisRow}>
+                  {HOURS.map(h => (
+                    <TouchableOpacity key={h} onPress={() => setHour(h)} style={[styles.dateChip, hour === h && styles.dateChipOn]}>
+                      <Text style={[styles.dateChipTxt, hour === h && { color: '#fff' }]}>{String(h).padStart(2, '0')}:00</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.fieldLbl}>Primera ejecución</Text>
+                <View style={styles.eisRow}>
+                  {DAY_OPTS.map(o => (
+                    <TouchableOpacity key={o.k} onPress={() => setDayOpt(o.k)} style={[styles.dateChip, dayOpt === o.k && styles.dateChipOn]}>
+                      <Text style={[styles.dateChipTxt, dayOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={[styles.eisRow, { marginTop: 6 }]}>
+                  {HOURS.map(h => (
+                    <TouchableOpacity key={h} onPress={() => setHour(h)} style={[styles.dateChip, hour === h && styles.dateChipOn]}>
+                      <Text style={[styles.dateChipTxt, hour === h && { color: '#fff' }]}>{String(h).padStart(2, '0')}:00</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
             <Text style={styles.fieldLbl}>Involucrados</Text>
             <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} />
 
@@ -406,7 +451,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
                   <View key={s.id} style={styles.schedRow}>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.schedTitle} numberOfLines={1}>{s.title}</Text>
-                      <Text style={styles.optMeta}>{RECUR_LABEL[s.recurrence] || 'Una vez'} · próxima: {fmtDate(s.next_run_at)}</Text>
+                      <Text style={styles.optMeta}>{schedLabel(s)} · próxima: {fmtDate(s.next_run_at)}</Text>
                     </View>
                     <TouchableOpacity onPress={() => del(s.id)} hitSlop={8}><Ionicons name="trash-outline" size={18} color="#BBB" /></TouchableOpacity>
                   </View>

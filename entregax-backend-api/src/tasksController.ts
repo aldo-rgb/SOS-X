@@ -326,6 +326,30 @@ async function createTaskFromSchedule(sch: any): Promise<number | null> {
   } catch (e: any) { console.warn('[tasks] createTaskFromSchedule:', e?.message); return null; }
 }
 
+// Fecha del día-de-semana ordinal de un mes (en UTC, como opera el servidor).
+// weekday: 0=domingo..6=sábado (getUTCDay). ordinal: 1..4, o -1 = último.
+function nthWeekdayUTC(year: number, monthIdx: number, weekday: number, ordinal: number): Date {
+  if (ordinal === -1) {
+    const last = new Date(Date.UTC(year, monthIdx + 1, 0)); // último día del mes
+    const off = (last.getUTCDay() - weekday + 7) % 7;
+    return new Date(Date.UTC(year, monthIdx, last.getUTCDate() - off));
+  }
+  const first = new Date(Date.UTC(year, monthIdx, 1));
+  const off = (weekday - first.getUTCDay() + 7) % 7;
+  return new Date(Date.UTC(year, monthIdx, 1 + off + (ordinal - 1) * 7));
+}
+// Próxima ocurrencia (> after) del día-de-semana ordinal a cierta hora UTC.
+function nextMonthlyWeekday(ordinal: number, weekday: number, hour: number, minute: number, after: Date): Date | null {
+  let y = after.getUTCFullYear(), m = after.getUTCMonth();
+  for (let i = 0; i < 4; i++) {
+    const cand = nthWeekdayUTC(y, m, weekday, ordinal);
+    cand.setUTCHours(hour, minute, 0, 0);
+    if (cand.getTime() > after.getTime()) return cand;
+    m++; if (m > 11) { m = 0; y++; }
+  }
+  return null;
+}
+
 // Cron: materializa las programaciones vencidas y reprograma las recurrentes.
 export async function runDueTaskSchedules(): Promise<void> {
   try {
@@ -334,6 +358,14 @@ export async function runDueTaskSchedules(): Promise<void> {
       const taskId = await createTaskFromSchedule(sch);
       if (sch.recurrence === 'none') {
         await pool.query(`UPDATE task_schedules SET active = FALSE, last_task_id = $2 WHERE id = $1`, [sch.id, taskId]);
+      } else if (sch.recurrence === 'monthly_weekday') {
+        // "Primer lunes / último viernes del mes": calcula la siguiente ocurrencia
+        // conservando la hora UTC de la ejecución previa.
+        const prev = new Date(sch.next_run_at);
+        const next = nextMonthlyWeekday(Number(sch.recur_ordinal), Number(sch.recur_weekday), prev.getUTCHours(), prev.getUTCMinutes(), new Date());
+        await pool.query(`UPDATE task_schedules SET last_task_id = $2, next_run_at = $3 WHERE id = $1`,
+          [sch.id, taskId, next ? next.toISOString() : null]);
+        if (!next) await pool.query(`UPDATE task_schedules SET active = FALSE WHERE id = $1`, [sch.id]);
       } else {
         const step = sch.recurrence === 'daily' ? `interval '1 day'`
           : sch.recurrence === 'weekly' ? `interval '7 days'`
@@ -360,14 +392,31 @@ export const createSchedule = async (req: Request, res: Response): Promise<any> 
     if (!uid || authRole(req) === 'client') return res.status(403).json({ error: 'No disponible' });
     const b = req.body || {};
     if (!String(b.title || '').trim()) return res.status(400).json({ error: 'El título es obligatorio' });
-    if (!b.first_run_at) return res.status(400).json({ error: 'Falta la fecha programada' });
-    const rec = ['none', 'daily', 'weekly', 'monthly'].includes(b.recurrence) ? b.recurrence : 'none';
+    const rec = ['none', 'daily', 'weekly', 'monthly', 'monthly_weekday'].includes(b.recurrence) ? b.recurrence : 'none';
     const eis = EISENHOWER.includes(b.eisenhower) ? b.eisenhower : 'estrella';
     const involved = Array.isArray(b.involved_ids) ? b.involved_ids.map((x: any) => parseInt(String(x))).filter(Boolean) : [];
+
+    let firstRun: string | Date = b.first_run_at;
+    let ordinal: number | null = null, weekday: number | null = null;
+    if (rec === 'monthly_weekday') {
+      ordinal = parseInt(String(b.recur_ordinal));   // 1..4 o -1 (último)
+      weekday = parseInt(String(b.recur_weekday));    // 0=domingo..6=sábado
+      const hour = Number.isFinite(parseInt(String(b.hour))) ? parseInt(String(b.hour)) : 9;
+      const minute = Number.isFinite(parseInt(String(b.minute))) ? parseInt(String(b.minute)) : 0;
+      if (![1, 2, 3, 4, -1].includes(ordinal) || !(weekday >= 0 && weekday <= 6)) {
+        return res.status(400).json({ error: 'Configura el día ordinal y el día de la semana' });
+      }
+      const next = nextMonthlyWeekday(ordinal, weekday, hour, minute, new Date());
+      if (!next) return res.status(400).json({ error: 'No se pudo calcular la fecha' });
+      firstRun = next.toISOString();
+    } else if (!firstRun) {
+      return res.status(400).json({ error: 'Falta la fecha programada' });
+    }
+
     const r = await pool.query(
-      `INSERT INTO task_schedules (title, description, eisenhower, created_by, involved_ids, next_run_at, recurrence)
-       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7) RETURNING *`,
-      [String(b.title).trim(), b.description || null, eis, uid, JSON.stringify(involved), b.first_run_at, rec]);
+      `INSERT INTO task_schedules (title, description, eisenhower, created_by, involved_ids, next_run_at, recurrence, recur_ordinal, recur_weekday)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9) RETURNING *`,
+      [String(b.title).trim(), b.description || null, eis, uid, JSON.stringify(involved), firstRun, rec, ordinal, weekday]);
     res.json({ schedule: r.rows[0] });
   } catch (e: any) {
     console.error('[tasks] createSchedule:', e); res.status(500).json({ error: 'Error al programar la tarea' });
@@ -975,8 +1024,21 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
       [taskId, uid, String(b.body).trim(), JSON.stringify(mentions), b.attachment_url || null]);
     await logActivity(taskId, uid, 'comment', {});
     // Notificar a los mencionados.
+    const notified = new Set<number>();
     for (const m of mentions) {
-      if (m !== uid) await notify(m, '💬 Te mencionaron en una tarea', t.rows[0].title, { task_id: taskId });
+      if (m !== uid && !notified.has(m)) { await notify(m, '💬 Te mencionaron en una tarea', t.rows[0].title, { task_id: taskId }); notified.add(m); }
+    }
+    // Notificar por push a los involucrados (participantes + asignado) del comentario.
+    const author = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'Alguien';
+    const preview = String(b.body).trim().slice(0, 80);
+    const parts = await pool.query(
+      `SELECT user_id FROM task_participants WHERE task_id = $1
+       UNION SELECT assignee_id FROM tasks WHERE id = $1 AND assignee_id IS NOT NULL`, [taskId]);
+    for (const row of parts.rows) {
+      const p = Number(row.user_id);
+      if (!p || p === uid || notified.has(p)) continue;
+      await notify(p, `💬 ${author} comentó en "${t.rows[0].title}"`, preview, { task_id: taskId });
+      notified.add(p);
     }
     res.json({ comment: r.rows[0] });
   } catch (e: any) {
