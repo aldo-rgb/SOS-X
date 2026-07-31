@@ -49,7 +49,9 @@ async function logActivity(taskId: number, actorId: number | null, action: strin
   } catch (e: any) { console.warn('[tasks] logActivity:', e?.message); }
 }
 
-async function notify(userId: number | null, title: string, message: string, data: any = {}): Promise<void> {
+// notificationType: 'task_new' (default) | 'task_comment' | 'task_completed'.
+// Cada uno es configurable en el panel "Sonidos de Notificaciones".
+async function notify(userId: number | null, title: string, message: string, data: any = {}, notificationType: string = 'task_new'): Promise<void> {
   if (!userId) return;
   try {
     const { createCustomNotification } = require('./notificationController');
@@ -57,7 +59,7 @@ async function notify(userId: number | null, title: string, message: string, dat
   } catch { /* opcional */ }
   try {
     const { sendPushToUsers } = await import('./pushService');
-    await sendPushToUsers([userId], { title, body: message, data: { screen: 'MyTasks', ...data }, notificationType: 'task' });
+    await sendPushToUsers([userId], { title, body: message, data: { screen: 'MyTasks', ...data }, notificationType });
   } catch { /* opcional */ }
 }
 
@@ -906,6 +908,22 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     if (!mgr && Number(task.assignee_id) !== Number(uid) && !isParticipant) {
       return res.status(403).json({ error: 'Solo un involucrado o gerencia puede cerrar la tarea' });
     }
+    // Avisa (push 'task_completed') a los involucrados, excepto quien la cerró.
+    const notifyCompleted = async () => {
+      try {
+        const who = (await pool.query(`SELECT full_name FROM users WHERE id=$1`, [uid])).rows[0]?.full_name || 'Alguien';
+        const inv = await pool.query(
+          `SELECT user_id FROM task_participants WHERE task_id=$1
+           UNION SELECT assignee_id FROM tasks WHERE id=$1 AND assignee_id IS NOT NULL`, [id]);
+        const done = new Set<number>();
+        for (const row of inv.rows) {
+          const p = Number(row.user_id);
+          if (!p || p === uid || done.has(p)) continue;
+          done.add(p);
+          await notify(p, `✅ ${who} completó "${task.title}"`, task.title, { task_id: id }, 'task_completed');
+        }
+      } catch { /* opcional */ }
+    };
     // Al cerrar, mover a la columna terminal (is_done) del tablero si existe.
     const doneCol = (await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 AND is_done=TRUE ORDER BY sort_order LIMIT 1`, [task.board_id])).rows[0]?.id || null;
     const colSet = doneCol ? `column_id=${Number(doneCol)},` : '';
@@ -920,10 +938,12 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
         `UPDATE tasks SET status='completed', completed_at=NOW(), ${colSet} forced_close_by=$2, forced_reason=$3, updated_at=NOW() WHERE id=$1`,
         [id, uid, reason]);
       await logActivity(id, uid, 'forced_close', { pending, reason });
+      await notifyCompleted();
       return res.json({ success: true, forced: true });
     }
     await pool.query(`UPDATE tasks SET status='completed', completed_at=NOW(), ${colSet} updated_at=NOW() WHERE id=$1`, [id]);
     await logActivity(id, uid, 'completed', {});
+    await notifyCompleted();
     res.json({ success: true, forced: false });
   } catch (e: any) {
     console.error('[tasks] completeTask:', e); res.status(500).json({ error: 'Error al completar tarea' });
@@ -1127,7 +1147,7 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
     // Notificar a los mencionados.
     const notified = new Set<number>();
     for (const m of mentions) {
-      if (m !== uid && !notified.has(m)) { await notify(m, '💬 Te mencionaron en una tarea', t.rows[0].title, { task_id: taskId }); notified.add(m); }
+      if (m !== uid && !notified.has(m)) { await notify(m, '💬 Te mencionaron en una tarea', t.rows[0].title, { task_id: taskId }, 'task_comment'); notified.add(m); }
     }
     // Notificar por push a los involucrados (participantes + asignado) del comentario.
     const author = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'Alguien';
@@ -1138,7 +1158,7 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
     for (const row of parts.rows) {
       const p = Number(row.user_id);
       if (!p || p === uid || notified.has(p)) continue;
-      await notify(p, `💬 ${author} comentó en "${t.rows[0].title}"`, preview, { task_id: taskId });
+      await notify(p, `💬 ${author} comentó en "${t.rows[0].title}"`, preview, { task_id: taskId }, 'task_comment');
       notified.add(p);
     }
     res.json({ comment: r.rows[0] });

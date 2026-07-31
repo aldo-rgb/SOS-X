@@ -27,6 +27,9 @@ export const NOTIFICATION_TYPES: Array<{ key: string; label: string; description
   { key: 'client_claim',       label: '🆘 Reclamación de número',       description: 'Cliente reclama su número de casillero.', group: 'Soporte' },
   { key: 'internal_chat',      label: '💬 Chat interno',                description: 'Mensajes del chat interno (Monitoreo/Repartidores/Operaciones/Dirección).', group: 'Interno' },
   { key: 'rate_change',        label: '💱 Nuevo precio de tarifa',      description: 'Cambio de precio de tarifas (aéreo).', group: 'Interno' },
+  { key: 'task_new',           label: '📋 Tarea nueva',                 description: 'Te asignan o involucran en una tarea (Mis Tareas / flujos).', group: 'Tareas' },
+  { key: 'task_completed',     label: '✅ Tarea terminada',             description: 'Una tarea en la que estás involucrado se marca como completada.', group: 'Tareas' },
+  { key: 'task_comment',       label: '💬 Respuesta en tarea',          description: 'Alguien comenta o te menciona en una tarea en la que participas.', group: 'Tareas' },
 ];
 
 // ─── Tonos EMPAQUETADOS en el build nativo (para segundo plano) ───
