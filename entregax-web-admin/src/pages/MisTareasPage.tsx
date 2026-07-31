@@ -217,21 +217,26 @@ export default function MisTareasPage() {
     try { const r = await axios.get(`${API_URL}/tasks/schedules`, H()); setSchedules(r.data?.schedules || []); }
     catch { /* opcional */ }
   }, []);
-  const emptySched = { title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none', recur_ordinal: 1, recur_weekday: 1, time: '09:00' };
+  const emptySched = { title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none', recur_ordinal: 1, recur_weekday: 1, time: '09:00', board_id: '' as number | '' };
+  const defaultCatId = () => {
+    const personal = categories.find(c => c.board_key === 'personales');
+    return personal?.id || categories[0]?.id || '';
+  };
   const openSchedule = () => {
-    setSchedForm({ ...emptySched });
+    setSchedForm({ ...emptySched, board_id: defaultCatId() });
     setSchedInvolved(MY_ID ? [MY_ID] : []);
     setSchedOpen(true); loadSchedules();
   };
   const createSchedule = async () => {
     if (!schedForm.title.trim()) return notify('El título es obligatorio', 'error');
+    if (!schedForm.board_id) return notify('Elige una categoría', 'error');
     const isWeekday = schedForm.recurrence === 'monthly_weekday';
     if (!isWeekday && !schedForm.first_run_at) return notify('Elige la fecha y hora de la primera tarea', 'error');
     try {
       const [hh, mm] = String(schedForm.time || '09:00').split(':');
       await axios.post(`${API_URL}/tasks/schedules`, {
         title: schedForm.title.trim(), description: schedForm.description || null,
-        eisenhower: schedForm.eisenhower, involved_ids: schedInvolved,
+        eisenhower: schedForm.eisenhower, involved_ids: schedInvolved, board_id: schedForm.board_id,
         recurrence: schedForm.recurrence,
         ...(isWeekday
           ? { recur_ordinal: schedForm.recur_ordinal, recur_weekday: schedForm.recur_weekday, hour: parseInt(hh), minute: parseInt(mm || '0') }
@@ -430,6 +435,12 @@ export default function MisTareasPage() {
           </Typography>
           <TextField autoFocus fullWidth label="Título (usa un verbo de acción)" margin="dense"
             value={schedForm.title} onChange={e => setSchedForm({ ...schedForm, title: e.target.value })} />
+          <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
+            <InputLabel>Categoría (flujo)</InputLabel>
+            <Select label="Categoría (flujo)" value={schedForm.board_id} onChange={e => setSchedForm({ ...schedForm, board_id: e.target.value })}>
+              {categories.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+            </Select>
+          </FormControl>
           <TextField fullWidth label="Descripción" margin="dense" multiline rows={2}
             value={schedForm.description} onChange={e => setSchedForm({ ...schedForm, description: e.target.value })} />
           <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>

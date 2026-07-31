@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS task_schedules (
   recurrence    TEXT NOT NULL DEFAULT 'none',        -- 'none'|'daily'|'weekly'|'monthly'|'monthly_weekday'
   recur_ordinal SMALLINT,                            -- monthly_weekday: 1..4 o -1 (último)
   recur_weekday SMALLINT,                            -- monthly_weekday: 0=domingo..6=sábado
+  board_id      INTEGER REFERENCES task_boards(id),  -- categoría/flujo destino (null=Personales)
   active        BOOLEAN NOT NULL DEFAULT TRUE,
   last_task_id  INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
   created_at    TIMESTAMPTZ DEFAULT NOW()

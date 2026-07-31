@@ -326,6 +326,8 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
   visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void;
 }) {
   const [users, setUsers] = useState<UserOpt[]>([]);
+  const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
+  const [catId, setCatId] = useState<number | null>(null);
   const [schedules, setSchedules] = useState<any[]>([]);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -345,6 +347,12 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
     if (!visible) return;
     setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
+    fetch(`${API_URL}/api/tasks/categories`, { headers: H }).then(r => r.json()).then(d => {
+      const cats = d.categories || [];
+      setCategories(cats);
+      const personal = cats.find((c: any) => c.board_key === 'personales');
+      setCatId(personal?.id || cats[0]?.id || null);
+    }).catch(() => {});
     loadSchedules();
   }, [visible]);
 
@@ -360,10 +368,11 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
 
   const submit = async () => {
     if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
+    if (!catId) { Alert.alert('Falta categoría', 'Elige una categoría (flujo).'); return; }
     setBusy(true);
     try {
       const involvedIds = myId ? [myId, ...involved] : involved;
-      const body: any = { title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: involvedIds, recurrence };
+      const body: any = { title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: involvedIds, recurrence, board_id: catId };
       if (recurrence === 'monthly_weekday') { body.recur_ordinal = ordinal; body.recur_weekday = weekday; body.hour = hour; body.minute = 0; }
       else { body.first_run_at = firstRunStamp(); }
       const r = await fetch(`${API_URL}/api/tasks/schedules`, {
@@ -404,6 +413,17 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
             <Text style={styles.helpTxt}>La tarea se creará automáticamente en la fecha y hora elegidas. Si es recurrente, se regenera en cada ciclo.</Text>
             <Text style={styles.fieldLbl}>Título</Text>
             <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
+            <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
+            <View style={styles.eisRow}>
+              {categories.map(c => {
+                const on = catId === c.id;
+                return (
+                  <TouchableOpacity key={c.id} onPress={() => setCatId(c.id)} style={[styles.dateChip, on && styles.dateChipOn]}>
+                    <Text style={[styles.dateChipTxt, on && { color: '#fff' }]}>{c.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
             <Text style={styles.fieldLbl}>Descripción</Text>
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>

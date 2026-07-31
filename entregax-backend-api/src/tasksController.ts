@@ -330,7 +330,13 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
 // Crea una tarea personal a partir de una programación.
 async function createTaskFromSchedule(sch: any): Promise<number | null> {
   try {
-    const boardId = await getOrCreatePersonalBoard();
+    // Usa la categoría (tablero) elegida al programar; si no, Tareas Personales.
+    let boardId: number | null = null;
+    if (sch.board_id) {
+      const bd = await pool.query(`SELECT id FROM task_boards WHERE id=$1 AND is_active=TRUE`, [sch.board_id]);
+      boardId = bd.rows[0]?.id || null;
+    }
+    if (!boardId) boardId = await getOrCreatePersonalBoard();
     if (!boardId) return null;
     const col = await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [boardId]);
     const columnId = col.rows[0]?.id || null;
@@ -440,10 +446,19 @@ export const createSchedule = async (req: Request, res: Response): Promise<any> 
       return res.status(400).json({ error: 'Falta la fecha programada' });
     }
 
+    // Categoría (tablero de flujo). Cualquier tablero activo salvo Flujo de Ventas.
+    let boardId: number | null = null;
+    if (b.board_id) {
+      const bd = await pool.query(
+        `SELECT id FROM task_boards WHERE id=$1 AND is_active=TRUE AND COALESCE(board_key,'')<>'flujo_operativo'`,
+        [parseInt(String(b.board_id))]);
+      boardId = bd.rows[0]?.id || null;
+      if (!boardId) return res.status(400).json({ error: 'Categoría no válida' });
+    }
     const r = await pool.query(
-      `INSERT INTO task_schedules (title, description, eisenhower, created_by, involved_ids, next_run_at, recurrence, recur_ordinal, recur_weekday)
-       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9) RETURNING *`,
-      [String(b.title).trim(), b.description || null, eis, uid, JSON.stringify(involved), firstRun, rec, ordinal, weekday]);
+      `INSERT INTO task_schedules (title, description, eisenhower, created_by, involved_ids, next_run_at, recurrence, recur_ordinal, recur_weekday, board_id)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10) RETURNING *`,
+      [String(b.title).trim(), b.description || null, eis, uid, JSON.stringify(involved), firstRun, rec, ordinal, weekday, boardId]);
     res.json({ schedule: r.rows[0] });
   } catch (e: any) {
     console.error('[tasks] createSchedule:', e); res.status(500).json({ error: 'Error al programar la tarea' });
