@@ -22,7 +22,6 @@ import ChecklistIcon from '@mui/icons-material/Checklist';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import GridViewIcon from '@mui/icons-material/GridView';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
-import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import EditIcon from '@mui/icons-material/Edit';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
