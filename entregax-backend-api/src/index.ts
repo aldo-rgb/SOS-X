@@ -9189,7 +9189,7 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevelO
 // Cuando el admin recibe el pago del cliente
 // Permitir acceso a mostrador (counter_staff) para Caja PO Box
 // ============================================
-app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response): Promise<any> => {
+app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { referencia, metodo_confirmacion = 'efectivo', notas, received_by, moneda_recibida = 'MXN', monto_recibido, tipo_cambio } = req.body;
     const adminId = req.user?.userId;
@@ -9818,7 +9818,7 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
 // CONFIRMAR PAGO BULK - MÚLTIPLES PAQUETES
 // Para entrega de varios paquetes al mismo cliente
 // ============================================
-app.post('/api/admin/finance/confirm-payment-bulk', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response): Promise<any> => {
+app.post('/api/admin/finance/confirm-payment-bulk', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { referencias, metodo_confirmacion = 'tarjeta', notas, received_by, monto_total_usd, moneda_recibida = 'MXN', tipo_cambio } = req.body;
     const adminId = req.user?.userId;
