@@ -25,6 +25,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import EditIcon from '@mui/icons-material/Edit';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -33,6 +34,17 @@ const ME = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'
 const MY_ID = Number(ME?.id) || 0;
 
 const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual' };
+
+// Adjuntos: fotos + documentos (PDF, Excel, Word, CSV, texto).
+const ACCEPT_FILES = 'image/*,.pdf,.xls,.xlsx,.csv,.doc,.docx,.txt,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const isImg = (name?: string): boolean => /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(String(name || ''));
+const fileIcon = (name?: string): string => {
+  const n = String(name || '').toLowerCase();
+  if (/\.pdf$/.test(n)) return '📄';
+  if (/\.(xls|xlsx|csv)$/.test(n)) return '📊';
+  if (/\.(doc|docx)$/.test(n)) return '📝';
+  return '📎';
+};
 
 const EIS: Record<string, { label: string; short: string; color: string; bg: string }> = {
   fuego:    { label: '🔥 Urgente e importante',       short: '🔥 Urgente',           color: '#C0392B', bg: '#F9E5E2' },
@@ -340,19 +352,26 @@ export default function MisTareasPage() {
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
           </Typography>
-          {/* Fotos adjuntas */}
+          {/* Archivos adjuntos (fotos, PDF, Excel…) */}
           <Box sx={{ mt: 2 }}>
-            <Button component="label" size="small" startIcon={<PhotoCameraIcon />} sx={{ textTransform: 'none' }}>
-              Agregar fotos
-              <input hidden type="file" accept="image/*" multiple
+            <Button component="label" size="small" startIcon={<AttachFileIcon />} sx={{ textTransform: 'none' }}>
+              Agregar archivos (fotos, PDF, Excel)
+              <input hidden type="file" accept={ACCEPT_FILES} multiple
                 onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) setNewPhotos(prev => [...prev, ...fs]); (e.target as HTMLInputElement).value = ''; }} />
             </Button>
             {newPhotos.length > 0 && (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
                 {newPhotos.map((f, idx) => (
                   <Box key={idx} sx={{ position: 'relative' }}>
-                    <Box component="img" src={URL.createObjectURL(f)} alt={f.name}
-                      sx={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                    {isImg(f.name) ? (
+                      <Box component="img" src={URL.createObjectURL(f)} alt={f.name}
+                        sx={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                    ) : (
+                      <Box sx={{ width: 120, height: 64, borderRadius: 1, border: '1px solid #ddd', p: 0.75, display: 'flex', flexDirection: 'column', justifyContent: 'center', bgcolor: '#FAFAFA' }}>
+                        <Typography sx={{ fontSize: 20, lineHeight: 1 }}>{fileIcon(f.name)}</Typography>
+                        <Typography variant="caption" noWrap title={f.name}>{f.name}</Typography>
+                      </Box>
+                    )}
                     <IconButton size="small" onClick={() => setNewPhotos(prev => prev.filter((_, i) => i !== idx))}
                       sx={{ position: 'absolute', top: -8, right: -8, bgcolor: '#fff', boxShadow: 1, p: 0.2, '&:hover': { bgcolor: '#fff' } }}>
                       <CloseIcon sx={{ fontSize: 14 }} />
@@ -490,11 +509,11 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
         const fd = new FormData(); fd.append('photo', f);
         await axios.post(`${API_URL}/tasks/${id}/attachments`, fd, { headers: { ...H().headers, 'Content-Type': 'multipart/form-data' } });
       }
-      notify('Foto(s) agregada(s)'); reload();
-    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo subir la foto', 'error'); }
+      notify('Archivo(s) agregado(s)'); reload();
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo subir el archivo', 'error'); }
   };
   const deletePhoto = async (attId: number) => {
-    if (!window.confirm('¿Eliminar esta foto?')) return;
+    if (!window.confirm('¿Eliminar este archivo?')) return;
     try { await axios.delete(`${API_URL}/tasks/attachments/${attId}`, H()); reload(); }
     catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); }
   };
@@ -646,23 +665,31 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               </Box>
             )}
 
-            {/* Fotos */}
+            {/* Archivos (fotos, PDF, Excel…) */}
             <Divider sx={{ my: 2 }} />
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-              <Typography fontWeight={800} fontSize={14}>Fotos {(data.attachments || []).length > 0 && `(${(data.attachments || []).length})`}</Typography>
-              <Button component="label" size="small" startIcon={<PhotoCameraIcon />} sx={{ textTransform: 'none' }}>
-                Agregar foto
-                <input hidden type="file" accept="image/*" multiple onChange={e => uploadPhotos(e.target.files)} />
+              <Typography fontWeight={800} fontSize={14}>Archivos {(data.attachments || []).length > 0 && `(${(data.attachments || []).length})`}</Typography>
+              <Button component="label" size="small" startIcon={<AttachFileIcon />} sx={{ textTransform: 'none' }}>
+                Agregar archivo
+                <input hidden type="file" accept={ACCEPT_FILES} multiple onChange={e => uploadPhotos(e.target.files)} />
               </Button>
             </Box>
             {(data.attachments || []).length === 0 ? (
-              <Typography variant="caption" color="text.secondary">Sin fotos.</Typography>
+              <Typography variant="caption" color="text.secondary">Sin archivos.</Typography>
             ) : (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
                 {(data.attachments || []).map((a: any) => (
                   <Box key={a.id} sx={{ position: 'relative' }}>
-                    <a href={a.url || '#'} target="_blank" rel="noreferrer">
-                      <Box component="img" src={a.url} alt={a.file_name || 'foto'} sx={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                    <a href={a.url || '#'} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                      {isImg(a.file_name) ? (
+                        <Box component="img" src={a.url} alt={a.file_name || 'foto'} sx={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                      ) : (
+                        <Box sx={{ width: 130, height: 80, borderRadius: 1, border: '1px solid #ddd', p: 0.75, display: 'flex', flexDirection: 'column', justifyContent: 'center', bgcolor: '#FAFAFA' }}>
+                          <Typography sx={{ fontSize: 24, lineHeight: 1 }}>{fileIcon(a.file_name)}</Typography>
+                          <Typography variant="caption" color="text.primary" noWrap title={a.file_name}>{a.file_name}</Typography>
+                          <Typography variant="caption" color="primary">Abrir</Typography>
+                        </Box>
+                      )}
                     </a>
                     <IconButton size="small" onClick={() => deletePhoto(a.id)} sx={{ position: 'absolute', top: -8, right: -8, bgcolor: '#fff', boxShadow: 1, p: 0.2, '&:hover': { bgcolor: '#fff' } }}>
                       <CloseIcon sx={{ fontSize: 14 }} />

@@ -879,7 +879,7 @@ export const addTaskAttachment = async (req: Request, res: Response): Promise<an
     await logActivity(id, uid, 'attachment_added', { file_name: orig });
     res.json({ attachment: { id: r.rows[0].id, file_name: orig, url, created_at: r.rows[0].created_at } });
   } catch (e: any) {
-    console.error('[tasks] addTaskAttachment:', e); res.status(500).json({ error: 'Error al subir la foto' });
+    console.error('[tasks] addTaskAttachment:', e); res.status(500).json({ error: 'Error al subir el archivo' });
   }
 };
 

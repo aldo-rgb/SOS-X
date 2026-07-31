@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { API_URL } from '../../services/api';
 
 export const ORANGE = '#F05A28';
@@ -65,6 +66,16 @@ export const avgLabel = (u: UserOpt): string => {
   const s = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
   return s && s > 0 ? `⏱ ${fmtDur(s * 1000)} prom.` : '⏱ sin datos';
 };
+// Adjuntos: distinguir imagen de documento (PDF/Excel/…).
+export const isImgName = (name?: string): boolean => /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(String(name || ''));
+export const fileEmoji = (name?: string): string => {
+  const n = String(name || '').toLowerCase();
+  if (/\.pdf$/.test(n)) return '📄';
+  if (/\.(xls|xlsx|csv)$/.test(n)) return '📊';
+  if (/\.(doc|docx)$/.test(n)) return '📝';
+  return '📎';
+};
+
 // 'YYYY-MM-DDTHH:mm' en hora local (mismo formato que el datetime-local de web).
 const toStamp = (d: Date): string => {
   const p = (n: number) => String(n).padStart(2, '0');
@@ -189,6 +200,14 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
       setPhotos(prev => [...prev, { uri: a.uri, name: a.fileName || 'foto.jpg', type: a.mimeType || 'image/jpeg' }]);
     } catch { /* */ }
   };
+  const pickDoc = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], copyToCacheDirectory: true, multiple: true });
+      if (res.canceled) return;
+      const assets = res.assets || [];
+      setPhotos(prev => [...prev, ...assets.map(a => ({ uri: a.uri, name: a.name || 'archivo', type: a.mimeType || 'application/octet-stream' }))]);
+    } catch { Alert.alert('Error', 'No se pudo adjuntar el archivo'); }
+  };
 
   const submit = async () => {
     if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
@@ -245,14 +264,24 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
             <Text style={styles.helpTxt}>Tú siempre quedas incluido. Agrega a quien deba participar.</Text>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
-              <Text style={[styles.fieldLbl, { marginTop: 0 }]}>Fotos {photos.length > 0 && `(${photos.length})`}</Text>
-              <TouchableOpacity onPress={pickPhoto} style={styles.photoBtn}><Ionicons name="camera-outline" size={16} color={ORANGE} /><Text style={styles.photoBtnTxt}>Agregar</Text></TouchableOpacity>
+              <Text style={[styles.fieldLbl, { marginTop: 0 }]}>Archivos {photos.length > 0 && `(${photos.length})`}</Text>
+              <View style={{ flexDirection: 'row', gap: 14 }}>
+                <TouchableOpacity onPress={pickPhoto} style={styles.photoBtn}><Ionicons name="camera-outline" size={16} color={ORANGE} /><Text style={styles.photoBtnTxt}>Foto</Text></TouchableOpacity>
+                <TouchableOpacity onPress={pickDoc} style={styles.photoBtn}><Ionicons name="document-attach-outline" size={16} color={ORANGE} /><Text style={styles.photoBtnTxt}>PDF/Excel</Text></TouchableOpacity>
+              </View>
             </View>
             {photos.length > 0 && (
               <View style={styles.photoGrid}>
                 {photos.map((p, i) => (
                   <View key={i} style={{ position: 'relative' }}>
-                    <Image source={{ uri: p.uri }} style={styles.photo} />
+                    {isImgName(p.name) ? (
+                      <Image source={{ uri: p.uri }} style={styles.photo} />
+                    ) : (
+                      <View style={styles.fileChip}>
+                        <Text style={{ fontSize: 22 }}>{fileEmoji(p.name)}</Text>
+                        <Text style={styles.fileChipTxt} numberOfLines={2}>{p.name}</Text>
+                      </View>
+                    )}
                     <TouchableOpacity onPress={() => setPhotos(prev => prev.filter((_, idx) => idx !== i))} style={styles.photoDel}><Ionicons name="close" size={12} color="#fff" /></TouchableOpacity>
                   </View>
                 ))}
@@ -575,9 +604,23 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
       reload();
     } catch { Alert.alert('Error', 'No se pudo subir la foto'); } finally { setBusy(false); }
   };
+  const addDoc = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], copyToCacheDirectory: true, multiple: true });
+      if (res.canceled) return;
+      setBusy(true);
+      for (const a of (res.assets || [])) {
+        const fd = new FormData();
+        fd.append('photo', { uri: a.uri, name: a.name || 'archivo', type: a.mimeType || 'application/octet-stream' } as any);
+        await fetch(`${API_URL}/api/tasks/${taskId}/attachments`, { method: 'POST', headers: H, body: fd });
+      }
+      reload();
+    } catch { Alert.alert('Error', 'No se pudo subir el archivo'); } finally { setBusy(false); }
+  };
   const deletePhoto = async (id: number) => {
     try { await fetch(`${API_URL}/api/tasks/attachments/${id}`, { method: 'DELETE', headers: H }); reload(); } catch { /* */ }
   };
+  const openAttachment = (url?: string) => { if (url) Linking.openURL(url).catch(() => Alert.alert('Error', 'No se pudo abrir el archivo')); };
 
   const eis = t ? EIS[t.eisenhower] : null;
   const contactPhone: string = t?.contact_phone || '';
@@ -712,18 +755,33 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 </View>
               )}
 
-              {/* Fotos */}
+              {/* Archivos (fotos, PDF, Excel…) */}
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
-                <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Fotos {atts.length > 0 && `(${atts.length})`}</Text>
-                <TouchableOpacity onPress={addPhoto} disabled={busy} style={styles.photoBtn}>
-                  <Ionicons name="camera-outline" size={16} color={ORANGE} /><Text style={styles.photoBtnTxt}>Agregar</Text>
-                </TouchableOpacity>
+                <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Archivos {atts.length > 0 && `(${atts.length})`}</Text>
+                <View style={{ flexDirection: 'row', gap: 14 }}>
+                  <TouchableOpacity onPress={addPhoto} disabled={busy} style={styles.photoBtn}>
+                    <Ionicons name="camera-outline" size={16} color={ORANGE} /><Text style={styles.photoBtnTxt}>Foto</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={addDoc} disabled={busy} style={styles.photoBtn}>
+                    <Ionicons name="document-attach-outline" size={16} color={ORANGE} /><Text style={styles.photoBtnTxt}>PDF/Excel</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              {atts.length === 0 ? <Text style={styles.metaMuted}>Sin fotos.</Text> : (
+              {atts.length === 0 ? <Text style={styles.metaMuted}>Sin archivos.</Text> : (
                 <View style={styles.photoGrid}>
                   {atts.map((a: any) => (
                     <View key={a.id} style={{ position: 'relative' }}>
-                      {a.url ? <Image source={{ uri: a.url }} style={styles.photo} /> : <View style={[styles.photo, { backgroundColor: '#EEE' }]} />}
+                      {isImgName(a.file_name) ? (
+                        <TouchableOpacity onPress={() => openAttachment(a.url)}>
+                          {a.url ? <Image source={{ uri: a.url }} style={styles.photo} /> : <View style={[styles.photo, { backgroundColor: '#EEE' }]} />}
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity style={styles.fileChip} onPress={() => openAttachment(a.url)}>
+                          <Text style={{ fontSize: 22 }}>{fileEmoji(a.file_name)}</Text>
+                          <Text style={styles.fileChipTxt} numberOfLines={2}>{a.file_name}</Text>
+                          <Text style={styles.fileChipOpen}>Abrir</Text>
+                        </TouchableOpacity>
+                      )}
                       <TouchableOpacity onPress={() => deletePhoto(a.id)} style={styles.photoDel}><Ionicons name="close" size={12} color="#fff" /></TouchableOpacity>
                     </View>
                   ))}
@@ -840,6 +898,9 @@ export const styles = StyleSheet.create({
   photoBtn: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   photoBtnTxt: { color: ORANGE, fontWeight: '700', fontSize: 13 },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  fileChip: { width: 120, height: 80, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: '#ddd', backgroundColor: '#FAFAFA', padding: 6, justifyContent: 'center' },
+  fileChipTxt: { fontSize: 11, color: '#333', marginTop: 2 },
+  fileChipOpen: { fontSize: 11, color: ORANGE, fontWeight: '700', marginTop: 2 },
   photo: { width: 80, height: 80, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: '#ddd' },
   photoDel: { position: 'absolute', top: -6, right: -6, backgroundColor: '#C0392B', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
   commentAuthor: { fontSize: 11, color: '#999' },
