@@ -1410,16 +1410,17 @@ export const reactivateTicket = async (req: Request, res: Response): Promise<any
       `UPDATE support_tickets
        SET status = 'escalated_human',
            resolved_at = NULL,
+           archived_at = NULL,
            updated_at = NOW(),
            ticket_status = 'en_progreso',
            resolution_time_minutes = NULL
-       WHERE id = $1 AND status = 'resolved'
+       WHERE id = $1 AND (status = 'resolved' OR archived_at IS NOT NULL)
        RETURNING id`,
       [id]
     );
 
     if (result.rowCount === 0) {
-      return res.status(400).json({ error: 'El ticket no está resuelto o no existe' });
+      return res.status(400).json({ error: 'El ticket no se puede reactivar (no está resuelto/archivado o no existe)' });
     }
 
     res.json({ success: true, message: 'Ticket reactivado' });
