@@ -600,6 +600,8 @@ export const listTasks = async (req: Request, res: Response): Promise<any> => {
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id)::int AS subtasks_total,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id AND s.done)::int AS subtasks_done,
              (SELECT COUNT(*) FROM task_comments c WHERE c.task_id = t.id)::int AS comments,
+             (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
+             (SELECT array_agg(u2.full_name ORDER BY u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_names,
              (t.due_at IS NOT NULL AND t.status='open' AND t.due_at < NOW()) AS overdue
         FROM tasks t
         LEFT JOIN users u ON u.id = t.assignee_id
@@ -733,8 +735,16 @@ export const createTask = async (req: Request, res: Response): Promise<any> => {
         if (bk.rows[0]?.board_key === 'flujo_operativo') await seedChecklist(task.id, FILTRO_CIERRE_CHECKLIST);
       } catch (e: any) { console.warn('[tasks] seed filtro cierre:', e?.message); }
     }
+    // Involucrados (responsables): creador + asignado + los seleccionados.
+    const extra: number[] = Array.isArray(b.involved_ids)
+      ? b.involved_ids.map((x: any) => parseInt(String(x))).filter((n: number) => Number.isFinite(n) && n > 0) : [];
+    const participants = Array.from(new Set<number>([...(uid ? [uid] : []), ...(task.assignee_id ? [Number(task.assignee_id)] : []), ...extra].filter(Boolean)));
+    for (const p of participants) {
+      await pool.query(`INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [task.id, p]);
+    }
     await logActivity(task.id, uid, 'created', { title: task.title });
     if (task.assignee_id) await notify(task.assignee_id, '📋 Nueva tarea asignada', task.title, { task_id: task.id });
+    for (const p of extra) if (Number(p) !== Number(uid) && Number(p) !== Number(task.assignee_id)) await notify(p, '📋 Te involucraron en una tarea', task.title, { task_id: task.id });
     res.json({ task });
   } catch (e: any) {
     console.error('[tasks] createTask:', e); res.status(500).json({ error: 'Error al crear tarea' });

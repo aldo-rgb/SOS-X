@@ -10,8 +10,9 @@ import axios from 'axios';
 import {
   Box, Typography, Button, IconButton, Chip, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
-  Avatar, Divider, Checkbox, Tooltip, Snackbar, Alert, LinearProgress, Tabs, Tab,
+  Avatar, Divider, Checkbox, Tooltip, Snackbar, Alert, LinearProgress, Tabs, Tab, Autocomplete,
 } from '@mui/material';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CloseIcon from '@mui/icons-material/Close';
@@ -21,7 +22,6 @@ import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
-import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import { Checkbox as MCheckbox, FormControlLabel, ListItemText, OutlinedInput, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 import GridViewIcon from '@mui/icons-material/GridView';
@@ -49,6 +49,17 @@ const XPS: Record<string, { label: string; color: string }> = {
   verde:    { label: '🟢 Vendido',   color: '#2E7D46' },
   amarillo: { label: '🟡 Ofrecido',  color: '#B07206' },
   rojo:     { label: '🔴 No ofrecido', color: '#C0392B' },
+};
+
+// Adjuntos: fotos + documentos (PDF, Excel, Word, CSV).
+const ACCEPT_FILES = 'image/*,.pdf,.xls,.xlsx,.csv,.doc,.docx,.txt,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const isImgFile = (name?: string): boolean => /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(String(name || ''));
+const fileIco = (name?: string): string => {
+  const n = String(name || '').toLowerCase();
+  if (/\.pdf$/.test(n)) return '📄';
+  if (/\.(xls|xlsx|csv)$/.test(n)) return '📊';
+  if (/\.(doc|docx)$/.test(n)) return '📝';
+  return '📎';
 };
 
 // Duración legible (min → "45m", "2h 10m", "3d 4h").
@@ -96,6 +107,7 @@ interface Task {
   assignee_name?: string; due_at?: string; eisenhower: string; xpay_seguro?: string; status: string;
   created_at?: string; completed_at?: string;
   subtasks_total: number; subtasks_done: number; comments: number; overdue: boolean;
+  participants_count?: number; participant_names?: string[];
 }
 interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; }
 
@@ -110,6 +122,7 @@ export default function TareasPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '' });
+  const [involvedIds, setInvolvedIds] = useState<number[]>([]);
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [newBoardOpen, setNewBoardOpen] = useState(false);
@@ -188,6 +201,7 @@ export default function TareasPage() {
       const res = await axios.post(`${API_URL}/tasks`, {
         board_id: board?.id, title: form.title.trim(), description: form.description || null,
         eisenhower: form.eisenhower, assignee_id: form.assignee_id || null,
+        involved_ids: involvedIds,
         due_at: form.due_at || null, column_id: form.column_id || null,
         section_id: form.section_id || activeSection || null,
       }, H());
@@ -201,7 +215,7 @@ export default function TareasPage() {
       }
       setCreateOpen(false);
       setForm({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '', section_id: '' });
-      setNewPhotos([]);
+      setInvolvedIds([]); setNewPhotos([]);
       notify('Tarea creada');
       refresh();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear', 'error'); }
@@ -268,7 +282,16 @@ export default function TareasPage() {
         </Box>
         <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: t.status === 'completed' ? 'line-through' : 'none' }}>{t.title}</Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
-          {t.assignee_name ? (
+          {(t.participant_names && t.participant_names.length > 0) ? (
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              {t.participant_names.slice(0, 4).map((name, idx) => (
+                <Tooltip key={idx} title={name}>
+                  <Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#5E35B1', ml: idx === 0 ? 0 : -0.75, border: '1.5px solid #fff' }}>{initials(name)}</Avatar>
+                </Tooltip>
+              ))}
+              {t.participant_names.length > 4 && <Typography fontSize={11} color="text.secondary" sx={{ ml: 0.5 }}>+{t.participant_names.length - 4}</Typography>}
+            </Box>
+          ) : t.assignee_name ? (
             <Tooltip title={t.assignee_name}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#D6521C' }}>{initials(t.assignee_name)}</Avatar></Tooltip>
           ) : <Chip label="Sin asignar" size="small" variant="outlined" sx={{ height: 18, fontSize: 10 }} />}
           <Box sx={{ flex: 1 }} />
@@ -470,8 +493,8 @@ export default function TareasPage() {
           )}
           <Box sx={{ display: 'flex', gap: 1.5, mt: 1.5 }}>
             <FormControl fullWidth size="small">
-              <InputLabel>Responsable</InputLabel>
-              <Select label="Responsable" value={form.assignee_id} onChange={e => setForm({ ...form, assignee_id: e.target.value })}>
+              <InputLabel>Responsable principal</InputLabel>
+              <Select label="Responsable principal" value={form.assignee_id} onChange={e => setForm({ ...form, assignee_id: e.target.value })}>
                 <MenuItem value="">Sin asignar</MenuItem>
                 {assignees.map(u => {
                   const avg = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
@@ -490,19 +513,50 @@ export default function TareasPage() {
             <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
               value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
           </Box>
-          {/* Fotos adjuntas */}
+          {/* Otros responsables (involucrados) */}
+          <Box sx={{ mt: 1.5 }}>
+            <Autocomplete
+              multiple size="small" disableCloseOnSelect
+              options={[...assignees].filter(u => u.id !== form.assignee_id).sort((a, b) => a.full_name.localeCompare(b.full_name))}
+              value={assignees.filter(u => involvedIds.includes(u.id))}
+              onChange={(_, val) => setInvolvedIds(val.map(u => u.id))}
+              getOptionLabel={(u) => u.full_name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              renderOption={(props, u) => {
+                const avg = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
+                return (
+                  <li {...props} key={u.id}>
+                    <Checkbox size="small" checked={involvedIds.includes(u.id)} sx={{ mr: 1, p: 0.5 }} />
+                    <Box>
+                      <Typography variant="body2">{u.full_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">⏱ {avg && avg > 0 ? `${fmtDur(avg * 1000)} prom.` : 'sin datos'}</Typography>
+                    </Box>
+                  </li>
+                );
+              }}
+              renderInput={(params) => <TextField {...params} label="Otros responsables (involucrados)" placeholder="Agrega a más personas…" />}
+            />
+          </Box>
+          {/* Archivos adjuntos (fotos, PDF, Excel…) */}
           <Box sx={{ mt: 2 }}>
-            <Button component="label" size="small" startIcon={<PhotoCameraIcon />} sx={{ textTransform: 'none' }}>
-              Agregar fotos
-              <input hidden type="file" accept="image/*" multiple
+            <Button component="label" size="small" startIcon={<AttachFileIcon />} sx={{ textTransform: 'none' }}>
+              Agregar archivos (fotos, PDF, Excel)
+              <input hidden type="file" accept={ACCEPT_FILES} multiple
                 onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) setNewPhotos(prev => [...prev, ...fs]); e.currentTarget.value = ''; }} />
             </Button>
             {newPhotos.length > 0 && (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
                 {newPhotos.map((f, idx) => (
                   <Box key={idx} sx={{ position: 'relative' }}>
-                    <Box component="img" src={URL.createObjectURL(f)} alt={f.name}
-                      sx={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                    {isImgFile(f.name) ? (
+                      <Box component="img" src={URL.createObjectURL(f)} alt={f.name}
+                        sx={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                    ) : (
+                      <Box sx={{ width: 120, height: 64, borderRadius: 1, border: '1px solid #ddd', p: 0.75, display: 'flex', flexDirection: 'column', justifyContent: 'center', bgcolor: '#FAFAFA' }}>
+                        <Typography sx={{ fontSize: 20, lineHeight: 1 }}>{fileIco(f.name)}</Typography>
+                        <Typography variant="caption" noWrap title={f.name}>{f.name}</Typography>
+                      </Box>
+                    )}
                     <IconButton size="small" onClick={() => setNewPhotos(prev => prev.filter((_, i) => i !== idx))}
                       sx={{ position: 'absolute', top: -8, right: -8, bgcolor: '#fff', boxShadow: 1, p: 0.2, '&:hover': { bgcolor: '#fff' } }}>
                       <CloseIcon sx={{ fontSize: 14 }} />
@@ -599,6 +653,7 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
   const [busy, setBusy] = useState(false);
   const [newSub, setNewSub] = useState('');
   const [subPhoto, setSubPhoto] = useState(false);
+  const [delAttId, setDelAttId] = useState<number | null>(null);
 
   const reload = useCallback(async () => {
     try { const r = await axios.get(`${API_URL}/tasks/${id}`, H()); setData(r.data); } catch { /* */ }
@@ -646,10 +701,10 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
     } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo subir la foto', 'error'); }
     finally { setBusy(false); }
   };
-  const deletePhoto = async (attId: number) => {
-    if (!window.confirm('¿Eliminar esta foto?')) return;
-    try { await axios.delete(`${API_URL}/tasks/attachments/${attId}`, H()); reload(); }
-    catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); }
+  const confirmDeletePhoto = async () => {
+    if (delAttId == null) return;
+    try { await axios.delete(`${API_URL}/tasks/attachments/${delAttId}`, H()); setDelAttId(null); reload(); notify('Archivo eliminado'); }
+    catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); setDelAttId(null); }
   };
   const addSub = async () => {
     if (!newSub.trim()) return;
@@ -741,23 +796,31 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
 
             <Divider sx={{ my: 2 }} />
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-              <Typography fontWeight={800} fontSize={14}>Fotos {(data.attachments || []).length > 0 && `(${(data.attachments || []).length})`}</Typography>
-              <Button component="label" size="small" startIcon={<PhotoCameraIcon />} disabled={busy} sx={{ textTransform: 'none' }}>
-                Agregar foto
-                <input hidden type="file" accept="image/*" multiple onChange={e => uploadPhotos(e.target.files)} />
+              <Typography fontWeight={800} fontSize={14}>Archivos {(data.attachments || []).length > 0 && `(${(data.attachments || []).length})`}</Typography>
+              <Button component="label" size="small" startIcon={<AttachFileIcon />} disabled={busy} sx={{ textTransform: 'none' }}>
+                Agregar archivo
+                <input hidden type="file" accept={ACCEPT_FILES} multiple onChange={e => uploadPhotos(e.target.files)} />
               </Button>
             </Box>
             {(data.attachments || []).length === 0 ? (
-              <Typography variant="caption" color="text.secondary">Sin fotos.</Typography>
+              <Typography variant="caption" color="text.secondary">Sin archivos.</Typography>
             ) : (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
                 {(data.attachments || []).map((a: any) => (
                   <Box key={a.id} sx={{ position: 'relative' }}>
-                    <a href={a.url || '#'} target="_blank" rel="noreferrer">
-                      <Box component="img" src={a.url} alt={a.file_name || 'foto'}
-                        sx={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                    <a href={a.url || '#'} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                      {isImgFile(a.file_name) ? (
+                        <Box component="img" src={a.url} alt={a.file_name || 'foto'}
+                          sx={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                      ) : (
+                        <Box sx={{ width: 130, height: 80, borderRadius: 1, border: '1px solid #ddd', p: 0.75, display: 'flex', flexDirection: 'column', justifyContent: 'center', bgcolor: '#FAFAFA' }}>
+                          <Typography sx={{ fontSize: 24, lineHeight: 1 }}>{fileIco(a.file_name)}</Typography>
+                          <Typography variant="caption" color="text.primary" noWrap title={a.file_name}>{a.file_name}</Typography>
+                          <Typography variant="caption" color="primary">Abrir</Typography>
+                        </Box>
+                      )}
                     </a>
-                    <IconButton size="small" onClick={() => deletePhoto(a.id)}
+                    <IconButton size="small" onClick={() => setDelAttId(a.id)}
                       sx={{ position: 'absolute', top: -8, right: -8, bgcolor: '#fff', boxShadow: 1, p: 0.2, '&:hover': { bgcolor: '#fff' } }}>
                       <CloseIcon sx={{ fontSize: 14 }} />
                     </IconButton>
@@ -806,6 +869,22 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
             )}
             <Button onClick={onClose}>Cerrar</Button>
           </DialogActions>
+
+          {/* Confirmar eliminar archivo (con diseño, no window.confirm) */}
+          <Dialog open={delAttId != null} onClose={() => setDelAttId(null)} maxWidth="xs" fullWidth>
+            <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <AttachFileIcon sx={{ color: '#C0392B' }} /> Eliminar archivo
+            </DialogTitle>
+            <DialogContent>
+              <Typography variant="body2" color="text.secondary">
+                ¿Seguro que quieres eliminar este archivo? Esta acción no se puede deshacer.
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setDelAttId(null)}>Cancelar</Button>
+              <Button variant="contained" color="error" onClick={confirmDeletePhoto}>Eliminar</Button>
+            </DialogActions>
+          </Dialog>
         </>
       )}
     </Dialog>

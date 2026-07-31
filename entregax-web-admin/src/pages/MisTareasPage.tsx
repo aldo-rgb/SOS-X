@@ -536,6 +536,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [edit, setEdit] = useState<any>({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
   const [editInvolved, setEditInvolved] = useState<number[]>([]);
   const [users, setUsers] = useState<UserOpt[]>([]);
+  const [delAttId, setDelAttId] = useState<number | null>(null); // confirmar borrar archivo
 
   const reload = useCallback(async () => {
     try { const r = await axios.get(`${API_URL}/tasks/${id}`, H()); setData(r.data); } catch { /* */ }
@@ -578,10 +579,10 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
       notify('Archivo(s) agregado(s)'); reload();
     } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo subir el archivo', 'error'); }
   };
-  const deletePhoto = async (attId: number) => {
-    if (!window.confirm('¿Eliminar este archivo?')) return;
-    try { await axios.delete(`${API_URL}/tasks/attachments/${attId}`, H()); reload(); }
-    catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); }
+  const confirmDeletePhoto = async () => {
+    if (delAttId == null) return;
+    try { await axios.delete(`${API_URL}/tasks/attachments/${delAttId}`, H()); setDelAttId(null); reload(); notify('Archivo eliminado'); }
+    catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); setDelAttId(null); }
   };
   const fmtDate = (iso?: string) => { try { return iso ? new Date(iso).toLocaleString('es-MX') : '—'; } catch { return '—'; } };
   // ISO → 'YYYY-MM-DDTHH:mm' para el input datetime-local (hora local).
@@ -768,7 +769,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                         </Box>
                       )}
                     </a>
-                    <IconButton size="small" onClick={() => deletePhoto(a.id)} sx={{ position: 'absolute', top: -8, right: -8, bgcolor: '#fff', boxShadow: 1, p: 0.2, '&:hover': { bgcolor: '#fff' } }}>
+                    <IconButton size="small" onClick={() => setDelAttId(a.id)} sx={{ position: 'absolute', top: -8, right: -8, bgcolor: '#fff', boxShadow: 1, p: 0.2, '&:hover': { bgcolor: '#fff' } }}>
                       <CloseIcon sx={{ fontSize: 14 }} />
                     </IconButton>
                   </Box>
@@ -837,6 +838,22 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               <Button variant="contained" onClick={() => start()} disabled={busy} sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
                 Iniciar
               </Button>
+            </DialogActions>
+          </Dialog>
+
+          {/* Confirmar eliminar archivo (con diseño, no window.confirm) */}
+          <Dialog open={delAttId != null} onClose={() => setDelAttId(null)} maxWidth="xs" fullWidth>
+            <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <AttachFileIcon sx={{ color: '#C0392B' }} /> Eliminar archivo
+            </DialogTitle>
+            <DialogContent>
+              <Typography variant="body2" color="text.secondary">
+                ¿Seguro que quieres eliminar este archivo? Esta acción no se puede deshacer.
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setDelAttId(null)}>Cancelar</Button>
+              <Button variant="contained" color="error" onClick={confirmDeletePhoto}>Eliminar</Button>
             </DialogActions>
           </Dialog>
         </>
