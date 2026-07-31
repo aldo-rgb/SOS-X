@@ -901,6 +901,34 @@ export const startTask = async (req: Request, res: Response): Promise<any> => {
       return res.status(403).json({ error: 'Solo un involucrado o gerencia puede iniciar la tarea' });
     }
     if (task.status === 'completed') return res.status(400).json({ error: 'La tarea ya está completada' });
+
+    // Regla: el usuario solo puede tener UNA tarea en proceso a la vez. Una tarea
+    // está "en proceso" si está abierta, iniciada y en una columna intermedia
+    // (no la primera ni la terminal). Si ya hay una y no se confirma (force), se
+    // pide confirmación; con force, la anterior regresa a Pendiente.
+    const inProc = await pool.query(
+      `SELECT t.id, t.title FROM tasks t
+         JOIN task_columns c ON c.id = t.column_id
+        WHERE t.id <> $1 AND t.status = 'open' AND t.started_at IS NOT NULL AND t.completed_at IS NULL
+          AND c.is_done = FALSE
+          AND c.sort_order > (SELECT MIN(sort_order) FROM task_columns WHERE board_id = t.board_id)
+          AND (t.assignee_id = $2 OR EXISTS (SELECT 1 FROM task_participants p WHERE p.task_id = t.id AND p.user_id = $2))`,
+      [id, uid]);
+    if (inProc.rows.length > 0) {
+      if (req.body?.force !== true) {
+        return res.status(409).json({ needs_confirm: true, current: { id: inProc.rows[0].id, title: inProc.rows[0].title } });
+      }
+      // Regresa las que estén en proceso a Pendiente (primera columna, reinicia tiempos).
+      for (const prev of inProc.rows) {
+        const firstCol = (await pool.query(
+          `SELECT id FROM task_columns WHERE board_id=(SELECT board_id FROM tasks WHERE id=$1) ORDER BY sort_order LIMIT 1`, [prev.id])).rows[0]?.id || null;
+        await pool.query(
+          `UPDATE tasks SET column_id = COALESCE($2, column_id), started_at = NULL, commitment_date = NULL, updated_at = NOW() WHERE id = $1`,
+          [prev.id, firstCol]);
+        await logActivity(prev.id, uid, 'reverted_to_pending', { reason: 'otra_en_proceso', new_task_id: id });
+      }
+    }
+
     // Fecha compromiso: la enviada, o la fecha deseada (due_at) por defecto.
     const commitment = req.body?.commitment_date || task.due_at || null;
     // Columna "En proceso": la que no es primera ni terminal (is_done). Fallback: 2a.

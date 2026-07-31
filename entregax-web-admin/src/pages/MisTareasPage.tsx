@@ -581,12 +581,23 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     } catch { return ''; }
   };
   const openStart = () => { setCommitDate(toLocalInput(t?.commitment_date || t?.due_at)); setStartOpen(true); };
-  const start = async () => {
+  const start = async (force = false) => {
     setBusy(true);
     try {
-      await axios.post(`${API_URL}/tasks/${id}/start`, { commitment_date: commitDate || null }, H());
+      await axios.post(`${API_URL}/tasks/${id}/start`, { commitment_date: commitDate || null, force }, H());
       setStartOpen(false); notify('Tarea en proceso'); reload(); onChanged();
-    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo iniciar', 'error'); }
+    } catch (e: any) {
+      // Regla de 1 en proceso: el backend pide confirmar dejar la otra pendiente.
+      if (e?.response?.status === 409 && e?.response?.data?.needs_confirm) {
+        const cur = e.response.data.current;
+        if (window.confirm(`Ya tienes la tarea "${cur?.title || ''}" en proceso. ¿Seguro que quieres dejarla pendiente para iniciar esta?`)) {
+          setBusy(false);
+          return start(true);
+        }
+      } else {
+        notify(e?.response?.data?.error || 'No se pudo iniciar', 'error');
+      }
+    }
     finally { setBusy(false); }
   };
   const durTxt = (a?: string, b?: string) => {
@@ -812,7 +823,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setStartOpen(false)}>Cancelar</Button>
-              <Button variant="contained" onClick={start} disabled={busy} sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
+              <Button variant="contained" onClick={() => start()} disabled={busy} sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
                 Iniciar
               </Button>
             </DialogActions>
