@@ -827,7 +827,7 @@ export const requireMinLevel = (minRole: string) => {
             return;
         }
 
-        res.status(403).json({ 
+        res.status(403).json({
             error: `Nivel de acceso insuficiente (requiere: ${minRole} o superior)`,
             message: `Se requiere nivel ${minRole} o superior`,
             requiredMinRole: minRole,
@@ -835,6 +835,20 @@ export const requireMinLevel = (minRole: string) => {
             tuNivel: userLevel,
             nivelRequerido: requiredLevel,
         });
+    };
+};
+
+// Igual que requireMinLevel, pero además permite el paso a roles específicos
+// aunque su nivel sea menor (p.ej. el Contador en el Dashboard de Cobranza).
+export const requireMinLevelOrRoles = (minRole: string, ...allowedRoles: string[]) => {
+    return (req: AuthRequest, res: Response, next: NextFunction): void => {
+        if (!req.user) { res.status(401).json({ error: 'No autenticado' }); return; }
+        const normalizedUserRole = normalizeRoleForHierarchy(req.user.role);
+        const userLevel = ROLE_HIERARCHY[normalizedUserRole] || ROLE_HIERARCHY[req.user.role] || 0;
+        const requiredLevel = ROLE_HIERARCHY[minRole] || 0;
+        const allowed = allowedRoles.includes(normalizedUserRole) || allowedRoles.includes(req.user.role);
+        if (userLevel >= requiredLevel || allowed) { next(); return; }
+        res.status(403).json({ error: `Nivel de acceso insuficiente (requiere: ${minRole} o superior)`, requiredMinRole: minRole, tuRol: normalizedUserRole });
     };
 };
 

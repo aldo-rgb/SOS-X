@@ -53,6 +53,7 @@ import {
   authenticateToken,
   requireRole,
   requireMinLevel,
+  requireMinLevelOrRoles,
   getDashboardSummary,
   getBranchManagerDashboard,
   getCounterStaffDashboard,
@@ -8414,7 +8415,7 @@ app.get('/api/admin/payment-invoices', authenticateToken, requireMinLevel(ROLES.
 // DASHBOARD DE COBRANZA Y FLUJO DE EFECTIVO - MULTI-EMPRESA
 // Unifica ingresos de Caja Chica + SPEI (Openpay) por empresa
 // ============================================
-app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: Request, res: Response): Promise<any> => {
+app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req: Request, res: Response): Promise<any> => {
   try {
     const { date_from, date_to, empresa_id, service_type } = req.query;
     // Búsqueda de la lista de transacciones (box / nombre / referencia). Se aplica
@@ -8889,7 +8890,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
 // Para cuando el cliente llega con su referencia
 // Permitir acceso a mostrador (counter_staff) para Caja PO Box
 // ============================================
-app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: Request, res: Response): Promise<any> => {
+app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), async (req: Request, res: Response): Promise<any> => {
   try {
     const { ref } = req.query;
     
@@ -10069,7 +10070,7 @@ app.delete('/api/admin/finance/pending-payment/:referencia', authenticateToken, 
 // LISTAR PAGOS PENDIENTES POR CONFIRMAR
 // Incluye: openpay_webhook_logs + pobox_payments
 // ============================================
-app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: Request, res: Response): Promise<any> => {
+app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLevelOrRoles(ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), async (req: Request, res: Response): Promise<any> => {
   try {
     const { service_type, branch_id, limit = 50 } = req.query;
 
@@ -10271,7 +10272,7 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
 // ============================================
 // OBTENER DETALLES DE GUÍAS POR REFERENCIA DE PAGO
 // ============================================
-app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: Request, res: Response): Promise<any> => {
+app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, requireMinLevelOrRoles(ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), async (req: Request, res: Response): Promise<any> => {
   try {
     const { referencia } = req.params;
 
@@ -10399,7 +10400,7 @@ app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, req
 // Busca en bank_statement_entries los abonos cercanos a la fecha del pago,
 // marcando los que coinciden por número de cliente (box_id), monto o referencia.
 // ============================================
-app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: Request, res: Response): Promise<any> => {
+app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken, requireMinLevelOrRoles(ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), async (req: Request, res: Response): Promise<any> => {
   try {
     const { referencia } = req.params;
 
@@ -10487,7 +10488,7 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
 // Mismo universo que el KPI de cartera vencida del dashboard:
 // guías con saldo pendiente > 0. Devuelve resumen por cliente y lista de guías.
 // ============================================
-app.get('/api/admin/finance/cartera-pendiente', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: Request, res: Response): Promise<any> => {
+app.get('/api/admin/finance/cartera-pendiente', authenticateToken, requireMinLevelOrRoles(ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), async (req: Request, res: Response): Promise<any> => {
   try {
     const result = await pool.query(`
       SELECT
@@ -11181,7 +11182,7 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
 });
 
 // Exportar datos a CSV para contabilidad
-app.get('/api/admin/finance/export', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: Request, res: Response): Promise<any> => {
+app.get('/api/admin/finance/export', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req: Request, res: Response): Promise<any> => {
   try {
     const { date_from, date_to, format = 'csv' } = req.query;
     
