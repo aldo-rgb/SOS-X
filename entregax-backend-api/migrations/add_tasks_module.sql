@@ -63,6 +63,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   eisenhower        TEXT NOT NULL DEFAULT 'estrella', -- 'fuego' | 'estrella' | 'delegar'
   xpay_seguro       TEXT,                           -- 'verde' | 'amarillo' | 'rojo' | null
   status            TEXT NOT NULL DEFAULT 'open',   -- 'open' | 'completed' | 'cancelled'
+  started_at        TIMESTAMPTZ,                    -- inicio real (Poner en proceso)
+  commitment_date   TIMESTAMPTZ,                    -- fecha compromiso de término (KPI)
   completed_at      TIMESTAMPTZ,
   forced_close_by   INTEGER REFERENCES users(id),
   forced_reason     TEXT,

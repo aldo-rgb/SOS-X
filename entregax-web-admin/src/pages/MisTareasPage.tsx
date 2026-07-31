@@ -16,6 +16,7 @@ import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import SendIcon from '@mui/icons-material/Send';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import ViewListIcon from '@mui/icons-material/ViewList';
@@ -57,7 +58,7 @@ const taskTime = (t: any) => {
 };
 const ACT_LABEL: Record<string, string> = {
   created: '📌 Creó la tarea', assigned: '👤 Reasignó la tarea', moved: '➡️ Movió de columna',
-  completed: '✅ Completó la tarea', forced_close: '🔓 Forzó el cierre', reopened: '↩️ Reabrió la tarea',
+  started: '▶️ Puso en proceso', completed: '✅ Completó la tarea', forced_close: '🔓 Forzó el cierre', reopened: '↩️ Reabrió la tarea',
   comment: '💬 Comentó', subtask_done: '☑️ Palomeó una subtarea', subtask_undone: '⬜ Despalomeó una subtarea',
   attachment_added: '📷 Agregó una foto',
 };
@@ -332,6 +333,8 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [comment, setComment] = useState('');
   const [newSub, setNewSub] = useState('');
   const [busy, setBusy] = useState(false);
+  const [startOpen, setStartOpen] = useState(false);
+  const [commitDate, setCommitDate] = useState('');
 
   const reload = useCallback(async () => {
     try { const r = await axios.get(`${API_URL}/tasks/${id}`, H()); setData(r.data); } catch { /* */ }
@@ -380,6 +383,26 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); }
   };
   const fmtDate = (iso?: string) => { try { return iso ? new Date(iso).toLocaleString('es-MX') : '—'; } catch { return '—'; } };
+  // ISO → 'YYYY-MM-DDTHH:mm' para el input datetime-local (hora local).
+  const toLocalInput = (iso?: string) => {
+    if (!iso) return '';
+    try { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    } catch { return ''; }
+  };
+  const openStart = () => { setCommitDate(toLocalInput(t?.commitment_date || t?.due_at)); setStartOpen(true); };
+  const start = async () => {
+    setBusy(true);
+    try {
+      await axios.post(`${API_URL}/tasks/${id}/start`, { commitment_date: commitDate || null }, H());
+      setStartOpen(false); notify('Tarea en proceso'); reload(); onChanged();
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo iniciar', 'error'); }
+    finally { setBusy(false); }
+  };
+  const durTxt = (a?: string, b?: string) => {
+    if (!a || !b) return null;
+    return fmtDur(new Date(b).getTime() - new Date(a).getTime());
+  };
 
   return (
     <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
@@ -407,10 +430,28 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 ))}
               </Box>
             )}
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2, p: 1.25, bgcolor: '#F7F4EF', borderRadius: 1.5, border: '1px solid #ECE4D8' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mb: 2, p: 1.25, bgcolor: '#F7F4EF', borderRadius: 1.5, border: '1px solid #ECE4D8' }}>
               <Typography variant="body2"><b>Creada:</b> {fmtDate(t.created_at)}</Typography>
+              {t.started_at && <Typography variant="body2"><b>En proceso desde:</b> {fmtDate(t.started_at)}</Typography>}
+              {t.commitment_date && <Typography variant="body2"><b>Fecha compromiso:</b> {fmtDate(t.commitment_date)}</Typography>}
               {t.completed_at && <Typography variant="body2"><b>Terminada:</b> {fmtDate(t.completed_at)}</Typography>}
-              {tt && <Chip size="small" icon={<AccessTimeIcon />} color={tt.done ? 'success' : 'default'} label={tt.done ? `Resuelta en ${fmtDur(tt.ms)}` : `${fmtDur(tt.ms)} transcurrido`} sx={{ fontWeight: 700 }} />}
+              {/* KPIs de tiempo */}
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 0.5 }}>
+                {t.started_at && durTxt(t.created_at, t.started_at) && (
+                  <Chip size="small" label={`⏳ Tardó ${durTxt(t.created_at, t.started_at)} en iniciar`} sx={{ fontWeight: 600 }} />
+                )}
+                {t.started_at && (
+                  <Chip size="small" color={t.completed_at ? 'success' : 'warning'}
+                    label={`⚙️ En proceso ${durTxt(t.started_at, t.completed_at || new Date().toISOString())}`} sx={{ fontWeight: 600 }} />
+                )}
+                {tt && <Chip size="small" icon={<AccessTimeIcon />} color={tt.done ? 'success' : 'default'}
+                  label={tt.done ? `Total: ${fmtDur(tt.ms)}` : `${fmtDur(tt.ms)} transcurrido`} sx={{ fontWeight: 700 }} />}
+                {t.completed_at && t.commitment_date && (
+                  new Date(t.completed_at).getTime() <= new Date(t.commitment_date).getTime()
+                    ? <Chip size="small" color="success" label="✅ A tiempo" sx={{ fontWeight: 700 }} />
+                    : <Chip size="small" color="error" label="⚠️ Fuera de compromiso" sx={{ fontWeight: 700 }} />
+                )}
+              </Box>
             </Box>
 
             <Typography fontWeight={800} fontSize={14} sx={{ mb: 0.5 }}>Checklist {subs.length > 0 && `(${subs.length - pending}/${subs.length})`}</Typography>
@@ -487,13 +528,37 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             )}
           </DialogContent>
           <DialogActions>
-            {t.status !== 'completed' && (
+            {t.status !== 'completed' && !t.started_at && (
+              <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={openStart} disabled={busy}
+                sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
+                Poner en proceso
+              </Button>
+            )}
+            {t.status !== 'completed' && t.started_at && (
               <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={complete} disabled={busy || pending > 0}>
                 {pending > 0 ? `Completa el checklist (${pending})` : 'Completar'}
               </Button>
             )}
             <Button onClick={onClose}>Cerrar</Button>
           </DialogActions>
+
+          {/* Poner en proceso: fecha compromiso (default = fecha deseada) */}
+          <Dialog open={startOpen} onClose={() => setStartOpen(false)} maxWidth="xs" fullWidth>
+            <DialogTitle sx={{ fontWeight: 800 }}>Poner en proceso</DialogTitle>
+            <DialogContent>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Indica la <b>fecha compromiso</b> para terminar la tarea. Viene precargada con la fecha deseada; puedes cambiarla.
+              </Typography>
+              <TextField fullWidth size="small" type="datetime-local" label="Fecha compromiso" InputLabelProps={{ shrink: true }}
+                value={commitDate} onChange={e => setCommitDate(e.target.value)} />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setStartOpen(false)}>Cancelar</Button>
+              <Button variant="contained" onClick={start} disabled={busy} sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
+                Iniciar
+              </Button>
+            </DialogActions>
+          </Dialog>
         </>
       )}
     </Dialog>

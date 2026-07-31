@@ -688,6 +688,44 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
   }
 };
 
+// ─── TAREAS: poner EN PROCESO (marca inicio + fecha compromiso) ──
+// Guarda started_at (inicio real) y commitment_date (compromiso de término,
+// por defecto la fecha deseada). Mueve a la columna "En proceso" si existe.
+// Base para KPIs: tiempo para iniciar, tiempo en proceso, a tiempo vs tarde.
+export const startTask = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const uid = authUserId(req);
+    const id = parseInt(String(req.params.id));
+    const cur = await pool.query(`SELECT * FROM tasks WHERE id = $1`, [id]);
+    if (cur.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
+    const task = cur.rows[0];
+    const mgr = await canManageBoard(req, task.board_id);
+    const isParticipant = (await pool.query(`SELECT 1 FROM task_participants WHERE task_id=$1 AND user_id=$2`, [id, uid])).rows.length > 0;
+    if (!mgr && Number(task.assignee_id) !== Number(uid) && !isParticipant) {
+      return res.status(403).json({ error: 'Solo un involucrado o gerencia puede iniciar la tarea' });
+    }
+    if (task.status === 'completed') return res.status(400).json({ error: 'La tarea ya está completada' });
+    // Fecha compromiso: la enviada, o la fecha deseada (due_at) por defecto.
+    const commitment = req.body?.commitment_date || task.due_at || null;
+    // Columna "En proceso": la que no es primera ni terminal (is_done). Fallback: 2a.
+    const proc = (await pool.query(
+      `SELECT id FROM task_columns WHERE board_id=$1 AND is_done=FALSE
+        ORDER BY sort_order OFFSET 1 LIMIT 1`, [task.board_id])).rows[0]?.id || null;
+    const colSet = proc ? `column_id=${Number(proc)},` : '';
+    await pool.query(
+      `UPDATE tasks SET ${colSet}
+              started_at = COALESCE(started_at, NOW()),
+              commitment_date = $2,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [id, commitment]);
+    await logActivity(id, uid, 'started', { commitment_date: commitment });
+    res.json({ success: true });
+  } catch (e: any) {
+    console.error('[tasks] startTask:', e); res.status(500).json({ error: 'Error al poner en proceso' });
+  }
+};
+
 export const deleteTask = async (req: Request, res: Response): Promise<any> => {
   try {
     const id = parseInt(String(req.params.id));

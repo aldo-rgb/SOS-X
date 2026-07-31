@@ -13389,6 +13389,7 @@ import {
   listBoards as tasksListBoards,
   createPersonalTask as tasksCreatePersonal,
   getAssignableUsers as tasksAssignableUsers,
+  startTask as tasksStart,
   createBoard as tasksCreateBoard,
   deleteBoard as tasksDeleteBoard,
   getBoardAssignees as tasksGetBoardAssignees,
@@ -13451,6 +13452,7 @@ app.post('/api/tasks', authenticateToken, tasksCreate);
 app.get('/api/tasks/:id', authenticateToken, tasksGet);
 app.put('/api/tasks/:id', authenticateToken, tasksUpdate);
 app.post('/api/tasks/:id/complete', authenticateToken, tasksComplete);
+app.post('/api/tasks/:id/start', authenticateToken, tasksStart);
 app.delete('/api/tasks/:id', authenticateToken, tasksDelete);
 app.post('/api/tasks/:id/subtasks', authenticateToken, tasksAddSubtask);
 app.put('/api/tasks/subtasks/:subId', authenticateToken, tasksToggleSubtask);
