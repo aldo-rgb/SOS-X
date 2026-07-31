@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import axios from 'axios';
 import {
   Box, Typography, Button, Chip, Avatar, LinearProgress, Dialog, DialogTitle, DialogContent,
-  DialogActions, TextField, FormControl, InputLabel, Select, MenuItem, IconButton, Tooltip,
+  DialogActions, TextField, FormControl, InputLabel, Select, MenuItem, Tooltip,
   Snackbar, Alert, CircularProgress, Checkbox, FormControlLabel, Divider,
 } from '@mui/material';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
@@ -174,9 +174,13 @@ export default function MetasTab() {
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           {d?.task_id && <Tooltip title="Tiene tarea asignada"><AssignmentIcon sx={{ color: '#5E35B1', fontSize: 18 }} /></Tooltip>}
-          <Tooltip title={d ? 'Editar declaración' : 'Capturar declaración'}>
-            <IconButton size="small" onClick={() => openDecl(a)} sx={{ color: '#D6521C' }}>{d ? <EditIcon fontSize="small" /> : <AddIcon fontSize="small" />}</IconButton>
-          </Tooltip>
+          <Button size="small" variant={d ? 'outlined' : 'contained'} startIcon={d ? <EditIcon /> : <AddIcon />}
+            onClick={() => openDecl(a)}
+            sx={{ textTransform: 'none', whiteSpace: 'nowrap', ...(d
+              ? { color: '#D6521C', borderColor: '#D6521C' }
+              : { bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }) }}>
+            {d ? 'Editar' : 'Declarar'}
+          </Button>
         </Box>
       </Box>
     );
