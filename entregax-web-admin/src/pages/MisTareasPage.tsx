@@ -533,6 +533,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [cats, setCats] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [delAttId, setDelAttId] = useState<number | null>(null); // confirmar borrar archivo
+  const [procConfirm, setProcConfirm] = useState<{ title: string } | null>(null); // confirmar dejar otra pendiente
 
   const reload = useCallback(async () => {
     try { const r = await axios.get(`${API_URL}/tasks/${id}`, H()); setData(r.data); } catch { /* */ }
@@ -597,11 +598,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     } catch (e: any) {
       // Regla de 1 en proceso: el backend pide confirmar dejar la otra pendiente.
       if (e?.response?.status === 409 && e?.response?.data?.needs_confirm) {
-        const cur = e.response.data.current;
-        if (window.confirm(`Ya tienes la tarea "${cur?.title || ''}" en proceso. ¿Seguro que quieres dejarla pendiente para iniciar esta?`)) {
-          setBusy(false);
-          return start(true);
-        }
+        setProcConfirm({ title: e.response.data.current?.title || '' });
       } else {
         notify(e?.response?.data?.error || 'No se pudo iniciar', 'error');
       }
@@ -843,6 +840,27 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               <Button onClick={() => setStartOpen(false)}>Cancelar</Button>
               <Button variant="contained" onClick={() => start()} disabled={busy} sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
                 Iniciar
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          {/* Confirmar dejar otra tarea pendiente para iniciar esta (regla 1 en proceso) */}
+          <Dialog open={procConfirm != null} onClose={() => setProcConfirm(null)} maxWidth="xs" fullWidth>
+            <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <PlayArrowIcon sx={{ color: '#B07206' }} /> Ya tienes una tarea en proceso
+            </DialogTitle>
+            <DialogContent>
+              <Typography variant="body2" color="text.secondary">
+                Solo puedes tener <b>una tarea en proceso</b> a la vez. Ya tienes «<b>{procConfirm?.title}</b>» en proceso.
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                ¿La dejas <b>pendiente</b> para iniciar esta?
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setProcConfirm(null)}>Cancelar</Button>
+              <Button variant="contained" onClick={() => { setProcConfirm(null); start(true); }} sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
+                Sí, iniciar esta
               </Button>
             </DialogActions>
           </Dialog>
