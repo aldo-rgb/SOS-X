@@ -45,6 +45,7 @@ import ArchiveIcon from '@mui/icons-material/Archive';
 import CloseIcon from '@mui/icons-material/Close';
 import PeopleIcon from '@mui/icons-material/People';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
+import ChecklistIcon from '@mui/icons-material/Checklist';
 // StoreIcon, AssessmentIcon, InventoryIcon removidos - secciones eliminadas del sidebar
 import SettingsIcon from '@mui/icons-material/Settings';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -59,6 +60,7 @@ import AssetDetailPage from './pages/AssetDetailPage';
 import PublicTrackingPage from './pages/PublicTrackingPage';
 import ClientsPage from './pages/ClientsPage';
 import TareasPage from './pages/TareasPage';
+import MisTareasPage from './pages/MisTareasPage';
 import CajitoFab from './components/CajitoFab';
 // QuotesPage removido - ahora se accede desde PanelsHubPage > Nacional México
 // ConsolidationsPage removido - ahora se accede desde PanelsHubPage > PO Box USA > Salida
@@ -217,6 +219,7 @@ const menuItemsConfig: Array<{
   { key: 'dashboard', icon: <DashboardIcon /> },
   { key: 'salesReport', icon: <BarChartIcon /> }, // CRM - Reportes de Ventas
   { key: 'clients', icon: <PeopleIcon /> },
+  { key: 'myTasks', icon: <ChecklistIcon /> }, // Mis Tareas - todos los empleados
   { key: 'tasks', icon: <AssignmentTurnedInIcon /> }, // Tareas - super_admin/admin/director
   { 
     key: 'panels', 
@@ -695,7 +698,10 @@ function App() {
   const menuItems = menuItemsConfig
     .filter(item => {
       const role = currentUser?.role || '';
-      
+
+      // Mis Tareas: visible para TODOS los empleados (no clientes).
+      if (item.key === 'myTasks') return role !== '' && role !== 'client';
+
       // super_admin ve todo
       if (role === 'super_admin') {
         return true;
@@ -1839,6 +1845,7 @@ function App() {
         }
       case 'salesReport': return <SalesReportPage />; // CRM - Reportes de Ventas
       case 'clients': return <ClientsPage users={users} loading={loading} onRefresh={fetchUsers} currentUser={currentUser} />;
+      case 'myTasks': return <MisTareasPage />; // Mis Tareas (todos los empleados)
       case 'tasks': return <TareasPage />; // Módulo Tareas (Fase 1)
       case 'panels':
         // Si panels está seleccionado pero no hay submenú, expandir automáticamente

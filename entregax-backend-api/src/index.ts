@@ -13387,6 +13387,8 @@ import {
 } from './brandAssetsController';
 import {
   listBoards as tasksListBoards,
+  createPersonalTask as tasksCreatePersonal,
+  getAssignableUsers as tasksAssignableUsers,
   createBoard as tasksCreateBoard,
   deleteBoard as tasksDeleteBoard,
   getBoardAssignees as tasksGetBoardAssignees,
@@ -13442,6 +13444,8 @@ app.delete('/api/tasks/sections/:id', authenticateToken, tasksDeleteSection);
 app.post('/api/tasks/:id/attachments', authenticateToken, advisorProofUpload.single('photo'), tasksAddAttachment);
 app.delete('/api/tasks/attachments/:attId', authenticateToken, tasksDeleteAttachment);
 app.get('/api/tasks/mine', authenticateToken, tasksMine);
+app.post('/api/tasks/personal', authenticateToken, tasksCreatePersonal);
+app.get('/api/tasks/assignable-users', authenticateToken, tasksAssignableUsers);
 app.get('/api/tasks', authenticateToken, tasksList);
 app.post('/api/tasks', authenticateToken, tasksCreate);
 app.get('/api/tasks/:id', authenticateToken, tasksGet);

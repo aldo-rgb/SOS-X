@@ -129,6 +129,33 @@ async function canManageBoard(req: Request, boardId: number): Promise<boolean> {
   return r.rows.length > 0;
 }
 
+// ¿Puede editar/gestionar ESTA tarea? Gerencia/líder siempre; en el tablero
+// "personales" (Mis Tareas) también el creador o el asignado.
+async function canEditTask(req: Request, task: { board_id: number; created_by?: number; assignee_id?: number }): Promise<boolean> {
+  if (await canManageBoard(req, task.board_id)) return true;
+  const uid = authUserId(req);
+  if (!uid) return false;
+  const bk = await pool.query(`SELECT board_key FROM task_boards WHERE id = $1`, [task.board_id]);
+  if (bk.rows[0]?.board_key === 'personales' &&
+      (Number(task.created_by) === Number(uid) || Number(task.assignee_id) === Number(uid))) return true;
+  return false;
+}
+
+// Devuelve (creando si falta) el tablero "Tareas Personales".
+async function getOrCreatePersonalBoard(): Promise<number | null> {
+  try {
+    const ex = await pool.query(`SELECT id FROM task_boards WHERE board_key='personales' AND is_active=TRUE LIMIT 1`);
+    if (ex.rows[0]) return ex.rows[0].id;
+    const ins = await pool.query(`INSERT INTO task_boards (board_key, name, board_type) VALUES ('personales','Tareas Personales','personal') RETURNING id`);
+    const bid = ins.rows[0]?.id;
+    if (bid) {
+      const cols = [['pendiente','📌 Pendiente',1,'#1D6FB8',false],['en_proceso','⚙️ En proceso',2,'#B07206',false],['hecho','✅ Hecho',3,'#2E7D46',true]];
+      for (const c of cols) await pool.query(`INSERT INTO task_columns (board_id, col_key, name, sort_order, color, is_done) VALUES ($1,$2,$3,$4,$5,$6)`, [bid, c[0], c[1], c[2], c[3], c[4]]);
+    }
+    return bid || null;
+  } catch (e: any) { console.warn('[tasks] getOrCreatePersonalBoard:', e?.message); return null; }
+}
+
 // ─── TABLEROS ───────────────────────────────────────────────
 export const listBoards = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -223,6 +250,59 @@ export const deleteSection = async (req: Request, res: Response): Promise<any> =
     res.json({ success: true });
   } catch (e: any) {
     console.error('[tasks] deleteSection:', e); res.status(500).json({ error: 'Error al eliminar sub-sección' });
+  }
+};
+
+// ─── MIS TAREAS: crear tarea personal (cualquier empleado) ──
+// Cualquier usuario NO cliente puede crear una tarea en el tablero
+// "Tareas Personales" y asignarla a un usuario específico (o a sí mismo).
+export const createPersonalTask = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const uid = authUserId(req);
+    if (!uid) return res.status(401).json({ error: 'No autenticado' });
+    if (authRole(req) === 'client') return res.status(403).json({ error: 'No disponible' });
+    const b = req.body || {};
+    if (!String(b.title || '').trim()) return res.status(400).json({ error: 'El título es obligatorio' });
+    const boardId = await getOrCreatePersonalBoard();
+    if (!boardId) return res.status(500).json({ error: 'Tablero de tareas personales no disponible' });
+    const col = await pool.query(`SELECT id FROM task_columns WHERE board_id = $1 ORDER BY sort_order LIMIT 1`, [boardId]);
+    const columnId = col.rows[0]?.id || null;
+    const eisenhower = EISENHOWER.includes(b.eisenhower) ? b.eisenhower : 'estrella';
+    const assigneeId = b.assignee_id ? parseInt(String(b.assignee_id)) : uid; // por defecto: para mí
+    const r = await pool.query(
+      `INSERT INTO tasks (board_id, column_id, title, description, assignee_id, due_at, eisenhower, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [boardId, columnId, String(b.title).trim(), b.description || null, assigneeId, b.due_at || null, eisenhower, uid]);
+    const task = r.rows[0];
+    if (Array.isArray(b.subtasks)) {
+      for (let k = 0; k < b.subtasks.length; k++) {
+        const s = b.subtasks[k];
+        if (!String(s?.body || '').trim()) continue;
+        await pool.query(`INSERT INTO task_subtasks (task_id, body, sort_order) VALUES ($1,$2,$3)`, [task.id, String(s.body).trim(), k]);
+      }
+    }
+    await logActivity(task.id, uid, 'created', { title: task.title, personal: true });
+    if (assigneeId && Number(assigneeId) !== Number(uid)) {
+      await notify(assigneeId, '📋 Nueva tarea asignada', task.title, { task_id: task.id });
+    }
+    res.json({ task });
+  } catch (e: any) {
+    console.error('[tasks] createPersonalTask:', e); res.status(500).json({ error: 'Error al crear la tarea' });
+  }
+};
+
+// ─── MIS TAREAS: usuarios asignables (no clientes, activos) ──
+export const getAssignableUsers = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (authRole(req) === 'client') return res.status(403).json({ error: 'No disponible' });
+    const r = await pool.query(
+      `SELECT id, full_name, role FROM users
+        WHERE role <> 'client' AND COALESCE(is_active,true)=true
+          AND LOWER(TRIM(full_name)) <> 'administrador entregax'
+        ORDER BY full_name`);
+    res.json({ users: r.rows });
+  } catch (e: any) {
+    console.error('[tasks] getAssignableUsers:', e); res.status(500).json({ error: 'Error al obtener usuarios' });
   }
 };
 
@@ -456,8 +536,7 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
     const cur = await pool.query(`SELECT * FROM tasks WHERE id = $1`, [id]);
     if (cur.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
     const task = cur.rows[0];
-    const mgr = await canManageBoard(req, task.board_id);
-    if (!mgr) return res.status(403).json({ error: 'Solo gerencia o el líder del tablero puede editar la tarea' });
+    if (!(await canEditTask(req, task))) return res.status(403).json({ error: 'Solo gerencia, el líder del tablero o el dueño de la tarea puede editarla' });
 
     const b = req.body || {};
     const sets: string[] = []; const params: any[] = []; let i = 1;
@@ -631,9 +710,9 @@ export const deleteTaskAttachment = async (req: Request, res: Response): Promise
 export const addSubtask = async (req: Request, res: Response): Promise<any> => {
   try {
     const taskId = parseInt(String(req.params.id));
-    const t = await pool.query(`SELECT board_id FROM tasks WHERE id = $1`, [taskId]);
+    const t = await pool.query(`SELECT board_id, created_by, assignee_id FROM tasks WHERE id = $1`, [taskId]);
     if (t.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
-    if (!(await canManageBoard(req, t.rows[0].board_id))) return res.status(403).json({ error: 'Sin permiso' });
+    if (!(await canEditTask(req, t.rows[0]))) return res.status(403).json({ error: 'Sin permiso' });
     const b = req.body || {};
     if (!String(b.body || '').trim()) return res.status(400).json({ error: 'Texto de la subtarea requerido' });
     const ord = (await pool.query(`SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM task_subtasks WHERE task_id=$1`, [taskId])).rows[0].n;
@@ -677,9 +756,9 @@ export const toggleSubtask = async (req: Request, res: Response): Promise<any> =
 export const deleteSubtask = async (req: Request, res: Response): Promise<any> => {
   try {
     const subId = parseInt(String(req.params.subId));
-    const s = await pool.query(`SELECT t.board_id, s.task_id FROM task_subtasks s JOIN tasks t ON t.id=s.task_id WHERE s.id=$1`, [subId]);
+    const s = await pool.query(`SELECT t.board_id, t.created_by, t.assignee_id, s.task_id FROM task_subtasks s JOIN tasks t ON t.id=s.task_id WHERE s.id=$1`, [subId]);
     if (s.rows.length === 0) return res.status(404).json({ error: 'Subtarea no encontrada' });
-    if (!(await canManageBoard(req, s.rows[0].board_id))) return res.status(403).json({ error: 'Sin permiso' });
+    if (!(await canEditTask(req, s.rows[0]))) return res.status(403).json({ error: 'Sin permiso' });
     await pool.query(`DELETE FROM task_subtasks WHERE id = $1`, [subId]);
     res.json({ success: true });
   } catch (e: any) {
