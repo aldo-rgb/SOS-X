@@ -415,6 +415,9 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
   try {
     const uid = authUserId(req);
     if (!uid) return res.status(401).json({ error: 'No autenticado' });
+    // ?all=true incluye las completadas (historial); por defecto solo abiertas.
+    const includeAll = String(req.query.all || '') === 'true';
+    const statusCond = includeAll ? `t.status <> 'cancelled'` : `t.status = 'open'`;
     const r = await pool.query(`
       SELECT t.*, b.name AS board_name, col.name AS column_name,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id)::int AS subtasks_total,
@@ -423,8 +426,8 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
         FROM tasks t
         JOIN task_boards b ON b.id = t.board_id
         LEFT JOIN task_columns col ON col.id = t.column_id
-       WHERE t.assignee_id = $1 AND t.status = 'open'
-       ORDER BY (t.eisenhower='fuego') DESC, t.due_at NULLS LAST, t.id DESC`, [uid]);
+       WHERE t.assignee_id = $1 AND ${statusCond}
+       ORDER BY (t.status='open') DESC, (t.eisenhower='fuego') DESC, t.due_at NULLS LAST, t.id DESC`, [uid]);
     res.json({ tasks: r.rows });
   } catch (e: any) {
     console.error('[tasks] myTasks:', e); res.status(500).json({ error: 'Error al obtener mis tareas' });

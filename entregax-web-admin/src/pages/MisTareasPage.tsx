@@ -20,6 +20,7 @@ import ChecklistIcon from '@mui/icons-material/Checklist';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import GridViewIcon from '@mui/icons-material/GridView';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -51,6 +52,13 @@ const taskTime = (t: any) => {
   const end = t.completed_at ? new Date(t.completed_at).getTime() : Date.now();
   return { done: !!t.completed_at, ms: end - start };
 };
+const ACT_LABEL: Record<string, string> = {
+  created: '📌 Creó la tarea', assigned: '👤 Reasignó la tarea', moved: '➡️ Movió de columna',
+  completed: '✅ Completó la tarea', forced_close: '🔓 Forzó el cierre', reopened: '↩️ Reabrió la tarea',
+  comment: '💬 Comentó', subtask_done: '☑️ Palomeó una subtarea', subtask_undone: '⬜ Despalomeó una subtarea',
+  attachment_added: '📷 Agregó una foto',
+};
+const actLabel = (a: any): string => ACT_LABEL[a.action] || a.action;
 
 interface Task {
   id: number; title: string; description?: string; eisenhower: string; status: string;
@@ -64,20 +72,22 @@ export default function MisTareasPage() {
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'matrix'>('list');
+  const [showDone, setShowDone] = useState(false);
   const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
   const notify = (msg: string, sev: 'success' | 'error' = 'success') => setSnack({ open: true, msg, sev });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '' });
+  const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [detailId, setDetailId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const r = await axios.get(`${API_URL}/tasks/mine`, H());
+      const r = await axios.get(`${API_URL}/tasks/mine${showDone ? '?all=true' : ''}`, H());
       setTasks(r.data?.tasks || []);
     } catch { notify('No se pudieron cargar las tareas', 'error'); }
     finally { setLoading(false); }
-  }, []);
+  }, [showDone]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     axios.get(`${API_URL}/tasks/assignable-users`, H())
@@ -87,12 +97,20 @@ export default function MisTareasPage() {
   const createTask = async () => {
     if (!form.title.trim()) return notify('El título es obligatorio', 'error');
     try {
-      await axios.post(`${API_URL}/tasks/personal`, {
+      const res = await axios.post(`${API_URL}/tasks/personal`, {
         title: form.title.trim(), description: form.description || null,
         eisenhower: form.eisenhower, assignee_id: form.assignee_id || null, due_at: form.due_at || null,
       }, H());
+      const newId = res.data?.task?.id;
+      if (newId && newPhotos.length) {
+        for (const f of newPhotos) {
+          const fd = new FormData(); fd.append('photo', f);
+          try { await axios.post(`${API_URL}/tasks/${newId}/attachments`, fd, { headers: { ...H().headers, 'Content-Type': 'multipart/form-data' } }); } catch { /* continúa */ }
+        }
+      }
       setCreateOpen(false);
       setForm({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '' });
+      setNewPhotos([]);
       notify('Tarea creada');
       load();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear', 'error'); }
@@ -149,10 +167,16 @@ export default function MisTareasPage() {
         </Box>
       </Box>
 
-      <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)} sx={{ mb: 2 }}>
-        <ToggleButton value="list" sx={{ textTransform: 'none', gap: 0.5 }}><ViewListIcon sx={{ fontSize: 18 }} /> Lista</ToggleButton>
-        <ToggleButton value="matrix" sx={{ textTransform: 'none', gap: 0.5 }}><GridViewIcon sx={{ fontSize: 18 }} /> Matriz Eisenhower</ToggleButton>
-      </ToggleButtonGroup>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+        <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
+          <ToggleButton value="list" sx={{ textTransform: 'none', gap: 0.5 }}><ViewListIcon sx={{ fontSize: 18 }} /> Lista</ToggleButton>
+          <ToggleButton value="matrix" sx={{ textTransform: 'none', gap: 0.5 }}><GridViewIcon sx={{ fontSize: 18 }} /> Matriz Eisenhower</ToggleButton>
+        </ToggleButtonGroup>
+        <Button size="small" variant={showDone ? 'contained' : 'outlined'} onClick={() => setShowDone(v => !v)}
+          sx={{ textTransform: 'none', ...(showDone ? { bgcolor: '#2E7D46', '&:hover': { bgcolor: '#256B3B' } } : { borderColor: '#2E7D46', color: '#2E7D46' }) }}>
+          {showDone ? '✅ Mostrando completadas' : 'Ver completadas'}
+        </Button>
+      </Box>
 
       {loading ? (
         <Box sx={{ textAlign: 'center', mt: 8 }}><CircularProgress /></Box>
@@ -206,9 +230,31 @@ export default function MisTareasPage() {
               {users.map(u => <MenuItem key={u.id} value={u.id}>{u.full_name}{u.role ? ` · ${u.role}` : ''}</MenuItem>)}
             </Select>
           </FormControl>
+          {/* Fotos adjuntas */}
+          <Box sx={{ mt: 2 }}>
+            <Button component="label" size="small" startIcon={<PhotoCameraIcon />} sx={{ textTransform: 'none' }}>
+              Agregar fotos
+              <input hidden type="file" accept="image/*" multiple
+                onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) setNewPhotos(prev => [...prev, ...fs]); (e.target as HTMLInputElement).value = ''; }} />
+            </Button>
+            {newPhotos.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+                {newPhotos.map((f, idx) => (
+                  <Box key={idx} sx={{ position: 'relative' }}>
+                    <Box component="img" src={URL.createObjectURL(f)} alt={f.name}
+                      sx={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                    <IconButton size="small" onClick={() => setNewPhotos(prev => prev.filter((_, i) => i !== idx))}
+                      sx={{ position: 'absolute', top: -8, right: -8, bgcolor: '#fff', boxShadow: 1, p: 0.2, '&:hover': { bgcolor: '#fff' } }}>
+                      <CloseIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateOpen(false)}>Cancelar</Button>
+          <Button onClick={() => { setCreateOpen(false); setNewPhotos([]); }}>Cancelar</Button>
           <Button variant="contained" onClick={createTask} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Crear</Button>
         </DialogActions>
       </Dialog>
@@ -259,6 +305,21 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     try { await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim() }, H()); setComment(''); reload(); }
     catch { notify('Error al comentar', 'error'); }
   };
+  const uploadPhotos = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    try {
+      for (const f of Array.from(files)) {
+        const fd = new FormData(); fd.append('photo', f);
+        await axios.post(`${API_URL}/tasks/${id}/attachments`, fd, { headers: { ...H().headers, 'Content-Type': 'multipart/form-data' } });
+      }
+      notify('Foto(s) agregada(s)'); reload();
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo subir la foto', 'error'); }
+  };
+  const deletePhoto = async (attId: number) => {
+    if (!window.confirm('¿Eliminar esta foto?')) return;
+    try { await axios.delete(`${API_URL}/tasks/attachments/${attId}`, H()); reload(); }
+    catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); }
+  };
   const fmtDate = (iso?: string) => { try { return iso ? new Date(iso).toLocaleString('es-MX') : '—'; } catch { return '—'; } };
 
   return (
@@ -301,6 +362,32 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               </Box>
             )}
 
+            {/* Fotos */}
+            <Divider sx={{ my: 2 }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography fontWeight={800} fontSize={14}>Fotos {(data.attachments || []).length > 0 && `(${(data.attachments || []).length})`}</Typography>
+              <Button component="label" size="small" startIcon={<PhotoCameraIcon />} sx={{ textTransform: 'none' }}>
+                Agregar foto
+                <input hidden type="file" accept="image/*" multiple onChange={e => uploadPhotos(e.target.files)} />
+              </Button>
+            </Box>
+            {(data.attachments || []).length === 0 ? (
+              <Typography variant="caption" color="text.secondary">Sin fotos.</Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                {(data.attachments || []).map((a: any) => (
+                  <Box key={a.id} sx={{ position: 'relative' }}>
+                    <a href={a.url || '#'} target="_blank" rel="noreferrer">
+                      <Box component="img" src={a.url} alt={a.file_name || 'foto'} sx={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                    </a>
+                    <IconButton size="small" onClick={() => deletePhoto(a.id)} sx={{ position: 'absolute', top: -8, right: -8, bgcolor: '#fff', boxShadow: 1, p: 0.2, '&:hover': { bgcolor: '#fff' } }}>
+                      <CloseIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                ))}
+              </Box>
+            )}
+
             <Divider sx={{ my: 2 }} />
             <Typography fontWeight={800} fontSize={14} sx={{ mb: 1 }}>Comentarios</Typography>
             {(data.comments || []).map((c: any) => (
@@ -313,6 +400,24 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               <TextField fullWidth size="small" placeholder="Deja un comentario…" value={comment} onChange={e => setComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addComment(); }} />
               <IconButton color="primary" onClick={addComment}><SendIcon /></IconButton>
             </Box>
+
+            <Divider sx={{ my: 2 }} />
+            <Typography fontWeight={800} fontSize={14} sx={{ mb: 1 }}>Historial de la tarea</Typography>
+            {(data.activity || []).length === 0 ? (
+              <Typography variant="caption" color="text.secondary">Sin actividad.</Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                {(data.activity || []).map((a: any) => (
+                  <Box key={a.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: a.action === 'completed' ? '#2E7D46' : '#D6521C', mt: 0.75, flex: 'none' }} />
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="body2">{actLabel(a)}</Typography>
+                      <Typography variant="caption" color="text.secondary">{a.actor_name || '—'} · {fmtDate(a.created_at)}</Typography>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            )}
           </DialogContent>
           <DialogActions>
             {t.status !== 'completed' && (

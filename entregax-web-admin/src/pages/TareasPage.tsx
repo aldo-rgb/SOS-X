@@ -69,6 +69,24 @@ const taskTime = (t: { created_at?: string; completed_at?: string; status?: stri
   const end = t.completed_at ? new Date(t.completed_at).getTime() : Date.now();
   return { done: !!t.completed_at, ms: end - start };
 };
+// Historial de actividad: etiqueta legible por acción.
+const ACT_LABEL: Record<string, string> = {
+  created: '📌 Creó la tarea',
+  assigned: '👤 Reasignó la tarea',
+  moved: '➡️ Movió de columna',
+  completed: '✅ Completó la tarea',
+  forced_close: '🔓 Forzó el cierre',
+  reopened: '↩️ Reabrió la tarea',
+  comment: '💬 Comentó',
+  subtask_done: '☑️ Palomeó una subtarea',
+  subtask_undone: '⬜ Despalomeó una subtarea',
+  attachment_added: '📷 Agregó una foto',
+};
+const actLabel = (a: any): string => {
+  const base = ACT_LABEL[a.action] || a.action;
+  if (a.action === 'forced_close' && a.meta?.reason) return `${base}: ${a.meta.reason}`;
+  return base;
+};
 
 interface Col { id: number; col_key: string; name: string; color: string; gate_checklist: boolean; is_done?: boolean; sort_order: number; }
 interface Sec { id: number; board_id: number; name: string; sort_order: number; is_someday?: boolean; }
@@ -761,6 +779,24 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
                 onChange={e => setComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addComment(); }} />
               <IconButton color="primary" onClick={addComment}><SendIcon /></IconButton>
             </Box>
+
+            <Divider sx={{ my: 2 }} />
+            <Typography fontWeight={800} fontSize={14} sx={{ mb: 1 }}>Historial de la tarea</Typography>
+            {(data.activity || []).length === 0 ? (
+              <Typography variant="caption" color="text.secondary">Sin actividad.</Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                {(data.activity || []).map((a: any) => (
+                  <Box key={a.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: a.action === 'completed' ? '#2E7D46' : '#D6521C', mt: 0.75, flex: 'none' }} />
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="body2">{actLabel(a)}</Typography>
+                      <Typography variant="caption" color="text.secondary">{a.actor_name || '—'} · {new Date(a.created_at).toLocaleString('es-MX')}</Typography>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            )}
           </DialogContent>
           <DialogActions>
             {t.status !== 'completed' && (
