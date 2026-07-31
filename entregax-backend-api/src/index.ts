@@ -10553,7 +10553,7 @@ app.get('/api/admin/finance/cartera-pendiente', authenticateToken, requireMinLev
 
 // ============================================
 // ÚLTIMO MOVIMIENTO GUARDADO — para verificar continuidad antes de nuevo upload
-app.get('/api/admin/finance/bank-entries/last', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
+app.get('/api/admin/finance/bank-entries/last', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { empresa_id } = req.query;
     if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });
@@ -10590,7 +10590,7 @@ app.get('/api/admin/finance/bank-entries/last', authenticateToken, requireMinLev
 // ============================================
 // OBTENER MOVIMIENTOS GUARDADOS DE ESTADO DE CUENTA
 // ============================================
-app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
+app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { empresa_id } = req.query;
     if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });

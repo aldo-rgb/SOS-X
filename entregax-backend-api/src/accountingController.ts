@@ -2447,14 +2447,27 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
                 NULL::text    AS subcategory,
                 NULL::text    AS merchant_name,
                 'confirmed'   AS status,
-                'pending'     AS match_status,
-                NULL::int     AS matched_payment_id,
-                NULL::timestamp AS matched_at,
+                COALESCE(m.match_status, 'pending') AS match_status,
+                m.matched_payment_id AS matched_payment_id,
+                m.matched_at  AS matched_at,
                 bse.banco     AS institution_name,
                 NULL::text    AS matched_client,
                 NULL::text    AS matched_reference,
                 NULL::numeric AS matched_amount
             FROM bank_statement_entries bse
+            LEFT JOIN LATERAL (
+                -- Estado real de conciliación: vive en syncfy_transactions (el auto-match
+                -- del cron marca match_status='matched'). Se enlaza por empresa + fecha +
+                -- monto (+ referencia si ambos la tienen).
+                SELECT st.match_status, st.matched_payment_id, st.matched_at
+                  FROM syncfy_transactions st
+                 WHERE st.emitter_id = bse.empresa_id
+                   AND st.value_date::date = bse.fecha::date
+                   AND st.amount = COALESCE(bse.abono, bse.cargo)
+                   AND (COALESCE(st.reference,'') = COALESCE(bse.referencia,'') OR st.reference IS NULL OR bse.referencia IS NULL OR bse.referencia = '')
+                 ORDER BY (st.match_status = 'matched') DESC, st.id DESC
+                 LIMIT 1
+            ) m ON TRUE
             WHERE ${conds.join(' AND ')}
             ORDER BY bse.fecha DESC, bse.seq DESC, bse.id DESC
             LIMIT $${params.length}
@@ -2472,10 +2485,20 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
                   COUNT(*) FILTER (WHERE bse.cargo IS NOT NULL AND bse.cargo > 0)  AS out_count,
                   COALESCE(SUM(bse.abono)  FILTER (WHERE bse.abono IS NOT NULL), 0) AS in_total,
                   COALESCE(SUM(bse.cargo) FILTER (WHERE bse.cargo IS NOT NULL), 0) AS out_total,
-                  0 AS matched_count,
-                  COUNT(*)::int AS pending_count,
-                  0 AS unmatched_count
+                  COUNT(*) FILTER (WHERE m.match_status = 'matched')::int AS matched_count,
+                  COUNT(*) FILTER (WHERE m.match_status IS DISTINCT FROM 'matched')::int AS pending_count,
+                  COUNT(*) FILTER (WHERE m.match_status = 'unmatched')::int AS unmatched_count
                 FROM bank_statement_entries bse
+                LEFT JOIN LATERAL (
+                    SELECT st.match_status
+                      FROM syncfy_transactions st
+                     WHERE st.emitter_id = bse.empresa_id
+                       AND st.value_date::date = bse.fecha::date
+                       AND st.amount = COALESCE(bse.abono, bse.cargo)
+                       AND (COALESCE(st.reference,'') = COALESCE(bse.referencia,'') OR st.reference IS NULL OR bse.referencia IS NULL OR bse.referencia = '')
+                     ORDER BY (st.match_status = 'matched') DESC, st.id DESC
+                     LIMIT 1
+                ) m ON TRUE
                 WHERE ${statsConds.join(' AND ')}
             `, statsParams);
         } catch {
