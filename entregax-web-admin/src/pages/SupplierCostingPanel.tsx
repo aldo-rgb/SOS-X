@@ -107,6 +107,14 @@ interface PackageCosting {
     is_lost?: boolean;
 }
 
+// Etiqueta legible del status de envío del paquete.
+const STATUS_LABELS: Record<string, string> = {
+    in_transit: 'En Tránsito', received: 'Recibido', dispatched: 'Despachado',
+    shipped: 'Embarcado', received_mty: 'Recibido MTY', received_cdmx: 'Recibido CDMX',
+    delivered: 'Entregado', pending: 'Pendiente', out_for_delivery: 'En Ruta',
+};
+const statusLabel = (s?: string): string => STATUS_LABELS[String(s || '')] || (s || 'N/A');
+
 // Fecha corta legible (o '—' si no hay).
 const fmtShortDate = (iso?: string): string => {
     if (!iso) return '—';
@@ -167,6 +175,8 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
     const [dateFrom, setDateFrom] = useState<string>('');
     const [dateTo, setDateTo] = useState<string>('');
     const [showPaidFilter, setShowPaidFilter] = useState<'all' | 'paid' | 'unpaid'>('unpaid');
+    const [shipStatusFilter, setShipStatusFilter] = useState<string>('all');   // status de envío
+    const [clientPaidFilter, setClientPaidFilter] = useState<'all' | 'cobrado' | 'porcobrar'>('all'); // estado cobro cliente
     const [trackingFilter, setTrackingFilter] = useState<string>('');
     // Cotizador rápido (dimensiones en cm)
     const [quoter, setQuoter] = useState<{ largo: string; ancho: string; alto: string }>({ largo: '', ancho: '', alto: '' });
@@ -613,10 +623,31 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                             <TextField label="Hasta" type="date" fullWidth size="small" value={dateTo}
                                 onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} />
                         </Grid>
-                        <Grid size={{ xs: 12, sm: 2.5 }}>
+                        <Grid size={{ xs: 6, sm: 2 }}>
                             <FormControl fullWidth size="small">
-                                <InputLabel>Estado</InputLabel>
-                                <Select value={showPaidFilter} label="Estado" onChange={(e) => setShowPaidFilter(e.target.value as 'all' | 'paid' | 'unpaid')}>
+                                <InputLabel>Status</InputLabel>
+                                <Select value={shipStatusFilter} label="Status" onChange={(e) => setShipStatusFilter(e.target.value)}>
+                                    <MenuItem value="all">Todos</MenuItem>
+                                    {Array.from(new Set(packages.map(p => p.status).filter(Boolean))).map(s => (
+                                        <MenuItem key={s} value={s}>{statusLabel(s)}</MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 2 }}>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>Estado (cobro)</InputLabel>
+                                <Select value={clientPaidFilter} label="Estado (cobro)" onChange={(e) => setClientPaidFilter(e.target.value as 'all' | 'cobrado' | 'porcobrar')}>
+                                    <MenuItem value="all">Todos</MenuItem>
+                                    <MenuItem value="porcobrar">Por Cobrar</MenuItem>
+                                    <MenuItem value="cobrado">Cobrado</MenuItem>
+                                </Select>
+                            </FormControl>
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 2 }}>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>Pago Proveedor</InputLabel>
+                                <Select value={showPaidFilter} label="Pago Proveedor" onChange={(e) => setShowPaidFilter(e.target.value as 'all' | 'paid' | 'unpaid')}>
                                     <MenuItem value="all">Todos</MenuItem>
                                     <MenuItem value="unpaid">Pendientes</MenuItem>
                                     <MenuItem value="paid">Pagados</MenuItem>
@@ -674,7 +705,9 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                             </TableHead>
                             <TableBody>
                                 {packages.filter(pkg =>
-                                    !trackingFilter || (pkg.tracking || '').toLowerCase().includes(trackingFilter.toLowerCase())
+                                    (!trackingFilter || (pkg.tracking || '').toLowerCase().includes(trackingFilter.toLowerCase()))
+                                    && (shipStatusFilter === 'all' || pkg.status === shipStatusFilter)
+                                    && (clientPaidFilter === 'all' || (clientPaidFilter === 'cobrado' ? pkg.client_paid : !pkg.client_paid))
                                 ).map((pkg) => (
                                     <TableRow key={pkg.id} hover sx={{ bgcolor: pkg.costing_paid ? 'success.50' : 'inherit' }}>
                                         <TableCell>
@@ -713,10 +746,10 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                             })()}
                                         </TableCell>
                                         <TableCell align="center">
-                                            <Chip 
-                                                label={pkg.status === 'in_transit' ? 'En Tránsito' : pkg.status === 'received' ? 'Recibido' : pkg.status === 'dispatched' ? 'Despachado' : pkg.status || 'N/A'} 
-                                                size="small" 
-                                                color={pkg.status === 'in_transit' ? 'info' : pkg.status === 'received' ? 'default' : 'primary'} 
+                                            <Chip
+                                                label={statusLabel(pkg.status)}
+                                                size="small"
+                                                color={pkg.status === 'in_transit' ? 'info' : pkg.status === 'received' ? 'default' : 'primary'}
                                                 variant="outlined"
                                             />
                                         </TableCell>
