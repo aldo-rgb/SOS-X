@@ -159,6 +159,8 @@ export default function MisTareasPage() {
   const [involvedIds, setInvolvedIds] = useState<number[]>(MY_ID ? [MY_ID] : []);
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
+  const [catId, setCatId] = useState<number | ''>('');
 
   // Programar tareas (futuras / recurrentes).
   const [schedOpen, setSchedOpen] = useState(false);
@@ -177,14 +179,24 @@ export default function MisTareasPage() {
   useEffect(() => {
     axios.get(`${API_URL}/tasks/assignable-users`, H())
       .then(r => setUsers(r.data?.users || [])).catch(() => {});
+    axios.get(`${API_URL}/tasks/categories`, H())
+      .then(r => {
+        const cats = r.data?.categories || [];
+        setCategories(cats);
+        // Default: Tareas Personales si existe.
+        const personal = cats.find((c: any) => c.board_key === 'personales');
+        setCatId(personal?.id || cats[0]?.id || '');
+      }).catch(() => {});
   }, []);
 
   const createTask = async () => {
     if (!form.title.trim()) return notify('El título es obligatorio', 'error');
+    if (!catId) return notify('Elige una categoría', 'error');
     try {
       const res = await axios.post(`${API_URL}/tasks/personal`, {
         title: form.title.trim(), description: form.description || null,
         eisenhower: form.eisenhower, involved_ids: involvedIds, due_at: form.due_at || null,
+        board_id: catId,
       }, H());
       const newId = res.data?.task?.id;
       if (newId && newPhotos.length) {
@@ -346,6 +358,15 @@ export default function MisTareasPage() {
         <DialogContent>
           <TextField autoFocus fullWidth label="Título (usa un verbo de acción)" margin="dense"
             value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
+          <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
+            <InputLabel>Categoría (flujo)</InputLabel>
+            <Select label="Categoría (flujo)" value={catId} onChange={e => setCatId(e.target.value as number)}>
+              {categories.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            La tarea aparecerá en el flujo de esta categoría. (Flujo de Ventas es automático y no aplica aquí.)
+          </Typography>
           <TextField fullWidth label="Descripción" margin="dense" multiline rows={2}
             value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
           <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>

@@ -164,6 +164,8 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
   visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void;
 }) {
   const [users, setUsers] = useState<UserOpt[]>([]);
+  const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
+  const [catId, setCatId] = useState<number | null>(null);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [eis, setEis] = useState('estrella');
@@ -178,6 +180,13 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
     setTitle(''); setDesc(''); setEis('estrella'); setDueOpt('none'); setInvolved([]); setPhotos([]);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H })
       .then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
+    fetch(`${API_URL}/api/tasks/categories`, { headers: H })
+      .then(r => r.json()).then(d => {
+        const cats = d.categories || [];
+        setCategories(cats);
+        const personal = cats.find((c: any) => c.board_key === 'personales');
+        setCatId(personal?.id || cats[0]?.id || null);
+      }).catch(() => {});
   }, [visible]);
 
   const dueStamp = (): string | null => {
@@ -211,11 +220,12 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
 
   const submit = async () => {
     if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
+    if (!catId) { Alert.alert('Falta categoría', 'Elige una categoría (flujo).'); return; }
     setBusy(true);
     try {
       const r = await fetch(`${API_URL}/api/tasks/personal`, {
         method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, due_at: dueStamp() }),
+        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, due_at: dueStamp(), board_id: catId }),
       });
       if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo crear', e.error || ''); setBusy(false); return; }
       const d = await r.json();
@@ -247,6 +257,18 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
             <Text style={styles.fieldLbl}>Título</Text>
             <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
+            <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
+            <View style={styles.eisRow}>
+              {categories.map(c => {
+                const on = catId === c.id;
+                return (
+                  <TouchableOpacity key={c.id} onPress={() => setCatId(c.id)} style={[styles.dateChip, on && styles.dateChipOn]}>
+                    <Text style={[styles.dateChipTxt, on && { color: '#fff' }]}>{c.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={styles.helpTxt}>La tarea aparecerá en el flujo de esta categoría.</Text>
             <Text style={styles.fieldLbl}>Descripción</Text>
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>

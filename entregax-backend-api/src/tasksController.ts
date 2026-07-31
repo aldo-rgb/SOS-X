@@ -184,6 +184,22 @@ export const listBoards = async (req: Request, res: Response): Promise<any> => {
   }
 };
 
+// Categorías para crear tareas desde "Mis Tareas": todos los tableros activos
+// EXCEPTO el Flujo de Ventas (se despacha automático). Disponible a cualquier
+// empleado (no clientes).
+export const listCategories = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (authRole(req) === 'client') return res.status(403).json({ error: 'No disponible' });
+    const r = await pool.query(
+      `SELECT id, name, board_key, board_type FROM task_boards
+        WHERE is_active = TRUE AND COALESCE(board_key,'') <> 'flujo_operativo'
+        ORDER BY (board_key='personales') DESC, name`);
+    res.json({ categories: r.rows });
+  } catch (e: any) {
+    console.error('[tasks] listCategories:', e); res.status(500).json({ error: 'Error al listar categorías' });
+  }
+};
+
 // ─── TABLEROS: crear (departamento con flujo Nueva→Proceso→Terminado) ──
 export const createBoard = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -263,8 +279,19 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
     if (authRole(req) === 'client') return res.status(403).json({ error: 'No disponible' });
     const b = req.body || {};
     if (!String(b.title || '').trim()) return res.status(400).json({ error: 'El título es obligatorio' });
-    const boardId = await getOrCreatePersonalBoard();
-    if (!boardId) return res.status(500).json({ error: 'Tablero de tareas personales no disponible' });
+    // Categoría (tablero de flujo). Se admite cualquier tablero activo EXCEPTO el
+    // Flujo de Ventas (automático). Sin categoría → Tareas Personales.
+    let boardId: number | null = null;
+    if (b.board_id) {
+      const bd = await pool.query(
+        `SELECT id FROM task_boards WHERE id = $1 AND is_active = TRUE AND COALESCE(board_key,'') <> 'flujo_operativo'`,
+        [parseInt(String(b.board_id))]);
+      boardId = bd.rows[0]?.id || null;
+      if (!boardId) return res.status(400).json({ error: 'Categoría no válida' });
+    } else {
+      boardId = await getOrCreatePersonalBoard();
+    }
+    if (!boardId) return res.status(500).json({ error: 'Tablero no disponible' });
     const col = await pool.query(`SELECT id FROM task_columns WHERE board_id = $1 ORDER BY sort_order LIMIT 1`, [boardId]);
     const columnId = col.rows[0]?.id || null;
     const eisenhower = EISENHOWER.includes(b.eisenhower) ? b.eisenhower : 'estrella';
