@@ -14881,6 +14881,37 @@ app.get('/api/accounting/:emitterId/auto-invoice-status', authenticateToken, req
   }
 });
 
+// GET estado del toggle EXCLUSIVO de facturación automática PayPal (global)
+app.get('/api/accounting/paypal-auto-invoice-status', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), async (_req: AuthRequest, res: Response) => {
+  try {
+    const cur = await pool.query(`SELECT config_value FROM system_configurations WHERE config_key = 'auto_invoice_paypal_enabled' LIMIT 1`);
+    const enabled = cur.rows[0]?.config_value?.enabled !== false;
+    res.json({ success: true, enabled });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Error al consultar estado PayPal' });
+  }
+});
+
+// POST toggle EXCLUSIVO de facturación automática PayPal (global)
+app.post('/api/admin/system/facturas-paypal-toggle', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('auto_invoice_paypal_enabled', $1::jsonb, 'Facturación automática exclusiva de PayPal', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled: !!enabled }), userId]
+    );
+    console.log(`💳 [FACTURA PAYPAL] ${enabled ? '✅ Habilitada' : '🔴 Deshabilitada'} por user #${userId}`);
+    res.json({ success: true, enabled: !!enabled });
+  } catch (err: any) {
+    console.error('[FACTURA-PAYPAL-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar facturación PayPal' });
+  }
+});
+
 // POST /api/admin/system/gex-toggle — controla la contratación de Garantía Extendida (GEX)
 app.post('/api/admin/system/gex-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
   try {

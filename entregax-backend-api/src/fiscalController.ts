@@ -268,6 +268,21 @@ export const isAutoFacturaEnabled = async (serviceShort?: string, emitterId?: nu
   }
 };
 
+// Toggle EXCLUSIVO de facturación automática para pagos por PayPal. Global
+// (no por empresa). Default TRUE (fail-open). Independiente del toggle general:
+// permite apagar SOLO el auto-timbrado de PayPal.
+export const isPaypalAutoFacturaEnabled = async (): Promise<boolean> => {
+  try {
+    const r = await pool.query(
+      `SELECT config_value FROM system_configurations WHERE config_key = 'auto_invoice_paypal_enabled' AND is_active = TRUE LIMIT 1`
+    );
+    const cfg = r.rows[0]?.config_value;
+    return cfg?.enabled !== false; // sin configurar o true → auto
+  } catch {
+    return true;
+  }
+};
+
 export const createInvoice = async (
   paymentData: {
     paymentId: string;
@@ -287,6 +302,11 @@ export const createInvoice = async (
     //    timbrar (el pago conserva requiere_factura=true).
     if (!(await isAutoFacturaEnabled(paymentData.serviceType))) {
       return { success: false, deferred: true, error: 'Facturación automática desactivada — pendiente por timbrar' };
+    }
+    // 0.b Toggle EXCLUSIVO de PayPal: si el pago es PayPal y ese toggle está
+    //     apagado, NO se timbra aunque el general esté encendido.
+    if ((paymentData.paymentMethod === 'paypal' || paymentData.paymentType === 'paypal') && !(await isPaypalAutoFacturaEnabled())) {
+      return { success: false, deferred: true, error: 'Facturación automática de PayPal desactivada — pendiente por timbrar' };
     }
 
     // 1. Obtener datos fiscales del usuario

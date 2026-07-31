@@ -2389,6 +2389,10 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
   // por Timbrar. Se controla con el toggle de abajo (solo super_admin).
   const [autoInv, setAutoInv] = useState<boolean | null>(null);
   const [autoInvSaving, setAutoInvSaving] = useState(false);
+  // Toggle EXCLUSIVO de PayPal (global). Se apaga solo 3 días antes del fin de
+  // mes y se enciende el día 1 (cron); también editable manualmente aquí.
+  const [autoInvPaypal, setAutoInvPaypal] = useState<boolean | null>(null);
+  const [autoInvPaypalSaving, setAutoInvPaypalSaving] = useState(false);
 
   const loadAutoInv = async () => {
     try {
@@ -2396,6 +2400,27 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
       const res = await api.get(`/accounting/${emitter.id}/auto-invoice-status`);
       setAutoInv(res.data?.enabled !== false);
     } catch { setAutoInv(null); }
+  };
+
+  const loadAutoInvPaypal = async () => {
+    try {
+      const res = await api.get('/accounting/paypal-auto-invoice-status');
+      setAutoInvPaypal(res.data?.enabled !== false);
+    } catch { setAutoInvPaypal(null); }
+  };
+  const toggleAutoInvoicePaypal = async (enabled: boolean) => {
+    const prev = autoInvPaypal;
+    setAutoInvPaypal(enabled);
+    setAutoInvPaypalSaving(true);
+    try {
+      await api.post('/admin/system/facturas-paypal-toggle', { enabled });
+      setSnackbar({ open: true, message: enabled ? '✅ Facturación automática PayPal ACTIVADA' : '🔴 Facturación automática PayPal DESACTIVADA', severity: enabled ? 'success' : 'warning' });
+    } catch (e: any) {
+      setAutoInvPaypal(prev);
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo cambiar la facturación PayPal', severity: 'error' });
+    } finally {
+      setAutoInvPaypalSaving(false);
+    }
   };
 
   const toggleAutoInvoice = async (enabled: boolean) => {
@@ -2439,7 +2464,7 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
     }
   };
 
-  useEffect(() => { load(); loadAutoInv(); }, [emitter.id]); // eslint-disable-line
+  useEffect(() => { load(); loadAutoInv(); loadAutoInvPaypal(); }, [emitter.id]); // eslint-disable-line
 
   return (
     <Box>
@@ -2465,6 +2490,32 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
             />
           }
           label={autoInvSaving ? 'Guardando…' : (autoInv ? 'Activada' : 'Desactivada')}
+          sx={{ m: 0 }}
+        />
+      </Paper>
+
+      {/* Toggle EXCLUSIVO de facturación automática PayPal (global) */}
+      <Paper variant="outlined" sx={{ p: 1.5, mb: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, borderColor: autoInvPaypal ? 'rgba(46,125,50,0.4)' : 'rgba(240,90,40,0.4)', bgcolor: autoInvPaypal ? 'rgba(46,125,50,0.05)' : 'rgba(240,90,40,0.05)' }}>
+        <Box>
+          <Typography variant="body2" fontWeight={700}>
+            💳 Facturación automática PayPal {autoInvPaypal === null ? '' : autoInvPaypal ? '· ACTIVADA' : '· DESACTIVADA'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {autoInvPaypal
+              ? 'Los pagos por PayPal se timbran automáticamente. Se apaga solo 3 días antes del fin de mes y se enciende el día 1.'
+              : 'Los pagos por PayPal NO se timbran solos; quedan en Pendientes por Timbrar. Se reactiva solo el día 1 del mes.'}
+          </Typography>
+        </Box>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={!!autoInvPaypal}
+              disabled={!canToggleAutoInv || autoInvPaypal === null || autoInvPaypalSaving}
+              onChange={(e) => toggleAutoInvoicePaypal(e.target.checked)}
+              color="success"
+            />
+          }
+          label={autoInvPaypalSaving ? 'Guardando…' : (autoInvPaypal ? 'Activada' : 'Desactivada')}
           sx={{ m: 0 }}
         />
       </Paper>

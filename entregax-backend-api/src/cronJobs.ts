@@ -1417,12 +1417,47 @@ export const startAutoInvoiceSweeperCron = () => {
   console.log('✅ Cron de auto-facturación (barredor) activo (cada 5 min)');
 };
 
+// 💳 Programación automática del toggle de facturación PayPal:
+//   • Se APAGA 3 días antes del fin de mes (día = últimoDía − 3).
+//   • Se ENCIENDE el día 1 del mes.
+// Global (config_key = 'auto_invoice_paypal_enabled'). Corre a las 00:10 hora MX.
+export const startPaypalAutoInvoiceScheduleCron = () => {
+  const setPaypal = async (enabled: boolean, reason: string) => {
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('auto_invoice_paypal_enabled', $1::jsonb, 'Facturación automática exclusiva de PayPal', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify({ enabled })]
+    );
+    console.log(`💳 [CRON PayPal] Facturación PayPal ${enabled ? '✅ ENCENDIDA' : '🔴 APAGADA'} (${reason})`);
+  };
+  cron.schedule('10 0 * * *', async () => {
+    try {
+      // Fecha en hora de México (evita corrimiento de mes por UTC).
+      const mx = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+      const day = mx.getDate();
+      const lastDay = new Date(mx.getFullYear(), mx.getMonth() + 1, 0).getDate();
+      const offDay = lastDay - 3; // "3 días antes del fin de mes"
+      if (day === 1) {
+        await setPaypal(true, 'día 1 del mes');
+      } else if (day === offDay) {
+        await setPaypal(false, `3 días antes del fin de mes (día ${day}/${lastDay})`);
+      }
+    } catch (e) {
+      console.error('[CRON] startPaypalAutoInvoiceScheduleCron:', (e as Error).message);
+    }
+  }, { timezone: 'America/Mexico_City' });
+  console.log('✅ Cron de programación de facturación PayPal activo (00:10 MX: off día -3, on día 1)');
+};
+
 export const initCronJobs = () => {
   startRecoveryCronJob();
   startWaSequenceCron();
   startScheduledBulkCron();
   startFunnelRulesCron();
   startAutoInvoiceSweeperCron();
+  startPaypalAutoInvoiceScheduleCron();
   startBoxLinkReconcileCron();
   // Reactivado: procesarPrimerPago ya no usa transacción anidada (no puede colgar el pool).
   startReferralFirstShipmentCron();
