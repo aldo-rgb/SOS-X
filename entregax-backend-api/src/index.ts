@@ -220,6 +220,7 @@ import {
 } from './commissionController';
 import {
   getMetas as metasGet,
+  getAltasPorAsesor as metasAltasPorAsesor,
   createGoal as metasCreateGoal,
   updateGoal as metasUpdateGoal,
   deleteGoal as metasDeleteGoal,
@@ -5614,6 +5615,7 @@ app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(
 app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.ADMIN), getAdvisors);
 // ─── Metas de asesores ───
 app.get('/api/admin/metas', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasGet);
+app.get('/api/admin/altas-por-asesor', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasAltasPorAsesor);
 app.post('/api/admin/metas/goals', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasCreateGoal);
 app.put('/api/admin/metas/goals/:id', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasUpdateGoal);
 app.delete('/api/admin/metas/goals/:id', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasDeleteGoal);

@@ -118,6 +118,31 @@ export const getMetas = async (req: AuthRequest, res: Response): Promise<any> =>
   }
 };
 
+// GET /api/admin/altas-por-asesor?period=YYYY-MM — desglose de altas (usuarios
+// nuevos) por asesor en el mes. Para el detalle de "Altas este mes" en la app.
+export const getAltasPorAsesor = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const mr = monthRange(String(req.query.period || '') || null);
+    const rows = (await pool.query(
+      `SELECT a.id, a.full_name, a.role, a.referral_code, a.profile_photo_url,
+              (a.role IN ('asesor_lider','advisor')) AS is_leader,
+              l.full_name AS leader_name,
+              COUNT(*)::int AS count
+         FROM users u
+         JOIN users a ON a.id = COALESCE(u.advisor_id, u.referred_by_id)
+         LEFT JOIN users l ON l.id = a.referred_by_id
+        WHERE u.role='client'
+          AND u.created_at >= $1 AND u.created_at < $2
+          AND COALESCE(u.advisor_id, u.referred_by_id) IS NOT NULL
+        GROUP BY a.id, a.full_name, a.role, a.referral_code, a.profile_photo_url, is_leader, l.full_name
+        ORDER BY count DESC, a.full_name`, [mr.start, mr.end])).rows;
+    const total = rows.reduce((s: number, r: any) => s + Number(r.count), 0);
+    res.json({ period_label: mr.label, total, advisors: rows });
+  } catch (e: any) {
+    console.error('[metas] getAltasPorAsesor:', e); res.status(500).json({ error: 'Error al obtener altas por asesor' });
+  }
+};
+
 // POST /api/admin/metas/goals — crear meta.
 export const createGoal = async (req: AuthRequest, res: Response): Promise<any> => {
   try {

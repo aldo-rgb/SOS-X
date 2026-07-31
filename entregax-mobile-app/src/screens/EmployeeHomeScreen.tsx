@@ -17,6 +17,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  ActivityIndicator,
   TouchableOpacity,
   RefreshControl,
   Modal,
@@ -491,6 +492,18 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [leadsWidgets, setLeadsWidgets] = useState<{ today: number; week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number; awbWeek: number; kgWeek: number; xpayOps: number; xpayUsd: number } | null>(null);
   const [seriesConfig, setSeriesConfig] = useState<SeriesConfig | null>(null);
   const isAdminLevel = ['admin', 'super_admin'].includes(user.role);
+
+  // Desglose de "Altas este mes" por asesor (tipo Metas).
+  const [altasModal, setAltasModal] = useState(false);
+  const [altasData, setAltasData] = useState<{ period_label: string; total: number; advisors: any[] } | null>(null);
+  const [altasLoading, setAltasLoading] = useState(false);
+  const openAltasBreakdown = async () => {
+    setAltasModal(true); setAltasLoading(true); setAltasData(null);
+    try {
+      const r = await fetch(`${API_URL}/api/admin/altas-por-asesor`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) setAltasData(await r.json());
+    } catch { /* */ } finally { setAltasLoading(false); }
+  };
   // Contador de mis tareas pendientes (para el widget del home, todos los roles).
   const [myTaskCount, setMyTaskCount] = useState<number | null>(null);
   const loadMyTaskCount = useCallback(async () => {
@@ -1396,10 +1409,10 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                     <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
                   </TouchableOpacity>
                   <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#2E9E9E' }]}
-                    onPress={() => setSeriesConfig({ metric: 'altas', granularity: 'month', periods: 12, title: 'Altas por mes', color: '#2E9E9E' })}>
+                    onPress={openAltasBreakdown}>
                     <Text style={styles.leadNumber}>{leadsWidgets.month}</Text>
                     <Text style={styles.leadLabel}>Altas este mes</Text>
-                    <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
+                    <Text style={styles.leadSub}>toca para ver por asesor ›</Text>
                   </TouchableOpacity>
                   <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#E65100' }]}
                     onPress={() => setSeriesConfig({ metric: 'altas', granularity: 'day', periods: 7, title: 'Altas por día', color: '#E65100' })}>
@@ -1695,6 +1708,51 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       </Modal>
 
       <WidgetSeriesModal config={seriesConfig} onClose={() => setSeriesConfig(null)} apiUrl={API_URL} token={token} />
+
+      {/* Desglose de Altas este mes por asesor */}
+      <Modal visible={altasModal} animationType="slide" transparent onRequestClose={() => setAltasModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%' }}>
+            <View style={{ backgroundColor: '#2E9E9E', padding: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View>
+                <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800' }}>📈 Altas este mes por asesor</Text>
+                <Text style={{ color: '#E0F2F1', fontSize: 12, marginTop: 2, textTransform: 'capitalize' }}>{altasData?.period_label || ''}{altasData ? ` · ${altasData.total} altas` : ''}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setAltasModal(false)} hitSlop={10}><Text style={{ color: '#fff', fontSize: 22, fontWeight: '700' }}>✕</Text></TouchableOpacity>
+            </View>
+            {altasLoading ? (
+              <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator size="large" color="#2E9E9E" /></View>
+            ) : (
+              <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 28 }}>
+                {(altasData?.advisors || []).length === 0 ? (
+                  <Text style={{ textAlign: 'center', color: '#888', paddingVertical: 24 }}>Sin altas este mes.</Text>
+                ) : (altasData!.advisors).map((a: any, idx: number) => {
+                  const max = Number(altasData!.advisors[0]?.count || 1);
+                  const pct = Math.max(4, Math.round((Number(a.count) / max) * 100));
+                  const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}`;
+                  const ini = (a.full_name || '?').split(' ').map((x: string) => x[0]).slice(0, 2).join('').toUpperCase();
+                  return (
+                    <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#EEE' }}>
+                      <Text style={{ width: 24, textAlign: 'center', fontSize: idx < 3 ? 16 : 12, color: '#888' }}>{medal}</Text>
+                      <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: a.is_leader ? '#5E35B1' : '#2E9E9E', alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{ini}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '700', fontSize: 13.5 }} numberOfLines={1}>{a.full_name}</Text>
+                        <View style={{ height: 6, borderRadius: 3, backgroundColor: '#ECEFF1', marginTop: 3, overflow: 'hidden' }}>
+                          <View style={{ width: `${pct}%`, height: 6, backgroundColor: a.is_leader ? '#5E35B1' : '#2E9E9E' }} />
+                        </View>
+                        {!!a.leader_name && <Text style={{ fontSize: 10.5, color: '#999', marginTop: 2 }}>↳ {a.leader_name}</Text>}
+                      </View>
+                      <Text style={{ fontWeight: '800', fontSize: 18, color: '#2E9E9E', minWidth: 34, textAlign: 'right' }}>{a.count}</Text>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       <CajitoFab user={user} token={token} />
     </SafeAreaView>
