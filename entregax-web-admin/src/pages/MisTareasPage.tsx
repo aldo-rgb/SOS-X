@@ -529,6 +529,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<any>({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
   const [editInvolved, setEditInvolved] = useState<number[]>([]);
+  const [editAssignee, setEditAssignee] = useState<number>(0); // responsable principal
   const [editCat, setEditCat] = useState<number>(0); // 0 = Sin categoría
   const [cats, setCats] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
   const [users, setUsers] = useState<UserOpt[]>([]);
@@ -616,6 +617,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     // Involucrados actuales (participantes). El creador siempre queda incluido.
     const parts = (data.participants || []).map((p: any) => Number(p.id));
     setEditInvolved(parts.length ? parts : (t.created_by ? [Number(t.created_by)] : []));
+    setEditAssignee(Number(t.assignee_id) || 0); // responsable actual
     if (users.length === 0) axios.get(`${API_URL}/tasks/assignable-users`, H()).then(r => setUsers(r.data?.users || [])).catch(() => {});
     if (cats.length === 0) axios.get(`${API_URL}/tasks/categories`, H()).then(r => setCats((r.data?.categories || []).filter((c: any) => c.board_key !== 'personales'))).catch(() => {});
     setEditing(true);
@@ -624,14 +626,15 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     if (!edit.title.trim()) { notify('El título es obligatorio', 'error'); return; }
     setBusy(true);
     try {
-      const willBePersonal = !editCat;
+      // El responsable debe estar entre los involucrados.
+      const involved = Array.from(new Set<number>([...editInvolved, ...(editAssignee ? [editAssignee] : [])]));
       const payload: any = {
         title: edit.title.trim(), description: edit.description || null,
         eisenhower: edit.eisenhower, due_at: edit.due_at || null,
         board_id: editCat || null, // 0 = Sin categoría (personal)
+        involved_ids: involved,
+        ...(editAssignee ? { assignee_id: editAssignee } : {}),
       };
-      // involucrados solo aplican en el tablero personal
-      if (willBePersonal) payload.involved_ids = editInvolved;
       await axios.put(`${API_URL}/tasks/${id}`, payload, H());
       setEditing(false); notify('Tarea actualizada'); reload(); onChanged();
     } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo editar', 'error'); }
@@ -677,15 +680,25 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                     {cats.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
                   </Select>
                 </FormControl>
-                {!editCat && (
-                  <>
-                    <InvolvedPicker users={users} involvedIds={editInvolved} setInvolvedIds={setEditInvolved}
-                      fixedId={Number(t.created_by) || undefined} fixedLabel={t.created_by_name || 'Creador'} />
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                      El creador siempre queda incluido. El primero que agregues será el responsable principal.
-                    </Typography>
-                  </>
-                )}
+                <InvolvedPicker users={users} involvedIds={editInvolved} setInvolvedIds={setEditInvolved}
+                  fixedId={Number(t.created_by) || undefined} fixedLabel={t.created_by_name || 'Creador'} />
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  El creador siempre queda incluido. Agrega a quien deba participar.
+                </Typography>
+                <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
+                  <InputLabel>Responsable principal</InputLabel>
+                  <Select label="Responsable principal" value={editAssignee || ''} onChange={e => setEditAssignee(Number(e.target.value))}>
+                    {(() => {
+                      // Opciones: el creador + los involucrados (nombres desde users).
+                      const ids = Array.from(new Set<number>([...(t.created_by ? [Number(t.created_by)] : []), ...editInvolved, ...(editAssignee ? [editAssignee] : [])]));
+                      return ids.map(uid2 => {
+                        const u = users.find(x => x.id === uid2);
+                        const name = u?.full_name || (uid2 === Number(t.created_by) ? (t.created_by_name || 'Creador') : `#${uid2}`);
+                        return <MenuItem key={uid2} value={uid2}>{name}</MenuItem>;
+                      });
+                    })()}
+                  </Select>
+                </FormControl>
                 <Box sx={{ display: 'flex', gap: 1, mt: 1.5, justifyContent: 'flex-end' }}>
                   <Button size="small" onClick={() => setEditing(false)} disabled={busy}>Cancelar</Button>
                   <Button size="small" variant="contained" onClick={saveEdit} disabled={busy} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Guardar</Button>

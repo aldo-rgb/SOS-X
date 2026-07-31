@@ -609,7 +609,8 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const saveEdit = async () => {
     if (!eTitle.trim()) { Alert.alert('Falta título', 'El título no puede quedar vacío.'); return; }
     const body: any = { title: eTitle.trim(), description: eDesc || null, eisenhower: eEis, board_id: eCat || null };
-    if (!eCat) { const cid = Number(t.created_by) || 0; body.involved_ids = cid ? [cid, ...eInvolved] : eInvolved; }
+    // Involucrados aplican en cualquier categoría (el creador siempre incluido).
+    { const cid = Number(t.created_by) || 0; body.involved_ids = cid ? [cid, ...eInvolved] : eInvolved; }
     if (eDue !== 'keep') {
       if (eDue === 'none') body.due_at = null;
       else {
@@ -769,13 +770,9 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                       </TouchableOpacity>
                     ))}
                   </View>
-                  {!eCat && (
-                    <>
-                      <Text style={styles.fieldLbl}>Responsables</Text>
-                      <InvolvedPicker users={eUsers} myId={Number(t.created_by) || 0} selected={eInvolved} onChange={setEInvolved} fixedLabel={t.created_by_name || 'Creador'} />
-                      <Text style={styles.helpTxt}>El creador siempre queda incluido. El primero que agregues será el responsable principal.</Text>
-                    </>
-                  )}
+                  <Text style={styles.fieldLbl}>Responsables</Text>
+                  <InvolvedPicker users={eUsers} myId={Number(t.created_by) || 0} selected={eInvolved} onChange={setEInvolved} fixedLabel={t.created_by_name || 'Creador'} />
+                  <Text style={styles.helpTxt}>El creador siempre queda incluido. El primero que agregues será el responsable principal.</Text>
                   <View style={styles.editBtns}>
                     <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditing(false)} disabled={busy}><Text style={styles.cancelBtnTxt}>Cancelar</Text></TouchableOpacity>
                     <TouchableOpacity style={styles.saveBtn} onPress={saveEdit} disabled={busy}>
