@@ -4,8 +4,11 @@ import {
   Box, Typography, Button, Chip, Avatar, LinearProgress, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, FormControl, InputLabel, Select, MenuItem, Tooltip,
   Snackbar, Alert, CircularProgress, Checkbox, FormControlLabel, Divider,
+  ToggleButton, ToggleButtonGroup,
 } from '@mui/material';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import ViewListIcon from '@mui/icons-material/ViewList';
+import GridViewIcon from '@mui/icons-material/GridView';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EditIcon from '@mui/icons-material/Edit';
@@ -30,6 +33,8 @@ export default function MetasTab() {
   const [measured, setMeasured] = useState<Record<string, number>>({});
   const [periodLabels, setPeriodLabels] = useState<Record<number, string>>({});
   const [goalId, setGoalId] = useState<number | null>(null);
+  const [view, setView] = useState<'detalle' | 'compacto'>('detalle');
+  const [filter, setFilter] = useState<'all' | 'con' | 'sin'>('all');
   const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
   const notify = (msg: string, sev: 'success' | 'error' = 'success') => setSnack({ open: true, msg, sev });
 
@@ -64,6 +69,21 @@ export default function MetasTab() {
     return d?.manual_progress != null ? Number(d.manual_progress) : 0;
   };
   const targetOf = (advId: number): number => Number(declOf(advId)?.declared_target || 0);
+  const hasDecl = (advId: number): boolean => {
+    const d = declOf(advId);
+    return !!(d && (Number(d.declared_target) > 0 || (d.declaration_text && d.declaration_text.trim())));
+  };
+  const passFilter = (advId: number): boolean => filter === 'all' || (filter === 'con' ? hasDecl(advId) : !hasDecl(advId));
+
+  const counts = useMemo(() => {
+    let con = 0; for (const a of advisors) if (hasDecl(a.id)) con++;
+    return { total: advisors.length, con, sin: advisors.length - con };
+  }, [advisors, decls, goalId]);
+
+  // Lista plana filtrada (para vista compacta o cuando hay filtro activo), ordenada por resultado.
+  const flatFiltered = useMemo(() => {
+    return [...advisors].filter(a => passFilter(a.id)).sort((x, y) => actualOf(y.id) - actualOf(x.id));
+  }, [advisors, decls, measured, goalId, filter]);
 
   // Ordena: líderes con sus sub-asesores debajo. Y ranking por resultado.
   const grouped = useMemo(() => {
@@ -135,6 +155,38 @@ export default function MetasTab() {
   };
 
   if (loading) return <Box sx={{ textAlign: 'center', py: 8 }}><CircularProgress /></Box>;
+
+  // Tarjeta densa para la vista compacta (muchos asesores por pantalla).
+  const CompactCard = ({ a }: { a: Advisor }) => {
+    const target = targetOf(a.id);
+    const actual = actualOf(a.id);
+    const pct = target > 0 ? Math.min(100, Math.round((actual / target) * 100)) : 0;
+    const d = declOf(a.id);
+    const declared = hasDecl(a.id);
+    const done = target > 0 && actual >= target;
+    const rank = rankOf(a.id);
+    return (
+      <Box onClick={() => openDecl(a)} sx={{
+        display: 'flex', alignItems: 'center', gap: 1, p: 1, borderRadius: 1.5, cursor: 'pointer',
+        bgcolor: '#fff', border: '1px solid #ECE4D8',
+        borderLeft: done ? '3px solid #2E7D46' : (declared ? '3px solid #D6521C' : '3px solid #ccc'),
+        '&:hover': { boxShadow: 2 },
+      }}>
+        <Avatar src={a.profile_photo_url || undefined} sx={{ width: 30, height: 30, fontSize: 12, bgcolor: a.is_leader ? '#5E35B1' : '#D6521C', fontWeight: 700 }}>{initials(a.full_name)}</Avatar>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography fontWeight={700} fontSize={12.5} noWrap>{rank >= 0 && rank < 3 ? `${MEDALS[rank]} ` : ''}{a.full_name}</Typography>
+          <LinearProgress variant="determinate" value={pct} sx={{ height: 5, borderRadius: 3, mt: 0.25, bgcolor: '#F0E9DF',
+            '& .MuiLinearProgress-bar': { bgcolor: done ? '#2E7D46' : '#D6521C', borderRadius: 3 } }} />
+        </Box>
+        <Box sx={{ textAlign: 'right', minWidth: 42 }}>
+          <Typography fontWeight={800} fontSize={15} color={done ? 'success.main' : '#D6521C'} lineHeight={1}>{actual}</Typography>
+          <Typography variant="caption" color="text.secondary" fontSize={10}>/ {target || '—'}</Typography>
+        </Box>
+        {d?.task_id && <AssignmentIcon sx={{ color: '#5E35B1', fontSize: 15 }} />}
+        {!declared && <AddIcon sx={{ color: '#C0392B', fontSize: 16 }} />}
+      </Box>
+    );
+  };
 
   const AdvisorRow = ({ a, sub }: { a: Advisor; sub?: boolean }) => {
     const target = targetOf(a.id);
@@ -230,24 +282,52 @@ export default function MetasTab() {
           sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>Nueva meta</Button>
       </Box>
 
-      {goal?.description && <Alert severity="info" sx={{ mb: 2 }}>{goal.description}</Alert>}
-
-      {/* Lista de asesores agrupada por líder */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {grouped.leaders.map(leader => (
-          <Box key={leader.id} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <AdvisorRow a={leader} />
-            {(grouped.subsByLeader[leader.id] || []).map(sub => <AdvisorRow key={sub.id} a={sub} sub />)}
-          </Box>
-        ))}
-        {grouped.orphans.length > 0 && (
-          <>
-            <Divider sx={{ my: 1 }}><Typography variant="caption" color="text.secondary">Otros asesores</Typography></Divider>
-            {grouped.orphans.map(a => <AdvisorRow key={a.id} a={a} />)}
-          </>
-        )}
-        {advisors.length === 0 && <Alert severity="info">No hay asesores activos.</Alert>}
+      {/* Vista (detalle/compacto) + filtro (con/sin declaración) */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
+        <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
+          <ToggleButton value="detalle"><ViewListIcon fontSize="small" sx={{ mr: 0.5 }} /> Detalle</ToggleButton>
+          <ToggleButton value="compacto"><GridViewIcon fontSize="small" sx={{ mr: 0.5 }} /> Compacto</ToggleButton>
+        </ToggleButtonGroup>
+        <Box sx={{ display: 'flex', gap: 0.75 }}>
+          <Chip label={`Todos (${counts.total})`} onClick={() => setFilter('all')} sx={{ fontWeight: 700, bgcolor: filter === 'all' ? '#455A64' : undefined, color: filter === 'all' ? '#fff' : undefined }} />
+          <Chip label={`Con declaración (${counts.con})`} onClick={() => setFilter('con')} sx={{ fontWeight: 700, bgcolor: filter === 'con' ? '#2E7D46' : undefined, color: filter === 'con' ? '#fff' : undefined }} />
+          <Chip label={`Sin declaración (${counts.sin})`} onClick={() => setFilter('sin')} sx={{ fontWeight: 700, bgcolor: filter === 'sin' ? '#C0392B' : undefined, color: filter === 'sin' ? '#fff' : undefined }} />
+        </Box>
       </Box>
+
+      {goal?.description && filter === 'all' && view === 'detalle' && <Alert severity="info" sx={{ mb: 2 }}>{goal.description}</Alert>}
+
+      {advisors.length === 0 ? (
+        <Alert severity="info">No hay asesores activos.</Alert>
+      ) : view === 'compacto' ? (
+        /* Vista compacta: rejilla densa, muchos por pantalla */
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr', xl: '1fr 1fr 1fr 1fr' }, gap: 1 }}>
+          {flatFiltered.map(a => <CompactCard key={a.id} a={a} />)}
+          {flatFiltered.length === 0 && <Alert severity="info" sx={{ gridColumn: '1 / -1' }}>Ningún asesor en este filtro.</Alert>}
+        </Box>
+      ) : filter !== 'all' ? (
+        /* Detalle pero filtrado → lista plana (sin agrupar) */
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {flatFiltered.map(a => <AdvisorRow key={a.id} a={a} />)}
+          {flatFiltered.length === 0 && <Alert severity="info">Ningún asesor en este filtro.</Alert>}
+        </Box>
+      ) : (
+        /* Detalle agrupado por líder (por defecto) */
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {grouped.leaders.map(leader => (
+            <Box key={leader.id} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <AdvisorRow a={leader} />
+              {(grouped.subsByLeader[leader.id] || []).map(sub => <AdvisorRow key={sub.id} a={sub} sub />)}
+            </Box>
+          ))}
+          {grouped.orphans.length > 0 && (
+            <>
+              <Divider sx={{ my: 1 }}><Typography variant="caption" color="text.secondary">Otros asesores</Typography></Divider>
+              {grouped.orphans.map(a => <AdvisorRow key={a.id} a={a} />)}
+            </>
+          )}
+        </Box>
+      )}
 
       {/* Diálogo declaración */}
       <Dialog open={!!declDlg} onClose={() => setDeclDlg(null)} maxWidth="sm" fullWidth>
