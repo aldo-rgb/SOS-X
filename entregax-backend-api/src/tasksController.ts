@@ -585,7 +585,8 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
     // Involucrados (participantes) de la tarea.
     const parts = await pool.query(
       `SELECT tp.user_id AS id, u.full_name FROM task_participants tp JOIN users u ON u.id = tp.user_id WHERE tp.task_id = $1 ORDER BY u.full_name`, [id]);
-    res.json({ task: t.rows[0], subtasks: subs.rows, comments: comments.rows, activity: activity.rows, attachments, participants: parts.rows });
+    const canEdit = await canEditTask(req, t.rows[0]);
+    res.json({ task: t.rows[0], subtasks: subs.rows, comments: comments.rows, activity: activity.rows, attachments, participants: parts.rows, can_edit: canEdit });
   } catch (e: any) {
     console.error('[tasks] getTask:', e); res.status(500).json({ error: 'Error al obtener tarea' });
   }

@@ -454,6 +454,12 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const [comment, setComment] = useState('');
   const [newSub, setNewSub] = useState('');
   const [busy, setBusy] = useState(false);
+  // Edición inline
+  const [editing, setEditing] = useState(false);
+  const [eTitle, setETitle] = useState('');
+  const [eDesc, setEDesc] = useState('');
+  const [eEis, setEEis] = useState('estrella');
+  const [eDue, setEDue] = useState('keep');
 
   const H = { Authorization: `Bearer ${token}` };
   // silent = refresco en segundo plano (sin spinner) para no tapar el contenido
@@ -466,7 +472,34 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
       setData(await r.json());
     } catch { /* */ } finally { if (!silent) setLoading(false); }
   }, [taskId, token]);
-  useEffect(() => { if (visible && taskId) { setData(null); reload(); } }, [visible, taskId, reload]);
+  useEffect(() => { if (visible && taskId) { setData(null); setEditing(false); reload(); } }, [visible, taskId, reload]);
+
+  const beginEdit = () => {
+    if (!t) return;
+    setETitle(t.title || ''); setEDesc(t.description || ''); setEEis(t.eisenhower || 'estrella'); setEDue('keep');
+    setEditing(true);
+  };
+  const saveEdit = async () => {
+    if (!eTitle.trim()) { Alert.alert('Falta título', 'El título no puede quedar vacío.'); return; }
+    const body: any = { title: eTitle.trim(), description: eDesc || null, eisenhower: eEis };
+    if (eDue !== 'keep') {
+      if (eDue === 'none') body.due_at = null;
+      else {
+        const d = new Date();
+        if (eDue === 'today') d.setHours(18, 0, 0, 0);
+        else if (eDue === 'tomorrow') { d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); }
+        else if (eDue === 'd3') { d.setDate(d.getDate() + 3); d.setHours(9, 0, 0, 0); }
+        else if (eDue === 'week') { d.setDate(d.getDate() + 7); d.setHours(9, 0, 0, 0); }
+        body.due_at = toStamp(d);
+      }
+    }
+    setBusy(true);
+    try {
+      const r = await put(`${API_URL}/api/tasks/${taskId}`, body);
+      if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo editar', e.error || ''); setBusy(false); return; }
+      setEditing(false); reload(true); onChanged();
+    } catch { Alert.alert('Error', 'No se pudo editar la tarea'); } finally { setBusy(false); }
+  };
 
   const t = data?.task;
   const subs = data?.subtasks || [];
@@ -555,12 +588,43 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
         <View style={styles.modalCard}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle} numberOfLines={1}>{t?.title || 'Tarea'}</Text>
+            {data?.can_edit && !editing && t && t.status !== 'completed' && (
+              <TouchableOpacity onPress={beginEdit} hitSlop={10} style={{ marginRight: 12 }}>
+                <Ionicons name="create-outline" size={22} color={ORANGE} />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={onClose} hitSlop={10}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
           </View>
           {loading || !t ? (
             <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator size="large" color={ORANGE} /></View>
           ) : (
             <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+              {editing ? (
+                <View style={styles.editBox}>
+                  <Text style={styles.fieldLbl}>Título</Text>
+                  <TextInput style={styles.input} value={eTitle} onChangeText={setETitle} placeholder="Título…" placeholderTextColor="#999" />
+                  <Text style={styles.fieldLbl}>Descripción</Text>
+                  <TextInput style={[styles.input, styles.inputMulti]} value={eDesc} onChangeText={setEDesc} multiline placeholder="Detalles…" placeholderTextColor="#999" />
+                  <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
+                  <EisPicker value={eEis} onChange={setEEis} />
+                  <Text style={styles.fieldLbl}>Fecha deseada</Text>
+                  <View style={styles.eisRow}>
+                    {[{ k: 'keep', l: 'Mantener' }, { k: 'none', l: 'Sin fecha' }, { k: 'today', l: 'Hoy' }, { k: 'tomorrow', l: 'Mañana' }, { k: 'd3', l: '+3 días' }, { k: 'week', l: 'Próx. semana' }].map(o => (
+                      <TouchableOpacity key={o.k} onPress={() => setEDue(o.k)} style={[styles.dateChip, eDue === o.k && styles.dateChipOn]}>
+                        <Text style={[styles.dateChipTxt, eDue === o.k && { color: '#fff' }]}>{o.l}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {eDue === 'keep' && !!t.due_at && <Text style={styles.helpTxt}>Actual: {fmtDate(t.due_at)}</Text>}
+                  <View style={styles.editBtns}>
+                    <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditing(false)} disabled={busy}><Text style={styles.cancelBtnTxt}>Cancelar</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.saveBtn} onPress={saveEdit} disabled={busy}>
+                      {busy ? <ActivityIndicator color="#fff" /> : <><Ionicons name="save-outline" size={16} color="#fff" /><Text style={styles.saveBtnTxt}>Guardar</Text></>}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+              <>
               <View style={styles.chipsRow}>
                 <View style={[styles.chip, { backgroundColor: eis?.bg }]}><Text style={[styles.chipTxt, { color: eis?.color }]}>{eis?.short}</Text></View>
                 {t.status === 'completed' && <View style={[styles.chip, { backgroundColor: '#E4F1E8' }]}><Text style={[styles.chipTxt, { color: '#2E7D46' }]}>✅ Completada</Text></View>}
@@ -568,6 +632,8 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
               {!!t.description && <Text style={styles.desc}>{t.description}</Text>}
               <Text style={styles.metaLine}><Text style={styles.metaB}>Responsable:</Text> {t.assignee_name || '—'}</Text>
               {!!t.due_at && <Text style={[styles.metaLine, t.overdue && { color: '#C0392B' }]}><Text style={styles.metaB}>Fecha deseada:</Text> {fmtDate(t.due_at)}</Text>}
+              </>
+              )}
 
               {/* Contacto del prospecto: llamar / WhatsApp */}
               {!!contactPhone && (
@@ -791,6 +857,12 @@ export const styles = StyleSheet.create({
   optMeta: { fontSize: 11, color: '#999', marginTop: 1 },
   schedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#EEE' },
   schedTitle: { fontSize: 13.5, fontWeight: '700', color: '#222' },
+  editBox: { backgroundColor: '#FFF9F5', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#F3D9CC' },
+  editBtns: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  cancelBtn: { flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: '#CCC', alignItems: 'center', justifyContent: 'center' },
+  cancelBtnTxt: { color: '#666', fontWeight: '700', fontSize: 14 },
+  saveBtn: { flex: 1, height: 44, borderRadius: 10, backgroundColor: ORANGE, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  saveBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 14 },
 
   quad: { borderRadius: 12, padding: 10, borderTopWidth: 3 },
   quadHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },

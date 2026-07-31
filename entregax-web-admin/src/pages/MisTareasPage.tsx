@@ -24,6 +24,7 @@ import GridViewIcon from '@mui/icons-material/GridView';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import ScheduleIcon from '@mui/icons-material/Schedule';
+import EditIcon from '@mui/icons-material/Edit';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -442,6 +443,8 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [busy, setBusy] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
   const [commitDate, setCommitDate] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [edit, setEdit] = useState<any>({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
 
   const reload = useCallback(async () => {
     try { const r = await axios.get(`${API_URL}/tasks/${id}`, H()); setData(r.data); } catch { /* */ }
@@ -510,6 +513,22 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     if (!a || !b) return null;
     return fmtDur(new Date(b).getTime() - new Date(a).getTime());
   };
+  const openEdit = () => {
+    setEdit({ title: t.title || '', description: t.description || '', eisenhower: t.eisenhower || 'estrella', due_at: toLocalInput(t.due_at) });
+    setEditing(true);
+  };
+  const saveEdit = async () => {
+    if (!edit.title.trim()) { notify('El título es obligatorio', 'error'); return; }
+    setBusy(true);
+    try {
+      await axios.put(`${API_URL}/tasks/${id}`, {
+        title: edit.title.trim(), description: edit.description || null,
+        eisenhower: edit.eisenhower, due_at: edit.due_at || null,
+      }, H());
+      setEditing(false); notify('Tarea actualizada'); reload(); onChanged();
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo editar', 'error'); }
+    finally { setBusy(false); }
+  };
 
   return (
     <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
@@ -521,10 +540,36 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               {t.status === 'completed' && <Chip label="✅ Completada" size="small" color="success" />}
             </Box>
             <Typography fontWeight={800} fontSize={17}>{t.title}</Typography>
+            {data.can_edit && !editing && t.status !== 'completed' && (
+              <IconButton onClick={openEdit} title="Editar" sx={{ position: 'absolute', right: 44, top: 8, color: '#D6521C' }}><EditIcon /></IconButton>
+            )}
             <IconButton onClick={onClose} sx={{ position: 'absolute', right: 8, top: 8 }}><CloseIcon /></IconButton>
           </DialogTitle>
           <DialogContent dividers>
-            {t.description && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{t.description}</Typography>}
+            {editing ? (
+              <Box sx={{ mb: 2, p: 1.5, bgcolor: '#FFF9F5', border: '1px solid #F3D9CC', borderRadius: 1.5 }}>
+                <TextField fullWidth size="small" label="Título" margin="dense"
+                  value={edit.title} onChange={e => setEdit({ ...edit, title: e.target.value })} />
+                <TextField fullWidth size="small" label="Descripción" margin="dense" multiline rows={2}
+                  value={edit.description} onChange={e => setEdit({ ...edit, description: e.target.value })} />
+                <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Prioridad (Eisenhower)</InputLabel>
+                    <Select label="Prioridad (Eisenhower)" value={edit.eisenhower} onChange={e => setEdit({ ...edit, eisenhower: e.target.value })}>
+                      {Object.entries(EIS).map(([k, v]) => <MenuItem key={k} value={k}>{v.label}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
+                    value={edit.due_at} onChange={e => setEdit({ ...edit, due_at: e.target.value })} />
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1, mt: 1.5, justifyContent: 'flex-end' }}>
+                  <Button size="small" onClick={() => setEditing(false)} disabled={busy}>Cancelar</Button>
+                  <Button size="small" variant="contained" onClick={saveEdit} disabled={busy} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Guardar</Button>
+                </Box>
+              </Box>
+            ) : (
+              t.description && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{t.description}</Typography>
+            )}
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1.5 }}>
               <Typography variant="body2"><b>Responsable:</b> {t.assignee_name || '—'}</Typography>
               {t.due_at && <Typography variant="body2" color={t.overdue ? 'error.main' : 'inherit'}><b>Fecha deseada:</b> {fmtDate(t.due_at)}</Typography>}
