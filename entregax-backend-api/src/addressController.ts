@@ -621,7 +621,7 @@ export const createMyAddress = async (req: Request, res: Response): Promise<void
 
         const {
             alias, contact_name, street, exterior_number, interior_number,
-            colony, city, state, zip_code, country, phone, reference, reception_hours
+            colony, city, state, zip_code, country, phone, reference, reception_hours, is_ocurre
         } = req.body;
 
         if (!contact_name || !street || !exterior_number || !colony || !city || !state || !zip_code) {
@@ -654,11 +654,11 @@ export const createMyAddress = async (req: Request, res: Response): Promise<void
         const result = await pool.query(
             `INSERT INTO addresses
              (user_id, alias, recipient_name, street, exterior_number, interior_number,
-              neighborhood, city, state, zip_code, phone, reference, reception_hours, is_default, default_for_service)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+              neighborhood, city, state, zip_code, phone, reference, reception_hours, is_default, default_for_service, is_ocurre)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
              RETURNING *`,
             [userId, alias || 'Principal', contact_name, street, exterior_number, interior_number || null,
-             colony, city, state, zip_code, phone || null, reference || null, reception_hours || null, isFirst, default_for_service || null]
+             colony, city, state, zip_code, phone || null, reference || null, reception_hours || null, isFirst, default_for_service || null, is_ocurre === true]
         );
 
         await pool.query('UPDATE users SET has_address = TRUE WHERE id = $1', [userId]);
@@ -687,37 +687,38 @@ export const updateMyAddress = async (req: Request, res: Response): Promise<void
 
         const {
             alias, contact_name, street, exterior_number, interior_number,
-            colony, city, state, zip_code, phone, reference, reception_hours, default_for_service
+            colony, city, state, zip_code, phone, reference, reception_hours, default_for_service, is_ocurre
         } = req.body;
 
         // Si asigna como default para un servicio, quitar ese default de otras direcciones
         if (default_for_service) {
             await pool.query(
-                `UPDATE addresses SET default_for_service = NULL 
+                `UPDATE addresses SET default_for_service = NULL
                  WHERE user_id = $1 AND default_for_service = $2 AND id != $3`,
                 [userId, default_for_service, addressId]
             );
         }
 
         const result = await pool.query(
-            `UPDATE addresses 
+            `UPDATE addresses
              SET alias = COALESCE($1, alias),
                  recipient_name = COALESCE($2, recipient_name),
-                 street = COALESCE($3, street), 
+                 street = COALESCE($3, street),
                  exterior_number = COALESCE($4, exterior_number),
                  interior_number = COALESCE($5, interior_number),
-                 neighborhood = COALESCE($6, neighborhood), 
-                 city = COALESCE($7, city), 
+                 neighborhood = COALESCE($6, neighborhood),
+                 city = COALESCE($7, city),
                  state = COALESCE($8, state),
-                 zip_code = COALESCE($9, zip_code), 
-                 phone = COALESCE($10, phone), 
+                 zip_code = COALESCE($9, zip_code),
+                 phone = COALESCE($10, phone),
                  reference = COALESCE($11, reference),
                  reception_hours = COALESCE($12, reception_hours),
-                 default_for_service = $13
+                 default_for_service = $13,
+                 is_ocurre = COALESCE($16, is_ocurre)
              WHERE id = $14 AND user_id = $15
              RETURNING *`,
-            [alias, contact_name, street, exterior_number, interior_number, colony, city, state, zip_code, 
-             phone, reference, reception_hours, default_for_service, addressId, userId]
+            [alias, contact_name, street, exterior_number, interior_number, colony, city, state, zip_code,
+             phone, reference, reception_hours, default_for_service, addressId, userId, typeof is_ocurre === 'boolean' ? is_ocurre : null]
         );
 
         if (result.rows.length === 0) {

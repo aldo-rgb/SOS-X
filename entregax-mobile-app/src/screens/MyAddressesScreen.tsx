@@ -10,6 +10,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from 'react-native';
 import {
   Appbar,
@@ -182,6 +183,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
     reception_start: '',
     reception_end: '',
     reception_notes: '',
+    is_ocurre: false,
   });
 
   const fetchAddresses = useCallback(async () => {
@@ -222,6 +224,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
       reception_start: '',
       reception_end: '',
       reception_notes: '',
+      is_ocurre: false,
     });
     setEditingAddress(null);
   };
@@ -280,6 +283,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
       reception_start: rh.start,
       reception_end: rh.end,
       reception_notes: rh.notes,
+      is_ocurre: (address as any).is_ocurre || false,
     });
     setShowModal(true);
   };
@@ -316,6 +320,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
         phone: form.phone,
         reference: form.reference,
         reception_hours,
+        is_ocurre: form.is_ocurre,
       };
 
       const response = await fetch(url, {
@@ -819,6 +824,15 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                   value={form.reception_notes}
                   onChangeText={(text) => setForm({ ...form, reception_notes: text })}
                 />
+
+                {/* Ocurre: recolección en oficina (no entrega a domicilio) */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <Text style={styles.inputLabel}>Ocurre (recolección en oficina)</Text>
+                    <Text style={{ fontSize: 11, color: '#888', marginTop: -2 }}>Actívalo si se recoge en oficina/sucursal en vez de entrega a domicilio.</Text>
+                  </View>
+                  <Switch value={form.is_ocurre} onValueChange={(v) => setForm({ ...form, is_ocurre: v })} trackColor={{ false: '#ddd', true: ORANGE + '80' }} thumbColor={form.is_ocurre ? ORANGE : '#f4f3f4'} />
+                </View>
               </View>
             </ScrollView>
 

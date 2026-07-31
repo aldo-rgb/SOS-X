@@ -184,6 +184,7 @@ const addressBaseFields = {
   reception_hours: z.string().trim().max(120).optional().nullable(),
   default_for_service: z.string().trim().max(200).optional().nullable(),
   is_default: z.boolean().optional(),
+  is_ocurre: z.boolean().optional(),
 };
 
 /** POST /api/addresses (app móvil) */

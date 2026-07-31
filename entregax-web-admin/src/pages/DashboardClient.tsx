@@ -1423,6 +1423,7 @@ export default function DashboardClient() {
     phone: '',
     reference: '',
     reception_hours: '',
+    is_ocurre: false,
     service_types: [] as string[],
     carrier_config: {} as Record<string, string>,
   });
@@ -4271,6 +4272,7 @@ export default function DashboardClient() {
         phone,
         reference: addressForm.reference,
         reception_hours: addressForm.reception_hours,
+        is_ocurre: addressForm.is_ocurre,
         default_for_service: addressForm.service_types.length > 0 ? addressForm.service_types.join(',') : null,
       };
       
@@ -4337,6 +4339,7 @@ export default function DashboardClient() {
         phone: '',
         reference: '',
         reception_hours: '',
+        is_ocurre: false,
         service_types: [],
         carrier_config: {},
       });
@@ -4445,6 +4448,7 @@ export default function DashboardClient() {
       phone: phone,
       reference: address.reference || '',
       reception_hours: address.reception_hours || '',
+      is_ocurre: (address as any).is_ocurre || false,
       service_types: serviceTypes,
       carrier_config: address.carrier_config || {},
     });
@@ -8242,6 +8246,7 @@ export default function DashboardClient() {
                             phone: '',
                             reference: '',
                             reception_hours: '',
+                            is_ocurre: false,
                             service_types: [],
                             carrier_config: {} as Record<string, string>,
                           });
@@ -10812,6 +10817,14 @@ export default function DashboardClient() {
                 value={addressForm.reception_hours}
                 onChange={(e) => setAddressForm({ ...addressForm, reception_hours: e.target.value })}
                 placeholder="Ej: Lunes a Viernes 9:00 AM - 6:00 PM, Sábado 10:00 AM - 2:00 PM"
+              />
+            </Grid>
+
+            {/* Ocurre: el cliente recoge en oficina (no entrega a domicilio) */}
+            <Grid size={12}>
+              <FormControlLabel
+                control={<Switch checked={!!addressForm.is_ocurre} onChange={(e) => setAddressForm({ ...addressForm, is_ocurre: e.target.checked })} />}
+                label={<Box><Typography variant="body2" fontWeight={600}>Ocurre (recolección en oficina)</Typography><Typography variant="caption" color="text.secondary">Actívalo si el cliente recoge en la oficina/sucursal en vez de entrega a domicilio.</Typography></Box>}
               />
             </Grid>
 
