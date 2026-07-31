@@ -72,8 +72,8 @@ const toStamp = (d: Date): string => {
 };
 
 // ── Selector de involucrados (buscable, agrupado por tipo; "Yo" siempre incluido) ──
-export function InvolvedPicker({ users, myId, selected, onChange }: {
-  users: UserOpt[]; myId: number; selected: number[]; onChange: (ids: number[]) => void;
+export function InvolvedPicker({ users, myId, selected, onChange, fixedLabel = 'Yo' }: {
+  users: UserOpt[]; myId: number; selected: number[]; onChange: (ids: number[]) => void; fixedLabel?: string;
 }) {
   const [q, setQ] = useState('');
   const others = users.filter(u => u.id !== myId);
@@ -92,7 +92,7 @@ export function InvolvedPicker({ users, myId, selected, onChange }: {
   return (
     <View>
       <View style={styles.involvedChips}>
-        <View style={styles.meChip}><Text style={styles.meChipTxt}>Yo</Text></View>
+        <View style={styles.meChip}><Text style={styles.meChipTxt}>{fixedLabel}</Text></View>
         {selected.map(id => {
           const u = users.find(x => x.id === id);
           if (!u) return null;
@@ -460,6 +460,8 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const [eDesc, setEDesc] = useState('');
   const [eEis, setEEis] = useState('estrella');
   const [eDue, setEDue] = useState('keep');
+  const [eUsers, setEUsers] = useState<UserOpt[]>([]);
+  const [eInvolved, setEInvolved] = useState<number[]>([]);
 
   const H = { Authorization: `Bearer ${token}` };
   // silent = refresco en segundo plano (sin spinner) para no tapar el contenido
@@ -477,11 +479,20 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const beginEdit = () => {
     if (!t) return;
     setETitle(t.title || ''); setEDesc(t.description || ''); setEEis(t.eisenhower || 'estrella'); setEDue('keep');
+    if (t.board_key === 'personales') {
+      const creatorId = Number(t.created_by) || 0;
+      const parts = (data?.participants || []).map((p: any) => Number(p.id)).filter((pid: number) => pid !== creatorId);
+      setEInvolved(parts);
+      if (eUsers.length === 0) {
+        fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => setEUsers(d.users || [])).catch(() => {});
+      }
+    }
     setEditing(true);
   };
   const saveEdit = async () => {
     if (!eTitle.trim()) { Alert.alert('Falta título', 'El título no puede quedar vacío.'); return; }
     const body: any = { title: eTitle.trim(), description: eDesc || null, eisenhower: eEis };
+    if (t.board_key === 'personales') { const cid = Number(t.created_by) || 0; body.involved_ids = cid ? [cid, ...eInvolved] : eInvolved; }
     if (eDue !== 'keep') {
       if (eDue === 'none') body.due_at = null;
       else {
@@ -616,6 +627,13 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                     ))}
                   </View>
                   {eDue === 'keep' && !!t.due_at && <Text style={styles.helpTxt}>Actual: {fmtDate(t.due_at)}</Text>}
+                  {t.board_key === 'personales' && (
+                    <>
+                      <Text style={styles.fieldLbl}>Responsables</Text>
+                      <InvolvedPicker users={eUsers} myId={Number(t.created_by) || 0} selected={eInvolved} onChange={setEInvolved} fixedLabel={t.created_by_name || 'Creador'} />
+                      <Text style={styles.helpTxt}>El creador siempre queda incluido. El primero que agregues será el responsable principal.</Text>
+                    </>
+                  )}
                   <View style={styles.editBtns}>
                     <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditing(false)} disabled={busy}><Text style={styles.cancelBtnTxt}>Cancelar</Text></TouchableOpacity>
                     <TouchableOpacity style={styles.saveBtn} onPress={saveEdit} disabled={busy}>

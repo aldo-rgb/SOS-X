@@ -554,12 +554,14 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
     const t = await pool.query(`
       SELECT t.*, u.full_name AS assignee_name, u.referral_code AS assignee_referral_code,
              cu.full_name AS created_by_name,
-             fc.full_name AS forced_close_name, col.name AS column_name
+             fc.full_name AS forced_close_name, col.name AS column_name,
+             bd.board_key AS board_key
         FROM tasks t
         LEFT JOIN users u ON u.id = t.assignee_id
         LEFT JOIN users cu ON cu.id = t.created_by
         LEFT JOIN users fc ON fc.id = t.forced_close_by
         LEFT JOIN task_columns col ON col.id = t.column_id
+        LEFT JOIN task_boards bd ON bd.id = t.board_id
        WHERE t.id = $1`, [id]);
     if (t.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
     const subs = await pool.query(
@@ -741,6 +743,26 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
     if (b.assignee_id !== undefined && Number(b.assignee_id) && Number(b.assignee_id) !== Number(task.assignee_id)) {
       await logActivity(id, uid, 'assigned', { assignee_id: updated.assignee_id });
       await notify(updated.assignee_id, '📋 Te asignaron una tarea', updated.title, { task_id: id });
+    }
+    // Editar involucrados (solo tableros personales): reemplaza la lista y ajusta
+    // el responsable principal. El creador SIEMPRE queda incluido.
+    if (Array.isArray(b.involved_ids)) {
+      const bk = await pool.query(`SELECT board_key FROM task_boards WHERE id = $1`, [updated.board_id]);
+      if (bk.rows[0]?.board_key === 'personales') {
+        const extra: number[] = b.involved_ids.map((x: any) => parseInt(String(x))).filter((n: number) => Number.isFinite(n) && n > 0);
+        const creator = Number(updated.created_by) || Number(uid) || 0;
+        const participants = Array.from(new Set<number>([creator, ...extra].filter(n => n > 0)));
+        const primary = extra.length ? extra[0] : creator;
+        const prev = (await pool.query(`SELECT user_id FROM task_participants WHERE task_id=$1`, [id])).rows.map((r: any) => Number(r.user_id));
+        await pool.query(`DELETE FROM task_participants WHERE task_id = $1`, [id]);
+        for (const p of participants) await pool.query(`INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [id, p]);
+        if (Number(updated.assignee_id) !== primary) {
+          await pool.query(`UPDATE tasks SET assignee_id=$2, updated_at=NOW() WHERE id=$1`, [id, primary]);
+          updated.assignee_id = primary;
+        }
+        for (const p of participants) if (p !== creator && !prev.includes(p)) await notify(p, '📋 Te involucraron en una tarea', updated.title, { task_id: id });
+        await logActivity(id, uid, 'participants_updated', { participants });
+      }
     }
     res.json({ task: updated });
   } catch (e: any) {

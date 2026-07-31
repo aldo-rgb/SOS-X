@@ -90,15 +90,19 @@ const ROLE_LABEL: Record<string, string> = {
 const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r : 'Otros');
 
 // Selector reutilizable de "Involucrados" (buscador agrupado por tipo).
-function InvolvedPicker({ users, involvedIds, setInvolvedIds }: { users: UserOpt[]; involvedIds: number[]; setInvolvedIds: (v: number[]) => void }) {
+// `fixedId` = usuario que SIEMPRE queda incluido (por defecto el usuario actual;
+// al editar, el creador de la tarea). `fixedLabel` = etiqueta del chip fijo.
+function InvolvedPicker({ users, involvedIds, setInvolvedIds, fixedId = MY_ID, fixedLabel = 'Yo' }: {
+  users: UserOpt[]; involvedIds: number[]; setInvolvedIds: (v: number[]) => void; fixedId?: number; fixedLabel?: string;
+}) {
   return (
     <Box sx={{ mt: 1.5 }}>
       <Autocomplete
         multiple size="small" disableCloseOnSelect
-        options={[...users].filter(u => u.id !== MY_ID)
+        options={[...users].filter(u => u.id !== fixedId)
           .sort((a, b) => roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name))}
-        value={users.filter(u => u.id !== MY_ID && involvedIds.includes(u.id))}
-        onChange={(_, val) => setInvolvedIds([...(MY_ID ? [MY_ID] : []), ...val.map(u => u.id)])}
+        value={users.filter(u => u.id !== fixedId && involvedIds.includes(u.id))}
+        onChange={(_, val) => setInvolvedIds([...(fixedId ? [fixedId] : []), ...val.map(u => u.id)])}
         groupBy={(u) => roleGroup(u.role)}
         getOptionLabel={(u) => u.full_name}
         isOptionEqualToValue={(a, b) => a.id === b.id}
@@ -116,7 +120,7 @@ function InvolvedPicker({ users, involvedIds, setInvolvedIds }: { users: UserOpt
           </li>
         )}
         renderTags={(value, getTagProps) => [
-          <Chip key="me" label="Yo" size="small" sx={{ bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700 }} />,
+          <Chip key="me" label={fixedLabel} size="small" sx={{ bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700 }} />,
           ...value.map((u, i) => { const { key, ...tp } = getTagProps({ index: i }) as any; return <Chip key={u.id} {...tp} label={u.full_name} size="small" />; }),
         ]}
         renderInput={(params) => <TextField {...params} label="Involucrados" placeholder="Buscar por nombre o tipo…" />}
@@ -445,6 +449,8 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [commitDate, setCommitDate] = useState('');
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<any>({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
+  const [editInvolved, setEditInvolved] = useState<number[]>([]);
+  const [users, setUsers] = useState<UserOpt[]>([]);
 
   const reload = useCallback(async () => {
     try { const r = await axios.get(`${API_URL}/tasks/${id}`, H()); setData(r.data); } catch { /* */ }
@@ -513,18 +519,27 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     if (!a || !b) return null;
     return fmtDur(new Date(b).getTime() - new Date(a).getTime());
   };
+  const isPersonal = t?.board_key === 'personales';
   const openEdit = () => {
     setEdit({ title: t.title || '', description: t.description || '', eisenhower: t.eisenhower || 'estrella', due_at: toLocalInput(t.due_at) });
+    // Involucrados actuales (participantes). El creador siempre queda incluido.
+    const parts = (data.participants || []).map((p: any) => Number(p.id));
+    setEditInvolved(parts.length ? parts : (t.created_by ? [Number(t.created_by)] : []));
+    if (isPersonal && users.length === 0) {
+      axios.get(`${API_URL}/tasks/assignable-users`, H()).then(r => setUsers(r.data?.users || [])).catch(() => {});
+    }
     setEditing(true);
   };
   const saveEdit = async () => {
     if (!edit.title.trim()) { notify('El título es obligatorio', 'error'); return; }
     setBusy(true);
     try {
-      await axios.put(`${API_URL}/tasks/${id}`, {
+      const payload: any = {
         title: edit.title.trim(), description: edit.description || null,
         eisenhower: edit.eisenhower, due_at: edit.due_at || null,
-      }, H());
+      };
+      if (isPersonal) payload.involved_ids = editInvolved;
+      await axios.put(`${API_URL}/tasks/${id}`, payload, H());
       setEditing(false); notify('Tarea actualizada'); reload(); onChanged();
     } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo editar', 'error'); }
     finally { setBusy(false); }
@@ -562,6 +577,15 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                   <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
                     value={edit.due_at} onChange={e => setEdit({ ...edit, due_at: e.target.value })} />
                 </Box>
+                {isPersonal && (
+                  <>
+                    <InvolvedPicker users={users} involvedIds={editInvolved} setInvolvedIds={setEditInvolved}
+                      fixedId={Number(t.created_by) || undefined} fixedLabel={t.created_by_name || 'Creador'} />
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      El creador siempre queda incluido. El primero que agregues será el responsable principal.
+                    </Typography>
+                  </>
+                )}
                 <Box sx={{ display: 'flex', gap: 1, mt: 1.5, justifyContent: 'flex-end' }}>
                   <Button size="small" onClick={() => setEditing(false)} disabled={busy}>Cancelar</Button>
                   <Button size="small" variant="contained" onClick={saveEdit} disabled={busy} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Guardar</Button>
