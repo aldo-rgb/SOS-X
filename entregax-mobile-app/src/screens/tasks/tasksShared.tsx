@@ -51,6 +51,351 @@ const fmtDate = (iso?: string | null) => {
   catch { return '—'; }
 };
 
+// ── Usuarios asignables: agrupación por tipo + tiempo promedio (igual que web) ──
+export interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; }
+export const ROLE_LABEL: Record<string, string> = {
+  super_admin: 'Administración', admin: 'Administración', director: 'Dirección', finanzas: 'Finanzas',
+  accountant: 'Contabilidad', abogado: 'Legal', branch_manager: 'Operación CEDIS', operaciones: 'Operaciones',
+  warehouse_ops: 'Bodega', counter_staff: 'Mostrador', customer_service: 'Servicio a cliente',
+  soporte_tecnico: 'Soporte técnico', advisor: 'Asesores', sub_advisor: 'Sub-asesores',
+  repartidor: 'Repartidores', monitoreo: 'Monitoreo',
+};
+export const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r : 'Otros');
+export const avgLabel = (u: UserOpt): string => {
+  const s = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
+  return s && s > 0 ? `⏱ ${fmtDur(s * 1000)} prom.` : '⏱ sin datos';
+};
+// 'YYYY-MM-DDTHH:mm' en hora local (mismo formato que el datetime-local de web).
+const toStamp = (d: Date): string => {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+// ── Selector de involucrados (buscable, agrupado por tipo; "Yo" siempre incluido) ──
+export function InvolvedPicker({ users, myId, selected, onChange }: {
+  users: UserOpt[]; myId: number; selected: number[]; onChange: (ids: number[]) => void;
+}) {
+  const [q, setQ] = useState('');
+  const others = users.filter(u => u.id !== myId);
+  const ql = q.trim().toLowerCase();
+  const filtered = others.filter(u => !ql || u.full_name.toLowerCase().includes(ql) || roleGroup(u.role).toLowerCase().includes(ql))
+    .sort((a, b) => roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name));
+  // Agrupa por tipo para render.
+  const groups: Array<{ g: string; items: UserOpt[] }> = [];
+  filtered.forEach(u => {
+    const g = roleGroup(u.role);
+    let bucket = groups.find(x => x.g === g);
+    if (!bucket) { bucket = { g, items: [] }; groups.push(bucket); }
+    bucket.items.push(u);
+  });
+  const toggle = (id: number) => onChange(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id]);
+  return (
+    <View>
+      <View style={styles.involvedChips}>
+        <View style={styles.meChip}><Text style={styles.meChipTxt}>Yo</Text></View>
+        {selected.map(id => {
+          const u = users.find(x => x.id === id);
+          if (!u) return null;
+          return (
+            <TouchableOpacity key={id} style={styles.selChip} onPress={() => toggle(id)}>
+              <Text style={styles.selChipTxt}>{u.full_name}</Text>
+              <Ionicons name="close" size={13} color="#5E35B1" />
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <TextInput style={[styles.input, { marginTop: 8 }]} placeholder="Buscar por nombre o tipo…" value={q} onChangeText={setQ} placeholderTextColor="#999" />
+      <View style={styles.involvedList}>
+        <ScrollView nestedScrollEnabled style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
+          {groups.length === 0 ? <Text style={[styles.metaMuted, { padding: 10 }]}>Sin coincidencias.</Text> :
+            groups.map(gr => (
+              <View key={gr.g}>
+                <Text style={styles.groupHead}>{gr.g}</Text>
+                {gr.items.map(u => {
+                  const on = selected.includes(u.id);
+                  return (
+                    <TouchableOpacity key={u.id} style={styles.optRow} onPress={() => toggle(u.id)}>
+                      <Ionicons name={on ? 'checkbox' : 'square-outline'} size={20} color={on ? '#5E35B1' : '#AAA'} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.optName}>{u.full_name}</Text>
+                        <Text style={styles.optMeta}>{avgLabel(u)}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
+// ── Selector de prioridad Eisenhower (chips) ──
+function EisPicker({ value, onChange }: { value: string; onChange: (k: string) => void }) {
+  return (
+    <View style={styles.eisRow}>
+      {Object.entries(EIS).map(([k, v]) => {
+        const on = value === k;
+        return (
+          <TouchableOpacity key={k} onPress={() => onChange(k)}
+            style={[styles.eisChip, { backgroundColor: on ? v.color : v.bg, borderColor: v.color }]}>
+            <Text style={[styles.eisChipTxt, { color: on ? '#fff' : v.color }]}>{v.short}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+// ── Modal: crear tarea (mismas funciones que web) ──
+export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
+  visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void;
+}) {
+  const [users, setUsers] = useState<UserOpt[]>([]);
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [eis, setEis] = useState('estrella');
+  const [dueOpt, setDueOpt] = useState<string>('none');
+  const [involved, setInvolved] = useState<number[]>([]);
+  const [photos, setPhotos] = useState<Array<{ uri: string; name?: string; type?: string }>>([]);
+  const [busy, setBusy] = useState(false);
+  const H = { Authorization: `Bearer ${token}` };
+
+  useEffect(() => {
+    if (!visible) return;
+    setTitle(''); setDesc(''); setEis('estrella'); setDueOpt('none'); setInvolved([]); setPhotos([]);
+    fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H })
+      .then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
+  }, [visible]);
+
+  const dueStamp = (): string | null => {
+    if (dueOpt === 'none') return null;
+    const d = new Date();
+    if (dueOpt === 'today') { d.setHours(18, 0, 0, 0); }
+    else if (dueOpt === 'tomorrow') { d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); }
+    else if (dueOpt === 'd3') { d.setDate(d.getDate() + 3); d.setHours(9, 0, 0, 0); }
+    else if (dueOpt === 'week') { d.setDate(d.getDate() + 7); d.setHours(9, 0, 0, 0); }
+    return toStamp(d);
+  };
+
+  const pickPhoto = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permiso', 'Se necesita acceso a las fotos.'); return; }
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
+      if (res.canceled || !res.assets?.[0]) return;
+      const a = res.assets[0];
+      setPhotos(prev => [...prev, { uri: a.uri, name: a.fileName || 'foto.jpg', type: a.mimeType || 'image/jpeg' }]);
+    } catch { /* */ }
+  };
+
+  const submit = async () => {
+    if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
+    setBusy(true);
+    try {
+      const r = await fetch(`${API_URL}/api/tasks/personal`, {
+        method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, due_at: dueStamp() }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo crear', e.error || ''); setBusy(false); return; }
+      const d = await r.json();
+      const newId = d?.task?.id;
+      for (const p of photos) {
+        try {
+          const fd = new FormData();
+          fd.append('photo', { uri: p.uri, name: p.name || 'foto.jpg', type: p.type || 'image/jpeg' } as any);
+          await fetch(`${API_URL}/api/tasks/${newId}/attachments`, { method: 'POST', headers: H, body: fd });
+        } catch { /* continúa */ }
+      }
+      onCreated(); onClose();
+    } catch { Alert.alert('Error', 'No se pudo crear la tarea'); } finally { setBusy(false); }
+  };
+
+  const DUE_OPTS = [
+    { k: 'none', l: 'Sin fecha' }, { k: 'today', l: 'Hoy' }, { k: 'tomorrow', l: 'Mañana' },
+    { k: 'd3', l: '+3 días' }, { k: 'week', l: 'Próx. semana' },
+  ];
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHead}>
+            <Text style={styles.modalTitle}>Nueva tarea</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={10}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+            <Text style={styles.fieldLbl}>Título</Text>
+            <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
+            <Text style={styles.fieldLbl}>Descripción</Text>
+            <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
+            <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
+            <EisPicker value={eis} onChange={setEis} />
+            <Text style={styles.fieldLbl}>Fecha deseada</Text>
+            <View style={styles.eisRow}>
+              {DUE_OPTS.map(o => (
+                <TouchableOpacity key={o.k} onPress={() => setDueOpt(o.k)} style={[styles.dateChip, dueOpt === o.k && styles.dateChipOn]}>
+                  <Text style={[styles.dateChipTxt, dueOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.fieldLbl}>Involucrados</Text>
+            <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} />
+            <Text style={styles.helpTxt}>Tú siempre quedas incluido. Agrega a quien deba participar.</Text>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
+              <Text style={[styles.fieldLbl, { marginTop: 0 }]}>Fotos {photos.length > 0 && `(${photos.length})`}</Text>
+              <TouchableOpacity onPress={pickPhoto} style={styles.photoBtn}><Ionicons name="camera-outline" size={16} color={ORANGE} /><Text style={styles.photoBtnTxt}>Agregar</Text></TouchableOpacity>
+            </View>
+            {photos.length > 0 && (
+              <View style={styles.photoGrid}>
+                {photos.map((p, i) => (
+                  <View key={i} style={{ position: 'relative' }}>
+                    <Image source={{ uri: p.uri }} style={styles.photo} />
+                    <TouchableOpacity onPress={() => setPhotos(prev => prev.filter((_, idx) => idx !== i))} style={styles.photoDel}><Ionicons name="close" size={12} color="#fff" /></TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+          </ScrollView>
+          <View style={styles.modalFoot}>
+            <TouchableOpacity style={[styles.completeBtn, { backgroundColor: ORANGE }]} onPress={submit} disabled={busy}>
+              {busy ? <ActivityIndicator color="#fff" /> : <><Ionicons name="add-circle" size={18} color="#fff" /><Text style={styles.completeTxt}>Crear tarea</Text></>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ── Modal: programar tarea (futura / recurrente) ──
+export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: {
+  visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void;
+}) {
+  const [users, setUsers] = useState<UserOpt[]>([]);
+  const [schedules, setSchedules] = useState<any[]>([]);
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [eis, setEis] = useState('estrella');
+  const [dayOpt, setDayOpt] = useState('tomorrow');
+  const [hour, setHour] = useState(9);
+  const [recurrence, setRecurrence] = useState('none');
+  const [involved, setInvolved] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+  const H = { Authorization: `Bearer ${token}` };
+
+  const loadSchedules = () => fetch(`${API_URL}/api/tasks/schedules`, { headers: H })
+    .then(r => r.json()).then(d => setSchedules(d.schedules || [])).catch(() => {});
+  useEffect(() => {
+    if (!visible) return;
+    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setHour(9); setRecurrence('none'); setInvolved([]);
+    fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
+    loadSchedules();
+  }, [visible]);
+
+  const firstRunStamp = (): string => {
+    const d = new Date();
+    if (dayOpt === 'today') { /* hoy */ }
+    else if (dayOpt === 'tomorrow') d.setDate(d.getDate() + 1);
+    else if (dayOpt === 'd3') d.setDate(d.getDate() + 3);
+    else if (dayOpt === 'week') d.setDate(d.getDate() + 7);
+    d.setHours(hour, 0, 0, 0);
+    return toStamp(d);
+  };
+
+  const submit = async () => {
+    if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
+    setBusy(true);
+    try {
+      const r = await fetch(`${API_URL}/api/tasks/schedules`, {
+        method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, first_run_at: firstRunStamp(), recurrence }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo programar', e.error || ''); setBusy(false); return; }
+      setTitle(''); setDesc(''); setInvolved([]);
+      loadSchedules(); onCreated();
+      Alert.alert('Programada', 'La tarea se creará automáticamente en la fecha elegida.');
+    } catch { Alert.alert('Error', 'No se pudo programar'); } finally { setBusy(false); }
+  };
+  const del = async (id: number) => {
+    try { await fetch(`${API_URL}/api/tasks/schedules/${id}`, { method: 'DELETE', headers: H }); loadSchedules(); } catch { /* */ }
+  };
+
+  const DAY_OPTS = [{ k: 'today', l: 'Hoy' }, { k: 'tomorrow', l: 'Mañana' }, { k: 'd3', l: '+3 días' }, { k: 'week', l: 'Próx. semana' }];
+  const HOURS = [9, 12, 15, 18];
+  const RECUR = [{ k: 'none', l: 'Una vez' }, { k: 'daily', l: 'Diaria' }, { k: 'weekly', l: 'Semanal' }, { k: 'monthly', l: 'Mensual' }];
+  const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual' };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHead}>
+            <Text style={styles.modalTitle}>📅 Programar tarea</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={10}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+            <Text style={styles.helpTxt}>La tarea se creará automáticamente en la fecha y hora elegidas. Si es recurrente, se regenera en cada ciclo.</Text>
+            <Text style={styles.fieldLbl}>Título</Text>
+            <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
+            <Text style={styles.fieldLbl}>Descripción</Text>
+            <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
+            <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
+            <EisPicker value={eis} onChange={setEis} />
+            <Text style={styles.fieldLbl}>Primera ejecución</Text>
+            <View style={styles.eisRow}>
+              {DAY_OPTS.map(o => (
+                <TouchableOpacity key={o.k} onPress={() => setDayOpt(o.k)} style={[styles.dateChip, dayOpt === o.k && styles.dateChipOn]}>
+                  <Text style={[styles.dateChipTxt, dayOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={[styles.eisRow, { marginTop: 6 }]}>
+              {HOURS.map(h => (
+                <TouchableOpacity key={h} onPress={() => setHour(h)} style={[styles.dateChip, hour === h && styles.dateChipOn]}>
+                  <Text style={[styles.dateChipTxt, hour === h && { color: '#fff' }]}>{String(h).padStart(2, '0')}:00</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.fieldLbl}>Repetir</Text>
+            <View style={styles.eisRow}>
+              {RECUR.map(o => (
+                <TouchableOpacity key={o.k} onPress={() => setRecurrence(o.k)} style={[styles.dateChip, recurrence === o.k && styles.dateChipOn]}>
+                  <Text style={[styles.dateChipTxt, recurrence === o.k && { color: '#fff' }]}>{o.l}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.fieldLbl}>Involucrados</Text>
+            <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} />
+
+            {schedules.length > 0 && (
+              <View style={{ marginTop: 18 }}>
+                <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Programaciones activas</Text>
+                {schedules.map(s => (
+                  <View key={s.id} style={styles.schedRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.schedTitle} numberOfLines={1}>{s.title}</Text>
+                      <Text style={styles.optMeta}>{RECUR_LABEL[s.recurrence] || 'Una vez'} · próxima: {fmtDate(s.next_run_at)}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => del(s.id)} hitSlop={8}><Ionicons name="trash-outline" size={18} color="#BBB" /></TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+          </ScrollView>
+          <View style={styles.modalFoot}>
+            <TouchableOpacity style={[styles.completeBtn, { backgroundColor: '#B07206' }]} onPress={submit} disabled={busy}>
+              {busy ? <ActivityIndicator color="#fff" /> : <><Ionicons name="calendar" size={18} color="#fff" /><Text style={styles.completeTxt}>Programar</Text></>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export interface TaskT {
   id: number; board_id?: number; column_id?: number; section_id?: number | null;
   title: string; description?: string; assignee_id?: number; assignee_name?: string;
@@ -423,6 +768,29 @@ export const styles = StyleSheet.create({
   toggleBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   toggleBtnActive: { backgroundColor: '#fff' },
   toggleTxt: { fontSize: 13, fontWeight: '700', color: '#777' },
+
+  // Crear / programar
+  fieldLbl: { fontSize: 13, fontWeight: '800', color: '#333', marginTop: 14, marginBottom: 6 },
+  inputMulti: { height: 72, textAlignVertical: 'top', paddingTop: 10 },
+  helpTxt: { fontSize: 11.5, color: '#888', marginTop: 6 },
+  eisRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  eisChip: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 16, borderWidth: 1 },
+  eisChipTxt: { fontSize: 12, fontWeight: '700' },
+  dateChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, backgroundColor: '#F0F0F0' },
+  dateChipOn: { backgroundColor: ORANGE },
+  dateChipTxt: { fontSize: 12.5, fontWeight: '700', color: '#555' },
+  involvedChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
+  meChip: { backgroundColor: '#EDE7F6', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
+  meChipTxt: { color: '#5E35B1', fontWeight: '800', fontSize: 12 },
+  selChip: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F3EEFB', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
+  selChipTxt: { color: '#5E35B1', fontWeight: '700', fontSize: 12 },
+  involvedList: { marginTop: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: '#DDD', borderRadius: 10, backgroundColor: '#FAFAFA' },
+  groupHead: { fontSize: 11, fontWeight: '800', color: '#999', textTransform: 'uppercase', letterSpacing: 0.4, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 2 },
+  optRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  optName: { fontSize: 14, color: '#222', fontWeight: '600' },
+  optMeta: { fontSize: 11, color: '#999', marginTop: 1 },
+  schedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#EEE' },
+  schedTitle: { fontSize: 13.5, fontWeight: '700', color: '#222' },
 
   quad: { borderRadius: 12, padding: 10, borderTopWidth: 3 },
   quadHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },

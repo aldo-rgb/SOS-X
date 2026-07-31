@@ -9,17 +9,20 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { API_URL } from '../services/api';
-import { ORANGE, BG, TaskCard, TaskDetailModal, ViewToggle, MatrixView, TaskT } from './tasks/tasksShared';
+import { ORANGE, BG, TaskCard, TaskDetailModal, ViewToggle, MatrixView, CreateTaskModal, ScheduleTaskModal, TaskT } from './tasks/tasksShared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MyTasks'>;
 
 export default function MisTareasScreen({ navigation, route }: Props) {
-  const { token } = route.params;
+  const { token, user } = route.params;
+  const myId = Number(user?.id) || 0;
   const [tasks, setTasks] = useState<TaskT[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [view, setView] = useState<'list' | 'matrix'>('list');
   const [openId, setOpenId] = useState<number | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [schedOpen, setSchedOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -44,6 +47,15 @@ export default function MisTareasScreen({ navigation, route }: Props) {
 
       <View style={styles.toolbar}>
         <ViewToggle view={view} onChange={setView} firstLabel="Lista" />
+        <View style={{ flex: 1 }} />
+        <TouchableOpacity style={styles.schedBtn} onPress={() => setSchedOpen(true)}>
+          <Ionicons name="calendar-outline" size={16} color="#B07206" />
+          <Text style={styles.schedBtnTxt}>Programar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.newBtn} onPress={() => setCreateOpen(true)}>
+          <Ionicons name="add" size={18} color="#fff" />
+          <Text style={styles.newBtnTxt}>Nueva</Text>
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -65,6 +77,10 @@ export default function MisTareasScreen({ navigation, route }: Props) {
 
       <TaskDetailModal visible={openId != null} taskId={openId} token={token} canManage={false}
         onClose={() => setOpenId(null)} onChanged={load} />
+      <CreateTaskModal visible={createOpen} token={token} myId={myId}
+        onClose={() => setCreateOpen(false)} onCreated={load} />
+      <ScheduleTaskModal visible={schedOpen} token={token} myId={myId}
+        onClose={() => setSchedOpen(false)} onCreated={load} />
     </SafeAreaView>
   );
 }
@@ -77,5 +93,9 @@ const styles = StyleSheet.create({
   hBtn: { padding: 6 },
   hTitle: { color: '#fff', fontSize: 17, fontWeight: '700' },
   hSub: { color: '#FFE0D2', fontSize: 12, marginTop: 2 },
-  toolbar: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#DDD' },
+  toolbar: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#DDD', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  schedBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#B07206' },
+  schedBtnTxt: { color: '#B07206', fontWeight: '800', fontSize: 12.5 },
+  newBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 12, height: 34, borderRadius: 17, backgroundColor: ORANGE },
+  newBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 13 },
 });
