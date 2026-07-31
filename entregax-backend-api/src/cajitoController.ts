@@ -711,7 +711,21 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
 
     // Cargar usuario (para system prompt)
     const u = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [userId]);
-    const systemPrompt = buildSystemPrompt({ userId, role, full_name: u.rows[0]?.full_name }, caps);
+    let systemPrompt = buildSystemPrompt({ userId, role, full_name: u.rows[0]?.full_name }, caps);
+
+    // Inyectar los TEMAS documentados en la base de conocimiento. Así el modelo
+    // sabe con certeza qué SÍ está documentado y deja de inventar procedimientos
+    // de temas que NO existen en la base.
+    try {
+      const kb = await pool.query(`SELECT title FROM cajito_knowledge WHERE is_active = TRUE ORDER BY updated_at DESC LIMIT 200`);
+      if (kb.rows.length > 0) {
+        systemPrompt += '\n\n=== TEMAS EN TU BASE DE CONOCIMIENTO (procedimientos documentados) ===\n'
+          + kb.rows.map((k: any) => `- ${k.title}`).join('\n')
+          + '\n\nPara preguntas de "cómo/dónde hago X" o procedimientos: si el tema coincide con uno de arriba, LLAMA a search_knowledge y responde SOLO con lo que devuelva. Si el tema NO está en esta lista, di textualmente que no tienes ese procedimiento documentado y que un administrador debe registrarlo — NUNCA inventes pasos, rutas del panel ni nombres de botones.';
+      } else {
+        systemPrompt += '\n\n=== BASE DE CONOCIMIENTO VACÍA ===\nNo hay procedimientos documentados. Para preguntas de "cómo/dónde hago X" di que no tienes esa información documentada y NO inventes pasos, rutas del panel ni nombres de botones.';
+      }
+    } catch { /* si falla, seguimos sin la inyección */ }
 
     // Cargar historial reciente (últimos 20 mensajes user/assistant) para contexto
     const hist = await pool.query(

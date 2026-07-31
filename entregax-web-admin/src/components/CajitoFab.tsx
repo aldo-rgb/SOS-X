@@ -25,6 +25,8 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd';
@@ -1049,6 +1051,7 @@ export default function CajitoFab() {
   const [kbManagerOpen, setKbManagerOpen] = useState(false);
   const [kbList, setKbList] = useState<any[]>([]);
   const [kbLoading, setKbLoading] = useState(false);
+  const [kbToast, setKbToast] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
   const [thinking, setThinking] = useState(false);
   const [thinkingLabel, setThinkingLabel] = useState('Cajito está pensando…');
   const [conversationId, setConversationId] = useState<number | null>(() => {
@@ -1140,8 +1143,11 @@ export default function CajitoFab() {
         await api.post('/cajito/knowledge', { title: kbDialog.title.trim(), content: kbDialog.content.trim(), tags: kbDialog.tags.trim() || null });
       }
       setKbDialog(null);
+      setKbToast({ open: true, msg: '✅ Conocimiento guardado. Cajito ya lo usará.', sev: 'success' });
       if (kbManagerOpen) loadKb();
-    } catch { /* noop */ } finally { setKbSaving(false); }
+    } catch (e: any) {
+      setKbToast({ open: true, msg: 'No se pudo guardar: ' + (e?.response?.data?.error || e?.message || 'error'), sev: 'error' });
+    } finally { setKbSaving(false); }
   };
   const loadKb = async () => {
     setKbLoading(true);
@@ -1596,6 +1602,10 @@ export default function CajitoFab() {
           <Button onClick={() => setKbManagerOpen(false)}>Cerrar</Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar open={kbToast.open} autoHideDuration={4000} onClose={() => setKbToast(t => ({ ...t, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={kbToast.sev} onClose={() => setKbToast(t => ({ ...t, open: false }))}>{kbToast.msg}</Alert>
+      </Snackbar>
     </>
   );
 }
