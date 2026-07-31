@@ -432,9 +432,11 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
     const includeAll = String(req.query.all || '') === 'true';
     const statusCond = includeAll ? `t.status <> 'cancelled'` : `t.status = 'open'`;
     const r = await pool.query(`
-      SELECT t.*, b.name AS board_name, col.name AS column_name,
+      SELECT t.*, b.name AS board_name, b.board_key, col.name AS column_name, col.is_done AS column_is_done,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id)::int AS subtasks_total,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id AND s.done)::int AS subtasks_done,
+             (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
+             (SELECT array_agg(u2.full_name ORDER BY u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_names,
              (t.due_at IS NOT NULL AND t.status='open' AND t.due_at < NOW()) AS overdue
         FROM tasks t
         JOIN task_boards b ON b.id = t.board_id
@@ -657,10 +659,14 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     if (cur.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
     const task = cur.rows[0];
     const mgr = await canManageBoard(req, task.board_id);
-    // El asignado también puede cerrar SU tarea (si el checklist está completo).
-    if (!mgr && Number(task.assignee_id) !== Number(uid)) {
-      return res.status(403).json({ error: 'Solo el responsable o gerencia puede cerrar la tarea' });
+    // El asignado o cualquier involucrado puede cerrar SU tarea.
+    const isParticipant = (await pool.query(`SELECT 1 FROM task_participants WHERE task_id=$1 AND user_id=$2`, [id, uid])).rows.length > 0;
+    if (!mgr && Number(task.assignee_id) !== Number(uid) && !isParticipant) {
+      return res.status(403).json({ error: 'Solo un involucrado o gerencia puede cerrar la tarea' });
     }
+    // Al cerrar, mover a la columna terminal (is_done) del tablero si existe.
+    const doneCol = (await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 AND is_done=TRUE ORDER BY sort_order LIMIT 1`, [task.board_id])).rows[0]?.id || null;
+    const colSet = doneCol ? `column_id=${Number(doneCol)},` : '';
     const pend = await pool.query(`SELECT COUNT(*)::int AS n FROM task_subtasks WHERE task_id = $1 AND done = FALSE`, [id]);
     const pending = pend.rows[0]?.n || 0;
     if (pending > 0) {
@@ -669,12 +675,12 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
       if (!mgr) return res.status(400).json({ error: `Faltan ${pending} subtarea(s) del checklist por completar.` });
       if (!reason) return res.status(400).json({ error: 'Para forzar el cierre con subtareas pendientes, indica el motivo.' });
       await pool.query(
-        `UPDATE tasks SET status='completed', completed_at=NOW(), forced_close_by=$2, forced_reason=$3, updated_at=NOW() WHERE id=$1`,
+        `UPDATE tasks SET status='completed', completed_at=NOW(), ${colSet} forced_close_by=$2, forced_reason=$3, updated_at=NOW() WHERE id=$1`,
         [id, uid, reason]);
       await logActivity(id, uid, 'forced_close', { pending, reason });
       return res.json({ success: true, forced: true });
     }
-    await pool.query(`UPDATE tasks SET status='completed', completed_at=NOW(), updated_at=NOW() WHERE id=$1`, [id]);
+    await pool.query(`UPDATE tasks SET status='completed', completed_at=NOW(), ${colSet} updated_at=NOW() WHERE id=$1`, [id]);
     await logActivity(id, uid, 'completed', {});
     res.json({ success: true, forced: false });
   } catch (e: any) {

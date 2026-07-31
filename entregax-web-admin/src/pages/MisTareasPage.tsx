@@ -10,7 +10,7 @@ import {
   Box, Typography, Button, IconButton, Chip, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
   Avatar, Divider, Checkbox, Snackbar, Alert, LinearProgress, ToggleButton, ToggleButtonGroup, Tooltip,
-  ListItemText, OutlinedInput,
+  Autocomplete,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -66,13 +66,23 @@ const actLabel = (a: any): string => ACT_LABEL[a.action] || a.action;
 interface Task {
   id: number; title: string; description?: string; eisenhower: string; status: string;
   due_at?: string; created_at?: string; completed_at?: string; assignee_name?: string;
-  board_name?: string; column_name?: string; subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
+  board_name?: string; board_key?: string; column_name?: string; subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
+  participants_count?: number; participant_names?: string[] | null;
 }
 interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; }
 const avgLabel = (u: UserOpt): string => {
   const s = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
   return s && s > 0 ? `⏱ ${fmtDur(s * 1000)} prom.` : '⏱ sin datos';
 };
+// Etiqueta legible del tipo de usuario (para agrupar el buscador).
+const ROLE_LABEL: Record<string, string> = {
+  super_admin: 'Administración', admin: 'Administración', director: 'Dirección', finanzas: 'Finanzas',
+  accountant: 'Contabilidad', abogado: 'Legal', branch_manager: 'Operación CEDIS', operaciones: 'Operaciones',
+  warehouse_ops: 'Bodega', counter_staff: 'Mostrador', customer_service: 'Servicio a cliente',
+  soporte_tecnico: 'Soporte técnico', advisor: 'Asesores', sub_advisor: 'Sub-asesores',
+  repartidor: 'Repartidores', monitoreo: 'Monitoreo',
+};
+const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r : 'Otros');
 
 export default function MisTareasPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -130,6 +140,13 @@ export default function MisTareasPage() {
     const eis = EIS[t.eisenhower];
     const tt = taskTime(t);
     const done = t.status === 'completed';
+    // "Tareas Personales" solo cuando le toca al creador sin extras; si hay más
+    // involucrados → "Tareas Asignadas".
+    const boardLabel = t.board_key === 'personales'
+      ? ((t.participants_count || 0) > 1 ? 'Tareas Asignadas' : 'Tareas Personales')
+      : t.board_name;
+    const colLabel = done ? null : t.column_name; // no mostrar "Pendiente" si ya está completada
+    const involved = (t.participant_names || []).filter(Boolean);
     return (
       <Box key={t.id} onClick={() => setDetailId(t.id)}
         sx={{ bgcolor: '#fff', borderRadius: 1.5, p: 1.25, cursor: 'pointer', border: '1px solid #E8DFD3',
@@ -139,11 +156,19 @@ export default function MisTareasPage() {
           {done && <Chip label="✅ Completada" size="small" color="success" sx={{ height: 20, fontSize: 11 }} />}
         </Box>
         <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: done ? 'line-through' : 'none' }}>{t.title}</Typography>
-        {(t.board_name || t.column_name) && (
-          <Typography fontSize={11} color="text.secondary" sx={{ mt: 0.25 }}>🗂️ {t.board_name}{t.column_name ? ` · ${t.column_name}` : ''}</Typography>
+        {(boardLabel || colLabel) && (
+          <Typography fontSize={11} color="text.secondary" sx={{ mt: 0.25 }}>🗂️ {boardLabel}{colLabel ? ` · ${colLabel}` : ''}</Typography>
+        )}
+        {involved.length > 1 && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
+            {involved.map((name, i) => (
+              <Tooltip key={i} title={name}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#5E35B1' }}>{initials(name)}</Avatar></Tooltip>
+            ))}
+            <Typography fontSize={11} color="text.secondary">{involved.length} involucrados</Typography>
+          </Box>
         )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
-          {t.assignee_name && <Tooltip title={t.assignee_name}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#D6521C' }}>{initials(t.assignee_name)}</Avatar></Tooltip>}
+          {involved.length <= 1 && t.assignee_name && <Tooltip title={t.assignee_name}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#D6521C' }}>{initials(t.assignee_name)}</Avatar></Tooltip>}
           <Box sx={{ flex: 1 }} />
           {(t.subtasks_total || 0) > 0 && (
             <Typography fontSize={11} color={t.subtasks_done === t.subtasks_total ? 'success.main' : 'text.secondary'}>☑ {t.subtasks_done}/{t.subtasks_total}</Typography>
@@ -231,31 +256,38 @@ export default function MisTareasPage() {
             <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
               value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
           </Box>
-          <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
-            <InputLabel>Involucrados</InputLabel>
-            <Select multiple label="Involucrados" value={involvedIds} input={<OutlinedInput label="Involucrados" />}
-              onChange={e => {
-                const v = (typeof e.target.value === 'string' ? [] : e.target.value) as number[];
-                setInvolvedIds(MY_ID && !v.includes(MY_ID) ? [MY_ID, ...v] : v); // el creador siempre incluido
+          <Box sx={{ mt: 1.5 }}>
+            <Autocomplete
+              multiple size="small" disableCloseOnSelect
+              options={[...users].filter(u => u.id !== MY_ID)
+                .sort((a, b) => roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name))}
+              value={users.filter(u => u.id !== MY_ID && involvedIds.includes(u.id))}
+              onChange={(_, val) => setInvolvedIds([...(MY_ID ? [MY_ID] : []), ...val.map(u => u.id)])}
+              groupBy={(u) => roleGroup(u.role)}
+              getOptionLabel={(u) => u.full_name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              filterOptions={(opts, { inputValue }) => {
+                const q = inputValue.trim().toLowerCase();
+                return q ? opts.filter(u => u.full_name.toLowerCase().includes(q) || roleGroup(u.role).toLowerCase().includes(q)) : opts;
               }}
-              renderValue={(sel) => (sel as number[]).map(idv => idv === MY_ID ? 'Yo' : (users.find(u => u.id === idv)?.full_name || idv)).join(', ')}
-              MenuProps={{ PaperProps: { style: { maxHeight: 340 } } }}>
-              {MY_ID > 0 && (
-                <MenuItem value={MY_ID} disabled>
-                  <Checkbox size="small" checked readOnly />
-                  <ListItemText primary="Yo (creador · siempre involucrado)" />
-                </MenuItem>
+              renderOption={(props, u) => (
+                <li {...props} key={u.id}>
+                  <Checkbox size="small" checked={involvedIds.includes(u.id)} sx={{ mr: 1, p: 0.5 }} />
+                  <Box>
+                    <Typography variant="body2">{u.full_name}</Typography>
+                    <Typography variant="caption" color="text.secondary">{avgLabel(u)}</Typography>
+                  </Box>
+                </li>
               )}
-              {users.filter(u => u.id !== MY_ID).map(u => (
-                <MenuItem key={u.id} value={u.id}>
-                  <Checkbox size="small" checked={involvedIds.includes(u.id)} />
-                  <ListItemText primary={u.full_name} secondary={avgLabel(u)} />
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+              renderTags={(value, getTagProps) => [
+                <Chip key="me" label="Yo" size="small" sx={{ bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700 }} />,
+                ...value.map((u, i) => { const { key, ...tp } = getTagProps({ index: i }) as any; return <Chip key={u.id} {...tp} label={u.full_name} size="small" />; }),
+              ]}
+              renderInput={(params) => <TextField {...params} label="Involucrados" placeholder="Buscar por nombre o tipo…" />}
+            />
+          </Box>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-            Puedes involucrar a varias personas. Tú siempre quedas incluido.
+            Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
           </Typography>
           {/* Fotos adjuntas */}
           <Box sx={{ mt: 2 }}>
