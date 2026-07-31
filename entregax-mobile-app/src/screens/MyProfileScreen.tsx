@@ -198,6 +198,11 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   // Verificar si el usuario puede tener PIN de supervisor
   const canHaveSupervisorPin = SUPERVISOR_ROLES.includes(user.role);
 
+  // ¿Es cliente? (no es empleado). Las secciones de cliente — GEX Automático y
+  // Centro de Notificaciones — solo aplican a clientes; los empleados no las ven.
+  const EMPLOYEE_ROLES = ['super_admin', 'admin', 'director', 'branch_manager', 'operaciones', 'warehouse_ops', 'counter_staff', 'accountant', 'finanzas', 'customer_service', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor', 'repartidor', 'monitoreo', 'abogado', 'soporte_tecnico'];
+  const isClient = !EMPLOYEE_ROLES.includes(user.role);
+
   // 📸 Cargar foto de perfil al montar
   useEffect(() => {
     fetchProfilePhoto();
@@ -1173,11 +1178,12 @@ export default function MyProfileScreen({ navigation, route }: Props) {
               />
             </View>
 
-            {/* GEX Automático — solo si el sistema GEX está activo a nivel
-                global (toggle del super_admin). Si ya estaba activo en la
-                cuenta del cliente, lo dejamos visible para que pueda
-                desactivarlo aunque GEX global esté apagado. */}
-            {(gexEnabled || gexAutoEnabled) && (
+            {/* GEX Automático — SOLO clientes (los empleados no lo ven). Además
+                requiere que el sistema GEX esté activo a nivel global (toggle del
+                super_admin). Si ya estaba activo en la cuenta del cliente, lo
+                dejamos visible para que pueda desactivarlo aunque GEX global esté
+                apagado. */}
+            {isClient && (gexEnabled || gexAutoEnabled) && (
               <View style={styles.menuItem}>
                 <Ionicons name="shield-outline" size={24} color={ORANGE} />
                 <View style={styles.menuItemContent}>
@@ -1288,7 +1294,9 @@ export default function MyProfileScreen({ navigation, route }: Props) {
           </Card.Content>
         </Card>
 
-        {/* 🔔 Notificaciones */}
+        {/* 🔔 Notificaciones — SOLO clientes (los empleados no ven este centro). */}
+        {isClient && (
+        <>
         <Text style={styles.sectionTitle}>🔔 Centro de Notificaciones</Text>
         <Card style={styles.card}>
           <Card.Content>
@@ -1396,6 +1404,8 @@ export default function MyProfileScreen({ navigation, route }: Props) {
             )}
           </Card.Content>
         </Card>
+        </>
+        )}
 
         {/* Eliminar cuenta — acceso discreto (requisito Google Play / App Store) */}
         <TouchableOpacity
