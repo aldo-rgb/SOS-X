@@ -116,6 +116,23 @@ CREATE TABLE IF NOT EXISTS task_attachments (
 );
 CREATE INDEX IF NOT EXISTS idx_task_attachments_task ON task_attachments(task_id);
 
+-- Programación de tareas (futuras / recurrentes). El cron materializa las
+-- vencidas y reprograma las recurrentes (daily/weekly/monthly).
+CREATE TABLE IF NOT EXISTS task_schedules (
+  id            SERIAL PRIMARY KEY,
+  title         TEXT NOT NULL,
+  description   TEXT,
+  eisenhower    TEXT NOT NULL DEFAULT 'estrella',
+  created_by    INTEGER REFERENCES users(id),
+  involved_ids  JSONB NOT NULL DEFAULT '[]'::jsonb,  -- participantes extra
+  next_run_at   TIMESTAMPTZ NOT NULL,                -- próxima materialización
+  recurrence    TEXT NOT NULL DEFAULT 'none',        -- 'none'|'daily'|'weekly'|'monthly'
+  active        BOOLEAN NOT NULL DEFAULT TRUE,
+  last_task_id  INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_task_schedules_due ON task_schedules(next_run_at) WHERE active = TRUE;
+
 -- Comentarios = el Rastro Oficial (@menciones, timestamp, autor).
 CREATE TABLE IF NOT EXISTS task_comments (
   id             SERIAL PRIMARY KEY,

@@ -13390,6 +13390,10 @@ import {
   createPersonalTask as tasksCreatePersonal,
   getAssignableUsers as tasksAssignableUsers,
   startTask as tasksStart,
+  createSchedule as tasksCreateSchedule,
+  listSchedules as tasksListSchedules,
+  deleteSchedule as tasksDeleteSchedule,
+  runDueTaskSchedules,
   createBoard as tasksCreateBoard,
   deleteBoard as tasksDeleteBoard,
   getBoardAssignees as tasksGetBoardAssignees,
@@ -13453,6 +13457,12 @@ app.get('/api/tasks/:id', authenticateToken, tasksGet);
 app.put('/api/tasks/:id', authenticateToken, tasksUpdate);
 app.post('/api/tasks/:id/complete', authenticateToken, tasksComplete);
 app.post('/api/tasks/:id/start', authenticateToken, tasksStart);
+app.post('/api/tasks/schedules', authenticateToken, tasksCreateSchedule);
+app.get('/api/tasks/schedules', authenticateToken, tasksListSchedules);
+app.delete('/api/tasks/schedules/:id', authenticateToken, tasksDeleteSchedule);
+// Cron: materializa tareas programadas/recurrentes cada 10 min.
+setInterval(() => { runDueTaskSchedules(); }, 10 * 60 * 1000);
+runDueTaskSchedules();
 app.delete('/api/tasks/:id', authenticateToken, tasksDelete);
 app.post('/api/tasks/:id/subtasks', authenticateToken, tasksAddSubtask);
 app.put('/api/tasks/subtasks/:subId', authenticateToken, tasksToggleSubtask);

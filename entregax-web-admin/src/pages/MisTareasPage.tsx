@@ -23,12 +23,15 @@ import ViewListIcon from '@mui/icons-material/ViewList';
 import GridViewIcon from '@mui/icons-material/GridView';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import ScheduleIcon from '@mui/icons-material/Schedule';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
 const H = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
 const ME = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } })();
 const MY_ID = Number(ME?.id) || 0;
+
+const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual' };
 
 const EIS: Record<string, { label: string; short: string; color: string; bg: string }> = {
   fuego:    { label: '🔥 Urgente e importante',       short: '🔥 Urgente',           color: '#C0392B', bg: '#F9E5E2' },
@@ -85,6 +88,42 @@ const ROLE_LABEL: Record<string, string> = {
 };
 const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r : 'Otros');
 
+// Selector reutilizable de "Involucrados" (buscador agrupado por tipo).
+function InvolvedPicker({ users, involvedIds, setInvolvedIds }: { users: UserOpt[]; involvedIds: number[]; setInvolvedIds: (v: number[]) => void }) {
+  return (
+    <Box sx={{ mt: 1.5 }}>
+      <Autocomplete
+        multiple size="small" disableCloseOnSelect
+        options={[...users].filter(u => u.id !== MY_ID)
+          .sort((a, b) => roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name))}
+        value={users.filter(u => u.id !== MY_ID && involvedIds.includes(u.id))}
+        onChange={(_, val) => setInvolvedIds([...(MY_ID ? [MY_ID] : []), ...val.map(u => u.id)])}
+        groupBy={(u) => roleGroup(u.role)}
+        getOptionLabel={(u) => u.full_name}
+        isOptionEqualToValue={(a, b) => a.id === b.id}
+        filterOptions={(opts, { inputValue }) => {
+          const q = inputValue.trim().toLowerCase();
+          return q ? opts.filter(u => u.full_name.toLowerCase().includes(q) || roleGroup(u.role).toLowerCase().includes(q)) : opts;
+        }}
+        renderOption={(props, u) => (
+          <li {...props} key={u.id}>
+            <Checkbox size="small" checked={involvedIds.includes(u.id)} sx={{ mr: 1, p: 0.5 }} />
+            <Box>
+              <Typography variant="body2">{u.full_name}</Typography>
+              <Typography variant="caption" color="text.secondary">{avgLabel(u)}</Typography>
+            </Box>
+          </li>
+        )}
+        renderTags={(value, getTagProps) => [
+          <Chip key="me" label="Yo" size="small" sx={{ bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700 }} />,
+          ...value.map((u, i) => { const { key, ...tp } = getTagProps({ index: i }) as any; return <Chip key={u.id} {...tp} label={u.full_name} size="small" />; }),
+        ]}
+        renderInput={(params) => <TextField {...params} label="Involucrados" placeholder="Buscar por nombre o tipo…" />}
+      />
+    </Box>
+  );
+}
+
 export default function MisTareasPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [users, setUsers] = useState<UserOpt[]>([]);
@@ -99,6 +138,12 @@ export default function MisTareasPage() {
   const [involvedIds, setInvolvedIds] = useState<number[]>(MY_ID ? [MY_ID] : []);
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [detailId, setDetailId] = useState<number | null>(null);
+
+  // Programar tareas (futuras / recurrentes).
+  const [schedOpen, setSchedOpen] = useState(false);
+  const [schedForm, setSchedForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none' });
+  const [schedInvolved, setSchedInvolved] = useState<number[]>(MY_ID ? [MY_ID] : []);
+  const [schedules, setSchedules] = useState<any[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -133,6 +178,34 @@ export default function MisTareasPage() {
       notify('Tarea creada');
       load();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear', 'error'); }
+  };
+
+  const loadSchedules = useCallback(async () => {
+    try { const r = await axios.get(`${API_URL}/tasks/schedules`, H()); setSchedules(r.data?.schedules || []); }
+    catch { /* opcional */ }
+  }, []);
+  const openSchedule = () => {
+    setSchedForm({ title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none' });
+    setSchedInvolved(MY_ID ? [MY_ID] : []);
+    setSchedOpen(true); loadSchedules();
+  };
+  const createSchedule = async () => {
+    if (!schedForm.title.trim()) return notify('El título es obligatorio', 'error');
+    if (!schedForm.first_run_at) return notify('Elige la fecha y hora de la primera tarea', 'error');
+    try {
+      await axios.post(`${API_URL}/tasks/schedules`, {
+        title: schedForm.title.trim(), description: schedForm.description || null,
+        eisenhower: schedForm.eisenhower, involved_ids: schedInvolved,
+        first_run_at: schedForm.first_run_at, recurrence: schedForm.recurrence,
+      }, H());
+      setSchedForm({ title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none' });
+      setSchedInvolved(MY_ID ? [MY_ID] : []);
+      notify('Programación creada'); loadSchedules(); load();
+    } catch (e: any) { notify(e?.response?.data?.error || 'Error al programar', 'error'); }
+  };
+  const deleteSchedule = async (id: number) => {
+    try { await axios.delete(`${API_URL}/tasks/schedules/${id}`, H()); notify('Programación eliminada'); loadSchedules(); }
+    catch { notify('No se pudo eliminar', 'error'); }
   };
 
   const initials = (n?: string) => (n || '?').split(' ').map(x => x[0]).slice(0, 2).join('').toUpperCase();
@@ -196,6 +269,7 @@ export default function MisTareasPage() {
           <Typography variant="body2" color="text.secondary">Tus tareas asignadas. Crea tareas y asígnalas a quien corresponda.</Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button variant="outlined" startIcon={<ScheduleIcon />} onClick={openSchedule} sx={{ color: '#B07206', borderColor: '#B07206', '&:hover': { borderColor: '#8a5a05', bgcolor: 'rgba(176,114,6,0.06)' } }}>Programar tarea</Button>
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setInvolvedIds(MY_ID ? [MY_ID] : []); setCreateOpen(true); }} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load}>Actualizar</Button>
         </Box>
@@ -257,36 +331,7 @@ export default function MisTareasPage() {
             <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
               value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
           </Box>
-          <Box sx={{ mt: 1.5 }}>
-            <Autocomplete
-              multiple size="small" disableCloseOnSelect
-              options={[...users].filter(u => u.id !== MY_ID)
-                .sort((a, b) => roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name))}
-              value={users.filter(u => u.id !== MY_ID && involvedIds.includes(u.id))}
-              onChange={(_, val) => setInvolvedIds([...(MY_ID ? [MY_ID] : []), ...val.map(u => u.id)])}
-              groupBy={(u) => roleGroup(u.role)}
-              getOptionLabel={(u) => u.full_name}
-              isOptionEqualToValue={(a, b) => a.id === b.id}
-              filterOptions={(opts, { inputValue }) => {
-                const q = inputValue.trim().toLowerCase();
-                return q ? opts.filter(u => u.full_name.toLowerCase().includes(q) || roleGroup(u.role).toLowerCase().includes(q)) : opts;
-              }}
-              renderOption={(props, u) => (
-                <li {...props} key={u.id}>
-                  <Checkbox size="small" checked={involvedIds.includes(u.id)} sx={{ mr: 1, p: 0.5 }} />
-                  <Box>
-                    <Typography variant="body2">{u.full_name}</Typography>
-                    <Typography variant="caption" color="text.secondary">{avgLabel(u)}</Typography>
-                  </Box>
-                </li>
-              )}
-              renderTags={(value, getTagProps) => [
-                <Chip key="me" label="Yo" size="small" sx={{ bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700 }} />,
-                ...value.map((u, i) => { const { key, ...tp } = getTagProps({ index: i }) as any; return <Chip key={u.id} {...tp} label={u.full_name} size="small" />; }),
-              ]}
-              renderInput={(params) => <TextField {...params} label="Involucrados" placeholder="Buscar por nombre o tipo…" />}
-            />
-          </Box>
+          <InvolvedPicker users={users} involvedIds={involvedIds} setInvolvedIds={setInvolvedIds} />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
           </Typography>
@@ -316,6 +361,68 @@ export default function MisTareasPage() {
         <DialogActions>
           <Button onClick={() => { setCreateOpen(false); setNewPhotos([]); }}>Cancelar</Button>
           <Button variant="contained" onClick={createTask} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Crear</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Programar tarea (futura / recurrente) */}
+      <Dialog open={schedOpen} onClose={() => setSchedOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ScheduleIcon sx={{ color: '#B07206' }} /> Programar tarea
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            La tarea se creará automáticamente en la fecha y hora que elijas. Si es recurrente, se volverá a generar en cada ciclo.
+          </Typography>
+          <TextField autoFocus fullWidth label="Título (usa un verbo de acción)" margin="dense"
+            value={schedForm.title} onChange={e => setSchedForm({ ...schedForm, title: e.target.value })} />
+          <TextField fullWidth label="Descripción" margin="dense" multiline rows={2}
+            value={schedForm.description} onChange={e => setSchedForm({ ...schedForm, description: e.target.value })} />
+          <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Prioridad (Eisenhower)</InputLabel>
+              <Select label="Prioridad (Eisenhower)" value={schedForm.eisenhower} onChange={e => setSchedForm({ ...schedForm, eisenhower: e.target.value })}>
+                {Object.entries(EIS).map(([k, v]) => <MenuItem key={k} value={k}>{v.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth size="small">
+              <InputLabel>Repetir</InputLabel>
+              <Select label="Repetir" value={schedForm.recurrence} onChange={e => setSchedForm({ ...schedForm, recurrence: e.target.value })}>
+                <MenuItem value="none">Una vez</MenuItem>
+                <MenuItem value="daily">Diaria</MenuItem>
+                <MenuItem value="weekly">Semanal</MenuItem>
+                <MenuItem value="monthly">Mensual</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+          <TextField fullWidth size="small" type="datetime-local" label="Primera ejecución" InputLabelProps={{ shrink: true }} sx={{ mt: 1.5 }}
+            value={schedForm.first_run_at} onChange={e => setSchedForm({ ...schedForm, first_run_at: e.target.value })} />
+          <InvolvedPicker users={users} involvedIds={schedInvolved} setInvolvedIds={setSchedInvolved} />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
+          </Typography>
+
+          {schedules.length > 0 && (
+            <Box sx={{ mt: 2.5 }}>
+              <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 0.5 }}>Programaciones activas</Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                {schedules.map(s => (
+                  <Box key={s.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, p: 1, border: '1px solid #eee', borderRadius: 1 }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={700} noWrap>{s.title}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {RECUR_LABEL[s.recurrence] || 'Una vez'} · próxima: {s.next_run_at ? new Date(s.next_run_at).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                      </Typography>
+                    </Box>
+                    <IconButton size="small" onClick={() => deleteSchedule(s.id)}><CloseIcon sx={{ fontSize: 18 }} /></IconButton>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSchedOpen(false)}>Cerrar</Button>
+          <Button variant="contained" onClick={createSchedule} sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8a5a05' } }}>Programar</Button>
         </DialogActions>
       </Dialog>
 
