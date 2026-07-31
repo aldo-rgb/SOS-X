@@ -51,7 +51,9 @@ import {
     ExpandMore as ExpandMoreIcon,
     ExpandLess as ExpandLessIcon,
     Edit as EditIcon,
+    Download as DownloadIcon,
 } from '@mui/icons-material';
+import * as XLSX from 'xlsx';
 import api from '../services/api';
 
 // Tipos
@@ -477,6 +479,43 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
     const money = (n: number, cur: string = 'MXN') =>
         `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`;
 
+    // Paquetes tras aplicar los filtros de la UI (tracking + status + cobro).
+    const filteredPackages = packages.filter(pkg =>
+        (!trackingFilter || (pkg.tracking || '').toLowerCase().includes(trackingFilter.toLowerCase()))
+        && (shipStatusFilter === 'all' || pkg.status === shipStatusFilter)
+        && (clientPaidFilter === 'all' || (clientPaidFilter === 'cobrado' ? pkg.client_paid : !pkg.client_paid))
+    );
+
+    // Exporta a Excel EXACTAMENTE lo que está filtrado en la tabla.
+    const exportExcel = () => {
+        const rows = filteredPackages.map((p) => {
+            const tc = Number(p.tc_registro) || Number(p.registered_exchange_rate) || tcApi || 0;
+            const usd = Number(p.cost_usd) || 0;
+            const costo = usd * tc;
+            const venta = Number(p.calculated_cost) || 0;
+            const pie3 = p.volume_adjusted && p.volume_adjusted > 0 ? Number((p.volume_adjusted / config.dimensional_divisor).toFixed(4)) : 0;
+            const dims = (p.pkg_length > 0 && p.pkg_width > 0 && p.pkg_height > 0) ? `${p.pkg_length}x${p.pkg_width}x${p.pkg_height} cm` : '';
+            return {
+                Tracking: p.tracking,
+                Cliente: p.client_box_id || p.user_name || '',
+                'Recepción': fmtShortDate(p.received_at),
+                Dimensiones: dims,
+                'Pie3': pie3,
+                'USD': Number(usd.toFixed(2)),
+                'Costo MXN': Number(costo.toFixed(2)),
+                'Venta MXN': Number(venta.toFixed(2)),
+                'Utilidad MXN': Number((venta - costo).toFixed(2)),
+                Status: statusLabel(p.status),
+                'Estado (cobro)': p.client_paid ? 'Cobrado' : 'Por Cobrar',
+                'Pago Proveedor': p.costing_paid ? 'Pagado' : 'Pendiente',
+            };
+        });
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Paquetes');
+        XLSX.writeFile(wb, `costeo-pobox-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    };
+
     return (
         <Box sx={{ p: 3 }}>
             {/* Header */}
@@ -669,8 +708,14 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                 InputLabelProps={{ shrink: true }}
                             />
                         </Grid>
-                        <Grid size={{ xs: 12, sm: 2 }}>
+                        <Grid size={{ xs: 6, sm: 2 }}>
                             <Button variant="contained" fullWidth startIcon={<FilterIcon />} onClick={loadPackages}>Filtrar</Button>
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 2 }}>
+                            <Button variant="outlined" color="success" fullWidth startIcon={<DownloadIcon />} onClick={exportExcel}
+                                disabled={filteredPackages.length === 0}>
+                                Exportar Excel ({filteredPackages.length})
+                            </Button>
                         </Grid>
                     </Grid>
                 </Paper>
@@ -704,15 +749,11 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                 </TableRow>
                             </TableHead>
                             <TableBody>
-                                {packages.filter(pkg =>
-                                    (!trackingFilter || (pkg.tracking || '').toLowerCase().includes(trackingFilter.toLowerCase()))
-                                    && (shipStatusFilter === 'all' || pkg.status === shipStatusFilter)
-                                    && (clientPaidFilter === 'all' || (clientPaidFilter === 'cobrado' ? pkg.client_paid : !pkg.client_paid))
-                                ).map((pkg) => (
+                                {filteredPackages.map((pkg) => (
                                     <TableRow key={pkg.id} hover sx={{ bgcolor: pkg.costing_paid ? 'success.50' : 'inherit' }}>
                                         <TableCell>
                                             <Typography variant="body2" fontWeight="medium">{pkg.tracking}</Typography>
-                                            {pkg.user_name && <Typography variant="caption" color="text.secondary">{pkg.user_name}</Typography>}
+                                            {(pkg.client_box_id || pkg.user_name) && <Typography variant="caption" color="text.secondary">{pkg.client_box_id || pkg.user_name}</Typography>}
                                         </TableCell>
                                         <TableCell align="center"><Typography variant="caption">{fmtShortDate(pkg.received_at)}</Typography></TableCell>
                                         <TableCell align="center">
