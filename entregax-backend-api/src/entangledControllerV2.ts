@@ -310,6 +310,18 @@ export const createPaymentRequestV2 = async (
   // poder regenerar el PDF de instrucciones idéntico al original.
   const instructionsSnapshot: any = parseJson(body.instructions_snapshot, null);
 
+  // Log auditable de los datos fiscales recibidos del frontend. XPay/ENTANGLED
+  // reportó inconsistencias en el campo uso_cfdi (pantalla G01 pero API G03);
+  // este log deja evidencia exacta de lo que la UI envió antes de que lo
+  // persistamos, para poder auditar sin depender de reproducciones en vivo.
+  if (servicio === 'pago_con_factura') {
+    console.warn(
+      `[XPAY][V2] cliente_final recibido user=${userId} advisor=${opts?.advisorId ?? '-'} ` +
+        `rfc=${clienteFinal?.rfc || '-'} uso_cfdi=${clienteFinal?.uso_cfdi || '-'} ` +
+        `regimen_fiscal=${clienteFinal?.regimen_fiscal || '-'} cp=${clienteFinal?.cp || '-'}`
+    );
+  }
+
   if (servicio === 'pago_con_factura') {
     const required = ['rfc', 'razon_social', 'regimen_fiscal', 'cp', 'uso_cfdi', 'email'];
     for (const k of required) {
@@ -467,6 +479,12 @@ export const createPaymentRequestV2 = async (
       ]
     );
     requestId = ins.rows[0].id;
+    if (servicio === 'pago_con_factura') {
+      console.warn(
+        `[XPAY][V2] request ${requestId} persistido ref=${referenciaPago} ` +
+          `cf_uso_cfdi=${clienteFinal.uso_cfdi} cf_rfc=${String(clienteFinal.rfc || '').toUpperCase()}`
+      );
+    }
     // Guardar el subservicio (transfer/efectivo) elegido para pago_sin_factura.
     if (subservicio) {
       await pool.query(`UPDATE entangled_payment_requests SET subservicio = $1 WHERE id = $2`, [subservicio, requestId]).catch(() => {});

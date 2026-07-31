@@ -498,6 +498,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     conceptos: '',
     comprobante_cliente_url: '',
   });
+  // Bandera: el usuario tocó el campo de uso_cfdi. Si es true, el
+  // loadFiscalProfile (async) NO puede pisar la selección manual. XPay
+  // reportó casos donde la pantalla mostraba G01 pero la API mandaba G03
+  // porque el fetch fiscal resolvía después de que el asesor eligió.
+  const usoCfdiTouchedRef = useRef(false);
   const [widgetDestinationCountry, setWidgetDestinationCountry] = useState('CN');
   const [widgetAmountUsd, setWidgetAmountUsd] = useState('');
   const [showHowItWorks, setShowHowItWorks] = useState(false);
@@ -935,7 +940,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           razon_social: p.razon_social || '',
           regimen_fiscal: p.regimen_fiscal || '601',
           cp: p.cp || '',
-          uso_cfdi: p.uso_cfdi || 'G03',
+          // Si el usuario ya tocó el uso_cfdi manualmente, respetar su
+          // elección aunque este fetch resuelva tarde.
+          uso_cfdi: usoCfdiTouchedRef.current ? prev.uso_cfdi : (p.uso_cfdi || 'G03'),
           email: p.email || '',
         }));
       }
@@ -1970,6 +1977,9 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       });
 
       setDialogOpen(false);
+      // Reset del "dirty" flag: la próxima solicitud vuelve a precargar
+      // uso_cfdi del perfil fiscal del cliente.
+      usoCfdiTouchedRef.current = false;
       setForm({
         rfc: '',
         razon_social: '',
@@ -3395,7 +3405,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                   <TextField
                     select fullWidth label={t('entangled.fields.usoCfdi')}
                     value={form.uso_cfdi}
-                    onChange={(e) => setForm({ ...form, uso_cfdi: e.target.value })} required
+                    onChange={(e) => {
+                      usoCfdiTouchedRef.current = true;
+                      setForm({ ...form, uso_cfdi: e.target.value });
+                    }} required
                     sx={{
                       '& .MuiOutlinedInput-root': {
                         color: C.textPrimary,

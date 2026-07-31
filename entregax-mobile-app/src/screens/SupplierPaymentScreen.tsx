@@ -175,6 +175,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [regimen, setRegimen] = useState('612');
   const [cp, setCp] = useState('');
   const [uso, setUso] = useState('G03');
+  // Bandera: el usuario tocó el chip de uso_cfdi. Si es true, el
+  // loadFiscalProfile (que es async) NO puede pisar la selección manual.
+  // XPay reportó casos donde la pantalla mostraba G01 pero la API mandaba
+  // G03 — era el fetch fiscal terminando después del tap del asesor.
+  const usoTouchedRef = useRef(false);
   const [email, setEmail] = useState('');
   const [conceptos, setConceptos] = useState('');
   // 🧾 Cantidad (piezas) y precio unitario manual por clave SAT. La ÚLTIMA clave
@@ -413,7 +418,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setRazon(p.razon_social || '');
         setRegimen(p.regimen_fiscal || '612');
         setCp(p.cp || '');
-        setUso(p.uso_cfdi || 'G03');
+        // Solo precargamos el uso_cfdi si el asesor/cliente aún NO tocó el
+        // chip. Si ya lo cambió manualmente, respetamos su elección aunque
+        // este fetch (asíncrono) resuelva después del tap.
+        if (!usoTouchedRef.current) {
+          setUso(p.uso_cfdi || 'G03');
+        }
         setEmail(p.email || '');
         setRequiereFactura(true);
       }
@@ -2417,7 +2427,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     <View style={styles.chipScroll}>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                         {USOS_CFDI.map(u => (
-                          <TouchableOpacity key={u.code} style={[styles.chip, uso === u.code && styles.chipActive]} onPress={() => setUso(u.code)}>
+                          <TouchableOpacity
+                            key={u.code}
+                            style={[styles.chip, uso === u.code && styles.chipActive]}
+                            onPress={() => {
+                              usoTouchedRef.current = true;
+                              setUso(u.code);
+                            }}
+                          >
                             <View>
                               <Text style={[styles.chipText, uso === u.code && styles.chipTextActive, { fontWeight: '600' }]}>{u.code}</Text>
                               <Text style={[styles.chipText, uso === u.code && styles.chipTextActive, { fontSize: 10 }]}>{u.name.slice(0, 20)}</Text>
