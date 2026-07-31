@@ -30,6 +30,7 @@ import ScienceIcon from '@mui/icons-material/Science';
 import AdvisorCommissionsLedgerPage from './AdvisorCommissionsLedgerPage';
 import CommissionsBoardTab from './CommissionsBoardTab';
 import CommissionSimulatorTab from './CommissionSimulatorTab';
+import MetasTab from './MetasTab';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
@@ -268,9 +269,15 @@ export default function CommissionsPage() {
           <Tab value={1} icon={<PaymentIcon />} label={i18n.language === 'es' ? 'Comisiones Generadas' : 'Commissions Ledger'} />
           {/* Pestaña "Tarifas" ocultada a pedido; el contenido (tabValue===2) queda inaccesible. */}
           {canSeeAsesores && <Tab value={3} icon={<AccountTreeIcon />} label={i18n.language === 'es' ? 'Asesores' : 'Hierarchy'} />}
+          {canSeeAsesores && <Tab value={5} icon={<EmojiEventsIcon />} label={i18n.language === 'es' ? 'Metas' : 'Goals'} />}
           <Tab value={4} icon={<ScienceIcon />} label={i18n.language === 'es' ? 'Simulador' : 'Simulator'} />
         </Tabs>
       </Paper>
+
+      {/* Tab Metas de asesores */}
+      {tabValue === 5 && (
+        <MetasTab />
+      )}
 
       {/* Tab Simulador (propuesta del nuevo esquema, informativo) */}
       {tabValue === 4 && (

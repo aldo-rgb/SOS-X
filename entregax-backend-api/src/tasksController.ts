@@ -158,6 +158,32 @@ async function getOrCreatePersonalBoard(): Promise<number | null> {
   } catch (e: any) { console.warn('[tasks] getOrCreatePersonalBoard:', e?.message); return null; }
 }
 
+// Crea una tarea asignada a un usuario (reutilizable desde otros módulos, p.ej.
+// convertir la "declaración de meta" de un asesor en tarea). Devuelve el task_id.
+export async function createAssignedTaskInternal(opts: {
+  creatorId: number; assigneeId: number; title: string; description?: string | null; dueAt?: string | null;
+}): Promise<number | null> {
+  try {
+    const boardId = await getOrCreatePersonalBoard();
+    if (!boardId) return null;
+    const col = await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [boardId]);
+    const columnId = col.rows[0]?.id || null;
+    const r = await pool.query(
+      `INSERT INTO tasks (board_id, column_id, title, description, assignee_id, due_at, eisenhower, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,'estrella',$7) RETURNING id`,
+      [boardId, columnId, String(opts.title).trim(), opts.description || null, opts.assigneeId, opts.dueAt || null, opts.creatorId]);
+    const taskId = r.rows[0]?.id;
+    if (!taskId) return null;
+    const parts = Array.from(new Set<number>([opts.creatorId, opts.assigneeId].filter(Boolean)));
+    for (const p of parts) await pool.query(`INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [taskId, p]);
+    await logActivity(taskId, opts.creatorId, 'created', { title: opts.title, from: 'meta' });
+    if (Number(opts.assigneeId) !== Number(opts.creatorId)) {
+      await notify(opts.assigneeId, '🎯 Meta / tarea asignada', String(opts.title), { task_id: taskId }, 'task_new');
+    }
+    return taskId;
+  } catch (e: any) { console.warn('[tasks] createAssignedTaskInternal:', e?.message); return null; }
+}
+
 // ─── TABLEROS ───────────────────────────────────────────────
 export const listBoards = async (req: Request, res: Response): Promise<any> => {
   try {

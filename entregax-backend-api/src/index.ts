@@ -209,6 +209,7 @@ import {
   getMyReferralCode,
   getAdvisors,
   createAdvisor,
+  // (metas se importan más abajo, ver bloque metasController)
   getAdvisorCommissionsList,
   markCommissionsAsPaid,
   getCommissionsByAdvisor,
@@ -217,6 +218,13 @@ import {
   toggleAdvisorRecovery,
   toggleAdvisorActive,
 } from './commissionController';
+import {
+  getMetas as metasGet,
+  createGoal as metasCreateGoal,
+  updateGoal as metasUpdateGoal,
+  deleteGoal as metasDeleteGoal,
+  upsertDeclaration as metasUpsertDeclaration,
+} from './metasController';
 import {
   getFiscalEmitters,
   createFiscalEmitter,
@@ -5604,6 +5612,12 @@ app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(
 
 // --- RUTAS DE ASESORES (Gestión de Jerarquía) ---
 app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.ADMIN), getAdvisors);
+// ─── Metas de asesores ───
+app.get('/api/admin/metas', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasGet);
+app.post('/api/admin/metas/goals', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasCreateGoal);
+app.put('/api/admin/metas/goals/:id', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasUpdateGoal);
+app.delete('/api/admin/metas/goals/:id', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasDeleteGoal);
+app.post('/api/admin/metas/declarations', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasUpsertDeclaration);
 app.post('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createAdvisor);
 app.patch('/api/admin/advisors/:id/recovery', authenticateToken, requireMinLevel(ROLES.ADMIN), toggleAdvisorRecovery);
 app.patch('/api/admin/advisors/:id/active', authenticateToken, requireMinLevel(ROLES.ADMIN), toggleAdvisorActive);
