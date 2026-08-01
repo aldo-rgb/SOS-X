@@ -956,7 +956,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
         onPress={() => handleModulePress(module)}
         disabled={isDisabled}
       >
-        <View style={[styles.moduleIcon, { backgroundColor: module.color }]}>
+        <View style={[styles.moduleIcon, { backgroundColor: '#F05A28' }]}>
           <IconComponent name={module.icon as any} size={28} color="#fff" />
           {!!module.badge && module.badge > 0 && (
             <View style={styles.moduleBadge}>
@@ -1405,15 +1405,18 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                 onPress={() => navigation.navigate('MyTasks', { user, token })}
                 style={styles.taskWidget}>
                 <View style={styles.taskWidgetIcon}>
-                  <Ionicons name="checkbox-outline" size={26} color="#fff" />
+                  <Ionicons name="checkbox-outline" size={26} color="#F05A28" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.taskWidgetNum}>{myTaskCount}</Text>
+                  <Text style={styles.taskWidgetNum}>Mis Tareas</Text>
                   <Text style={styles.taskWidgetLabel}>
-                    {myTaskCount === 0 ? 'Sin tareas pendientes 🎉' : `Tarea${myTaskCount === 1 ? '' : 's'} pendiente${myTaskCount === 1 ? '' : 's'}`}
+                    {myTaskCount === 0 ? 'Sin tareas pendientes 🎉' : `${myTaskCount} pendiente${myTaskCount === 1 ? '' : 's'} · Lista y Matriz`}
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={22} color="#fff" />
+                {myTaskCount > 0 && (
+                  <View style={styles.taskWidgetBadge}><Text style={styles.taskWidgetBadgeTxt}>{myTaskCount}</Text></View>
+                )}
+                <Ionicons name="chevron-forward" size={22} color="#B0B0B0" />
               </TouchableOpacity>
             )}
 
@@ -1961,19 +1964,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#D6521C',
+    backgroundColor: '#fff',
     borderRadius: 14,
     padding: 14,
     marginHorizontal: 16,
     marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#EFEFF2',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   taskWidgetIcon: {
     width: 46, height: 46, borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#FFF3EC',
     alignItems: 'center', justifyContent: 'center',
   },
-  taskWidgetNum: { color: '#fff', fontSize: 26, fontWeight: '800', lineHeight: 30 },
-  taskWidgetLabel: { color: '#FFE7DC', fontSize: 13, fontWeight: '600', marginTop: 1 },
+  taskWidgetNum: { color: '#1A1A1A', fontSize: 16.5, fontWeight: '800', lineHeight: 21 },
+  taskWidgetLabel: { color: '#8A8A8A', fontSize: 13, fontWeight: '600', marginTop: 1 },
+  taskWidgetBadge: { minWidth: 26, height: 26, borderRadius: 13, backgroundColor: '#F05A28', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 7 },
+  taskWidgetBadgeTxt: { color: '#fff', fontSize: 13, fontWeight: '800' },
   leadsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
