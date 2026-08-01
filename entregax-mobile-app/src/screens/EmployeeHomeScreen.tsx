@@ -1422,61 +1422,61 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               <View style={styles.leadsSection}>
                 <Text style={styles.sectionTitle}>📊 Leads y Altas</Text>
                 <View style={styles.leadsGrid}>
-                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#C1502E' }]}
+                  <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'altas', granularity: 'week', periods: 9, title: 'Altas por semana', color: '#C1502E' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.week}</Text>
                     <Text style={styles.leadLabel}>Altas esta semana</Text>
                     <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#2E9E9E' }]}
+                  <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={openAltasBreakdown}>
                     <Text style={styles.leadNumber}>{leadsWidgets.month}</Text>
                     <Text style={styles.leadLabel}>Altas este mes</Text>
                     <Text style={styles.leadSub}>toca para ver por asesor ›</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#E65100' }]}
+                  <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'altas', granularity: 'day', periods: 7, title: 'Altas por día', color: '#E65100' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.today}</Text>
                     <Text style={styles.leadLabel}>Altas hoy</Text>
                     <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#D97A3D' }]}
+                  <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'interested', granularity: 'day', periods: 7, title: 'Interesados por día', color: '#D97A3D' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.interested}</Text>
                     <Text style={styles.leadLabel}>Interesados</Text>
                     <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#1E6F8B' }]}
+                  <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'fcl', granularity: 'month', periods: 12, title: 'Contenedores FCL por mes', color: '#1E6F8B' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.fclMonth}</Text>
                     <Text style={styles.leadLabel}>Contenedores FCL</Text>
                     <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#2E7D5B' }]}
+                  <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'lcl', granularity: 'month', periods: 12, title: 'Weeks LCL por mes', color: '#2E7D5B' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.lclMonth}</Text>
                     <Text style={styles.leadLabel}>Weeks LCL</Text>
                     <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#8B5E1E' }]}
+                  <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'awb', granularity: 'week', periods: 9, title: 'AWBs China aéreo por semana', color: '#8B5E1E' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.awbWeek}</Text>
                     <Text style={styles.leadLabel}>AWBs China aéreo</Text>
                     <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#3D5A8B' }]}
+                  <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'kg', granularity: 'week', periods: 9, title: 'Kilos aéreo por semana', color: '#3D5A8B', unit: 'kg', decimals: 0 })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.kgWeek.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</Text>
                     <Text style={styles.leadLabel}>Kilos aéreo</Text>
                     <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#5E35B1' }]}
+                  <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'xpay_ops', granularity: 'week', periods: 9, title: 'Operaciones X-Pay por semana', color: '#5E35B1' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.xpayOps}</Text>
                     <Text style={styles.leadLabel}>Operaciones X-Pay</Text>
                     <Text style={styles.leadSub}>esta semana · sin MXN</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.85} style={[styles.leadCard, { backgroundColor: '#00897B' }]}
+                  <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'xpay_usd', granularity: 'week', periods: 9, title: 'USD enviado por X-Pay por semana', color: '#00897B', unit: 'USD', decimals: 0 })}>
                     <Text style={styles.leadNumber}>${leadsWidgets.xpayUsd.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</Text>
                     <Text style={styles.leadLabel}>USD enviado X-Pay</Text>
@@ -1981,25 +1981,35 @@ const styles = StyleSheet.create({
   },
   leadCard: {
     width: '48.5%',
+    backgroundColor: '#fff',
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 14,
     marginBottom: 10,
+    borderTopWidth: 3,
+    borderTopColor: '#F05A28',
+    borderWidth: 1,
+    borderColor: '#EFEFF2',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   leadNumber: {
-    color: '#fff',
+    color: '#1A1A1A',
     fontSize: 30,
     fontWeight: '800',
     lineHeight: 34,
   },
   leadLabel: {
-    color: '#fff',
+    color: '#333',
     fontSize: 13,
     fontWeight: '700',
     marginTop: 2,
   },
   leadSub: {
-    color: 'rgba(255,255,255,0.85)',
+    color: '#9A9A9A',
     fontSize: 10,
     marginTop: 1,
   },
