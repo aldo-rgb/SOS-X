@@ -277,9 +277,35 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#3F51B5',
     screen: 'SupportTickets',
-    roles: ['customer_service', 'branch_manager', 'admin', 'super_admin', 'operaciones'],
+    roles: ['customer_service', 'soporte_tecnico', 'branch_manager', 'admin', 'super_admin', 'operaciones'],
     requiresOnboarding: false,
     panelKey: 'cs_support',
+  },
+
+  // 6b) Registro de Leads (Servicio a Cliente / Sistemas)
+  {
+    id: 'cs_leads',
+    title: 'Registro de Leads',
+    subtitle: 'Alta de prospectos en la Central de Leads',
+    icon: 'person-add-outline',
+    iconFamily: 'ionicons',
+    color: '#00897B',
+    screen: 'LeadRegistration',
+    roles: ['customer_service', 'soporte_tecnico', 'counter_staff', 'branch_manager', 'admin', 'super_admin', 'director'],
+    requiresOnboarding: false,
+  },
+
+  // 6c) Tarifas Aéreo China (TDI Aéreo / Express)
+  {
+    id: 'cs_air_pricing',
+    title: 'Tarifas Aéreo China',
+    subtitle: 'Precios TDI Aéreo y TDI Express (USD/kg)',
+    icon: 'airplane-outline',
+    iconFamily: 'ionicons',
+    color: '#1976D2',
+    screen: 'AirPricing',
+    roles: ['customer_service', 'soporte_tecnico', 'counter_staff', 'branch_manager', 'admin', 'super_admin', 'director'],
+    requiresOnboarding: false,
   },
 
   // 7) Gestión de Flotilla
@@ -392,7 +418,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#7c3aed',
     screen: 'VerificacionesAdmin',
-    roles: ['super_admin'],
+    roles: ['super_admin', 'admin', 'director', 'customer_service', 'soporte_tecnico'],
     requiresOnboarding: false,
   },
   {
@@ -541,6 +567,22 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       console.warn('No se pudieron cargar widgets de leads:', e);
     }
   }, [token, user.role]);
+
+  // 💱 Servicio a Cliente / Sistemas: tipos de cambio, costos y stats de tickets.
+  const isCsCentral = ['customer_service', 'soporte_tecnico'].includes(String(user?.role || ''));
+  const [csRates, setCsRates] = useState<any>(null);
+  const [csTicketStats, setCsTicketStats] = useState<any>(null);
+  const loadCsDashboard = useCallback(async () => {
+    if (!isCsCentral) return;
+    try {
+      const [ratesRes, statsRes] = await Promise.all([
+        fetch(`${API_URL}/api/dashboard/system-rates`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/admin/support/stats`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (ratesRes.ok) setCsRates(await ratesRes.json());
+      if (statsRes.ok) setCsTicketStats(await statsRes.json());
+    } catch { /* silencioso */ }
+  }, [token, isCsCentral]);
 
   // Cargar datos del asesor
   const loadAdvisorData = useCallback(async () => {
@@ -701,7 +743,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   useEffect(() => {
     loadLeadsWidgets();
     loadMyTaskCount();
-  }, [loadLeadsWidgets]);
+    loadCsDashboard();
+  }, [loadLeadsWidgets, loadCsDashboard]);
 
   // 🔔 Registrar push token y suscribir a notificaciones de chat (deep-link)
   useEffect(() => {
@@ -848,6 +891,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     }
     loadLeadsWidgets();
     loadMyTaskCount();
+    loadCsDashboard();
     setTimeout(() => setRefreshing(false), 1000);
   };
 
@@ -1501,6 +1545,46 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                         <Text style={styles.widgetValue}>{w.value}</Text>
                         <Text style={styles.widgetLabel} numberOfLines={1}>{w.label}</Text>
                         <Text style={styles.widgetSub} numberOfLines={1}>{w.sub}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              );
+            })()}
+
+            {/* =============== TIPOS DE CAMBIO Y COSTOS (Servicio a Cliente / Sistemas) =============== */}
+            {isCsCentral && (csRates || csTicketStats) && (() => {
+              const nav = (screen: string, params?: any) => navigation.navigate(screen as any, { user, token, ...(params || {}) });
+              const ent = csRates?.entangled;
+              const pob = csRates?.pobox;
+              const air = csRates?.tdi_air;
+              const exp = csRates?.tdi_express;
+              const ts = csTicketStats || {};
+              const openTickets = (Number(ts.ai_handling) || 0) + (Number(ts.needs_human) || 0) + (Number(ts.waiting_client) || 0);
+              const fx = (n: any) => (n != null ? `$${Number(n).toFixed(4)}` : '—');
+              const perKg = (n: any) => (n != null ? `$${Number(n).toFixed(2)}` : '—');
+              const cards: Array<{ key: string; icon: string; color: string; value: string; label: string; sub: string; onPress?: () => void }> = [
+                { key: 'fx_money', icon: 'swap-horizontal', color: '#00897B', value: fx(ent?.tipo_cambio_usd), label: 'TC · Envío de Dinero', sub: 'MXN / USD · solo lectura' },
+                { key: 'fx_egx', icon: 'swap-horizontal', color: '#2E9E9E', value: fx(pob?.tipo_cambio_final), label: 'TC · EntregaX', sub: 'MXN / USD · solo lectura' },
+                { key: 'tdi_air', icon: 'airplane', color: '#1976D2', value: `${perKg(air?.price_generic_usd)}/kg`, label: 'TDI Aéreo', sub: 'genérico · editar tarifas ›', onPress: () => nav('AirPricing') },
+                { key: 'tdi_exp', icon: 'rocket', color: '#7B1FA2', value: `${perKg(exp?.price_generic_usd)}/kg`, label: 'TDI Express', sub: 'genérico · editar tarifas ›', onPress: () => nav('AirPricing') },
+                { key: 't_open', icon: 'headset', color: '#F05A28', value: String(openTickets), label: 'Tickets Abiertos', sub: 'ver todos ›', onPress: () => nav('SupportTickets') },
+                { key: 't_res', icon: 'checkmark-done', color: '#2E7D32', value: String(Number(ts.today_resolved) || 0), label: 'Resueltos Hoy', sub: 'últimas 24h ›', onPress: () => nav('SupportTickets') },
+                { key: 't_avg', icon: 'time', color: '#455A64', value: `${Number(ts.avg_resolution_time_min) || 0}m`, label: 'Tiempo Promedio', sub: 'resolución hoy', onPress: () => nav('SupportTickets') },
+                { key: 't_new', icon: 'add-circle', color: '#E65100', value: String(Number(ts.today_new) || 0), label: 'Tickets Nuevos', sub: 'últimas 24h ›', onPress: () => nav('SupportTickets') },
+              ];
+              return (
+                <View style={styles.modulesSection}>
+                  <Text style={styles.sectionTitle}>💱 Tipos de Cambio y Costos</Text>
+                  <View style={styles.widgetGrid}>
+                    {cards.map((c) => (
+                      <TouchableOpacity key={c.key} style={styles.widgetCard} activeOpacity={c.onPress ? 0.85 : 1} onPress={c.onPress}>
+                        <View style={[styles.widgetIcon, { backgroundColor: c.color + '22' }]}>
+                          <Ionicons name={c.icon as any} size={20} color={c.color} />
+                        </View>
+                        <Text style={styles.widgetValue} numberOfLines={1} adjustsFontSizeToFit>{c.value}</Text>
+                        <Text style={styles.widgetLabel} numberOfLines={1}>{c.label}</Text>
+                        <Text style={styles.widgetSub} numberOfLines={1}>{c.sub}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>

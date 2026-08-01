@@ -96,9 +96,15 @@ function timeAgo(dateStr: string): string {
   return `hace ${Math.floor(diffHours / 24)}d`;
 }
 
+// Roles de Servicio a Cliente / Sistemas: atienden el departamento central de
+// Atención a Cliente aunque no tengan una sucursal CEDIS asignada.
+const CS_CENTRAL_ROLES = ['customer_service', 'soporte_tecnico'];
+const CS_DEFAULT_SENTINEL = '__CS_DEFAULT__';
+
 export default function SupportTicketsScreen({ navigation, route }: any) {
   const { user, token } = route.params;
   const insets = useSafeAreaInsets();
+  const isCsCentral = CS_CENTRAL_ROLES.includes(String(user?.role || ''));
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -136,8 +142,15 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
       }
 
       const cedis = getCedisDeptName(code, name);
-      setDeptName(cedis);
-      if (!cedis) setLoading(false); // sin CEDIS → salir del spinner
+      if (cedis) {
+        setDeptName(cedis);
+      } else if (isCsCentral) {
+        // Servicio a Cliente / Sistemas: usar el departamento central de Atención a Cliente
+        setDeptName(CS_DEFAULT_SENTINEL);
+      } else {
+        setDeptName('');
+        setLoading(false); // sin CEDIS → salir del spinner
+      }
     };
     detect();
   }, [user, token]);
@@ -154,7 +167,9 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
         // Guardar dept de Atención a Cliente (is_default_for_clients = true) para transferencias
         const csDept = depts.find(d => d.is_default_for_clients === true);
         if (csDept) setDefaultCsDeptId(csDept.id);
-        const found = depts.find(d => d.name === deptName);
+        const found = deptName === CS_DEFAULT_SENTINEL
+          ? csDept
+          : depts.find(d => d.name === deptName);
         if (found) {
           setDeptId(found.id);
         } else {
@@ -436,7 +451,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Tickets de Soporte</Text>
-          <Text style={styles.headerSub}>{deptName || 'CEDIS'} · {tickets.length} tickets</Text>
+          <Text style={styles.headerSub}>{deptName === CS_DEFAULT_SENTINEL ? 'Atención a Cliente' : (deptName || 'CEDIS')} · {tickets.length} tickets</Text>
         </View>
         <TouchableOpacity onPress={onRefresh} style={styles.backBtn}>
           <Ionicons name="refresh" size={20} color="#fff" />

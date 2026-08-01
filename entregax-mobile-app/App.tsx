@@ -55,6 +55,8 @@ import ReturnScanScreen from './src/screens/ReturnScanScreen';
 import DeliveryConfirmScreen from './src/screens/DeliveryConfirmScreen';
 import EmployeeHomeScreen from './src/screens/EmployeeHomeScreen';
 import SupportTicketsScreen from './src/screens/SupportTicketsScreen';
+import LeadRegistrationScreen from './src/screens/LeadRegistrationScreen';
+import AirPricingScreen from './src/screens/AirPricingScreen';
 import AttendanceCheckerScreen from './src/screens/AttendanceCheckerScreen';
 import WarehouseScannerScreen from './src/screens/WarehouseScannerScreen';
 import FirmaAbandonoScreen from './src/screens/FirmaAbandonoScreen';
@@ -249,6 +251,8 @@ export type RootStackParamList = {
   AdvisorQuotes: { user: any; token: string };
   AdvisorPaymentOrders: { user: any; token: string };
   SupportTickets: { user: any; token: string };
+  LeadRegistration: { user: any; token: string };
+  AirPricing: { user: any; token: string };
   // Chat interno staff
   ChatList: { user: any; token: string };
   ChatRoom: {
@@ -610,6 +614,8 @@ function App() {
           <Stack.Screen name="AdvisorQuotes" component={AdvisorQuotesScreen} options={{ headerShown: false }} />
           <Stack.Screen name="AdvisorPaymentOrders" component={AdvisorPaymentOrdersScreen} options={{ headerShown: false }} />
           <Stack.Screen name="SupportTickets" component={SupportTicketsScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="LeadRegistration" component={LeadRegistrationScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="AirPricing" component={AirPricingScreen} options={{ headerShown: false }} />
           {/* Chat interno staff */}
           <Stack.Screen name="ChatList" component={ChatListScreen} />
           <Stack.Screen name="ChatRoom" component={ChatRoomScreen} />
