@@ -676,6 +676,7 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
     const r = await pool.query(`
       SELECT t.*, b.name AS board_name, b.board_key, col.name AS column_name, col.is_done AS column_is_done,
              au.full_name AS assignee_name,
+             cu.full_name AS created_by_name,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id)::int AS subtasks_total,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id AND s.done)::int AS subtasks_done,
              (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
@@ -686,6 +687,7 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
         JOIN task_boards b ON b.id = t.board_id
         LEFT JOIN task_columns col ON col.id = t.column_id
         LEFT JOIN users au ON au.id = t.assignee_id
+        LEFT JOIN users cu ON cu.id = t.created_by
        WHERE (t.assignee_id = $1 OR EXISTS (SELECT 1 FROM task_participants tp WHERE tp.task_id = t.id AND tp.user_id = $1))
          AND ${statusCond}
        ORDER BY (t.status='open') DESC, (t.eisenhower='fuego') DESC, t.due_at NULLS LAST, t.id DESC`, [uid]);

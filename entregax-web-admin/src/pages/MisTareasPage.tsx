@@ -774,6 +774,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             )}
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1.5 }}>
               <Typography variant="body2"><b>Responsable:</b> {t.assignee_name || '—'}</Typography>
+              {t.created_by_name && <Typography variant="body2"><b>Asignada por:</b> {t.created_by_name}</Typography>}
               {t.due_at && <Typography variant="body2" color={t.overdue ? 'error.main' : 'inherit'}><b>Fecha deseada:</b> {fmtDate(t.due_at)}</Typography>}
             </Box>
             {(data.participants || []).length > 0 && (

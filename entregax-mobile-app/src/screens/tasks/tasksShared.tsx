@@ -646,6 +646,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const [eDue, setEDue] = useState('keep');
   const [eUsers, setEUsers] = useState<UserOpt[]>([]);
   const [eInvolved, setEInvolved] = useState<number[]>([]);
+  const [eAssignee, setEAssignee] = useState<number>(0); // responsable principal
   const [eCats, setECats] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
   const [eCat, setECat] = useState<number>(0); // 0 = Sin categoría
 
@@ -669,6 +670,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     const creatorId = Number(t.created_by) || 0;
     const parts = (data?.participants || []).map((p: any) => Number(p.id)).filter((pid: number) => pid !== creatorId);
     setEInvolved(parts);
+    setEAssignee(Number(t.assignee_id) || creatorId);
     if (eUsers.length === 0) fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => setEUsers(d.users || [])).catch(() => {});
     if (eCats.length === 0) fetch(`${API_URL}/api/tasks/categories`, { headers: H }).then(r => r.json()).then(d => setECats((d.categories || []).filter((c: any) => c.board_key !== 'personales'))).catch(() => {});
     setEditing(true);
@@ -677,7 +679,11 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     if (!eTitle.trim()) { Alert.alert('Falta título', 'El título no puede quedar vacío.'); return; }
     const body: any = { title: eTitle.trim(), description: eDesc || null, eisenhower: eEis, board_id: eCat || null };
     // Involucrados aplican en cualquier categoría (el creador siempre incluido).
-    { const cid = Number(t.created_by) || 0; body.involved_ids = cid ? [cid, ...eInvolved] : eInvolved; }
+    const cid = Number(t.created_by) || 0;
+    body.involved_ids = cid ? [cid, ...eInvolved] : eInvolved;
+    // Responsable principal explícito (debe estar entre creador + involucrados).
+    const cand = (cid ? [cid, ...eInvolved] : eInvolved);
+    body.assignee_id = cand.includes(eAssignee) ? eAssignee : (cand[0] || cid);
     if (eDue !== 'keep') {
       if (eDue === 'none') body.due_at = null;
       else {
@@ -839,7 +845,25 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                   </View>
                   <Text style={styles.fieldLbl}>Responsables</Text>
                   <InvolvedPicker users={eUsers} myId={Number(t.created_by) || 0} selected={eInvolved} onChange={setEInvolved} fixedLabel={t.created_by_name || 'Creador'} />
-                  <Text style={styles.helpTxt}>El creador siempre queda incluido. El primero que agregues será el responsable principal.</Text>
+                  <Text style={styles.helpTxt}>El creador siempre queda incluido. Elige abajo quién es el responsable principal.</Text>
+                  {(() => {
+                    const cid = Number(t.created_by) || 0;
+                    const cand = Array.from(new Set<number>([cid, ...eInvolved].filter(Boolean)));
+                    const nameFor = (uid: number) => uid === cid ? (t.created_by_name || 'Creador') : (eUsers.find(u => u.id === uid)?.full_name || `#${uid}`);
+                    const effective = cand.includes(eAssignee) ? eAssignee : (cand[0] || cid);
+                    return (
+                      <>
+                        <Text style={styles.fieldLbl}>Responsable principal</Text>
+                        <View style={styles.eisRow}>
+                          {cand.map(uid => (
+                            <TouchableOpacity key={uid} onPress={() => setEAssignee(uid)} style={[styles.dateChip, effective === uid && styles.dateChipOn]}>
+                              <Text style={[styles.dateChipTxt, effective === uid && { color: '#fff' }]}>{nameFor(uid)}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </>
+                    );
+                  })()}
                   <View style={styles.editBtns}>
                     <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditing(false)} disabled={busy}><Text style={styles.cancelBtnTxt}>Cancelar</Text></TouchableOpacity>
                     <TouchableOpacity style={styles.saveBtn} onPress={saveEdit} disabled={busy}>
@@ -855,6 +879,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
               </View>
               {!!t.description && <Text style={styles.desc}>{t.description}</Text>}
               <Text style={styles.metaLine}><Text style={styles.metaB}>Responsable:</Text> {t.assignee_name || '—'}</Text>
+              {!!t.created_by_name && <Text style={styles.metaLine}><Text style={styles.metaB}>Asignada por:</Text> {t.created_by_name}</Text>}
               {!!t.due_at && <Text style={[styles.metaLine, t.overdue && { color: '#C0392B' }]}><Text style={styles.metaB}>Fecha deseada:</Text> {fmtDate(t.due_at)}</Text>}
               </>
               )}
