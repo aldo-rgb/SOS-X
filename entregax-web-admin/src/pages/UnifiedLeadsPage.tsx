@@ -448,6 +448,46 @@ export default function UnifiedLeadsPage() {
   // Programación opcional: hora a la que se enviará (datetime-local). Vacío = ahora.
   const [bulkScheduleAt, setBulkScheduleAt] = useState<string>('');
   const [bulkScheduled, setBulkScheduled] = useState<{ scheduledAt: string; recipientCount: number } | null>(null);
+  // 💬 Respuestas a botones — regla: botón entrante → acción (enviar plantilla / blacklist)
+  const [replyRulesOpen, setReplyRulesOpen] = useState(false);
+  const [replyRules, setReplyRules] = useState<Array<{ id: number; button_text: string; action: string; template_id: number | null; template_label?: string; is_active: boolean }>>([]);
+  const [rrBtnText, setRrBtnText] = useState('');
+  const [rrAction, setRrAction] = useState<'send_template' | 'blacklist'>('send_template');
+  const [rrTemplateId, setRrTemplateId] = useState<number | ''>('');
+  const [rrSaving, setRrSaving] = useState(false);
+  const loadReplyRules = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/reply-rules`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setReplyRules(res.data?.rules || []);
+    } catch { /* */ }
+  };
+  const openReplyRules = async () => {
+    setReplyRulesOpen(true);
+    if (bulkTemplates.length === 0) await loadBulkTemplates();
+    await loadReplyRules();
+  };
+  const saveReplyRule = async () => {
+    if (!rrBtnText.trim()) { setSnackbar({ open: true, message: 'Escribe el texto exacto del botón', severity: 'error' }); return; }
+    if (rrAction === 'send_template' && !rrTemplateId) { setSnackbar({ open: true, message: 'Elige la plantilla a enviar', severity: 'error' }); return; }
+    setRrSaving(true);
+    try {
+      await axios.post(`${API_URL}/admin/crm/reply-rules`, {
+        button_text: rrBtnText.trim(), action: rrAction, template_id: rrAction === 'send_template' ? rrTemplateId : null,
+      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setRrBtnText(''); setRrTemplateId('');
+      await loadReplyRules();
+      setSnackbar({ open: true, message: 'Regla guardada', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo guardar', severity: 'error' });
+    } finally { setRrSaving(false); }
+  };
+  const deleteReplyRule = async (id: number) => {
+    try {
+      await axios.delete(`${API_URL}/admin/crm/reply-rules/${id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      await loadReplyRules();
+    } catch { /* */ }
+  };
+
   // 🔁 Configurar funnel — reglas de campañas automáticas por segmento
   const [funnelOpen, setFunnelOpen] = useState(false);
   const [funnelRules, setFunnelRules] = useState<FunnelRule[]>([]);
@@ -2297,6 +2337,14 @@ export default function UnifiedLeadsPage() {
             >
               Configurar funnel
             </Button>
+            <Button
+              variant="outlined"
+              startIcon={<span>💬</span>}
+              onClick={openReplyRules}
+              sx={{ fontWeight: 700, borderColor: '#0288d1', color: '#0288d1', '&:hover': { borderColor: '#0277bd', bgcolor: 'rgba(2,136,209,0.06)' } }}
+            >
+              Respuestas a botones
+            </Button>
             {selectedLeadKeys.size > 0 && groups.length > 0 && (
               <FormControl size="small" sx={{ minWidth: 190 }}>
                 <InputLabel id="assign-grp-label">Asignar a grupo</InputLabel>
@@ -3733,6 +3781,61 @@ export default function UnifiedLeadsPage() {
           ) : (
             <Button onClick={() => setFunnelOpen(false)}>Cerrar</Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* 💬 Respuestas a botones Dialog */}
+      <Dialog open={replyRulesOpen} onClose={() => setReplyRulesOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>💬 Respuestas a botones de WhatsApp</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Cuando un lead toca un botón de respuesta rápida en una plantilla, aquí defines qué pasa.
+            Escribe el <b>texto exacto</b> del botón (como aparece en la plantilla aprobada de Meta).
+          </Typography>
+
+          {/* Alta de regla */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 2, mb: 2 }}>
+            <TextField
+              size="small" label="Texto del botón (ej. Dame más información)" fullWidth
+              value={rrBtnText} onChange={e => setRrBtnText(e.target.value)}
+            />
+            <FormControl size="small" fullWidth>
+              <InputLabel id="rr-action">Acción</InputLabel>
+              <Select labelId="rr-action" label="Acción" value={rrAction} onChange={e => setRrAction(e.target.value as any)}>
+                <MenuItem value="send_template">Enviar una plantilla</MenuItem>
+                <MenuItem value="blacklist">Mandar a lista negra (no volver a contactar)</MenuItem>
+              </Select>
+            </FormControl>
+            {rrAction === 'send_template' && (
+              <FormControl size="small" fullWidth>
+                <InputLabel id="rr-tpl">Plantilla a enviar</InputLabel>
+                <Select labelId="rr-tpl" label="Plantilla a enviar" value={rrTemplateId} onChange={e => setRrTemplateId(Number(e.target.value))}>
+                  {bulkTemplates.map(t => <MenuItem key={t.id} value={t.id}>{t.label} ({t.template_name})</MenuItem>)}
+                </Select>
+              </FormControl>
+            )}
+            <Button variant="contained" onClick={saveReplyRule} disabled={rrSaving} sx={{ alignSelf: 'flex-start', bgcolor: '#0288d1', '&:hover': { bgcolor: '#0277bd' } }}>
+              Agregar regla
+            </Button>
+          </Box>
+
+          {/* Reglas existentes */}
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>Reglas configuradas</Typography>
+          {replyRules.length === 0 && <Typography variant="body2" color="text.secondary">Aún no hay reglas.</Typography>}
+          {replyRules.map(r => (
+            <Box key={r.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, py: 1, borderBottom: '1px solid #f0f0f0' }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>“{r.button_text}”</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {r.action === 'blacklist' ? '→ Lista negra' : `→ Enviar: ${r.template_label || r.template_id}`}
+                </Typography>
+              </Box>
+              <Button size="small" color="error" onClick={() => deleteReplyRule(r.id)}>Eliminar</Button>
+            </Box>
+          ))}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReplyRulesOpen(false)}>Cerrar</Button>
         </DialogActions>
       </Dialog>
 

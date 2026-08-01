@@ -15,6 +15,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { stopSequenceByPhone } from './waSequenceController';
+import { applyReplyRule, alreadyProcessed } from './waReplyRulesController';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || process.env.FB_VERIFY_TOKEN || '';
 
@@ -98,6 +99,8 @@ export const handleWhatsappWebhook = async (req: Request, res: Response): Promis
         for (const msg of messages) {
           const from: string = msg.from || '';
           if (!from) continue;
+          // Idempotencia: Meta reintenta el webhook; no procesar 2 veces el mismo mensaje.
+          if (msg.id && await alreadyProcessed(String(msg.id))) continue;
           // Texto o payload del botón.
           let text = '';
           if (msg.type === 'text') text = msg.text?.body || '';
@@ -109,23 +112,31 @@ export const handleWhatsappWebhook = async (req: Request, res: Response): Promis
           const stopped = await stopSequenceByPhone(from, 'responded');
           if (stopped) console.log(`[WA-WEBHOOK] ${from} respondió → secuencia detenida (${stopped})`);
 
-          // STOP / baja → blacklist.
-          if (STOP_WORDS.includes(norm)) {
+          // Manda el lead a la lista negra (marketing). Reutilizable por reglas y STOP words.
+          const doBlacklist = async () => {
             const leadKey = await resolveLeadKeyByPhone(from);
-            if (leadKey) {
-              await pool.query(
-                `INSERT INTO lead_blacklist (lead_key, reason) VALUES ($1, 'opt_out (STOP por WhatsApp)')
-                 ON CONFLICT (lead_key) DO NOTHING`,
-                [leadKey]
-              ).catch(() => {});
-              // Si es prospecto, marcarlo como perdido.
-              if (leadKey.startsWith('pr_')) {
-                const pid = parseInt(leadKey.slice(3), 10);
-                if (pid) await pool.query(`UPDATE prospects SET status='lost', updated_at=NOW() WHERE id=$1`, [pid]).catch(() => {});
-              }
-              console.log(`[WA-WEBHOOK] ${from} pidió STOP → blacklist (${leadKey})`);
+            if (!leadKey) return;
+            await pool.query(
+              `INSERT INTO lead_blacklist (lead_key, reason) VALUES ($1, 'opt_out (No, gracias por WhatsApp)')
+               ON CONFLICT (lead_key) DO NOTHING`,
+              [leadKey]
+            ).catch(() => {});
+            if (leadKey.startsWith('pr_')) {
+              const pid = parseInt(leadKey.slice(3), 10);
+              if (pid) await pool.query(`UPDATE prospects SET status='lost', updated_at=NOW() WHERE id=$1`, [pid]).catch(() => {});
             }
+            console.log(`[WA-WEBHOOK] ${from} → blacklist (${leadKey})`);
+          };
+
+          // 1) Reglas configurables botón→acción (enviar plantilla / blacklist).
+          const applied = await applyReplyRule(from, text, doBlacklist);
+          if (applied) {
+            console.log(`[WA-WEBHOOK] ${from} tocó "${text}" → acción ${applied.action}${applied.template_id ? ` (plantilla ${applied.template_id})` : ''}`);
+            continue;
           }
+
+          // 2) Fallback: STOP / baja escrito a mano → blacklist.
+          if (STOP_WORDS.includes(norm)) await doBlacklist();
         }
       }
     }
