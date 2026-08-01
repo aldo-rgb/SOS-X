@@ -488,6 +488,36 @@ export default function UnifiedLeadsPage() {
     } catch { /* */ }
   };
 
+  // 🧪 Probar plantilla a mi número (envío de prueba real + estado en Meta)
+  const [waTestOpen, setWaTestOpen] = useState(false);
+  const [waTestTpl, setWaTestTpl] = useState<number | ''>('');
+  const [waTestPhone, setWaTestPhone] = useState('');
+  const [waTestBusy, setWaTestBusy] = useState(false);
+  const [waTestResult, setWaTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [waMetaStatus, setWaMetaStatus] = useState<Array<{ name: string; status: string; category: string }>>([]);
+  const openWaTest = async () => {
+    setWaTestOpen(true); setWaTestResult(null);
+    if (bulkTemplates.length === 0) await loadBulkTemplates();
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/wa-templates-status`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setWaMetaStatus(res.data?.templates || []);
+    } catch { setWaMetaStatus([]); }
+  };
+  const sendWaTest = async () => {
+    if (!waTestTpl) { setSnackbar({ open: true, message: 'Elige la plantilla', severity: 'error' }); return; }
+    if (!waTestPhone.trim()) { setSnackbar({ open: true, message: 'Escribe tu número (con lada, ej. 528112345678)', severity: 'error' }); return; }
+    setWaTestBusy(true); setWaTestResult(null);
+    try {
+      const res = await axios.post(`${API_URL}/admin/crm/wa-test-send`,
+        { template_id: waTestTpl, phone: waTestPhone.trim() },
+        { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (res.data?.ok) setWaTestResult({ ok: true, msg: `✅ Enviado a WhatsApp (${res.data.template}). Revisa tu teléfono.` });
+      else setWaTestResult({ ok: false, msg: `❌ Meta rechazó el envío: ${res.data?.error || 'error desconocido'}` });
+    } catch (e: any) {
+      setWaTestResult({ ok: false, msg: `❌ ${e?.response?.data?.error || 'No se pudo enviar'}` });
+    } finally { setWaTestBusy(false); }
+  };
+
   // 🔁 Configurar funnel — reglas de campañas automáticas por segmento
   const [funnelOpen, setFunnelOpen] = useState(false);
   const [funnelRules, setFunnelRules] = useState<FunnelRule[]>([]);
@@ -2345,6 +2375,14 @@ export default function UnifiedLeadsPage() {
             >
               Respuestas a botones
             </Button>
+            <Button
+              variant="outlined"
+              startIcon={<span>🧪</span>}
+              onClick={openWaTest}
+              sx={{ fontWeight: 700, borderColor: '#2E7D32', color: '#2E7D32', '&:hover': { borderColor: '#1B5E20', bgcolor: 'rgba(46,125,50,0.06)' } }}
+            >
+              Probar a mi número
+            </Button>
             {selectedLeadKeys.size > 0 && groups.length > 0 && (
               <FormControl size="small" sx={{ minWidth: 190 }}>
                 <InputLabel id="assign-grp-label">Asignar a grupo</InputLabel>
@@ -3781,6 +3819,57 @@ export default function UnifiedLeadsPage() {
           ) : (
             <Button onClick={() => setFunnelOpen(false)}>Cerrar</Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* 🧪 Probar plantilla a mi número Dialog */}
+      <Dialog open={waTestOpen} onClose={() => setWaTestOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>🧪 Probar plantilla en mi WhatsApp</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Envía la plantilla a tu número y te muestra el resultado real de Meta (si llega o el error exacto).
+            Solo funcionan las plantillas <b>aprobadas</b>.
+          </Typography>
+          <Stack spacing={2}>
+            <FormControl size="small" fullWidth>
+              <InputLabel id="wt-tpl">Plantilla</InputLabel>
+              <Select labelId="wt-tpl" label="Plantilla" value={waTestTpl} onChange={e => setWaTestTpl(Number(e.target.value))}>
+                {bulkTemplates.map(t => {
+                  const st = waMetaStatus.find(m => m.name === t.template_name);
+                  const ok = st?.status === 'APPROVED';
+                  return <MenuItem key={t.id} value={t.id}>{t.label} — {t.template_name} {st ? (ok ? '✅' : `⚠️ ${st.status}`) : ''}</MenuItem>;
+                })}
+              </Select>
+            </FormControl>
+            <TextField size="small" fullWidth label="Tu número (con lada país, ej. 528112345678)"
+              value={waTestPhone} onChange={e => setWaTestPhone(e.target.value)} />
+            <Button variant="contained" onClick={sendWaTest} disabled={waTestBusy}
+              sx={{ alignSelf: 'flex-start', bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' } }}>
+              {waTestBusy ? 'Enviando…' : 'Enviar prueba'}
+            </Button>
+            {waTestResult && (
+              <Typography variant="body2" sx={{ fontWeight: 700, color: waTestResult.ok ? '#2E7D32' : '#C62828' }}>
+                {waTestResult.msg}
+              </Typography>
+            )}
+          </Stack>
+
+          {waMetaStatus.length > 0 && (
+            <>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mt: 3, mb: 1 }}>Estado en Meta</Typography>
+              <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
+                {waMetaStatus.map(m => (
+                  <Box key={m.name + m.category} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px solid #f0f0f0' }}>
+                    <Typography variant="caption" sx={{ fontWeight: 600 }}>{m.name}</Typography>
+                    <Typography variant="caption" sx={{ color: m.status === 'APPROVED' ? '#2E7D32' : '#B26A00', fontWeight: 700 }}>{m.status}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWaTestOpen(false)}>Cerrar</Button>
         </DialogActions>
       </Dialog>
 

@@ -697,6 +697,8 @@ import {
   createReplyRule,
   updateReplyRule,
   deleteReplyRule,
+  testSendTemplate,
+  listMetaTemplates,
 } from './waReplyRulesController';
 import {
   getHistorico,
@@ -7446,6 +7448,8 @@ app.get('/api/admin/crm/reply-rules', authenticateToken, requireMinLevel(ROLES.C
 app.post('/api/admin/crm/reply-rules', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createReplyRule);
 app.put('/api/admin/crm/reply-rules/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateReplyRule);
 app.delete('/api/admin/crm/reply-rules/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteReplyRule);
+app.post('/api/admin/crm/wa-test-send', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), testSendTemplate);
+app.get('/api/admin/crm/wa-templates-status', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), listMetaTemplates);
 // Rastreo de clics en botones de URL de WhatsApp: registra y redirige (público, sin auth).
 app.get('/r/:token', trackClickRedirect);
 

@@ -139,6 +139,59 @@ export async function applyReplyRule(
   return null;
 }
 
+// ─── Prueba: enviar una plantilla a un número y devolver el resultado real ──
+// POST /api/admin/crm/wa-test-send  { template_id, phone }
+export const testSendTemplate = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { template_id, phone } = req.body || {};
+    if (!template_id || !String(phone || '').trim()) return res.status(400).json({ error: 'Falta plantilla o número' });
+    const tplRes = await pool.query(
+      `SELECT template_name, language_code, header_image_url, header_image_key, use_mm_lite, uses_name
+         FROM bulk_wa_templates WHERE id = $1`,
+      [parseInt(String(template_id), 10)]
+    );
+    const tpl = tplRes.rows[0];
+    if (!tpl) return res.status(404).json({ error: 'Plantilla no encontrada' });
+    let headerImageUrl: string | undefined;
+    if (tpl.header_image_key) { try { headerImageUrl = await getSignedUrlForKey(tpl.header_image_key, 6 * 3600); } catch { /* */ } }
+    if (!headerImageUrl) headerImageUrl = tpl.header_image_url || undefined;
+    const parameters = tpl.uses_name !== false ? ['Prueba'] : [];
+    const r = await sendTemplate({
+      to: String(phone).trim(),
+      template: tpl.template_name,
+      languageCode: tpl.language_code || 'es_MX',
+      parameters,
+      ...(headerImageUrl ? { headerImageUrl } : {}),
+      useMarketingApi: !!tpl.use_mm_lite,
+    });
+    if (r.ok) return res.json({ ok: true, template: tpl.template_name, message_id: (r as any).messageId });
+    return res.json({ ok: false, template: tpl.template_name, error: (r as any).error || 'Falló el envío' });
+  } catch (e: any) {
+    console.error('[wa-test-send]', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+};
+
+// GET /api/admin/crm/wa-templates-status → estado de aprobación en Meta
+export const listMetaTemplates = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    const token = process.env.WHATSAPP_ACCESS_TOKEN;
+    const ver = process.env.WHATSAPP_API_VERSION || 'v23.0';
+    const waba = process.env.WHATSAPP_WABA_ID || '1311055820410416';
+    if (!token) return res.status(500).json({ error: 'Sin credenciales de WhatsApp en el servidor' });
+    const r = await fetch(`https://graph.facebook.com/${ver}/${waba}/message_templates?fields=name,status,language,category&limit=250`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const d: any = await r.json();
+    if (!r.ok) return res.status(502).json({ error: d?.error?.message || 'Error consultando Meta' });
+    const templates = (d.data || []).map((t: any) => ({ name: t.name, status: t.status, language: t.language, category: t.category }));
+    return res.json({ templates });
+  } catch (e: any) {
+    console.error('[wa-templates-status]', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+};
+
 // ─── CRUD para la UI ────────────────────────────────────────────────────────
 export const getReplyRules = async (_req: Request, res: Response): Promise<any> => {
   try {
