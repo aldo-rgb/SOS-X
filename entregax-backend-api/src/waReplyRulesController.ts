@@ -41,7 +41,13 @@ export async function ensureReplyRulesSchema(): Promise<void> {
   _schemaReady = true;
 }
 
-const norm = (s: any): string => String(s ?? '').trim().toLowerCase();
+// Normaliza para comparar botones: sin tildes, minúsculas, espacios colapsados.
+// Así "México" ≡ "Mexico", "  Dame  más " ≡ "dame mas", etc.
+const norm = (s: any): string => String(s ?? '')
+  .normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .toLowerCase()
+  .replace(/\s+/g, ' ')
+  .trim();
 const normPhone = (p: any): string => { const d = String(p ?? '').replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d; };
 
 // ─── Idempotencia: ¿ya procesamos este message id? ──────────────────────────
@@ -115,13 +121,12 @@ export async function applyReplyRule(
   await ensureReplyRulesSchema();
   const key = norm(buttonText);
   if (!key) return null;
+  // Traer reglas activas y comparar con normalización (tildes/espacios) en JS,
+  // porque el match en SQL no ignora acentos.
   const r = await pool.query(
-    `SELECT id, action, template_id FROM wa_reply_rules
-     WHERE is_active = true AND lower(btrim(button_text)) = $1
-     ORDER BY id DESC LIMIT 1`,
-    [key]
+    `SELECT id, action, template_id, button_text FROM wa_reply_rules WHERE is_active = true ORDER BY id DESC`
   );
-  const rule = r.rows[0];
+  const rule = r.rows.find((x: any) => norm(x.button_text) === key);
   if (!rule) return null;
   if (rule.action === 'blacklist') {
     await blacklistFn();
