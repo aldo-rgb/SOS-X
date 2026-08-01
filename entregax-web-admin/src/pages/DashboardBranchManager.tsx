@@ -725,239 +725,59 @@ export default function DashboardBranchManager() {
             </Typography>
           </Stack>
 
-          <Grid container spacing={2} sx={{ mb: 4 }}>
-            {(() => {
-              const fmtAgo = (h: number | null): string => {
-                if (h === null || h === undefined) return 'sin datos';
-                if (h < 1) return `hace ${Math.max(1, Math.round(h * 60))} min`;
-                if (h < 24) return `hace ${Math.round(h)} h`;
-                const d = Math.round(h / 24);
-                return `hace ${d} día${d === 1 ? '' : 's'}`;
-              };
-              const fmtDate = (d: string | null | undefined) =>
-                d ? new Date(d).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—';
-              const RateCard = (props: {
-                title: string;
-                main: string;
-                secondary?: string;
-                updatedAt: string | null | undefined;
-                hoursSince: number | null;
-                stale: boolean;
-                icon: React.ReactNode;
-                staleLabel?: string;
-                hasOverride?: boolean;
-              }) => {
-                const { title, main, secondary, updatedAt, hoursSince, stale, icon, staleLabel, hasOverride } = props;
-                const borderColor = stale ? '#FCA5A5' : '#E5E7EB';
-                const accent = stale ? '#DC2626' : '#F05A28';
-                return (
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      position: 'relative',
-                      p: 2.25,
-                      height: '100%',
-                      bgcolor: '#fff',
-                      borderRadius: 2,
-                      border: `1px solid ${borderColor}`,
-                      boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        height: 3,
-                        borderTopLeftRadius: 8,
-                        borderTopRightRadius: 8,
-                        bgcolor: accent,
-                      },
-                    }}
-                  >
-                    <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
-                      <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography variant="caption" sx={{ color: '#64748B', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase', fontSize: '0.7rem' }}>
-                          {title}
-                        </Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, mt: 0.5 }}>
-                          <Typography sx={{ color: '#0F172A', fontWeight: 700, fontSize: '1.6rem', lineHeight: 1.15 }}>
-                            {main}
-                          </Typography>
-                          {hasOverride && (
-                            <Box sx={{ px: 0.6, py: 0.15, borderRadius: 1, bgcolor: '#FFF7ED', border: '1px solid #FDBA74', fontSize: '0.65rem', fontWeight: 800, color: '#C2410C', letterSpacing: 0.5, flexShrink: 0 }}>
-                              OV
-                            </Box>
-                          )}
+          {(() => {
+            const fmtAgo = (h: number | null): string => {
+              if (h === null || h === undefined) return 'sin datos';
+              if (h < 1) return `hace ${Math.max(1, Math.round(h * 60))} min`;
+              if (h < 24) return `hace ${Math.round(h)} h`;
+              const d = Math.round(h / 24);
+              return `hace ${d} día${d === 1 ? '' : 's'}`;
+            };
+            const ent = systemRates.entangled;
+            const pob = systemRates.pobox;
+            const tdi = systemRates.tdi_air;
+            const tdiExp = systemRates.tdi_express;
+            const ALIAS: Record<string, string> = { NLU: 'AIFA', MEX: 'AICM' };
+            const aliasOf = (c?: string | null) => c ? (ALIAS[String(c).toUpperCase()] || String(c).toUpperCase()) : '';
+            const routeOf = (t: any, fb: string) => {
+              if (!t) return '';
+              const o = t.origin_city || aliasOf(t.origin_airport);
+              const d = t.destination_city || aliasOf(t.destination_airport);
+              const r = (o && d) ? `${o} → ${d}` : (t.route_name || t.route_code || fb);
+              const ap = [aliasOf(t.origin_airport), aliasOf(t.destination_airport)].filter(Boolean).join('–');
+              return ap ? `${r} (${ap})` : r;
+            };
+            const items = [
+              { title: 'TC · Envío de Dinero', value: ent ? `$${Number(ent.tipo_cambio_usd).toFixed(4)}` : '—', unit: 'MXN/USD', sub: ent ? `Actualizado ${fmtAgo(ent.hours_since_update)}` : 'sin proveedor', stale: ent ? !!ent.stale : true, ov: !!(ent && (ent.has_override_usd || ent.has_override_rmb)), icon: <CurrencyExchangeIcon sx={{ fontSize: 20 }} /> },
+              { title: 'TC · EntregaX', value: pob ? `$${Number(pob.tipo_cambio_final).toFixed(4)}` : '—', unit: 'MXN/USD', sub: pob ? `Actualizado ${fmtAgo(pob.hours_since_update)}` : 'sin configurar', stale: pob ? !!pob.stale : true, ov: false, icon: <CurrencyExchangeIcon sx={{ fontSize: 20 }} /> },
+              { title: 'TDI Aéreo · Genérico/kg', value: tdi ? `$${Number(tdi.price_generic_usd ?? (Number(tdi.cost_per_kg_usd) + 8)).toFixed(2)}` : '—', unit: 'USD/kg', sub: tdi ? routeOf(tdi, 'Ruta activa') : 'sin ruta', stale: !!(tdi && tdi.hours_since_update != null && tdi.hours_since_update >= 168), ov: false, icon: <TrendingUpIcon sx={{ fontSize: 20 }} /> },
+              { title: 'TDI Express · Genérico/kg', value: tdiExp ? `$${Number(tdiExp.price_generic_usd ?? (Number(tdiExp.cost_per_kg_usd) + 8)).toFixed(2)}` : '—', unit: 'USD/kg', sub: tdiExp ? routeOf(tdiExp, 'Ruta Express') : 'sin ruta', stale: !!(tdiExp && tdiExp.hours_since_update != null && tdiExp.hours_since_update >= 168), ov: false, icon: <TrendingUpIcon sx={{ fontSize: 20 }} /> },
+            ];
+            return (
+              <Paper elevation={0} sx={{ mb: 4, borderRadius: 2, border: '1px solid #E5E7EB', boxShadow: '0 1px 2px rgba(15,23,42,0.04)', overflowX: 'auto' }}>
+                <Box sx={{ display: 'flex', minWidth: 720 }}>
+                  {items.map((it, i) => (
+                    <Box key={i} sx={{ flex: 1, minWidth: 170, px: 2.25, py: 2, borderLeft: i > 0 ? '1px solid #eef2f7' : 'none', position: 'relative', '&::before': { content: '""', position: 'absolute', top: 0, left: 0, right: 0, height: 3, bgcolor: it.stale ? '#DC2626' : '#F05A28', borderTopLeftRadius: i === 0 ? 8 : 0, borderTopRightRadius: i === items.length - 1 ? 8 : 0 } }}>
+                      <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="caption" sx={{ color: '#64748B', fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase', fontSize: '0.66rem' }} noWrap>{it.title}</Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, mt: 0.5 }}>
+                            <Typography sx={{ color: '#0F172A', fontWeight: 800, fontSize: '1.35rem', lineHeight: 1.1 }}>{it.value}</Typography>
+                            <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 600 }}>{it.unit}</Typography>
+                            {it.ov && <Box sx={{ px: 0.5, py: 0.1, borderRadius: 1, bgcolor: '#FFF7ED', border: '1px solid #FDBA74', fontSize: '0.6rem', fontWeight: 800, color: '#C2410C' }}>OV</Box>}
+                          </Box>
+                          <Typography variant="caption" sx={{ color: it.stale ? '#B91C1C' : '#64748B', display: 'block', mt: 0.5 }} noWrap>{it.sub}</Typography>
                         </Box>
-                        {secondary && (
-                          <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mt: 0.25 }}>
-                            {secondary}
-                          </Typography>
-                        )}
-                      </Box>
-                      <Box
-                        sx={{
-                          width: 38,
-                          height: 38,
-                          borderRadius: 1.5,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          bgcolor: stale ? '#FEE2E2' : '#F1F5F9',
-                          color: stale ? '#DC2626' : '#0F172A',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {stale ? <CloudOffIcon sx={{ fontSize: 22 }} /> : icon}
-                      </Box>
-                    </Stack>
-                    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 1.25, flexWrap: 'wrap' }}>
-                      <Chip
-                        size="small"
-                        label={stale ? (staleLabel ?? 'Sin cambios · revisar API') : `Actualizado ${fmtAgo(hoursSince)}`}
-                        sx={{
-                          height: 22,
-                          fontWeight: 700,
-                          fontSize: '0.7rem',
-                          bgcolor: stale ? '#FEE2E2' : '#ECFDF5',
-                          color: stale ? '#B91C1C' : '#047857',
-                        }}
-                      />
-                      <Typography variant="caption" sx={{ color: '#94A3B8' }}>
-                        {fmtDate(updatedAt)}
-                      </Typography>
-                    </Stack>
-                  </Paper>
-                );
-              };
-
-              const ent = systemRates.entangled;
-              const pob = systemRates.pobox;
-              const tdi = systemRates.tdi_air;
-              const tdiExp = systemRates.tdi_express;
-
-              return (
-                <>
-                  <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    {ent ? (
-                      <RateCard
-                        title="Tipo de cambio · Envío de Dinero"
-                        main={`$${Number(ent.tipo_cambio_usd).toFixed(4)} MXN / USD`}
-                        updatedAt={ent.updated_at}
-                        hoursSince={ent.hours_since_update}
-                        stale={ent.stale}
-                        icon={<CurrencyExchangeIcon sx={{ fontSize: 22 }} />}
-                        hasOverride={!!(ent.has_override_usd || ent.has_override_rmb)}
-                      />
-                    ) : (
-                      <RateCard
-                        title="Tipo de cambio · Envío de Dinero"
-                        main="Sin proveedor activo"
-                        updatedAt={null}
-                        hoursSince={null}
-                        stale={true}
-                        icon={<CurrencyExchangeIcon sx={{ fontSize: 22 }} />}
-                      />
-                    )}
-                  </Grid>
-
-                  <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    {pob ? (
-                      <RateCard
-                        title="Tipo de cambio · EntregaX"
-                        main={`$${Number(pob.tipo_cambio_final).toFixed(4)} MXN / USD`}
-                        updatedAt={pob.updated_at}
-                        hoursSince={pob.hours_since_update}
-                        stale={pob.stale}
-                        icon={<CurrencyExchangeIcon sx={{ fontSize: 22 }} />}
-                      />
-                    ) : (
-                      <RateCard
-                        title="Tipo de cambio · EntregaX"
-                        main="Sin configurar"
-                        updatedAt={null}
-                        hoursSince={null}
-                        stale={true}
-                        icon={<CurrencyExchangeIcon sx={{ fontSize: 22 }} />}
-                      />
-                    )}
-                  </Grid>
-
-                  <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    {tdi ? (
-                      <RateCard
-                        title="Precio Genérico / kg · TDI Aéreo"
-                        main={`$${Number(tdi.price_generic_usd ?? (Number(tdi.cost_per_kg_usd) + 8)).toFixed(2)} USD / kg`}
-                        secondary={(() => {
-                          const AIRPORT_ALIAS: Record<string, string> = { NLU: 'AIFA', MEX: 'AICM' };
-                          const aliasOf = (code?: string | null) =>
-                            code ? (AIRPORT_ALIAS[String(code).toUpperCase()] || String(code).toUpperCase()) : '';
-                          const orig = tdi.origin_city || aliasOf(tdi.origin_airport);
-                          const dest = tdi.destination_city || aliasOf(tdi.destination_airport);
-                          const route = (orig && dest) ? `${orig} → ${dest}` : (tdi.route_name || tdi.route_code || 'Ruta activa');
-                          const oa = aliasOf(tdi.origin_airport);
-                          const da = aliasOf(tdi.destination_airport);
-                          const airports = [oa, da].filter(Boolean).join('–');
-                          return airports ? `${route} (${airports})` : route;
-                        })()}
-                        updatedAt={tdi.updated_at}
-                        hoursSince={tdi.hours_since_update}
-                        stale={tdi.hours_since_update !== null && tdi.hours_since_update !== undefined && tdi.hours_since_update >= 168}
-                        staleLabel="Actualizar"
-                        icon={<TrendingUpIcon sx={{ fontSize: 22 }} />}
-                      />
-                    ) : (
-                      <RateCard
-                        title="Precio Genérico / kg · TDI Aéreo"
-                        main="Sin ruta activa"
-                        updatedAt={null}
-                        hoursSince={null}
-                        stale={true}
-                        staleLabel="Actualizar"
-                        icon={<TrendingUpIcon sx={{ fontSize: 22 }} />}
-                      />
-                    )}
-                  </Grid>
-
-                  {/* TDI Express */}
-                  <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    {tdiExp ? (
-                      <RateCard
-                        title="Precio Genérico / kg · TDI Express"
-                        main={`$${Number(tdiExp.price_generic_usd ?? (Number(tdiExp.cost_per_kg_usd) + 8)).toFixed(2)} USD / kg`}
-                        secondary={(() => {
-                          const AIRPORT_ALIAS: Record<string, string> = { NLU: 'AIFA', MEX: 'AICM' };
-                          const aliasOf = (code?: string | null) => code ? (AIRPORT_ALIAS[String(code).toUpperCase()] || String(code).toUpperCase()) : '';
-                          const orig = tdiExp.origin_city || aliasOf(tdiExp.origin_airport);
-                          const dest = tdiExp.destination_city || aliasOf(tdiExp.destination_airport);
-                          const route = (orig && dest) ? `${orig} → ${dest}` : (tdiExp.route_name || 'Ruta Express');
-                          const oa = aliasOf(tdiExp.origin_airport);
-                          const da = aliasOf(tdiExp.destination_airport);
-                          const airports = [oa, da].filter(Boolean).join('–');
-                          return airports ? `${route} (${airports})` : route;
-                        })()}
-                        updatedAt={tdiExp.updated_at}
-                        hoursSince={tdiExp.hours_since_update}
-                        stale={tdiExp.hours_since_update !== null && tdiExp.hours_since_update !== undefined && tdiExp.hours_since_update >= 168}
-                        staleLabel="Actualizar"
-                        icon={<TrendingUpIcon sx={{ fontSize: 22 }} />}
-                      />
-                    ) : (
-                      <RateCard
-                        title="Precio Genérico / kg · TDI Express"
-                        main="Sin ruta activa"
-                        updatedAt={null}
-                        hoursSince={null}
-                        stale={true}
-                        staleLabel="Actualizar"
-                        icon={<TrendingUpIcon sx={{ fontSize: 22 }} />}
-                      />
-                    )}
-                  </Grid>
-                </>
-              );
-            })()}
-          </Grid>
+                        <Box sx={{ width: 32, height: 32, borderRadius: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, bgcolor: it.stale ? '#FEE2E2' : '#F1F5F9', color: it.stale ? '#DC2626' : '#0F172A' }}>
+                          {it.stale ? <CloudOffIcon sx={{ fontSize: 20 }} /> : it.icon}
+                        </Box>
+                      </Stack>
+                    </Box>
+                  ))}
+                </Box>
+              </Paper>
+            );
+          })()}
         </>
       )}
 
