@@ -18,6 +18,10 @@ import { api } from '../services/api';
 
 const ORANGE = '#F05A28';
 
+// Márgenes automáticos sobre el Costo de Ruta (igual que la web):
+// Logo = costo + $9 · Genérico = costo + $8 · Flat = costo + $7 · Sensible = manual.
+const MARKUPS: Record<'L' | 'G' | 'S' | 'F', number | null> = { L: 9, G: 8, S: null, F: 7 };
+
 const TARIFF_TYPES: { key: 'L' | 'G' | 'S' | 'F'; label: string; color: string }[] = [
   { key: 'L', label: 'Logo', color: '#1565C0' },
   { key: 'G', label: 'Genérico', color: '#2E7D32' },
@@ -38,27 +42,17 @@ interface RouteTariff {
   tariffs: Record<string, { id: number | null; price_per_kg: number; is_active: boolean }>;
 }
 
-// Draft editable por ruta: { cost, L, G, S, F } como strings
-type Draft = { cost: string; L: string; G: string; S: string; F: string };
-
 export default function AirPricingScreen({ navigation, route }: any) {
   const { token } = route.params;
   const insets = useSafeAreaInsets();
   const auth = { headers: { Authorization: `Bearer ${token}` } };
 
   const [routes, setRoutes] = useState<RouteTariff[]>([]);
-  const [drafts, setDrafts] = useState<Record<number, Draft>>({});
+  // Solo el costo de ruta es editable (string por ruta). El resto se calcula.
+  const [costDrafts, setCostDrafts] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [savingId, setSavingId] = useState<number | null>(null);
-
-  const buildDraft = (r: RouteTariff): Draft => ({
-    cost: r.cost_per_kg_usd != null ? String(r.cost_per_kg_usd) : '',
-    L: r.tariffs?.L?.price_per_kg ? String(r.tariffs.L.price_per_kg) : '',
-    G: r.tariffs?.G?.price_per_kg ? String(r.tariffs.G.price_per_kg) : '',
-    S: r.tariffs?.S?.price_per_kg ? String(r.tariffs.S.price_per_kg) : '',
-    F: r.tariffs?.F?.price_per_kg ? String(r.tariffs.F.price_per_kg) : '',
-  });
 
   const load = useCallback(async (showLoader = false) => {
     if (showLoader) setLoading(true);
@@ -66,9 +60,9 @@ export default function AirPricingScreen({ navigation, route }: any) {
       const res = await api.get('/api/admin/air-tariffs', auth);
       const list: RouteTariff[] = res.data?.routes || [];
       setRoutes(list);
-      const dmap: Record<number, Draft> = {};
-      list.forEach(r => { dmap[r.id] = buildDraft(r); });
-      setDrafts(dmap);
+      const cmap: Record<number, string> = {};
+      list.forEach(r => { cmap[r.id] = r.cost_per_kg_usd != null ? String(r.cost_per_kg_usd) : ''; });
+      setCostDrafts(cmap);
     } catch (e: any) {
       Alert.alert('Error', 'No se pudieron cargar las tarifas aéreas.');
     } finally {
@@ -81,24 +75,29 @@ export default function AirPricingScreen({ navigation, route }: any) {
 
   const onRefresh = () => { setRefreshing(true); load(false); };
 
-  const setField = (routeId: number, field: keyof Draft, value: string) => {
-    // solo dígitos y punto
+  const setCost = (routeId: number, value: string) => {
     const clean = value.replace(/[^0-9.]/g, '');
-    setDrafts(prev => ({ ...prev, [routeId]: { ...prev[routeId]!, [field]: clean } }));
+    setCostDrafts(prev => ({ ...prev, [routeId]: clean }));
+  };
+
+  // Tarifa calculada por tipo: costo + margen. Sensible (margen null) = valor manual guardado.
+  const computedTariff = (r: RouteTariff, cost: number, key: 'L' | 'G' | 'S' | 'F'): number => {
+    const mk = MARKUPS[key];
+    if (mk == null) return Number(r.tariffs?.[key]?.price_per_kg || 0); // manual
+    return cost + mk;
   };
 
   const save = async (r: RouteTariff) => {
-    const d = drafts[r.id];
-    if (!d) return;
+    const raw = costDrafts[r.id];
+    if (raw === undefined || raw === '') { Alert.alert('Falta el costo', 'Ingresa el costo de ruta.'); return; }
+    const cost = parseFloat(raw) || 0;
     setSavingId(r.id);
     try {
-      const body: any = { route_id: r.id, tariffs: {} };
-      if (d.cost !== '') body.cost_per_kg_usd = parseFloat(d.cost) || 0;
-      for (const t of TARIFF_TYPES) {
-        body.tariffs[t.key] = d[t.key] !== '' ? (parseFloat(d[t.key]) || 0) : 0;
-      }
-      await api.post('/api/admin/air-tariffs', body, auth);
-      Alert.alert('Guardado', `✅ Tarifas de ${r.code} actualizadas.`);
+      // Enviar costo + tarifas recalculadas automáticamente (Sensible se mantiene manual).
+      const tariffs: Record<string, number> = {};
+      for (const t of TARIFF_TYPES) tariffs[t.key] = computedTariff(r, cost, t.key);
+      await api.post('/api/admin/air-tariffs', { route_id: r.id, cost_per_kg_usd: cost, tariffs }, auth);
+      Alert.alert('Guardado', `✅ Costo y tarifas de ${r.code} actualizados.`);
       await load(false);
     } catch (e: any) {
       Alert.alert('No se pudo guardar', e?.response?.data?.error || 'Error al guardar las tarifas.');
@@ -135,10 +134,10 @@ export default function AirPricingScreen({ navigation, route }: any) {
             keyboardShouldPersistTaps="handled"
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[ORANGE]} />}
           >
-            <Text style={styles.help}>Edita el costo de ruta y las tarifas por tipo. Guardar una tarifa en 0 la desactiva. El "Genérico" (G) es el precio que ven los asesores.</Text>
+            <Text style={styles.help}>Solo edita el <Text style={{ fontWeight: '800' }}>Costo de Ruta</Text>. Las tarifas por tipo se calculan automáticamente (costo + margen): Logo +$9, Genérico +$8, Flat +$7. Sensible es manual. El "Genérico" (G) es el precio que ven los asesores.</Text>
             {routes.map(r => {
-              const d = drafts[r.id];
-              if (!d) return null;
+              const raw = costDrafts[r.id] ?? '';
+              const cost = parseFloat(raw) || 0;
               const isExpress = r.code === 'TDI-EXPRES';
               return (
                 <View key={r.id} style={styles.card}>
@@ -151,34 +150,35 @@ export default function AirPricingScreen({ navigation, route }: any) {
                   <Text style={styles.routeCode}>{r.code}</Text>
                   <Text style={styles.routeName}>{routeLabel(r)}</Text>
 
+                  {/* Único campo editable */}
                   <View style={styles.fieldRow}>
-                    <Text style={styles.fieldLbl}>Costo de ruta (USD/kg)</Text>
+                    <Text style={styles.fieldLblBold}>Costo de ruta (USD/kg)</Text>
                     <TextInput
-                      style={styles.numInput}
-                      value={d.cost}
-                      onChangeText={v => setField(r.id, 'cost', v)}
+                      style={[styles.numInput, styles.numInputEdit]}
+                      value={raw}
+                      onChangeText={v => setCost(r.id, v)}
                       keyboardType="decimal-pad"
                       placeholder="0.00"
                       placeholderTextColor="#bbb"
                     />
                   </View>
 
-                  {TARIFF_TYPES.map(t => (
-                    <View key={t.key} style={styles.fieldRow}>
-                      <View style={styles.tariffLbl}>
-                        <View style={[styles.dot, { backgroundColor: t.color }]} />
-                        <Text style={styles.fieldLbl}>{t.label} ({t.key})</Text>
+                  <Text style={styles.calcHint}>Tarifas calculadas (solo lectura)</Text>
+                  {TARIFF_TYPES.map(t => {
+                    const isManual = MARKUPS[t.key] == null;
+                    const val = computedTariff(r, cost, t.key);
+                    return (
+                      <View key={t.key} style={styles.fieldRow}>
+                        <View style={styles.tariffLbl}>
+                          <View style={[styles.dot, { backgroundColor: t.color }]} />
+                          <Text style={styles.fieldLbl}>{t.label} ({t.key}){isManual ? ' · manual' : ` · +$${MARKUPS[t.key]}`}</Text>
+                        </View>
+                        <View style={[styles.numInput, styles.numInputRO]}>
+                          <Text style={styles.numInputROTxt}>${val.toFixed(2)}</Text>
+                        </View>
                       </View>
-                      <TextInput
-                        style={styles.numInput}
-                        value={d[t.key]}
-                        onChangeText={v => setField(r.id, t.key, v)}
-                        keyboardType="decimal-pad"
-                        placeholder="0.00"
-                        placeholderTextColor="#bbb"
-                      />
-                    </View>
-                  ))}
+                    );
+                  })}
 
                   <TouchableOpacity
                     style={[styles.saveBtn, savingId === r.id && { opacity: 0.6 }]}
@@ -216,7 +216,12 @@ const styles = StyleSheet.create({
   tariffLbl: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   fieldLbl: { fontSize: 14, color: '#333', fontWeight: '600' },
+  fieldLblBold: { fontSize: 15, color: '#111', fontWeight: '800' },
   numInput: { width: 110, backgroundColor: '#f7f7f9', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: '#111', borderWidth: 1, borderColor: '#e3e3e6', textAlign: 'right' },
+  numInputEdit: { backgroundColor: '#FFF3EC', borderColor: ORANGE, borderWidth: 1.5 },
+  numInputRO: { backgroundColor: '#f2f2f4', justifyContent: 'center', alignItems: 'flex-end' },
+  numInputROTxt: { fontSize: 15, color: '#555', fontWeight: '700' },
+  calcHint: { fontSize: 12, color: '#999', fontWeight: '700', marginTop: 16, textTransform: 'uppercase', letterSpacing: 0.5 },
   saveBtn: { marginTop: 16, backgroundColor: ORANGE, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   saveTxt: { color: '#fff', fontSize: 15, fontWeight: '800' },
   empty: { textAlign: 'center', color: '#999', marginTop: 40 },
