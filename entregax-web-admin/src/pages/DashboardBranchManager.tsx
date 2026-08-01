@@ -131,6 +131,24 @@ export default function DashboardBranchManager() {
   const [pendingVerifications, setPendingVerifications] = useState<number>(0);
   // Tiempo promedio de resolución de tickets (minutos hábiles) — admin/super_admin/director
   const [avgTicketMin, setAvgTicketMin] = useState<number | null>(null);
+  // Detalle de paquetes pendientes de cobro (modal al tocar la alerta)
+  const [cobroOpen, setCobroOpen] = useState(false);
+  const [cobroLoading, setCobroLoading] = useState(false);
+  const [cobroRows, setCobroRows] = useState<any[]>([]);
+  const [cobroTotalMonto, setCobroTotalMonto] = useState(0);
+  const openCobroModal = async () => {
+    setCobroOpen(true); setCobroLoading(true);
+    try {
+      const res = await api.get('/admin/dashboard/pending-charge-list');
+      setCobroRows(res.data?.rows || []);
+      setCobroTotalMonto(Number(res.data?.total_monto) || 0);
+    } catch { setCobroRows([]); setCobroTotalMonto(0); }
+    finally { setCobroLoading(false); }
+  };
+  const SERVICE_LABEL: Record<string, string> = {
+    AIR_CHN_MX: 'TDI Aéreo', tdi_express: 'TDI Express', POBOX_USA: 'PO Box USA', AA_DHL: 'DHL', maritimo: 'Marítimo',
+  };
+  const moneyMx = (v: number) => `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   // Tipos de cambio del sistema (monitor de APIs) — solo admin/super_admin/director
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -633,18 +651,65 @@ export default function DashboardBranchManager() {
         <Alert
           severity="warning"
           icon={<WarningIcon />}
+          onClick={openCobroModal}
           sx={{
             mb: 3,
             border: '1px solid #FCD34D',
             bgcolor: '#FFFBEB',
             color: '#92400E',
             borderRadius: 2,
+            cursor: 'pointer',
+            transition: 'box-shadow .18s, transform .18s',
+            '&:hover': { boxShadow: '0 4px 14px rgba(245,158,11,0.25)', transform: 'translateY(-1px)', borderColor: '#F59E0B' },
             '& .MuiAlert-icon': { color: '#F59E0B' },
           }}
         >
-          <strong>Atención:</strong> Tienes {stats.paquetes.pendientes_cobro} paquetes pendientes de cobro
+          <strong>Atención:</strong> Tienes {stats.paquetes.pendientes_cobro} paquetes pendientes de cobro · <u>ver detalle</u>
         </Alert>
       )}
+
+      {/* Modal: detalle de pendientes de cobro */}
+      <Dialog open={cobroOpen} onClose={() => setCobroOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>
+          💰 Paquetes pendientes de cobro
+          {!cobroLoading && (
+            <Typography component="span" sx={{ ml: 1, color: '#92400E', fontWeight: 700 }}>
+              · {cobroRows.length} guías · {moneyMx(cobroTotalMonto)}
+            </Typography>
+          )}
+        </DialogTitle>
+        <DialogContent dividers>
+          {cobroLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+          ) : cobroRows.length === 0 ? (
+            <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>No hay paquetes pendientes de cobro.</Typography>
+          ) : (
+            <Box>
+              {/* Encabezado */}
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1.2fr 1.6fr 1fr 1fr 1fr', gap: 1, px: 1, py: 0.75, bgcolor: '#fafafa', borderRadius: 1, fontWeight: 800, fontSize: '0.72rem', color: '#475569', textTransform: 'uppercase' }}>
+                <Box>Guía</Box><Box>Cliente</Box><Box>Servicio</Box><Box>Ingreso</Box><Box sx={{ textAlign: 'right' }}>Monto</Box>
+              </Box>
+              <Box sx={{ maxHeight: 420, overflow: 'auto' }}>
+                {cobroRows.map((r: any) => (
+                  <Box key={r.id} sx={{ display: 'grid', gridTemplateColumns: '1.2fr 1.6fr 1fr 1fr 1fr', gap: 1, px: 1, py: 1, borderBottom: '1px solid #f0f0f0', fontSize: '0.85rem', alignItems: 'center' }}>
+                    <Box sx={{ fontWeight: 700 }}>{r.guia || '—'}</Box>
+                    <Box>
+                      <Typography variant="body2" noWrap>{r.cliente || '—'}</Typography>
+                      {r.box_id && <Typography variant="caption" color="text.secondary">{r.box_id}</Typography>}
+                    </Box>
+                    <Box>{SERVICE_LABEL[r.service_type] || r.service_type || '—'}</Box>
+                    <Box>{r.received_at ? new Date(r.received_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}</Box>
+                    <Box sx={{ textAlign: 'right', fontWeight: 700, color: '#92400E' }}>{moneyMx(r.monto)}</Box>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCobroOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* === Sección: Tipos de cambio y costos (monitor de APIs) === */}
       {systemRates && ['super_admin', 'admin', 'director', 'customer_service', 'soporte_tecnico'].includes(userRole) && (
@@ -1687,8 +1752,8 @@ export default function DashboardBranchManager() {
         </DialogContent>
       </Dialog>
 
-      {/* === Sección: Soporte de Sucursal === */}
-      {branchSupportDept && (
+      {/* === Sección: Soporte de Sucursal (oculto para admin/super_admin/director) === */}
+      {branchSupportDept && !['super_admin', 'admin', 'director'].includes(userRole) && (
         <>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5, mt: 1 }}>
             <Box sx={{ width: 4, height: 18, bgcolor: '#2196F3', borderRadius: 1 }} />

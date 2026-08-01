@@ -1031,6 +1031,52 @@ export const getDashboardSummary = async (_req: Request, res: Response): Promise
 };
 
 // ============ DASHBOARD BRANCH MANAGER (Gerente de Sucursal) ============
+// GET /api/admin/dashboard/pending-charge-list
+// Detalle de los paquetes pendientes de cobro (mismo criterio y alcance de
+// sucursal que la alerta del dashboard). Solo lectura.
+export const getPendingChargeList = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) { res.status(401).json({ error: 'No autenticado' }); return; }
+        // Resolver la sucursal igual que el dashboard: branch del usuario o fallback MTY.
+        const ur = await pool.query(`SELECT branch_id FROM users WHERE id = $1 LIMIT 1`, [userId]);
+        let targetBranchId: number | null = ur.rows[0]?.branch_id || null;
+        if (!targetBranchId) {
+            const mty = await pool.query(`SELECT id FROM branches WHERE UPPER(code)='MTY' AND is_active=TRUE ORDER BY id ASC LIMIT 1`);
+            targetBranchId = mty.rows[0]?.id || null;
+        }
+        const r = await pool.query(
+            `
+                SELECT p.id, p.tracking_internal AS guia, p.service_type,
+                       COALESCE(u.box_id, p.box_id) AS box_id,
+                       COALESCE(u.full_name, lc.full_name) AS cliente,
+                       COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) AS monto,
+                       p.received_at, p.status
+                FROM packages p
+                LEFT JOIN users u ON u.id = p.user_id
+                LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(p.box_id)=UPPER(lc.box_id)
+                WHERE (p.is_master = TRUE OR p.master_id IS NULL)
+                  AND (
+                        p.status::text IN ('received_mty', 'received_cedis')
+                        OR (p.status::text = 'received' AND p.dispatched_at IS NOT NULL)
+                      )
+                  AND COALESCE(p.client_paid, FALSE) = FALSE
+                  AND COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) > 0
+                  AND ($1::int IS NULL OR p.current_branch_id = $1)
+                ORDER BY p.received_at DESC NULLS LAST
+                LIMIT 1000
+            `,
+            [targetBranchId]
+        );
+        const rows = r.rows.map((x: any) => ({ ...x, monto: parseFloat(x.monto) || 0 }));
+        const totalMonto = rows.reduce((a: number, x: any) => a + x.monto, 0);
+        res.json({ total: rows.length, total_monto: totalMonto, rows });
+    } catch (err: any) {
+        console.error('[pending-charge-list]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+};
+
 export const getBranchManagerDashboard = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
         const userId = req.user?.userId;

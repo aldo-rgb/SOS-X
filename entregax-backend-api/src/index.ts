@@ -56,6 +56,7 @@ import {
   requireMinLevelOrRoles,
   getDashboardSummary,
   getBranchManagerDashboard,
+  getPendingChargeList,
   getCounterStaffDashboard,
   changePassword,
   forgotPassword,
@@ -2902,6 +2903,7 @@ app.get('/api/dashboard/summary', authenticateToken, requireMinLevel(ROLES.WAREH
 
 // --- RUTA DE DASHBOARD GERENTE DE SUCURSAL ---
 app.get('/api/dashboard/branch-manager', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getBranchManagerDashboard);
+app.get('/api/admin/dashboard/pending-charge-list', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getPendingChargeList);
 
 // --- RUTA DE DASHBOARD COUNTER STAFF (Mostrador) ---
 app.get('/api/dashboard/counter-staff', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getCounterStaffDashboard);
