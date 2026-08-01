@@ -293,6 +293,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     screen: 'AirPricing',
     roles: ['customer_service', 'soporte_tecnico', 'counter_staff', 'branch_manager', 'admin', 'super_admin', 'director'],
     requiresOnboarding: false,
+    panelKey: 'admin_china_air',
   },
 
   // 7) Gestión de Flotilla
@@ -1537,11 +1538,13 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               const openTickets = (Number(ts.ai_handling) || 0) + (Number(ts.needs_human) || 0) + (Number(ts.waiting_client) || 0);
               const perKg = (n: any) => (n != null ? `$${Number(n).toFixed(2)}` : '—');
               const fx = (n: any) => (n != null ? `$${Number(n).toFixed(4)}` : '—');
+              // "editar" solo si el usuario tiene el módulo Tarifas Aéreo China (panel admin_china_air).
+              const canEditAir = availableModules.some(m => m.id === 'cs_air_pricing');
               // Widget horizontal con los 3 datos: TC EntregaX, TDI Aéreo, TDI Express.
               const rateCols: Array<{ key: string; icon: string; color: string; value: string; label: string; onPress?: () => void }> = [
                 { key: 'fx_egx', icon: 'swap-horizontal', color: '#2E9E9E', value: fx(pob?.tipo_cambio_final), label: 'TC EntregaX' },
-                { key: 'tdi_air', icon: 'airplane', color: '#1976D2', value: `${perKg(air?.price_generic_usd)}/kg`, label: 'TDI Aéreo', onPress: () => nav('AirPricing') },
-                { key: 'tdi_exp', icon: 'rocket', color: '#7B1FA2', value: `${perKg(exp?.price_generic_usd)}/kg`, label: 'TDI Express', onPress: () => nav('AirPricing') },
+                { key: 'tdi_air', icon: 'airplane', color: '#1976D2', value: `${perKg(air?.price_generic_usd)}/kg`, label: 'TDI Aéreo', onPress: canEditAir ? () => nav('AirPricing') : undefined },
+                { key: 'tdi_exp', icon: 'rocket', color: '#7B1FA2', value: `${perKg(exp?.price_generic_usd)}/kg`, label: 'TDI Express', onPress: canEditAir ? () => nav('AirPricing') : undefined },
               ];
               const ticketCards: Array<{ key: string; icon: string; color: string; value: string; label: string; sub: string; onPress?: () => void }> = [
                 { key: 't_open', icon: 'headset', color: '#F05A28', value: String(openTickets), label: 'Tickets Abiertos', sub: 'ver todos ›', onPress: () => nav('SupportTickets', { initialFilter: 'open' }) },
