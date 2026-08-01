@@ -1088,18 +1088,6 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       >
         {/* Header de Usuario */}
         <View style={styles.userHeader}>
-          <View style={styles.userRow}>
-            <View style={styles.userInfo}>
-              <Text style={styles.greeting}>{getGreeting()}</Text>
-              <Text style={styles.userName}>{user.name}</Text>
-              <View style={styles.roleChip}>
-                <Text style={styles.roleText}>
-                  {ROLE_LABELS[user.role] || user.role}
-                </Text>
-              </View>
-            </View>
-          </View>
-
           {/* Banner de Onboarding Pendiente - No aplica para asesores */}
           {!isOnboarded && !isAdvisor && (
             <TouchableOpacity 
@@ -1865,8 +1853,6 @@ const styles = StyleSheet.create({
   userHeader: {
     backgroundColor: '#fff',
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginBottom: 6,
   },
   userRow: {
     flexDirection: 'row',
