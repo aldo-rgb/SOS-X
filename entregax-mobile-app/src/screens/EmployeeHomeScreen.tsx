@@ -1538,6 +1538,14 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               const openTickets = (Number(ts.ai_handling) || 0) + (Number(ts.needs_human) || 0) + (Number(ts.waiting_client) || 0);
               const perKg = (n: any) => (n != null ? `$${Number(n).toFixed(2)}` : '—');
               const fx = (n: any) => (n != null ? `$${Number(n).toFixed(4)}` : '—');
+              // Minutos → "Xh Ym" (horario laboral)
+              const fmtDur = (mins: number) => {
+                const m = Math.round(mins);
+                if (m < 60) return `${m}m`;
+                const h = Math.floor(m / 60);
+                const r = m % 60;
+                return r ? `${h}h ${r}m` : `${h}h`;
+              };
               // "editar" solo si el usuario tiene el módulo Tarifas Aéreo China (panel admin_china_air).
               const canEditAir = availableModules.some(m => m.id === 'cs_air_pricing');
               // Widget horizontal con los 3 datos: TC EntregaX, TDI Aéreo, TDI Express.
@@ -1549,7 +1557,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               const ticketCards: Array<{ key: string; icon: string; color: string; value: string; label: string; sub: string; onPress?: () => void }> = [
                 { key: 't_open', icon: 'headset', color: '#F05A28', value: String(openTickets), label: 'Tickets Abiertos', sub: 'ver todos ›', onPress: () => nav('SupportTickets', { initialFilter: 'open' }) },
                 { key: 't_res', icon: 'checkmark-done', color: '#2E7D32', value: String(Number(ts.today_resolved) || 0), label: 'Resueltos Hoy', sub: 'últimas 24h ›', onPress: () => nav('SupportTickets', { initialFilter: 'resolved' }) },
-                { key: 't_avg', icon: 'time', color: '#455A64', value: `${Number(ts.avg_resolution_time_min) || 0}m`, label: 'Tiempo Promedio', sub: 'resolución hoy', onPress: () => nav('SupportTickets', { initialFilter: 'open' }) },
+                { key: 't_avg', icon: 'time', color: '#455A64', value: fmtDur(Number(ts.avg_resolution_time_min) || 0), label: 'Tiempo Promedio', sub: 'resolución · horario laboral', onPress: () => nav('SupportTickets', { initialFilter: 'open' }) },
                 { key: 't_new', icon: 'add-circle', color: '#E65100', value: String(Number(ts.today_new) || 0), label: 'Tickets Nuevos', sub: 'últimas 24h ›', onPress: () => nav('SupportTickets', { initialFilter: 'open' }) },
               ];
               return (
