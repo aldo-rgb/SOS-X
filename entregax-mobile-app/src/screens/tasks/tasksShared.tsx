@@ -164,8 +164,9 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
   visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void;
 }) {
   const [users, setUsers] = useState<UserOpt[]>([]);
-  const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
+  const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
   const [catId, setCatId] = useState<number | null>(null);
+  const [catSection, setCatSection] = useState<number | null>(null);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [eis, setEis] = useState('estrella');
@@ -177,14 +178,14 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
 
   useEffect(() => {
     if (!visible) return;
-    setTitle(''); setDesc(''); setEis('estrella'); setDueOpt('none'); setInvolved([]); setPhotos([]);
+    setTitle(''); setDesc(''); setEis('estrella'); setDueOpt('none'); setInvolved([]); setPhotos([]); setCatSection(null);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H })
       .then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H })
       .then(r => r.json()).then(d => {
         // Excluye el tablero personal: se representa como "Sin categoría".
         setCategories((d.categories || []).filter((c: any) => c.board_key !== 'personales'));
-        setCatId(null); // Sin categoría por defecto
+        setCatId(null); setCatSection(null); // Sin categoría por defecto
       }).catch(() => {});
   }, [visible]);
 
@@ -223,7 +224,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
     try {
       const r = await fetch(`${API_URL}/api/tasks/personal`, {
         method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, due_at: dueStamp(), board_id: catId }),
+        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, due_at: dueStamp(), board_id: catId, section_id: catSection }),
       });
       if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo crear', e.error || ''); setBusy(false); return; }
       const d = await r.json();
@@ -263,13 +264,34 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
               {categories.map(c => {
                 const on = catId === c.id;
                 return (
-                  <TouchableOpacity key={c.id} onPress={() => setCatId(c.id)} style={[styles.dateChip, on && styles.dateChipOn]}>
+                  <TouchableOpacity key={c.id} onPress={() => { setCatId(c.id); setCatSection(null); }} style={[styles.dateChip, on && styles.dateChipOn]}>
                     <Text style={[styles.dateChipTxt, on && { color: '#fff' }]}>{c.name}</Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
             <Text style={styles.helpTxt}>«Sin categoría» solo va a tu panel personal. Con categoría, aparece en ese flujo.</Text>
+            {(() => {
+              const secs = categories.find(c => c.id === catId)?.sections || [];
+              return secs.length > 0 ? (
+                <>
+                  <Text style={styles.fieldLbl}>Sub-sección</Text>
+                  <View style={styles.eisRow}>
+                    <TouchableOpacity onPress={() => setCatSection(null)} style={[styles.dateChip, !catSection && styles.dateChipOn]}>
+                      <Text style={[styles.dateChipTxt, !catSection && { color: '#fff' }]}>Sin sub-sección</Text>
+                    </TouchableOpacity>
+                    {secs.map(s => {
+                      const on = catSection === s.id;
+                      return (
+                        <TouchableOpacity key={s.id} onPress={() => setCatSection(s.id)} style={[styles.dateChip, on && styles.dateChipOn]}>
+                          <Text style={[styles.dateChipTxt, on && { color: '#fff' }]}>{s.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : null;
+            })()}
             <Text style={styles.fieldLbl}>Descripción</Text>
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
