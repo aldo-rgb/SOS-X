@@ -1062,6 +1062,7 @@ export const getPendingChargeList = async (req: AuthRequest, res: Response): Pro
                       )
                   AND COALESCE(p.client_paid, FALSE) = FALSE
                   AND COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) > 0
+                  AND p.tracking_internal NOT LIKE 'USK-%'
                   AND ($1::int IS NULL OR p.current_branch_id = $1)
                 ORDER BY p.received_at DESC NULLS LAST
                 LIMIT 1000
@@ -1261,6 +1262,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                       )
                   AND COALESCE(p.client_paid, FALSE) = FALSE
                   AND COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) > 0
+                  AND p.tracking_internal NOT LIKE 'USK-%'
                   AND ($1::int IS NULL OR p.current_branch_id = $1)
             `,
             [targetBranchId]
