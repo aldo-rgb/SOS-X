@@ -35,7 +35,7 @@ const isSuperAdmin = myRole === 'super_admin';
 const EIS: Record<string, { label: string; short: string; color: string; bg: string }> = {
   fuego:    { label: '🔥 Urgente e importante',       short: '🔥 Urgente',           color: '#C0392B', bg: '#F9E5E2' },
   estrella: { label: '⭐ Importante y no urgente',    short: '⭐ Importante',         color: '#2E7D46', bg: '#E4F1E8' },
-  delegar:  { label: '🔄 Urgente y no importante',    short: '🔄 Atención Inmediata', color: '#B07206', bg: '#F7ECD5' },
+  delegar:  { label: '🔄 Urgente y no importante',    short: '🔄 Atención', color: '#B07206', bg: '#F7ECD5' },
   eliminar: { label: '🗑️ No importante y no urgente', short: '🗑️ Algún día',         color: '#5A6472', bg: '#ECEEF0' },
 };
 // Matriz Eisenhower — 2×2 (orden de lectura: Q1 ↖, Q2 ↗, Q3 ↙, Q4 ↘).
