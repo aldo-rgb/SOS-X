@@ -1,0 +1,1 @@
+ALTER TABLE task_schedules ADD COLUMN IF NOT EXISTS section_id INTEGER REFERENCES task_sections(id) ON DELETE SET NULL;

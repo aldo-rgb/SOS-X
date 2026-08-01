@@ -381,15 +381,21 @@ async function createTaskFromSchedule(sch: any): Promise<number | null> {
     if (!boardId) return null;
     const col = await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [boardId]);
     const columnId = col.rows[0]?.id || null;
+    // Sub-sección de la programación (si aplica al tablero destino).
+    let sectionId: number | null = null;
+    if (sch.section_id) {
+      const sec = await pool.query(`SELECT id FROM task_sections WHERE id=$1 AND board_id=$2`, [sch.section_id, boardId]);
+      sectionId = sec.rows[0]?.id || null;
+    }
     const creator = sch.created_by;
     const extra: number[] = Array.isArray(sch.involved_ids) ? sch.involved_ids.map((x: any) => parseInt(String(x))).filter(Boolean) : [];
     const participants = Array.from(new Set<number>([creator, ...extra].filter(Boolean)));
     const primary = extra.length ? extra[0] : creator;
     const eis = EISENHOWER.includes(sch.eisenhower) ? sch.eisenhower : 'estrella';
     const r = await pool.query(
-      `INSERT INTO tasks (board_id, column_id, title, description, assignee_id, due_at, eisenhower, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-      [boardId, columnId, sch.title, sch.description || null, primary, sch.next_run_at, eis, creator]);
+      `INSERT INTO tasks (board_id, column_id, section_id, title, description, assignee_id, due_at, eisenhower, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [boardId, columnId, sectionId, sch.title, sch.description || null, primary, sch.next_run_at, eis, creator]);
     const taskId = r.rows[0]?.id;
     for (const p of participants) await pool.query(`INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [taskId, p]);
     if (taskId) {
@@ -496,10 +502,15 @@ export const createSchedule = async (req: Request, res: Response): Promise<any> 
       boardId = bd.rows[0]?.id || null;
       if (!boardId) return res.status(400).json({ error: 'Categoría no válida' });
     }
+    let sectionId: number | null = null;
+    if (b.section_id && boardId) {
+      const sec = await pool.query(`SELECT id FROM task_sections WHERE id=$1 AND board_id=$2`, [parseInt(String(b.section_id)), boardId]);
+      sectionId = sec.rows[0]?.id || null;
+    }
     const r = await pool.query(
-      `INSERT INTO task_schedules (title, description, eisenhower, created_by, involved_ids, next_run_at, recurrence, recur_ordinal, recur_weekday, board_id)
-       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10) RETURNING *`,
-      [String(b.title).trim(), b.description || null, eis, uid, JSON.stringify(involved), firstRun, rec, ordinal, weekday, boardId]);
+      `INSERT INTO task_schedules (title, description, eisenhower, created_by, involved_ids, next_run_at, recurrence, recur_ordinal, recur_weekday, board_id, section_id)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [String(b.title).trim(), b.description || null, eis, uid, JSON.stringify(involved), firstRun, rec, ordinal, weekday, boardId, sectionId]);
     res.json({ schedule: r.rows[0] });
   } catch (e: any) {
     console.error('[tasks] createSchedule:', e); res.status(500).json({ error: 'Error al programar la tarea' });

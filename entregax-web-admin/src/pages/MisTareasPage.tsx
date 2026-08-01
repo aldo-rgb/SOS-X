@@ -229,7 +229,7 @@ export default function MisTareasPage() {
     try { const r = await axios.get(`${API_URL}/tasks/schedules`, H()); setSchedules(r.data?.schedules || []); }
     catch { /* opcional */ }
   }, []);
-  const emptySched = { title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none', recur_ordinal: 1, recur_weekday: 1, time: '09:00', board_id: 0 as number };
+  const emptySched = { title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none', recur_ordinal: 1, recur_weekday: 1, time: '09:00', board_id: 0 as number, section_id: '' as number | '' };
   const openSchedule = () => {
     setSchedForm({ ...emptySched, board_id: 0 }); // 0 = Sin categoría
     setSchedInvolved(MY_ID ? [MY_ID] : []);
@@ -243,7 +243,7 @@ export default function MisTareasPage() {
       const [hh, mm] = String(schedForm.time || '09:00').split(':');
       await axios.post(`${API_URL}/tasks/schedules`, {
         title: schedForm.title.trim(), description: schedForm.description || null,
-        eisenhower: schedForm.eisenhower, involved_ids: schedInvolved, board_id: schedForm.board_id || null,
+        eisenhower: schedForm.eisenhower, involved_ids: schedInvolved, board_id: schedForm.board_id || null, section_id: schedForm.section_id || null,
         recurrence: schedForm.recurrence,
         ...(isWeekday
           ? { recur_ordinal: schedForm.recur_ordinal, recur_weekday: schedForm.recur_weekday, hour: parseInt(hh), minute: parseInt(mm || '0') }
@@ -459,11 +459,23 @@ export default function MisTareasPage() {
             value={schedForm.title} onChange={e => setSchedForm({ ...schedForm, title: e.target.value })} />
           <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
             <InputLabel>Categoría (flujo)</InputLabel>
-            <Select label="Categoría (flujo)" value={schedForm.board_id} onChange={e => setSchedForm({ ...schedForm, board_id: Number(e.target.value) })}>
+            <Select label="Categoría (flujo)" value={schedForm.board_id} onChange={e => setSchedForm({ ...schedForm, board_id: Number(e.target.value), section_id: '' })}>
               <MenuItem value={0}>Sin categoría (personal)</MenuItem>
               {categories.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </Select>
           </FormControl>
+          {(() => {
+            const secs = categories.find(c => c.id === schedForm.board_id)?.sections || [];
+            return secs.length > 0 ? (
+              <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
+                <InputLabel>Sub-sección</InputLabel>
+                <Select label="Sub-sección" value={schedForm.section_id ?? ''} onChange={e => setSchedForm({ ...schedForm, section_id: String(e.target.value) === '' ? '' : Number(e.target.value) })}>
+                  <MenuItem value="">Sin sub-sección</MenuItem>
+                  {secs.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                </Select>
+              </FormControl>
+            ) : null;
+          })()}
           <TextField fullWidth label="Descripción" margin="dense" multiline rows={2}
             value={schedForm.description} onChange={e => setSchedForm({ ...schedForm, description: e.target.value })} />
           <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>

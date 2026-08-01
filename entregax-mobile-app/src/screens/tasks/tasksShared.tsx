@@ -349,8 +349,9 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
   visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void;
 }) {
   const [users, setUsers] = useState<UserOpt[]>([]);
-  const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
+  const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
   const [catId, setCatId] = useState<number | null>(null);
+  const [catSection, setCatSection] = useState<number | null>(null);
   const [schedules, setSchedules] = useState<any[]>([]);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -368,7 +369,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
     .then(r => r.json()).then(d => setSchedules(d.schedules || [])).catch(() => {});
   useEffect(() => {
     if (!visible) return;
-    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]);
+    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]); setCatSection(null);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H }).then(r => r.json()).then(d => {
       setCategories((d.categories || []).filter((c: any) => c.board_key !== 'personales'));
@@ -392,7 +393,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
     setBusy(true);
     try {
       const involvedIds = myId ? [myId, ...involved] : involved;
-      const body: any = { title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: involvedIds, recurrence, board_id: catId };
+      const body: any = { title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: involvedIds, recurrence, board_id: catId, section_id: catSection };
       if (recurrence === 'monthly_weekday') { body.recur_ordinal = ordinal; body.recur_weekday = weekday; body.hour = hour; body.minute = 0; }
       else { body.first_run_at = firstRunStamp(); }
       const r = await fetch(`${API_URL}/api/tasks/schedules`, {
@@ -435,18 +436,39 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
             <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
             <View style={styles.eisRow}>
-              <TouchableOpacity onPress={() => setCatId(null)} style={[styles.dateChip, !catId && styles.dateChipOn]}>
+              <TouchableOpacity onPress={() => { setCatId(null); setCatSection(null); }} style={[styles.dateChip, !catId && styles.dateChipOn]}>
                 <Text style={[styles.dateChipTxt, !catId && { color: '#fff' }]}>Sin categoría</Text>
               </TouchableOpacity>
               {categories.map(c => {
                 const on = catId === c.id;
                 return (
-                  <TouchableOpacity key={c.id} onPress={() => setCatId(c.id)} style={[styles.dateChip, on && styles.dateChipOn]}>
+                  <TouchableOpacity key={c.id} onPress={() => { setCatId(c.id); setCatSection(null); }} style={[styles.dateChip, on && styles.dateChipOn]}>
                     <Text style={[styles.dateChipTxt, on && { color: '#fff' }]}>{c.name}</Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
+            {(() => {
+              const secs = categories.find(c => c.id === catId)?.sections || [];
+              return secs.length > 0 ? (
+                <>
+                  <Text style={styles.fieldLbl}>Sub-sección</Text>
+                  <View style={styles.eisRow}>
+                    <TouchableOpacity onPress={() => setCatSection(null)} style={[styles.dateChip, !catSection && styles.dateChipOn]}>
+                      <Text style={[styles.dateChipTxt, !catSection && { color: '#fff' }]}>Sin sub-sección</Text>
+                    </TouchableOpacity>
+                    {secs.map(s => {
+                      const on = catSection === s.id;
+                      return (
+                        <TouchableOpacity key={s.id} onPress={() => setCatSection(s.id)} style={[styles.dateChip, on && styles.dateChipOn]}>
+                          <Text style={[styles.dateChipTxt, on && { color: '#fff' }]}>{s.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : null;
+            })()}
             <Text style={styles.fieldLbl}>Descripción</Text>
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
