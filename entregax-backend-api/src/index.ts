@@ -3344,6 +3344,20 @@ app.get('/api/packages/service-history-stats', authenticateToken, requireMinLeve
         money: `COALESCE(d.total_cost_mxn, d.import_cost_mxn, 0)`, weight: `COALESCE(d.weight_kg,0)`,
         volume: M3('d.length_cm', 'd.width_cm', 'd.height_cm'), count: `COUNT(*)`,
       },
+      // GEX (garantías/pólizas): dinero = costo total MXN; no aplica peso/volumen.
+      gex: {
+        from: `warranties w`, where: `1=1`, dateCol: `w.created_at`,
+        money: `COALESCE(w.total_cost_mxn,0)`, weight: `0`, volume: `0`, count: `COUNT(*)`,
+      },
+      // X-Pay (pagos a proveedores): dinero = monto convertido a MXN (op_monto en
+      // divisa destino × tipo de cambio; si ya es MXN, tal cual). Conteo = operaciones enviadas.
+      xpay: {
+        from: `entangled_payment_requests e`,
+        where: `e.estatus_global NOT IN ('cancelado','error_envio','rechazado','pendiente')`,
+        dateCol: `e.created_at`,
+        money: `CASE WHEN e.op_divisa_destino = 'MXN' THEN COALESCE(e.op_monto,0) ELSE COALESCE(e.op_monto,0) * COALESCE(NULLIF(e.tc_aplicado_usd,0),1) END`,
+        weight: `0`, volume: `0`, count: `COUNT(*)`,
+      },
     };
     const cfg = CFG[service];
     if (!cfg) return res.status(400).json({ error: 'Servicio no válido' });

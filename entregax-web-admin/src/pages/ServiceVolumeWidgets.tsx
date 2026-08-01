@@ -11,6 +11,8 @@ const SERVICES = [
   { key: 'maritimo',    label: 'Marítimo China', emoji: '🚢',  color: '#00695C' },
   { key: 'pobox_usa',   label: 'PO Box USA',    emoji: '🇺🇸', color: '#BF360C' },
   { key: 'dhl',         label: 'DHL Monterrey', emoji: '📦',  color: '#F9A825' },
+  { key: 'gex',         label: 'GEX',           emoji: '🛡️',  color: '#00838F' },
+  { key: 'xpay',        label: 'X-Pay',         emoji: '💱',  color: '#5E35B1' },
 ];
 
 const METRICS = [

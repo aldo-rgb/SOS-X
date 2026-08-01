@@ -16,6 +16,8 @@ const SERVICES = [
   { key: 'maritimo',    label: 'Marítimo China', emoji: '🚢',  color: '#00695C' },
   { key: 'pobox_usa',   label: 'PO Box USA',    emoji: '🇺🇸', color: '#BF360C' },
   { key: 'dhl',         label: 'DHL Monterrey', emoji: '📦',  color: '#F9A825' },
+  { key: 'gex',         label: 'GEX',           emoji: '🛡️',  color: '#00838F' },
+  { key: 'xpay',        label: 'X-Pay',         emoji: '💱',  color: '#5E35B1' },
 ];
 
 // Vistas seleccionables (métrica graficada).
@@ -40,6 +42,10 @@ const CAVEATS: Record<string, string> = {
   'tdi_aereo:volume': 'El volumen aéreo suele no capturarse (se cobra por peso); puede verse en ceros.',
   'tdi_express:volume': 'El volumen de TDI Express suele no capturarse; puede verse en ceros.',
   'pobox_usa:weight': 'PO Box cobra por volumen; el peso puede venir en ceros.',
+  'gex:weight': 'GEX es un servicio de garantía; no maneja peso.',
+  'gex:volume': 'GEX es un servicio de garantía; no maneja volumen.',
+  'xpay:weight': 'X-Pay es pago a proveedores; no maneja peso.',
+  'xpay:volume': 'X-Pay es pago a proveedores; no maneja volumen.',
 };
 
 export default function ServiceHistoryPage() {
