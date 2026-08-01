@@ -59,11 +59,14 @@ export default function ServicioHistoricoPanel({ service, serviceLabel }: { serv
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string>('');
+  // Dinero real de NUESTRO sistema por mes (clave "anio-mes"), para fusionar con el Excel.
+  const [sysMonthly, setSysMonthly] = useState<Record<string, number>>({});
 
   // Cargar el histórico GUARDADO de este servicio al abrir / cambiar de servicio.
   const loadStored = useCallback(async () => {
     setLoading(true); setError('');
     try {
+      // 1) Excel guardado (histórico viejo)
       const r = await api.get(`/svc-historico/${service}`);
       if (r.data?.exists) {
         setRecs(r.data.records || []);
@@ -72,8 +75,18 @@ export default function ServicioHistoricoPanel({ service, serviceLabel }: { serv
       } else {
         setRecs([]); setFileName(''); setSavedAt('');
       }
+      // 2) Dinero real de NUESTRO sistema por mes (para julio en adelante, etc.)
+      try {
+        const sr = await api.get('/packages/service-history-stats', { params: { service, group_by: 'month', date_from: '2018-01-01' } });
+        const map: Record<string, number> = {};
+        (sr.data?.series || []).forEach((b: any) => {
+          const d = new Date(String(b.bucket) + 'T00:00:00');
+          map[`${d.getFullYear()}-${d.getMonth()}`] = Number(b.money) || 0;
+        });
+        setSysMonthly(map);
+      } catch { setSysMonthly({}); }
       setFYear(''); setFAsesor('');
-    } catch { setRecs([]); setFileName(''); setSavedAt(''); }
+    } catch { setRecs([]); setFileName(''); setSavedAt(''); setSysMonthly({}); }
     finally { setLoading(false); }
   }, [service]);
 
@@ -113,6 +126,21 @@ export default function ServicioHistoricoPanel({ service, serviceLabel }: { serv
     (!fYear || String(r.anio) === fYear) && (!fAsesor || r.asesor === fAsesor)
   ), [recs, fYear, fAsesor]);
 
+  // Dinero del sistema nuevo para JULIO (mes 6) por año — solo PO Box. En julio
+  // las ventas quedaron partidas: el Excel trae lo del sistema viejo y aquí se
+  // suma lo que registró el sistema nuevo. (No aplica al filtrar por vendedor,
+  // porque el dinero del sistema no viene desglosado por asesor.)
+  const sysJulyByYear = useMemo(() => {
+    const out: Record<number, number> = {};
+    if (service !== 'pobox_usa' || fAsesor) return out;
+    Object.entries(sysMonthly).forEach(([k, money]) => {
+      const [yStr, mStr] = k.split('-');
+      const y = parseInt(yStr, 10), m = parseInt(mStr, 10);
+      if (m === 6 && money && (!fYear || String(y) === fYear)) out[y] = (out[y] || 0) + Number(money);
+    });
+    return out;
+  }, [service, fAsesor, fYear, sysMonthly]);
+
   const agg = useMemo(() => {
     const map = new Map<string, { key: string; sort: number; monto: number }>();
     filtered.forEach(r => {
@@ -124,13 +152,27 @@ export default function ServicioHistoricoPanel({ service, serviceLabel }: { serv
       cur.monto += r.monto;
       map.set(key, cur);
     });
+    // Sumar el dinero del sistema nuevo de julio (solo PO Box) al bucket correspondiente.
+    if (groupBy === 'mes' || groupBy === 'anio') {
+      Object.entries(sysJulyByYear).forEach(([yStr, money]) => {
+        const y = parseInt(yStr, 10);
+        const key = groupBy === 'mes' ? `${MESES[6]} ${String(y).slice(2)}` : String(y);
+        const sort = groupBy === 'mes' ? y * 100 + 6 : y;
+        const cur = map.get(key) || { key, sort, monto: 0 };
+        cur.monto += money;
+        map.set(key, cur);
+      });
+    }
     const arr = Array.from(map.values());
     if (groupBy === 'vendedor') arr.sort((a, b) => b.monto - a.monto);
     else arr.sort((a, b) => a.sort - b.sort);
     return arr;
-  }, [filtered, groupBy]);
+  }, [filtered, groupBy, sysJulyByYear]);
 
-  const totalMonto = useMemo(() => filtered.reduce((a, r) => a + r.monto, 0), [filtered]);
+  const totalMonto = useMemo(() =>
+    filtered.reduce((a, r) => a + r.monto, 0) + Object.values(sysJulyByYear).reduce((a, m) => a + m, 0),
+  [filtered, sysJulyByYear]);
+  const sysJulyTotal = useMemo(() => Object.values(sysJulyByYear).reduce((a, m) => a + m, 0), [sysJulyByYear]);
   const chartData = agg.map(a => ({ x: a.key, y: a.monto }));
 
   return (
@@ -139,6 +181,11 @@ export default function ServicioHistoricoPanel({ service, serviceLabel }: { serv
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Ventas por mes, año y vendedor. Sube el reporte una vez y queda guardado como histórico del servicio.
       </Typography>
+      {sysJulyTotal > 0 && (
+        <Typography variant="body2" sx={{ mb: 2, color: '#1B5E20', bgcolor: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: 1.5, px: 1.5, py: 1 }}>
+          🔗 Julio suma el histórico del Excel (sistema anterior) + <b>{money(sysJulyTotal)}</b> registrados en el sistema nuevo.
+        </Typography>
+      )}
 
       {/* Carga de archivo */}
       <Paper elevation={0} sx={{ p: 2, mb: 2, borderRadius: 2, border: '1px dashed #bbb', display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
