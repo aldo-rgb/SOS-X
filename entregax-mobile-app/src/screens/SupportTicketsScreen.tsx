@@ -122,6 +122,11 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   const [sending, setSending] = useState(false);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  // Visor de imagen a pantalla completa + transferencia por departamento
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [allDepts, setAllDepts] = useState<Array<{ id: number; name: string; color?: string; icon?: string }>>([]);
+  const [deptPickerVisible, setDeptPickerVisible] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
 
   // Determinar el dpto CEDIS del usuario (con fallback al perfil si no hay branch en el objeto)
   useEffect(() => {
@@ -163,7 +168,8 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
         const res = await api.get('/api/support/departments', {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const depts: Array<{ id: number; name: string; is_default_for_clients: boolean }> = Array.isArray(res.data) ? res.data : [];
+        const depts: Array<{ id: number; name: string; color?: string; icon?: string; is_default_for_clients: boolean }> = Array.isArray(res.data) ? res.data : [];
+        setAllDepts(depts.map(d => ({ id: d.id, name: d.name, color: d.color, icon: d.icon })));
         // Guardar dept de Atención a Cliente (is_default_for_clients = true) para transferencias
         const csDept = depts.find(d => d.is_default_for_clients === true);
         if (csDept) setDefaultCsDeptId(csDept.id);
@@ -317,38 +323,63 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     }
   };
 
-  const transferToCS = async () => {
+  // Marcar el ticket como resuelto (notifica al cliente por WhatsApp).
+  const resolveTicket = () => {
     if (!selectedTicket) return;
     Alert.alert(
-      '¿Listo para Atención al Cliente?',
-      'El ticket regresará a Atención al Cliente para que respondan al cliente. Se enviará una nota interna indicando que CEDIS ya revisó el caso.',
+      'Marcar como resuelto',
+      '¿Confirmas que este ticket queda resuelto? Se notificará al cliente por WhatsApp.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
-          text: 'Confirmar',
+          text: 'Marcar Resuelto',
           onPress: async () => {
+            setActionBusy(true);
             try {
-              const resp = await fetch(`${API_URL}/api/admin/support/ticket/${selectedTicket.id}/transfer`, {
-                method: 'POST',
+              const resp = await fetch(`${API_URL}/api/admin/support/ticket/${selectedTicket.id}/resolve`, {
+                method: 'PUT',
                 headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  department_id: defaultCsDeptId,
-                  note: `${deptName} revisó el caso. Listo para responder al cliente.`,
-                }),
               });
-              if (!resp.ok) {
-                Alert.alert('Error', 'No se pudo transferir el ticket.');
-                return;
-              }
+              if (!resp.ok) { Alert.alert('Error', 'No se pudo marcar como resuelto.'); return; }
               setShowDetail(false);
               loadTickets(false);
             } catch {
-              Alert.alert('Error', 'No se pudo transferir el ticket.');
-            }
+              Alert.alert('Error', 'No se pudo marcar como resuelto.');
+            } finally { setActionBusy(false); }
           },
         },
       ]
     );
+  };
+
+  // Abrir selector de departamento para transferir.
+  const openTransfer = () => {
+    if (!selectedTicket) return;
+    if (allDepts.length === 0) { Alert.alert('Sin departamentos', 'No hay departamentos disponibles para transferir.'); return; }
+    setDeptPickerVisible(true);
+  };
+
+  // Transferir el ticket al departamento elegido.
+  const doTransfer = async (dept: { id: number; name: string }) => {
+    if (!selectedTicket) return;
+    setDeptPickerVisible(false);
+    setActionBusy(true);
+    try {
+      const fromLabel = deptName && deptName !== CS_DEFAULT_SENTINEL ? deptName : 'Atención a Cliente';
+      const resp = await fetch(`${API_URL}/api/admin/support/ticket/${selectedTicket.id}/transfer`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          department_id: dept.id,
+          note: `Ticket transferido de ${fromLabel} a ${dept.name}.`,
+        }),
+      });
+      if (!resp.ok) { Alert.alert('Error', 'No se pudo transferir el ticket.'); return; }
+      setShowDetail(false);
+      loadTickets(false);
+    } catch {
+      Alert.alert('Error', 'No se pudo transferir el ticket.');
+    } finally { setActionBusy(false); }
   };
 
   const getStatusInfo = (status: string) => STATUS_CONFIG[status] || STATUS_CONFIG.open_ai;
@@ -431,7 +462,13 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
                 <Text style={styles.attachPdfText}>Ver PDF</Text>
               </TouchableOpacity>
             ) : (
-              <Image key={i} source={{ uri: url }} style={styles.attachImg} resizeMode="cover" />
+              <TouchableOpacity key={i} activeOpacity={0.9} onPress={() => setViewerUrl(url)}>
+                <Image source={{ uri: url }} style={styles.attachImg} resizeMode="cover" />
+                <View style={styles.attachImgHint}>
+                  <Ionicons name="expand" size={13} color="#fff" />
+                  <Text style={styles.attachImgHintTxt}>Toca para ampliar</Text>
+                </View>
+              </TouchableOpacity>
             );
           })}
           <Text style={[styles.msgTime, { color: isInternal ? '#F57F1799' : isAgent ? '#ffffff88' : '#00000066' }]}>
@@ -516,9 +553,9 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
                 <Text style={styles.headerSub}>{selectedTicket?.client_name || 'Cliente'} · {CATEGORY_LABELS[selectedTicket?.category || ''] || selectedTicket?.category}</Text>
               </View>
               {selectedTicket && !['resolved', 'closed'].includes(selectedTicket.status) && (
-                <TouchableOpacity onPress={transferToCS} style={styles.resolveBtn}>
-                  <Ionicons name="arrow-redo" size={16} color="#fff" />
-                  <Text style={styles.resolveBtnText}>Listo ✓</Text>
+                <TouchableOpacity onPress={resolveTicket} style={styles.resolveBtn} disabled={actionBusy}>
+                  <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                  <Text style={styles.resolveBtnText}>Resolver</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -550,6 +587,24 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
                   messages.map(renderMessage)
                 )}
               </ScrollView>
+            )}
+
+            {/* Barra de acciones: Transferir / Marcar Resuelto */}
+            {selectedTicket && !['resolved', 'closed'].includes(selectedTicket.status) && (
+              <View style={styles.actionBar}>
+                <TouchableOpacity style={styles.transferBtn} onPress={openTransfer} disabled={actionBusy}>
+                  <Ionicons name="swap-horizontal" size={16} color="#7B1FA2" />
+                  <Text style={styles.transferBtnTxt}>Transferir</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.resolveActionBtn} onPress={resolveTicket} disabled={actionBusy}>
+                  {actionBusy ? <ActivityIndicator size="small" color="#fff" /> : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                      <Text style={styles.resolveActionTxt}>Marcar Resuelto</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
             )}
 
             {/* Reply box */}
@@ -600,6 +655,52 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
             )}
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Visor de imagen a pantalla completa (pinch-zoom en iOS) */}
+      <Modal visible={!!viewerUrl} transparent animationType="fade" onRequestClose={() => setViewerUrl(null)}>
+        <View style={styles.viewerBackdrop}>
+          <TouchableOpacity style={[styles.viewerClose, { top: insets.top + 12 }]} onPress={() => setViewerUrl(null)} hitSlop={12}>
+            <Ionicons name="close" size={30} color="#fff" />
+          </TouchableOpacity>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={styles.viewerScroll}
+            maximumZoomScale={4}
+            minimumZoomScale={1}
+            centerContent
+          >
+            {viewerUrl && <Image source={{ uri: viewerUrl }} style={styles.viewerImg} resizeMode="contain" />}
+          </ScrollView>
+          <TouchableOpacity
+            style={[styles.viewerDownload, { bottom: (insets.bottom || 0) + 20 }]}
+            onPress={() => viewerUrl && Linking.openURL(viewerUrl).catch(() => Alert.alert('Error', 'No se pudo abrir la imagen'))}
+          >
+            <Ionicons name="download-outline" size={18} color="#fff" />
+            <Text style={styles.viewerDownloadTxt}>Descargar</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
+      {/* Selector de departamento para transferir */}
+      <Modal visible={deptPickerVisible} transparent animationType="fade" onRequestClose={() => setDeptPickerVisible(false)}>
+        <TouchableOpacity style={styles.pickerBackdrop} activeOpacity={1} onPress={() => setDeptPickerVisible(false)}>
+          <View style={styles.pickerCard}>
+            <Text style={styles.pickerTitle}>Transferir a…</Text>
+            <ScrollView style={{ maxHeight: 360 }}>
+              {allDepts.map(d => (
+                <TouchableOpacity key={d.id} style={styles.pickerRow} onPress={() => doTransfer(d)}>
+                  <View style={[styles.pickerDot, { backgroundColor: d.color || '#7B1FA2' }]} />
+                  <Text style={styles.pickerRowTxt}>{d.name}</Text>
+                  <Ionicons name="arrow-forward" size={16} color="#999" />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.pickerCancel} onPress={() => setDeptPickerVisible(false)}>
+              <Text style={styles.pickerCancelTxt}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
@@ -685,6 +786,30 @@ const styles = StyleSheet.create({
   },
   internalBadgeText: { fontSize: 10, color: '#E65100', fontWeight: '700' },
   attachImg: { width: '100%', height: 160, borderRadius: 8, marginTop: 6 },
+  attachImgHint: { position: 'absolute', bottom: 10, right: 8, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#000000aa', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+  attachImgHintTxt: { color: '#fff', fontSize: 10, fontWeight: '600' },
+  // Barra de acciones del detalle
+  actionBar: { flexDirection: 'row', gap: 10, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee' },
+  transferBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11, borderRadius: 10, borderWidth: 1.5, borderColor: '#7B1FA2', backgroundColor: '#fff' },
+  transferBtnTxt: { color: '#7B1FA2', fontSize: 14, fontWeight: '800' },
+  resolveActionBtn: { flex: 1.4, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11, borderRadius: 10, backgroundColor: '#22A45D' },
+  resolveActionTxt: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  // Visor de imagen
+  viewerBackdrop: { flex: 1, backgroundColor: '#000000f2' },
+  viewerScroll: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
+  viewerImg: { width: '100%', height: '100%' },
+  viewerClose: { position: 'absolute', right: 16, zIndex: 10, backgroundColor: '#ffffff22', borderRadius: 22, padding: 6 },
+  viewerDownload: { position: 'absolute', alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ffffff22', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 24 },
+  viewerDownloadTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  // Selector de departamento
+  pickerBackdrop: { flex: 1, backgroundColor: '#00000066', justifyContent: 'center', paddingHorizontal: 28 },
+  pickerCard: { backgroundColor: '#fff', borderRadius: 16, padding: 18 },
+  pickerTitle: { fontSize: 17, fontWeight: '800', color: '#111', marginBottom: 12 },
+  pickerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  pickerDot: { width: 12, height: 12, borderRadius: 6 },
+  pickerRowTxt: { flex: 1, fontSize: 15, color: '#222', fontWeight: '600' },
+  pickerCancel: { marginTop: 12, paddingVertical: 12, alignItems: 'center' },
+  pickerCancelTxt: { color: '#888', fontSize: 15, fontWeight: '700' },
   attachPdf: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: '#FCE4EC', padding: 8, borderRadius: 8, marginTop: 6,
