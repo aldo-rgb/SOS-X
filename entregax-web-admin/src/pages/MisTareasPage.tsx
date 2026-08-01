@@ -70,11 +70,35 @@ const fmtDur = (ms: number): string => {
   if (h < 24) return `${h}h ${mm}m`;
   const d = Math.floor(h / 24), hh = h % 24; return `${d}d ${hh}h`;
 };
+// Milisegundos HÁBILES entre dos momentos: solo cuenta el horario laboral
+// 10:30–18:30 (hora de México, UTC−6 fijo) de lunes a viernes. No cuenta
+// noches ni fines de semana. Se usa para el "tiempo en curso" de las tareas.
+const MX_OFFSET_MS = 6 * 3600 * 1000; // México sin horario de verano (UTC−6)
+const BIZ_START_MS = (10 * 60 + 30) * 60000; // 10:30
+const BIZ_END_MS = (18 * 60 + 30) * 60000;   // 18:30
+const businessMs = (startMs: number, endMs: number): number => {
+  if (!isFinite(startMs) || !isFinite(endMs) || endMs <= startMs) return 0;
+  // Desplazar a "hora local MX" para usar métodos UTC como si fueran locales.
+  const s = startMs - MX_OFFSET_MS;
+  const e = endMs - MX_OFFSET_MS;
+  const first = new Date(s);
+  let day = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate());
+  let total = 0;
+  for (; day <= e; day += 86400000) {
+    const dow = new Date(day).getUTCDay(); // 0=dom … 6=sáb
+    if (dow === 0 || dow === 6) continue;
+    const winStart = day + BIZ_START_MS;
+    const winEnd = day + BIZ_END_MS;
+    const ov = Math.min(e, winEnd) - Math.max(s, winStart);
+    if (ov > 0) total += ov;
+  }
+  return total;
+};
 const taskTime = (t: any) => {
   if (!t?.created_at) return null;
   const start = new Date(t.created_at).getTime();
   const end = t.completed_at ? new Date(t.completed_at).getTime() : Date.now();
-  return { done: !!t.completed_at, ms: end - start };
+  return { done: !!t.completed_at, ms: businessMs(start, end) };
 };
 const ACT_LABEL: Record<string, string> = {
   created: '📌 Creó la tarea', assigned: '👤 Reasignó la tarea', moved: '➡️ Movió de columna',
@@ -649,7 +673,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   };
   const durTxt = (a?: string, b?: string) => {
     if (!a || !b) return null;
-    return fmtDur(new Date(b).getTime() - new Date(a).getTime());
+    return fmtDur(businessMs(new Date(a).getTime(), new Date(b).getTime()));
   };
   const openEdit = () => {
     setEdit({ title: t.title || '', description: t.description || '', eisenhower: t.eisenhower || 'estrella', due_at: toLocalInput(t.due_at) });
