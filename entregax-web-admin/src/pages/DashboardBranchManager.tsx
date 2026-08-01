@@ -128,6 +128,8 @@ export default function DashboardBranchManager() {
   const [userRole, setUserRole] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
   const [pendingVerifications, setPendingVerifications] = useState<number>(0);
+  // Tiempo promedio de resolución de tickets (minutos hábiles) — admin/super_admin/director
+  const [avgTicketMin, setAvgTicketMin] = useState<number | null>(null);
 
   // Tipos de cambio del sistema (monitor de APIs) — solo admin/super_admin/director
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -224,6 +226,7 @@ export default function DashboardBranchManager() {
     loadPendingVerifications();
     loadAbandonosListos();
     loadSystemRates();
+    loadTicketAvg();
     const user = localStorage.getItem('user');
     if (user) {
       const parsed = JSON.parse(user);
@@ -251,6 +254,8 @@ export default function DashboardBranchManager() {
 
   // Widget "Verificaciones Pendientes" para Director / Admin / Super Admin (+ allowlist)
   const canSeeVerifications = ['super_admin', 'admin', 'director', 'customer_service', 'soporte_tecnico'].includes(userRole) || canSeeGlobalOpsByEmail;
+  // Widget "Tiempo Promedio Resolución Ticket" solo para admin / super_admin / director
+  const canSeeTicketAvg = ['super_admin', 'admin', 'director'].includes(userRole);
 
   // Alertas globales (contenedores sin referencia / guías AIR sin AWB) para
   // Director / Admin / Super Admin, más los usuarios de la allowlist.
@@ -310,6 +315,16 @@ export default function DashboardBranchManager() {
     } catch (err) {
       // Silenciar: usuarios sin nivel DIRECTOR no tienen acceso
       console.debug('No se pudieron cargar verificaciones pendientes:', err);
+    }
+  };
+
+  const loadTicketAvg = async () => {
+    try {
+      const res = await api.get('/admin/support/stats');
+      const min = Number(res.data?.avg_resolution_time_min);
+      setAvgTicketMin(Number.isFinite(min) ? min : 0);
+    } catch (err) {
+      console.debug('No se pudo cargar tiempo promedio de tickets:', err);
     }
   };
 
@@ -1282,6 +1297,68 @@ export default function DashboardBranchManager() {
                       </Typography>
                     </Stack>
                   )}
+                </Paper>
+              </Grid>
+            )}
+
+            {canSeeTicketAvg && (
+              <Grid size={{ xs: 12, sm: 6, md: 3, lg: 3 }}>
+                <Paper
+                  elevation={0}
+                  sx={{
+                    position: 'relative',
+                    p: 2.25,
+                    height: '100%',
+                    bgcolor: '#fff',
+                    borderRadius: 2,
+                    border: '1px solid #E2E8F0',
+                    boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                    transition: 'box-shadow .18s, transform .18s, border-color .18s',
+                    '&:hover': {
+                      boxShadow: '0 6px 20px rgba(15,23,42,0.10)',
+                      transform: 'translateY(-1px)',
+                      borderColor: '#94A3B8',
+                    },
+                  }}
+                >
+                  <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
+                    <Box>
+                      <Typography
+                        variant="caption"
+                        sx={{ color: '#64748B', fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase', fontSize: '0.7rem' }}
+                      >
+                        Tiempo Prom. Resolución Ticket
+                      </Typography>
+                      <Typography sx={{ color: '#0F172A', fontWeight: 700, fontSize: '2rem', lineHeight: 1.1, mt: 0.5 }}>
+                        {avgTicketMin == null
+                          ? '—'
+                          : (() => {
+                              const m = avgTicketMin;
+                              if (m < 60) return `${m}m`;
+                              const h = Math.floor(m / 60);
+                              const r = m % 60;
+                              return r ? `${h}h ${r}m` : `${h}h`;
+                            })()}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mt: 0.5 }}>
+                        horario laboral · hoy
+                      </Typography>
+                    </Box>
+                    <Box
+                      sx={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 1.5,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        bgcolor: '#F1F5F9',
+                        color: '#0F172A',
+                      }}
+                    >
+                      <TimerIcon sx={{ fontSize: 22 }} />
+                    </Box>
+                  </Stack>
                 </Paper>
               </Grid>
             )}

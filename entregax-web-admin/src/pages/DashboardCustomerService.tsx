@@ -410,8 +410,15 @@ export default function DashboardCustomerService({ onNavigateToSupport, onNaviga
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KpiCard
             title="Tiempo Promedio"
-            value={<>{stats?.avg_resolution_time_min ?? 0}<small style={{ fontSize: '0.45em', fontWeight: 600 }}>min</small></>}
-            caption="Resolución hoy"
+            value={(() => {
+              const m = stats?.avg_resolution_time_min ?? 0;
+              const u = { fontSize: '0.45em', fontWeight: 600 } as const;
+              if (m < 60) return <>{m}<small style={u}>min</small></>;
+              const h = Math.floor(m / 60);
+              const r = m % 60;
+              return <>{h}<small style={u}>h</small>{r > 0 ? <> {r}<small style={u}>m</small></> : null}</>;
+            })()}
+            caption="Resolución · horario laboral"
             icon={<AccessTimeIcon />}
             gradient={`linear-gradient(135deg, ${BRAND.black} 0%, ${BRAND.blackLight} 100%)`}
           />
