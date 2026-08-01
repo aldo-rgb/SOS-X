@@ -1,13 +1,14 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, Button, Stack, ToggleButtonGroup, ToggleButton,
   FormControl, InputLabel, Select, MenuItem, Table, TableHead, TableRow, TableCell,
-  TableBody, TableContainer, Chip,
+  TableBody, TableContainer, Chip, CircularProgress,
 } from '@mui/material';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
 } from 'recharts';
 import * as XLSX from 'xlsx';
+import api from '../services/api';
 
 const GREEN = '#2E7D32';
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -22,7 +23,32 @@ const toNum = (v: any): number => {
 };
 const money = (v: number) => `$${v.toLocaleString('es-MX', { maximumFractionDigits: 0 })}`;
 
-export default function PoboxHistoricoPage() {
+// Parsea el formato matriz (Asesor | Año | Ene..Dic | Total) a registros largos.
+function parseMatrix(json: Record<string, any>[]): { records: Rec[]; error?: string } {
+  if (!json.length) return { records: [], error: 'El archivo está vacío.' };
+  const keys = Object.keys(json[0]);
+  const kAsesor = keys.find(k => /asesor|vendedor/i.test(k)) || keys[0];
+  const kAnio = keys.find(k => /a[ñn]o/i.test(k)) || keys[1];
+  const monthKeys = MESES.map(m => keys.find(k => k.trim().toLowerCase().startsWith(m.toLowerCase())) || '');
+  if (monthKeys.every(k => !k)) return { records: [], error: 'No encontré columnas de meses (Ene..Dic). Revisa el formato del reporte.' };
+  const out: Rec[] = [];
+  let cur = '';
+  for (const row of json) {
+    const rawA = String(row[kAsesor] ?? '').trim();
+    if (rawA) cur = rawA.replace(/\s*\(total.*$/i, '').trim();
+    if (!cur || /^total general$/i.test(cur)) continue;
+    const anio = parseInt(String(row[kAnio] ?? '').replace(/\D/g, ''), 10);
+    if (!anio) continue;
+    monthKeys.forEach((mk, mi) => {
+      if (!mk) return;
+      const monto = toNum(row[mk]);
+      if (monto) out.push({ asesor: cur, anio, mes: mi, monto });
+    });
+  }
+  return { records: out, error: out.length ? undefined : 'No se encontraron montos.' };
+}
+
+export default function ServicioHistoricoPanel({ service, serviceLabel }: { service: string; serviceLabel: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState('');
   const [recs, setRecs] = useState<Rec[]>([]);
@@ -30,46 +56,54 @@ export default function PoboxHistoricoPage() {
   const [fYear, setFYear] = useState<string>('');
   const [fAsesor, setFAsesor] = useState<string>('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<string>('');
 
-  // Parseo del formato matriz del "Reporte PO BOX" (hoja INST):
-  // columnas: Asesor | Año | Ene..Dic | Total. El nombre del asesor solo aparece
-  // en la 1ª fila de su bloque (con "(Total: $…)"); se rellena hacia abajo.
-  // Se excluye la fila "Total general" (es la suma de todos).
+  // Cargar el histórico GUARDADO de este servicio al abrir / cambiar de servicio.
+  const loadStored = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const r = await api.get(`/svc-historico/${service}`);
+      if (r.data?.exists) {
+        setRecs(r.data.records || []);
+        setFileName(r.data.file_name || '');
+        setSavedAt(r.data.uploaded_at || '');
+      } else {
+        setRecs([]); setFileName(''); setSavedAt('');
+      }
+      setFYear(''); setFAsesor('');
+    } catch { setRecs([]); setFileName(''); setSavedAt(''); }
+    finally { setLoading(false); }
+  }, [service]);
+
+  useEffect(() => { loadStored(); }, [loadStored]);
+
   const onFile = async (file: File) => {
-    setFileName(file.name); setError('');
+    setError('');
     try {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });
       const sheet = wb.Sheets['INST'] || wb.Sheets[wb.SheetNames[0]];
       const json = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
-      if (!json.length) { setError('El archivo está vacío.'); return; }
-      // Localizar claves reales (tolerante a acentos/espacios).
-      const keys = Object.keys(json[0]);
-      const kAsesor = keys.find(k => /asesor|vendedor/i.test(k)) || keys[0];
-      const kAnio = keys.find(k => /a[ñn]o/i.test(k)) || keys[1];
-      const monthKeys = MESES.map(m => keys.find(k => k.trim().toLowerCase().startsWith(m.toLowerCase())) || '');
-      if (monthKeys.every(k => !k)) { setError('No encontré columnas de meses (Ene..Dic). ¿Es el Reporte PO BOX?'); return; }
-
-      const out: Rec[] = [];
-      let cur = '';
-      for (const row of json) {
-        const rawA = String(row[kAsesor] ?? '').trim();
-        if (rawA) cur = rawA.replace(/\s*\(total.*$/i, '').trim();
-        if (!cur || /^total general$/i.test(cur)) continue;
-        const anio = parseInt(String(row[kAnio] ?? '').replace(/\D/g, ''), 10);
-        if (!anio) continue;
-        monthKeys.forEach((mk, mi) => {
-          if (!mk) return;
-          const monto = toNum(row[mk]);
-          if (monto) out.push({ asesor: cur, anio, mes: mi, monto });
-        });
-      }
-      setRecs(out);
-      setFYear(''); setFAsesor('');
-      if (!out.length) setError('No se encontraron montos. Revisa el formato del archivo.');
+      const { records, error: perr } = parseMatrix(json);
+      if (perr) { setError(perr); return; }
+      setRecs(records); setFileName(file.name); setFYear(''); setFAsesor('');
+      // Persistir en el backend (queda como histórico del servicio).
+      setSaving(true);
+      try {
+        await api.post(`/svc-historico/${service}`, { file_name: file.name, records });
+        setSavedAt(new Date().toISOString());
+      } catch { setError('Se analizó, pero no se pudo guardar en el servidor.'); }
+      finally { setSaving(false); }
     } catch (e: any) {
       setError('No se pudo leer el archivo: ' + (e?.message || ''));
     }
+  };
+
+  const removeStored = async () => {
+    try { await api.delete(`/svc-historico/${service}`); } catch { /* */ }
+    setRecs([]); setFileName(''); setSavedAt('');
   };
 
   const years = useMemo(() => Array.from(new Set(recs.map(r => r.anio))).sort((a, b) => b - a), [recs]);
@@ -79,7 +113,6 @@ export default function PoboxHistoricoPage() {
     (!fYear || String(r.anio) === fYear) && (!fAsesor || r.asesor === fAsesor)
   ), [recs, fYear, fAsesor]);
 
-  // Agregación por dimensión (siempre suma de monto).
   const agg = useMemo(() => {
     const map = new Map<string, { key: string; sort: number; monto: number }>();
     filtered.forEach(r => {
@@ -102,24 +135,32 @@ export default function PoboxHistoricoPage() {
 
   return (
     <Box>
-      <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>📚 Histórico PO Box USA</Typography>
+      <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>📚 Histórico {serviceLabel}</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Análisis del reporte por mes, año, vendedor y monto. Todo en tu navegador — nada se guarda.
+        Ventas por mes, año y vendedor. Sube el reporte una vez y queda guardado como histórico del servicio.
       </Typography>
 
       {/* Carga de archivo */}
       <Paper elevation={0} sx={{ p: 2, mb: 2, borderRadius: 2, border: '1px dashed #bbb', display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" hidden
-          onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
-        <Button variant="contained" onClick={() => fileRef.current?.click()} sx={{ bgcolor: GREEN, '&:hover': { bgcolor: '#1B5E20' } }}>
-          📄 Subir Reporte PO BOX
+          onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); if (fileRef.current) fileRef.current.value = ''; }} />
+        <Button variant="contained" onClick={() => fileRef.current?.click()} disabled={saving}
+          sx={{ bgcolor: GREEN, '&:hover': { bgcolor: '#1B5E20' } }}>
+          {saving ? 'Guardando…' : (recs.length ? '↻ Reemplazar reporte' : '📄 Subir reporte')}
         </Button>
-        {fileName && <Chip label={fileName} onDelete={() => { setRecs([]); setFileName(''); }} />}
-        {recs.length > 0 && <Typography variant="body2" color="text.secondary">{asesores.length} asesores · {years.length} años</Typography>}
+        {fileName && <Chip label={fileName} onDelete={removeStored} />}
+        {recs.length > 0 && <Typography variant="body2" color="text.secondary">{asesores.length} vendedores · {years.length} años</Typography>}
+        {savedAt && <Chip size="small" color="success" variant="outlined" label={`Guardado ${new Date(savedAt).toLocaleDateString('es-MX')}`} />}
         {error && <Typography variant="body2" color="error">{error}</Typography>}
       </Paper>
 
-      {recs.length > 0 && (
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress /></Box>
+      ) : recs.length === 0 ? (
+        <Paper elevation={0} sx={{ p: 4, borderRadius: 2, border: '1px solid #eee', textAlign: 'center', color: '#999' }}>
+          Aún no hay reporte para <b>{serviceLabel}</b>. Sube el Excel para verlo aquí.
+        </Paper>
+      ) : (
         <>
           {/* Controles */}
           <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap', gap: 2 }} alignItems="center">

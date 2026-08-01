@@ -699,6 +699,11 @@ import {
   deleteReplyRule,
 } from './waReplyRulesController';
 import {
+  getHistorico,
+  saveHistorico,
+  deleteHistorico,
+} from './svcHistoricoController';
+import {
   handleSupportMessage,
   getMyTickets,
   getTicketMessages,
@@ -3372,6 +3377,11 @@ app.get('/api/packages/service-history-stats', authenticateToken, requireMinLeve
     return res.status(500).json({ error: err.message });
   }
 });
+
+// Histórico por servicio (panel de solo consulta; tabla aislada svc_historico_reports).
+app.get('/api/svc-historico/:service', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getHistorico);
+app.post('/api/svc-historico/:service', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), saveHistorico);
+app.delete('/api/svc-historico/:service', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), deleteHistorico);
 
 // --- RUTA DE DASHBOARD CLIENTE (Portal del Cliente) ---
 app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res: Response) => {

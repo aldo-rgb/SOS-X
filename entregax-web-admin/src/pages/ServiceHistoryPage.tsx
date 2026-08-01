@@ -132,20 +132,18 @@ export default function ServiceHistoryPage() {
         })}
       </Stack>
 
-      {/* Botón Histórico: solo PO Box USA por ahora */}
-      {service === 'pobox_usa' && (
-        <Button
-          variant={historicoOpen ? 'contained' : 'outlined'}
-          onClick={() => setHistoricoOpen(o => !o)}
-          sx={{ mb: 2, fontWeight: 700, textTransform: 'none',
-            ...(historicoOpen ? { bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' } } : { borderColor: '#2E7D32', color: '#2E7D32' }) }}
-        >
-          📚 {historicoOpen ? 'Ver tendencia (inventario)' : 'Histórico (ventas por mes / año / vendedor)'}
-        </Button>
-      )}
+      {/* Botón Histórico: disponible para todos los servicios */}
+      <Button
+        variant={historicoOpen ? 'contained' : 'outlined'}
+        onClick={() => setHistoricoOpen(o => !o)}
+        sx={{ mb: 2, fontWeight: 700, textTransform: 'none',
+          ...(historicoOpen ? { bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' } } : { borderColor: '#2E7D32', color: '#2E7D32' }) }}
+      >
+        📚 {historicoOpen ? 'Ver tendencia (inventario)' : 'Histórico (ventas por mes / año / vendedor)'}
+      </Button>
 
-      {service === 'pobox_usa' && historicoOpen ? (
-        <PoboxHistoricoPage />
+      {historicoOpen ? (
+        <PoboxHistoricoPage service={service} serviceLabel={svc.label} />
       ) : (
       <>
       {/* Filtros */}
