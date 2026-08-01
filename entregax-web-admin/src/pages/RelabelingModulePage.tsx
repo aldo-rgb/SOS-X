@@ -101,6 +101,7 @@ interface ShipmentData {
             phone?: string;
             reference?: string;
             carrierConfig?: any;
+            isOcurre?: boolean;
         } | null;
         deliveryDocuments?: {
             factura?: { url: string; filename?: string | null; uploadedAt?: string | null } | null;
@@ -1938,6 +1939,13 @@ ${labelsHtml}
                                         size="small"
                                         label={`🚚 ${carrierChipLabel}`}
                                         sx={{ bgcolor: '#1976d2', color: 'white', fontWeight: 700 }}
+                                    />
+                                )}
+                                {shipment.master.assignedAddress?.isOcurre && (
+                                    <Chip
+                                        size="small"
+                                        label="🏪 OCURRE"
+                                        sx={{ bgcolor: '#B07206', color: 'white', fontWeight: 800 }}
                                     />
                                 )}
                                 {isSuperAdmin && (

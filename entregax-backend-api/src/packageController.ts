@@ -1313,6 +1313,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                    a.state as addr_state, a.zip_code as addr_zip,
                    a.phone as addr_phone, a.reference as addr_reference,
                    a.carrier_config as addr_carrier_config,
+                   a.is_ocurre as addr_is_ocurre,
                    p.national_delivery_zip,
                    br.id as branch_id_val, br.code as branch_code, br.name as branch_name,
                    (COALESCE(p.missing_on_arrival, FALSE) OR EXISTS(
@@ -1417,6 +1418,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                            a.state as addr_state, a.zip_code as addr_zip,
                            a.phone as addr_phone, a.reference as addr_reference,
                            a.carrier_config as addr_carrier_config,
+                   a.is_ocurre as addr_is_ocurre,
                            br.id as branch_id_val, br.code as branch_code, br.name as branch_name,
                            COALESCE(p.missing_on_arrival, FALSE) AS missing_on_arrival_eff,
                            COALESCE(p.is_lost, FALSE) AS is_lost_eff
@@ -1552,6 +1554,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                                a.city as addr_city, a.state as addr_state,
                                a.zip_code as addr_zip, a.phone as addr_phone,
                                a.reference as addr_reference, a.carrier_config as addr_carrier_config,
+                   a.is_ocurre as addr_is_ocurre,
                                ds.paid_at, ds.cost_payment_status, ds.total_cost_mxn, ds.saldo_pendiente, ds.monto_pagado
                         FROM dhl_shipments ds
                         LEFT JOIN users u ON ds.user_id = u.id
@@ -1816,6 +1819,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                             phone: fallbackRow.addr_phone,
                             reference: fallbackRow.addr_reference,
                             carrierConfig: fallbackRow.addr_carrier_config,
+                            isOcurre: fallbackRow.addr_is_ocurre === true,
                         } : null,
                     },
                     children: dhlChildren,
@@ -2448,6 +2452,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         phone: pkg.addr_phone,
                         reference: pkg.addr_reference,
                         carrierConfig: pkg.addr_carrier_config,
+                        isOcurre: pkg.addr_is_ocurre === true,
                     } : null,
                     deliveryDocuments: {
                         factura: latestDocByType.factura_embarque
