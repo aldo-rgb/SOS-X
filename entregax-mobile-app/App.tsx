@@ -250,7 +250,7 @@ export type RootStackParamList = {
   AdvisorSupportTicket: { user: any; token: string };
   AdvisorQuotes: { user: any; token: string };
   AdvisorPaymentOrders: { user: any; token: string };
-  SupportTickets: { user: any; token: string };
+  SupportTickets: { user: any; token: string; initialFilter?: string };
   LeadRegistration: { user: any; token: string };
   AirPricing: { user: any; token: string };
   // Chat interno staff

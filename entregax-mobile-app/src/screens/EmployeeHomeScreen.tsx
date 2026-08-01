@@ -1544,10 +1544,10 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                 { key: 'tdi_exp', icon: 'rocket', color: '#7B1FA2', value: `${perKg(exp?.price_generic_usd)}/kg`, label: 'TDI Express', onPress: () => nav('AirPricing') },
               ];
               const ticketCards: Array<{ key: string; icon: string; color: string; value: string; label: string; sub: string; onPress?: () => void }> = [
-                { key: 't_open', icon: 'headset', color: '#F05A28', value: String(openTickets), label: 'Tickets Abiertos', sub: 'ver todos ›', onPress: () => nav('SupportTickets') },
-                { key: 't_res', icon: 'checkmark-done', color: '#2E7D32', value: String(Number(ts.today_resolved) || 0), label: 'Resueltos Hoy', sub: 'últimas 24h ›', onPress: () => nav('SupportTickets') },
-                { key: 't_avg', icon: 'time', color: '#455A64', value: `${Number(ts.avg_resolution_time_min) || 0}m`, label: 'Tiempo Promedio', sub: 'resolución hoy', onPress: () => nav('SupportTickets') },
-                { key: 't_new', icon: 'add-circle', color: '#E65100', value: String(Number(ts.today_new) || 0), label: 'Tickets Nuevos', sub: 'últimas 24h ›', onPress: () => nav('SupportTickets') },
+                { key: 't_open', icon: 'headset', color: '#F05A28', value: String(openTickets), label: 'Tickets Abiertos', sub: 'ver todos ›', onPress: () => nav('SupportTickets', { initialFilter: 'open' }) },
+                { key: 't_res', icon: 'checkmark-done', color: '#2E7D32', value: String(Number(ts.today_resolved) || 0), label: 'Resueltos Hoy', sub: 'últimas 24h ›', onPress: () => nav('SupportTickets', { initialFilter: 'resolved' }) },
+                { key: 't_avg', icon: 'time', color: '#455A64', value: `${Number(ts.avg_resolution_time_min) || 0}m`, label: 'Tiempo Promedio', sub: 'resolución hoy', onPress: () => nav('SupportTickets', { initialFilter: 'open' }) },
+                { key: 't_new', icon: 'add-circle', color: '#E65100', value: String(Number(ts.today_new) || 0), label: 'Tickets Nuevos', sub: 'últimas 24h ›', onPress: () => nav('SupportTickets', { initialFilter: 'open' }) },
               ];
               return (
                 <View style={styles.modulesSection}>

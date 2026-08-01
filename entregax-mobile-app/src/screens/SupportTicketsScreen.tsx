@@ -112,7 +112,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   const [deptName, setDeptName] = useState('');
   const [deptId, setDeptId] = useState<number | null>(null);
   const [defaultCsDeptId, setDefaultCsDeptId] = useState<number | null>(null);
-  const [filter, setFilter] = useState<string>('open');
+  const [filter, setFilter] = useState<string>(route.params?.initialFilter || 'open');
 
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showDetail, setShowDetail] = useState(false);
