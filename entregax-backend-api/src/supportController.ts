@@ -1479,22 +1479,29 @@ export const ensureDepartmentsSchema = async () => {
     // Marca si el ticket fue resuelto por la IA (Cajito) sin intervención humana.
     // Sirve para excluir esos tickets de "Resueltos" y "Nuevos hoy".
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolved_by_ai BOOLEAN DEFAULT FALSE`);
-    // Función de tiempo hábil: minutos entre dos timestamps EXCLUYENDO fines de
-    // semana (sábado=6, domingo=0). Se usa para el "Tiempo Promedio" de resolución
-    // para no contar el tiempo que corre en fin de semana.
+    // Función de tiempo hábil: cuenta SOLO los minutos dentro del horario laboral
+    // (10:30–18:30 hora de México, L–V). No cuenta noches ni fines de semana.
+    // Las fechas se guardan en UTC (timestamp naïve) → se convierten a hora local
+    // (America/Mexico_City) antes de aplicar la ventana. Se usa para el
+    // "Tiempo Promedio" de resolución de tickets.
     await pool.query(`
       CREATE OR REPLACE FUNCTION business_minutes(ts_start timestamp, ts_end timestamp)
       RETURNS numeric AS $$
-        SELECT GREATEST(0,
-          EXTRACT(EPOCH FROM (ts_end - ts_start))/60
-          - COALESCE((
-              SELECT SUM(EXTRACT(EPOCH FROM (LEAST(ts_end, d + interval '1 day') - GREATEST(ts_start, d)))/60)
-              FROM generate_series(date_trunc('day', ts_start), date_trunc('day', ts_end), interval '1 day') AS d
-              WHERE EXTRACT(DOW FROM d) IN (0, 6)
-                AND LEAST(ts_end, d + interval '1 day') > GREATEST(ts_start, d)
-            ), 0)
-        );
-      $$ LANGUAGE sql IMMUTABLE;
+        SELECT COALESCE(SUM(
+          GREATEST(0,
+            EXTRACT(EPOCH FROM (
+              LEAST(conv.le, d + interval '18 hours 30 minutes')
+              - GREATEST(conv.ls, d + interval '10 hours 30 minutes')
+            ))/60
+          )
+        ), 0)
+        FROM (
+          SELECT (ts_start AT TIME ZONE 'UTC') AT TIME ZONE 'America/Mexico_City' AS ls,
+                 (ts_end   AT TIME ZONE 'UTC') AT TIME ZONE 'America/Mexico_City' AS le
+        ) conv,
+        LATERAL generate_series(date_trunc('day', conv.ls), date_trunc('day', conv.le), interval '1 day') AS d
+        WHERE EXTRACT(DOW FROM d) NOT IN (0, 6);
+      $$ LANGUAGE sql STABLE;
     `).catch((e: any) => console.warn('No se pudo crear business_minutes():', e.message));
     // Agregar columnas a support_tickets PRIMERO (necesarias para las queries siguientes)
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS department_id INT REFERENCES support_departments(id)`);
