@@ -282,7 +282,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
             <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
             <View style={styles.eisRow}>
               <TouchableOpacity onPress={() => setCatId(null)} style={[styles.dateChip, !catId && styles.dateChipOn]}>
-                <Text style={[styles.dateChipTxt, !catId && { color: '#fff' }]}>Sin categoría</Text>
+                <Text style={[styles.dateChipTxt, !catId && { color: '#fff' }]}>Personal</Text>
               </TouchableOpacity>
               {categories.map(c => {
                 const on = catId === c.id;
@@ -293,7 +293,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
                 );
               })}
             </View>
-            <Text style={styles.helpTxt}>«Sin categoría» solo va a tu panel personal. Con categoría, aparece en ese flujo.</Text>
+            <Text style={styles.helpTxt}>«Personal» solo va a tu panel personal. Con categoría, aparece en ese flujo.</Text>
             {(() => {
               const secs = categories.find(c => c.id === catId)?.sections || [];
               return secs.length > 0 ? (
@@ -460,7 +460,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
             <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
             <View style={styles.eisRow}>
               <TouchableOpacity onPress={() => { setCatId(null); setCatSection(null); }} style={[styles.dateChip, !catId && styles.dateChipOn]}>
-                <Text style={[styles.dateChipTxt, !catId && { color: '#fff' }]}>Sin categoría</Text>
+                <Text style={[styles.dateChipTxt, !catId && { color: '#fff' }]}>Personal</Text>
               </TouchableOpacity>
               {categories.map(c => {
                 const on = catId === c.id;
@@ -835,7 +835,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                   <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
                   <View style={styles.eisRow}>
                     <TouchableOpacity onPress={() => setECat(0)} style={[styles.dateChip, !eCat && styles.dateChipOn]}>
-                      <Text style={[styles.dateChipTxt, !eCat && { color: '#fff' }]}>Sin categoría</Text>
+                      <Text style={[styles.dateChipTxt, !eCat && { color: '#fff' }]}>Personal</Text>
                     </TouchableOpacity>
                     {eCats.map(c => (
                       <TouchableOpacity key={c.id} onPress={() => setECat(c.id)} style={[styles.dateChip, eCat === c.id && styles.dateChipOn]}>

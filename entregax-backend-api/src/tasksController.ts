@@ -146,8 +146,16 @@ async function canEditTask(req: Request, task: { board_id: number; created_by?: 
 // Devuelve (creando si falta) el tablero "Tareas Personales".
 async function getOrCreatePersonalBoard(): Promise<number | null> {
   try {
-    const ex = await pool.query(`SELECT id FROM task_boards WHERE board_key='personales' AND is_active=TRUE LIMIT 1`);
-    if (ex.rows[0]) return ex.rows[0].id;
+    // Si ya existe un tablero personal (activo o no), reutilízalo. Si está
+    // inactivo (p.ej. lo desactivaron por error), reactívalo en lugar de intentar
+    // insertar un duplicado (board_key='personales' es único → el insert fallaría).
+    const ex = await pool.query(`SELECT id, is_active FROM task_boards WHERE board_key='personales' ORDER BY id LIMIT 1`);
+    if (ex.rows[0]) {
+      if (ex.rows[0].is_active === false) {
+        await pool.query(`UPDATE task_boards SET is_active=TRUE, updated_at=NOW() WHERE id=$1`, [ex.rows[0].id]);
+      }
+      return ex.rows[0].id;
+    }
     const ins = await pool.query(`INSERT INTO task_boards (board_key, name, board_type) VALUES ('personales','Tareas Personales','personal') RETURNING id`);
     const bid = ins.rows[0]?.id;
     if (bid) {
