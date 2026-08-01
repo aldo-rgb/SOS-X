@@ -78,16 +78,33 @@ export default function ServiceHistoryPage() {
 
   const chartData = useMemo(() => series.map(p => ({ x: fmtBucket(p.bucket), y: p[metric] as number })), [series, metric, groupBy]);
 
-  // Tendencia: comparar último periodo vs el anterior.
+  // Inicio del periodo ACTUAL (según agrupación), en formato YYYY-MM-DD, para
+  // detectar si el último bucket es un periodo aún en curso (parcial).
+  const currentPeriodStart = (gb: string): string => {
+    const x = new Date();
+    if (gb === 'month') x.setDate(1);
+    else if (gb === 'week') { const dow = (x.getDay() + 6) % 7; x.setDate(x.getDate() - dow); } // lunes
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+  };
+
+  // ¿El último punto es el periodo en curso (mes/semana/día sin terminar)?
+  const lastIsPartial = useMemo(
+    () => series.length > 0 && series[series.length - 1].bucket === currentPeriodStart(groupBy),
+    [series, groupBy]
+  );
+
+  // Tendencia: comparar los dos últimos periodos COMPLETOS (ignora el parcial en curso).
   const trend = useMemo(() => {
-    if (series.length < 2) return null;
-    const last = series[series.length - 1][metric] as number;
-    const prev = series[series.length - 2][metric] as number;
+    const complete = lastIsPartial ? series.slice(0, -1) : series;
+    if (complete.length < 2) return null;
+    const last = complete[complete.length - 1][metric] as number;
+    const prev = complete[complete.length - 2][metric] as number;
     if (prev === 0) return null;
     const pct = ((last - prev) / prev) * 100;
     return { up: pct >= 0, pct: Math.abs(pct) };
-  }, [series, metric]);
+  }, [series, metric, lastIsPartial]);
 
+  const periodWord = GROUPS.find(g => g.key === groupBy)?.label.toLowerCase() || 'periodo';
   const caveat = CAVEATS[`${service}:${metric}`];
 
   return (
@@ -138,7 +155,7 @@ export default function ServiceHistoryPage() {
           <SummaryCard label={`Total ${met.label.replace(/^[^ ]+ /, '')}`} value={met.fmt(totals[metric] as number)} color={svc.color} />
           {trend && (
             <SummaryCard
-              label={`Último ${GROUPS.find(g => g.key === groupBy)?.label.toLowerCase()} vs anterior`}
+              label={lastIsPartial ? `Último ${periodWord} cerrado vs anterior` : `Último ${periodWord} vs anterior`}
               value={`${trend.up ? '▲' : '▼'} ${trend.pct.toFixed(1)}%`}
               color={trend.up ? '#2E7D32' : '#C62828'}
             />
@@ -171,6 +188,11 @@ export default function ServiceHistoryPage() {
               <Area type="monotone" dataKey="y" stroke={svc.color} strokeWidth={2.5} fill="url(#gradSvc)" />
             </AreaChart>
           </ResponsiveContainer>
+        )}
+        {lastIsPartial && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            ⏳ El último {periodWord} está en curso (parcial), por eso la última barra cae. No se usa en la comparación.
+          </Typography>
         )}
         {caveat && (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
