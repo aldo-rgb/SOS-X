@@ -159,8 +159,9 @@ export default function MisTareasPage() {
   const [involvedIds, setInvolvedIds] = useState<number[]>(MY_ID ? [MY_ID] : []);
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [detailId, setDetailId] = useState<number | null>(null);
-  const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
+  const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
   const [catId, setCatId] = useState<number>(0); // 0 = Sin categoría (Tareas Personales)
+  const [catSection, setCatSection] = useState<number | ''>(''); // subsección elegida
 
   // Programar tareas (futuras / recurrentes).
   const [schedOpen, setSchedOpen] = useState(false);
@@ -207,6 +208,7 @@ export default function MisTareasPage() {
         title: form.title.trim(), description: form.description || null,
         eisenhower: form.eisenhower, involved_ids: involvedIds, due_at: form.due_at || null,
         board_id: catId || null, // 0/'' = Sin categoría → Tareas Personales
+        section_id: catSection || null,
       }, H());
       const newId = res.data?.task?.id;
       if (newId && newPhotos.length) {
@@ -321,7 +323,7 @@ export default function MisTareasPage() {
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button variant="outlined" startIcon={<ScheduleIcon />} onClick={openSchedule} sx={{ color: '#B07206', borderColor: '#B07206', '&:hover': { borderColor: '#8a5a05', bgcolor: 'rgba(176,114,6,0.06)' } }}>Programar tarea</Button>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setInvolvedIds(MY_ID ? [MY_ID] : []); setCatId(0); setCreateOpen(true); }} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setInvolvedIds(MY_ID ? [MY_ID] : []); setCatId(0); setCatSection(''); setCreateOpen(true); }} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load}>Actualizar</Button>
         </Box>
       </Box>
@@ -372,11 +374,23 @@ export default function MisTareasPage() {
             value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
           <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
             <InputLabel>Categoría (flujo)</InputLabel>
-            <Select label="Categoría (flujo)" value={catId} onChange={e => setCatId(Number(e.target.value))}>
+            <Select label="Categoría (flujo)" value={catId} onChange={e => { setCatId(Number(e.target.value)); setCatSection(''); }}>
               <MenuItem value={0}>Sin categoría (personal)</MenuItem>
               {categories.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </Select>
           </FormControl>
+          {(() => {
+            const secs = categories.find(c => c.id === catId)?.sections || [];
+            return secs.length > 0 ? (
+              <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
+                <InputLabel>Sub-sección</InputLabel>
+                <Select label="Sub-sección" value={catSection} onChange={e => setCatSection(String(e.target.value) === '' ? '' : Number(e.target.value))}>
+                  <MenuItem value="">Sin sub-sección</MenuItem>
+                  {secs.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                </Select>
+              </FormControl>
+            ) : null;
+          })()}
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             «Sin categoría» solo aparece en tu panel personal de Mis Tareas. Con categoría, la tarea aparece en ese flujo.
           </Typography>

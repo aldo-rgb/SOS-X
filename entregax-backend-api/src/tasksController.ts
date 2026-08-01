@@ -222,7 +222,14 @@ export const listCategories = async (req: Request, res: Response): Promise<any> 
       `SELECT id, name, board_key, board_type FROM task_boards
         WHERE is_active = TRUE AND COALESCE(board_key,'') <> 'flujo_operativo'
         ORDER BY (board_key='personales') DESC, name`);
-    res.json({ categories: r.rows });
+    // Subsecciones (no "Algún día") por tablero, para el selector al crear tarea.
+    const secs = await pool.query(
+      `SELECT id, board_id, name FROM task_sections
+        WHERE COALESCE(is_someday,FALSE)=FALSE ORDER BY board_id, sort_order, id`);
+    const byBoard: Record<number, any[]> = {};
+    for (const s of secs.rows) (byBoard[s.board_id] ||= []).push({ id: s.id, name: s.name });
+    const categories = r.rows.map((c: any) => ({ ...c, sections: byBoard[c.id] || [] }));
+    res.json({ categories });
   } catch (e: any) {
     console.error('[tasks] listCategories:', e); res.status(500).json({ error: 'Error al listar categorías' });
   }
@@ -322,6 +329,12 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
     if (!boardId) return res.status(500).json({ error: 'Tablero no disponible' });
     const col = await pool.query(`SELECT id FROM task_columns WHERE board_id = $1 ORDER BY sort_order LIMIT 1`, [boardId]);
     const columnId = col.rows[0]?.id || null;
+    // Sub-sección (opcional): debe pertenecer al tablero elegido.
+    let sectionId: number | null = null;
+    if (b.section_id) {
+      const sec = await pool.query(`SELECT id FROM task_sections WHERE id=$1 AND board_id=$2`, [parseInt(String(b.section_id)), boardId]);
+      sectionId = sec.rows[0]?.id || null;
+    }
     const eisenhower = EISENHOWER.includes(b.eisenhower) ? b.eisenhower : 'estrella';
     // Involucrados: el creador SIEMPRE + los seleccionados. Compat: assignee_id único.
     const extra: number[] = Array.isArray(b.involved_ids)
@@ -330,9 +343,9 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
     const participants = Array.from(new Set<number>([uid, ...extra]));
     const primaryAssignee = extra.length ? extra[0] : uid; // responsable principal
     const r = await pool.query(
-      `INSERT INTO tasks (board_id, column_id, title, description, assignee_id, due_at, eisenhower, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [boardId, columnId, String(b.title).trim(), b.description || null, primaryAssignee, b.due_at || null, eisenhower, uid]);
+      `INSERT INTO tasks (board_id, column_id, section_id, title, description, assignee_id, due_at, eisenhower, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [boardId, columnId, sectionId, String(b.title).trim(), b.description || null, primaryAssignee, b.due_at || null, eisenhower, uid]);
     const task = r.rows[0];
     for (const p of participants) {
       await pool.query(`INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [task.id, p]);
