@@ -503,7 +503,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   // Widgets de leads/altas para admin y super_admin.
-  const [leadsWidgets, setLeadsWidgets] = useState<{ today: number; week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number; awbWeek: number; kgWeek: number; xpayOps: number; xpayUsd: number } | null>(null);
+  const [leadsWidgets, setLeadsWidgets] = useState<{ today: number; week: number; month: number; year: number; interested: number; fclMonth: number; lclMonth: number; containersDeliveredWeek: number; kgWeek: number; xpayOps: number; xpayUsd: number } | null>(null);
   const [seriesConfig, setSeriesConfig] = useState<SeriesConfig | null>(null);
   const isAdminLevel = ['admin', 'super_admin'].includes(user.role);
 
@@ -525,9 +525,13 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       const r = await fetch(`${API_URL}/api/tasks/mine`, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) { setMyTaskCount(null); return; }
       const d = await r.json();
-      setMyTaskCount(Array.isArray(d.tasks) ? d.tasks.length : 0);
+      // Solo las asignadas DIRECTAMENTE al usuario (responsable), no en las que
+      // solo estoy involucrado.
+      const uid = Number(user?.id);
+      const mine = Array.isArray(d.tasks) ? d.tasks.filter((t: any) => Number(t.assignee_id) === uid) : [];
+      setMyTaskCount(mine.length);
     } catch { setMyTaskCount(null); }
-  }, [token]);
+  }, [token, user?.id]);
 
   const loadLeadsWidgets = useCallback(async () => {
     if (!['admin', 'super_admin'].includes(user.role)) return;
@@ -546,7 +550,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
         interested: Number(prov?.stats?.interested_count) || 0,
         fclMonth: Number(reg.fcl_month) || 0,
         lclMonth: Number(reg.lcl_month) || 0,
-        awbWeek: Number(reg.awb_week) || 0,
+        containersDeliveredWeek: Number(reg.containers_delivered_week) || 0,
         kgWeek: Number(reg.kg_week) || 0,
         xpayOps: Number(reg.xpay_ops_week) || 0,
         xpayUsd: Number(reg.xpay_usd_week) || 0,
@@ -1461,11 +1465,10 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                     <Text style={styles.leadLabel}>Weeks LCL</Text>
                     <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
-                    onPress={() => setSeriesConfig({ metric: 'awb', granularity: 'week', periods: 9, title: 'AWBs China aéreo por semana', color: '#8B5E1E' })}>
-                    <Text style={styles.leadNumber}>{leadsWidgets.awbWeek}</Text>
-                    <Text style={styles.leadLabel}>AWBs China aéreo</Text>
-                    <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
+                  <TouchableOpacity activeOpacity={1} style={styles.leadCard}>
+                    <Text style={styles.leadNumber}>{leadsWidgets.containersDeliveredWeek}</Text>
+                    <Text style={styles.leadLabel}>Contenedores entregados</Text>
+                    <Text style={styles.leadSub}>marítimos · esta semana</Text>
                   </TouchableOpacity>
                   <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'kg', granularity: 'week', periods: 9, title: 'Kilos aéreo por semana', color: '#3D5A8B', unit: 'kg', decimals: 0 })}>

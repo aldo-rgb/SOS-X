@@ -549,6 +549,20 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
       kgWeek = Math.round((Number(a.rows[0]?.kilos) || 0) * 100) / 100;
     } catch (e) { /* tabla china_receipts puede no existir en algún entorno */ }
 
+    // Contenedores marcados como ENTREGADO esta semana (reinicia domingo, como AWBs).
+    let containersDeliveredWeek = 0;
+    try {
+      const cd = await pool.query(`
+        SELECT COUNT(DISTINCT container_id) AS n
+        FROM container_status_history
+        WHERE new_status = 'delivered'
+          AND changed_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey'
+              >= (date_trunc('week', (now() AT TIME ZONE 'America/Monterrey') + interval '1 day') - interval '1 day')
+          AND changed_at <= now()
+      `);
+      containersDeliveredWeek = Number(cd.rows[0]?.n) || 0;
+    } catch (e) { /* tabla container_status_history puede no existir en algún entorno */ }
+
     // X-Pay de la SEMANA (reinicia lunes). Solo operaciones realmente enviadas
     // (excluye canceladas/error/pendientes). El conteo excluye MXN (solo
     // internacionales USD/RMB) y el monto USD suma únicamente las operaciones USD.
@@ -573,6 +587,7 @@ export const getRegistrationStats = async (_req: Request, res: Response): Promis
       week: Number(row.week) || 0, month: Number(row.month) || 0, year: Number(row.year) || 0, today: Number(row.today) || 0,
       fcl_month: fclMonth, lcl_month: lclMonth,
       awb_week: awbWeek, kg_week: kgWeek,
+      containers_delivered_week: containersDeliveredWeek,
       xpay_ops_week: xpayOpsWeek, xpay_usd_week: xpayUsdWeek,
     });
   } catch (error) {
