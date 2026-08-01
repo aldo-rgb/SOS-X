@@ -282,19 +282,6 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     panelKey: 'cs_support',
   },
 
-  // 6b) Registro de Leads (Servicio a Cliente / Sistemas)
-  {
-    id: 'cs_leads',
-    title: 'Registro de Leads',
-    subtitle: 'Alta de prospectos en la Central de Leads',
-    icon: 'person-add-outline',
-    iconFamily: 'ionicons',
-    color: '#00897B',
-    screen: 'LeadRegistration',
-    roles: ['customer_service', 'soporte_tecnico', 'counter_staff', 'branch_manager', 'admin', 'super_admin', 'director'],
-    requiresOnboarding: false,
-  },
-
   // 6c) Tarifas Aéreo China (TDI Aéreo / Express)
   {
     id: 'cs_air_pricing',
