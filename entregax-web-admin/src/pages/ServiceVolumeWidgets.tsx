@@ -6,6 +6,7 @@ import { ResponsiveContainer, AreaChart, Area } from 'recharts';
 import api from '../services/api';
 
 const SERVICES = [
+  { key: 'todos',       label: 'Toda la empresa', emoji: '🏢', color: '#F05A28' },
   { key: 'tdi_aereo',   label: 'TDI Aéreo',     emoji: '✈️',  color: '#1565C0' },
   { key: 'tdi_express', label: 'TDI Express',   emoji: '🚀',  color: '#7B1FA2' },
   { key: 'maritimo',    label: 'Marítimo China', emoji: '🚢',  color: '#00695C' },
@@ -103,7 +104,7 @@ export default function ServiceVolumeWidgets() {
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress size={28} /></Box>
       ) : (
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(5, 1fr)' }, gap: 1.5 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 1.5 }}>
           {SERVICES.map(s => {
             const series = data[s.key] || [];
             const complete = series.length && series[series.length - 1].bucket === currentStart ? series.slice(0, -1) : series;

@@ -34,6 +34,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import QRCode from 'react-native-qrcode-svg';
 import { api, API_URL } from '../services/api';
 import WidgetSeriesModal, { SeriesConfig } from '../components/WidgetSeriesModal';
+import ServiceVolumeMobile from '../components/ServiceVolumeMobile';
 import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
 import { useBrandAsset } from '../hooks/useBrandAssets';
@@ -1453,6 +1454,12 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                     <Text style={styles.leadLabel}>Interesados</Text>
                     <Text style={styles.leadSub}>toca para ver gráfica ›</Text>
                   </TouchableOpacity>
+
+                  {/* Widget grande: Volúmenes por Servicio (resultado general de la empresa) */}
+                  <View style={{ width: '100%' }}>
+                    <ServiceVolumeMobile apiUrl={API_URL} token={token} />
+                  </View>
+
                   <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'fcl', granularity: 'month', periods: 12, title: 'Contenedores FCL por mes', color: '#1E6F8B' })}>
                     <Text style={styles.leadNumber}>{leadsWidgets.fclMonth}</Text>

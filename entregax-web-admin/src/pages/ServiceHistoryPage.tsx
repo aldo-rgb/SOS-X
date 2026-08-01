@@ -11,6 +11,7 @@ import PoboxHistoricoPage from './PoboxHistoricoPage';
 
 // Mismos servicios que "Inventario por Tipo de Servicio". SOLO consulta (lectura).
 const SERVICES = [
+  { key: 'todos',       label: 'Todos',         emoji: '🏢',  color: '#F05A28' },
   { key: 'tdi_aereo',   label: 'TDI Aéreo',     emoji: '✈️',  color: '#1565C0' },
   { key: 'tdi_express', label: 'TDI Express',   emoji: '🚀',  color: '#7B1FA2' },
   { key: 'maritimo',    label: 'Marítimo China', emoji: '🚢',  color: '#00695C' },
@@ -53,7 +54,7 @@ export default function ServiceHistoryPage() {
     // Deep-link desde el dashboard: abre el servicio indicado.
     const s = localStorage.getItem('svc_history_service');
     if (s) localStorage.removeItem('svc_history_service');
-    return s && SERVICES.some(x => x.key === s) ? s : 'tdi_aereo';
+    return s && SERVICES.some(x => x.key === s) ? s : 'todos';
   });
   const [historicoOpen, setHistoricoOpen] = useState(false);
   const [metric, setMetric] = useState<MetricKey>('money');
@@ -143,7 +144,8 @@ export default function ServiceHistoryPage() {
         })}
       </Stack>
 
-      {/* Botón Histórico: disponible para todos los servicios */}
+      {/* Botón Histórico: por servicio (no aplica a "Todos") */}
+      {service !== 'todos' && (
       <Button
         variant={historicoOpen ? 'contained' : 'outlined'}
         onClick={() => setHistoricoOpen(o => !o)}
@@ -152,8 +154,9 @@ export default function ServiceHistoryPage() {
       >
         📚 {historicoOpen ? 'Ver tendencia (inventario)' : 'Histórico (ventas por mes / año / vendedor)'}
       </Button>
+      )}
 
-      {historicoOpen ? (
+      {service !== 'todos' && historicoOpen ? (
         <PoboxHistoricoPage service={service} serviceLabel={svc.label} />
       ) : (
       <>

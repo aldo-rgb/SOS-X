@@ -3359,33 +3359,45 @@ app.get('/api/packages/service-history-stats', authenticateToken, requireMinLeve
         weight: `0`, volume: `0`, count: `COUNT(*)`,
       },
     };
-    const cfg = CFG[service];
-    if (!cfg) return res.status(400).json({ error: 'Servicio no válido' });
+    // Ejecuta la consulta de UN servicio y devuelve su serie por bucket.
+    const runOne = async (c: { from: string; where: string; dateCol: string; money: string; weight: string; volume: string; count: string }) => {
+      const localDate = `(${c.dateCol} AT TIME ZONE 'America/Monterrey')`;
+      const params: any[] = [];
+      let where = c.where;
+      if (dateFrom) { params.push(dateFrom); where += ` AND DATE(${localDate}) >= $${params.length}::date`; }
+      if (dateTo)   { params.push(dateTo);   where += ` AND DATE(${localDate}) <= $${params.length}::date`; }
+      const q = `
+        SELECT to_char(date_trunc('${groupBy}', ${localDate}), 'YYYY-MM-DD') AS bucket,
+               ROUND(SUM(${c.money})::numeric, 2) AS money,
+               ROUND(SUM(${c.weight})::numeric, 2) AS weight,
+               ROUND(SUM(${c.volume})::numeric, 4) AS volume,
+               ${c.count} AS count
+          FROM ${c.from}
+         WHERE ${where} AND ${c.dateCol} IS NOT NULL
+         GROUP BY 1 ORDER BY 1`;
+      const r = await pool.query(q, params);
+      return r.rows.map((x: any) => ({
+        bucket: x.bucket, money: Number(x.money) || 0, weight: Number(x.weight) || 0,
+        volume: Number(x.volume) || 0, count: Number(x.count) || 0,
+      }));
+    };
 
-    const localDate = `(${cfg.dateCol} AT TIME ZONE 'America/Monterrey')`;
-    const params: any[] = [];
-    let where = cfg.where;
-    if (dateFrom) { params.push(dateFrom); where += ` AND DATE(${localDate}) >= $${params.length}::date`; }
-    if (dateTo)   { params.push(dateTo);   where += ` AND DATE(${localDate}) <= $${params.length}::date`; }
-
-    const q = `
-      SELECT to_char(date_trunc('${groupBy}', ${localDate}), 'YYYY-MM-DD') AS bucket,
-             ROUND(SUM(${cfg.money})::numeric, 2) AS money,
-             ROUND(SUM(${cfg.weight})::numeric, 2) AS weight,
-             ROUND(SUM(${cfg.volume})::numeric, 4) AS volume,
-             ${cfg.count} AS count
-        FROM ${cfg.from}
-       WHERE ${where} AND ${cfg.dateCol} IS NOT NULL
-       GROUP BY 1
-       ORDER BY 1`;
-    const r = await pool.query(q, params);
-    const series = r.rows.map((x: any) => ({
-      bucket: x.bucket,
-      money: Number(x.money) || 0,
-      weight: Number(x.weight) || 0,
-      volume: Number(x.volume) || 0,
-      count: Number(x.count) || 0,
-    }));
+    let series: Array<{ bucket: string; money: number; weight: number; volume: number; count: number }>;
+    if (service === 'todos') {
+      // Resultado GENERAL de la empresa: suma de todos los servicios por bucket.
+      const all = await Promise.all(Object.values(CFG).map(c => runOne(c).catch(() => [])));
+      const map = new Map<string, { bucket: string; money: number; weight: number; volume: number; count: number }>();
+      all.flat().forEach((s) => {
+        const cur = map.get(s.bucket) || { bucket: s.bucket, money: 0, weight: 0, volume: 0, count: 0 };
+        cur.money += s.money; cur.weight += s.weight; cur.volume += s.volume; cur.count += s.count;
+        map.set(s.bucket, cur);
+      });
+      series = Array.from(map.values()).sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
+    } else {
+      const cfg = CFG[service];
+      if (!cfg) return res.status(400).json({ error: 'Servicio no válido' });
+      series = await runOne(cfg);
+    }
     const totals = series.reduce((a, s) => ({
       money: a.money + s.money, weight: a.weight + s.weight, volume: a.volume + s.volume, count: a.count + s.count,
     }), { money: 0, weight: 0, volume: 0, count: 0 });
