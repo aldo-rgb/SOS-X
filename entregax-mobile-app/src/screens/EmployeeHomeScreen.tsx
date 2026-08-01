@@ -1543,19 +1543,20 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             {/* =============== TIPOS DE CAMBIO Y COSTOS (Servicio a Cliente / Sistemas) =============== */}
             {isCsCentral && (csRates || csTicketStats) && (() => {
               const nav = (screen: string, params?: any) => navigation.navigate(screen as any, { user, token, ...(params || {}) });
-              const ent = csRates?.entangled;
               const pob = csRates?.pobox;
               const air = csRates?.tdi_air;
               const exp = csRates?.tdi_express;
               const ts = csTicketStats || {};
               const openTickets = (Number(ts.ai_handling) || 0) + (Number(ts.needs_human) || 0) + (Number(ts.waiting_client) || 0);
-              const fx = (n: any) => (n != null ? `$${Number(n).toFixed(4)}` : '—');
               const perKg = (n: any) => (n != null ? `$${Number(n).toFixed(2)}` : '—');
-              const cards: Array<{ key: string; icon: string; color: string; value: string; label: string; sub: string; onPress?: () => void }> = [
-                { key: 'fx_money', icon: 'swap-horizontal', color: '#00897B', value: fx(ent?.tipo_cambio_usd), label: 'TC · Envío de Dinero', sub: 'MXN / USD · solo lectura' },
-                { key: 'fx_egx', icon: 'swap-horizontal', color: '#2E9E9E', value: fx(pob?.tipo_cambio_final), label: 'TC · EntregaX', sub: 'MXN / USD · solo lectura' },
-                { key: 'tdi_air', icon: 'airplane', color: '#1976D2', value: `${perKg(air?.price_generic_usd)}/kg`, label: 'TDI Aéreo', sub: 'genérico · editar tarifas ›', onPress: () => nav('AirPricing') },
-                { key: 'tdi_exp', icon: 'rocket', color: '#7B1FA2', value: `${perKg(exp?.price_generic_usd)}/kg`, label: 'TDI Express', sub: 'genérico · editar tarifas ›', onPress: () => nav('AirPricing') },
+              const fx = (n: any) => (n != null ? `$${Number(n).toFixed(4)}` : '—');
+              // Widget horizontal con los 3 datos: TC EntregaX, TDI Aéreo, TDI Express.
+              const rateCols: Array<{ key: string; icon: string; color: string; value: string; label: string; onPress?: () => void }> = [
+                { key: 'fx_egx', icon: 'swap-horizontal', color: '#2E9E9E', value: fx(pob?.tipo_cambio_final), label: 'TC EntregaX' },
+                { key: 'tdi_air', icon: 'airplane', color: '#1976D2', value: `${perKg(air?.price_generic_usd)}/kg`, label: 'TDI Aéreo', onPress: () => nav('AirPricing') },
+                { key: 'tdi_exp', icon: 'rocket', color: '#7B1FA2', value: `${perKg(exp?.price_generic_usd)}/kg`, label: 'TDI Express', onPress: () => nav('AirPricing') },
+              ];
+              const ticketCards: Array<{ key: string; icon: string; color: string; value: string; label: string; sub: string; onPress?: () => void }> = [
                 { key: 't_open', icon: 'headset', color: '#F05A28', value: String(openTickets), label: 'Tickets Abiertos', sub: 'ver todos ›', onPress: () => nav('SupportTickets') },
                 { key: 't_res', icon: 'checkmark-done', color: '#2E7D32', value: String(Number(ts.today_resolved) || 0), label: 'Resueltos Hoy', sub: 'últimas 24h ›', onPress: () => nav('SupportTickets') },
                 { key: 't_avg', icon: 'time', color: '#455A64', value: `${Number(ts.avg_resolution_time_min) || 0}m`, label: 'Tiempo Promedio', sub: 'resolución hoy', onPress: () => nav('SupportTickets') },
@@ -1564,8 +1565,25 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               return (
                 <View style={styles.modulesSection}>
                   <Text style={styles.sectionTitle}>💱 Tipos de Cambio y Costos</Text>
-                  <View style={styles.widgetGrid}>
-                    {cards.map((c) => (
+                  {/* Widget horizontal (3 columnas) */}
+                  <View style={styles.rateStrip}>
+                    {rateCols.map((c, i) => (
+                      <React.Fragment key={c.key}>
+                        {i > 0 && <View style={styles.rateDivider} />}
+                        <TouchableOpacity style={styles.rateCol} activeOpacity={c.onPress ? 0.7 : 1} onPress={c.onPress}>
+                          <View style={styles.rateColHead}>
+                            <Ionicons name={c.icon as any} size={14} color={c.color} />
+                            <Text style={styles.rateColLabel} numberOfLines={1}>{c.label}</Text>
+                          </View>
+                          <Text style={styles.rateColValue} numberOfLines={1} adjustsFontSizeToFit>{c.value}</Text>
+                          <Text style={styles.rateColSub} numberOfLines={1}>{c.onPress ? 'editar ›' : 'solo lectura'}</Text>
+                        </TouchableOpacity>
+                      </React.Fragment>
+                    ))}
+                  </View>
+                  {/* Tickets */}
+                  <View style={[styles.widgetGrid, { marginTop: 10 }]}>
+                    {ticketCards.map((c) => (
                       <TouchableOpacity key={c.key} style={styles.widgetCard} activeOpacity={c.onPress ? 0.85 : 1} onPress={c.onPress}>
                         <View style={[styles.widgetIcon, { backgroundColor: c.color + '22' }]}>
                           <Ionicons name={c.icon as any} size={20} color={c.color} />
@@ -1992,6 +2010,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
+  rateStrip: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: '#fff', borderRadius: 14, paddingVertical: 12, paddingHorizontal: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+  rateCol: { flex: 1, alignItems: 'center', paddingHorizontal: 4, gap: 3 },
+  rateColHead: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  rateColLabel: { fontSize: 11, color: '#666', fontWeight: '700' },
+  rateColValue: { fontSize: 18, fontWeight: '800', color: '#111' },
+  rateColSub: { fontSize: 10, color: '#999' },
+  rateDivider: { width: 1, backgroundColor: '#eee', marginVertical: 2 },
   widgetGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 },
   widgetCard: {
     width: '48%', backgroundColor: '#fff', borderRadius: 14, padding: 12, marginBottom: 2,
