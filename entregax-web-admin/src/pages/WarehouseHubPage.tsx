@@ -36,6 +36,7 @@ import BranchInventoryPage from './BranchInventoryPage';
 import POBoxHubPage from './POBoxHubPage';
 import RelabelingModulePage from './RelabelingModulePage';
 import ServiceInventoryPage from './ServiceInventoryPage';
+import ServiceHistoryPage from './ServiceHistoryPage';
 import ChinaAirHubPage from './ChinaAirHubPage';
 import ChinaSeaHubPage from './ChinaSeaHubPage';
 import TdiCedisMtyPage from './TdiCedisMtyPage';
@@ -113,6 +114,13 @@ const WAREHOUSE_PANELS = {
         flag: '📋',
         component: 'serviceInventory',
     },
+    service_history: {
+        icon: <InventoryIcon sx={{ fontSize: 48 }} />,
+        color: '#2E7D32',
+        bgGradient: 'linear-gradient(135deg, #1B5E20 0%, #2E7D32 100%)',
+        flag: '📈',
+        component: 'serviceHistory',
+    },
 };
 
 interface Props {
@@ -145,6 +153,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
         { code: 'inventario_sucursal', name: 'Inventario Sucursal', services: ['inventory'] },
         { code: 'reetiquetado', name: 'Módulo de Reetiquetado', services: ['reprint'] },
         { code: 'service_inventory', name: 'Inventario por Servicio', services: ['inventory'] },
+        { code: 'service_history', name: 'Historial por Servicio', services: ['inventory'] },
     ];
     
     const [locations, setLocations] = useState<WarehouseLocation[]>([]);
@@ -400,6 +409,8 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                     />
                 ) : selectedPanel === 'service_inventory' ? (
                     <ServiceInventoryPage />
+                ) : selectedPanel === 'service_history' ? (
+                    <ServiceHistoryPage />
                 ) : selectedPanel === 'reetiquetado' ? (
                     <RelabelingModulePage onBack={handleBackToHub} />
                 ) : (

@@ -3292,6 +3292,87 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
   }
 });
 
+// GET /api/packages/service-history-stats?service=tdi_aereo&date_from=&date_to=&group_by=day|week|month
+// Serie temporal agregada por servicio (SOLO LECTURA de las tablas del inventario;
+// no crea tablas ni escribe nada). Devuelve por periodo: dinero (MXN), peso (kg),
+// volumen (m³) y cantidad de guías. Para las gráficas de "Historial por Servicio".
+app.get('/api/packages/service-history-stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
+  try {
+    const service = String(req.query.service || 'tdi_aereo');
+    const dateFrom = String(req.query.date_from || '');
+    const dateTo   = String(req.query.date_to   || '');
+    const gbRaw = String(req.query.group_by || 'day').toLowerCase();
+    const groupBy = ['day', 'week', 'month'].includes(gbRaw) ? gbRaw : 'day';
+
+    // base_guia para contar envíos consolidados en aéreo.
+    const BASE_EXPR = `CASE WHEN p.child_no IS NOT NULL AND p.child_no != '' THEN REGEXP_REPLACE(p.child_no, '-[0-9]+$', '') ELSE p.tracking_internal END`;
+    const M3 = (l: string, w: string, h: string) => `(COALESCE(${l},0)*COALESCE(${w},0)*COALESCE(${h},0)/1000000.0)`;
+
+    // Config por servicio: tabla, alias, filtro, fecha y expresiones de métricas.
+    const CFG: Record<string, { from: string; where: string; dateCol: string; money: string; weight: string; volume: string; count: string }> = {
+      tdi_aereo: {
+        from: `packages p`, where: `p.service_type = 'AIR_CHN_MX'`, dateCol: `p.received_at`,
+        money: `COALESCE(p.air_sale_price,0)`, weight: `COALESCE(p.air_chargeable_weight, p.weight, 0)`,
+        volume: M3('p.pkg_length', 'p.pkg_width', 'p.pkg_height'), count: `COUNT(DISTINCT ${BASE_EXPR})`,
+      },
+      tdi_express: {
+        from: `packages p`, where: `(p.service_type = 'tdi_express' OR (p.service_type = 'AIR_CHN_MX' AND p.air_source = 'tdi_express'))`, dateCol: `p.received_at`,
+        money: `COALESCE(p.air_sale_price, p.assigned_cost_mxn, 0)`, weight: `COALESCE(p.weight,0)`,
+        volume: M3('p.pkg_length', 'p.pkg_width', 'p.pkg_height'), count: `COUNT(*)`,
+      },
+      pobox_usa: {
+        from: `packages p`, where: `p.service_type = 'POBOX_USA' AND p.tracking_internal NOT LIKE 'USK-%' AND NOT EXISTS (SELECT 1 FROM packages c WHERE c.master_id = p.id LIMIT 1)`, dateCol: `p.received_at`,
+        money: `COALESCE(p.pobox_service_cost,0)`, weight: `COALESCE(p.weight,0)`,
+        volume: M3('p.pkg_length', 'p.pkg_width', 'p.pkg_height'), count: `COUNT(*)`,
+      },
+      maritimo: {
+        from: `maritime_orders mo`, where: `1=1`, dateCol: `mo.created_at`,
+        money: `COALESCE(mo.assigned_cost_mxn, mo.national_shipping_cost, 0)`, weight: `COALESCE(mo.weight,0)`,
+        volume: `COALESCE(mo.volume,0)`, count: `COUNT(*)`,
+      },
+      dhl: {
+        from: `dhl_shipments d`, where: `1=1`, dateCol: `d.inspected_at`,
+        money: `COALESCE(d.total_cost_mxn, d.import_cost_mxn, 0)`, weight: `COALESCE(d.weight_kg,0)`,
+        volume: M3('d.length_cm', 'd.width_cm', 'd.height_cm'), count: `COUNT(*)`,
+      },
+    };
+    const cfg = CFG[service];
+    if (!cfg) return res.status(400).json({ error: 'Servicio no válido' });
+
+    const localDate = `(${cfg.dateCol} AT TIME ZONE 'America/Monterrey')`;
+    const params: any[] = [];
+    let where = cfg.where;
+    if (dateFrom) { params.push(dateFrom); where += ` AND DATE(${localDate}) >= $${params.length}::date`; }
+    if (dateTo)   { params.push(dateTo);   where += ` AND DATE(${localDate}) <= $${params.length}::date`; }
+
+    const q = `
+      SELECT to_char(date_trunc('${groupBy}', ${localDate}), 'YYYY-MM-DD') AS bucket,
+             ROUND(SUM(${cfg.money})::numeric, 2) AS money,
+             ROUND(SUM(${cfg.weight})::numeric, 2) AS weight,
+             ROUND(SUM(${cfg.volume})::numeric, 4) AS volume,
+             ${cfg.count} AS count
+        FROM ${cfg.from}
+       WHERE ${where} AND ${cfg.dateCol} IS NOT NULL
+       GROUP BY 1
+       ORDER BY 1`;
+    const r = await pool.query(q, params);
+    const series = r.rows.map((x: any) => ({
+      bucket: x.bucket,
+      money: Number(x.money) || 0,
+      weight: Number(x.weight) || 0,
+      volume: Number(x.volume) || 0,
+      count: Number(x.count) || 0,
+    }));
+    const totals = series.reduce((a, s) => ({
+      money: a.money + s.money, weight: a.weight + s.weight, volume: a.volume + s.volume, count: a.count + s.count,
+    }), { money: 0, weight: 0, volume: 0, count: 0 });
+    return res.json({ service, group_by: groupBy, series, totals });
+  } catch (err: any) {
+    console.error('[service-history-stats]', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // --- RUTA DE DASHBOARD CLIENTE (Portal del Cliente) ---
 app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {

@@ -694,6 +694,10 @@
       "service_inventory": {
         "title": "Inventario por Servicio",
         "subtitle": "Historial de guías por tipo de servicio"
+      },
+      "service_history": {
+        "title": "Historial por Servicio",
+        "subtitle": "Gráficas de volúmenes por tipo de servicio"
       }
     },
     "newPackage": "Nuevo Paquete",
