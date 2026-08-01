@@ -43,7 +43,12 @@ const CAVEATS: Record<string, string> = {
 };
 
 export default function ServiceHistoryPage() {
-  const [service, setService] = useState('tdi_aereo');
+  const [service, setService] = useState(() => {
+    // Deep-link desde el dashboard: abre el servicio indicado.
+    const s = localStorage.getItem('svc_history_service');
+    if (s) localStorage.removeItem('svc_history_service');
+    return s && SERVICES.some(x => x.key === s) ? s : 'tdi_aereo';
+  });
   const [historicoOpen, setHistoricoOpen] = useState(false);
   const [metric, setMetric] = useState<MetricKey>('money');
   const [groupBy, setGroupBy] = useState('week');

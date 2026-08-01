@@ -796,7 +796,7 @@ function App() {
   // Navegación rápida desde DashboardBranchManager
   useEffect(() => {
     const quickNavHandler = (rawEvent: Event) => {
-      const event = rawEvent as CustomEvent<{ action?: string; employeeId?: number; emitterId?: number }>;
+      const event = rawEvent as CustomEvent<{ action?: string; employeeId?: number; emitterId?: number; service?: string }>;
       const action = event.detail?.action;
       if (!action) return;
 
@@ -836,6 +836,12 @@ function App() {
 
       if (action === 'operations') {
         openOperations();
+        return;
+      }
+
+      if (action === 'service_history') {
+        if (event.detail?.service) localStorage.setItem('svc_history_service', String(event.detail.service));
+        openOperations('service_history');
         return;
       }
 

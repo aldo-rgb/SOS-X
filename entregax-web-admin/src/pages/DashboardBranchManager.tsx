@@ -52,6 +52,7 @@ import {
 } from '@mui/icons-material';
 import api from '../services/api';
 import DelayedPackagesPage from './DelayedPackagesPage';
+import ServiceVolumeWidgets from './ServiceVolumeWidgets';
 
 interface BranchStats {
   sucursal: {
@@ -1015,6 +1016,9 @@ export default function DashboardBranchManager() {
         )}
       </Grid>
       </>)}
+
+      {/* === Sección: Volúmenes por Servicio (admin/super_admin/director) === */}
+      {['super_admin', 'admin', 'director'].includes(userRole) && <ServiceVolumeWidgets />}
 
       {/* === Sección: Alertas (retrasos / parciales) === */}
       {(showPoboxWidget || showAirWidget || showSeaWidget || abandonoCount > 0 || (canSeePartialReceptions && partialReceptions.total > 0) || showGlobalOpsAlerts) && (        <>
