@@ -611,6 +611,23 @@ function App() {
       return;
     }
 
+    // Notificaciones de TAREA (comentario, nueva tarea asignada, mención,
+    // involucrado, meta) → ir a Mis Tareas y abrir el detalle de esa tarea.
+    const taskId = notif.data?.task_id ?? notif.data?.taskId;
+    if (taskId || notif.action_url === '/tareas') {
+      const idx = menuItems.findIndex(i => i.key === 'myTasks');
+      if (idx >= 0) {
+        setSelectedIndex(idx);
+        setSelectedSubIndex(null);
+        if (taskId) {
+          // localStorage para el caso "recién montado"; evento para "ya montado".
+          localStorage.setItem('pending_open_task_id', String(taskId));
+          window.dispatchEvent(new CustomEvent('open-task-detail', { detail: { taskId: Number(taskId) } }));
+        }
+        return;
+      }
+    }
+
     if (notif.action_url) {
       handleNotificationNavigate(notif.action_url);
     }

@@ -176,6 +176,19 @@ export default function MisTareasPage() {
     finally { setLoading(false); }
   }, [showDone]);
   useEffect(() => { load(); }, [load]);
+  // Abrir una tarea específica al llegar desde una notificación:
+  //  • localStorage 'pending_open_task_id' → recién montado (venías de otra sección).
+  //  • evento 'open-task-detail' → ya estabas en Mis Tareas.
+  useEffect(() => {
+    const pending = localStorage.getItem('pending_open_task_id');
+    if (pending) { setDetailId(parseInt(pending)); localStorage.removeItem('pending_open_task_id'); }
+    const h = (e: Event) => {
+      const id = (e as CustomEvent<{ taskId: number }>).detail?.taskId;
+      if (id) setDetailId(id);
+    };
+    window.addEventListener('open-task-detail', h as EventListener);
+    return () => window.removeEventListener('open-task-detail', h as EventListener);
+  }, []);
   useEffect(() => {
     axios.get(`${API_URL}/tasks/assignable-users`, H())
       .then(r => setUsers(r.data?.users || [])).catch(() => {});
