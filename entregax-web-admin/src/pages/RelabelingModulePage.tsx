@@ -1013,6 +1013,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
     <div class="barcode-box"><svg id="barcode_${idx}"></svg></div>
 
     <div class="dest">
+      ${(a.isOcurre || shipment.master.nationalDeliveryZip) ? `<div class="ocurre-banner">🏪 OCURRE — RECOGE EN OFICINA${shipment.master.nationalDeliveryZip ? ` · C.P. ${shipment.master.nationalDeliveryZip}` : ''}</div>` : ''}
       <div class="lbl">ENTREGAR A</div>
       <div class="name">${recipient}</div>
       <div class="line">${street || '—'}</div>
@@ -1075,6 +1076,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
   .dest .line { font-size: 12px; color: #222; line-height: 1.3; }
   .dest .city { font-size: 14px; font-weight: 900; color: #C1272D; margin-top: 4px; }
   .dest .phone { font-size: 11px; font-weight: 700; margin-top: 4px; }
+  .dest .ocurre-banner { display: block; text-align: center; font-size: 14px; font-weight: 900; color: #fff; background: #B07206; border-radius: 6px; padding: 4px 6px; margin-bottom: 6px; letter-spacing: 0.5px; }
   .dest-code { display: flex; align-items: center; justify-content: center; border: 3px solid #C1272D; border-radius: 8px; padding: 6px 4px; margin: 6px 0; background: #FFF3F0; }
   .dest-code .code { font-family: 'Arial Black', sans-serif; font-size: 56px; font-weight: 900; color: #C1272D; letter-spacing: 4px; line-height: 1; }
   .dest-code .lbl { font-size: 9px; color: #666; font-weight: 800; letter-spacing: 2px; margin-right: 10px; writing-mode: vertical-rl; transform: rotate(180deg); }
@@ -1549,6 +1551,7 @@ ${body}
     </div>
     <div class="barcode-box"><svg id="barcode_${idx}"></svg></div>
     <div class="dest">
+      ${(a.isOcurre || shipment.master.nationalDeliveryZip) ? `<div class="ocurre-banner">🏪 OCURRE — RECOGE EN OFICINA${shipment.master.nationalDeliveryZip ? ` · C.P. ${shipment.master.nationalDeliveryZip}` : ''}</div>` : ''}
       <div class="lbl">ENTREGAR A</div>
       <div class="name">${recipient}</div>
       <div class="line">${street || '—'}</div>
@@ -1611,6 +1614,7 @@ ${body}
   .dest .line { font-size: 11px; color: #000; }
   .dest .city { font-size: 12px; font-weight: 700; color: #000; margin-top: 2px; }
   .dest .phone { font-size: 11px; color: #000; margin-top: 4px; }
+  .dest .ocurre-banner { display: block; text-align: center; font-size: 14px; font-weight: 900; color: #fff; background: #B07206; border-radius: 6px; padding: 4px 6px; margin-bottom: 6px; letter-spacing: 0.5px; }
   .dest .ref-box { background: #fff; border: 1px solid #000; border-radius: 4px; padding: 3px 6px; font-size: 10px; color: #000; margin-top: 4px; }
   .dest-code { display: flex; align-items: center; gap: 10px; margin: 4px 0; }
   .dest-code .lbl { font-size: 8px; color: #000; font-weight: 700; letter-spacing: 1px; }

@@ -1859,6 +1859,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
         `SELECT p.*, u.full_name AS user_name, u.email AS user_email,
                 a.recipient_name, a.street, a.exterior_number, a.interior_number,
                 a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference,
+                a.is_ocurre AS addr_is_ocurre,
                 p.national_delivery_zip
            FROM packages p
            LEFT JOIN users u ON p.user_id = u.id
@@ -1974,7 +1975,22 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
         pkg.national_delivery_zip = ocurreZipClean;
       } catch (e: any) { console.error('No se pudo persistir national_delivery_zip (ocurre):', e.message); }
     }
-    const effectiveZip = ocurreZipClean || pkg.national_delivery_zip || pkg.zip_code;
+    let effectiveZip = ocurreZipClean || pkg.national_delivery_zip || pkg.zip_code;
+    // Dirección marcada como OCURRE (toggle is_ocurre) sin CP de sucursal aún:
+    // resolver la sucursal PQTX más cercana al cliente y usar su CP (mismo
+    // mecanismo que el ocurre manual). Así la guía sale a sucursal, no a domicilio.
+    if (!ocurreZipClean && !pkg.national_delivery_zip && pkg.addr_is_ocurre === true && pkg.zip_code) {
+      try {
+        const originZip = process.env.PQTX_ORIGIN_ZIP || '64410';
+        const quotePieces = [{ weight: Number(pkg.weight) || 1, length: Number(pkg.pkg_length) || 30, width: Number(pkg.pkg_width) || 30, height: Number(pkg.pkg_height) || 30 }];
+        const branch = await findNearestOcurreBranch(originZip, String(pkg.zip_code), quotePieces);
+        if (branch?.usedZip) {
+          effectiveZip = branch.usedZip;
+          try { await pool.query(`UPDATE ${persistTable} SET national_delivery_zip = $1, updated_at = NOW() WHERE id = $2`, [effectiveZip, pkg.id]); pkg.national_delivery_zip = effectiveZip; } catch { /* no crítico */ }
+          console.log(`[PQTX-GEN] Ocurre por is_ocurre: sucursal CP ${effectiveZip} (cliente ${pkg.zip_code})`);
+        }
+      } catch (e: any) { console.error('[PQTX-GEN] is_ocurre nearest branch:', e.message); }
+    }
     console.log(`[PQTX-GEN-DEBUG] effectiveZip="${effectiveZip}"`);
     if (effectiveZip !== pkg.zip_code) {
       console.log(`[PQTX-GEN] Ocurre: usando CP sucursal ${effectiveZip} en lugar de CP cliente ${pkg.zip_code}`);
