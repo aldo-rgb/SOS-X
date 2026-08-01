@@ -7,6 +7,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
 } from 'recharts';
 import api from '../services/api';
+import PoboxHistoricoPage from './PoboxHistoricoPage';
 
 // Mismos servicios que "Inventario por Tipo de Servicio". SOLO consulta (lectura).
 const SERVICES = [
@@ -43,6 +44,7 @@ const CAVEATS: Record<string, string> = {
 
 export default function ServiceHistoryPage() {
   const [service, setService] = useState('tdi_aereo');
+  const [historicoOpen, setHistoricoOpen] = useState(false);
   const [metric, setMetric] = useState<MetricKey>('money');
   const [groupBy, setGroupBy] = useState('week');
   const [dateFrom, setDateFrom] = useState('');
@@ -120,7 +122,7 @@ export default function ServiceHistoryPage() {
           const on = s.key === service;
           return (
             <Button
-              key={s.key} variant={on ? 'contained' : 'outlined'} onClick={() => setService(s.key)}
+              key={s.key} variant={on ? 'contained' : 'outlined'} onClick={() => { setService(s.key); setHistoricoOpen(false); }}
               sx={{ fontWeight: 700, borderRadius: 5, textTransform: 'none',
                 ...(on ? { bgcolor: s.color, '&:hover': { bgcolor: s.color } } : { borderColor: '#ddd', color: '#555' }) }}
             >
@@ -130,6 +132,22 @@ export default function ServiceHistoryPage() {
         })}
       </Stack>
 
+      {/* Botón Histórico: solo PO Box USA por ahora */}
+      {service === 'pobox_usa' && (
+        <Button
+          variant={historicoOpen ? 'contained' : 'outlined'}
+          onClick={() => setHistoricoOpen(o => !o)}
+          sx={{ mb: 2, fontWeight: 700, textTransform: 'none',
+            ...(historicoOpen ? { bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' } } : { borderColor: '#2E7D32', color: '#2E7D32' }) }}
+        >
+          📚 {historicoOpen ? 'Ver tendencia (inventario)' : 'Histórico (ventas por mes / año / vendedor)'}
+        </Button>
+      )}
+
+      {service === 'pobox_usa' && historicoOpen ? (
+        <PoboxHistoricoPage />
+      ) : (
+      <>
       {/* Filtros */}
       <Paper elevation={0} sx={{ p: 2, mb: 2, borderRadius: 2, border: '1px solid #eee' }}>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -200,6 +218,8 @@ export default function ServiceHistoryPage() {
           </Typography>
         )}
       </Paper>
+      </>
+      )}
     </Box>
   );
 }
