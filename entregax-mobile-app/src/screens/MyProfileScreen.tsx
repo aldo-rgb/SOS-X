@@ -35,6 +35,8 @@ const BLACK = '#111111';
 
 // Roles que pueden tener PIN de supervisor
 const SUPERVISOR_ROLES = ['super_admin', 'admin', 'director', 'gerente_sucursal', 'branch_manager'];
+// Roles que pueden tener PIN de Administrador (6 dígitos numéricos)
+const ADMIN_PIN_ROLES = ['accountant', 'contador', 'finanzas', 'admin', 'super_admin', 'director'];
 
 type RootStackParamList = {
   Home: { user: any; token: string };
@@ -113,6 +115,11 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [hasSupervisorPin, setHasSupervisorPin] = useState(user.has_supervisor_pin || false);
   // QR del PIN (codigo cifrado largo asignado por admin)
   const [supervisorPinCode, setSupervisorPinCode] = useState<string | null>(null);
+  // PIN de Administrador (6 dígitos)
+  const [showAdminPinModal, setShowAdminPinModal] = useState(false);
+  const [adminPinCode, setAdminPinCode] = useState<string | null>(null);
+  const [adminPinInput, setAdminPinInput] = useState('');
+  const [adminPinSaving, setAdminPinSaving] = useState(false);
   const [loadingPinCode, setLoadingPinCode] = useState(false);
 
   // 🧾 Estados para datos fiscales
@@ -204,6 +211,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
 
   // Verificar si el usuario puede tener PIN de supervisor
   const canHaveSupervisorPin = SUPERVISOR_ROLES.includes(user.role);
+  const canHaveAdminPin = ADMIN_PIN_ROLES.includes(user.role);
 
   // ¿Es cliente? (no es empleado). Las secciones de cliente — GEX Automático y
   // Centro de Notificaciones — solo aplican a clientes; los empleados no las ven.
@@ -690,6 +698,42 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     } finally {
       setLoadingPinCode(false);
     }
+  };
+
+  // Abrir modal del PIN de Administrador (6 dígitos) — el usuario lo define.
+  const openAdminPin = async () => {
+    setShowAdminPinModal(true);
+    setAdminPinInput('');
+    try {
+      const response = await fetch(`${API_URL}/api/warehouse/my-admin-pin`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      setAdminPinCode(response.ok ? (data.admin_pin || null) : null);
+    } catch { setAdminPinCode(null); }
+  };
+  const saveAdminPin = async () => {
+    if (!/^\d{6}$/.test(adminPinInput)) {
+      Alert.alert('PIN inválido', 'El PIN debe ser de 6 dígitos numéricos.');
+      return;
+    }
+    setAdminPinSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/api/warehouse/set-admin-pin`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: adminPinInput }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setAdminPinCode(data.admin_pin || adminPinInput);
+        setAdminPinInput('');
+        Alert.alert('Listo', 'Tu PIN de administrador se guardó.');
+      } else {
+        Alert.alert('Error', data.error || 'No se pudo guardar el PIN.');
+      }
+    } catch { Alert.alert('Error', 'No se pudo guardar el PIN.'); }
+    finally { setAdminPinSaving(false); }
   };
 
   // 🧾 Cargar datos fiscales del usuario
@@ -1265,6 +1309,23 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                       {hasSupervisorPin
                         ? 'Ver mi código QR de autorización'
                         : 'Solicita a tu administrador que te genere uno'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#999" />
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* PIN de Administrador (6 dígitos) - Contador/Admin/Super Admin/Director */}
+            {canHaveAdminPin && (
+              <>
+                <Divider style={styles.divider} />
+                <TouchableOpacity style={styles.menuItem} onPress={openAdminPin}>
+                  <Ionicons name="keypad-outline" size={24} color={ORANGE} />
+                  <View style={styles.menuItemContent}>
+                    <Text style={styles.menuItemTitle}>🔢 PIN de Administrador</Text>
+                    <Text style={styles.menuItemSubtitle}>
+                      {adminPinCode ? 'PIN de 6 dígitos configurado · toca para cambiar' : 'Crea tu PIN de 6 dígitos'}
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -1950,6 +2011,53 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 onPress={() => setShowPinModal(false)}
               >
                 <Text style={styles.saveButtonText}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal PIN de Administrador (6 dígitos) */}
+      <Modal visible={showAdminPinModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>🔢 PIN de Administrador</Text>
+              <TouchableOpacity onPress={() => setShowAdminPinModal(false)}>
+                <Ionicons name="close" size={24} color={BLACK} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalForm}>
+              <Text style={styles.helperText}>
+                PIN de 6 dígitos numéricos para autorizar operaciones administrativas. No lo compartas.
+              </Text>
+              {adminPinCode ? (
+                <View style={{ alignItems: 'center', marginVertical: 12 }}>
+                  <Text style={{ fontSize: 12, color: '#888' }}>Tu PIN actual</Text>
+                  <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontSize: 34, letterSpacing: 8, fontWeight: '800', color: BLACK, marginTop: 4 }}>
+                    {adminPinCode}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={{ textAlign: 'center', color: '#666', marginVertical: 12 }}>Aún no tienes PIN. Crea uno.</Text>
+              )}
+              <Text style={[styles.helperText, { marginTop: 6 }]}>{adminPinCode ? 'Escribe uno nuevo para cambiarlo:' : 'Escribe tu PIN de 6 dígitos:'}</Text>
+              <TextInput
+                style={[styles.input, { textAlign: 'center', fontSize: 26, letterSpacing: 8, fontWeight: '700' }]}
+                value={adminPinInput}
+                onChangeText={t => setAdminPinInput(t.replace(/\D/g, '').slice(0, 6))}
+                keyboardType="number-pad"
+                maxLength={6}
+                placeholder="••••••"
+                placeholderTextColor="#bbb"
+                secureTextEntry={false}
+              />
+              <TouchableOpacity
+                style={[styles.saveButton, { backgroundColor: ORANGE, marginTop: 16 }, (adminPinInput.length !== 6 || adminPinSaving) && { opacity: 0.5 }]}
+                onPress={saveAdminPin}
+                disabled={adminPinInput.length !== 6 || adminPinSaving}
+              >
+                {adminPinSaving ? <ActivityIndicator color="white" /> : <Text style={styles.saveButtonText}>{adminPinCode ? 'Cambiar PIN' : 'Guardar PIN'}</Text>}
               </TouchableOpacity>
             </View>
           </View>

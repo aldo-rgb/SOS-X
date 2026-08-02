@@ -1988,6 +1988,60 @@ export const getMySupervisorPin = async (req: AuthRequest, res: Response): Promi
     }
 };
 
+// ─── PIN de Administrador (6 dígitos numéricos) ─────────────────────────────
+// Para Contador, Admin, Super Admin y Director. Distinto del PIN de supervisor (QR).
+const ADMIN_PIN_ROLES = ['accountant', 'contador', 'finanzas', 'admin', 'super_admin', 'director'];
+let _adminPinColReady = false;
+async function ensureAdminPinCol(): Promise<void> {
+    if (_adminPinColReady) return;
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_pin TEXT`).catch(() => {});
+    _adminPinColReady = true;
+}
+
+// GET /api/warehouse/my-admin-pin
+export const getMyAdminPin = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        await ensureAdminPinCol();
+        const userId = req.user?.userId;
+        if (!userId) { res.status(401).json({ error: 'No autenticado' }); return; }
+        const r = await pool.query(`SELECT role, admin_pin FROM users WHERE id = $1`, [userId]);
+        const u = r.rows[0];
+        if (!u || !ADMIN_PIN_ROLES.includes(String(u.role))) {
+            res.status(403).json({ error: 'No tienes permisos para PIN de administrador' });
+            return;
+        }
+        res.json({ admin_pin: u.admin_pin || null, has_admin_pin: !!u.admin_pin });
+    } catch (error) {
+        console.error('Error obteniendo PIN de administrador:', error);
+        res.status(500).json({ error: 'Error al obtener PIN' });
+    }
+};
+
+// POST /api/warehouse/set-admin-pin  { pin }
+export const setMyAdminPin = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        await ensureAdminPinCol();
+        const userId = req.user?.userId;
+        if (!userId) { res.status(401).json({ error: 'No autenticado' }); return; }
+        const pin = String(req.body?.pin || '').trim();
+        if (!/^\d{6}$/.test(pin)) {
+            res.status(400).json({ error: 'El PIN debe ser de 6 dígitos numéricos' });
+            return;
+        }
+        const r = await pool.query(`SELECT role FROM users WHERE id = $1`, [userId]);
+        const role = String(r.rows[0]?.role || '');
+        if (!ADMIN_PIN_ROLES.includes(role)) {
+            res.status(403).json({ error: 'No tienes permisos para PIN de administrador' });
+            return;
+        }
+        await pool.query(`UPDATE users SET admin_pin = $1 WHERE id = $2`, [pin, userId]);
+        res.json({ success: true, admin_pin: pin });
+    } catch (error) {
+        console.error('Error guardando PIN de administrador:', error);
+        res.status(500).json({ error: 'Error al guardar PIN' });
+    }
+};
+
 // POST /api/warehouse/dhl-reception - Recepción rápida de paquete DHL
 export const processDhlReception = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
