@@ -62,6 +62,32 @@ function Sparkline({ values, color, width, height }: { values: number[]; color: 
   );
 }
 
+// Parsea **negritas** dentro de una línea a segmentos <Text>.
+function parseBold(s: string) {
+  const parts = s.split(/\*\*(.+?)\*\*/g); // los índices impares son negrita
+  return parts.map((p, i) => i % 2 === 1
+    ? <Text key={i} style={{ fontWeight: '800' }}>{p}</Text>
+    : <Text key={i}>{p}</Text>);
+}
+
+// Render simple de markdown (títulos #, viñetas -, negritas **).
+function RichText({ text }: { text: string }) {
+  const lines = String(text || '').split('\n');
+  return (
+    <View>
+      {lines.map((raw, i) => {
+        const line = raw.trim();
+        if (!line) return <View key={i} style={{ height: 6 }} />;
+        const h = line.match(/^#{1,6}\s+(.*)$/);
+        if (h) return <Text key={i} style={styles.aHeading}>{parseBold(h[1].replace(/\*\*/g, ''))}</Text>;
+        const b = line.match(/^[-*•]\s+(.*)$/);
+        if (b) return <Text key={i} style={styles.aBullet}>{'•  '}{parseBold(b[1])}</Text>;
+        return <Text key={i} style={styles.aLine}>{parseBold(line)}</Text>;
+      })}
+    </View>
+  );
+}
+
 export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string; token: string | null }) {
   const [metric, setMetric] = useState<MetricKey>('money');
   const [period, setPeriod] = useState('month');
@@ -269,7 +295,7 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
                   </TouchableOpacity>
                   {!!analysis[s.key]?.text && (
                     <View style={styles.analysisBox}>
-                      <Text style={styles.analysisTxt}>{analysis[s.key].text}</Text>
+                      <RichText text={analysis[s.key].text} />
                     </View>
                   )}
                 </ScrollView>
@@ -318,6 +344,9 @@ const styles = StyleSheet.create({
   analysisBtnTxt: { color: '#fff', fontSize: 15, fontWeight: '800' },
   analysisBox: { marginTop: 14, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#EEE', padding: 14 },
   analysisTxt: { fontSize: 14, color: '#333', lineHeight: 21 },
+  aHeading: { fontSize: 15, fontWeight: '800', color: '#111', marginTop: 8, marginBottom: 4 },
+  aBullet: { fontSize: 14, color: '#333', lineHeight: 21, marginBottom: 3 },
+  aLine: { fontSize: 14, color: '#333', lineHeight: 21, marginBottom: 3 },
   commissionPill: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: '#E8F5E9', borderColor: '#A5D6A7', borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, marginTop: 8 },
   commissionTxt: { color: '#1B5E20', fontSize: 13, fontWeight: '800' },
 });
