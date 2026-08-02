@@ -135,6 +135,14 @@ const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r 
 function InvolvedPicker({ users, involvedIds, setInvolvedIds, fixedId = MY_ID, fixedLabel = 'Yo' }: {
   users: UserOpt[]; involvedIds: number[]; setInvolvedIds: (v: number[]) => void; fixedId?: number; fixedLabel?: string;
 }) {
+  // Grupos presentes (para agregar a todos de un tipo de una vez).
+  const groups = Array.from(new Set(users.filter(u => u.id !== fixedId).map(u => roleGroup(u.role)))).sort();
+  const addGroup = (group: string) => {
+    const ids = users
+      .filter(u => u.id !== fixedId && (group === '__ALL__' || roleGroup(u.role) === group))
+      .map(u => u.id);
+    setInvolvedIds(Array.from(new Set([...involvedIds, ...(fixedId ? [fixedId] : []), ...ids])));
+  };
   return (
     <Box sx={{ mt: 1.5 }}>
       <Autocomplete
@@ -165,6 +173,15 @@ function InvolvedPicker({ users, involvedIds, setInvolvedIds, fixedId = MY_ID, f
         ]}
         renderInput={(params) => <TextField {...params} label="Involucrados" placeholder="Buscar por nombre o tipo…" />}
       />
+      {/* Agregar por grupo */}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 1 }}>
+        <Chip label="👥 Todos los empleados" size="small" onClick={() => addGroup('__ALL__')}
+          sx={{ bgcolor: '#FFF3EC', color: '#D6521C', fontWeight: 700, border: '1px solid #F0B79A' }} />
+        {groups.map(g => (
+          <Chip key={g} label={`+ ${g}`} size="small" variant="outlined" onClick={() => addGroup(g)}
+            sx={{ fontWeight: 600, borderColor: '#ddd' }} />
+        ))}
+      </Box>
     </Box>
   );
 }
@@ -186,6 +203,8 @@ export default function MisTareasPage() {
   const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
   const [catId, setCatId] = useState<number>(0); // 0 = Sin categoría (Tareas Personales)
   const [catSection, setCatSection] = useState<number | ''>(''); // subsección elegida
+  const [newSubtasks, setNewSubtasks] = useState<string[]>([]); // checklist al crear
+  const [subInput, setSubInput] = useState('');
 
   // Programar tareas (futuras / recurrentes).
   const [schedOpen, setSchedOpen] = useState(false);
@@ -233,6 +252,7 @@ export default function MisTareasPage() {
         eisenhower: form.eisenhower, involved_ids: involvedIds, due_at: form.due_at || null,
         board_id: catId || null, // 0/'' = Sin categoría → Tareas Personales
         section_id: catSection || null,
+        subtasks: newSubtasks.filter(s => s.trim()).map(body => ({ body: body.trim() })),
       }, H());
       const newId = res.data?.task?.id;
       if (newId && newPhotos.length) {
@@ -244,6 +264,7 @@ export default function MisTareasPage() {
       setCreateOpen(false);
       setForm({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
       setInvolvedIds(MY_ID ? [MY_ID] : []); setNewPhotos([]);
+      setNewSubtasks([]); setSubInput('');
       notify('Tarea creada');
       load();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear', 'error'); }
@@ -434,6 +455,31 @@ export default function MisTareasPage() {
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
           </Typography>
+
+          {/* Checklist (subtareas) */}
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+              <ChecklistIcon fontSize="small" sx={{ color: '#D6521C' }} /> Checklist
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <TextField fullWidth size="small" placeholder="Agregar punto del checklist…"
+                value={subInput} onChange={e => setSubInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && subInput.trim()) { e.preventDefault(); setNewSubtasks(prev => [...prev, subInput.trim()]); setSubInput(''); } }} />
+              <Button variant="outlined" size="small" onClick={() => { if (subInput.trim()) { setNewSubtasks(prev => [...prev, subInput.trim()]); setSubInput(''); } }}
+                sx={{ whiteSpace: 'nowrap', borderColor: '#D6521C', color: '#D6521C' }}>Agregar</Button>
+            </Box>
+            {newSubtasks.length > 0 && (
+              <Box sx={{ mt: 1 }}>
+                {newSubtasks.map((s, idx) => (
+                  <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5, borderBottom: '1px solid #f0f0f0' }}>
+                    <Typography variant="body2" sx={{ flex: 1 }}>☐ {s}</Typography>
+                    <Button size="small" color="error" sx={{ minWidth: 0 }} onClick={() => setNewSubtasks(prev => prev.filter((_, i) => i !== idx))}>Quitar</Button>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+
           {/* Archivos adjuntos (fotos, PDF, Excel…) */}
           <Box sx={{ mt: 2 }}>
             <Button component="label" size="small" startIcon={<AttachFileIcon />} sx={{ textTransform: 'none' }}>
