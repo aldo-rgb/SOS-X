@@ -3319,7 +3319,7 @@ app.get('/api/packages/service-history-stats', authenticateToken, requireMinLeve
     const M3 = (l: string, w: string, h: string) => `(COALESCE(${l},0)*COALESCE(${w},0)*COALESCE(${h},0)/1000000.0)`;
 
     // Config por servicio: tabla, alias, filtro, fecha y expresiones de métricas.
-    const CFG: Record<string, { from: string; where: string; dateCol: string; money: string; weight: string; volume: string; count: string }> = {
+    const CFG: Record<string, { from: string; where: string; dateCol: string; money: string; weight: string; volume: string; count: string; commission?: string }> = {
       tdi_aereo: {
         from: `packages p`, where: `p.service_type = 'AIR_CHN_MX'`, dateCol: `p.received_at`,
         money: `COALESCE(p.air_sale_price,0)`, weight: `COALESCE(p.air_chargeable_weight, p.weight, 0)`,
@@ -3358,10 +3358,12 @@ app.get('/api/packages/service-history-stats', authenticateToken, requireMinLeve
         dateCol: `e.created_at`,
         money: `CASE WHEN e.op_divisa_destino = 'MXN' THEN COALESCE(e.op_monto,0) ELSE COALESCE(e.op_monto,0) * COALESCE(NULLIF(e.tc_aplicado_usd,0),1) END`,
         weight: `0`, volume: `0`, count: `COUNT(*)`,
+        // Comisión que gana EntregaX: spread FX (cliente − proveedor) × monto; en MXN por % cobrado.
+        commission: `CASE WHEN e.op_divisa_destino = 'MXN' THEN COALESCE(e.op_monto,0)*COALESCE(e.comision_cobrada_porcentaje,0)/100 ELSE GREATEST(0, COALESCE(e.op_monto,0)*(COALESCE(e.tc_cliente_final,0)-COALESCE(e.tc_aplicado_usd,0))) END`,
       },
     };
     // Ejecuta la consulta de UN servicio y devuelve su serie por bucket.
-    const runOne = async (c: { from: string; where: string; dateCol: string; money: string; weight: string; volume: string; count: string }) => {
+    const runOne = async (c: { from: string; where: string; dateCol: string; money: string; weight: string; volume: string; count: string; commission?: string }) => {
       const localDate = `(${c.dateCol} AT TIME ZONE 'America/Monterrey')`;
       const params: any[] = [];
       let where = c.where;
@@ -3372,6 +3374,7 @@ app.get('/api/packages/service-history-stats', authenticateToken, requireMinLeve
                ROUND(SUM(${c.money})::numeric, 2) AS money,
                ROUND(SUM(${c.weight})::numeric, 2) AS weight,
                ROUND(SUM(${c.volume})::numeric, 4) AS volume,
+               ROUND(SUM(${c.commission || '0'})::numeric, 2) AS commission,
                ${c.count} AS count
           FROM ${c.from}
          WHERE ${where} AND ${c.dateCol} IS NOT NULL
@@ -3379,18 +3382,19 @@ app.get('/api/packages/service-history-stats', authenticateToken, requireMinLeve
       const r = await pool.query(q, params);
       return r.rows.map((x: any) => ({
         bucket: x.bucket, money: Number(x.money) || 0, weight: Number(x.weight) || 0,
-        volume: Number(x.volume) || 0, count: Number(x.count) || 0,
+        volume: Number(x.volume) || 0, commission: Number(x.commission) || 0, count: Number(x.count) || 0,
       }));
     };
 
-    let series: Array<{ bucket: string; money: number; weight: number; volume: number; count: number }>;
+    type Row = { bucket: string; money: number; weight: number; volume: number; commission: number; count: number };
+    let series: Row[];
     if (service === 'todos') {
       // Resultado GENERAL de la empresa: suma de todos los servicios por bucket.
-      const all = await Promise.all(Object.values(CFG).map(c => runOne(c).catch(() => [])));
-      const map = new Map<string, { bucket: string; money: number; weight: number; volume: number; count: number }>();
+      const all = await Promise.all(Object.values(CFG).map(c => runOne(c).catch(() => [] as Row[])));
+      const map = new Map<string, Row>();
       all.flat().forEach((s) => {
-        const cur = map.get(s.bucket) || { bucket: s.bucket, money: 0, weight: 0, volume: 0, count: 0 };
-        cur.money += s.money; cur.weight += s.weight; cur.volume += s.volume; cur.count += s.count;
+        const cur = map.get(s.bucket) || { bucket: s.bucket, money: 0, weight: 0, volume: 0, commission: 0, count: 0 };
+        cur.money += s.money; cur.weight += s.weight; cur.volume += s.volume; cur.commission += s.commission; cur.count += s.count;
         map.set(s.bucket, cur);
       });
       series = Array.from(map.values()).sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
@@ -3400,8 +3404,8 @@ app.get('/api/packages/service-history-stats', authenticateToken, requireMinLeve
       series = await runOne(cfg);
     }
     const totals = series.reduce((a, s) => ({
-      money: a.money + s.money, weight: a.weight + s.weight, volume: a.volume + s.volume, count: a.count + s.count,
-    }), { money: 0, weight: 0, volume: 0, count: 0 });
+      money: a.money + s.money, weight: a.weight + s.weight, volume: a.volume + s.volume, commission: a.commission + s.commission, count: a.count + s.count,
+    }), { money: 0, weight: 0, volume: 0, commission: 0, count: 0 });
     return res.json({ service, group_by: groupBy, series, totals });
   } catch (err: any) {
     console.error('[service-history-stats]', err.message);

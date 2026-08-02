@@ -23,7 +23,7 @@ const SERVICES = [
 
 // Vistas seleccionables (métrica graficada).
 const METRICS = [
-  { key: 'money',  label: '💰 Dinero',   unit: 'MXN', fmt: (v: number) => `$${v.toLocaleString('es-MX', { maximumFractionDigits: 0 })}` },
+  { key: 'money',  label: '💰 Dinero',   unit: 'MXN', fmt: (v: number) => `$${v.toLocaleString('es-MX', { maximumFractionDigits: 0 })} MXN` },
   { key: 'count',  label: '📄 Guías',    unit: 'guías', fmt: (v: number) => v.toLocaleString('es-MX') },
   { key: 'weight', label: '⚖️ Peso',     unit: 'kg',  fmt: (v: number) => `${v.toLocaleString('es-MX', { maximumFractionDigits: 1 })} kg` },
   { key: 'volume', label: '📐 Volumen',  unit: 'm³',  fmt: (v: number) => `${v.toLocaleString('es-MX', { maximumFractionDigits: 3 })} m³` },

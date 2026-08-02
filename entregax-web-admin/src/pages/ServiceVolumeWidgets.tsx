@@ -6,7 +6,7 @@ import { ResponsiveContainer, AreaChart, Area } from 'recharts';
 import api from '../services/api';
 
 const SERVICES = [
-  { key: 'todos',       label: 'Toda la empresa', emoji: '🏢', color: '#F05A28' },
+  { key: 'todos',       label: 'Volumen de toda la operación', emoji: '🏢', color: '#F05A28' },
   { key: 'tdi_aereo',   label: 'TDI Aéreo',     emoji: '✈️',  color: '#1565C0' },
   { key: 'tdi_express', label: 'TDI Express',   emoji: '🚀',  color: '#7B1FA2' },
   { key: 'maritimo',    label: 'Marítimo China', emoji: '🚢',  color: '#00695C' },
@@ -17,7 +17,7 @@ const SERVICES = [
 ];
 
 const METRICS = [
-  { key: 'money',  label: '💰 Dinero',  fmt: (v: number) => `$${v.toLocaleString('es-MX', { maximumFractionDigits: 0 })}` },
+  { key: 'money',  label: '💰 Dinero',  fmt: (v: number) => `$${v.toLocaleString('es-MX', { maximumFractionDigits: 0 })} MXN` },
   { key: 'count',  label: '📄 Guías',   fmt: (v: number) => v.toLocaleString('es-MX') },
   { key: 'weight', label: '⚖️ Peso',    fmt: (v: number) => `${v.toLocaleString('es-MX', { maximumFractionDigits: 0 })} kg` },
   { key: 'volume', label: '📐 Volumen', fmt: (v: number) => `${v.toLocaleString('es-MX', { maximumFractionDigits: 2 })} m³` },
@@ -35,7 +35,7 @@ interface Point { bucket: string; money: number; weight: number; volume: number;
 const pad = (n: number) => String(n).padStart(2, '0');
 
 export default function ServiceVolumeWidgets() {
-  const [metric, setMetric] = useState<MetricKey>('money');
+  const [metric] = useState<MetricKey>('money'); // dashboard fijo a dinero (MXN)
   const [period, setPeriod] = useState('month');
   const [data, setData] = useState<Record<string, Point[]>>({});
   const [loading, setLoading] = useState(true);
@@ -88,11 +88,8 @@ export default function ServiceVolumeWidgets() {
         </Typography>
       </Stack>
 
-      {/* Toggles compartidos: cambian las 5 tarjetas a la vez */}
+      {/* Solo periodo en el dashboard (dinero fijo, MXN) */}
       <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap', gap: 1.5 }} alignItems="center">
-        <ToggleButtonGroup size="small" exclusive value={metric} onChange={(_, v) => v && setMetric(v)}>
-          {METRICS.map(m => <ToggleButton key={m.key} value={m.key} sx={{ textTransform: 'none', fontWeight: 700 }}>{m.label}</ToggleButton>)}
-        </ToggleButtonGroup>
         <ToggleButtonGroup size="small" exclusive value={period} onChange={(_, v) => v && setPeriod(v)}>
           {PERIODS.map(p => <ToggleButton key={p.key} value={p.key} sx={{ textTransform: 'none', fontWeight: 700 }}>{p.label}</ToggleButton>)}
         </ToggleButtonGroup>

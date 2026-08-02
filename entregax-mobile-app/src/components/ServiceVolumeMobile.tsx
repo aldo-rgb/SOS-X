@@ -19,11 +19,12 @@ const SERVICES = [
 ];
 
 const METRICS = [
-  { key: 'money',  label: '💰 Dinero',  fmt: (v: number) => `$${v.toLocaleString('es-MX', { maximumFractionDigits: 0 })}` },
+  { key: 'money',  label: '💰 Dinero',  fmt: (v: number) => `$${v.toLocaleString('es-MX', { maximumFractionDigits: 0 })} MXN` },
   { key: 'count',  label: '📄 Guías',   fmt: (v: number) => v.toLocaleString('es-MX') },
   { key: 'weight', label: '⚖️ Peso',    fmt: (v: number) => `${v.toLocaleString('es-MX', { maximumFractionDigits: 0 })} kg` },
   { key: 'volume', label: '📐 Volumen', fmt: (v: number) => `${v.toLocaleString('es-MX', { maximumFractionDigits: 2 })} m³` },
 ] as const;
+const MONEY_MET = METRICS[0];
 
 const PERIODS = [
   { key: 'day',   label: 'Día' },
@@ -32,7 +33,7 @@ const PERIODS = [
 ];
 
 type MetricKey = typeof METRICS[number]['key'];
-interface Point { bucket: string; money: number; weight: number; volume: number; count: number }
+interface Point { bucket: string; money: number; weight: number; volume: number; count: number; commission?: number }
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const SW = Dimensions.get('window').width;
@@ -121,9 +122,9 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
   }, [period]);
 
   const met = METRICS.find(m => m.key === metric)!;
-  const valOf = (series: Point[]) => {
+  const valOf = (series: Point[], m: MetricKey = metric) => {
     const complete = series.length && series[series.length - 1].bucket === currentStart ? series.slice(0, -1) : series;
-    return complete.length ? (complete[complete.length - 1][metric] as number) : 0;
+    return complete.length ? (complete[complete.length - 1][m] as number) : 0;
   };
 
   const openDetail = (i: number) => { setDetailIdx(i); setDetailOpen(true); setTimeout(() => scrollRef.current?.scrollTo({ x: i * SW, animated: false }), 30); };
@@ -136,26 +137,18 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
   const combined = useMemo(() => {
     const map = new Map<string, Point>();
     SERVICES.forEach(s => (data[s.key] || []).forEach(p => {
-      const cur = map.get(p.bucket) || { bucket: p.bucket, money: 0, weight: 0, volume: 0, count: 0 };
+      const cur = map.get(p.bucket) || { bucket: p.bucket, money: 0, weight: 0, volume: 0, count: 0, commission: 0 };
       cur.money += p.money; cur.weight += p.weight; cur.volume += p.volume; cur.count += p.count;
       map.set(p.bucket, cur);
     }));
     return Array.from(map.values()).sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
   }, [data]);
-  const spark = combined.map(p => p[metric] as number);
+  // La tarjeta compacta del home SIEMPRE muestra dinero (volumen de la operación).
+  const spark = combined.map(p => p.money);
 
   return (
     <View style={styles.wrap}>
-      {/* Toggles compartidos */}
-      <View style={styles.togglesRow}>
-        <View style={styles.chipGroup}>
-          {METRICS.map(m => (
-            <TouchableOpacity key={m.key} onPress={() => setMetric(m.key)} style={[styles.chip, metric === m.key && styles.chipOn]}>
-              <Text style={[styles.chipTxt, metric === m.key && styles.chipTxtOn]}>{m.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
+      {/* Solo periodo en el home (sin dinero/guías/peso/volumen) */}
       <View style={styles.togglesRow}>
         <View style={styles.chipGroup}>
           {PERIODS.map(p => (
@@ -166,21 +159,21 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
         </View>
       </View>
 
-      {/* Tarjeta compacta: RESULTADO GENERAL de la empresa (todos los servicios) */}
+      {/* Tarjeta compacta: VOLUMEN de toda la operación (dinero, todos los servicios) */}
       <TouchableOpacity activeOpacity={0.9} onPress={() => openDetail(0)} style={styles.bigCard}>
         {loading ? (
           <View style={{ height: 150, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color={ORANGE} /></View>
         ) : (
           <>
             <View style={styles.bigHead}>
-              <Text style={styles.bigTitle}>🏢 Toda la empresa</Text>
+              <Text style={styles.bigTitle}>🏢 Volumen de toda la operación</Text>
             </View>
-            <Text style={[styles.bigValue, { color: ORANGE }]} numberOfLines={1} adjustsFontSizeToFit>{met.fmt(valOf(combined))}</Text>
+            <Text style={[styles.bigValue, { color: ORANGE }]} numberOfLines={1} adjustsFontSizeToFit>{MONEY_MET.fmt(valOf(combined, 'money'))}</Text>
             <View style={{ marginTop: 6 }}>
               <Sparkline values={spark} color={ORANGE} width={SW - 64} height={70} />
             </View>
             <View style={styles.bigFoot}>
-              <Text style={styles.bigFootTxt}>último {PERIODS.find(p => p.key === period)?.label.toLowerCase()} · todos los servicios</Text>
+              <Text style={styles.bigFootTxt}>último {PERIODS.find(p => p.key === period)?.label.toLowerCase()} · todos los servicios (MXN)</Text>
               <View style={styles.detailBtn}><Ionicons name="expand" size={13} color={ORANGE} /><Text style={styles.detailBtnTxt}>Ver por servicio</Text></View>
             </View>
           </>
@@ -226,6 +219,12 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
                   <Text style={styles.pageTitle}>{s.emoji} {s.label}</Text>
                   <Text style={[styles.pageValue, { color: s.color }]}>{met.fmt(valOf(ss))}</Text>
                   <Text style={styles.pageSub}>último {PERIODS.find(p => p.key === period)?.label.toLowerCase()} · total periodo {met.fmt(total)}</Text>
+                  {s.key === 'xpay' && metric === 'money' && (
+                    <View style={styles.commissionPill}>
+                      <Ionicons name="cash-outline" size={14} color="#1B5E20" />
+                      <Text style={styles.commissionTxt}>Comisión EntregaX: {MONEY_MET.fmt(ss.reduce((a, p) => a + (p.commission || 0), 0))}</Text>
+                    </View>
+                  )}
                   {ss.length === 0 ? (
                     <Text style={{ color: '#999', textAlign: 'center', marginTop: 40 }}>Sin datos en el periodo.</Text>
                   ) : (
@@ -311,4 +310,6 @@ const styles = StyleSheet.create({
   analysisBtnTxt: { color: '#fff', fontSize: 15, fontWeight: '800' },
   analysisBox: { marginTop: 14, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#EEE', padding: 14 },
   analysisTxt: { fontSize: 14, color: '#333', lineHeight: 21 },
+  commissionPill: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: '#E8F5E9', borderColor: '#A5D6A7', borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, marginTop: 8 },
+  commissionTxt: { color: '#1B5E20', fontSize: 13, fontWeight: '800' },
 });
