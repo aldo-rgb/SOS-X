@@ -131,7 +131,8 @@ export default function DashboardBranchManager() {
   const [pendingVerifications, setPendingVerifications] = useState<number>(0);
   // Tiempo promedio de resolución de tickets (minutos hábiles) — admin/super_admin/director
   const [avgTicketMin, setAvgTicketMin] = useState<number | null>(null);
-  // Detalle de paquetes pendientes de cobro (modal al tocar la alerta)
+  // Detalle de paquetes con retraso de cobro: recibidos en CEDIS MTY/CDMX,
+  // sin pagar y con más de 30 días desde su ingreso (modal al tocar la alerta).
   const [cobroOpen, setCobroOpen] = useState(false);
   const [cobroLoading, setCobroLoading] = useState(false);
   const [cobroRows, setCobroRows] = useState<any[]>([]);
@@ -646,8 +647,8 @@ export default function DashboardBranchManager() {
         </Stack>
       </Box>
 
-      {/* Alertas importantes */}
-      {stats && stats.paquetes.pendientes_cobro > 20 && (
+      {/* Alertas importantes: paquetes con más de 30 días en CEDIS sin cobrar */}
+      {stats && stats.paquetes.pendientes_cobro > 0 && (
         <Alert
           severity="warning"
           icon={<WarningIcon />}
@@ -664,14 +665,14 @@ export default function DashboardBranchManager() {
             '& .MuiAlert-icon': { color: '#F59E0B' },
           }}
         >
-          <strong>Atención:</strong> Tienes {stats.paquetes.pendientes_cobro} paquetes pendientes de cobro · <u>ver detalle</u>
+          <strong>Atención:</strong> Tienes {stats.paquetes.pendientes_cobro} paquetes con retraso de cobro · <u>Ver detalle</u>
         </Alert>
       )}
 
-      {/* Modal: detalle de pendientes de cobro */}
+      {/* Modal: detalle de paquetes con retraso de cobro */}
       <Dialog open={cobroOpen} onClose={() => setCobroOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>
-          💰 Paquetes pendientes de cobro
+          ⏰ Paquetes con retraso de cobro
           {!cobroLoading && (
             <Typography component="span" sx={{ ml: 1, color: '#92400E', fontWeight: 700 }}>
               · {cobroRows.length} guías · {moneyMx(cobroTotalMonto)}
@@ -682,7 +683,7 @@ export default function DashboardBranchManager() {
           {cobroLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
           ) : cobroRows.length === 0 ? (
-            <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>No hay paquetes pendientes de cobro.</Typography>
+            <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>No hay paquetes con retraso de cobro.</Typography>
           ) : (
             <Box>
               {/* Encabezado */}

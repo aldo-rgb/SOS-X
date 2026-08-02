@@ -1032,8 +1032,9 @@ export const getDashboardSummary = async (_req: Request, res: Response): Promise
 
 // ============ DASHBOARD BRANCH MANAGER (Gerente de Sucursal) ============
 // GET /api/admin/dashboard/pending-charge-list
-// Detalle de los paquetes pendientes de cobro (mismo criterio y alcance de
-// sucursal que la alerta del dashboard). Solo lectura.
+// Detalle de los paquetes con RETRASO de cobro: recibidos en CEDIS MTY o
+// CDMX, sin pagar y con más de 30 días desde su ingreso. Mismo criterio y
+// alcance de sucursal que la alerta del dashboard. Solo lectura.
 export const getPendingChargeList = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
         const userId = req.user?.userId;
@@ -1056,15 +1057,14 @@ export const getPendingChargeList = async (req: AuthRequest, res: Response): Pro
                 LEFT JOIN users u ON u.id = p.user_id
                 LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(p.box_id)=UPPER(lc.box_id)
                 WHERE (p.is_master = TRUE OR p.master_id IS NULL)
-                  AND (
-                        p.status::text IN ('received_mty', 'received_cedis')
-                        OR (p.status::text = 'received' AND p.dispatched_at IS NOT NULL)
-                      )
+                  AND p.status::text IN ('received_mty', 'received_cdmx', 'received_cedis')
                   AND COALESCE(p.client_paid, FALSE) = FALSE
                   AND COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) > 0
                   AND p.tracking_internal NOT LIKE 'USK-%'
+                  AND p.received_at IS NOT NULL
+                  AND p.received_at < NOW() - INTERVAL '30 days'
                   AND ($1::int IS NULL OR p.current_branch_id = $1)
-                ORDER BY p.received_at DESC NULLS LAST
+                ORDER BY p.received_at ASC NULLS LAST
                 LIMIT 1000
             `,
             [targetBranchId]
@@ -1250,19 +1250,20 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             [targetBranchId]
         );
 
-        // Pendientes de cobro (alerta): en bodega de ESTA sucursal con saldo pendiente
+        // Retraso de cobro (alerta): paquetes recibidos en CEDIS MTY o CDMX,
+        // sin pagar y con más de 30 días desde la fecha de ingreso. Ámbito por
+        // sucursal del usuario (mismo criterio que la lista de detalle).
         const pendingChargeResult = await pool.query(
             `
                 SELECT COUNT(*)::int as total
                 FROM packages p
                 WHERE (p.is_master = TRUE OR p.master_id IS NULL)
-                  AND (
-                        p.status::text IN ('received_mty', 'received_cedis')
-                        OR (p.status::text = 'received' AND p.dispatched_at IS NOT NULL)
-                      )
+                  AND p.status::text IN ('received_mty', 'received_cdmx', 'received_cedis')
                   AND COALESCE(p.client_paid, FALSE) = FALSE
                   AND COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) > 0
                   AND p.tracking_internal NOT LIKE 'USK-%'
+                  AND p.received_at IS NOT NULL
+                  AND p.received_at < NOW() - INTERVAL '30 days'
                   AND ($1::int IS NULL OR p.current_branch_id = $1)
             `,
             [targetBranchId]
