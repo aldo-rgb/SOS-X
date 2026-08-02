@@ -94,8 +94,46 @@ const MyProfilePage = ({ onBack }: MyProfilePageProps) => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 👤 Datos Personales (contacto de emergencia + tallas)
+  const [empData, setEmpData] = useState<{ emergency_contact: string; shirt_size: string; pants_size: string; shoe_size: string }>({ emergency_contact: '', shirt_size: '', pants_size: '', shoe_size: '' });
+  const [empEditing, setEmpEditing] = useState(false);
+  const [empName, setEmpName] = useState('');
+  const [empPhone, setEmpPhone] = useState('');
+  const [empShirt, setEmpShirt] = useState('');
+  const [empPants, setEmpPants] = useState('');
+  const [empSaving, setEmpSaving] = useState(false);
+  const splitEmergency = (s: string): { name: string; phone: string } => {
+    const m = String(s || '').trim().match(/^(.*?)[\s]*([+\d][\d\s()-]{6,})$/);
+    return m ? { name: m[1].trim(), phone: m[2].trim() } : { name: String(s || '').trim(), phone: '' };
+  };
+  const loadEmpData = async () => {
+    try {
+      const r = await api.get('/hr/my-employee-data');
+      const d = r.data || {};
+      setEmpData({ emergency_contact: d.emergency_contact || '', shirt_size: d.shirt_size || '', pants_size: d.pants_size || '', shoe_size: d.shoe_size || '' });
+    } catch { /* opcional */ }
+  };
+  const openEmpEdit = () => {
+    const { name, phone } = splitEmergency(empData.emergency_contact);
+    setEmpName(name); setEmpPhone(phone); setEmpShirt(empData.shirt_size || ''); setEmpPants(empData.pants_size || '');
+    setEmpEditing(true);
+  };
+  const saveEmpData = async () => {
+    setEmpSaving(true);
+    try {
+      const emergencyContact = [empName.trim(), empPhone.trim()].filter(Boolean).join(' ');
+      await api.put('/hr/my-employee-data', { emergencyContact, pantsSize: empPants, shirtSize: empShirt });
+      await loadEmpData();
+      setEmpEditing(false);
+      setSnackbar({ open: true, message: 'Datos guardados', severity: 'success' });
+    } catch {
+      setSnackbar({ open: true, message: 'No se pudo guardar', severity: 'error' });
+    } finally { setEmpSaving(false); }
+  };
+
   useEffect(() => {
     loadProfile();
+    loadEmpData();
   }, []);
 
   const loadProfile = async () => {
@@ -451,6 +489,52 @@ const MyProfilePage = ({ onBack }: MyProfilePageProps) => {
           </Box>
         )}
       </Paper>
+
+      {/* 👤 Datos Personales — solo empleados (contacto de emergencia + tallas) */}
+      {!['client', 'cliente'].includes(profile.role) && (
+        <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <BadgeIcon sx={{ color: ORANGE }} />
+              Datos Personales
+            </Typography>
+            {!empEditing && (
+              <Button size="small" startIcon={<EditIcon sx={{ fontSize: 16 }} />} onClick={openEmpEdit}
+                sx={{ textTransform: 'none', color: ORANGE }}>Editar</Button>
+            )}
+          </Box>
+
+          {!empEditing ? (
+            <>
+              <Box sx={{ py: 1.5, borderBottom: '1px solid #f0f0f0' }}>
+                <Typography variant="caption" color="text.secondary">Contacto de emergencia</Typography>
+                <Typography variant="body2" fontWeight={500}>{empData.emergency_contact || 'Sin registrar'}</Typography>
+              </Box>
+              <Box sx={{ py: 1.5 }}>
+                <Typography variant="caption" color="text.secondary">Tallas</Typography>
+                <Typography variant="body2" fontWeight={500}>
+                  Camiseta: {empData.shirt_size || '—'}  ·  Pantalón: {empData.pants_size || '—'}
+                </Typography>
+              </Box>
+            </>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              <TextField size="small" fullWidth label="Contacto de emergencia — Nombre" value={empName} onChange={e => setEmpName(e.target.value)} />
+              <TextField size="small" fullWidth label="Contacto de emergencia — Teléfono" value={empPhone} onChange={e => setEmpPhone(e.target.value)} />
+              <Box sx={{ display: 'flex', gap: 1.5 }}>
+                <TextField size="small" fullWidth label="Talla de camiseta" placeholder="Ej. Mediana / M" value={empShirt} onChange={e => setEmpShirt(e.target.value)} />
+                <TextField size="small" fullWidth label="Talla de pantalón" placeholder="Ej. 34" value={empPants} onChange={e => setEmpPants(e.target.value)} />
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                <Button size="small" onClick={() => setEmpEditing(false)} sx={{ textTransform: 'none', color: '#666' }}>Cancelar</Button>
+                <Button size="small" variant="contained" onClick={saveEmpData} disabled={empSaving}
+                  startIcon={empSaving ? <CircularProgress size={14} sx={{ color: 'white' }} /> : <SaveIcon />}
+                  sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#C1272D' }, textTransform: 'none', borderRadius: 2 }}>Guardar</Button>
+              </Box>
+            </Box>
+          )}
+        </Paper>
+      )}
 
       {/* Seguridad */}
       <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>

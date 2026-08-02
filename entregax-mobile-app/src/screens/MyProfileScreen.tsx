@@ -1335,10 +1335,10 @@ export default function MyProfileScreen({ navigation, route }: Props) {
           </Card.Content>
         </Card>
 
-        {/* 👷 Datos de Empleado — SOLO empleados (contacto de emergencia + tallas) */}
+        {/* 👤 Datos Personales — SOLO empleados (contacto de emergencia + tallas) */}
         {!isClient && (
         <>
-        <Text style={styles.sectionTitle}>👷 Datos de Empleado</Text>
+        <Text style={styles.sectionTitle}>👤 Datos Personales</Text>
         <Card style={styles.card}>
           <Card.Content>
             <TouchableOpacity style={styles.menuItem} onPress={openEmpModal}>
@@ -1629,7 +1629,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>👷 Datos de Empleado</Text>
+              <Text style={styles.modalTitle}>👤 Datos Personales</Text>
               <TouchableOpacity onPress={() => setShowEmpModal(false)}>
                 <Ionicons name="close" size={24} color={BLACK} />
               </TouchableOpacity>
