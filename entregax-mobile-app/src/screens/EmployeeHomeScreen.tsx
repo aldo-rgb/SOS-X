@@ -10,7 +10,7 @@
  * - Admin/Director: Acceso completo
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import CajitoFab from '../components/CajitoFab';
 import {
   View,
@@ -492,6 +492,28 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   // Estados para el panel del asesor
   const [advisorData, setAdvisorData] = useState<AdvisorDashboardData | null>(null);
   const [advisorLoading, setAdvisorLoading] = useState(false);
+  // 📋 Perfil completo (asesores/sub-asesores): foto, teléfono, contacto emergencia, tallas.
+  const [empProfile, setEmpProfile] = useState<{ emergency_contact: string; shirt_size: string; pants_size: string } | null>(null);
+  const loadEmpProfile = useCallback(async () => {
+    if (!ADVISOR_ROLES.includes(user.role)) return;
+    try {
+      const r = await fetch(`${API_URL}/api/hr/my-employee-data`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) {
+        const d = await r.json();
+        setEmpProfile({ emergency_contact: d.emergency_contact || '', shirt_size: d.shirt_size || '', pants_size: d.pants_size || '' });
+      }
+    } catch { /* opcional */ }
+  }, [token, user.role]);
+  // Qué falta para completar el perfil (solo se evalúa tras cargar empProfile).
+  const profileMissing = useMemo(() => {
+    if (empProfile === null) return [];
+    const miss: string[] = [];
+    if (!user.profilePhotoUrl) miss.push('foto de perfil');
+    if (!String(user.phone || '').trim()) miss.push('teléfono');
+    if (!String(empProfile.emergency_contact || '').trim()) miss.push('contacto de emergencia');
+    if (!String(empProfile.shirt_size || '').trim() && !String(empProfile.pants_size || '').trim()) miss.push('tallas');
+    return miss;
+  }, [empProfile, user.profilePhotoUrl, user.phone]);
   const [hideCommission, setHideCommission] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const isAdvisor = ADVISOR_ROLES.includes(user.role);
@@ -737,7 +759,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     loadLeadsWidgets();
     loadMyTaskCount();
     loadCsDashboard();
-  }, [loadLeadsWidgets, loadCsDashboard]);
+    loadEmpProfile();
+  }, [loadLeadsWidgets, loadCsDashboard, loadEmpProfile]);
 
   // 🔔 Registrar push token y suscribir a notificaciones de chat (deep-link)
   useEffect(() => {
@@ -1170,6 +1193,22 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             </View>
           )}
         </View>
+
+        {/* Banner: perfil incompleto (asesores/sub-asesores) */}
+        {isAdvisor && profileMissing.length > 0 && (
+          <TouchableOpacity
+            style={styles.profileBanner}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('MyProfile', { user, token })}
+          >
+            <Ionicons name="alert-circle" size={24} color="#fff" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.profileBannerTitle}>Completa tu perfil</Text>
+              <Text style={styles.profileBannerSub}>Falta: {profileMissing.join(', ')}. Toca para completarlo.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color="#fff" />
+          </TouchableOpacity>
+        )}
 
         {/* =============== CONTENIDO PARA ASESORES =============== */}
         {isAdvisor && advisorData ? (
@@ -1924,6 +1963,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
     gap: 10,
   },
+  profileBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F05A28',
+    padding: 12,
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    gap: 10,
+  },
+  profileBannerTitle: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  profileBannerSub: { color: '#FFE7DC', fontSize: 12, marginTop: 1 },
   onboardingContent: {
     flex: 1,
   },
