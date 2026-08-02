@@ -706,6 +706,7 @@ import {
   saveHistorico,
   deleteHistorico,
 } from './svcHistoricoController';
+import { generateServiceAnalysis } from './serviceAnalysisController';
 import {
   handleSupportMessage,
   getMyTickets,
@@ -3407,6 +3408,9 @@ app.get('/api/packages/service-history-stats', authenticateToken, requireMinLeve
     return res.status(500).json({ error: err.message });
   }
 });
+
+// Análisis de ventas por servicio con IA (OpenAI).
+app.post('/api/packages/service-analysis', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), generateServiceAnalysis);
 
 // Histórico por servicio (panel de solo consulta; tabla aislada svc_historico_reports).
 app.get('/api/svc-historico/:service', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getHistorico);

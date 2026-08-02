@@ -67,7 +67,25 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
   const [loading, setLoading] = useState(true);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailIdx, setDetailIdx] = useState(0);
+  const [analysis, setAnalysis] = useState<Record<string, { loading: boolean; text: string }>>({});
   const scrollRef = useRef<ScrollView>(null);
+
+  const runAnalysis = useCallback(async (serviceKey: string) => {
+    const ss = data[serviceKey] || [];
+    if (ss.length === 0) return;
+    setAnalysis(a => ({ ...a, [serviceKey]: { loading: true, text: '' } }));
+    try {
+      const r = await fetch(`${apiUrl}/api/packages/service-analysis`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service: serviceKey, group_by: period, series: ss }),
+      });
+      const d = await r.json();
+      setAnalysis(a => ({ ...a, [serviceKey]: { loading: false, text: r.ok ? (d.analysis || '') : (d.error || 'No se pudo generar el análisis') } }));
+    } catch {
+      setAnalysis(a => ({ ...a, [serviceKey]: { loading: false, text: 'Error de conexión al generar el análisis.' } }));
+    }
+  }, [apiUrl, token, period, data]);
 
   const dateFrom = useCallback(() => {
     const d = new Date();
@@ -229,6 +247,24 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
                       </View>
                     </ScrollView>
                   )}
+
+                  {/* Análisis con IA por servicio */}
+                  <TouchableOpacity
+                    style={[styles.analysisBtn, analysis[s.key]?.loading && { opacity: 0.7 }]}
+                    onPress={() => runAnalysis(s.key)}
+                    disabled={analysis[s.key]?.loading || ss.length === 0}
+                  >
+                    {analysis[s.key]?.loading ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <><Ionicons name="sparkles" size={16} color="#fff" /><Text style={styles.analysisBtnTxt}>Generar análisis</Text></>
+                    )}
+                  </TouchableOpacity>
+                  {!!analysis[s.key]?.text && (
+                    <View style={styles.analysisBox}>
+                      <Text style={styles.analysisTxt}>{analysis[s.key].text}</Text>
+                    </View>
+                  )}
                 </ScrollView>
               );
             })}
@@ -271,4 +307,8 @@ const styles = StyleSheet.create({
   barVal: { fontSize: 10, color: '#555', marginBottom: 4, height: 14 },
   barLbl: { fontSize: 10, color: '#888', marginTop: 6 },
   detailDots: { flexDirection: 'row', gap: 5, justifyContent: 'center', alignItems: 'center', paddingVertical: 14, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee' },
+  analysisBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: ORANGE, borderRadius: 12, paddingVertical: 13, marginTop: 22 },
+  analysisBtnTxt: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  analysisBox: { marginTop: 14, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#EEE', padding: 14 },
+  analysisTxt: { fontSize: 14, color: '#333', lineHeight: 21 },
 });
