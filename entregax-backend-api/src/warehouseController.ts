@@ -2042,6 +2042,26 @@ export const setMyAdminPin = async (req: AuthRequest, res: Response): Promise<vo
     }
 };
 
+// POST /api/warehouse/verify-admin-pin  { pin }
+// Valida un PIN de administrador (6 dígitos) contra cualquier usuario autorizado.
+// Se usa para desbloquear cifras sensibles (ej. Volumen bruto).
+export const verifyAdminPin = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        await ensureAdminPinCol();
+        const pin = String(req.body?.pin || '').trim();
+        if (!/^\d{6}$/.test(pin)) { res.status(400).json({ valid: false, error: 'PIN inválido' }); return; }
+        const r = await pool.query(
+            `SELECT full_name, role FROM users WHERE admin_pin = $1 AND role = ANY($2::text[]) LIMIT 1`,
+            [pin, ADMIN_PIN_ROLES]
+        );
+        if (r.rows.length === 0) { res.json({ valid: false }); return; }
+        res.json({ valid: true, name: r.rows[0].full_name, role: r.rows[0].role });
+    } catch (error) {
+        console.error('Error verificando PIN de administrador:', error);
+        res.status(500).json({ valid: false, error: 'Error al verificar PIN' });
+    }
+};
+
 // POST /api/warehouse/dhl-reception - Recepción rápida de paquete DHL
 export const processDhlReception = async (req: AuthRequest, res: Response): Promise<void> => {
     try {

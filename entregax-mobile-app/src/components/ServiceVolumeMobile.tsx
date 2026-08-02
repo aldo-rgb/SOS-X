@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, ActivityIndicator,
-  Dimensions, NativeSyntheticEvent, NativeScrollEvent,
+  Dimensions, NativeSyntheticEvent, NativeScrollEvent, TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Polyline, Defs, LinearGradient, Stop, Polygon } from 'react-native-svg';
@@ -95,8 +95,38 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
   const [loading, setLoading] = useState(true);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailIdx, setDetailIdx] = useState(0);
-  const [hidden, setHidden] = useState(true); // cifra oculta por default al iniciar
+  const [hidden, setHidden] = useState(true);   // bloqueado por default (cifra oculta)
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinVerifying, setPinVerifying] = useState(false);
+  const [pinError, setPinError] = useState('');
+  const pinIntent = useRef<{ kind: 'reveal' } | { kind: 'detail'; idx: number }>({ kind: 'reveal' });
   const [analysis, setAnalysis] = useState<Record<string, { loading: boolean; text: string }>>({});
+
+  const askPin = (intent: { kind: 'reveal' } | { kind: 'detail'; idx: number }) => {
+    pinIntent.current = intent; setPinInput(''); setPinError(''); setPinModalOpen(true);
+  };
+  // Ojito: para MOSTRAR pide PIN; para ocultar no.
+  const onEye = () => { if (hidden) askPin({ kind: 'reveal' }); else setHidden(true); };
+  // Entrar al detalle: si está bloqueado, pide PIN primero.
+  const requestDetail = (i: number) => { if (hidden) askPin({ kind: 'detail', idx: i }); else openDetail(i); };
+  const verifyPin = async () => {
+    if (pinInput.length !== 6) return;
+    setPinVerifying(true); setPinError('');
+    try {
+      const r = await fetch(`${apiUrl}/api/warehouse/verify-admin-pin`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pinInput }),
+      });
+      const d = await r.json();
+      if (r.ok && d.valid) {
+        setHidden(false); setPinModalOpen(false); setPinInput('');
+        if (pinIntent.current.kind === 'detail') openDetail(pinIntent.current.idx);
+      } else setPinError('PIN incorrecto');
+    } catch { setPinError('Error al verificar'); }
+    finally { setPinVerifying(false); }
+  };
   const scrollRef = useRef<ScrollView>(null);
 
   const runAnalysis = useCallback(async (serviceKey: string) => {
@@ -189,14 +219,14 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
       </View>
 
       {/* Tarjeta compacta: VOLUMEN de toda la operación (dinero, todos los servicios) */}
-      <TouchableOpacity activeOpacity={0.9} onPress={() => openDetail(0)} style={styles.bigCard}>
+      <TouchableOpacity activeOpacity={0.9} onPress={() => requestDetail(0)} style={styles.bigCard}>
         {loading ? (
           <View style={{ height: 150, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color={ORANGE} /></View>
         ) : (
           <>
             <View style={styles.bigHead}>
               <Text style={styles.bigTitle}>🏢 Volumen bruto</Text>
-              <TouchableOpacity onPress={() => setHidden(h => !h)} hitSlop={10} style={{ padding: 4 }}>
+              <TouchableOpacity onPress={onEye} hitSlop={10} style={{ padding: 4 }}>
                 <Ionicons name={hidden ? 'eye-off-outline' : 'eye-outline'} size={20} color="#8A8A8A" />
               </TouchableOpacity>
             </View>
@@ -309,6 +339,40 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
           </View>
         </View>
       </Modal>
+
+      {/* Modal PIN de administrador para desbloquear */}
+      <Modal visible={pinModalOpen} transparent animationType="fade" onRequestClose={() => setPinModalOpen(false)}>
+        <View style={styles.pinBackdrop}>
+          <View style={styles.pinCard}>
+            <Ionicons name="lock-closed" size={28} color={ORANGE} style={{ alignSelf: 'center' }} />
+            <Text style={styles.pinTitle}>PIN de administrador</Text>
+            <Text style={styles.pinSub}>Ingresa tu PIN de 6 dígitos para ver el volumen bruto.</Text>
+            <TextInput
+              style={styles.pinInput}
+              value={pinInput}
+              onChangeText={t => { setPinInput(t.replace(/\D/g, '').slice(0, 6)); setPinError(''); }}
+              keyboardType="number-pad"
+              maxLength={6}
+              placeholder="••••••"
+              placeholderTextColor="#bbb"
+              secureTextEntry
+              autoFocus
+            />
+            {!!pinError && <Text style={styles.pinErr}>{pinError}</Text>}
+            <View style={styles.pinBtns}>
+              <TouchableOpacity style={styles.pinCancel} onPress={() => setPinModalOpen(false)}>
+                <Text style={styles.pinCancelTxt}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pinOk, (pinInput.length !== 6 || pinVerifying) && { opacity: 0.5 }]}
+                onPress={verifyPin} disabled={pinInput.length !== 6 || pinVerifying}
+              >
+                {pinVerifying ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.pinOkTxt}>Desbloquear</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -349,4 +413,15 @@ const styles = StyleSheet.create({
   aLine: { fontSize: 14, color: '#333', lineHeight: 21, marginBottom: 3 },
   commissionPill: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: '#E8F5E9', borderColor: '#A5D6A7', borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, marginTop: 8 },
   commissionTxt: { color: '#1B5E20', fontSize: 13, fontWeight: '800' },
+  pinBackdrop: { flex: 1, backgroundColor: '#00000088', justifyContent: 'center', paddingHorizontal: 32 },
+  pinCard: { backgroundColor: '#fff', borderRadius: 18, padding: 22 },
+  pinTitle: { fontSize: 18, fontWeight: '800', color: '#111', textAlign: 'center', marginTop: 8 },
+  pinSub: { fontSize: 13, color: '#777', textAlign: 'center', marginTop: 4, marginBottom: 14 },
+  pinInput: { borderWidth: 1.5, borderColor: '#E3E3E6', borderRadius: 12, textAlign: 'center', fontSize: 28, letterSpacing: 10, fontWeight: '800', color: '#111', paddingVertical: 12 },
+  pinErr: { color: '#C62828', fontSize: 13, fontWeight: '700', textAlign: 'center', marginTop: 8 },
+  pinBtns: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  pinCancel: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: '#E3E3E6', alignItems: 'center' },
+  pinCancelTxt: { color: '#666', fontWeight: '800', fontSize: 15 },
+  pinOk: { flex: 1.4, paddingVertical: 12, borderRadius: 12, backgroundColor: ORANGE, alignItems: 'center' },
+  pinOkTxt: { color: '#fff', fontWeight: '800', fontSize: 15 },
 });

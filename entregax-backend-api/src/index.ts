@@ -480,7 +480,8 @@ import {
   adminGenerateSupervisorPin,
   getMySupervisorPin,
   getMyAdminPin,
-  setMyAdminPin
+  setMyAdminPin,
+  verifyAdminPin
 } from './warehouseController';
 import {
   listAssets,
@@ -6516,6 +6517,7 @@ app.get('/api/warehouse/my-supervisor-pin', authenticateToken, getMySupervisorPi
 // PIN de Administrador (6 dígitos, Contador/Admin/Super Admin/Director)
 app.get('/api/warehouse/my-admin-pin', authenticateToken, getMyAdminPin);
 app.post('/api/warehouse/set-admin-pin', authenticateToken, setMyAdminPin);
+app.post('/api/warehouse/verify-admin-pin', authenticateToken, verifyAdminPin);
 // Recepción rápida DHL
 app.post('/api/warehouse/dhl-reception', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), processDhlReception);
 // Inventario de sucursal
