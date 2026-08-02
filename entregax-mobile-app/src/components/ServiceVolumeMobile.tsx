@@ -30,6 +30,7 @@ const PERIODS = [
   { key: 'day',   label: 'Día' },
   { key: 'week',  label: 'Semana' },
   { key: 'month', label: 'Mes' },
+  { key: 'year',  label: 'Año' },
 ];
 
 type MetricKey = typeof METRICS[number]['key'];
@@ -68,6 +69,7 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
   const [loading, setLoading] = useState(true);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailIdx, setDetailIdx] = useState(0);
+  const [hidden, setHidden] = useState(true); // cifra oculta por default al iniciar
   const [analysis, setAnalysis] = useState<Record<string, { loading: boolean; text: string }>>({});
   const scrollRef = useRef<ScrollView>(null);
 
@@ -116,7 +118,8 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
 
   const currentStart = useMemo(() => {
     const x = new Date();
-    if (period === 'month') x.setDate(1);
+    if (period === 'year') { x.setMonth(0); x.setDate(1); }
+    else if (period === 'month') x.setDate(1);
     else if (period === 'week') { const dow = (x.getDay() + 6) % 7; x.setDate(x.getDate() - dow); }
     return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
   }, [period]);
@@ -166,9 +169,14 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
         ) : (
           <>
             <View style={styles.bigHead}>
-              <Text style={styles.bigTitle}>🏢 Volumen de toda la operación</Text>
+              <Text style={styles.bigTitle}>🏢 Volumen bruto</Text>
+              <TouchableOpacity onPress={() => setHidden(h => !h)} hitSlop={10} style={{ padding: 4 }}>
+                <Ionicons name={hidden ? 'eye-off-outline' : 'eye-outline'} size={20} color="#8A8A8A" />
+              </TouchableOpacity>
             </View>
-            <Text style={[styles.bigValue, { color: ORANGE }]} numberOfLines={1} adjustsFontSizeToFit>{MONEY_MET.fmt(valOf(combined, 'money'))}</Text>
+            <Text style={[styles.bigValue, { color: ORANGE }]} numberOfLines={1} adjustsFontSizeToFit>
+              {hidden ? '$ • • • • • •' : MONEY_MET.fmt(valOf(combined, 'money'))}
+            </Text>
             <View style={{ marginTop: 6 }}>
               <Sparkline values={spark} color={ORANGE} width={SW - 64} height={70} />
             </View>
@@ -234,7 +242,7 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
                           const v = p[metric] as number;
                           const h = Math.max(3, (v / mx) * 160);
                           const d = new Date(String(p.bucket) + 'T00:00:00');
-                          const lbl = period === 'month' ? d.toLocaleDateString('es-MX', { month: 'short', year: '2-digit' }) : d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+                          const lbl = period === 'year' ? String(d.getFullYear()) : period === 'month' ? d.toLocaleDateString('es-MX', { month: 'short', year: '2-digit' }) : d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
                           return (
                             <View key={i} style={{ alignItems: 'center', width: 48 }}>
                               <Text style={styles.barVal} numberOfLines={1}>{v > 0 ? (metric === 'money' ? `$${Math.round(v / 1000)}k` : met.fmt(v)) : ''}</Text>

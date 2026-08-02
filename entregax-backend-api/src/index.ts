@@ -3312,7 +3312,7 @@ app.get('/api/packages/service-history-stats', authenticateToken, requireMinLeve
     const dateFrom = String(req.query.date_from || '');
     const dateTo   = String(req.query.date_to   || '');
     const gbRaw = String(req.query.group_by || 'day').toLowerCase();
-    const groupBy = ['day', 'week', 'month'].includes(gbRaw) ? gbRaw : 'day';
+    const groupBy = ['day', 'week', 'month', 'year'].includes(gbRaw) ? gbRaw : 'day';
 
     // base_guia para contar envíos consolidados en aéreo.
     const BASE_EXPR = `CASE WHEN p.child_no IS NOT NULL AND p.child_no != '' THEN REGEXP_REPLACE(p.child_no, '-[0-9]+$', '') ELSE p.tracking_internal END`;
@@ -3362,6 +3362,24 @@ app.get('/api/packages/service-history-stats', authenticateToken, requireMinLeve
         commission: `CASE WHEN e.op_divisa_destino = 'MXN' THEN COALESCE(e.op_monto,0)*COALESCE(e.comision_cobrada_porcentaje,0)/100 ELSE GREATEST(0, COALESCE(e.op_monto,0)*(COALESCE(e.tc_cliente_final,0)-COALESCE(e.tc_aplicado_usd,0))) END`,
       },
     };
+    // POR AÑO: los datos anuales viven en el HISTÓRICO (svc_historico_reports),
+    // no en las tablas operativas (que solo tienen datos recientes).
+    if (groupBy === 'year') {
+      const keys = service === 'todos' ? Object.keys(CFG) : (CFG[service] ? [service] : []);
+      if (keys.length === 0) return res.status(400).json({ error: 'Servicio no válido' });
+      const hr = await pool.query(`SELECT records FROM svc_historico_reports WHERE service = ANY($1::text[])`, [keys]);
+      const byYear = new Map<number, number>();
+      hr.rows.forEach((r: any) => (Array.isArray(r.records) ? r.records : []).forEach((rec: any) => {
+        const y = parseInt(String(rec.anio), 10);
+        const m = Number(rec.monto) || 0;
+        if (y) byYear.set(y, (byYear.get(y) || 0) + m);
+      }));
+      const yseries = Array.from(byYear.entries()).sort((a, b) => a[0] - b[0])
+        .map(([y, money]) => ({ bucket: `${y}-01-01`, money: Math.round(money * 100) / 100, weight: 0, volume: 0, commission: 0, count: 0 }));
+      const ytotals = yseries.reduce((a, s) => ({ money: a.money + s.money, weight: 0, volume: 0, commission: 0, count: 0 }), { money: 0, weight: 0, volume: 0, commission: 0, count: 0 });
+      return res.json({ service, group_by: 'year', series: yseries, totals: ytotals });
+    }
+
     // Ejecuta la consulta de UN servicio y devuelve su serie por bucket.
     const runOne = async (c: { from: string; where: string; dateCol: string; money: string; weight: string; volume: string; count: string; commission?: string }) => {
       const localDate = `(${c.dateCol} AT TIME ZONE 'America/Monterrey')`;

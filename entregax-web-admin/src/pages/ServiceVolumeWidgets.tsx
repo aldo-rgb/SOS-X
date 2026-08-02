@@ -27,6 +27,7 @@ const PERIODS = [
   { key: 'day',   label: 'Día' },
   { key: 'week',  label: 'Semana' },
   { key: 'month', label: 'Mes' },
+  { key: 'year',  label: 'Año' },
 ];
 
 type MetricKey = typeof METRICS[number]['key'];
@@ -39,6 +40,7 @@ export default function ServiceVolumeWidgets() {
   const [period, setPeriod] = useState('month');
   const [data, setData] = useState<Record<string, Point[]>>({});
   const [loading, setLoading] = useState(true);
+  const [hidden, setHidden] = useState(true); // cifras ocultas por default al iniciar
 
   const dateFrom = useCallback(() => {
     const d = new Date();
@@ -67,7 +69,8 @@ export default function ServiceVolumeWidgets() {
   // Inicio del periodo actual (para excluir el periodo en curso, parcial).
   const currentStart = useMemo(() => {
     const x = new Date();
-    if (period === 'month') x.setDate(1);
+    if (period === 'year') { x.setMonth(0); x.setDate(1); }
+    else if (period === 'month') x.setDate(1);
     else if (period === 'week') { const dow = (x.getDay() + 6) % 7; x.setDate(x.getDate() - dow); }
     return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
   }, [period]);
@@ -93,6 +96,10 @@ export default function ServiceVolumeWidgets() {
         <ToggleButtonGroup size="small" exclusive value={period} onChange={(_, v) => v && setPeriod(v)}>
           {PERIODS.map(p => <ToggleButton key={p.key} value={p.key} sx={{ textTransform: 'none', fontWeight: 700 }}>{p.label}</ToggleButton>)}
         </ToggleButtonGroup>
+        <Box onClick={() => setHidden(h => !h)} sx={{ cursor: 'pointer', px: 1.25, py: 0.5, borderRadius: 1.5, border: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', gap: 0.6, '&:hover': { borderColor: '#94A3B8' } }}>
+          <span style={{ fontSize: 15 }}>{hidden ? '🙈' : '👁️'}</span>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>{hidden ? 'Mostrar cifras' : 'Ocultar cifras'}</Typography>
+        </Box>
         <Typography variant="caption" color="text.secondary">
           Muestra el último {periodWord}. Toca una tarjeta para ver el historial completo →
         </Typography>
@@ -121,7 +128,7 @@ export default function ServiceVolumeWidgets() {
                   <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }} noWrap>{s.label}</Typography>
                 </Stack>
                 <Typography sx={{ fontWeight: 800, fontSize: '1.25rem', color: s.color, lineHeight: 1.1 }} noWrap>
-                  {met.fmt(lastVal)}
+                  {hidden ? '$ • • • •' : met.fmt(lastVal)}
                 </Typography>
                 <Box sx={{ height: 44, mt: 0.5 }}>
                   {spark.length > 1 ? (

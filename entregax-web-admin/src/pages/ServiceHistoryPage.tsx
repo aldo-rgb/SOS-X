@@ -36,6 +36,7 @@ const GROUPS = [
   { key: 'day',   label: 'Día' },
   { key: 'week',  label: 'Semana' },
   { key: 'month', label: 'Mes' },
+  { key: 'year',  label: 'Año' },
 ];
 
 // Notas de disponibilidad de datos por servicio/métrica.
@@ -85,6 +86,7 @@ export default function ServiceHistoryPage() {
   // Formatear el eje X según agrupación.
   const fmtBucket = (b: string) => {
     const d = new Date(b + 'T00:00:00');
+    if (groupBy === 'year') return String(d.getFullYear());
     if (groupBy === 'month') return d.toLocaleDateString('es-MX', { month: 'short', year: '2-digit' });
     if (groupBy === 'week') return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
     return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
@@ -96,7 +98,8 @@ export default function ServiceHistoryPage() {
   // detectar si el último bucket es un periodo aún en curso (parcial).
   const currentPeriodStart = (gb: string): string => {
     const x = new Date();
-    if (gb === 'month') x.setDate(1);
+    if (gb === 'year') { x.setMonth(0); x.setDate(1); }
+    else if (gb === 'month') x.setDate(1);
     else if (gb === 'week') { const dow = (x.getDay() + 6) % 7; x.setDate(x.getDate() - dow); } // lunes
     return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
   };
