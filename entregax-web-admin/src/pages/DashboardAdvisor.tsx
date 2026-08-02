@@ -117,6 +117,7 @@ import {
   ReceiptLong as InvoiceIcon,
   Add as AddIcon,
   AddCircle as ExtraChargeIcon,
+  Archive as ArchiveIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
@@ -1277,6 +1278,22 @@ export default function DashboardAdvisor() {
     { key: 'other',        label: 'Otro',                 icon: <OtherIcon />,        color: '#9E9E9E', noTracking: true },
   ];
 
+  // Confirmación (con diseño) para archivar un ticket de cotización.
+  const [archiveTicket, setArchiveTicket] = useState<any | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const doArchiveTicket = async () => {
+    if (!archiveTicket) return;
+    setArchiving(true);
+    try {
+      await api.put(`/admin/support/ticket/${archiveTicket.id}/resolve`);
+      setSnackbar({ open: true, message: 'Ticket archivado', severity: 'success' });
+      setArchiveTicket(null);
+      fetchAdvisorTickets();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo archivar', severity: 'error' });
+    } finally { setArchiving(false); }
+  };
+
   const fetchAdvisorTickets = async () => {
     setAdvisorTicketsLoading(true);
     try {
@@ -2153,6 +2170,27 @@ export default function DashboardAdvisor() {
               </Box>
             )}
           </Paper>
+
+          {/* ── Modal: Confirmar archivar ticket ── */}
+          <Dialog open={!!archiveTicket} onClose={() => !archiving && setArchiveTicket(null)} maxWidth="xs" fullWidth
+            PaperProps={{ sx: { borderRadius: 3, p: 1 } }}>
+            <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <ArchiveIcon sx={{ color: '#FF9800' }} /> Archivar ticket
+            </DialogTitle>
+            <DialogContent>
+              <Typography variant="body2" color="text.secondary">
+                ¿Seguro que quieres archivar el ticket <b>{archiveTicket?.ticket_folio}</b>? Ya no aparecerá en tus cotizaciones pendientes.
+              </Typography>
+            </DialogContent>
+            <DialogActions sx={{ px: 3, pb: 2 }}>
+              <Button onClick={() => setArchiveTicket(null)} disabled={archiving} sx={{ textTransform: 'none', color: '#666' }}>Cancelar</Button>
+              <Button variant="contained" onClick={doArchiveTicket} disabled={archiving}
+                startIcon={archiving ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <ArchiveIcon />}
+                sx={{ bgcolor: '#FF9800', '&:hover': { bgcolor: '#F57C00' }, textTransform: 'none', fontWeight: 700, borderRadius: 2 }}>
+                Archivar
+              </Button>
+            </DialogActions>
+          </Dialog>
 
           {/* ── Modal: Embarques en Tránsito ── */}
           <Dialog open={transitModalOpen} onClose={() => setTransitModalOpen(false)} maxWidth="sm" fullWidth>
@@ -6252,16 +6290,7 @@ export default function DashboardAdvisor() {
                             </Button>
                             <Button size="small" variant="outlined"
                               sx={{ borderColor: '#9E9E9E', color: '#616161', textTransform: 'none', fontWeight: 700, fontSize: 12, flex: '1 1 auto', '&:hover': { bgcolor: '#F5F5F5' } }}
-                              onClick={async () => {
-                                if (!window.confirm(`¿Archivar ticket ${ticket.ticket_folio}?`)) return;
-                                try {
-                                  await api.put(`/admin/support/ticket/${ticket.id}/resolve`);
-                                  setSnackbar({ open: true, message: 'Ticket archivado', severity: 'success' });
-                                  fetchAdvisorTickets();
-                                } catch (e: any) {
-                                  setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo archivar', severity: 'error' });
-                                }
-                              }}>
+                              onClick={() => setArchiveTicket(ticket)}>
                               Archivar
                             </Button>
                           </Box>

@@ -908,6 +908,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     loadLeadsWidgets();
     loadMyTaskCount();
     loadCsDashboard();
+    loadEmpProfile();
     setTimeout(() => setRefreshing(false), 1000);
   };
 
