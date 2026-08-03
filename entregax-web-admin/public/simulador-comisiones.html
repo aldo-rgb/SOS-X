@@ -307,9 +307,12 @@
 
 <script>
   // ── Historial real embebido ──
+  // ── Historial real embebido (fallback si no llega postMessage con datos vivos) ──
+  // Nota: se excluyen aquí los asesores dados de baja (is_active=false) o marcados
+  // como ocultos del tablero (hide_from_commission_board=true). El backend hace el
+  // mismo filtro en vivo — este fallback debe reflejarlo para no mostrar asesores
+  // inactivos si el postMessage tarda o falla.
   let DATA = [
-    {"id":20,"name":"ALDO JOSE CAMPOS LOMAS","override_actual":103.08,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":273892.48,"comision":27389.23,"guias":37},"maritimo_china_mx":{"ventas":166596.32,"comision":6247.36,"guias":1},"liberacion_aa_dhl":{"ventas":30477.10,"comision":3047.71,"guias":10},"gex_warranty":{"ventas":11250.00,"comision":5850.00,"guias":18}}},
-    {"id":21,"name":"Antonio Hernandez","override_actual":0,"sub_count":0,"servicios":{"aereo_china_mx":{"ventas":1394346.08,"comision":34858.61,"guias":109}}},
     {"id":18,"name":"Andres Campos","override_actual":315.16,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":336253.54,"comision":33625.47,"guias":122}}},
     {"id":46,"name":"Marcelo González Márquez","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":210993.31,"comision":21099.34,"guias":97}}},
     {"id":28,"name":"Christian Gonzalez","override_actual":12561.98,"sub_count":2,"servicios":{"xpay":{"ventas":55752.13,"comision":1409.51,"guias":2},"pobox_usa_mx":{"ventas":175134.21,"comision":17513.54,"guias":91},"aereo_china_mx":{"ventas":76281.08,"comision":1907.05,"guias":9}}},
@@ -317,7 +320,6 @@
     {"id":66,"name":"Jaqueline Minero","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":137835.88,"comision":13783.70,"guias":63}}},
     {"id":25,"name":"Jesus Campos","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":130981.97,"comision":13098.23,"guias":101},"aereo_china_mx":{"ventas":25525.10,"comision":638.13,"guias":3}}},
     {"id":37,"name":"Pedro Hernadez","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":212254.78,"comision":10612.83,"guias":106}}},
-    {"id":15,"name":"Juan Carlos Segura","override_actual":2829.43,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":74334.58,"comision":7433.45,"guias":24}}},
     {"id":32,"name":"Víctor García","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":46758.21,"comision":4675.82,"guias":26}}},
     {"id":17,"name":"Mendez","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":30506.00,"comision":3050.63,"guias":23}}},
     {"id":51,"name":"Andres Villasana","override_actual":0,"sub_count":0,"servicios":{"pobox_usa_mx":{"ventas":56589.12,"comision":2829.43,"guias":42}}},
