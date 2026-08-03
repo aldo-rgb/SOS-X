@@ -174,17 +174,18 @@ async function getOrCreatePersonalBoard(): Promise<number | null> {
 // Crea una tarea asignada a un usuario (reutilizable desde otros módulos, p.ej.
 // convertir la "declaración de meta" de un asesor en tarea). Devuelve el task_id.
 export async function createAssignedTaskInternal(opts: {
-  creatorId: number; assigneeId: number; title: string; description?: string | null; dueAt?: string | null;
+  creatorId: number; assigneeId: number; title: string; description?: string | null; dueAt?: string | null; eisenhower?: string;
 }): Promise<number | null> {
   try {
     const boardId = await getOrCreatePersonalBoard();
     if (!boardId) return null;
     const col = await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [boardId]);
     const columnId = col.rows[0]?.id || null;
+    const eis = ['fuego', 'estrella', 'delegar', 'eliminar'].includes(String(opts.eisenhower)) ? opts.eisenhower : 'estrella';
     const r = await pool.query(
       `INSERT INTO tasks (board_id, column_id, title, description, assignee_id, due_at, eisenhower, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,'estrella',$7) RETURNING id`,
-      [boardId, columnId, String(opts.title).trim(), opts.description || null, opts.assigneeId, opts.dueAt || null, opts.creatorId]);
+       VALUES ($1,$2,$3,$4,$5,$6,$8,$7) RETURNING id`,
+      [boardId, columnId, String(opts.title).trim(), opts.description || null, opts.assigneeId, opts.dueAt || null, opts.creatorId, eis]);
     const taskId = r.rows[0]?.id;
     if (!taskId) return null;
     const parts = Array.from(new Set<number>([opts.creatorId, opts.assigneeId].filter(Boolean)));
@@ -744,7 +745,10 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
          LEFT JOIN users u ON u.id = at.uploaded_by WHERE at.task_id = $1 ORDER BY at.id DESC`, [id]);
     const attachments = await Promise.all(attRows.rows.map(async (a: any) => {
       let url: string | null = null;
-      try { url = await getSignedUrlForKey(a.file_key, 6 * 3600); } catch { /* ignore */ }
+      // Los adjuntos copiados de un ticket ya vienen como URL http completa; el resto
+      // son keys de S3 que se firman al leer.
+      if (/^https?:\/\//i.test(String(a.file_key || ''))) { url = a.file_key; }
+      else { try { url = await getSignedUrlForKey(a.file_key, 6 * 3600); } catch { /* ignore */ } }
       return { id: a.id, file_name: a.file_name, uploaded_by_name: a.uploaded_by_name, created_at: a.created_at, url };
     }));
     // Involucrados (participantes) de la tarea.

@@ -32,6 +32,7 @@ import {
   Tab,
   Tooltip,
   Alert,
+  Snackbar,
 } from '@mui/material';
 import {
   SupportAgent as AgentIcon,
@@ -641,6 +642,26 @@ export default function SupportBoardPage() {
     setSelectedTicket(null);
     await loadTickets();
     await loadStats();
+  };
+
+  // Reportar error (tickets Error Sistema) → crea tarea a Super Admin con los archivos del ticket.
+  const [reporting, setReporting] = useState(false);
+  const [reportSnack, setReportSnack] = useState<{ msg: string; sev: 'success' | 'error' } | null>(null);
+  const handleReportError = async () => {
+    if (!selectedTicket) return;
+    setReporting(true);
+    try {
+      const res = await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/report-error`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setReportSnack({ msg: d.already ? `Ya existía la tarea de este error (${selectedTicket.ticket_folio}).` : `Tarea creada: "Error localizado ${selectedTicket.ticket_folio}"${d.attachments_copied ? ` · ${d.attachments_copied} archivo(s)` : ''}.`, sev: 'success' });
+      } else {
+        setReportSnack({ msg: d.error || 'No se pudo reportar el error', sev: 'error' });
+      }
+    } catch { setReportSnack({ msg: 'Error de red al reportar', sev: 'error' }); }
+    finally { setReporting(false); }
   };
 
   const handleTransferToAtencion = async () => {
@@ -1462,6 +1483,18 @@ export default function SupportBoardPage() {
                     </Button>
                   </Tooltip>
                 )}
+                {selectedTicket.category === 'systemError' && (
+                  <Tooltip title="Crea una tarea para Super Admin con este ticket y sus archivos">
+                    <Button
+                      variant="outlined" color="error"
+                      startIcon={<WarningIcon />}
+                      onClick={handleReportError}
+                      disabled={reporting}
+                    >
+                      {reporting ? 'Reportando…' : 'Reportar error'}
+                    </Button>
+                  </Tooltip>
+                )}
               </Box>
               {selectedTicket.status !== 'resolved'
                 && selectedTicket.department_name !== 'Atención a Cliente'
@@ -1558,6 +1591,10 @@ export default function SupportBoardPage() {
         boxId={selectedClientBoxId}
         onClose={() => setSelectedClientBoxId(null)}
       />
+
+      <Snackbar open={!!reportSnack} autoHideDuration={5000} onClose={() => setReportSnack(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        {reportSnack ? <Alert severity={reportSnack.sev} onClose={() => setReportSnack(null)}>{reportSnack.msg}</Alert> : undefined}
+      </Snackbar>
     </Box>
   );
 }

@@ -1721,6 +1721,62 @@ export async function notifyTicketDepartment(ticketId: number, departmentId: num
   }
 }
 
+// Reportar error: crea una TAREA a partir de un ticket "Error Sistema".
+//  · responsable (assignee) = Super Admin · asignada por = usuario de soporte (creador)
+//  · soporte queda involucrado (participante) · título "Error localizado {folio}"
+//  · copia TODOS los archivos del ticket a la tarea.
+export const reportTicketError = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const uid = (req as any).user?.userId || (req as any).user?.id;
+    const ticketId = parseInt(String(req.params.id), 10);
+    if (!uid) return res.status(401).json({ error: 'No autenticado' });
+    if (!ticketId) return res.status(400).json({ error: 'Ticket inválido' });
+
+    const tRes = await pool.query(
+      `SELECT t.id, t.ticket_folio, t.subject, t.category, t.user_id, u.full_name AS client_name
+         FROM support_tickets t LEFT JOIN users u ON u.id = t.user_id WHERE t.id = $1`, [ticketId]);
+    if (tRes.rows.length === 0) return res.status(404).json({ error: 'Ticket no encontrado' });
+    const ticket = tRes.rows[0];
+    const folio = ticket.ticket_folio || `#${ticketId}`;
+    const title = `Error localizado ${folio}`;
+
+    // Evitar duplicados: si ya hay una tarea para este ticket, devolverla.
+    const existing = await pool.query(`SELECT id FROM tasks WHERE title = $1 AND status <> 'cancelled' LIMIT 1`, [title]);
+    if (existing.rows.length > 0) {
+      return res.json({ ok: true, task_id: existing.rows[0].id, already: true, message: 'Ya existe una tarea para este error.' });
+    }
+
+    // Responsable = Super Admin activo.
+    const saRes = await pool.query(`SELECT id FROM users WHERE role = 'super_admin' AND COALESCE(is_active, true) = true ORDER BY id LIMIT 1`);
+    if (saRes.rows.length === 0) return res.status(400).json({ error: 'No hay un Super Admin activo para asignar la tarea.' });
+    const superAdminId = Number(saRes.rows[0].id);
+
+    const desc = `🐛 Error reportado desde el ticket ${folio}${ticket.client_name ? ' · ' + ticket.client_name : ''}.\n${ticket.subject || ''}`.trim();
+
+    const { createAssignedTaskInternal } = await import('./tasksController');
+    const taskId = await createAssignedTaskInternal({ creatorId: Number(uid), assigneeId: superAdminId, title, description: desc, eisenhower: 'fuego' });
+    if (!taskId) return res.status(500).json({ error: 'No se pudo crear la tarea' });
+
+    // Copiar TODOS los archivos del ticket (ticket_messages.attachments = JSON de URLs) a la tarea.
+    let copied = 0;
+    const msgs = await pool.query(`SELECT attachments FROM ticket_messages WHERE ticket_id = $1 AND attachments IS NOT NULL`, [ticketId]);
+    for (const m of msgs.rows) {
+      let urls: string[] = [];
+      try { urls = typeof m.attachments === 'string' ? JSON.parse(m.attachments) : (Array.isArray(m.attachments) ? m.attachments : []); } catch { urls = []; }
+      for (const u of urls) {
+        if (!u) continue;
+        const fileName = String(u).split('/').pop()?.split('?')[0] || 'archivo';
+        await pool.query(`INSERT INTO task_attachments (task_id, file_key, file_name, uploaded_by) VALUES ($1,$2,$3,$4)`, [taskId, String(u), fileName, Number(uid)]);
+        copied++;
+      }
+    }
+
+    return res.json({ ok: true, task_id: taskId, attachments_copied: copied });
+  } catch (e: any) {
+    console.error('[support] reportTicketError:', e); res.status(500).json({ error: 'Error al reportar el error' });
+  }
+};
+
 export const transferTicket = async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
