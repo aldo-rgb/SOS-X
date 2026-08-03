@@ -1122,7 +1122,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         COUNT(*) FILTER (WHERE ac.status = 'paid') as paid_count,
         SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'paid') as paid_commission
       FROM advisor_commissions ac
-      WHERE ac.advisor_id = $1
+      WHERE ac.advisor_id = $1 AND COALESCE(ac.penalized, false) = false
       ${byServiceExtra}
       ${PAID_ORDER_FILTER}
       GROUP BY ac.service_type
@@ -1142,7 +1142,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         COALESCE(SUM(ac.leader_override_amount) FILTER (WHERE ac.status = 'paid'), 0) AS override_paid
       FROM advisor_commissions ac
       LEFT JOIN users su ON su.id = ac.advisor_id
-      WHERE ac.leader_id = $1 AND COALESCE(ac.leader_override_amount, 0) > 0
+      WHERE ac.leader_id = $1 AND COALESCE(ac.leader_override_amount, 0) > 0 AND COALESCE(ac.penalized, false) = false
       ${subExtra}
       ${PAID_ORDER_FILTER}
       GROUP BY ac.advisor_id
@@ -1161,7 +1161,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         COUNT(*) FILTER (WHERE ac.status = 'paid') as paid_count,
         SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'paid') as paid_amount
       FROM advisor_commissions ac
-      WHERE ac.advisor_id = $1
+      WHERE ac.advisor_id = $1 AND COALESCE(ac.penalized, false) = false
         AND ac.created_at >= NOW() - INTERVAL '6 months'
         ${svcTypeParam ? 'AND ac.service_type = $2' : ''}
       ${PAID_ORDER_FILTER}
@@ -1184,7 +1184,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
         COUNT(*) FILTER (WHERE status = 'paid') as paid_count
       FROM advisor_commissions ac
-      WHERE ac.advisor_id = $1
+      WHERE ac.advisor_id = $1 AND COALESCE(ac.penalized, false) = false
       ${totalsExtra}
       ${PAID_ORDER_FILTER}
     `, totalsParams);
@@ -1199,7 +1199,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     const svcFilter = String((req.query.service_type as string) || '').trim();
     const statusFilter = String((req.query.status as string) || '').trim();
     const recentParams: any[] = [advisorId];
-    let recentWhere = 'WHERE ac.advisor_id = $1';
+    let recentWhere = 'WHERE ac.advisor_id = $1 AND COALESCE(ac.penalized, false) = false';
     if (svcFilter) { recentParams.push(svcFilter); recentWhere += ` AND ac.service_type = $${recentParams.length}`; }
     if (statusFilter === 'pending' || statusFilter === 'paid') { recentParams.push(statusFilter); recentWhere += ` AND ac.status = $${recentParams.length}`; }
     const recentRes = await pool.query(`

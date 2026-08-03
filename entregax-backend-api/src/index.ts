@@ -220,6 +220,10 @@ import {
   toggleAdvisorActive,
 } from './commissionController';
 import {
+  listComplaintAdvisors, createComplaint, listComplaints, deleteComplaint,
+  listPenalizableShipments, setShipmentPenalized,
+} from './complaintsPenaltiesController';
+import {
   getMetas as metasGet,
   getAltasPorAsesor as metasAltasPorAsesor,
   createGoal as metasCreateGoal,
@@ -5759,6 +5763,15 @@ app.get('/api/admin/commissions/by-advisor', authenticateToken, requireMinLevel(
 app.get('/api/admin/commissions/simulator-data', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionSimulatorData);
 app.post('/api/admin/commissions/pay', authenticateToken, requireMinLevel(ROLES.DIRECTOR), markCommissionsAsPaid);
 app.post('/api/admin/commissions/backfill', authenticateToken, requireMinLevel(ROLES.DIRECTOR), runCommissionBackfill);
+
+// Quejas a asesores (Ajustes y Cartera Vencida → Quejas)
+app.get('/api/admin/complaints/advisors', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), listComplaintAdvisors);
+app.get('/api/admin/complaints', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), listComplaints);
+app.post('/api/admin/complaints', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), createComplaint);
+app.delete('/api/admin/complaints/:id', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), deleteComplaint);
+// Castigo: penalizar embarques (no generan comisión)
+app.get('/api/admin/penalties/shipments', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), listPenalizableShipments);
+app.post('/api/admin/penalties/:id', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), setShipmentPenalized);
 
 // Admin: Referidos de un asesor específico
 app.get('/api/admin/referrals/:advisorId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getReferralsByAdvisor);

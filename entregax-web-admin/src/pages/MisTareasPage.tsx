@@ -110,7 +110,7 @@ const actLabel = (a: any): string => ACT_LABEL[a.action] || a.action;
 
 interface Task {
   id: number; title: string; description?: string; eisenhower: string; status: string;
-  due_at?: string; created_at?: string; completed_at?: string; assignee_name?: string; assignee_id?: number;
+  due_at?: string; created_at?: string; completed_at?: string; assignee_name?: string; assignee_id?: number; board_id?: number;
   board_name?: string; board_key?: string; column_name?: string; subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
   participants_count?: number; participant_names?: string[] | null;
 }

@@ -524,6 +524,8 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
 
         const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
         const conditions: string[] = [];
+        // 🚫 Castigo: los embarques penalizados NO generan comisión (se excluyen).
+        conditions.push(`COALESCE(ac.penalized, false) = false`);
         const params: any[] = [];
         let paramIdx = 1;
 
@@ -750,6 +752,7 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
         // El filtro de usuario (activo/oculto/líder actual) se aplica al final,
         // sobre el asesor mostrado, NO sobre las filas de sus subasesores.
         const rowConds: string[] = [];
+        rowConds.push(`COALESCE(ac.penalized, false) = false`); // 🚫 penalizados no cuentan
         const params: any[] = [];
         let paramIdx = 1;
 
@@ -900,6 +903,7 @@ export const getCommissionSimulatorData = async (req: Request, res: Response): P
     try {
         const { from_date, to_date, service_type } = req.query;
         const rowConds: string[] = [];
+        rowConds.push(`COALESCE(ac.penalized, false) = false`); // 🚫 penalizados no cuentan
         const params: any[] = [];
         let paramIdx = 1;
 
