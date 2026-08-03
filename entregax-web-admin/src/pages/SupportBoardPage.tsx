@@ -656,7 +656,10 @@ export default function SupportBoardPage() {
       });
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
-        setReportSnack({ msg: d.already ? `Ya existía la tarea de este error (${selectedTicket.ticket_folio}).` : `Tarea creada: "Error localizado ${selectedTicket.ticket_folio}"${d.attachments_copied ? ` · ${d.attachments_copied} archivo(s)` : ''}.`, sev: 'success' });
+        setReportSnack({ msg: d.already ? `Ya existía la tarea de este error (${selectedTicket.ticket_folio}).` : `Tarea creada: "Error localizado ${selectedTicket.ticket_folio}"${d.attachments_copied ? ` · ${d.attachments_copied} archivo(s)` : ''}. Ticket → Esperando Cliente.`, sev: 'success' });
+        setSelectedTicket(prev => (prev ? { ...prev, status: 'waiting_client' } : prev));
+        await loadTickets();
+        await loadStats();
       } else {
         setReportSnack({ msg: d.error || 'No se pudo reportar el error', sev: 'error' });
       }

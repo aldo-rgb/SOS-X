@@ -1771,7 +1771,14 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
       }
     }
 
-    return res.json({ ok: true, task_id: taskId, attachments_copied: copied });
+    // Pasar el ticket a "Esperando Cliente" (ya está en manos del equipo técnico).
+    await pool.query(`UPDATE support_tickets SET status = 'waiting_client', updated_at = NOW() WHERE id = $1`, [ticketId]);
+    await pool.query(
+      `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, TRUE)`,
+      [ticketId, `🐛 Error reportado → tarea "${title}" creada para el equipo. Ticket en espera.`]
+    ).catch(() => {});
+
+    return res.json({ ok: true, task_id: taskId, attachments_copied: copied, moved_to: 'waiting_client' });
   } catch (e: any) {
     console.error('[support] reportTicketError:', e); res.status(500).json({ error: 'Error al reportar el error' });
   }

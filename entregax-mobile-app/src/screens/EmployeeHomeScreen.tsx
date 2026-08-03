@@ -100,17 +100,8 @@ interface ModuleCard {
 // Definición de módulos por rol
 const EMPLOYEE_MODULES: ModuleCard[] = [
   // === TAREAS ===
-  {
-    id: 'my_tasks',
-    title: 'Mis Tareas',
-    subtitle: 'Tus tareas asignadas · Lista y Matriz',
-    icon: 'checkbox-outline',
-    iconFamily: 'ionicons',
-    color: '#D6521C',
-    screen: 'MyTasks',
-    roles: ['super_admin', 'admin', 'director', 'branch_manager', 'operaciones', 'warehouse_ops', 'counter_staff', 'accountant', 'finanzas', 'customer_service', 'advisor', 'sub_advisor', 'repartidor', 'monitoreo', 'abogado'],
-    requiresOnboarding: false,
-  },
+  // "Mis Tareas" se gestiona desde el banner/widget de tareas del home; se ocultó
+  // de esta lista de módulos para no duplicarlo.
   {
     id: 'tasks_admin',
     title: 'Tareas',
