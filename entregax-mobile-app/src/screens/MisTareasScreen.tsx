@@ -24,6 +24,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   // Ocultar tareas personales en horario laboral (10am–7pm). El toggle se apaga
   // por default cada vez que se entra a la pantalla (useFocusEffect).
   const [showPersonal, setShowPersonal] = useState(false);
+  const [catFilter, setCatFilter] = useState<number | 'all'>('all');
   useFocusEffect(useCallback(() => { setShowPersonal(false); }, []));
   const [openId, setOpenId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -54,7 +55,12 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   const nowHour = new Date().getHours();
   const isWorkHours = nowHour >= 10 && nowHour < 19; // 10am–7pm
   const hidePersonal = isWorkHours && !showPersonal;
-  const visibleTasks = hidePersonal ? tasks.filter(t => !isPersonalTask(t)) : tasks;
+  const personalOk = hidePersonal ? tasks.filter(t => !isPersonalTask(t)) : tasks;
+  // Opciones de categoría (tablero) presentes en las tareas.
+  const boardOptions = Array.from(
+    new Map(tasks.filter(t => t.board_id).map(t => [Number(t.board_id), t.board_name || 'Sin categoría'])).entries()
+  ).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  const visibleTasks = catFilter === 'all' ? personalOk : personalOk.filter(t => Number(t.board_id) === catFilter);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -71,35 +77,57 @@ export default function MisTareasScreen({ navigation, route }: Props) {
       <View style={styles.toolbar}>
         <ViewToggle view={view} onChange={setView} firstLabel="Lista" />
         {isWorkHours && (
-          <TouchableOpacity onPress={() => setShowPersonal(v => !v)} style={[styles.persBtn, showPersonal && styles.persBtnOn]}>
-            <Ionicons name="home" size={14} color={showPersonal ? '#fff' : '#B07206'} />
-            <Text style={[styles.persBtnTxt, showPersonal && { color: '#fff' }]}>Personales</Text>
+          <TouchableOpacity onPress={() => setShowPersonal(v => !v)} style={[styles.iconBtnOutline, showPersonal && styles.persBtnOn]}>
+            <Ionicons name="home" size={18} color={showPersonal ? '#fff' : '#B07206'} />
           </TouchableOpacity>
         )}
         <View style={{ flex: 1 }} />
-        <TouchableOpacity style={styles.schedBtn} onPress={() => setSchedOpen(true)}>
-          <Ionicons name="calendar-outline" size={16} color="#B07206" />
-          <Text style={styles.schedBtnTxt}>Programar</Text>
+        <TouchableOpacity style={styles.iconBtnOutline} onPress={() => setSchedOpen(true)} hitSlop={8}>
+          <Ionicons name="calendar-outline" size={20} color="#B07206" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.newBtn} onPress={() => setCreateOpen(true)}>
-          <Ionicons name="add" size={18} color="#fff" />
-          <Text style={styles.newBtnTxt}>Nueva</Text>
+        <TouchableOpacity style={styles.iconBtnFilled} onPress={() => setCreateOpen(true)} hitSlop={8}>
+          <Ionicons name="add" size={24} color="#fff" />
         </TouchableOpacity>
       </View>
+
+      {boardOptions.length > 1 && (
+        <View style={styles.catBar}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 12 }}>
+            <TouchableOpacity onPress={() => setCatFilter('all')} style={[styles.catChip, catFilter === 'all' && styles.catChipOn]}>
+              <Text style={[styles.catChipTxt, catFilter === 'all' && styles.catChipTxtOn]}>Todas</Text>
+            </TouchableOpacity>
+            {boardOptions.map(b => (
+              <TouchableOpacity key={b.id} onPress={() => setCatFilter(b.id)} style={[styles.catChip, catFilter === b.id && styles.catChipOn]}>
+                <Text style={[styles.catChipTxt, catFilter === b.id && styles.catChipTxtOn]} numberOfLines={1}>{b.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       {loading ? (
         <View style={styles.center}><ActivityIndicator size="large" color={ORANGE} /></View>
       ) : tasks.length === 0 ? (
         <View style={styles.center}><Ionicons name="checkmark-done-circle-outline" size={44} color="#BBB" /><Text style={styles.empty}>No tienes tareas pendientes 🎉</Text></View>
       ) : visibleTasks.length === 0 ? (
-        <View style={styles.center}>
-          <Ionicons name="home-outline" size={44} color="#BBB" />
-          <Text style={styles.empty}>Tus tareas personales están ocultas en horario laboral (10am–7pm).</Text>
-          <TouchableOpacity onPress={() => setShowPersonal(true)} style={[styles.persBtn, styles.persBtnOn, { marginTop: 14 }]}>
-            <Ionicons name="home" size={14} color="#fff" />
-            <Text style={[styles.persBtnTxt, { color: '#fff' }]}>Mostrar personales</Text>
-          </TouchableOpacity>
-        </View>
+        personalOk.length === 0 && hidePersonal ? (
+          <View style={styles.center}>
+            <Ionicons name="home-outline" size={44} color="#BBB" />
+            <Text style={styles.empty}>Tus tareas personales están ocultas en horario laboral (10am–7pm).</Text>
+            <TouchableOpacity onPress={() => setShowPersonal(true)} style={[styles.persBtn, styles.persBtnOn, { marginTop: 14 }]}>
+              <Ionicons name="home" size={14} color="#fff" />
+              <Text style={[styles.persBtnTxt, { color: '#fff' }]}>Mostrar personales</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.center}>
+            <Ionicons name="folder-open-outline" size={44} color="#BBB" />
+            <Text style={styles.empty}>No hay tareas en esta categoría.</Text>
+            <TouchableOpacity onPress={() => setCatFilter('all')} style={[styles.persBtn, styles.persBtnOn, { marginTop: 14 }]}>
+              <Text style={[styles.persBtnTxt, { color: '#fff' }]}>Ver todas</Text>
+            </TouchableOpacity>
+          </View>
+        )
       ) : view === 'matrix' ? (
         // Matriz 2×2 que llena la pantalla (fuera del ScrollView; cada cuadrante hace scroll interno).
         <View style={{ flex: 1, padding: 10 }}>
@@ -138,6 +166,13 @@ const styles = StyleSheet.create({
   persBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#B07206', marginLeft: 8 },
   persBtnOn: { backgroundColor: '#B07206' },
   persBtnTxt: { color: '#B07206', fontWeight: '800', fontSize: 12.5 },
+  iconBtnOutline: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#B07206', alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
+  iconBtnFilled: { width: 40, height: 40, borderRadius: 20, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
+  catBar: { paddingBottom: 8, backgroundColor: BG },
+  catChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff', maxWidth: 180 },
+  catChipOn: { backgroundColor: ORANGE, borderColor: ORANGE },
+  catChipTxt: { fontSize: 12.5, fontWeight: '700', color: '#555' },
+  catChipTxtOn: { color: '#fff' },
   newBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 12, height: 34, borderRadius: 17, backgroundColor: ORANGE },
   newBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 13 },
 });

@@ -195,6 +195,8 @@ export default function MisTareasPage() {
   // Tareas personales ocultas en horario laboral (10am–7pm); toggle apagado por
   // default cada vez que se entra a la pantalla (no se persiste).
   const [showPersonal, setShowPersonal] = useState(false);
+  // Filtro por categoría (tablero). 'all' = todas.
+  const [catFilter, setCatFilter] = useState<number | 'all'>('all');
   const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
   const notify = (msg: string, sev: 'success' | 'error' = 'success') => setSnack({ open: true, msg, sev });
 
@@ -399,7 +401,12 @@ export default function MisTareasPage() {
   const nowHour = new Date().getHours();
   const isWorkHours = nowHour >= 10 && nowHour < 19; // 10am–7pm
   const hidePersonal = isWorkHours && !showPersonal;
-  const visibleTasks = hidePersonal ? tasks.filter(t => !isPersonalTask(t)) : tasks;
+  const personalOk = hidePersonal ? tasks.filter(t => !isPersonalTask(t)) : tasks;
+  // Opciones de categoría presentes en las tareas (tablero).
+  const boardOptions = Array.from(
+    new Map(tasks.filter(t => t.board_id).map(t => [Number(t.board_id), t.board_name || 'Sin categoría'])).entries()
+  ).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  const visibleTasks = catFilter === 'all' ? personalOk : personalOk.filter(t => Number(t.board_id) === catFilter);
 
   return (
     <Box>
@@ -432,6 +439,13 @@ export default function MisTareasPage() {
             {showPersonal ? '🏠 Mostrando personales' : '🏠 Mostrar personales'}
           </Button>
         )}
+        <FormControl size="small" sx={{ minWidth: 180 }}>
+          <InputLabel>Categoría</InputLabel>
+          <Select label="Categoría" value={catFilter} onChange={e => setCatFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
+            <MenuItem value="all">Todas las categorías</MenuItem>
+            {boardOptions.map(b => <MenuItem key={b.id} value={b.id}>{b.name}</MenuItem>)}
+          </Select>
+        </FormControl>
       </Box>
 
       {loading ? (
@@ -439,9 +453,15 @@ export default function MisTareasPage() {
       ) : tasks.length === 0 ? (
         <Alert severity="success">No tienes tareas pendientes 🎉</Alert>
       ) : visibleTasks.length === 0 ? (
-        <Alert severity="info" action={<Button size="small" color="inherit" onClick={() => setShowPersonal(true)}>Mostrar personales</Button>}>
-          Tus tareas personales están ocultas durante el horario laboral (10am–7pm).
-        </Alert>
+        personalOk.length === 0 && hidePersonal ? (
+          <Alert severity="info" action={<Button size="small" color="inherit" onClick={() => setShowPersonal(true)}>Mostrar personales</Button>}>
+            Tus tareas personales están ocultas durante el horario laboral (10am–7pm).
+          </Alert>
+        ) : (
+          <Alert severity="info" action={<Button size="small" color="inherit" onClick={() => setCatFilter('all')}>Ver todas</Button>}>
+            No hay tareas en esta categoría.
+          </Alert>
+        )
       ) : view === 'matrix' ? (
         // 2×2 fijo a la altura de la pantalla; cada cuadrante hace scroll interno.
         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 1, height: 'calc(100vh - 210px)', minHeight: 440 }}>
