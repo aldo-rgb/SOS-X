@@ -1,3 +1,7 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simulador de Comisiones · EntregaX (Propuesta)</title>
 <style>
   :root {
@@ -153,7 +157,7 @@
       <h1>Simulador de comisiones</h1>
       <p class="sub">Modelo de <strong>recompensas y consecuencias</strong> por servicio, calculado sobre el <strong>historial real</strong> de EntregaX. Base + acelerador selectivo, bonos de volumen/attach/combo y el <strong>gate de venta cruzada</strong>.</p>
     </div>
-    <div class="databadge"><span class="dot"></span> Foto de solo lectura · <strong id="advCount">—</strong> asesores</div>
+    <div class="databadge"><span class="dot"></span> <span id="dataMode">Foto de solo lectura</span> · <strong id="advCount">—</strong> asesores</div>
   </header>
 
   <div class="kpis">
@@ -165,6 +169,7 @@
   <div class="tabs" role="tablist">
     <button class="tab on" data-tab="asesor" role="tab">Por asesor</button>
     <button class="tab" data-tab="equipo" role="tab">Equipo completo</button>
+    <button class="tab" data-tab="metas" role="tab">🎯 Metas</button>
     <button class="tab" data-tab="modelo" role="tab">El modelo</button>
   </div>
 
@@ -250,6 +255,17 @@
     </div>
   </section>
 
+  <!-- ============ METAS ============ -->
+  <section class="card hide" id="tab-metas">
+    <div class="hdr"><h3>Metas para el acelerador</h3><span class="section-note">solo servicios acelerados (Aéreo/TDI/Marítimo) · meta = <b id="metaPctLbl">75</b>% de sus ventas aceleradas · para el 1.5× hay que superar el <b id="thrLbl">120</b>% de la meta</span></div>
+    <div class="bd tblwrap">
+      <table>
+        <thead><tr><th>Asesor <span style="font-weight:400;color:#8a7f72">· meta por servicio (histórico)</span></th><th class="num">Ventas aceleradas</th><th class="num">Meta</th><th class="num">Vender este mes p/ acelerador</th><th class="num">Falta</th></tr></thead>
+        <tbody id="metasBody"></tbody>
+      </table>
+    </div>
+  </section>
+
   <!-- ============ EL MODELO ============ -->
   <section class="hide" id="tab-modelo">
     <div class="phase">
@@ -291,7 +307,7 @@
 
 <script>
   // ── Historial real embebido ──
-  const DATA = [
+  let DATA = [
     {"id":20,"name":"ALDO JOSE CAMPOS LOMAS","override_actual":103.08,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":273892.48,"comision":27389.23,"guias":37},"maritimo_china_mx":{"ventas":166596.32,"comision":6247.36,"guias":1},"liberacion_aa_dhl":{"ventas":30477.10,"comision":3047.71,"guias":10},"gex_warranty":{"ventas":11250.00,"comision":5850.00,"guias":18}}},
     {"id":21,"name":"Antonio Hernandez","override_actual":0,"sub_count":0,"servicios":{"aereo_china_mx":{"ventas":1394346.08,"comision":34858.61,"guias":109}}},
     {"id":18,"name":"Andres Campos","override_actual":315.16,"sub_count":1,"servicios":{"pobox_usa_mx":{"ventas":336253.54,"comision":33625.47,"guias":122}}},
@@ -409,7 +425,7 @@
 
   // ── Por asesor ──
   const advSel = el("advSel");
-  DATA.forEach((a,i) => { const o=document.createElement("option"); o.value=i; o.textContent=a.name; advSel.appendChild(o); });
+  function buildAdvOptions(){ advSel.innerHTML=""; DATA.forEach((a,i) => { const o=document.createElement("option"); o.value=i; o.textContent=a.name; advSel.appendChild(o); }); } buildAdvOptions();
 
   function renderAsesor() {
     const a = DATA[advSel.value], p = getParams();
@@ -490,7 +506,42 @@
     el("advCount").textContent = DATA.length;
   }
 
-  function renderAll(){ renderKpis(); renderAsesor(); renderEquipo(); }
+  // ── Metas para el acelerador ──
+  function renderMetas() {
+    const p = getParams();
+    el("metaPctLbl").textContent = p.metaPct;
+    el("thrLbl").textContent = (p.thr*100).toFixed(0);
+    const tb = el("metasBody"); tb.innerHTML="";
+    const list = DATA.map(a => ({ a, r: compute(a, p, null) }))
+      .filter(x => x.r.ventasAccel > 0)
+      .sort((x,y) => y.r.ventasAccel - x.r.ventasAccel);
+    if (list.length === 0) {
+      tb.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#999;padding:16px">Ningún asesor tiene ventas en servicios acelerados (Aéreo / TDI / Marítimo).</td></tr>`;
+      return;
+    }
+    list.forEach(({a, r}) => {
+      const umbral = p.thr * r.meta;          // ventas aceleradas necesarias para el 1.5×
+      const falta = umbral - r.ventasAccel;   // cuánto más vender este mes
+      const parts = [];
+      for (const k of SVC_ORDER) {
+        const s = SERVICES[k]; const v = a.servicios[k];
+        if (!v || !s.accel) continue;
+        const tgt = r.ventasAccel > 0 ? umbral * (v.ventas / r.ventasAccel) : 0;
+        parts.push(`${s.icon} ${s.label}: ${fmt0(tgt)}`);
+      }
+      const estado = falta <= 0 ? `<span class="v pos">✓ logrado</span>` : `<span class="v neg">${fmt0(falta)}</span>`;
+      tb.insertAdjacentHTML("beforeend",
+        `<tr>
+          <td><div style="font-weight:600">${a.name}</div><div style="font-size:11px;color:#8a7f72">${parts.join(" · ") || "—"}</div></td>
+          <td class="num">${fmt0(r.ventasAccel)}</td>
+          <td class="num">${fmt0(r.meta)}</td>
+          <td class="num" style="font-weight:700">${fmt0(umbral)}</td>
+          <td class="num">${estado}</td>
+        </tr>`);
+    });
+  }
+
+  function renderAll(){ renderKpis(); renderAsesor(); renderEquipo(); renderMetas(); }
 
   el("params").addEventListener("input", renderAll);
   ["advSel","mCombos","mClean","mPenN2"].forEach(id => el(id).addEventListener("input", () => { renderKpis(); renderAsesor(); }));
@@ -501,8 +552,27 @@
     const w = t.dataset.tab;
     el("tab-asesor").classList.toggle("hide", w!=="asesor");
     el("tab-equipo").classList.toggle("hide", w!=="equipo");
+    el("tab-metas").classList.toggle("hide", w!=="metas");
     el("tab-modelo").classList.toggle("hide", w!=="modelo");
   }));
 
+
+  // ── Puente de datos vivos (cuando corre embebido en la app EntregaX) ──
+  window.addEventListener("message", (ev) => {
+    const d = ev && ev.data;
+    if (!d || d.type !== "ENTREGAX_SIM_DATA") return;
+    if (Array.isArray(d.advisors) && d.advisors.length) {
+      DATA = d.advisors;
+      if (advSel.value >= DATA.length) advSel.value = 0;
+      buildAdvOptions();
+      const mode = document.getElementById("dataMode");
+      if (mode) mode.textContent = d.asOfLabel || "Datos en vivo";
+      renderAll();
+    }
+  });
+  try { (window.parent && window.parent !== window ? window.parent : window).postMessage({type:"ENTREGAX_SIM_READY"}, "*"); } catch(e){}
+
   renderAll();
 </script>
+
+</html>
