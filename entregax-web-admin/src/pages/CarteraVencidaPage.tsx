@@ -61,6 +61,8 @@ import api from '../services/api';
 import DhlImportTaxPage from './DhlImportTaxPage';
 import QuejasPanel from './QuejasPanel';
 import CastigoPanel from './CastigoPanel';
+import CargosExtraPanel from './CargosExtraPanel';
+import PaidIcon from '@mui/icons-material/Paid';
 
 // Interfaces
 interface Ajuste {
@@ -600,7 +602,7 @@ export default function CarteraVencidaPage() {
       <Paper sx={{ mb: 3 }}>
         <Tabs
           value={tab}
-          onChange={(_, v) => { if (v === 8) { setSaldoDialog(true); } else { setTab(v); } }}
+          onChange={(_, v) => { if (v === 9) { setSaldoDialog(true); } else { setTab(v); } }}
           variant="scrollable"
           scrollButtons="auto"
         >
@@ -610,6 +612,7 @@ export default function CarteraVencidaPage() {
           <Tab icon={<ReportProblemIcon />} label="Perdidas" />
           <Tab icon={<UndoIcon />} label="Revertir Instrucciones" />
           <Tab icon={<ReceiptIcon />} label="Impuestos DHL" />
+          <Tab icon={<PaidIcon />} label="Cargos Extra" />
           <Tab icon={<ReportProblemIcon />} label="Quejas" />
           <Tab icon={<GavelIcon />} label="Castigo" />
           <Tab icon={<AccountBalanceWalletIcon />} label="Saldo a Favor" sx={{ color: 'success.main', '&:hover': { color: 'success.dark' } }} />
@@ -1397,8 +1400,9 @@ export default function CarteraVencidaPage() {
         </Box>
       )}
 
-      {tab === 6 && (<Box sx={{ mt: 1 }}><QuejasPanel /></Box>)}
-      {tab === 7 && (<Box sx={{ mt: 1 }}><CastigoPanel /></Box>)}
+      {tab === 6 && (<Box sx={{ mt: 1 }}><CargosExtraPanel /></Box>)}
+      {tab === 7 && (<Box sx={{ mt: 1 }}><QuejasPanel /></Box>)}
+      {tab === 8 && (<Box sx={{ mt: 1 }}><CastigoPanel /></Box>)}
 
       {/* Dialog de confirmación: Revertir instrucciones */}
       <Dialog open={!!revertConfirmPkg} onClose={() => setRevertConfirmPkg(null)} maxWidth="sm" fullWidth>

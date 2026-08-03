@@ -100,17 +100,38 @@ export async function getUsdToMxnRate(): Promise<number> {
   return 1;
 }
 
+// Columnas nuevas para el flujo de "cargo extra cobrable" (CEX):
+//  · guias_ajustes_financieros.payment_reference → si el cargo se cobra por una
+//    orden CEX aparte, NO debe sumar al saldo de la guía (que ya estaba pagada).
+//  · pobox_payments.concepto → motivo del cargo, para el botón "Detalles" del cliente.
+let cargoExtraSchemaReady = false;
+export async function ensureCargoExtraSchema() {
+  if (cargoExtraSchemaReady) return;
+  try {
+    await pool.query(`ALTER TABLE guias_ajustes_financieros ADD COLUMN IF NOT EXISTS payment_reference TEXT`);
+    await pool.query(`ALTER TABLE pobox_payments ADD COLUMN IF NOT EXISTS concepto TEXT`);
+    await pool.query(`ALTER TABLE pobox_payments ADD COLUMN IF NOT EXISTS bank_name TEXT`);
+    await pool.query(`ALTER TABLE pobox_payments ADD COLUMN IF NOT EXISTS bank_clabe TEXT`);
+    await pool.query(`ALTER TABLE pobox_payments ADD COLUMN IF NOT EXISTS bank_account TEXT`);
+    await pool.query(`ALTER TABLE pobox_payments ADD COLUMN IF NOT EXISTS beneficiario TEXT`);
+    cargoExtraSchemaReady = true;
+  } catch (e) { console.error('ensureCargoExtraSchema:', e); }
+}
+
 // Actualiza el saldo_pendiente sumando cargos y restando descuentos.
 // Los ajustes en USD se convierten a MXN (los costos base están en MXN).
 async function actualizarSaldoGuia(tracking: string, servicio: string) {
+  await ensureCargoExtraSchema();
   const tcUsd = await getUsdToMxnRate();
-  // Calcular suma de ajustes (convirtiendo USD→MXN)
+  // Calcular suma de ajustes (convirtiendo USD→MXN). Se EXCLUYEN los cargos que ya
+  // se cobran por una orden CEX aparte (payment_reference no nulo).
   const ajustesResult = await pool.query(
     `SELECT
        COALESCE(SUM(CASE WHEN tipo = 'cargo_extra' THEN monto * (CASE WHEN UPPER(COALESCE(moneda,'MXN'))='USD' THEN $3::numeric ELSE 1 END) ELSE 0 END), 0) as cargos,
        COALESCE(SUM(CASE WHEN tipo = 'descuento'  THEN monto * (CASE WHEN UPPER(COALESCE(moneda,'MXN'))='USD' THEN $3::numeric ELSE 1 END) ELSE 0 END), 0) as descuentos
      FROM guias_ajustes_financieros
-     WHERE guia_tracking = $1 AND servicio = $2 AND activo = TRUE`,
+     WHERE guia_tracking = $1 AND servicio = $2 AND activo = TRUE
+       AND COALESCE(payment_reference, '') = ''`,
     [tracking, servicio, tcUsd]
   );
   const { cargos, descuentos } = ajustesResult.rows[0];
@@ -173,6 +194,159 @@ async function actualizarSaldoGuia(tracking: string, servicio: string) {
     );
   }
 }
+
+// ========== CARGO EXTRA COBRABLE (CEX) ==========
+// Mapea el `servicio` del ajuste al service_type de service_company_config (empresa/cuenta).
+function mapServicioToConfig(servicio: string, pkgServiceType?: string | null): string {
+  switch (servicio) {
+    case 'dhl': return 'AA_DHL';
+    case 'china_receipt': return 'AIR_CHN_MX';
+    case 'maritime_order':
+    case 'maritime': return 'SEA_CHN_MX';
+    case 'national': return 'NATIONAL';
+    case 'tdi':
+    case 'tdi_express': return 'TDI_EXPRESS';
+    case 'package':
+    default:
+      if (pkgServiceType && ['POBOX_USA', 'AIR_CHN_MX', 'SEA_CHN_MX', 'AA_DHL', 'TDI_EXPRESS', 'NATIONAL'].includes(pkgServiceType)) return pkgServiceType;
+      return 'POBOX_USA';
+  }
+}
+// Tabla/columna para leer saldo_pendiente por servicio (para el flujo CEX).
+function cargoGuiaTableFor(servicio: string): { table: string; col: string } | null {
+  switch (servicio) {
+    case 'package': return { table: 'packages', col: 'tracking_internal' };
+    case 'dhl': return { table: 'dhl_shipments', col: 'inbound_tracking' };
+    case 'china_receipt': return { table: 'china_receipts', col: 'fno' };
+    case 'maritime_order': return { table: 'maritime_orders', col: 'ordersn' };
+    case 'maritime': return { table: 'maritime_shipments', col: 'log_number' };
+    case 'national': return { table: 'national_shipments', col: 'tracking_number' };
+    default: return null;
+  }
+}
+const genCexRef = (): string => `CEX-${String(Date.now() % 10000).padStart(4, '0')}${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
+
+// Genera un cargo extra. Si la guía NO está pagada (saldo>0) → suma al saldo (como hoy).
+// Si YA está pagada (saldo=0) → genera una orden cobrable CEX (cuenta por pagar del
+// cliente + Cobranza + visible al asesor), usando la cuenta bancaria del servicio.
+export const createCargoExtra = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureCargoExtraSchema();
+    const uid = (req as any).user?.id ?? (req as any).user?.userId ?? null;
+    const { guia_id, guia_tracking, servicio, monto, moneda, concepto, notas } = req.body || {};
+    let cliente_id = req.body?.cliente_id || null;
+    const montoNum = Math.abs(Number(monto) || 0);
+    if (!guia_tracking || !servicio || !concepto || !String(concepto).trim() || montoNum <= 0) {
+      return res.status(400).json({ error: 'Faltan datos: guía, servicio, monto y concepto son obligatorios' });
+    }
+    const map = cargoGuiaTableFor(servicio);
+    if (!map) return res.status(400).json({ error: `Servicio no reconocido: ${servicio}` });
+
+    const selCols = servicio === 'package' ? 'COALESCE(saldo_pendiente,0) AS saldo, service_type, user_id'
+      : 'COALESCE(saldo_pendiente,0) AS saldo, user_id';
+    const gRes = await pool.query(`SELECT ${selCols} FROM ${map.table} WHERE ${map.col} = $1 LIMIT 1`, [guia_tracking]);
+    if (gRes.rows.length === 0) return res.status(404).json({ error: 'Guía no encontrada' });
+    const saldo = Number(gRes.rows[0].saldo) || 0;
+    if (!cliente_id) cliente_id = gRes.rows[0].user_id || null;
+    const pkgServiceType = gRes.rows[0].service_type || null;
+
+    // ── CASO 1: guía NO pagada → sumar al saldo (comportamiento actual) ──
+    if (saldo > 0) {
+      await pool.query(
+        `INSERT INTO guias_ajustes_financieros (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, notas, autorizado_por, cliente_id, activo)
+         VALUES ($1,$2,$3,'cargo_extra',$4,$5,$6,$7,$8,$9,TRUE)`,
+        [guia_id || 0, guia_tracking, servicio, montoNum, (moneda || 'MXN'), concepto, notas || null, uid, cliente_id]
+      );
+      await actualizarSaldoGuia(guia_tracking, servicio);
+      return res.json({ ok: true, mode: 'added_to_balance', message: 'La guía aún no estaba pagada: el cargo se sumó a su saldo pendiente.' });
+    }
+
+    // ── CASO 2: guía YA pagada (saldo 0) → orden cobrable CEX ──
+    if (!cliente_id) return res.status(400).json({ error: 'No se pudo determinar el cliente de la guía para generar el cobro.' });
+
+    const tcUsd = await getUsdToMxnRate();
+    const montoMxn = String(moneda || 'MXN').toUpperCase() === 'USD' ? Math.round(montoNum * tcUsd * 100) / 100 : montoNum;
+
+    const cfgServiceType = mapServicioToConfig(servicio, pkgServiceType);
+    const cRes = await pool.query(
+      `SELECT fe.id AS empresa_id, fe.business_name AS legal_name, fe.bank_name, fe.bank_clabe, fe.bank_account
+       FROM service_company_config scc JOIN fiscal_emitters fe ON fe.id = scc.emitter_id
+       WHERE scc.service_type = $1 AND scc.is_active = TRUE LIMIT 1`, [cfgServiceType]);
+    const company = cRes.rows[0];
+    if (!company?.bank_clabe) {
+      return res.status(500).json({ error: `No hay cuenta bancaria configurada para el servicio ${cfgServiceType}. Configúrala en Empresas / Comisiones → Servicios.` });
+    }
+
+    const uRes = await pool.query(`SELECT id, full_name, box_id, advisor_id, referred_by_id FROM users WHERE id = $1`, [cliente_id]);
+    const cli = uRes.rows[0] || {};
+    const advisorId = cli.advisor_id || cli.referred_by_id || null;
+    const ref = genCexRef();
+
+    // 1) pobox_payments — cuenta por pagar del cliente (con su cuenta y concepto)
+    const ppRes = await pool.query(
+      `INSERT INTO pobox_payments (user_id, package_ids, amount, currency, payment_method, payment_reference, status, concepto, bank_name, bank_clabe, bank_account, beneficiario, created_at)
+       VALUES ($1, '[]'::jsonb, $2, 'MXN', 'transfer', $3, 'pending_payment', $4, $5, $6, $7, $8, CURRENT_TIMESTAMP) RETURNING id`,
+      [cliente_id, montoMxn, ref, concepto, company.bank_name, company.bank_clabe, company.bank_account, company.legal_name]
+    );
+    const poboxPaymentId = ppRes.rows[0].id;
+
+    // 2) openpay_webhook_logs — aparece en Cobranza (Pagos Pendientes en Sucursal)
+    try {
+      await pool.query(
+        `INSERT INTO openpay_webhook_logs (transaction_id, empresa_id, user_id, monto_recibido, monto_neto, concepto, fecha_pago, estatus_procesamiento, service_type, payment_method, payload_json, branch_id)
+         VALUES ($1,$2,$3,$4,$4,$5,CURRENT_TIMESTAMP,'pending_payment',$6,'transfer',$7,NULL)`,
+        [ref, company.empresa_id, cliente_id, montoMxn, `Cargo extra: ${concepto} (${guia_tracking})`, cfgServiceType, JSON.stringify({ type: 'cargo_extra', guia_tracking, servicio, concepto, pobox_payment_id: poboxPaymentId })]
+      );
+    } catch (e) { console.error('CEX webhook_log:', e); }
+
+    // 3) advisor_payment_orders — el asesor la ve (solo lectura)
+    if (advisorId) {
+      try {
+        await pool.query(
+          `INSERT INTO advisor_payment_orders (folio, advisor_id, client_id, client_name, client_box_id, package_uids, trackings, notes, total_mxn, status, pobox_payment_id, payment_reference, service_type_cfg)
+           VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,$6,$7,$8,'pendiente',$9,$10,$11)`,
+          [`CEX-${advisorId}-${Date.now()}`, advisorId, cliente_id, cli.full_name || null, cli.box_id || null, JSON.stringify([guia_tracking]), `Cargo extra: ${concepto}`, montoMxn, poboxPaymentId, ref, cfgServiceType]
+        );
+      } catch (e) { console.error('CEX advisor order:', e); }
+    }
+
+    // 4) Ajuste de auditoría, marcado con la referencia CEX (NO suma al saldo de la guía)
+    await pool.query(
+      `INSERT INTO guias_ajustes_financieros (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, notas, autorizado_por, cliente_id, activo, payment_reference)
+       VALUES ($1,$2,$3,'cargo_extra',$4,$5,$6,$7,$8,$9,TRUE,$10)`,
+      [guia_id || 0, guia_tracking, servicio, montoNum, (moneda || 'MXN'), concepto, notas || null, uid, cliente_id, ref]
+    );
+
+    return res.json({
+      ok: true, mode: 'cex_generated', reference: ref, amount_mxn: montoMxn, advisor_notified: !!advisorId,
+      bank_info: { banco: company.bank_name, clabe: company.bank_clabe, cuenta: company.bank_account, beneficiario: company.legal_name, concepto: ref },
+      message: `Guía ya pagada → se generó la orden cobrable ${ref}.`,
+    });
+  } catch (e: any) {
+    console.error('[cs] createCargoExtra:', e); res.status(500).json({ error: 'Error al generar el cargo extra' });
+  }
+};
+
+// Lista de cargos extra cobrables (CEX) generados — para la sección "Cargos Extra".
+export const listCargosExtra = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureCargoExtraSchema();
+    const r = await pool.query(`
+      SELECT a.id, a.guia_tracking, a.servicio, a.monto, a.moneda, a.concepto, a.fecha_registro,
+             a.payment_reference, a.cliente_id, u.full_name AS cliente_nombre, u.box_id,
+             au.full_name AS autorizado_nombre, pp.status AS pago_status, pp.paid_at, pp.amount AS monto_mxn
+      FROM guias_ajustes_financieros a
+      LEFT JOIN users u ON u.id = a.cliente_id
+      LEFT JOIN users au ON au.id = a.autorizado_por
+      LEFT JOIN pobox_payments pp ON pp.payment_reference = a.payment_reference
+      WHERE a.tipo = 'cargo_extra' AND a.activo = TRUE AND COALESCE(a.payment_reference,'') <> ''
+      ORDER BY a.fecha_registro DESC LIMIT 200
+    `);
+    res.json({ cargos: r.rows });
+  } catch (e: any) {
+    console.error('[cs] listCargosExtra:', e); res.status(500).json({ error: 'Error al cargar cargos extra' });
+  }
+};
 
 // ========== CARTERA VENCIDA ==========
 

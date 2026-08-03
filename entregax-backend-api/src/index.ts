@@ -1326,6 +1326,8 @@ import {
   // Ajustes Financieros
   getAjustesGuia,
   createAjuste,
+  createCargoExtra,
+  listCargosExtra,
   deleteAjuste,
   // Cartera Vencida
   getCarteraCliente,
@@ -13808,6 +13810,9 @@ app.post('/api/fiscal/retry-invoice', authenticateToken, retryPendingInvoice);
 app.get('/api/cs/ajustes/:servicio/:tracking', authenticateToken, getAjustesGuia);
 app.post('/api/cs/ajustes', authenticateToken, createAjuste);
 app.delete('/api/cs/ajustes/:id', authenticateToken, deleteAjuste);
+// Cargo extra cobrable (CEX): si la guía ya está pagada, genera orden de cobro.
+app.post('/api/cs/cargos-extra', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), createCargoExtra);
+app.get('/api/cs/cargos-extra', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), listCargosExtra);
 
 // Cartera Vencida Dashboard
 app.get('/api/cs/cartera/dashboard', authenticateToken, getCarteraDashboard);

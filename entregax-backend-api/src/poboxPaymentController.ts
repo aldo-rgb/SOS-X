@@ -14,6 +14,7 @@ import {
 } from './services/paypalErrors';
 import { createInvoice } from './fiscalController';
 import { generateCommissionsForPackages } from './commissionService';
+import { ensureCargoExtraSchema } from './customerServiceController';
 
 // ============================================
 // POBOX PAYMENT CONTROLLER - MULTISUCURSAL
@@ -1719,9 +1720,10 @@ export const getPoboxPendingPayments = async (req: Request, res: Response): Prom
 export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): Promise<any> => {
     try {
         const userId = req.user?.userId || req.user?.id;
+        await ensureCargoExtraSchema();
 
         const result = await pool.query(`
-            SELECT 
+            SELECT
                 p.id,
                 p.package_ids,
                 p.amount,
@@ -1732,6 +1734,11 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                 p.created_at,
                 p.paid_at,
                 p.expires_at,
+                p.concepto,
+                p.bank_name AS row_bank_name,
+                p.bank_clabe AS row_bank_clabe,
+                p.bank_account AS row_bank_account,
+                p.beneficiario AS row_beneficiario,
                 p.credit_applied,
                 p.credit_service,
                 p.credit_applied_at,
@@ -1942,6 +1949,17 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             // que el frontend pueda mostrarla cuando el usuario elija
             // transferir manualmente.
             enriched.bank_info = bankInfo;
+            // Cargo extra cobrable (CEX): la fila trae su propia cuenta (según el
+            // servicio de la guía) y el concepto/motivo para el botón "Detalles".
+            if (row.row_bank_clabe) {
+                enriched.bank_info = {
+                    banco: row.row_bank_name,
+                    clabe: row.row_bank_clabe,
+                    cuenta: row.row_bank_account || String(row.row_bank_clabe).slice(-10) || '',
+                    beneficiario: row.row_beneficiario,
+                };
+            }
+            enriched.is_cargo_extra = String(row.payment_reference || '').startsWith('CEX-');
             enriched.branch_info = branchInfo;
             payments.push(enriched);
         }

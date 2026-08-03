@@ -1306,7 +1306,10 @@ const MyPaymentsScreen = () => {
                   style={styles.orderHeader}
                   onPress={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
                 >
-                  <Text style={styles.orderRef}>{order.payment_reference}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.orderRef}>{order.payment_reference}</Text>
+                    {order.is_cargo_extra && <Text style={{ fontSize: 11, color: '#B07206', fontWeight: '700', marginTop: 2 }}>💳 Cargo extra</Text>}
+                  </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <View style={[styles.orderStatusBadge, { backgroundColor: st.bg }]}>
                       <Text style={[styles.orderStatusText, { color: st.text }]}>{st.label}</Text>
@@ -1318,6 +1321,12 @@ const MyPaymentsScreen = () => {
                   </View>
                 </TouchableOpacity>
                 <View style={styles.orderBody}>
+                  {!!order.concepto && (
+                    <View style={styles.orderRow}>
+                      <Text style={styles.orderLabel}>Motivo</Text>
+                      <Text style={[styles.orderValue, { flex: 1, textAlign: 'right', marginLeft: 12 }]}>{order.concepto}</Text>
+                    </View>
+                  )}
                   <View style={styles.orderRow}>
                     <Text style={styles.orderLabel}>{MT.method}</Text>
                     <Text style={styles.orderValue}>{methodLabels[order.payment_method] || order.payment_method}</Text>

@@ -445,6 +445,9 @@ export interface PaymentOrder {
   created_at: string;
   paid_at: string | null;
   expires_at: string | null;
+  concepto?: string;        // motivo del cargo (cargos extra CEX)
+  is_cargo_extra?: boolean;
+  bank_info?: { banco?: string; clabe?: string; cuenta?: string; beneficiario?: string };
   packages: {
     id: number;
     tracking_internal: string;
