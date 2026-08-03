@@ -662,6 +662,13 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     } catch { /* */ } finally { if (!silent) setLoading(false); }
   }, [taskId, token]);
   useEffect(() => { if (visible && taskId) { setData(null); setEditing(false); reload(); } }, [visible, taskId, reload]);
+  // Cargar usuarios y categorías cuando el detalle es editable (para editar inline).
+  useEffect(() => {
+    if (!visible || !data?.can_edit) return;
+    if (eUsers.length === 0) fetch(`${API_URL}/api/tasks/assignable-users`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()).then(d => setEUsers(d.users || [])).catch(() => {});
+    if (eCats.length === 0) fetch(`${API_URL}/api/tasks/categories`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()).then(d => setECats((d.categories || []).filter((c: any) => c.board_key !== 'personales'))).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, data?.can_edit]);
 
   const beginEdit = () => {
     if (!t) return;
@@ -711,6 +718,26 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
 
   const put = async (url: string, body: any) => fetch(url, { method: 'PUT', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const post = async (url: string, body: any) => fetch(url, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+  // Cambio parcial inline (prioridad, categoría, responsable, involucrados) sin modo edición.
+  const patchTask = async (body: any) => {
+    setBusy(true);
+    try {
+      const r = await put(`${API_URL}/api/tasks/${taskId}`, body);
+      if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo actualizar', e.error || ''); return; }
+      reload(true); onChanged();
+    } catch { Alert.alert('Error', 'No se pudo actualizar'); } finally { setBusy(false); }
+  };
+  // Datos para edición inline en el detalle.
+  const canInline = !!data?.can_edit && !editing && t?.status !== 'completed';
+  const partIds: number[] = (data?.participants || []).map((p: any) => Number(p.id));
+  const creatorId = Number(t?.created_by) || 0;
+  const involvedExtra = partIds.filter(pid => pid !== creatorId);
+  const curCat = t?.board_key === 'personales' ? 0 : (Number(t?.board_id) || 0);
+  const respCands = Array.from(new Set<number>([creatorId, ...partIds, Number(t?.assignee_id) || 0].filter(Boolean)));
+  const nameFor = (uid: number) => uid === creatorId
+    ? (t?.created_by_name || 'Creador')
+    : ((data?.participants || []).find((p: any) => Number(p.id) === uid)?.full_name || eUsers.find(u => u.id === uid)?.full_name || `#${uid}`);
 
   const toggleSub = async (s: any) => {
     if (!s.done && s.requires_photo && !s.evidence_url) { Alert.alert('Evidencia requerida', 'Esta subtarea requiere una foto para completarse.'); return; }
@@ -878,9 +905,45 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 {t.status === 'completed' && <View style={[styles.chip, { backgroundColor: '#E4F1E8' }]}><Text style={[styles.chipTxt, { color: '#2E7D46' }]}>✅ Completada</Text></View>}
               </View>
               {!!t.description && <Text style={styles.desc}>{t.description}</Text>}
-              <Text style={styles.metaLine}><Text style={styles.metaB}>Responsable:</Text> {t.assignee_name || '—'}</Text>
-              {!!t.created_by_name && <Text style={styles.metaLine}><Text style={styles.metaB}>Asignada por:</Text> {t.created_by_name}</Text>}
-              {!!t.due_at && <Text style={[styles.metaLine, t.overdue && { color: '#C0392B' }]}><Text style={styles.metaB}>Fecha deseada:</Text> {fmtDate(t.due_at)}</Text>}
+              {canInline ? (
+                // ── Edición inline: prioridad, categoría, responsable, involucrados ──
+                <View style={{ marginTop: 6, padding: 10, backgroundColor: '#FBF8F4', borderRadius: 10, borderWidth: 1, borderColor: '#ECE4D8' }}>
+                  <Text style={styles.fieldLbl}>Prioridad</Text>
+                  <EisPicker value={t.eisenhower} onChange={(v: string) => patchTask({ eisenhower: v })} />
+                  <Text style={styles.fieldLbl}>Categoría</Text>
+                  <View style={styles.eisRow}>
+                    <TouchableOpacity onPress={() => patchTask({ board_id: null })} style={[styles.dateChip, !curCat && styles.dateChipOn]}>
+                      <Text style={[styles.dateChipTxt, !curCat && { color: '#fff' }]}>Personal</Text>
+                    </TouchableOpacity>
+                    {eCats.map(c => (
+                      <TouchableOpacity key={c.id} onPress={() => patchTask({ board_id: c.id })} style={[styles.dateChip, curCat === c.id && styles.dateChipOn]}>
+                        <Text style={[styles.dateChipTxt, curCat === c.id && { color: '#fff' }]}>{c.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <Text style={styles.fieldLbl}>Responsable</Text>
+                  <View style={styles.eisRow}>
+                    {respCands.map(uid => (
+                      <TouchableOpacity key={uid} onPress={() => patchTask({ assignee_id: uid, involved_ids: Array.from(new Set<number>([creatorId, ...partIds, uid].filter(Boolean))) })}
+                        style={[styles.dateChip, Number(t.assignee_id) === uid && styles.dateChipOn]}>
+                        <Text style={[styles.dateChipTxt, Number(t.assignee_id) === uid && { color: '#fff' }]}>{nameFor(uid)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <Text style={styles.fieldLbl}>Involucrados</Text>
+                  <InvolvedPicker users={eUsers} myId={creatorId} selected={involvedExtra}
+                    onChange={(ids: number[]) => patchTask({ involved_ids: creatorId ? [creatorId, ...ids] : ids, assignee_id: Number(t.assignee_id) || undefined })}
+                    fixedLabel={t.created_by_name || 'Creador'} />
+                  {!!t.due_at && <Text style={[styles.metaLine, t.overdue && { color: '#C0392B' }, { marginTop: 8 }]}><Text style={styles.metaB}>Fecha deseada:</Text> {fmtDate(t.due_at)}</Text>}
+                  {busy && <ActivityIndicator color={ORANGE} style={{ marginTop: 6 }} />}
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.metaLine}><Text style={styles.metaB}>Responsable:</Text> {t.assignee_name || '—'}</Text>
+                  {!!t.created_by_name && <Text style={styles.metaLine}><Text style={styles.metaB}>Asignada por:</Text> {t.created_by_name}</Text>}
+                  {!!t.due_at && <Text style={[styles.metaLine, t.overdue && { color: '#C0392B' }]}><Text style={styles.metaB}>Fecha deseada:</Text> {fmtDate(t.due_at)}</Text>}
+                </>
+              )}
               </>
               )}
 

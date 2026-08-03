@@ -654,10 +654,36 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   }, [id]);
   useEffect(() => { reload(); }, [reload]);
 
+  // Cargar usuarios y categorías cuando el detalle es editable (para los selects inline).
+  useEffect(() => {
+    if (!data?.can_edit) return;
+    if (users.length === 0) axios.get(`${API_URL}/tasks/assignable-users`, H()).then(r => setUsers(r.data?.users || [])).catch(() => {});
+    if (cats.length === 0) axios.get(`${API_URL}/tasks/categories`, H()).then(r => setCats((r.data?.categories || []).filter((c: any) => c.board_key !== 'personales'))).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.can_edit]);
+
+  // Guarda un cambio parcial (prioridad, categoría, responsable, involucrados) sin modo edición.
+  const patch = async (payload: any) => {
+    setBusy(true);
+    try { await axios.put(`${API_URL}/tasks/${id}`, payload, H()); await reload(); onChanged(); }
+    catch (e: any) { notify(e?.response?.data?.error || 'No se pudo actualizar', 'error'); }
+    finally { setBusy(false); }
+  };
+
   const t = data?.task;
   const subs = data?.subtasks || [];
   const pending = subs.filter((s: any) => !s.done).length;
   const tt = t ? taskTime(t) : null;
+  // Datos para edición inline en el detalle.
+  const partIds: number[] = (data?.participants || []).map((p: any) => Number(p.id));
+  const nameById = new Map<number, string>();
+  (data?.participants || []).forEach((p: any) => nameById.set(Number(p.id), p.full_name));
+  if (t?.created_by) nameById.set(Number(t.created_by), t.created_by_name || 'Creador');
+  users.forEach(u => { if (!nameById.has(u.id)) nameById.set(u.id, u.full_name); });
+  const nameOf = (uid2: number) => nameById.get(uid2) || `#${uid2}`;
+  const respOptions = Array.from(new Set<number>([...(t?.created_by ? [Number(t.created_by)] : []), ...partIds, Number(t?.assignee_id) || 0].filter(Boolean)));
+  const curCat = t?.board_key === 'personales' ? 0 : (Number(t?.board_id) || 0);
+  const canInline = !!data?.can_edit && !editing && t?.status !== 'completed';
 
   const toggleSub = async (s: any) => {
     try { await axios.put(`${API_URL}/tasks/subtasks/${s.id}`, { done: !s.done }, H()); reload(); onChanged(); }
@@ -820,19 +846,56 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             ) : (
               t.description && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{t.description}</Typography>
             )}
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1.5 }}>
-              <Typography variant="body2"><b>Responsable:</b> {t.assignee_name || '—'}</Typography>
-              {t.created_by_name && <Typography variant="body2"><b>Asignada por:</b> {t.created_by_name}</Typography>}
-              {t.due_at && <Typography variant="body2" color={t.overdue ? 'error.main' : 'inherit'}><b>Fecha deseada:</b> {fmtDate(t.due_at)}</Typography>}
-            </Box>
-            {(data.participants || []).length > 0 && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mb: 1.5 }}>
-                <Typography variant="body2" fontWeight={700}>Involucrados:</Typography>
-                {(data.participants || []).map((p: any) => (
-                  <Chip key={p.id} label={p.full_name} size="small" sx={{ bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 600 }} />
-                ))}
+            {!editing && (canInline ? (
+              // ── Edición inline: prioridad, categoría, responsable, involucrados ──
+              <Box sx={{ mb: 1.5, p: 1.5, bgcolor: '#FBF8F4', border: '1px solid #ECE4D8', borderRadius: 1.5 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.25 }}>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel>Prioridad</InputLabel>
+                    <Select label="Prioridad" value={t.eisenhower} disabled={busy} onChange={e => patch({ eisenhower: e.target.value })}>
+                      {Object.entries(EIS).map(([k, v]) => <MenuItem key={k} value={k}>{v.label}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel>Categoría</InputLabel>
+                    <Select label="Categoría" value={curCat} disabled={busy} onChange={e => patch({ board_id: Number(e.target.value) || null })}>
+                      <MenuItem value={0}>Sin categoría (personal)</MenuItem>
+                      {cats.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel>Responsable</InputLabel>
+                    <Select label="Responsable" value={Number(t.assignee_id) || ''} disabled={busy}
+                      onChange={e => { const nid = Number(e.target.value); patch({ assignee_id: nid, involved_ids: Array.from(new Set<number>([...partIds, nid])) }); }}>
+                      {respOptions.map(uid2 => <MenuItem key={uid2} value={uid2}>{nameOf(uid2)}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.25 }}>
+                    {t.created_by_name && <Typography variant="caption" color="text.secondary"><b>Asignada por:</b> {t.created_by_name}</Typography>}
+                    {t.due_at && <Typography variant="caption" color={t.overdue ? 'error.main' : 'text.secondary'}><b>Fecha deseada:</b> {fmtDate(t.due_at)}</Typography>}
+                  </Box>
+                </Box>
+                <InvolvedPicker users={users} involvedIds={partIds}
+                  setInvolvedIds={(ids: number[]) => patch({ involved_ids: ids, assignee_id: Number(t.assignee_id) || undefined })}
+                  fixedId={Number(t.created_by) || undefined} fixedLabel={t.created_by_name || 'Creador'} />
               </Box>
-            )}
+            ) : (
+              <>
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1.5 }}>
+                  <Typography variant="body2"><b>Responsable:</b> {t.assignee_name || '—'}</Typography>
+                  {t.created_by_name && <Typography variant="body2"><b>Asignada por:</b> {t.created_by_name}</Typography>}
+                  {t.due_at && <Typography variant="body2" color={t.overdue ? 'error.main' : 'inherit'}><b>Fecha deseada:</b> {fmtDate(t.due_at)}</Typography>}
+                </Box>
+                {(data.participants || []).length > 0 && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mb: 1.5 }}>
+                    <Typography variant="body2" fontWeight={700}>Involucrados:</Typography>
+                    {(data.participants || []).map((p: any) => (
+                      <Chip key={p.id} label={p.full_name} size="small" sx={{ bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 600 }} />
+                    ))}
+                  </Box>
+                )}
+              </>
+            ))}
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mb: 2, p: 1.25, bgcolor: '#F7F4EF', borderRadius: 1.5, border: '1px solid #ECE4D8' }}>
               <Typography variant="body2"><b>Creada:</b> {fmtDate(t.created_at)}</Typography>
               {t.started_at && <Typography variant="body2"><b>En proceso desde:</b> {fmtDate(t.started_at)}</Typography>}
