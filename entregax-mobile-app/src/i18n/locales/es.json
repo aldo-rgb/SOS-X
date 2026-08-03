@@ -387,9 +387,10 @@
       "tracking": "Rastreo",
       "delay": "Retraso",
       "missing": "Reportar Faltante",
-      "warranty": "Garantía Extendida",
-      "compensation": "Compensación",
-      "accounting": "Contabilidad",
+      "warranty": "Reclamo de Garantía",
+      "compensation": "Política de Compensación",
+      "accounting": "Facturación",
+      "addressChange": "Cambio de Dirección",
       "systemError": "Error del Sistema",
       "other": "Otro"
     },

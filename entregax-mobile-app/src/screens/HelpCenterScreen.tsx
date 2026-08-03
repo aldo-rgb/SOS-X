@@ -145,9 +145,8 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
     { value: 'missing', label: t('helpCenter.categories.missing') },
     { value: 'warranty', label: t('helpCenter.categories.warranty') },
     { value: 'compensation', label: t('helpCenter.categories.compensation') },
-    { value: 'instructionChange', label: 'Cambio de instrucciones' },
+    { value: 'instructionChange', label: t('helpCenter.categories.addressChange') },
     { value: 'accounting', label: t('helpCenter.categories.accounting') },
-    { value: 'systemError', label: t('helpCenter.categories.systemError') },
     { value: 'other', label: t('helpCenter.categories.other') },
   ];
 
