@@ -1374,13 +1374,16 @@ const MyPaymentsScreen = () => {
                       >
                         <Ionicons name="download-outline" size={22} color="#FF6B00" />
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.iconActionBtn}
-                        onPress={() => handleDeleteOrder(order)}
-                        accessibilityLabel="Eliminar"
-                      >
-                        <Ionicons name="trash-outline" size={22} color="#FF3B30" />
-                      </TouchableOpacity>
+                      {/* Los cargos extra (CEX) no se pueden eliminar. */}
+                      {!order.is_cargo_extra && (
+                        <TouchableOpacity
+                          style={styles.iconActionBtn}
+                          onPress={() => handleDeleteOrder(order)}
+                          accessibilityLabel="Eliminar"
+                        >
+                          <Ionicons name="trash-outline" size={22} color="#FF3B30" />
+                        </TouchableOpacity>
+                      )}
                     </View>
                   )}
                   {/* 💳 Crédito no liquidado: subir comprobante para pagar el crédito.

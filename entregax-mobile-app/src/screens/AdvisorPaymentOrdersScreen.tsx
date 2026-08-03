@@ -768,7 +768,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
                 <Ionicons name="code-slash-outline" size={18} color="#2E7D32" />
               </TouchableOpacity>
             )}
-            {isPending && isAdvisor && (
+            {isPending && isAdvisor && !String(o.payment_reference || '').startsWith('CEX-') && (
               <TouchableOpacity onPress={() => handleDelete(o)} style={styles.actionBtn} disabled={deletingId === o.id}>
                 {deletingId === o.id
                   ? <ActivityIndicator size="small" color="#e53e3e" />

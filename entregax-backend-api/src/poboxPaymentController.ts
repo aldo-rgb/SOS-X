@@ -2003,6 +2003,11 @@ export const cancelPoboxPaymentOrder = async (req: AuthRequest, res: Response): 
         const role = String((req.user as any)?.role || '').toLowerCase();
         const isPrivileged = ['super_admin', 'admin', 'director'].includes(role);
         const isAdvisorRole = ['advisor', 'asesor', 'sub_advisor'].includes(role);
+        // 🔒 Los cargos extra cobrables (CEX-) NO se pueden eliminar por el cliente
+        // ni por el asesor (solo administración, para casos excepcionales).
+        if (String(order.payment_reference || '').startsWith('CEX-') && !isPrivileged) {
+            return res.status(403).json({ error: 'Un cargo extra no se puede eliminar. Si hay un error, contacta a administración.' });
+        }
         if (Number(order.user_id) !== Number(userId) && !isPrivileged && !isAdvisorRole) {
             return res.status(403).json({ error: 'No autorizado para esta orden' });
         }

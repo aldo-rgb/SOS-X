@@ -317,6 +317,25 @@ export const createCargoExtra = async (req: Request, res: Response): Promise<any
       [guia_id || 0, guia_tracking, servicio, montoNum, (moneda || 'MXN'), concepto, notas || null, uid, cliente_id, ref]
     );
 
+    // 5) Notificación EN SISTEMA (no push) al cliente y al asesor.
+    try {
+      const montoStr = `$${Number(montoMxn).toLocaleString('es-MX', { maximumFractionDigits: 2 })} MXN`;
+      await createCustomNotification(
+        cliente_id,
+        '💳 Cargo extra generado',
+        `Se generó un cargo extra de ${montoStr} (${ref}) por: ${concepto}. Revísalo en "Mis Cuentas por Pagar".`,
+        'payment', 'card', { type: 'cargo_extra', reference: ref, pobox_payment_id: poboxPaymentId, concepto }
+      );
+      if (advisorId) {
+        await createCustomNotification(
+          advisorId,
+          '💳 Cargo extra a tu cliente',
+          `Se generó ${ref} de ${montoStr} a ${cli.full_name || 'tu cliente'} por: ${concepto}.`,
+          'payment', 'card', { type: 'cargo_extra', reference: ref, client_id: cliente_id }
+        );
+      }
+    } catch (e) { console.error('CEX notif:', e); }
+
     return res.json({
       ok: true, mode: 'cex_generated', reference: ref, amount_mxn: montoMxn, advisor_notified: !!advisorId,
       bank_info: { banco: company.bank_name, clabe: company.bank_clabe, cuenta: company.bank_account, beneficiario: company.legal_name, concepto: ref },

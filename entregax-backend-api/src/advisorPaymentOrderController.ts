@@ -535,10 +535,14 @@ export const deleteAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     const { id } = req.params;
     // Pre-check to give better error if already paid
     const check = await pool.query(
-      `SELECT status FROM advisor_payment_orders WHERE id=$1 AND advisor_id=$2`,
+      `SELECT status, payment_reference FROM advisor_payment_orders WHERE id=$1 AND advisor_id=$2`,
       [id, aid]
     );
     if (!check.rows.length) return res.status(404).json({ error: 'Orden no encontrada' });
+    // 🔒 Un cargo extra cobrable (CEX-) no lo puede eliminar el asesor.
+    if (String(check.rows[0].payment_reference || '').startsWith('CEX-')) {
+      return res.status(403).json({ error: 'Un cargo extra no se puede eliminar. Si hay un error, contacta a administración.' });
+    }
     if (check.rows[0].status === 'pagado') {
       return res.status(400).json({ error: 'No se puede cancelar una orden ya pagada/aprobada.' });
     }
