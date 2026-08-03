@@ -16,7 +16,7 @@ const authUserId = (req: Request): number | null => {
 };
 
 let schemaReady = false;
-async function ensureSchema() {
+export async function ensureSchema() {
   if (schemaReady) return;
   await pool.query(`
     CREATE TABLE IF NOT EXISTS advisor_complaints (

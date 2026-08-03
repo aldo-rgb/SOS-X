@@ -19,6 +19,9 @@ const ROLE_LABEL: Record<string, string> = {
 };
 const fmtDate = (iso?: string) => { try { return iso ? new Date(iso).toLocaleString('es-MX') : '—'; } catch { return '—'; } };
 
+const myRole = (() => { try { return String(JSON.parse(localStorage.getItem('user') || '{}').role || '').toLowerCase(); } catch { return ''; } })();
+const isSuperAdmin = myRole === 'super_admin';
+
 export default function QuejasPanel() {
   const [advisors, setAdvisors] = useState<Advisor[]>([]);
   const [complaints, setComplaints] = useState<Complaint[]>([]);
@@ -69,8 +72,11 @@ export default function QuejasPanel() {
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
         <Typography variant="h6" fontWeight={800}>Quejas a asesores</Typography>
-        <Button variant="contained" color="warning" startIcon={<ReportProblemIcon />} onClick={() => openMark()}>Marcar queja</Button>
+        {isSuperAdmin && <Button variant="contained" color="warning" startIcon={<ReportProblemIcon />} onClick={() => openMark()}>Marcar queja</Button>}
       </Box>
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Las quejas llegan automáticamente de los clientes vía el sistema de tickets (categoría <b>Queja</b>) y se contabilizan al asesor asignado. El marcado manual solo está disponible para Super Admin.
+      </Alert>
 
       {/* Asesores activos con conteo */}
       <Paper variant="outlined" sx={{ mb: 3 }}>
@@ -93,7 +99,9 @@ export default function QuejasPanel() {
                     variant={a.complaint_count > 0 ? 'filled' : 'outlined'} sx={{ fontWeight: 700, minWidth: 40 }} />
                 </TableCell>
                 <TableCell align="right">
-                  <Button size="small" variant="outlined" color="warning" onClick={() => openMark(a.id)}>Marcar queja</Button>
+                  {isSuperAdmin
+                    ? <Button size="small" variant="outlined" color="warning" onClick={() => openMark(a.id)}>Marcar queja</Button>
+                    : <Typography variant="caption" color="text.disabled">—</Typography>}
                 </TableCell>
               </TableRow>
             ))}

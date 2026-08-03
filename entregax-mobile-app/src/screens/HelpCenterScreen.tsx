@@ -143,15 +143,17 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
     { value: 'tracking', label: t('helpCenter.categories.tracking') },
     { value: 'delay', label: t('helpCenter.categories.delay') },
     { value: 'missing', label: t('helpCenter.categories.missing') },
+    { value: 'complaint', label: t('helpCenter.categories.complaint') },
     { value: 'warranty', label: t('helpCenter.categories.warranty') },
     { value: 'compensation', label: t('helpCenter.categories.compensation') },
     { value: 'instructionChange', label: t('helpCenter.categories.addressChange') },
     { value: 'accounting', label: t('helpCenter.categories.accounting') },
+    { value: 'systemError', label: t('helpCenter.categories.systemError') },
     { value: 'other', label: t('helpCenter.categories.other') },
   ];
 
   // Categorías que no necesitan número de guía
-  const NO_TRACKING_CATEGORIES = ['accounting', 'systemError', 'other'];
+  const NO_TRACKING_CATEGORIES = ['accounting', 'systemError', 'other', 'complaint'];
   const isTrackingHidden = NO_TRACKING_CATEGORIES.includes(ticketCategory);
   const isTrackingRequired = ticketCategory !== '' && !isTrackingHidden;
 
@@ -548,6 +550,17 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
                   </TouchableOpacity>
                 ))}
               </View>
+
+              {/* Aviso de queja: afecta la puntuación del asesor asignado */}
+              {ticketCategory === 'complaint' && (
+                <View style={styles.complaintWarn}>
+                  <Ionicons name="warning" size={18} color="#B04A00" style={{ marginTop: 1 }} />
+                  <Text style={styles.complaintWarnText}>
+                    Esta queja afecta directamente la puntuación de tu asesor asignado
+                    {advisorName ? <Text style={{ fontWeight: '800' }}>: {advisorName}</Text> : ''}.
+                  </Text>
+                </View>
+              )}
 
               {/* Número de guía — oculto para categorías que no lo requieren */}
               {!isTrackingHidden && <Text style={styles.modalLabel}>
@@ -958,11 +971,24 @@ const styles = StyleSheet.create({
   },
   modalFooter: {
     flexDirection: 'row',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 40,
     gap: 12,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
   },
+  complaintWarn: {
+    flexDirection: 'row',
+    gap: 8,
+    backgroundColor: '#FFF4E5',
+    borderWidth: 1,
+    borderColor: '#F5C99B',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+  },
+  complaintWarnText: { flex: 1, fontSize: 13, color: '#8A4B00', lineHeight: 18 },
   cancelButton: {
     flex: 1,
     padding: 14,

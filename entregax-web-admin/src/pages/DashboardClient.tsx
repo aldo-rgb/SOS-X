@@ -3214,16 +3214,17 @@ export default function DashboardClient() {
     { value: 'tracking', label: t('cd.support.categories.tracking') },
     { value: 'delay', label: t('cd.support.categories.delay') },
     { value: 'missing', label: t('cd.support.categories.missing') },
+    { value: 'complaint', label: t('cd.support.categories.complaint') },
     { value: 'warranty', label: t('cd.support.categories.warranty') },
     { value: 'compensation', label: t('cd.support.categories.compensation') },
-    { value: 'instructionChange', label: 'Cambio de instrucciones' },
+    { value: 'instructionChange', label: t('cd.support.categories.addressChange') },
     { value: 'quote', label: '💰 Cotización' },
     { value: 'accounting', label: t('cd.support.categories.accounting') },
     { value: 'systemError', label: t('cd.support.categories.systemError') },
     { value: 'other', label: t('cd.support.categories.other') },
   ];
 
-  const CATEGORIES_NO_TRACKING = ['accounting', 'systemError', 'other', 'quote'];
+  const CATEGORIES_NO_TRACKING = ['accounting', 'systemError', 'other', 'quote', 'complaint'];
   const CATEGORIES_EXTRA_FIELDS = ['tracking', 'delay', 'missing', 'warranty', 'compensation', 'instructionChange'];
   const CEDIS_OPTIONS = ['MTY', 'CDMX', 'USA', 'Otro'];
 
@@ -12559,6 +12560,15 @@ export default function DashboardClient() {
               </MenuItem>
             ))}
           </TextField>
+
+          {/* Aviso de queja: afecta la puntuación del asesor asignado */}
+          {supportCategory === 'complaint' && (
+            <Box sx={{ p: 1.5, mb: 2, bgcolor: '#FFF4E5', border: '1px solid #F5C99B', borderRadius: 1.5 }}>
+              <Typography variant="body2" sx={{ color: '#8A4B00' }}>
+                ⚠️ Esta queja afecta directamente la puntuación de tu asesor asignado{advisorInfo?.name ? <> : <b>{advisorInfo.name}</b></> : ''}.
+              </Typography>
+            </Box>
+          )}
 
           {/* Número de Guía — oculto para categorías que no lo requieren */}
           {!CATEGORIES_NO_TRACKING.includes(supportCategory) && (

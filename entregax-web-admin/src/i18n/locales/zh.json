@@ -1536,9 +1536,11 @@
         "tracking": "📦 追踪",
         "delay": "⏰ 延迟",
         "missing": "📭 报告物品缺失",
-        "warranty": "🛡️ 延长保修",
-        "compensation": "💰 赔偿",
-        "accounting": "🧾 会计",
+        "complaint": "🚩 投诉",
+        "warranty": "🛡️ 保修索赔",
+        "compensation": "💰 赔偿政策",
+        "accounting": "🧾 开票",
+        "addressChange": "📍 地址变更",
         "systemError": "⚙️ 系统错误",
         "other": "📝 其他"
       }

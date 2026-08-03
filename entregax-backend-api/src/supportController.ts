@@ -729,6 +729,23 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       ticketFolio = newTicket.rows[0].ticket_folio;
       console.log(`🎫 Nuevo ticket creado: ${folio} (${initialStatus})${imageUrls.length > 0 ? ` con ${imageUrls.length} imágenes` : ''}`);
 
+      // 🚩 Categoría "Queja": contabiliza una queja al asesor asignado del cliente.
+      if (category === 'complaint' && userId) {
+        try {
+          const { ensureSchema } = await import('./complaintsPenaltiesController');
+          await ensureSchema();
+          const advRes = await pool.query(`SELECT COALESCE(advisor_id, referred_by_id) AS adv FROM users WHERE id = $1`, [userId]);
+          const advId = advRes.rows[0]?.adv;
+          if (advId) {
+            await pool.query(
+              `INSERT INTO advisor_complaints (advisor_id, ticket_folio, note, marked_by) VALUES ($1, $2, $3, NULL)`,
+              [advId, ticketFolio, `Queja del cliente vía ticket: ${String(message || '').slice(0, 300)}`]
+            );
+            console.log(`🚩 Queja registrada al asesor ${advId} por ticket ${ticketFolio}`);
+          }
+        } catch (e) { console.error('[support] complaint from ticket:', e); }
+      }
+
       // 🔔 Notificación in-app al cliente confirmando la apertura del ticket
       if (userId) {
         try {

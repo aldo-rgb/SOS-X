@@ -1678,9 +1678,11 @@
         "tracking": "📦 Tracking",
         "delay": "⏰ Delay",
         "missing": "📭 Report Missing Item",
-        "warranty": "🛡️ Extended Warranty",
-        "compensation": "💰 Compensation",
-        "accounting": "🧾 Accounting",
+        "complaint": "🚩 Complaint",
+        "warranty": "🛡️ Warranty Claim",
+        "compensation": "💰 Compensation Policy",
+        "accounting": "🧾 Billing",
+        "addressChange": "📍 Address Change",
         "systemError": "⚙️ System Error",
         "other": "📝 Other"
       }

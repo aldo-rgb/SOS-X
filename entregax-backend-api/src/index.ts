@@ -5769,7 +5769,8 @@ app.post('/api/admin/commissions/backfill', authenticateToken, requireMinLevel(R
 // Quejas a asesores (Ajustes y Cartera Vencida → Quejas)
 app.get('/api/admin/complaints/advisors', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), listComplaintAdvisors);
 app.get('/api/admin/complaints', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), listComplaints);
-app.post('/api/admin/complaints', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), createComplaint);
+// Marcar queja MANUAL: solo super_admin (las demás llegan solas vía tickets de cliente).
+app.post('/api/admin/complaints', authenticateToken, requireRole('super_admin'), createComplaint);
 app.delete('/api/admin/complaints/:id', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), deleteComplaint);
 // Castigo: penalizar embarques (no generan comisión)
 app.get('/api/admin/penalties/shipments', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), listPenalizableShipments);
@@ -15747,6 +15748,81 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
           `UPDATE packages SET ${updates.join(', ')}, updated_at = NOW() WHERE ${pkgWhere}`,
           params
         );
+
+        // 🔁 Propagación HIJA → MASTER cuando el sync tocó status.
+        // EntregaX envía sync por CADA hija; sin esto, el master se queda
+        // stale (p.ej. hijas 'shipped' pero master 'received_mty'). Recalculamos
+        // el estado del master como el MENOS avanzado de sus hijas.
+        if (safeNewStatus) {
+          try {
+            const affected = await pool.query(
+              `SELECT DISTINCT master_id FROM packages
+                WHERE (${pkgWhere}) AND master_id IS NOT NULL`,
+              params
+            );
+            for (const row of affected.rows) {
+              const masterId: number = row.master_id;
+              const aggRes = await pool.query(
+                `SELECT c.status::text AS status
+                   FROM packages c
+                  WHERE c.master_id = $1
+                  ORDER BY
+                    CASE c.status::text
+                      WHEN 'pending' THEN 0
+                      WHEN 'registered' THEN 0
+                      WHEN 'received_china' THEN 1
+                      WHEN 'received_origin' THEN 1
+                      WHEN 'received' THEN 2
+                      WHEN 'in_transit' THEN 3
+                      WHEN 'customs' THEN 3
+                      WHEN 'consolidated' THEN 3
+                      WHEN 'received_mty' THEN 4
+                      WHEN 'received_cdmx' THEN 4
+                      WHEN 'received_gdl' THEN 4
+                      WHEN 'received_qro' THEN 4
+                      WHEN 'reempacado' THEN 4
+                      WHEN 'shipped' THEN 5
+                      WHEN 'ready_pickup' THEN 6
+                      WHEN 'out_for_delivery' THEN 7
+                      WHEN 'delivered' THEN 8
+                      WHEN 'returned_to_warehouse' THEN 9
+                      WHEN 'lost' THEN 9
+                      ELSE 99
+                    END ASC,
+                    c.updated_at ASC
+                  LIMIT 1`,
+                [masterId]
+              );
+              const aggStatus: string | undefined = aggRes.rows[0]?.status;
+              if (!aggStatus) continue;
+              const masterRes = await pool.query(
+                `SELECT id, status::text AS status FROM packages WHERE id = $1`,
+                [masterId]
+              );
+              const masterCurrent = masterRes.rows[0]?.status;
+              if (masterCurrent && masterCurrent !== aggStatus) {
+                await pool.query(
+                  `UPDATE packages
+                      SET status = $1::package_status, updated_at = NOW()
+                          ${aggStatus === 'delivered' ? ', delivered_at = COALESCE(delivered_at, NOW())' : ''}
+                    WHERE id = $2`,
+                  [aggStatus, masterId]
+                );
+                try {
+                  await pool.query(
+                    `INSERT INTO package_history (package_id, status, notes, created_by, created_at)
+                     VALUES ($1, $2, $3, NULL, NOW())`,
+                    [masterId, aggStatus, `Estado agregado desde guías hijas (sync EntregaX): ${aggStatus}`]
+                  );
+                } catch (histErr) {
+                  console.warn('[sync-entregax] no se pudo registrar package_history master:', histErr);
+                }
+              }
+            }
+          } catch (propErr) {
+            console.warn('[sync-entregax] propagación hija→master falló:', propErr);
+          }
+        }
       }
     }
 
