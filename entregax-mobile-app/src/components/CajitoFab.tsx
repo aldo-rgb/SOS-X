@@ -348,7 +348,7 @@ export default function CajitoFab({ user, token }: Props) {
   };
 
   const renderChat = () => (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
+    <View style={{ flex: 1 }}>
       <ScrollView ref={chatScrollRef} contentContainerStyle={{ padding: 12 }} onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}>
         <View style={styles.cajitoBubble}>
           <Text style={styles.cajitoText}>¡Hola! Soy Cajito. Tengo acceso de solo lectura al sistema: paquetes, clientes, rutas, choferes e inventarios. Pregúntame algo, p. ej. "¿dónde está TDX-…?" o "paquetes recibidos hoy".</Text>
@@ -377,7 +377,7 @@ export default function CajitoFab({ user, token }: Props) {
           <Ionicons name="send" size={18} color="#fff" />
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 
   return (
@@ -388,7 +388,7 @@ export default function CajitoFab({ user, token }: Props) {
       </TouchableOpacity>
 
       <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
-        <View style={styles.overlay}>
+        <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.sheet}>
             {/* Header */}
             <View style={styles.header}>
@@ -440,7 +440,7 @@ export default function CajitoFab({ user, token }: Props) {
               )}
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
