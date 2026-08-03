@@ -1164,7 +1164,8 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
              d.name as department_name, d.color as department_color, d.icon as department_icon,
              ag.full_name as assigned_agent_name,
              (SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = t.id) as message_count,
-             (SELECT message FROM ticket_messages WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) as last_message
+             (SELECT message FROM ticket_messages WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) as last_message,
+             EXISTS (SELECT 1 FROM tasks tk WHERE tk.title = 'Error localizado ' || t.ticket_folio AND tk.status <> 'cancelled') AS error_reported
       FROM support_tickets t
       LEFT JOIN users u ON t.user_id = u.id
       LEFT JOIN support_departments d ON t.department_id = d.id

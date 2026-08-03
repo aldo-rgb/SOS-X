@@ -102,6 +102,7 @@ interface SupportTicket {
   subject: string;
   status: 'open_ai' | 'waiting_client' | 'escalated_human' | 'resolved';
   priority: string;
+  error_reported?: boolean;
   creator_type?: 'client' | 'employee';
   creator_role?: string;
   department_id?: number;
@@ -657,7 +658,7 @@ export default function SupportBoardPage() {
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
         setReportSnack({ msg: d.already ? `Ya existía la tarea de este error (${selectedTicket.ticket_folio}).` : `Tarea creada: "Error localizado ${selectedTicket.ticket_folio}"${d.attachments_copied ? ` · ${d.attachments_copied} archivo(s)` : ''}. Ticket → Esperando Cliente.`, sev: 'success' });
-        setSelectedTicket(prev => (prev ? { ...prev, status: 'waiting_client' } : prev));
+        setSelectedTicket(prev => (prev ? { ...prev, status: 'waiting_client', error_reported: true } : prev));
         await loadTickets();
         await loadStats();
       } else {
@@ -1487,16 +1488,22 @@ export default function SupportBoardPage() {
                   </Tooltip>
                 )}
                 {selectedTicket.category === 'systemError' && (
-                  <Tooltip title="Crea una tarea para Super Admin con este ticket y sus archivos">
-                    <Button
-                      variant="outlined" color="error"
-                      startIcon={<WarningIcon />}
-                      onClick={handleReportError}
-                      disabled={reporting}
-                    >
-                      {reporting ? 'Reportando…' : 'Reportar error'}
+                  selectedTicket.error_reported ? (
+                    <Button variant="outlined" color="success" startIcon={<ResolvedIcon />} disabled>
+                      Reportado
                     </Button>
-                  </Tooltip>
+                  ) : (
+                    <Tooltip title="Crea una tarea para Super Admin con este ticket y sus archivos">
+                      <Button
+                        variant="outlined" color="error"
+                        startIcon={<WarningIcon />}
+                        onClick={handleReportError}
+                        disabled={reporting}
+                      >
+                        {reporting ? 'Reportando…' : 'Reportar error'}
+                      </Button>
+                    </Tooltip>
+                  )
                 )}
               </Box>
               {selectedTicket.status !== 'resolved'
