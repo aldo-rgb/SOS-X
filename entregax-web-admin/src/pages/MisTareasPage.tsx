@@ -357,6 +357,26 @@ export default function MisTareasPage() {
     );
   };
 
+  // Tarjeta compacta para la Matriz Eisenhower (los 4 cuadrantes caben en una pantalla).
+  const renderMatrixCard = (t: Task) => {
+    const done = t.status === 'completed';
+    const boardLabel = t.board_key === 'personales'
+      ? ((t.participants_count || 0) > 1 ? 'Asignadas' : 'Personal')
+      : t.board_name;
+    return (
+      <Box key={t.id} onClick={() => setDetailId(t.id)}
+        sx={{ bgcolor: '#fff', borderRadius: 1, px: 0.75, py: 0.5, cursor: 'pointer', border: '1px solid #E8DFD3',
+          borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3', '&:hover': { boxShadow: 1 }, opacity: done ? 0.6 : 1 }}>
+        <Typography fontSize={12} fontWeight={600} sx={{ lineHeight: 1.25, textDecoration: done ? 'line-through' : 'none', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{t.title}</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
+          {boardLabel && <Typography fontSize={10} color="text.secondary" noWrap sx={{ flex: 1, minWidth: 0 }}>🗂️ {boardLabel}</Typography>}
+          {(t.subtasks_total || 0) > 0 && <Typography fontSize={10} color={t.subtasks_done === t.subtasks_total ? 'success.main' : 'text.secondary'}>☑{t.subtasks_done}/{t.subtasks_total}</Typography>}
+          {t.due_at && <Typography fontSize={10} color={t.overdue ? 'error.main' : 'text.secondary'}>{new Date(t.due_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}</Typography>}
+        </Box>
+      </Box>
+    );
+  };
+
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
@@ -389,19 +409,20 @@ export default function MisTareasPage() {
       ) : tasks.length === 0 ? (
         <Alert severity="success">No tienes tareas pendientes 🎉</Alert>
       ) : view === 'matrix' ? (
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
+        // 2×2 fijo a la altura de la pantalla; cada cuadrante hace scroll interno.
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 1, height: 'calc(100vh - 210px)', minHeight: 440 }}>
           {QUADRANTS.map(q => {
             // Matriz Eisenhower: SOLO tareas donde el usuario es el responsable (assignee),
             // no en las que solo está involucrado.
             const qt = tasks.filter(t => t.eisenhower === q.key && Number(t.assignee_id) === MY_ID);
             return (
-              <Box key={q.key} sx={{ bgcolor: q.bg, borderRadius: 2, p: 1.25, borderTop: `3px solid ${q.color}`, minHeight: 140 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                  <Typography fontWeight={800} fontSize={14} sx={{ flex: 1, color: q.color }}>{q.title}</Typography>
-                  <Chip label={qt.length} size="small" sx={{ height: 20 }} />
+              <Box key={q.key} sx={{ bgcolor: q.bg, borderRadius: 2, borderTop: `3px solid ${q.color}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.6, flexShrink: 0 }}>
+                  <Typography fontWeight={800} fontSize={12.5} sx={{ flex: 1, color: q.color, lineHeight: 1.1 }} noWrap>{q.title}</Typography>
+                  <Chip label={qt.length} size="small" sx={{ height: 18, fontSize: 11 }} />
                 </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {qt.length === 0 ? <Typography fontSize={12} color="text.disabled" sx={{ py: 1, textAlign: 'center' }}>—</Typography> : qt.map(renderCard)}
+                <Box sx={{ flex: 1, overflowY: 'auto', px: 0.75, pb: 0.75, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  {qt.length === 0 ? <Typography fontSize={11} color="text.disabled" sx={{ py: 1, textAlign: 'center' }}>—</Typography> : qt.map(renderMatrixCard)}
                 </Box>
               </Box>
             );

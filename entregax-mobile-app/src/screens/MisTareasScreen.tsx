@@ -60,18 +60,19 @@ export default function MisTareasScreen({ navigation, route }: Props) {
 
       {loading ? (
         <View style={styles.center}><ActivityIndicator size="large" color={ORANGE} /></View>
+      ) : tasks.length === 0 ? (
+        <View style={styles.center}><Ionicons name="checkmark-done-circle-outline" size={44} color="#BBB" /><Text style={styles.empty}>No tienes tareas pendientes 🎉</Text></View>
+      ) : view === 'matrix' ? (
+        // Matriz 2×2 que llena la pantalla (fuera del ScrollView; cada cuadrante hace scroll interno).
+        <View style={{ flex: 1, padding: 10 }}>
+          <MatrixView tasks={tasks} onOpen={setOpenId} showBoard myId={myId} />
+        </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={ORANGE} />}>
-          {tasks.length === 0 ? (
-            <View style={styles.center}><Ionicons name="checkmark-done-circle-outline" size={44} color="#BBB" /><Text style={styles.empty}>No tienes tareas pendientes 🎉</Text></View>
-          ) : view === 'matrix' ? (
-            <MatrixView tasks={tasks} onOpen={setOpenId} showBoard myId={myId} />
-          ) : (
-            <View style={{ gap: 10 }}>
-              {tasks.map(t => <TaskCard key={t.id} task={t} onPress={() => setOpenId(t.id)} showBoard />)}
-            </View>
-          )}
+          <View style={{ gap: 10 }}>
+            {tasks.map(t => <TaskCard key={t.id} task={t} onPress={() => setOpenId(t.id)} showBoard />)}
+          </View>
         </ScrollView>
       )}
 

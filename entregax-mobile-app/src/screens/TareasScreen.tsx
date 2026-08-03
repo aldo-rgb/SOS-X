@@ -164,12 +164,13 @@ export default function TareasScreen({ navigation, route }: Props) {
         <View style={styles.center}><ActivityIndicator size="large" color={ORANGE} /></View>
       ) : !board ? (
         <View style={styles.center}><Text style={styles.empty}>No hay tableros.</Text></View>
+      ) : view === 'matrix' ? (
+        <View style={{ flex: 1, padding: 12 }}>
+          <MatrixView tasks={tasks} onOpen={setOpenId} />
+        </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); refresh(); }} tintColor={ORANGE} />}>
-          {view === 'matrix' ? (
-            <MatrixView tasks={tasks} onOpen={setOpenId} />
-          ) : (
             <View style={{ gap: 14 }}>
               {visibleCols.map(col => {
                 const colTasks = tasks.filter(t => t.column_id === col.id && (
@@ -193,7 +194,6 @@ export default function TareasScreen({ navigation, route }: Props) {
                 );
               })}
             </View>
-          )}
         </ScrollView>
       )}
 

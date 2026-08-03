@@ -1090,21 +1090,36 @@ export function MatrixView({ tasks, onOpen, showBoard, myId }: { tasks: TaskT[];
   // Si se pasa myId, la matriz muestra SOLO las tareas donde el usuario es el
   // responsable (assignee), no en las que solo está involucrado.
   const base = myId ? tasks.filter(t => Number(t.assignee_id) === Number(myId)) : tasks;
+  const cells = QUADRANTS.map(q => ({ q, qt: base.filter(t => t.eisenhower === q.key) }));
+  const renderCell = ({ q, qt }: { q: typeof QUADRANTS[number]; qt: TaskT[] }) => (
+    <View key={q.key} style={[styles.mxCell, { backgroundColor: q.bg, borderTopColor: q.color }]}>
+      <View style={styles.mxHead}>
+        <Text style={[styles.mxTitle, { color: q.color }]} numberOfLines={2}>{q.title}</Text>
+        <View style={styles.mxCount}><Text style={styles.mxCountTxt}>{qt.length}</Text></View>
+      </View>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 5, paddingBottom: 4 }} showsVerticalScrollIndicator={false}>
+        {qt.length === 0 ? <Text style={styles.mxEmpty}>—</Text> : qt.map(t => {
+          const done = t.status === 'completed';
+          return (
+            <TouchableOpacity key={t.id} onPress={() => onOpen(t.id)} style={[styles.mxCard, t.overdue && styles.cardOverdue, done && { opacity: 0.6 }]}>
+              <Text style={[styles.mxCardTitle, done && { textDecorationLine: 'line-through', color: '#999' }]} numberOfLines={3}>{t.title}</Text>
+              <View style={styles.mxCardMeta}>
+                {showBoard && !!t.board_name && <Text style={styles.mxCardBoard} numberOfLines={1}>🗂️ {t.board_name}</Text>}
+                <View style={{ flex: 1 }} />
+                {(t.subtasks_total || 0) > 0 && <Text style={[styles.mxCardMetaTxt, t.subtasks_done === t.subtasks_total && { color: '#2E7D46' }]}>☑{t.subtasks_done}/{t.subtasks_total}</Text>}
+                {!!t.due_at && <Text style={[styles.mxCardMetaTxt, t.overdue && { color: '#C0392B' }]}>{new Date(t.due_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}</Text>}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+  // 2×2 que llena la pantalla: dos filas flex:1, cada una con dos cuadrantes flex:1.
   return (
-    <View style={{ gap: 12 }}>
-      {QUADRANTS.map(q => {
-        const qt = base.filter(t => t.eisenhower === q.key);
-        return (
-          <View key={q.key} style={[styles.quad, { backgroundColor: q.bg, borderTopColor: q.color }]}>
-            <View style={styles.quadHead}>
-              <Text style={[styles.quadTitle, { color: q.color }]}>{q.title}</Text>
-              <View style={styles.countPill}><Text style={styles.countTxt}>{qt.length}</Text></View>
-            </View>
-            {qt.length === 0 ? <Text style={styles.metaMuted}>—</Text> :
-              <View style={{ gap: 8 }}>{qt.map(t => <TaskCard key={t.id} task={t} onPress={() => onOpen(t.id)} showBoard={showBoard} />)}</View>}
-          </View>
-        );
-      })}
+    <View style={{ flex: 1, gap: 6 }}>
+      <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>{cells.slice(0, 2).map(renderCell)}</View>
+      <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>{cells.slice(2, 4).map(renderCell)}</View>
     </View>
   );
 }
@@ -1202,4 +1217,16 @@ export const styles = StyleSheet.create({
   quadTitle: { fontSize: 14, fontWeight: '800' },
   countPill: { backgroundColor: 'rgba(0,0,0,0.08)', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 1 },
   countTxt: { fontSize: 12, fontWeight: '700', color: '#444' },
+  // Matriz Eisenhower 2×2 compacta (los 4 cuadrantes en una pantalla).
+  mxCell: { flex: 1, borderRadius: 10, borderTopWidth: 3, padding: 6, overflow: 'hidden' },
+  mxHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginBottom: 4 },
+  mxTitle: { flex: 1, fontSize: 11, fontWeight: '800', lineHeight: 13 },
+  mxCount: { minWidth: 18, height: 16, paddingHorizontal: 4, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.08)', alignItems: 'center', justifyContent: 'center' },
+  mxCountTxt: { fontSize: 10, fontWeight: '700', color: '#333' },
+  mxEmpty: { fontSize: 11, color: '#AAA', textAlign: 'center', paddingVertical: 6 },
+  mxCard: { backgroundColor: '#fff', borderRadius: 7, paddingHorizontal: 6, paddingVertical: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: '#E2E2E2' },
+  mxCardTitle: { fontSize: 11.5, fontWeight: '600', color: '#222', lineHeight: 14 },
+  mxCardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  mxCardBoard: { fontSize: 9.5, color: '#888', flexShrink: 1 },
+  mxCardMetaTxt: { fontSize: 9.5, color: '#888' },
 });
