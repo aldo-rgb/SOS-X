@@ -585,7 +585,7 @@ export interface TaskT {
   title: string; description?: string; assignee_id?: number; assignee_name?: string;
   due_at?: string; eisenhower: string; status: string; created_at?: string; completed_at?: string;
   subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
-  board_name?: string; column_name?: string;
+  board_name?: string; board_key?: string; column_name?: string; participants_count?: number;
 }
 
 // ── Tarjeta de tarea ──

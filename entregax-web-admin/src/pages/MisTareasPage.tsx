@@ -192,6 +192,9 @@ export default function MisTareasPage() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'matrix'>('list');
   const [showDone, setShowDone] = useState(false);
+  // Tareas personales ocultas en horario laboral (10am–7pm); toggle apagado por
+  // default cada vez que se entra a la pantalla (no se persiste).
+  const [showPersonal, setShowPersonal] = useState(false);
   const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
   const notify = (msg: string, sev: 'success' | 'error' = 'success') => setSnack({ open: true, msg, sev });
 
@@ -391,6 +394,13 @@ export default function MisTareasPage() {
     );
   };
 
+  // Tarea "personal" = tablero personal sin más involucrados (se muestra como "Personal").
+  const isPersonalTask = (t: Task) => t.board_key === 'personales' && (t.participants_count || 0) <= 1;
+  const nowHour = new Date().getHours();
+  const isWorkHours = nowHour >= 10 && nowHour < 19; // 10am–7pm
+  const hidePersonal = isWorkHours && !showPersonal;
+  const visibleTasks = hidePersonal ? tasks.filter(t => !isPersonalTask(t)) : tasks;
+
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
@@ -416,19 +426,29 @@ export default function MisTareasPage() {
           sx={{ textTransform: 'none', ...(showDone ? { bgcolor: '#2E7D46', '&:hover': { bgcolor: '#256B3B' } } : { borderColor: '#2E7D46', color: '#2E7D46' }) }}>
           {showDone ? '✅ Mostrando completadas' : 'Ver completadas'}
         </Button>
+        {isWorkHours && (
+          <Button size="small" variant={showPersonal ? 'contained' : 'outlined'} onClick={() => setShowPersonal(v => !v)}
+            sx={{ textTransform: 'none', ...(showPersonal ? { bgcolor: '#B07206', '&:hover': { bgcolor: '#8a5a05' } } : { borderColor: '#B07206', color: '#B07206' }) }}>
+            {showPersonal ? '🏠 Mostrando personales' : '🏠 Mostrar personales'}
+          </Button>
+        )}
       </Box>
 
       {loading ? (
         <Box sx={{ textAlign: 'center', mt: 8 }}><CircularProgress /></Box>
       ) : tasks.length === 0 ? (
         <Alert severity="success">No tienes tareas pendientes 🎉</Alert>
+      ) : visibleTasks.length === 0 ? (
+        <Alert severity="info" action={<Button size="small" color="inherit" onClick={() => setShowPersonal(true)}>Mostrar personales</Button>}>
+          Tus tareas personales están ocultas durante el horario laboral (10am–7pm).
+        </Alert>
       ) : view === 'matrix' ? (
         // 2×2 fijo a la altura de la pantalla; cada cuadrante hace scroll interno.
         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 1, height: 'calc(100vh - 210px)', minHeight: 440 }}>
           {QUADRANTS.map(q => {
             // Matriz Eisenhower: SOLO tareas donde el usuario es el responsable (assignee),
             // no en las que solo está involucrado.
-            const qt = tasks.filter(t => t.eisenhower === q.key && Number(t.assignee_id) === MY_ID);
+            const qt = visibleTasks.filter(t => t.eisenhower === q.key && Number(t.assignee_id) === MY_ID);
             const over = dragOverKey === q.key;
             return (
               <Box key={q.key}
@@ -450,7 +470,7 @@ export default function MisTareasPage() {
         </Box>
       ) : (
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr' }, gap: 1.5 }}>
-          {tasks.map(renderCard)}
+          {visibleTasks.map(renderCard)}
         </Box>
       )}
 
