@@ -746,6 +746,9 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
         } catch (e) { console.error('[support] complaint from ticket:', e); }
       }
 
+      // 🔔 Notificar al departamento del ticket nuevo (in-app siempre; push solo horario laboral).
+      notifyTicketDepartment(Number(currentTicketId), departmentId, 'new').catch(() => {});
+
       // 🔔 Notificación in-app al cliente confirmando la apertura del ticket
       if (userId) {
         try {
@@ -1659,6 +1662,65 @@ export const getSupportAgents = async (req: Request, res: Response): Promise<any
  * POST /api/admin/support/ticket/:id/transfer
  * Transferir ticket a otro departamento y/o agente
  */
+// Notifica a los usuarios del departamento de un ticket (in-app SIEMPRE; push SOLO
+// en horario laboral 10:10am–6pm). Cubre creación y transferencia/escalamiento:
+//  Atención a Cliente/Cotizaciones → servicio a cliente · Soporte Técnico → soporte
+//  Contabilidad → contador · Dirección → admin/super/director · CEDIS → operaciones sucursal.
+export async function notifyTicketDepartment(ticketId: number, departmentId: number | null, event: 'new' | 'transfer' = 'transfer') {
+  try {
+    if (!departmentId) return;
+    const dRes = await pool.query(`SELECT name FROM support_departments WHERE id = $1`, [departmentId]);
+    const deptName: string = dRes.rows[0]?.name || '';
+    if (!deptName) return;
+    const tRes = await pool.query(`SELECT ticket_folio, subject FROM support_tickets WHERE id = $1`, [ticketId]);
+    const folio = tRes.rows[0]?.ticket_folio || `#${ticketId}`;
+    const subject = tRes.rows[0]?.subject || '';
+
+    let userIds: number[] = [];
+    if (deptName.startsWith('CEDIS')) {
+      const code = deptName === 'CEDIS MTY' ? 'MTY' : deptName === 'CEDIS CDMX' ? 'CDMX' : deptName === 'CEDIS USA' ? 'TX' : null;
+      if (code) {
+        const r = await pool.query(
+          `SELECT u.id FROM users u JOIN branches b ON b.id = u.branch_id
+           WHERE u.role IN ('operaciones','Operaciones','branch_manager') AND b.code = $1 AND COALESCE(u.is_active, true) = true`,
+          [code]
+        );
+        userIds = r.rows.map((x: any) => Number(x.id));
+      }
+    } else {
+      const ROLE_MAP: Record<string, string[]> = {
+        'Atención a Cliente': ['customer_service'],
+        'Soporte Técnico': ['soporte_tecnico'],
+        'Cotizaciones': ['customer_service'],
+        'Contabilidad': ['accountant', 'Contador', 'contador'],
+        'Dirección': ['director', 'admin', 'super_admin'],
+      };
+      const roles = ROLE_MAP[deptName] || [];
+      if (roles.length) {
+        const r = await pool.query(`SELECT id FROM users WHERE role = ANY($1) AND COALESCE(is_active, true) = true`, [roles]);
+        userIds = r.rows.map((x: any) => Number(x.id));
+      }
+    }
+    if (userIds.length === 0) return;
+
+    const title = event === 'new' ? `🎫 Nuevo ticket · ${deptName}` : `🎫 Ticket → ${deptName}`;
+    const body = `${folio}${subject ? ' · ' + subject : ''}`;
+
+    // In-app SIEMPRE (para que lo vean al abrir la app).
+    const { createCustomNotification } = await import('./notificationController');
+    for (const uid of userIds) {
+      await createCustomNotification(uid, title, body, 'ticket', 'headset', { ticket_id: ticketId, department: deptName }, '/support');
+    }
+    // Push SOLO en horario laboral.
+    const { sendPushToUsers, isMxWorkHours } = await import('./pushService');
+    if (isMxWorkHours()) {
+      await sendPushToUsers(userIds, { title, body, data: { type: 'support_ticket', ticket_id: String(ticketId) } });
+    }
+  } catch (e) {
+    console.error('[SUPPORT] notifyTicketDepartment:', e);
+  }
+}
+
 export const transferTicket = async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
@@ -1704,51 +1766,10 @@ export const transferTicket = async (req: Request, res: Response): Promise<any> 
       );
     }
 
-    // Si el destino es un CEDIS, notificar a usuarios operaciones de esa sucursal
-    if (deptName.startsWith('CEDIS')) {
-      try {
-        // Mapear nombre CEDIS → código de sucursal
-        const cedisBranchCode =
-          deptName === 'CEDIS MTY'  ? 'MTY'  :
-          deptName === 'CEDIS CDMX' ? 'CDMX' :
-          deptName === 'CEDIS USA'  ? 'TX'   : null;
-
-        let recipients: any[] = [];
-        if (cedisBranchCode) {
-          const r = await pool.query(
-            `SELECT u.id FROM users u
-             JOIN branches b ON b.id = u.branch_id
-             WHERE u.role IN ('operaciones', 'Operaciones', 'branch_manager', 'admin', 'super_admin')
-               AND (b.code = $1 OR u.role IN ('admin', 'super_admin'))`,
-            [cedisBranchCode]
-          );
-          recipients = r.rows;
-        } else {
-          const r = await pool.query(`SELECT id FROM users WHERE role IN ('admin', 'super_admin')`);
-          recipients = r.rows;
-        }
-
-        const ticketRow = await pool.query(
-          `SELECT subject, ticket_folio FROM support_tickets WHERE id = $1`, [id]
-        );
-        const subject = ticketRow.rows[0]?.subject || '';
-        const folio = ticketRow.rows[0]?.ticket_folio || `#${id}`;
-
-        const { createCustomNotification } = await import('./notificationController');
-        for (const rec of recipients) {
-          await createCustomNotification(
-            rec.id,
-            `🎫 Nuevo ticket en ${deptName}`,
-            `${folio}: "${subject}"`,
-            'info',
-            'headset',
-            { ticketId: Number(id), folio },
-            '/support'
-          );
-        }
-      } catch (notifErr) {
-        console.warn('[SUPPORT] Error notificando transferencia CEDIS:', notifErr);
-      }
+    // Notificar al departamento destino (in-app siempre; push solo en horario laboral).
+    // Cubre CEDIS (operaciones de la sucursal), Dirección (admin/super/director) y el resto.
+    if (department_id) {
+      await notifyTicketDepartment(Number(id), Number(department_id), 'transfer');
     }
 
     res.json({ success: true, message: 'Ticket transferido' });

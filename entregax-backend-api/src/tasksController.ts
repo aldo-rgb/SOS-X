@@ -58,8 +58,13 @@ async function notify(userId: number | null, title: string, message: string, dat
     await createCustomNotification(userId, title, message, 'info', 'checkbox', data, '/tareas');
   } catch { /* opcional */ }
   try {
-    const { sendPushToUsers } = await import('./pushService');
-    await sendPushToUsers([userId], { title, body: message, data: { screen: 'MyTasks', ...data }, notificationType });
+    const { sendPushToUsers, isMxWorkHours } = await import('./pushService');
+    // El push de tarea asignada / respuesta a comentarios solo se envía en horario
+    // laboral (10:10am–6pm). El in-app ya quedó creado arriba.
+    const workHoursGated = notificationType === 'task_new' || notificationType === 'task_comment';
+    if (!workHoursGated || isMxWorkHours()) {
+      await sendPushToUsers([userId], { title, body: message, data: { screen: 'MyTasks', ...data }, notificationType });
+    }
   } catch { /* opcional */ }
 }
 

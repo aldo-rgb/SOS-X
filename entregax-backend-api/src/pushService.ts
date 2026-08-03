@@ -5,6 +5,20 @@
 import { pool } from './db';
 import https from 'https';
 
+// Horario laboral (America/Monterrey): 10:10am–6:00pm. Los push se envían solo
+// dentro de esta ventana; fuera de horario NO se envía push (el in-app sí se crea).
+export function isMxWorkHours(d: Date = new Date()): boolean {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Monterrey', hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(d);
+    const h = Number(parts.find(p => p.type === 'hour')?.value ?? '0');
+    const m = Number(parts.find(p => p.type === 'minute')?.value ?? '0');
+    const mins = h * 60 + m;
+    return mins >= 610 && mins < 1080; // 10:10 (610) → 18:00 (1080)
+  } catch { return true; }
+}
+
 let firebaseAdmin: any = null;
 let initialized = false;
 let initPromise: Promise<void> | null = null;
