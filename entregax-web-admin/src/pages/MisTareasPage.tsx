@@ -110,7 +110,7 @@ const actLabel = (a: any): string => ACT_LABEL[a.action] || a.action;
 
 interface Task {
   id: number; title: string; description?: string; eisenhower: string; status: string;
-  due_at?: string; created_at?: string; completed_at?: string; assignee_name?: string;
+  due_at?: string; created_at?: string; completed_at?: string; assignee_name?: string; assignee_id?: number;
   board_name?: string; board_key?: string; column_name?: string; subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
   participants_count?: number; participant_names?: string[] | null;
 }
@@ -391,7 +391,9 @@ export default function MisTareasPage() {
       ) : view === 'matrix' ? (
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
           {QUADRANTS.map(q => {
-            const qt = tasks.filter(t => t.eisenhower === q.key);
+            // Matriz Eisenhower: SOLO tareas donde el usuario es el responsable (assignee),
+            // no en las que solo está involucrado.
+            const qt = tasks.filter(t => t.eisenhower === q.key && Number(t.assignee_id) === MY_ID);
             return (
               <Box key={q.key} sx={{ bgcolor: q.bg, borderRadius: 2, p: 1.25, borderTop: `3px solid ${q.color}`, minHeight: 140 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>

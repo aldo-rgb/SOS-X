@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import CajitoFab from '../components/CajitoFab';
 import { useFocusEffect } from '@react-navigation/native';
 import {
@@ -88,6 +88,28 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [profilePhoto, setProfilePhoto] = useState<string | null>(user.profilePhotoUrl || null);
   const [showQrModal, setShowQrModal]   = useState(false);
   const [myTaskCount, setMyTaskCount]   = useState(0); // tareas pendientes asignadas
+
+  // 📋 Perfil completo (asesores): foto, teléfono, contacto de emergencia, tallas.
+  const [empProfile, setEmpProfile] = useState<{ emergency_contact: string; shirt_size: string; pants_size: string } | null>(null);
+  const loadEmpProfile = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/hr/my-employee-data`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) {
+        const d = await r.json();
+        setEmpProfile({ emergency_contact: d.emergency_contact || '', shirt_size: d.shirt_size || '', pants_size: d.pants_size || '' });
+      }
+    } catch { /* opcional */ }
+  }, [token]);
+  // Qué falta para completar el perfil (solo se evalúa tras cargar empProfile).
+  const profileMissing = useMemo(() => {
+    if (empProfile === null) return [] as string[];
+    const miss: string[] = [];
+    if (!profilePhoto) miss.push('foto de perfil');
+    if (!String(user.phone || '').trim()) miss.push('teléfono');
+    if (!String(empProfile.emergency_contact || '').trim()) miss.push('contacto de emergencia');
+    if (!String(empProfile.shirt_size || '').trim() && !String(empProfile.pants_size || '').trim()) miss.push('tallas');
+    return miss;
+  }, [empProfile, profilePhoto, user.phone]);
 
   // Modal selector de cliente (En Tránsito)
   const [showTransitModal, setShowTransitModal]     = useState(false);
@@ -228,14 +250,15 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
     }
   }, [token]);
 
-  useEffect(() => { loadDashboard(); loadChartback(); }, [loadDashboard, loadChartback]);
+  useEffect(() => { loadDashboard(); loadChartback(); loadEmpProfile(); }, [loadDashboard, loadChartback, loadEmpProfile]);
 
   // Refrescar contadores cada vez que vuelve esta pantalla (p.ej., tras crear orden de pago)
   useFocusEffect(
     useCallback(() => {
       loadDashboard();
       loadChartback();
-    }, [loadDashboard, loadChartback])
+      loadEmpProfile();
+    }, [loadDashboard, loadChartback, loadEmpProfile])
   );
 
   useEffect(() => {
@@ -252,7 +275,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
     return () => { if (cleanup) cleanup(); };
   }, [token, user, navigation]);
 
-  const onRefresh = () => { setRefreshing(true); loadDashboard(); loadChartback(); };
+  const onRefresh = () => { setRefreshing(true); loadDashboard(); loadChartback(); loadEmpProfile(); };
 
   const openTransitClientPicker = async () => {
     setTransitClientSearch('');
@@ -483,6 +506,22 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[ORANGE]} tintColor={ORANGE} />}
         showsVerticalScrollIndicator={false}
       >
+        {/* Banner: perfil incompleto */}
+        {profileMissing.length > 0 && (
+          <TouchableOpacity
+            style={s.profileBanner}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('MyProfile', { user, token })}
+          >
+            <Ionicons name="alert-circle" size={24} color="#fff" />
+            <View style={{ flex: 1 }}>
+              <Text style={s.profileBannerTitle}>Completa tu perfil</Text>
+              <Text style={s.profileBannerSub}>Falta: {profileMissing.join(', ')}. Toca para completarlo.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color="#fff" />
+          </TouchableOpacity>
+        )}
+
         {/* Hero card — con código de asesor integrado */}
         <View style={s.hero}>
           <View style={s.heroAccent} />
@@ -1568,6 +1607,16 @@ const s = StyleSheet.create({
 
   // Scroll
   scroll: { flex: 1 },
+
+  // Banner perfil incompleto
+  profileBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: ORANGE, marginHorizontal: 16, marginTop: 14,
+    paddingVertical: 12, paddingHorizontal: 14, borderRadius: 14,
+    shadowColor: ORANGE, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4,
+  },
+  profileBannerTitle: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  profileBannerSub: { color: '#FFE7DC', fontSize: 12, marginTop: 1 },
 
   // Hero
   hero: {

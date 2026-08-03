@@ -66,7 +66,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
           {tasks.length === 0 ? (
             <View style={styles.center}><Ionicons name="checkmark-done-circle-outline" size={44} color="#BBB" /><Text style={styles.empty}>No tienes tareas pendientes 🎉</Text></View>
           ) : view === 'matrix' ? (
-            <MatrixView tasks={tasks} onOpen={setOpenId} showBoard />
+            <MatrixView tasks={tasks} onOpen={setOpenId} showBoard myId={myId} />
           ) : (
             <View style={{ gap: 10 }}>
               {tasks.map(t => <TaskCard key={t.id} task={t} onPress={() => setOpenId(t.id)} showBoard />)}

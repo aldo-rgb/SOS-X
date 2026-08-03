@@ -1023,11 +1023,14 @@ export function ViewToggle({ view, onChange, firstLabel }: { view: 'list' | 'mat
 }
 
 // ── Vista Matriz (4 cuadrantes apilados) ──
-export function MatrixView({ tasks, onOpen, showBoard }: { tasks: TaskT[]; onOpen: (id: number) => void; showBoard?: boolean }) {
+export function MatrixView({ tasks, onOpen, showBoard, myId }: { tasks: TaskT[]; onOpen: (id: number) => void; showBoard?: boolean; myId?: number }) {
+  // Si se pasa myId, la matriz muestra SOLO las tareas donde el usuario es el
+  // responsable (assignee), no en las que solo está involucrado.
+  const base = myId ? tasks.filter(t => Number(t.assignee_id) === Number(myId)) : tasks;
   return (
     <View style={{ gap: 12 }}>
       {QUADRANTS.map(q => {
-        const qt = tasks.filter(t => t.eisenhower === q.key);
+        const qt = base.filter(t => t.eisenhower === q.key);
         return (
           <View key={q.key} style={[styles.quad, { backgroundColor: q.bg, borderTopColor: q.color }]}>
             <View style={styles.quadHead}>
