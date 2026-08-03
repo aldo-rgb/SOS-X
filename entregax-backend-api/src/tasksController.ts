@@ -672,7 +672,7 @@ export const listTasks = async (req: Request, res: Response): Promise<any> => {
         FROM tasks t
         LEFT JOIN users u ON u.id = t.assignee_id
        WHERE ${conds.join(' AND ')}
-       ORDER BY t.column_id, t.priority DESC, t.due_at NULLS LAST, t.id DESC`, params);
+       ORDER BY t.column_id, t.completed_at DESC NULLS LAST, t.priority DESC, t.due_at NULLS LAST, t.id DESC`, params);
     res.json({ tasks: r.rows });
   } catch (e: any) {
     console.error('[tasks] listTasks:', e); res.status(500).json({ error: 'Error al listar tareas' });
