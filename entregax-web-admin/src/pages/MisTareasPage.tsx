@@ -220,6 +220,18 @@ export default function MisTareasPage() {
     finally { setLoading(false); }
   }, [showDone]);
   useEffect(() => { load(); }, [load]);
+
+  // Drag & drop en la Matriz Eisenhower: arrastrar una tarjeta a otro cuadrante
+  // cambia su prioridad (eisenhower). Actualización optimista para respuesta inmediata.
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const moveTaskToQuadrant = async (taskId: number, eis: string) => {
+    const cur = tasks.find(t => t.id === taskId);
+    if (!cur || cur.eisenhower === eis) return;
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, eisenhower: eis } : t));
+    try { await axios.put(`${API_URL}/tasks/${taskId}`, { eisenhower: eis }, H()); }
+    catch { notify('No se pudo mover la tarea', 'error'); load(); }
+  };
+
   // Abrir una tarea específica al llegar desde una notificación:
   //  • localStorage 'pending_open_task_id' → recién montado (venías de otra sección).
   //  • evento 'open-task-detail' → ya estabas en Mis Tareas.
@@ -365,8 +377,10 @@ export default function MisTareasPage() {
       : t.board_name;
     return (
       <Box key={t.id} onClick={() => setDetailId(t.id)}
-        sx={{ bgcolor: '#fff', borderRadius: 1, px: 0.75, py: 0.5, cursor: 'pointer', border: '1px solid #E8DFD3',
-          borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3', '&:hover': { boxShadow: 1 }, opacity: done ? 0.6 : 1 }}>
+        draggable
+        onDragStart={e => { e.dataTransfer.setData('text/plain', String(t.id)); e.dataTransfer.effectAllowed = 'move'; }}
+        sx={{ bgcolor: '#fff', borderRadius: 1, px: 0.75, py: 0.5, cursor: 'grab', border: '1px solid #E8DFD3',
+          borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3', '&:hover': { boxShadow: 1 }, '&:active': { cursor: 'grabbing' }, opacity: done ? 0.6 : 1 }}>
         <Typography fontSize={12} fontWeight={600} sx={{ lineHeight: 1.25, textDecoration: done ? 'line-through' : 'none', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{t.title}</Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
           {boardLabel && <Typography fontSize={10} color="text.secondary" noWrap sx={{ flex: 1, minWidth: 0 }}>🗂️ {boardLabel}</Typography>}
@@ -415,8 +429,14 @@ export default function MisTareasPage() {
             // Matriz Eisenhower: SOLO tareas donde el usuario es el responsable (assignee),
             // no en las que solo está involucrado.
             const qt = tasks.filter(t => t.eisenhower === q.key && Number(t.assignee_id) === MY_ID);
+            const over = dragOverKey === q.key;
             return (
-              <Box key={q.key} sx={{ bgcolor: q.bg, borderRadius: 2, borderTop: `3px solid ${q.color}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <Box key={q.key}
+                onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverKey !== q.key) setDragOverKey(q.key); }}
+                onDragLeave={() => setDragOverKey(k => (k === q.key ? null : k))}
+                onDrop={e => { e.preventDefault(); setDragOverKey(null); const id = Number(e.dataTransfer.getData('text/plain')); if (id) moveTaskToQuadrant(id, q.key); }}
+                sx={{ bgcolor: q.bg, borderRadius: 2, borderTop: `3px solid ${q.color}`, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                  outline: over ? `2px dashed ${q.color}` : 'none', outlineOffset: -2, transition: 'outline .12s' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.6, flexShrink: 0 }}>
                   <Typography fontWeight={800} fontSize={12.5} sx={{ flex: 1, color: q.color, lineHeight: 1.1 }} noWrap>{q.title}</Typography>
                   <Chip label={qt.length} size="small" sx={{ height: 18, fontSize: 11 }} />

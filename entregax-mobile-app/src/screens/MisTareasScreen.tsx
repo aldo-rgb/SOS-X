@@ -33,6 +33,17 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
+  // Mover una tarea de cuadrante = cambiar su prioridad (eisenhower). Optimista.
+  const moveTask = useCallback(async (taskId: number, eisenhower: string) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, eisenhower } : t));
+    try {
+      await fetch(`${API_URL}/api/tasks/${taskId}`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eisenhower }),
+      });
+    } catch { load(); }
+  }, [token, load]);
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor={ORANGE} />
@@ -65,7 +76,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
       ) : view === 'matrix' ? (
         // Matriz 2×2 que llena la pantalla (fuera del ScrollView; cada cuadrante hace scroll interno).
         <View style={{ flex: 1, padding: 10 }}>
-          <MatrixView tasks={tasks} onOpen={setOpenId} showBoard myId={myId} />
+          <MatrixView tasks={tasks} onOpen={setOpenId} showBoard myId={myId} onMove={moveTask} />
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}

@@ -80,6 +80,16 @@ export default function TareasScreen({ navigation, route }: Props) {
   useEffect(() => { if (activeId) { loadTasks(activeId); loadAssignees(activeId); setActiveSection(null); } }, [activeId, loadTasks, loadAssignees]);
 
   const refresh = () => { if (activeId) loadTasks(activeId); };
+  // Mover una tarea de cuadrante = cambiar su prioridad (eisenhower). Optimista.
+  const moveTask = async (taskId: number, eisenhower: string) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, eisenhower } : t));
+    try {
+      await fetch(`${API_URL}/api/tasks/${taskId}`, {
+        method: 'PUT', headers: { ...H, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eisenhower }),
+      });
+    } catch { refresh(); }
+  };
 
   const openCreate = () => {
     setForm({ title: '', description: '', eisenhower: 'estrella', assignee_id: '',
@@ -166,7 +176,7 @@ export default function TareasScreen({ navigation, route }: Props) {
         <View style={styles.center}><Text style={styles.empty}>No hay tableros.</Text></View>
       ) : view === 'matrix' ? (
         <View style={{ flex: 1, padding: 12 }}>
-          <MatrixView tasks={tasks} onOpen={setOpenId} />
+          <MatrixView tasks={tasks} onOpen={setOpenId} onMove={moveTask} />
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}

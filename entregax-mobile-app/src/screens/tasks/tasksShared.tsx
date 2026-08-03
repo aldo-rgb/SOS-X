@@ -1086,11 +1086,13 @@ export function ViewToggle({ view, onChange, firstLabel }: { view: 'list' | 'mat
 }
 
 // ── Vista Matriz (4 cuadrantes apilados) ──
-export function MatrixView({ tasks, onOpen, showBoard, myId }: { tasks: TaskT[]; onOpen: (id: number) => void; showBoard?: boolean; myId?: number }) {
+export function MatrixView({ tasks, onOpen, showBoard, myId, onMove }: { tasks: TaskT[]; onOpen: (id: number) => void; showBoard?: boolean; myId?: number; onMove?: (taskId: number, eisenhower: string) => void }) {
   // Si se pasa myId, la matriz muestra SOLO las tareas donde el usuario es el
   // responsable (assignee), no en las que solo está involucrado.
   const base = myId ? tasks.filter(t => Number(t.assignee_id) === Number(myId)) : tasks;
   const cells = QUADRANTS.map(q => ({ q, qt: base.filter(t => t.eisenhower === q.key) }));
+  // Tarea seleccionada para mover (mantén presionada una tarjeta).
+  const [moveFor, setMoveFor] = useState<TaskT | null>(null);
   const renderCell = ({ q, qt }: { q: typeof QUADRANTS[number]; qt: TaskT[] }) => (
     <View key={q.key} style={[styles.mxCell, { backgroundColor: q.bg, borderTopColor: q.color }]}>
       <View style={styles.mxHead}>
@@ -1101,7 +1103,9 @@ export function MatrixView({ tasks, onOpen, showBoard, myId }: { tasks: TaskT[];
         {qt.length === 0 ? <Text style={styles.mxEmpty}>—</Text> : qt.map(t => {
           const done = t.status === 'completed';
           return (
-            <TouchableOpacity key={t.id} onPress={() => onOpen(t.id)} style={[styles.mxCard, t.overdue && styles.cardOverdue, done && { opacity: 0.6 }]}>
+            <TouchableOpacity key={t.id} onPress={() => onOpen(t.id)}
+              onLongPress={onMove ? () => setMoveFor(t) : undefined} delayLongPress={250}
+              style={[styles.mxCard, t.overdue && styles.cardOverdue, done && { opacity: 0.6 }]}>
               <Text style={[styles.mxCardTitle, done && { textDecorationLine: 'line-through', color: '#999' }]} numberOfLines={3}>{t.title}</Text>
               <View style={styles.mxCardMeta}>
                 {showBoard && !!t.board_name && <Text style={styles.mxCardBoard} numberOfLines={1}>🗂️ {t.board_name}</Text>}
@@ -1120,6 +1124,22 @@ export function MatrixView({ tasks, onOpen, showBoard, myId }: { tasks: TaskT[];
     <View style={{ flex: 1, gap: 6 }}>
       <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>{cells.slice(0, 2).map(renderCell)}</View>
       <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>{cells.slice(2, 4).map(renderCell)}</View>
+      {/* Mover de cuadrante: mantén presionada una tarjeta → elige destino. */}
+      <Modal visible={!!moveFor} transparent animationType="fade" onRequestClose={() => setMoveFor(null)}>
+        <TouchableOpacity style={styles.mvBackdrop} activeOpacity={1} onPress={() => setMoveFor(null)}>
+          <View style={styles.mvSheet}>
+            <Text style={styles.mvTitle} numberOfLines={2}>Mover a…</Text>
+            {!!moveFor && <Text style={styles.mvSub} numberOfLines={2}>{moveFor.title}</Text>}
+            {QUADRANTS.filter(q => q.key !== moveFor?.eisenhower).map(q => (
+              <TouchableOpacity key={q.key} style={[styles.mvOpt, { borderLeftColor: q.color, backgroundColor: q.bg }]}
+                onPress={() => { if (moveFor && onMove) onMove(moveFor.id, q.key); setMoveFor(null); }}>
+                <Text style={[styles.mvOptTxt, { color: q.color }]}>{q.title}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.mvCancel} onPress={() => setMoveFor(null)}><Text style={styles.mvCancelTxt}>Cancelar</Text></TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -1229,4 +1249,13 @@ export const styles = StyleSheet.create({
   mxCardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   mxCardBoard: { fontSize: 9.5, color: '#888', flexShrink: 1 },
   mxCardMetaTxt: { fontSize: 9.5, color: '#888' },
+  // Modal "Mover a" (long-press en la matriz).
+  mvBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  mvSheet: { width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 16, padding: 16 },
+  mvTitle: { fontSize: 16, fontWeight: '800', color: '#111' },
+  mvSub: { fontSize: 13, color: '#666', marginTop: 2, marginBottom: 10 },
+  mvOpt: { borderLeftWidth: 4, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 12, marginTop: 8 },
+  mvOptTxt: { fontSize: 14, fontWeight: '700' },
+  mvCancel: { paddingVertical: 12, alignItems: 'center', marginTop: 6 },
+  mvCancelTxt: { fontSize: 14, fontWeight: '700', color: '#888' },
 });
