@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Modal, Alert,
-  ActivityIndicator, TextInput, Image, Platform, Linking,
+  ActivityIndicator, TextInput, Image, Platform, Linking, KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -827,7 +827,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalCard}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle} numberOfLines={1}>{t?.title || 'Tarea'}</Text>
@@ -1064,7 +1064,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
             </View>
           )}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
