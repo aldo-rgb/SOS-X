@@ -780,6 +780,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             });
           } else if (data.type === 'support_client_reply' && data.ticket_id) {
             navigation.navigate('SupportTickets', { user, token });
+          } else if (data.task_id) {
+            navigation.navigate('MyTasks', { user, token, openTaskId: Number(data.task_id) });
           }
         } catch {}
       },

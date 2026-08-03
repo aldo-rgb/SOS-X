@@ -305,6 +305,12 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
     // Marcar como leída
     markAsRead(item.id);
 
+    // 📋 Notificación de tarea (te asignaron / te involucraron) → abrir la tarea.
+    if (item.data?.task_id) {
+      (navigation as any).navigate('MyTasks', { user, token, openTaskId: Number(item.data.task_id) });
+      return;
+    }
+
     // 🎁 Notificación del Kit de Bienvenida → ir a Saldo a Favor
     if (item.data?.kind === 'welcome_kit' || (item.title || '').toLowerCase().includes('regalo')) {
       (navigation as any).navigate('SaldoFavor', { user, token });

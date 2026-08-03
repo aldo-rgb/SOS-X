@@ -270,6 +270,8 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           (navigation as any).navigate('AdvisorPackages', { user, token, filter: d.filter });
         else if (d.type === 'support_reply' && d.ticket_id)
           (navigation as any).navigate('SupportChat', { user, token, ticketId: Number(d.ticket_id) });
+        else if (d.task_id)
+          (navigation as any).navigate('MyTasks', { user, token, openTaskId: Number(d.task_id) });
       },
     });
     return () => { if (cleanup) cleanup(); };

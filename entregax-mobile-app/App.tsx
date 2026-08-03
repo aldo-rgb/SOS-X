@@ -220,7 +220,7 @@ export type RootStackParamList = {
   BranchesHub: { user: any; token: string };
   UsersAdmin: { user: any; token: string };
   WelcomeKitAdmin: { user: any; token: string };
-  MyTasks: { user: any; token: string };
+  MyTasks: { user: any; token: string; openTaskId?: number };
   TareasAdmin: { user: any; token: string };
   SystemSettings: { user: any; token: string };
   PanelPermissions: { user: any; token: string };

@@ -38,6 +38,8 @@ export default function MisTareasScreen({ navigation, route }: Props) {
     } catch { /* */ } finally { setLoading(false); setRefreshing(false); }
   }, [token]);
   useEffect(() => { load(); }, [load]);
+  // Abrir una tarea específica al llegar desde una notificación ("te involucraron en una tarea").
+  useEffect(() => { if (route.params?.openTaskId) setOpenId(route.params.openTaskId); }, [route.params?.openTaskId]);
 
   // Mover una tarea de cuadrante = cambiar su prioridad (eisenhower). Optimista.
   const moveTask = useCallback(async (taskId: number, eisenhower: string) => {

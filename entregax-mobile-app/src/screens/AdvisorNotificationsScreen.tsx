@@ -269,6 +269,11 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
 
     // Navigate based on source
     const data = typeof notif.data === 'string' ? JSON.parse(notif.data) : notif.data;
+    // Notificación de tarea (te asignaron / te involucraron): abrir la tarea.
+    if (data?.task_id) {
+      navigation.navigate('MyTasks', { user, token, openTaskId: Number(data.task_id) });
+      return;
+    }
     if (notif.source === 'own_verification') {
       navigation.navigate('MyProfile', { user, token });
       return;
