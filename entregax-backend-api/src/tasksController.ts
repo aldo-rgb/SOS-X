@@ -174,7 +174,7 @@ async function getOrCreatePersonalBoard(): Promise<number | null> {
 // Crea una tarea asignada a un usuario (reutilizable desde otros módulos, p.ej.
 // convertir la "declaración de meta" de un asesor en tarea). Devuelve el task_id.
 export async function createAssignedTaskInternal(opts: {
-  creatorId: number; assigneeId: number; title: string; description?: string | null; dueAt?: string | null; eisenhower?: string;
+  creatorId: number; assigneeId: number; title: string; description?: string | null; dueAt?: string | null; eisenhower?: string; notifyAssignee?: boolean;
 }): Promise<number | null> {
   try {
     const boardId = await getOrCreatePersonalBoard();
@@ -191,7 +191,7 @@ export async function createAssignedTaskInternal(opts: {
     const parts = Array.from(new Set<number>([opts.creatorId, opts.assigneeId].filter(Boolean)));
     for (const p of parts) await pool.query(`INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [taskId, p]);
     await logActivity(taskId, opts.creatorId, 'created', { title: opts.title, from: 'meta' });
-    if (Number(opts.assigneeId) !== Number(opts.creatorId)) {
+    if (opts.notifyAssignee !== false && Number(opts.assigneeId) !== Number(opts.creatorId)) {
       await notify(opts.assigneeId, '🎯 Meta / tarea asignada', String(opts.title), { task_id: taskId }, 'task_new');
     }
     return taskId;

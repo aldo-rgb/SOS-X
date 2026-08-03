@@ -1746,16 +1746,35 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
       return res.json({ ok: true, task_id: existing.rows[0].id, already: true, message: 'Ya existe una tarea para este error.' });
     }
 
-    // Responsable = Super Admin activo.
-    const saRes = await pool.query(`SELECT id FROM users WHERE role = 'super_admin' AND COALESCE(is_active, true) = true ORDER BY id LIMIT 1`);
+    // Super Admins activos. El responsable se prefiere UNO CON DISPOSITIVO (token push
+    // activo) para que la notificación realmente llegue; si no, el de menor id.
+    const saRes = await pool.query(
+      `SELECT u.id, EXISTS (SELECT 1 FROM user_push_tokens pt WHERE pt.user_id = u.id AND pt.is_active = TRUE) AS has_device
+         FROM users u WHERE u.role = 'super_admin' AND COALESCE(u.is_active, true) = true
+        ORDER BY has_device DESC, u.id`);
     if (saRes.rows.length === 0) return res.status(400).json({ error: 'No hay un Super Admin activo para asignar la tarea.' });
-    const superAdminId = Number(saRes.rows[0].id);
+    const superAdminIds = saRes.rows.map((r: any) => Number(r.id));
+    const superAdminId = superAdminIds[0]!; // responsable (prefiere con dispositivo)
 
     const desc = `🐛 Error reportado desde el ticket ${folio}${ticket.client_name ? ' · ' + ticket.client_name : ''}.\n${ticket.subject || ''}`.trim();
 
+    // Se crea la tarea SIN el push automático de "tarea asignada" (notifyAssignee:false)
+    // porque notificamos a TODOS los super admin explícitamente abajo (evita duplicado).
     const { createAssignedTaskInternal } = await import('./tasksController');
-    const taskId = await createAssignedTaskInternal({ creatorId: Number(uid), assigneeId: superAdminId, title, description: desc, eisenhower: 'fuego' });
+    const taskId = await createAssignedTaskInternal({ creatorId: Number(uid), assigneeId: superAdminId, title, description: desc, eisenhower: 'fuego', notifyAssignee: false });
     if (!taskId) return res.status(500).json({ error: 'No se pudo crear la tarea' });
+
+    // Notificar a TODOS los super admin: in-app siempre + push solo en horario laboral.
+    try {
+      const { createCustomNotification } = await import('./notificationController');
+      for (const saId of superAdminIds) {
+        await createCustomNotification(saId, `🐛 Error reportado · ${folio}`, `${title}. Revísalo en Mis Tareas.`, 'task', 'checkbox', { task_id: taskId, ticket_id: ticketId }, '/tareas');
+      }
+      const { sendPushToUsers, isMxWorkHours } = await import('./pushService');
+      if (isMxWorkHours()) {
+        await sendPushToUsers(superAdminIds, { title: `🐛 Error reportado · ${folio}`, body: `${title}. Revísalo en Mis Tareas.`, data: { screen: 'MyTasks', task_id: String(taskId) } });
+      }
+    } catch (e) { console.error('[support] reportTicketError notif:', e); }
 
     // Copiar TODOS los archivos del ticket (ticket_messages.attachments = JSON de URLs) a la tarea.
     let copied = 0;
