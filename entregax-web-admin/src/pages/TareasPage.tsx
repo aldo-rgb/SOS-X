@@ -16,6 +16,7 @@ import AttachFileIcon from '@mui/icons-material/AttachFile';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CloseIcon from '@mui/icons-material/Close';
+import EditIcon from '@mui/icons-material/Edit';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import SendIcon from '@mui/icons-material/Send';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
@@ -525,18 +526,26 @@ export default function TareasPage() {
               <InputLabel>Responsable principal</InputLabel>
               <Select label="Responsable principal" value={form.assignee_id} onChange={e => setForm({ ...form, assignee_id: e.target.value })}>
                 <MenuItem value="">Sin asignar</MenuItem>
-                {assignees.map(u => {
-                  const avg = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
-                  return (
-                    <MenuItem key={u.id} value={u.id}>
-                      {u.full_name}
-                      <Typography component="span" fontSize={12} color="text.secondary" sx={{ ml: 0.75 }}>
-                        · ⏱ {avg && avg > 0 ? `${fmtDur(avg * 1000)} prom.` : 'sin datos'}
-                      </Typography>
-                    </MenuItem>
-                  );
-                })}
-                {assignees.length === 0 && <MenuItem value="" disabled>No hay responsables configurados</MenuItem>}
+                {(() => {
+                  // Opciones = responsables configurados del tablero + los involucrados
+                  // elegidos (para poder nombrar responsable a quien acabas de involucrar).
+                  const m = new Map<number, UserOpt>();
+                  for (const u of assignees) m.set(u.id, u);
+                  for (const u of users) if (involvedIds.includes(u.id)) m.set(u.id, u);
+                  const opts = Array.from(m.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
+                  if (opts.length === 0) return <MenuItem value="" disabled>Agrega un involucrado para elegir responsable</MenuItem>;
+                  return opts.map(u => {
+                    const avg = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
+                    return (
+                      <MenuItem key={u.id} value={u.id}>
+                        {u.full_name}
+                        <Typography component="span" fontSize={12} color="text.secondary" sx={{ ml: 0.75 }}>
+                          · ⏱ {avg && avg > 0 ? `${fmtDur(avg * 1000)} prom.` : 'sin datos'}
+                        </Typography>
+                      </MenuItem>
+                    );
+                  });
+                })()}
               </Select>
             </FormControl>
             <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
@@ -716,11 +725,17 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
   const [newSub, setNewSub] = useState('');
   const [subPhoto, setSubPhoto] = useState(false);
   const [delAttId, setDelAttId] = useState<number | null>(null);
+  // Edición inline (título, descripción, responsable, fecha, involucrados).
+  const [users, setUsers] = useState<UserOpt[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [eForm, setEForm] = useState<any>({ title: '', description: '', assignee_id: '', due_at: '' });
+  const [eInvolved, setEInvolved] = useState<number[]>([]);
 
   const reload = useCallback(async () => {
     try { const r = await axios.get(`${API_URL}/tasks/${id}`, H()); setData(r.data); } catch { /* */ }
   }, [id]);
   useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { axios.get(`${API_URL}/tasks/assignable-users`, H()).then(r => setUsers(r.data?.users || [])).catch(() => {}); }, []);
 
   const t = data?.task;
   const subs = data?.subtasks || [];
@@ -798,6 +813,27 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
     try { await axios.delete(`${API_URL}/tasks/subtasks/${subId}`, H()); reload(); onChanged(); }
     catch (e: any) { notify(e?.response?.data?.error || 'No se pudo eliminar', 'error'); }
   };
+  const startEdit = () => {
+    const d = t.due_at ? new Date(t.due_at) : null;
+    setEForm({
+      title: t.title || '', description: t.description || '', assignee_id: t.assignee_id || '',
+      due_at: d ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '',
+    });
+    setEInvolved((data?.participants || []).map((p: any) => p.id).filter((x: number) => x !== t.assignee_id));
+    setEditing(true);
+  };
+  const saveEdit = async () => {
+    if (!eForm.title.trim()) { notify('El título es obligatorio', 'error'); return; }
+    try {
+      await axios.put(`${API_URL}/tasks/${id}`, {
+        title: eForm.title.trim(), description: eForm.description || null,
+        assignee_id: eForm.assignee_id || null,
+        due_at: eForm.due_at ? new Date(eForm.due_at).toISOString() : null,
+        involved_ids: eInvolved,
+      }, H());
+      setEditing(false); reload(); onChanged(); notify('Cambios guardados');
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo guardar', 'error'); }
+  };
 
   return (
     <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
@@ -812,12 +848,72 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
             <IconButton onClick={onClose} sx={{ position: 'absolute', right: 8, top: 8 }}><CloseIcon /></IconButton>
           </DialogTitle>
           <DialogContent dividers>
-            {t.description && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{t.description}</Typography>}
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1.5 }}>
-              <Typography variant="body2"><b>Responsable:</b> {t.assignee_name || '—'}</Typography>
-              {t.due_at && <Typography variant="body2" color={t.overdue ? 'error.main' : 'inherit'}><b>Fecha deseada:</b> {new Date(t.due_at).toLocaleString('es-MX')}</Typography>}
-              {t.linked_id && <Typography variant="body2"><b>Ligada:</b> {t.linked_id}</Typography>}
-            </Box>
+            {!editing ? (
+              <>
+                {t.description && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{t.description}</Typography>}
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1 }}>
+                  <Typography variant="body2"><b>Responsable:</b> {t.assignee_name || '—'}</Typography>
+                  {t.due_at && <Typography variant="body2" color={t.overdue ? 'error.main' : 'inherit'}><b>Fecha deseada:</b> {new Date(t.due_at).toLocaleString('es-MX')}</Typography>}
+                  {t.linked_id && <Typography variant="body2"><b>Ligada:</b> {t.linked_id}</Typography>}
+                </Box>
+                {/* Involucrados */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+                  <Typography variant="body2"><b>Involucrados:</b></Typography>
+                  {(data?.participants || []).length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">Solo el responsable</Typography>
+                  ) : (data.participants).map((p: any) => (
+                    <Chip key={p.id} size="small" label={p.full_name}
+                      sx={{ height: 22, fontSize: 11, bgcolor: p.id === t.assignee_id ? '#FDECE4' : '#EDE7F6', color: p.id === t.assignee_id ? '#D6521C' : '#5E35B1', fontWeight: 600 }} />
+                  ))}
+                  {data?.can_edit && t.status !== 'completed' && (
+                    <Button size="small" startIcon={<EditIcon sx={{ fontSize: 16 }} />} onClick={startEdit}
+                      sx={{ ml: 'auto', textTransform: 'none', color: '#D6521C' }}>Editar</Button>
+                  )}
+                </Box>
+              </>
+            ) : (
+              /* ── Modo edición ── */
+              <Box sx={{ mb: 1.5, p: 1.5, border: '1px solid #ECE4D8', borderRadius: 1.5, bgcolor: '#FCFAF7' }}>
+                <TextField fullWidth size="small" label="Título" margin="dense" value={eForm.title} onChange={e => setEForm({ ...eForm, title: e.target.value })} />
+                <TextField fullWidth size="small" label="Descripción" margin="dense" multiline minRows={2} value={eForm.description} onChange={e => setEForm({ ...eForm, description: e.target.value })} />
+                <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Responsable principal</InputLabel>
+                    <Select label="Responsable principal" value={eForm.assignee_id || ''} onChange={e => setEForm({ ...eForm, assignee_id: e.target.value })}>
+                      <MenuItem value="">Sin asignar</MenuItem>
+                      {users.map(u => <MenuItem key={u.id} value={u.id}>{u.full_name}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
+                    value={eForm.due_at} onChange={e => setEForm({ ...eForm, due_at: e.target.value })} />
+                </Box>
+                {/* Involucrados con grupos */}
+                <Box sx={{ mt: 1.5 }}>
+                  <Autocomplete
+                    multiple size="small" disableCloseOnSelect
+                    options={[...users].filter(u => u.id !== eForm.assignee_id).sort((a, b) => roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name))}
+                    value={users.filter(u => u.id !== eForm.assignee_id && eInvolved.includes(u.id))}
+                    onChange={(_, val) => setEInvolved(val.map(u => u.id))}
+                    groupBy={u => roleGroup(u.role)}
+                    getOptionLabel={u => u.full_name}
+                    isOptionEqualToValue={(a, b) => a.id === b.id}
+                    filterOptions={(opts, { inputValue }) => { const q = inputValue.trim().toLowerCase(); return q ? opts.filter(u => u.full_name.toLowerCase().includes(q) || roleGroup(u.role).toLowerCase().includes(q)) : opts; }}
+                    renderOption={(props, u) => (<li {...props} key={u.id}><Checkbox size="small" checked={eInvolved.includes(u.id)} sx={{ mr: 1, p: 0.5 }} /><Typography variant="body2">{u.full_name}</Typography></li>)}
+                    renderInput={params => <TextField {...params} label="Involucrados" placeholder="Buscar por nombre o tipo…" />}
+                  />
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 1 }}>
+                    <Chip label="👥 Todos los empleados" size="small" onClick={() => setEInvolved(Array.from(new Set(users.filter(u => u.id !== eForm.assignee_id).map(u => u.id))))} sx={{ bgcolor: '#FFF3EC', color: '#D6521C', fontWeight: 700, border: '1px solid #F0B79A' }} />
+                    {Array.from(new Set(users.filter(u => u.id !== eForm.assignee_id).map(u => roleGroup(u.role)))).sort().map(g => (
+                      <Chip key={g} label={`+ ${g}`} size="small" variant="outlined" onClick={() => setEInvolved(Array.from(new Set([...eInvolved, ...users.filter(u => u.id !== eForm.assignee_id && roleGroup(u.role) === g).map(u => u.id)])))} sx={{ fontWeight: 600, borderColor: '#ddd' }} />
+                    ))}
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
+                  <Button variant="contained" size="small" onClick={saveEdit} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Guardar</Button>
+                  <Button size="small" onClick={() => setEditing(false)}>Cancelar</Button>
+                </Box>
+              </Box>
+            )}
 
             {/* Control de tiempo */}
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2, p: 1.25, bgcolor: '#F7F4EF', borderRadius: 1.5, border: '1px solid #ECE4D8' }}>
