@@ -1457,8 +1457,53 @@ export const startPaypalAutoInvoiceScheduleCron = () => {
   console.log('✅ Cron de programación de facturación PayPal activo (00:10 MX: off día -3, on día 1)');
 };
 
+// Recordatorios de tareas (in-app siempre + push; 11am ya es horario laboral):
+//  · Lunes 11:00 AM (MX): cuántas tareas PENDIENTES tiene cada usuario.
+//  · Diario 11:00 AM (MX): cuántas tareas URGENTES (importante y urgente = 'fuego').
+export const startTaskRemindersCron = () => {
+  const sendReminder = async (kind: 'weekly' | 'urgent') => {
+    try {
+      const urgentCond = kind === 'urgent' ? `AND t.eisenhower = 'fuego'` : '';
+      const rows = (await pool.query(`
+        SELECT x.uid, COUNT(DISTINCT x.task_id)::int AS n
+          FROM (
+            SELECT t.assignee_id AS uid, t.id AS task_id FROM tasks t
+             WHERE t.status = 'open' AND t.assignee_id IS NOT NULL ${urgentCond}
+            UNION
+            SELECT tp.user_id AS uid, tp.task_id FROM task_participants tp
+              JOIN tasks t ON t.id = tp.task_id
+             WHERE t.status = 'open' ${urgentCond}
+          ) x
+         GROUP BY x.uid HAVING COUNT(DISTINCT x.task_id) > 0
+      `)).rows;
+      if (rows.length === 0) return;
+      const { createCustomNotification } = await import('./notificationController');
+      const { sendPushToUsers } = await import('./pushService');
+      for (const r of rows) {
+        const uid = Number(r.uid); const n = Number(r.n);
+        if (!uid || n <= 0) continue;
+        const title = kind === 'urgent' ? '🔥 Tareas urgentes' : '📋 Tus tareas pendientes';
+        const body = kind === 'urgent'
+          ? `Tienes ${n} tarea${n === 1 ? '' : 's'} urgente${n === 1 ? '' : 's'} (importante y urgente). Atiéndelas hoy.`
+          : `Tienes ${n} tarea${n === 1 ? '' : 's'} pendiente${n === 1 ? '' : 's'} esta semana. Ábrelas en Mis Tareas.`;
+        try {
+          await createCustomNotification(uid, title, body, 'task', 'checkbox', { screen: 'MyTasks' }, '/tareas');
+          await sendPushToUsers([uid], { title, body, data: { screen: 'MyTasks' } });
+        } catch (e) { console.error('[CRON] task reminder user', uid, e); }
+      }
+      console.log(`📋 [CRON] Recordatorio de tareas (${kind}) enviado a ${rows.length} usuarios`);
+    } catch (e) { console.error(`[CRON] task reminders (${kind}):`, e); }
+  };
+  // Lunes 11:00 AM (MX) → pendientes generales.
+  cron.schedule('0 11 * * 1', () => sendReminder('weekly'), { timezone: 'America/Mexico_City' });
+  // Diario 11:00 AM (MX) → urgentes.
+  cron.schedule('0 11 * * *', () => sendReminder('urgent'), { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Recordatorios de tareas: lunes 11am (pendientes) + diario 11am (urgentes)');
+};
+
 export const initCronJobs = () => {
   startRecoveryCronJob();
+  startTaskRemindersCron();
   startWaSequenceCron();
   startScheduledBulkCron();
   startFunnelRulesCron();
