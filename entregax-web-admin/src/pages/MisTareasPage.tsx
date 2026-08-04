@@ -112,7 +112,7 @@ interface Task {
   id: number; title: string; description?: string; eisenhower: string; status: string;
   due_at?: string; created_at?: string; completed_at?: string; assignee_name?: string; assignee_id?: number; board_id?: number;
   board_name?: string; board_key?: string; column_name?: string; subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
-  participants_count?: number; participant_names?: string[] | null;
+  participants_count?: number; participant_names?: string[] | null; unread_count?: number;
 }
 interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; }
 const avgLabel = (u: UserOpt): string => {
@@ -341,6 +341,7 @@ export default function MisTareasPage() {
         <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
           <Chip label={eis?.short || t.eisenhower} size="small" sx={{ height: 20, fontSize: 11, bgcolor: eis?.bg, color: eis?.color, fontWeight: 700 }} />
           {done && <Chip label="✅ Completada" size="small" color="success" sx={{ height: 20, fontSize: 11 }} />}
+          {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count} sin leer`} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#E53935', color: '#fff', fontWeight: 700 }} />}
         </Box>
         <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: done ? 'line-through' : 'none' }}>{t.title}</Typography>
         {(boardLabel || colLabel) && (
@@ -387,6 +388,7 @@ export default function MisTareasPage() {
         sx={{ bgcolor: '#fff', borderRadius: 1, px: 0.75, py: 0.5, cursor: 'grab', border: '1px solid #E8DFD3',
           borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3', '&:hover': { boxShadow: 1 }, '&:active': { cursor: 'grabbing' }, opacity: done ? 0.6 : 1 }}>
         <Typography fontSize={12} fontWeight={600} sx={{ lineHeight: 1.25, textDecoration: done ? 'line-through' : 'none', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{t.title}</Typography>
+        {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count}`} size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, bgcolor: '#E53935', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
           {boardLabel && <Typography fontSize={10} color="text.secondary" noWrap sx={{ flex: 1, minWidth: 0 }}>🗂️ {boardLabel}</Typography>}
           {(t.subtasks_total || 0) > 0 && <Typography fontSize={10} color={t.subtasks_done === t.subtasks_total ? 'success.main' : 'text.secondary'}>☑{t.subtasks_done}/{t.subtasks_total}</Typography>}
@@ -468,7 +470,8 @@ export default function MisTareasPage() {
           {QUADRANTS.map(q => {
             // Matriz Eisenhower: SOLO tareas donde el usuario es el responsable (assignee),
             // no en las que solo está involucrado.
-            const qt = visibleTasks.filter(t => t.eisenhower === q.key && Number(t.assignee_id) === MY_ID);
+            // Matriz: donde soy responsable + con comentarios sin leer (para notar respuestas pendientes).
+            const qt = visibleTasks.filter(t => t.eisenhower === q.key && (Number(t.assignee_id) === MY_ID || (t.unread_count || 0) > 0));
             const over = dragOverKey === q.key;
             return (
               <Box key={q.key}

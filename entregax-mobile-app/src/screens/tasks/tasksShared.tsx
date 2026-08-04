@@ -594,7 +594,7 @@ export interface TaskT {
   title: string; description?: string; assignee_id?: number; assignee_name?: string;
   due_at?: string; eisenhower: string; status: string; created_at?: string; completed_at?: string;
   subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
-  board_name?: string; board_key?: string; column_name?: string; participants_count?: number;
+  board_name?: string; board_key?: string; column_name?: string; participants_count?: number; unread_count?: number;
 }
 
 // ── Tarjeta de tarea ──
@@ -609,6 +609,9 @@ export function TaskCard({ task, onPress, showBoard }: { task: TaskT; onPress: (
           <Text style={[styles.chipTxt, { color: eis?.color }]}>{eis?.short || task.eisenhower}</Text>
         </View>
         {done && <View style={[styles.chip, { backgroundColor: '#E4F1E8' }]}><Text style={[styles.chipTxt, { color: '#2E7D46' }]}>✅ Completada</Text></View>}
+        {(task.unread_count || 0) > 0 && (
+          <View style={styles.unreadChip}><Ionicons name="chatbubble-ellipses" size={11} color="#fff" /><Text style={styles.unreadTxt}>{task.unread_count} sin leer</Text></View>
+        )}
       </View>
       <Text style={[styles.cardTitle, done && { textDecorationLine: 'line-through', color: '#999' }]} numberOfLines={2}>{task.title}</Text>
       {showBoard && (task.board_name || task.column_name) && (
@@ -1134,7 +1137,9 @@ export function ViewToggle({ view, onChange, firstLabel }: { view: 'list' | 'mat
 export function MatrixView({ tasks, onOpen, showBoard, myId, onMove }: { tasks: TaskT[]; onOpen: (id: number) => void; showBoard?: boolean; myId?: number; onMove?: (taskId: number, eisenhower: string) => void }) {
   // Si se pasa myId, la matriz muestra SOLO las tareas donde el usuario es el
   // responsable (assignee), no en las que solo está involucrado.
-  const base = myId ? tasks.filter(t => Number(t.assignee_id) === Number(myId)) : tasks;
+  // Matriz: tareas donde soy responsable + tareas con comentarios sin leer (para que
+  // el involucrado se dé cuenta de que hay respuesta pendiente).
+  const base = myId ? tasks.filter(t => Number(t.assignee_id) === Number(myId) || (t.unread_count || 0) > 0) : tasks;
   const cells = QUADRANTS.map(q => ({ q, qt: base.filter(t => t.eisenhower === q.key) }));
   // Tarea seleccionada para mover (mantén presionada una tarjeta).
   const [moveFor, setMoveFor] = useState<TaskT | null>(null);
@@ -1152,6 +1157,9 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove }: { tasks: 
               onLongPress={onMove ? () => setMoveFor(t) : undefined} delayLongPress={250}
               style={[styles.mxCard, t.overdue && styles.cardOverdue, done && { opacity: 0.6 }]}>
               <Text style={[styles.mxCardTitle, done && { textDecorationLine: 'line-through', color: '#999' }]} numberOfLines={3}>{t.title}</Text>
+              {(t.unread_count || 0) > 0 && (
+                <View style={styles.mxUnread}><Ionicons name="chatbubble-ellipses" size={9} color="#fff" /><Text style={styles.mxUnreadTxt}>{t.unread_count}</Text></View>
+              )}
               <View style={styles.mxCardMeta}>
                 {showBoard && !!t.board_name && <Text style={styles.mxCardBoard} numberOfLines={1}>🗂️ {t.board_name}</Text>}
                 <View style={{ flex: 1 }} />
@@ -1306,6 +1314,10 @@ export const styles = StyleSheet.create({
   mxCardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   mxCardBoard: { fontSize: 9.5, color: '#888', flexShrink: 1 },
   mxCardMetaTxt: { fontSize: 9.5, color: '#888' },
+  unreadChip: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#E53935', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 },
+  unreadTxt: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  mxUnread: { flexDirection: 'row', alignItems: 'center', gap: 2, alignSelf: 'flex-start', backgroundColor: '#E53935', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 7, marginTop: 3 },
+  mxUnreadTxt: { color: '#fff', fontSize: 9, fontWeight: '800' },
   // Modal "Mover a" (long-press en la matriz).
   mvBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
   mvSheet: { width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 16, padding: 16 },

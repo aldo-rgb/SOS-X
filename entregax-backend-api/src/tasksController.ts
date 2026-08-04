@@ -16,6 +16,18 @@ const authUserId = (req: Request): number | null => {
 const authRole = (req: Request): string =>
   String((req as any).user?.role || '').toLowerCase();
 
+// Marca de "última lectura" por usuario/tarea, para contar comentarios sin leer.
+let taskReadsReady = false;
+async function ensureTaskReadsTable() {
+  if (taskReadsReady) return;
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS task_reads (
+      task_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+      last_read_at TIMESTAMPTZ DEFAULT NOW(), PRIMARY KEY (task_id, user_id))`);
+    taskReadsReady = true;
+  } catch (e) { console.error('ensureTaskReadsTable:', e); }
+}
+
 const MANAGER_ROLES = ['super_admin', 'admin', 'director'];
 const isManager = (req: Request): boolean => MANAGER_ROLES.includes(authRole(req));
 
@@ -693,10 +705,15 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
     // ?all=true incluye las completadas (historial); por defecto solo abiertas.
     const includeAll = String(req.query.all || '') === 'true';
     const statusCond = includeAll ? `t.status <> 'cancelled'` : `t.status = 'open'`;
+    await ensureTaskReadsTable();
     const r = await pool.query(`
       SELECT t.*, b.name AS board_name, b.board_key, col.name AS column_name, col.is_done AS column_is_done,
              au.full_name AS assignee_name,
              cu.full_name AS created_by_name,
+             -- Comentarios de OTROS creados después de que este usuario leyó la tarea.
+             (SELECT COUNT(*) FROM task_comments cc
+                WHERE cc.task_id = t.id AND cc.author_id <> $1
+                  AND cc.created_at > COALESCE((SELECT last_read_at FROM task_reads tr WHERE tr.task_id = t.id AND tr.user_id = $1), TIMESTAMPTZ '1970-01-01'))::int AS unread_count,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id)::int AS subtasks_total,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id AND s.done)::int AS subtasks_done,
              (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
@@ -764,6 +781,15 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
     const parts = await pool.query(
       `SELECT tp.user_id AS id, u.full_name FROM task_participants tp JOIN users u ON u.id = tp.user_id WHERE tp.task_id = $1 ORDER BY u.full_name`, [id]);
     const canEdit = await canEditTask(req, t.rows[0]);
+    // Marcar la tarea como leída por este usuario (para el contador de no leídos).
+    const readerId = authUserId(req);
+    if (readerId) {
+      await ensureTaskReadsTable();
+      await pool.query(
+        `INSERT INTO task_reads (task_id, user_id, last_read_at) VALUES ($1,$2,NOW())
+         ON CONFLICT (task_id, user_id) DO UPDATE SET last_read_at = NOW()`, [id, readerId]
+      ).catch(() => {});
+    }
     res.json({ task: t.rows[0], subtasks: subs.rows, comments: comments.rows, activity: activity.rows, attachments, participants: parts.rows, can_edit: canEdit });
   } catch (e: any) {
     console.error('[tasks] getTask:', e); res.status(500).json({ error: 'Error al obtener tarea' });
