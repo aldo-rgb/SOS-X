@@ -844,6 +844,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           isEmployeeOnboarded: data.is_employee_onboarded,
           profilePhotoUrl: data.profile_photo_url,
           privacyAcceptedAt: data.privacy_accepted_at,
+          attendanceEnabled: data.attendance_enabled === true,
         }));
       }
     } catch (error) {
@@ -1668,9 +1669,9 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               )}
             </View>
 
-            {/* Botón de Checar Entrada/Salida para roles operativos
-                NOTA: 'monitoreo' queda excluido por solicitud (no checa asistencia desde la app) */}
-            {['repartidor', 'warehouse_ops', 'counter_staff'].includes(user.role) && isOnboarded && (
+            {/* Botón de Checar Entrada/Salida: visible solo para usuarios con el
+                checador activado por RRHH (toggle attendance_enabled) y ya onboarded. */}
+            {user.attendanceEnabled === true && isOnboarded && (
               <View style={styles.attendanceSection}>
                 <TouchableOpacity 
                   style={styles.attendanceButton}

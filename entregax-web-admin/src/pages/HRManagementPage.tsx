@@ -44,6 +44,7 @@ import {
   MenuItem,
   Snackbar,
   Skeleton,
+  Switch,
 } from '@mui/material';
 import {
   People as PeopleIcon,
@@ -109,6 +110,7 @@ interface Employee {
   privacy_accepted_at: string | null;
   is_active?: boolean;
   is_blocked?: boolean;
+  attendance_enabled?: boolean;
   block_reason?: string | null;
   blocked_at?: string | null;
   deleted_at?: string | null;
@@ -454,6 +456,25 @@ export default function HRManagementPage() {
     }
   };
 
+  // Activar / desactivar el checador de asistencia de un empleado
+  const handleToggleAttendance = async (employee: Employee, enabled: boolean) => {
+    // Optimista: refleja el cambio de inmediato.
+    setEmployees(prev => prev.map(e => e.id === employee.id ? { ...e, attendance_enabled: enabled } : e));
+    try {
+      await axios.put(
+        `${API_URL}/api/admin/hr/employees/${employee.id}/attendance-enabled`,
+        { enabled },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSnackbar({ open: true, message: `Checador ${enabled ? 'activado' : 'desactivado'} para ${employee.full_name}`, severity: 'success' });
+    } catch (error: unknown) {
+      // Revertir si falla.
+      setEmployees(prev => prev.map(e => e.id === employee.id ? { ...e, attendance_enabled: !enabled } : e));
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error al actualizar el checador';
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    }
+  };
+
   // Carga inicial
   useEffect(() => {
     const loadAll = async () => {
@@ -718,6 +739,7 @@ export default function HRManagementPage() {
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Tallas (P/C)</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Contacto Emergencia</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Expediente</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Checador</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Acciones</TableCell>
               </TableRow>
             </TableHead>
@@ -833,6 +855,17 @@ export default function HRManagementPage() {
                         />
                       </Tooltip>
                     )}
+                  </TableCell>
+                  <TableCell align="center">
+                    <Tooltip title={emp.attendance_enabled ? 'Checador activo — ve "Checar Asistencia" en la app' : 'Checador apagado'}>
+                      <Switch
+                        size="small"
+                        color="success"
+                        checked={emp.attendance_enabled === true}
+                        onChange={(e) => handleToggleAttendance(emp, e.target.checked)}
+                        disabled={emp.is_active === false || emp.is_blocked}
+                      />
+                    </Tooltip>
                   </TableCell>
                   <TableCell align="center">
                     <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>

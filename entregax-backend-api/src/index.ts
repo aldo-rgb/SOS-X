@@ -1280,7 +1280,8 @@ import {
   updateMyEmployeeData,
   createEmployee,
   updateEmployee,
-  deleteEmployee
+  deleteEmployee,
+  setEmployeeAttendanceEnabled
 } from './hrController';
 import {
   getVehicles,
@@ -12033,6 +12034,7 @@ app.get('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPE
 app.post('/api/admin/hr/employees', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), createEmployee);
 app.put('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), updateEmployee);
 app.delete('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), deleteEmployee);
+app.put('/api/admin/hr/employees/:id/attendance-enabled', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), setEmployeeAttendanceEnabled);
 app.post('/api/admin/hr/employees/:id/reactivate', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req, res) => {
   const mod = await import('./hrController');
   return mod.reactivateEmployee(req, res);
@@ -14672,6 +14674,17 @@ async function ensureRequiredColumns() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_accepted_at TIMESTAMP`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_employee_onboarded BOOLEAN DEFAULT FALSE`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE`);
+    // Checador de asistencia: toggle por usuario. Al crear la columna, se activa
+    // para los roles que hoy ya checaban (repartidor, bodega, mostrador) para no
+    // cambiar el comportamiento actual; el resto queda apagado y se activa manual.
+    {
+      const col = await pool.query(`SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='attendance_enabled'`);
+      const isNew = col.rows.length === 0;
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS attendance_enabled BOOLEAN DEFAULT FALSE`);
+      if (isNew) {
+        await pool.query(`UPDATE users SET attendance_enabled = TRUE WHERE role IN ('repartidor','warehouse_ops','counter_staff')`);
+      }
+    }
     // Preferencias de notificaciones
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_whatsapp BOOLEAN DEFAULT TRUE`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_push BOOLEAN DEFAULT TRUE`);

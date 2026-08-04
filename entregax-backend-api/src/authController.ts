@@ -868,6 +868,7 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
                     u.rfc, u.advisor_id, u.branch_id,
                     COALESCE(u.whatsapp_verified, FALSE) as whatsapp_verified,
                     COALESCE(u.gex_auto_enabled, FALSE) as gex_auto_enabled,
+                    COALESCE(u.attendance_enabled, FALSE) as attendance_enabled,
                     b.name as branch_name,
                     a.full_name as advisor_name,
                     a.phone as advisor_phone,

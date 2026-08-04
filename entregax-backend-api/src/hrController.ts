@@ -594,6 +594,7 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
         u.emergency_contact, u.hire_date, u.employee_number,
         COALESCE(u.is_active, TRUE) AS is_active,
         COALESCE(u.is_blocked, FALSE) AS is_blocked,
+        COALESCE(u.attendance_enabled, FALSE) AS attendance_enabled,
         u.block_reason, u.blocked_at, u.deleted_at,
         CASE 
           WHEN u.profile_photo_url IS NOT NULL AND LENGTH(u.profile_photo_url) < 500 THEN u.profile_photo_url 
@@ -1299,5 +1300,25 @@ export const updateMyEmployeeData = async (req: Request, res: Response): Promise
   } catch (error) {
     console.error('Error guardando datos de empleado:', error);
     res.status(500).json({ error: 'Error al guardar datos' });
+  }
+};
+
+// PUT /api/admin/hr/employees/:id/attendance-enabled  { enabled: boolean }
+// Activa/desactiva el checador de asistencia para un usuario. Solo los que lo
+// tienen activo verán "Checar Asistencia" en la app.
+export const setEmployeeAttendanceEnabled = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = parseInt(String(req.params.id || ''), 10);
+    const enabled = !!req.body?.enabled;
+    if (!id) { res.status(400).json({ error: 'Empleado inválido' }); return; }
+    const r = await pool.query(
+      `UPDATE users SET attendance_enabled = $2 WHERE id = $1 RETURNING id, COALESCE(attendance_enabled, FALSE) AS attendance_enabled`,
+      [id, enabled]
+    );
+    if (r.rows.length === 0) { res.status(404).json({ error: 'Empleado no encontrado' }); return; }
+    res.json({ success: true, attendance_enabled: r.rows[0].attendance_enabled });
+  } catch (error) {
+    console.error('Error setEmployeeAttendanceEnabled:', error);
+    res.status(500).json({ error: 'Error al actualizar el checador' });
   }
 };
