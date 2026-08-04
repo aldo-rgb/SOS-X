@@ -521,8 +521,15 @@ export const getMyAttendanceToday = async (req: Request, res: Response): Promise
   try {
     const user = (req as any).user;
 
+    // check_in_time/check_out_time son `timestamp without time zone` con la hora
+    // en UTC. El driver de Postgres las reinterpretaba en la tz del proceso Node
+    // (Monterrey) → desfase de horas. Las devolvemos como ISO UTC explícito ("…Z")
+    // para que el cliente las convierta bien a hora local.
     const result = await pool.query(`
-      SELECT * FROM attendance_logs
+      SELECT *,
+        to_char(check_in_time,  'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS check_in_iso,
+        to_char(check_out_time, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS check_out_iso
+      FROM attendance_logs
       WHERE user_id = $1 AND date = CURRENT_DATE
     `, [user.userId]);
 
@@ -536,13 +543,22 @@ export const getMyAttendanceToday = async (req: Request, res: Response): Promise
     try {
       await ensureAttendanceBreaksTable();
       const breaksRes = await pool.query(
-        `SELECT out_time, out_address, return_time FROM attendance_breaks WHERE attendance_log_id = $1 ORDER BY out_time ASC`,
+        `SELECT to_char(out_time,    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS out_time,
+                out_address,
+                to_char(return_time, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS return_time
+           FROM attendance_breaks WHERE attendance_log_id = $1 ORDER BY out_time ASC`,
         [result.rows[0].id]
       );
       breaks = breaksRes.rows;
     } catch { /* tabla aún no existe — ignorar */ }
 
-    res.json({ ...result.rows[0], breaks });
+    const row = result.rows[0];
+    res.json({
+      ...row,
+      check_in_time: row.check_in_iso || row.check_in_time,
+      check_out_time: row.check_out_iso || row.check_out_time,
+      breaks,
+    });
   } catch (error) {
     console.error('Error obteniendo asistencia:', error);
     res.status(500).json({ error: 'Error al obtener asistencia' });
