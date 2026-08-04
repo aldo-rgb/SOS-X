@@ -63,7 +63,7 @@ export default function CalendarioPage() {
   const [tasks, setTasks] = useState<CalTask[]>([]);
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'both' | 'events' | 'tasks'>('both');
+  const [filter, setFilter] = useState<'both' | 'events' | 'tasks'>('events');
   const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
   const notify = (msg: string, sev: 'success' | 'error' = 'success') => setSnack({ open: true, msg, sev });
 
