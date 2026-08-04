@@ -26,6 +26,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   // Ocultar tareas personales en horario laboral (10am–7pm). El toggle se apaga
   // por default cada vez que se entra a la pantalla (useFocusEffect).
   const [showPersonal, setShowPersonal] = useState(false);
+  const [showDone, setShowDone] = useState(false);
   const [catFilter, setCatFilter] = useState<number | 'all'>('all');
   useFocusEffect(useCallback(() => { setShowPersonal(false); }, []));
   const [openId, setOpenId] = useState<number | null>(null);
@@ -34,11 +35,11 @@ export default function MisTareasScreen({ navigation, route }: Props) {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`${API_URL}/api/tasks/mine`, { headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetch(`${API_URL}/api/tasks/mine${showDone ? '?all=true' : ''}`, { headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
       setTasks(d.tasks || []);
     } catch { /* */ } finally { setLoading(false); setRefreshing(false); }
-  }, [token]);
+  }, [token, showDone]);
   useEffect(() => { load(); }, [load]);
   // Abrir una tarea específica al llegar desde una notificación ("te involucraron en una tarea").
   useEffect(() => { if (route.params?.openTaskId) setOpenId(route.params.openTaskId); }, [route.params?.openTaskId]);
@@ -73,7 +74,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.hBtn} hitSlop={10}><Ionicons name="chevron-back" size={26} color="#fff" /></TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.hTitle}>Mis Tareas</Text>
-          <Text style={styles.hSub}>{tasks.length} pendiente(s)</Text>
+          <Text style={styles.hSub}>{tasks.filter(t => t.status !== 'completed').length} pendiente(s){showDone ? ' · con terminadas' : ''}</Text>
         </View>
         <TouchableOpacity onPress={() => { setRefreshing(true); load(); }} style={styles.hBtn} hitSlop={10}><Ionicons name="refresh" size={22} color="#fff" /></TouchableOpacity>
       </View>
@@ -85,6 +86,10 @@ export default function MisTareasScreen({ navigation, route }: Props) {
             <Ionicons name="home" size={18} color={showPersonal ? '#fff' : '#B07206'} />
           </TouchableOpacity>
         )}
+        {/* Ver completadas (incluye terminadas) */}
+        <TouchableOpacity onPress={() => setShowDone(v => !v)} style={[styles.iconBtnOutline, { borderColor: '#2E7D46' }, showDone && { backgroundColor: '#2E7D46' }]} hitSlop={8}>
+          <Ionicons name="checkmark-done" size={18} color={showDone ? '#fff' : '#2E7D46'} />
+        </TouchableOpacity>
         <View style={{ flex: 1 }} />
         <TouchableOpacity style={styles.iconBtnOutline} onPress={() => setSchedOpen(true)} hitSlop={8}>
           <Ionicons name="calendar-outline" size={20} color="#B07206" />
