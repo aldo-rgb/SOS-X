@@ -636,8 +636,8 @@ export function TaskCard({ task, onPress, showBoard }: { task: TaskT; onPress: (
 }
 
 // ── Modal de detalle de tarea ──
-export function TaskDetailModal({ visible, taskId, token, canManage, columns, onClose, onChanged }: {
-  visible: boolean; taskId: number | null; token: string; canManage?: boolean;
+export function TaskDetailModal({ visible, taskId, token, canManage, columns, onClose, onChanged, myId }: {
+  visible: boolean; taskId: number | null; token: string; canManage?: boolean; myId?: number;
   columns?: Array<{ id: number; name: string; is_done?: boolean }>;
   onClose: () => void; onChanged: () => void;
 }) {
@@ -1055,14 +1055,21 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 </View>
               )}
 
-              {/* Comentarios */}
+              {/* Comentarios — hilo estilo chat (mis mensajes a la derecha en verde) */}
               <Text style={styles.sectionTitle}>Comentarios</Text>
-              {(data.comments || []).map((c: any) => (
-                <View key={c.id} style={{ marginBottom: 8 }}>
-                  <Text style={styles.commentAuthor}>{c.author_name || '—'} · {fmtDate(c.created_at)}</Text>
-                  <Text style={styles.commentBody}>{c.body}</Text>
-                </View>
-              ))}
+              {(data.comments || []).map((c: any) => {
+                const mine = myId != null && Number(c.author_id) === Number(myId);
+                return (
+                  <View key={c.id} style={[styles.msgRow, mine ? styles.msgRowMine : styles.msgRowOther]}>
+                    <View style={[styles.msgBubble, mine ? styles.msgBubbleMine : styles.msgBubbleOther]}>
+                      {!mine && <Text style={styles.msgAuthor}>{c.author_name || '—'}</Text>}
+                      <Text style={[styles.msgText, mine && { color: '#0B3D1E' }]}>{c.body}</Text>
+                      <Text style={[styles.msgTime, mine ? { color: '#3A7D53' } : { color: '#9AA0A6' }]}>{fmtDate(c.created_at)}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+              {(data.comments || []).length === 0 && <Text style={styles.commentBody}>Sin comentarios todavía.</Text>}
               <View style={styles.addSubRow}>
                 <TextInput style={styles.input} placeholder="Deja un comentario…" value={comment} onChangeText={setComment} placeholderTextColor="#999" />
                 <TouchableOpacity style={styles.addBtn} onPress={addComment}><Ionicons name="send" size={16} color="#fff" /></TouchableOpacity>
@@ -1220,6 +1227,16 @@ export const styles = StyleSheet.create({
   photoDel: { position: 'absolute', top: -6, right: -6, backgroundColor: '#C0392B', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
   commentAuthor: { fontSize: 11, color: '#999' },
   commentBody: { fontSize: 13.5, color: '#333' },
+  // Hilo de comentarios estilo chat (globos)
+  msgRow: { flexDirection: 'row', marginBottom: 6 },
+  msgRowMine: { justifyContent: 'flex-end' },
+  msgRowOther: { justifyContent: 'flex-start' },
+  msgBubble: { maxWidth: '82%', paddingHorizontal: 11, paddingVertical: 7, borderRadius: 14 },
+  msgBubbleMine: { backgroundColor: '#DCF8C6', borderTopRightRadius: 4 },
+  msgBubbleOther: { backgroundColor: '#F1F0F0', borderTopLeftRadius: 4 },
+  msgAuthor: { fontSize: 11, fontWeight: '800', color: '#5E35B1', marginBottom: 2 },
+  msgText: { fontSize: 14, color: '#222', lineHeight: 19 },
+  msgTime: { fontSize: 10, marginTop: 3, alignSelf: 'flex-end' },
   modalFoot: { padding: 12, borderTopWidth: StyleSheet.hairlineWidth, borderColor: '#EEE' },
   completeBtn: { backgroundColor: '#2E9E5B', borderRadius: 12, height: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   completeTxt: { color: '#fff', fontWeight: '800', fontSize: 15 },

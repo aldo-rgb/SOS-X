@@ -40,7 +40,8 @@ interface UserOpt { id: number; full_name: string; role?: string; avg_resolution
 const EIS_ORDER = ['fuego', 'estrella', 'delegar', 'eliminar'];
 
 export default function TareasScreen({ navigation, route }: Props) {
-  const { token } = route.params;
+  const { token, user } = route.params as any;
+  const myId = Number((user as any)?.id) || 0;
   const H = { Authorization: `Bearer ${token}` };
   const [boards, setBoards] = useState<Board[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -222,7 +223,7 @@ export default function TareasScreen({ navigation, route }: Props) {
         </ScrollView>
       )}
 
-      <TaskDetailModal visible={openId != null} taskId={openId} token={token} canManage columns={visibleCols}
+      <TaskDetailModal visible={openId != null} taskId={openId} token={token} canManage columns={visibleCols} myId={myId}
         onClose={() => setOpenId(null)} onChanged={refresh} />
 
       {/* Crear tarea */}

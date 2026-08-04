@@ -151,7 +151,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
         </ScrollView>
       )}
 
-      <TaskDetailModal visible={openId != null} taskId={openId} token={token} canManage={false}
+      <TaskDetailModal visible={openId != null} taskId={openId} token={token} canManage={false} myId={myId}
         onClose={() => setOpenId(null)} onChanged={load} />
       <CreateTaskModal visible={createOpen} token={token} myId={myId} advisorMode={isAdvisorUser}
         onClose={() => setCreateOpen(false)} onCreated={load} />
