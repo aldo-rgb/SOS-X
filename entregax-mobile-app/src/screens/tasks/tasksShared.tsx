@@ -10,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { setStringAsync as copyToClipboard } from 'expo-clipboard';
 import { API_URL } from '../../services/api';
 
 export const ORANGE = '#F05A28';
@@ -920,7 +921,18 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 <View style={[styles.chip, { backgroundColor: eis?.bg }]}><Text style={[styles.chipTxt, { color: eis?.color }]}>{eis?.short}</Text></View>
                 {t.status === 'completed' && <View style={[styles.chip, { backgroundColor: '#E4F1E8' }]}><Text style={[styles.chipTxt, { color: '#2E7D46' }]}>✅ Completada</Text></View>}
               </View>
-              {!!t.description && <Text style={styles.desc}>{t.description}</Text>}
+              {!!t.description && (
+                <View>
+                  <Text style={styles.desc} selectable>{t.description}</Text>
+                  <TouchableOpacity
+                    style={styles.copyBtn}
+                    onPress={async () => { try { await copyToClipboard(String(t.description || '')); Alert.alert('Copiado', 'La descripción se copió al portapapeles.'); } catch { /* */ } }}
+                  >
+                    <Ionicons name="copy-outline" size={14} color={ORANGE} />
+                    <Text style={styles.copyBtnTxt}>Copiar</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               {canInline ? (
                 // ── Edición inline: prioridad, categoría, responsable, involucrados ──
                 <View style={{ marginTop: 6, padding: 10, backgroundColor: '#FBF8F4', borderRadius: 10, borderWidth: 1, borderColor: '#ECE4D8' }}>
@@ -1196,7 +1208,9 @@ export const styles = StyleSheet.create({
   modalCard: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '92%' },
   modalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#EEE' },
   modalTitle: { fontSize: 16, fontWeight: '800', color: '#222', flex: 1, marginRight: 12 },
-  desc: { fontSize: 14, color: '#555', marginBottom: 10 },
+  desc: { fontSize: 14, color: '#555', marginBottom: 6 },
+  copyBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 14, borderWidth: 1, borderColor: '#F0B79A', backgroundColor: '#FFF3EC', marginBottom: 10 },
+  copyBtnTxt: { color: ORANGE, fontWeight: '700', fontSize: 12.5 },
   metaLine: { fontSize: 13, color: '#333', marginTop: 2 },
   metaB: { fontWeight: '700' },
   timeBox: { backgroundColor: '#F7F4EF', borderRadius: 10, padding: 10, marginTop: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: '#ECE4D8' },
