@@ -732,9 +732,28 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
     try { await axios.put(`${API_URL}/tasks/subtasks/${sub.id}`, { done: !sub.done }, H()); reload(); onChanged(); }
     catch (e: any) { notify(e?.response?.data?.error || 'Error', 'error'); }
   };
-  const move = async (columnId: number) => {
-    try { await axios.put(`${API_URL}/tasks/${id}`, { column_id: columnId }, H()); reload(); onChanged(); notify('Movida'); }
-    catch (e: any) { notify(e?.response?.data?.error || 'No se pudo mover', 'error'); }
+  const move = async (columnId: number, commitmentDate?: string | null) => {
+    try {
+      await axios.put(`${API_URL}/tasks/${id}`, {
+        column_id: columnId,
+        ...(commitmentDate !== undefined ? { commitment_date: commitmentDate } : {}),
+      }, H());
+      reload(); onChanged(); notify('Movida');
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo mover', 'error'); }
+  };
+  // Al mover a "En proceso" (col_key en_proceso) se pide fecha/hora objetivo.
+  const [etaDlg, setEtaDlg] = useState<{ open: boolean; columnId: number | null; value: string }>({ open: false, columnId: null, value: '' });
+  const onPickColumn = (cid: number) => {
+    const col = board?.columns.find((c: Col) => c.id === cid);
+    if (col?.col_key === 'en_proceso' && Number(t?.column_id) !== cid) {
+      // Prefill con el objetivo actual o la fecha deseada, si existen.
+      const seed = t?.commitment_date || t?.due_at || '';
+      const d = seed ? new Date(seed) : null;
+      const local = d ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+      setEtaDlg({ open: true, columnId: cid, value: local });
+    } else {
+      move(cid);
+    }
   };
   const complete = async () => {
     // Gate: no se puede completar con checklist pendiente (Filtro de Cierre).
@@ -807,6 +826,9 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
                 <Typography variant="body2"><b>Creada:</b> {t.created_at ? new Date(t.created_at).toLocaleString('es-MX') : '—'}</Typography>
               </Box>
               {t.completed_at && <Typography variant="body2"><b>Terminada:</b> {new Date(t.completed_at).toLocaleString('es-MX')}</Typography>}
+              {t.commitment_date && !t.completed_at && (
+                <Typography variant="body2"><b>🎯 Objetivo:</b> {new Date(t.commitment_date).toLocaleString('es-MX')}</Typography>
+              )}
               {tt && (
                 <Chip size="small" icon={<AccessTimeIcon />} color={tt.done ? 'success' : 'default'}
                   label={tt.done ? `Resuelta en ${fmtDur(tt.ms)}` : `${fmtDur(tt.ms)} transcurrido`}
@@ -816,10 +838,29 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
 
             <FormControl size="small" sx={{ minWidth: 220, mb: 2 }}>
               <InputLabel>Mover a columna</InputLabel>
-              <Select label="Mover a columna" value={t.column_id || ''} onChange={e => move(Number(e.target.value))}>
+              <Select label="Mover a columna" value={t.column_id || ''} onChange={e => onPickColumn(Number(e.target.value))}>
                 {board?.columns.map((c: Col) => <MenuItem key={c.id} value={c.id}>{c.name}{c.is_done ? ' (cierra)' : ''}</MenuItem>)}
               </Select>
             </FormControl>
+
+            {/* Diálogo: fecha/hora objetivo al pasar a "En proceso" */}
+            <Dialog open={etaDlg.open} onClose={() => setEtaDlg({ open: false, columnId: null, value: '' })} maxWidth="xs" fullWidth>
+              <DialogTitle sx={{ fontWeight: 800 }}>⚙️ Poner en proceso</DialogTitle>
+              <DialogContent>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  ¿Para cuándo estimas tenerla lista? Elige la <b>fecha y hora objetivo</b> de respuesta.
+                </Typography>
+                <TextField type="datetime-local" fullWidth size="small" label="Fecha y hora objetivo"
+                  InputLabelProps={{ shrink: true }} value={etaDlg.value}
+                  onChange={e => setEtaDlg(s => ({ ...s, value: e.target.value }))} />
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => { const cid = etaDlg.columnId; setEtaDlg({ open: false, columnId: null, value: '' }); if (cid) move(cid, null); }}>Omitir</Button>
+                <Button variant="contained" disabled={!etaDlg.value}
+                  onClick={() => { const cid = etaDlg.columnId; const iso = etaDlg.value ? new Date(etaDlg.value).toISOString() : null; setEtaDlg({ open: false, columnId: null, value: '' }); if (cid) move(cid, iso); }}
+                  sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Poner en proceso</Button>
+              </DialogActions>
+            </Dialog>
 
             <Typography fontWeight={800} fontSize={14} sx={{ mb: 0.5 }}>
               Checklist {subs.length > 0 && `(${subs.length - pending}/${subs.length})`}

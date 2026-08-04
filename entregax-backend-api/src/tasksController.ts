@@ -880,6 +880,8 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
     if (b.description !== undefined) set('description', b.description);
     if (b.assignee_id !== undefined) set('assignee_id', b.assignee_id || null);
     if (b.due_at !== undefined) set('due_at', b.due_at || null);
+    // Fecha/hora objetivo (compromiso) — se captura al poner "En proceso".
+    if (b.commitment_date !== undefined) set('commitment_date', b.commitment_date || null);
     if (b.eisenhower !== undefined && EISENHOWER.includes(b.eisenhower)) set('eisenhower', b.eisenhower);
     if (b.xpay_seguro !== undefined) set('xpay_seguro', XPAY_SEGURO.includes(b.xpay_seguro) ? b.xpay_seguro : null);
     if (b.linked_type !== undefined) set('linked_type', b.linked_type || null);
@@ -934,6 +936,15 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
         set('status', 'open');
         set('completed_at', null);
         await logActivity(id, uid, 'reopened', {});
+      }
+      // Al entrar a una columna intermedia (no la primera, no terminal) = "En
+      // proceso": sellar started_at (si no estaba) para medir el tiempo en proceso.
+      // Sin límite de cuántas tareas puede tener el usuario en proceso a la vez.
+      if (toCol && !toCol.is_done) {
+        const minOrd = (await pool.query(`SELECT MIN(sort_order) AS m FROM task_columns WHERE board_id = $1`, [task.board_id])).rows[0]?.m;
+        if (minOrd != null && Number(toCol.sort_order) > Number(minOrd) && !task.started_at) {
+          set('started_at', new Date().toISOString());
+        }
       }
       // Auto-reasignación por ROL al entrar a la columna destino.
       const destRole = toCol?.auto_assign_role;
