@@ -1644,6 +1644,25 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             })()}
 
             {/* =============== CONTENIDO PARA OTROS EMPLEADOS =============== */}
+            {/* Botón de Checar Entrada/Salida: arriba de Mis Módulos. Visible solo
+                para usuarios con el checador activado por RRHH (attendance_enabled)
+                y ya onboarded. */}
+            {user.attendanceEnabled === true && isOnboarded && (
+              <View style={styles.attendanceSection}>
+                <TouchableOpacity
+                  style={styles.attendanceButton}
+                  onPress={() => navigation.navigate('AttendanceChecker', { user, token })}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.attendanceIconCircle}>
+                    <Ionicons name="time" size={40} color="#4CAF50" />
+                  </View>
+                  <Text style={styles.attendanceTitle}>Checar Asistencia</Text>
+                  <Ionicons name="chevron-forward" size={28} color="#4CAF50" />
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* Módulos Disponibles */}
             <View style={styles.modulesSection}>
               <Text style={styles.sectionTitle}>📱 Mis Módulos</Text>
@@ -1668,24 +1687,6 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                 availableModules.map(renderModuleCard)
               )}
             </View>
-
-            {/* Botón de Checar Entrada/Salida: visible solo para usuarios con el
-                checador activado por RRHH (toggle attendance_enabled) y ya onboarded. */}
-            {user.attendanceEnabled === true && isOnboarded && (
-              <View style={styles.attendanceSection}>
-                <TouchableOpacity 
-                  style={styles.attendanceButton}
-                  onPress={() => navigation.navigate('AttendanceChecker', { user, token })}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.attendanceIconCircle}>
-                    <Ionicons name="time" size={40} color="#4CAF50" />
-                  </View>
-                  <Text style={styles.attendanceTitle}>Checar Asistencia</Text>
-                  <Ionicons name="chevron-forward" size={28} color="#4CAF50" />
-                </TouchableOpacity>
-              </View>
-            )}
 
             {/* Acciones Rápidas */}
             <View style={styles.quickActions}>
