@@ -1829,7 +1829,44 @@ export const crossDhlTaxNote = async (tracking: string | null | undefined, noteA
        AND paid_at IS NULL
        AND status NOT IN ('paid', 'dispatched', 'in_transit', 'delivered')
   `, [effective, tk]);
-  return r.rowCount || 0;
+  if (r.rowCount && r.rowCount > 0) return r.rowCount;
+
+  // 0 filas → la guía no existe o el cliente YA la pagó. Si está pagada, ya no se
+  // le suma al saldo; en su lugar se genera una orden cobrable CEX por la DIFERENCIA
+  // (impuesto real − lo que ya se cobró en import_tax_mxn, ej. los $350 default).
+  try {
+    const g = await pool.query(`
+      SELECT id, user_id, COALESCE(import_tax_mxn, 0)::numeric AS tax_charged
+        FROM dhl_shipments
+       WHERE (inbound_tracking = $1 OR secondary_tracking = $1)
+         AND (paid_at IS NOT NULL OR status IN ('paid','dispatched','in_transit','delivered'))
+       LIMIT 1`, [tk]);
+    if (g.rows.length === 0) return 0;
+    const row = g.rows[0];
+    if (!row.user_id) return 0;
+    const alreadyCharged = Number(row.tax_charged) || 0;
+    // Regla: SOLO se cobra si la nota (impuesto real) supera $400. La banda $350–$400
+    // se absorbe (no genera cargo). Notas ≤ $350 tampoco hacen nada (no hay reembolso).
+    const CEX_MIN_NOTE = 400;
+    if (effective <= CEX_MIN_NOTE) return 0;
+    // Se cobra solo la diferencia faltante (impuesto real − lo ya cobrado, ej. $350).
+    const diff = Math.round((effective - alreadyCharged) * 100) / 100;
+    if (diff <= 0.5) return 0; // ya estaba cubierto
+    // Dedup: no duplicar el CEX de impuestos si ya se generó uno para esta guía.
+    const dup = await pool.query(
+      `SELECT 1 FROM guias_ajustes_financieros
+        WHERE guia_tracking = $1 AND servicio = 'dhl' AND activo = TRUE
+          AND COALESCE(payment_reference,'') <> '' AND concepto ILIKE 'Impuestos DHL%' LIMIT 1`, [tk]);
+    if (dup.rows.length > 0) return 0;
+    const { createCexCollectible } = await import('./customerServiceController');
+    const cex = await createCexCollectible({
+      servicio: 'dhl', guia_id: Number(row.id), guia_tracking: tk, cliente_id: Number(row.user_id),
+      montoMxn: diff, concepto: `Impuestos DHL (diferencia por cobrar)`,
+    });
+    if (cex.ok) console.log(`  🧾 [DHL tax] Guía pagada ${tk} → CEX por diferencia ${cex.reference}: $${diff} (real ${effective} − cobrado ${alreadyCharged})`);
+    else console.warn(`  ⚠️ [DHL tax] No se pudo generar CEX para ${tk}: ${cex.error}`);
+  } catch (e: any) { console.error('[crossDhlTaxNote] CEX diferencia:', e?.message || e); }
+  return 0;
 };
 
 // GET /api/admin/dhl/import-tax/expenses
