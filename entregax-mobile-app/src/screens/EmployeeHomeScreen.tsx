@@ -1459,19 +1459,6 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               </TouchableOpacity>
             )}
 
-            {/* =============== WIDGET: CALENDARIO (todos) =============== */}
-            <TouchableOpacity activeOpacity={0.85}
-              onPress={() => navigation.navigate('Calendar', { user, token })}
-              style={styles.taskWidget}>
-              <View style={styles.taskWidgetIcon}>
-                <Ionicons name="calendar-outline" size={26} color="#1565C0" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.taskWidgetNum}>Calendario</Text>
-                <Text style={styles.taskWidgetLabel}>Eventos y tareas programadas</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={22} color="#B0B0B0" />
-            </TouchableOpacity>
 
             {/* =============== WIDGETS DE LEADS (admin / super_admin) =============== */}
             {isAdminLevel && leadsWidgets && (
@@ -1680,21 +1667,23 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             {/* Módulos Disponibles */}
             <View style={styles.modulesSection}>
               <Text style={styles.sectionTitle}>📱 Mis Módulos</Text>
+              {/* Calendario — disponible para todos, mismo diseño que los módulos */}
+              <TouchableOpacity style={styles.moduleCard} activeOpacity={0.85}
+                onPress={() => navigation.navigate('Calendar', { user, token })}>
+                <View style={[styles.moduleIcon, { backgroundColor: '#F05A28' }]}>
+                  <Ionicons name="calendar" size={28} color="#fff" />
+                </View>
+                <View style={styles.moduleContent}>
+                  <Text style={styles.moduleTitle}>Calendario</Text>
+                  <Text style={styles.moduleSubtitle}>Eventos y tareas programadas</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#999" />
+              </TouchableOpacity>
               {!permissionsLoaded ? (
                 <View style={styles.noModules}>
                   <Ionicons name="sync-outline" size={48} color={ORANGE} />
                   <Text style={styles.noModulesText}>
                     Cargando módulos...
-                  </Text>
-                </View>
-              ) : availableModules.length === 0 ? (
-                <View style={styles.noModules}>
-                  <Ionicons name="construct-outline" size={48} color="#ccc" />
-                  <Text style={styles.noModulesText}>
-                    No hay módulos disponibles para tu rol aún.
-                  </Text>
-                  <Text style={styles.noModulesSubtext}>
-                    Contacta a tu supervisor.
                   </Text>
                 </View>
               ) : (
