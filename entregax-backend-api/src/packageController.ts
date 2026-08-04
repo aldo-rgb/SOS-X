@@ -4807,6 +4807,40 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
             }
         }
 
+        // 🇲🇽 Guard: "EntregaX Local MTY" (clave carrier `local`) SOLO aplica
+        // dentro de la zona metropolitana de Monterrey. Antes se dejaba pasar
+        // para cualquier ZIP y el paquete quedaba mostrando "Local" en Cajito
+        // aunque el destino fuera Guadalajara/CDMX/etc. Rechazamos temprano y
+        // le pedimos al operador elegir un carrier foráneo real.
+        if (!isPickup && deliveryAddressId) {
+            const _ck = String(carrier || '').toLowerCase();
+            const _cn = String(carrierName || '').toLowerCase();
+            const looksLikeLocalMty =
+                _ck === 'local' ||
+                _ck === 'entregax_local' ||
+                _ck === 'entregax_local_mty' ||
+                _cn === 'entregax local' ||
+                _cn === 'entregax local mty' ||
+                _cn === 'local';
+            if (looksLikeLocalMty) {
+                try {
+                    const zr = await pool.query(
+                        'SELECT zip_code FROM addresses WHERE id = $1',
+                        [deliveryAddressId]
+                    );
+                    const zip = zr.rows[0]?.zip_code || null;
+                    if (!(await isMtyMetroZip(zip))) {
+                        return res.status(400).json({
+                            success: false,
+                            error: `EntregaX Local MTY solo aplica para direcciones dentro de la zona metropolitana de Monterrey. Para el CP ${zip || '—'} elige una paquetería foránea (DHL, Paquete Express, Estafeta, etc.).`,
+                        });
+                    }
+                } catch (guardErr) {
+                    console.warn('[assign-instructions] no se pudo validar zip vs local MTY:', guardErr);
+                }
+            }
+        }
+
         // Verificar si es admin/operador para permitir actualizar paquetes de otros usuarios
         const isAdmin = ['admin', 'super_admin', 'superadmin', 'ops_mx', 'ops_usa', 'ops_usa_pobox', 'branch_manager', 'director', 'warehouse_ops', 'counter_staff'].includes(String(userRole).toLowerCase());
 
