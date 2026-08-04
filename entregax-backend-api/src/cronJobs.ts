@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { pool } from './db';
-import { syncOrdersFromChina, syncAllActiveTrackings } from './maritimeApiController';
+import { syncOrdersFromChina, syncAllActiveTrackings, backfillPackingLists } from './maritimeApiController';
 import { blockOverdueAccounts, runCreditCollectionEngine } from './financeController';
 import { checkExpiringDocuments, checkUpcomingMaintenance } from './fleetController';
 import { actualizarCarteraVencida, sincronizarCartera } from './customerServiceController';
@@ -189,6 +189,12 @@ export const startMaritimeOrderSyncCron = () => {
       } else {
         console.log(`⚠️ [CRON] Sincronización marítimo con errores: ${result.errors.join(', ')}`);
       }
+      // Rellenar/actualizar PLs de órdenes VIEJAS (el chino puede subir o cambiar el
+      // PL días después; la sync de 24h no las alcanza). Solo toca provider_packing_list_url.
+      try {
+        const pl = await backfillPackingLists(90);
+        if (pl.updated > 0) console.log(`🧾 [CRON] Packing Lists actualizados: ${pl.updated} (de ${pl.scanned} con PL en el API)`);
+      } catch (e) { console.error('❌ [CRON] Error en backfill de PLs:', e); }
     } catch (error) {
       console.error('❌ [CRON] Error en sincronización marítimo:', error);
     }

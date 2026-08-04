@@ -197,6 +197,55 @@ export const syncOrdersFromChina = async (
 };
 
 /**
+ * Rellena / actualiza SOLO el Packing List del proveedor en una ventana amplia.
+ * A diferencia de la sync normal (24h), esto revisa órdenes viejas: si el chino
+ * sube un PL días después, o lo CAMBIA por otro, se captura aquí. No re-notifica
+ * ni re-clasifica nada — solo toca provider_packing_list_url cuando cambió.
+ */
+export const backfillPackingLists = async (daysBack: number = 90): Promise<{ scanned: number; updated: number }> => {
+    let scanned = 0, updated = 0;
+    try {
+        const now = new Date();
+        const from = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+        const startime = formatDateForAPI(from);
+        const endtime = formatDateForAPI(now);
+        const url = `${CHINA_API_BASE}/getOrderListApi?appid=${CHINA_APPID}&startime=${encodeURIComponent(startime)}&endtime=${encodeURIComponent(endtime)}`;
+        const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json() as ChinaOrderListResponse;
+        if (result.status !== 200) throw new Error(`API Error: ${result.msg}`);
+
+        const logs = result.data.filter(o => o.ordersn && o.ordersn.toUpperCase().startsWith('LOG'));
+        for (const order of logs) {
+            const rawPacking = String(order.packing_list_path || '').trim();
+            if (!rawPacking) continue; // el proveedor no lo ha subido (no borramos lo que ya tengamos)
+            scanned++;
+            const providerPackingUrl = /^https?:\/\//i.test(rawPacking)
+                ? rawPacking
+                : `https://yajie.uxphp.net/${rawPacking.replace(/^\/+/, '')}`;
+            // IS DISTINCT FROM → solo actualiza si es NUEVO o CAMBIÓ respecto a lo guardado.
+            const r = await pool.query(
+                `UPDATE maritime_orders
+                    SET provider_packing_list_url = $2,
+                        api_raw_data = jsonb_set(COALESCE(api_raw_data, '{}'::jsonb), '{packing_list_path}', to_jsonb($3::text)),
+                        updated_at = NOW()
+                  WHERE ordersn = $1 AND provider_packing_list_url IS DISTINCT FROM $2`,
+                [order.ordersn, providerPackingUrl, rawPacking]
+            );
+            if (r.rowCount && r.rowCount > 0) {
+                updated++;
+                console.log(`  🧾 PL actualizado ${order.ordersn} → ${providerPackingUrl}`);
+            }
+        }
+        console.log(`🧾 [PL backfill] ${logs.length} órdenes LOG revisadas · ${scanned} con PL en el API · ${updated} actualizadas en EntregaX`);
+        return { scanned, updated };
+    } catch (e: any) {
+        console.error('[PL backfill] error:', e?.message);
+        return { scanned, updated };
+    }
+};
+
+/**
  * Procesa una orden individual de la API china
  */
 const processOrder = async (order: ChinaOrderItem): Promise<void> => {
@@ -656,6 +705,21 @@ export const manualSyncOrders = async (req: Request, res: Response): Promise<any
 
     } catch (error: any) {
         console.error('Error en sincronización manual:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * POST /api/maritime/sync/packing-lists
+ * Rellena/actualiza los Packing Lists de órdenes viejas bajo demanda.
+ */
+export const manualBackfillPackingLists = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const days = Math.min(365, Math.max(1, Number(req.body?.days) || 90));
+        const result = await backfillPackingLists(days);
+        res.json({ success: true, message: `PLs revisados`, ...result });
+    } catch (error: any) {
+        console.error('Error en backfill de PLs:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

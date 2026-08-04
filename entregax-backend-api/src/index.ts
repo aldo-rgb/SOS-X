@@ -1020,6 +1020,7 @@ import {
 } from './inventoryController';
 import {
   manualSyncOrders,
+  manualBackfillPackingLists,
   manualSyncTracking,
   getMaritimeOrders,
   getMaritimeOrderDetail,
@@ -8067,6 +8068,8 @@ app.post('/api/client/maritime/fcl/:containerId/packing-list', authenticateToken
 
 // Sincronización manual
 app.post('/api/maritime-api/sync/orders', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), manualSyncOrders);
+// Rellenar/actualizar Packing Lists de órdenes viejas (captura PLs subidos/cambiados después).
+app.post('/api/maritime-api/sync/packing-lists', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), manualBackfillPackingLists);
 app.post('/api/maritime-api/sync/tracking', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), manualSyncTracking);
 
 // Consolidaciones marítimas (rutas específicas ANTES de las paramétrizadas)
