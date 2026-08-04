@@ -14,6 +14,33 @@ import {
 } from '@mui/icons-material';
 
 const ORANGE = '#F05A28';
+
+// Agrupación por Socio Fundador: cada departamento se colorea según el director
+// al que le corresponde, para ver de un vistazo qué cuadrantes lleva cada socio.
+interface FounderGroup { label: string; short: string; color: string; bg: string; keywords: string[]; }
+const FOUNDER_GROUPS: FounderGroup[] = [
+  {
+    label: 'Director de Operaciones y Finanzas', short: 'Dir. Operaciones y Finanzas',
+    color: '#1565C0', bg: '#EAF2FC',
+    keywords: ['administración y finanzas', 'administracion y finanzas', 'operaciones y logística', 'operaciones y logistica', 'experiencia del cliente', 'customer service'],
+  },
+  {
+    label: 'Director Comercial y de Tecnología', short: 'Dir. Comercial y de Tecnología',
+    color: '#7B1FA2', bg: '#F4EAFA',
+    keywords: ['comercial', 'ventas y marketing', 'tecnología e innovación', 'tecnologia e innovacion'],
+  },
+];
+const APEX_GROUP: FounderGroup = {
+  label: 'Dirección Estratégica (ambos socios)', short: 'Ambos socios',
+  color: ORANGE, bg: '#FFF3EE', keywords: ['dirección estratégica', 'direccion estrategica'],
+};
+function founderGroupFor(title: string): FounderGroup | null {
+  const t = (title || '').toLowerCase();
+  if (APEX_GROUP.keywords.some(k => t.includes(k))) return APEX_GROUP;
+  for (const g of FOUNDER_GROUPS) if (g.keywords.some(k => t.includes(k))) return g;
+  return null;
+}
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const getToken = () => localStorage.getItem('token') || '';
 const authHeaders = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
@@ -113,7 +140,7 @@ export default function OrgChartTab() {
   // ---- Exportar / imprimir (documento limpio en ventana nueva) ----
   const printChart = () => {
     const esc = (s: string) => (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
-    const renderList = (parentId: number | null, level: number): string => {
+    const renderList = (parentId: number | null, level: number, accent: string): string => {
       const kids = (childrenOf[parentId === null ? 'root' : String(parentId)] || []);
       if (!kids.length) return '';
       return `<ul class="lvl${level}">` + kids.map(n => {
@@ -121,20 +148,25 @@ export default function OrgChartTab() {
           ? `<span class="people">${n.assignees.map(a => esc(a.full_name)).join(' · ')}</span>`
           : `<span class="none">Sin asignar</span>`;
         return `<li>
-          <div class="node ${n.node_type}">
+          <div class="node ${n.node_type}" style="border-left-color:${accent}">
             <div class="title">${esc(n.title)} ${people}</div>
             ${n.description ? `<div class="desc">${esc(n.description)}</div>` : ''}
           </div>
-          ${renderList(n.id, level + 1)}
+          ${renderList(n.id, level + 1, accent)}
         </li>`;
       }).join('') + `</ul>`;
     };
-    const body = departments.map(d => `
-      <section class="dept">
-        <h2>${esc(d.title)}</h2>
+    const body = departments.map(d => {
+      const g = founderGroupFor(d.title);
+      const accent = g?.color || '#F05A28';
+      const badge = g && g !== APEX_GROUP ? `<span class="founder" style="color:${accent};border-color:${accent}">▸ ${esc(g.short)}</span>` : '';
+      return `
+      <section class="dept" style="border-top:4px solid ${accent};background:${g?.bg || '#fff'}">
+        <h2 style="color:${accent}">${esc(d.title)} ${badge}</h2>
         ${d.description ? `<p class="mission">${esc(d.description)}</p>` : ''}
-        ${renderList(d.id, 1)}
-      </section>`).join('');
+        ${renderList(d.id, 1, accent)}
+      </section>`;
+    }).join('');
     const unassignedHtml = unassigned.length
       ? `<section class="dept unassigned"><h2>Personal sin asignar</h2><p>${unassigned.map(u => esc(u.full_name)).join(' · ')}</p></section>`
       : '';
@@ -145,12 +177,13 @@ export default function OrgChartTab() {
         h1 { color: #F05A28; margin: 0 0 4px; }
         .sub { color: #666; margin: 0 0 24px; font-size: 13px; }
         section.dept { break-inside: avoid; margin-bottom: 22px; border: 1px solid #eee; border-radius: 8px; padding: 14px 18px; }
-        section.dept h2 { color: #F05A28; text-transform: uppercase; letter-spacing: .3px; font-size: 15px; margin: 0 0 4px; }
+        section.dept h2 { text-transform: uppercase; letter-spacing: .3px; font-size: 15px; margin: 0 0 4px; }
+        .founder { font-size: 10px; font-weight: 600; border: 1px solid; border-radius: 10px; padding: 1px 7px; background: #fff; text-transform: none; letter-spacing: 0; vertical-align: middle; }
         .mission { color: #555; font-size: 12.5px; margin: 0 0 10px; }
         ul { list-style: none; margin: 0; padding-left: 18px; border-left: 2px solid #e5e5e5; }
         ul.lvl1 { padding-left: 0; border-left: none; }
         li { margin: 8px 0; }
-        .node { border-left: 4px solid #F05A28; padding: 4px 10px; background: #fafafa; border-radius: 4px; }
+        .node { border-left: 4px solid #F05A28; padding: 4px 10px; background: rgba(255,255,255,.65); border-radius: 4px; }
         .title { font-weight: 700; font-size: 13.5px; }
         .people { font-weight: 500; color: #0a7d33; font-size: 12px; }
         .none { font-weight: 400; color: #999; font-style: italic; font-size: 11.5px; }
@@ -215,7 +248,7 @@ export default function OrgChartTab() {
   };
 
   // ---- Render de un nodo (recursivo) ----
-  const renderNode = (node: OrgNode, depth: number) => {
+  const renderNode = (node: OrgNode, depth: number, accent: string) => {
     const kids = childrenOf[String(node.id)] || [];
     return (
       <Box key={node.id} sx={{ position: 'relative', pl: depth > 0 ? 3 : 0 }}>
@@ -225,7 +258,7 @@ export default function OrgChartTab() {
         <Paper
           variant="outlined"
           sx={{
-            p: 1.5, mb: 1.2, borderRadius: 2, borderLeft: `4px solid ${ORANGE}`,
+            p: 1.5, mb: 1.2, borderRadius: 2, borderLeft: `4px solid ${accent}`,
             position: 'relative', '&:hover': { boxShadow: 2 },
           }}
         >
@@ -270,7 +303,7 @@ export default function OrgChartTab() {
             </Box>
           </Box>
         </Paper>
-        {kids.length > 0 && <Box>{kids.map(k => renderNode(k, depth + 1))}</Box>}
+        {kids.length > 0 && <Box>{kids.map(k => renderNode(k, depth + 1, accent))}</Box>}
       </Box>
     );
   };
@@ -300,6 +333,16 @@ export default function OrgChartTab() {
               Imprimir / Exportar
             </Button>
           </Stack>
+        </Stack>
+        {/* Leyenda: color por socio fundador */}
+        <Stack direction="row" spacing={1} sx={{ mt: 1.5, pt: 1.5, borderTop: '1px dashed #e0e0e0', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>Cuadrantes por socio:</Typography>
+          {[APEX_GROUP, ...FOUNDER_GROUPS].map(g => (
+            <Stack key={g.label} direction="row" spacing={0.6} alignItems="center">
+              <Box sx={{ width: 12, height: 12, borderRadius: '3px', bgcolor: g.color }} />
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>{g.label}</Typography>
+            </Stack>
+          ))}
         </Stack>
       </Paper>
 
@@ -339,15 +382,23 @@ export default function OrgChartTab() {
         </Paper>
       ) : (
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 2, alignItems: 'start' }}>
-          {departments.map(dept => (
-            <Paper key={dept.id} sx={{ p: 2, borderRadius: 2, bgcolor: '#fafafa' }}>
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1.5 }}>
+          {departments.map(dept => {
+            const g = founderGroupFor(dept.title);
+            const accent = g?.color || ORANGE;
+            const isApex = g === APEX_GROUP;
+            return (
+            <Paper key={dept.id} sx={{ p: 2, borderRadius: 2, bgcolor: g?.bg || '#fafafa', borderTop: `4px solid ${accent}` }}>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1 }}>
                 <Box sx={{ flex: 1 }}>
-                  <Typography sx={{ fontWeight: 800, fontSize: 16, color: ORANGE, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                  <Typography sx={{ fontWeight: 800, fontSize: 16, color: accent, textTransform: 'uppercase', letterSpacing: 0.3 }}>
                     {dept.title}
                   </Typography>
+                  {g && !isApex && (
+                    <Chip size="small" label={`▸ ${g.short}`}
+                      sx={{ mt: 0.5, height: 20, fontSize: 11, fontWeight: 600, color: accent, bgcolor: '#fff', border: `1px solid ${accent}` }} />
+                  )}
                   {dept.description && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.3, fontSize: 12.5 }}>{dept.description}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: 12.5 }}>{dept.description}</Typography>
                   )}
                 </Box>
                 <Box sx={{ display: 'flex', gap: 0.3 }}>
@@ -359,10 +410,11 @@ export default function OrgChartTab() {
               {(childrenOf[String(dept.id)] || []).length === 0 ? (
                 <Typography variant="body2" color="text.disabled" sx={{ fontStyle: 'italic', py: 1 }}>Sin puestos aún</Typography>
               ) : (
-                (childrenOf[String(dept.id)] || []).map(child => renderNode(child, 0))
+                (childrenOf[String(dept.id)] || []).map(child => renderNode(child, 0, accent))
               )}
             </Paper>
-          ))}
+            );
+          })}
         </Box>
       )}
 
