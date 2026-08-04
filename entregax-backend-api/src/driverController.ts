@@ -2488,15 +2488,41 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                     if (d.status === 'shipped') {
                         return res.status(400).json({ error: `⚠️ ${dhlTracking} ya tenía salida (enviada)` });
                     }
-                    // Sale vía courier externo → 'shipped'. dhl_shipments no maneja
-                    // out_for_delivery; 'shipped' = entregado a la paquetería / en ruta.
-                    await pool.query(`UPDATE dhl_shipments SET status = 'shipped', updated_at = NOW() WHERE id = $1`, [d.id]);
+                    // cargar_unidad = la subes a la CAMIONETA (rumbo a la paquetería):
+                    // → out_for_delivery, para que cuente en "Cargados" (igual que un
+                    // paquete normal). El 'shipped' se marca al confirmar en el courier.
+                    if (mode === 'cargar_unidad') {
+                        if (d.status === 'out_for_delivery') {
+                            return res.json({
+                                success: true, phase: 'complete', mode, isDhl: true,
+                                packageId: `dhl-${d.id}`, tracking: dhlTracking, newStatus: 'out_for_delivery',
+                                message: `✅ Ya estaba cargada a unidad (${d.national_carrier || carrier})`
+                            });
+                        }
+                        await pool.query(
+                            `UPDATE dhl_shipments SET status = 'out_for_delivery',
+                                    dispatched_at = COALESCE(dispatched_at, NOW()), dispatched_by = $2, updated_at = NOW()
+                              WHERE id = $1`,
+                            [d.id, driverId]
+                        );
+                        return res.json({
+                            success: true, phase: 'complete', mode, isDhl: true,
+                            packageId: `dhl-${d.id}`, tracking: dhlTracking, newStatus: 'out_for_delivery',
+                            message: `✅ Cargado a unidad (${d.national_carrier || carrier})`
+                        });
+                    }
+                    // Mostrador / recolección = entrega directa al courier → 'shipped'.
+                    // Registra quién y cuándo le dio salida (trazabilidad).
+                    await pool.query(
+                        `UPDATE dhl_shipments SET status = 'shipped',
+                                dispatched_at = COALESCE(dispatched_at, NOW()), dispatched_by = $2, updated_at = NOW()
+                          WHERE id = $1`,
+                        [d.id, driverId]
+                    );
                     return res.json({
                         success: true, phase: 'complete', mode, isDhl: true,
                         packageId: `dhl-${d.id}`, tracking: dhlTracking, newStatus: 'shipped',
-                        message: mode === 'cargar_unidad'
-                            ? `✅ Cargado a unidad (${d.national_carrier || carrier})`
-                            : `✅ ${dhlTracking} — Salida registrada (${d.national_carrier || carrier})`
+                        message: `✅ ${dhlTracking} — Salida registrada (${d.national_carrier || carrier})`
                     });
                 }
             }
