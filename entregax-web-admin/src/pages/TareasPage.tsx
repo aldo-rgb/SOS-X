@@ -29,6 +29,21 @@ import GridViewIcon from '@mui/icons-material/GridView';
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
 const H = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
+
+// Icono por tablero según su nombre (para distinguirlos de un vistazo).
+const boardIcon = (name?: string, type?: string): string => {
+  if (type === 'operativo') return '🎯';
+  const n = (name || '').toLowerCase();
+  if (n.includes('error')) return '🐛';
+  if (n.includes('desarrollo') || n.includes('sistema')) return '💻';
+  if (n.includes('marketing')) return '📣';
+  if (n.includes('personal')) return '🏠';
+  if (n.includes('pago')) return '💳';
+  if (n.includes('venta')) return '💰';
+  if (n.includes('cobr')) return '🧾';
+  if (n.includes('operaci') || n.includes('cedis')) return '📦';
+  return '🗂️';
+};
 const myRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; } })();
 const isSuperAdmin = myRole === 'super_admin';
 
@@ -343,7 +358,7 @@ export default function TareasPage() {
           {boards.map(b => (
             <Tab key={b.id} value={b.id} label={
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                {b.board_type === 'operativo' ? '🎯' : '🗂️'} {b.name}
+                {boardIcon(b.name, b.board_type)} {b.name}
                 {isSuperAdmin && b.board_type !== 'operativo' && b.id === activeId && (
                   <Tooltip title="Eliminar tablero (solo super admin)">
                     <IconButton component="span" size="small" onClick={(e) => { e.stopPropagation(); deleteBoard(b); }} sx={{ p: 0.2, ml: 0.3 }}>

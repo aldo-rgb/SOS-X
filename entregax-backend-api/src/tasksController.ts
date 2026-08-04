@@ -1004,6 +1004,31 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
         }
       } catch { /* opcional */ }
     };
+    // Si la tarea nació de "Reportar error" (título "Error localizado {folio}"),
+    // al completarla se avisa AL CLIENTE en el mismo ticket que ya fue corregido.
+    const notifyTicketFixed = async () => {
+      try {
+        const m = String(task.title || '').match(/^Error localizado\s+(\S+)/i);
+        if (!m) return;
+        const folio = m[1];
+        const tk = await pool.query(`SELECT id, user_id FROM support_tickets WHERE ticket_folio = $1 LIMIT 1`, [folio]);
+        if (tk.rows.length === 0) return;
+        const ticketId = Number(tk.rows[0].id);
+        const clientId = Number(tk.rows[0].user_id) || null;
+        const msg = '✅ El error ya fue corregido. Por favor intenta de nuevo la operación; si el problema persiste, avísanos por este mismo ticket.';
+        await pool.query(
+          `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, FALSE)`,
+          [ticketId, msg]
+        );
+        await pool.query(`UPDATE support_tickets SET status='waiting_client', updated_at=NOW() WHERE id=$1`, [ticketId]);
+        if (clientId) {
+          const { createCustomNotification } = await import('./notificationController');
+          await createCustomNotification(clientId, `✅ ${folio}: error corregido`, 'El error que reportaste ya fue corregido. Intenta de nuevo.', 'ticket', 'headset', { ticket_id: ticketId }, `/support/ticket/${ticketId}`);
+          const { sendPushToUsers } = await import('./pushService');
+          await sendPushToUsers([clientId], { title: `✅ ${folio}: error corregido`, body: 'El error que reportaste ya fue corregido. Intenta de nuevo.', data: { type: 'support_ticket', ticket_id: String(ticketId) } });
+        }
+      } catch (e) { console.error('[tasks] notifyTicketFixed:', e); }
+    };
     // Al cerrar, mover a la columna terminal (is_done) del tablero si existe.
     const doneCol = (await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 AND is_done=TRUE ORDER BY sort_order LIMIT 1`, [task.board_id])).rows[0]?.id || null;
     const colSet = doneCol ? `column_id=${Number(doneCol)},` : '';
@@ -1019,11 +1044,13 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
         [id, uid, reason]);
       await logActivity(id, uid, 'forced_close', { pending, reason });
       await notifyCompleted();
+      await notifyTicketFixed();
       return res.json({ success: true, forced: true });
     }
     await pool.query(`UPDATE tasks SET status='completed', completed_at=NOW(), ${colSet} updated_at=NOW() WHERE id=$1`, [id]);
     await logActivity(id, uid, 'completed', {});
     await notifyCompleted();
+    await notifyTicketFixed();
     res.json({ success: true, forced: false });
   } catch (e: any) {
     console.error('[tasks] completeTask:', e); res.status(500).json({ error: 'Error al completar tarea' });

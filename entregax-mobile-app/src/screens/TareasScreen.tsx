@@ -20,6 +20,21 @@ type Props = NativeStackScreenProps<RootStackParamList, 'TareasAdmin'>;
 interface Col { id: number; name: string; col_key: string; is_done?: boolean; gate_checklist?: boolean; sort_order: number; }
 interface Sec { id: number; name: string; is_someday?: boolean; sort_order: number; }
 interface Board { id: number; name: string; board_type: string; columns: Col[]; sections?: Sec[]; }
+
+// Icono por tablero según su nombre (para distinguirlos de un vistazo).
+const boardIcon = (name?: string, type?: string): string => {
+  if (type === 'operativo') return '🎯';
+  const n = (name || '').toLowerCase();
+  if (n.includes('error')) return '🐛';
+  if (n.includes('desarrollo') || n.includes('sistema')) return '💻';
+  if (n.includes('marketing')) return '📣';
+  if (n.includes('personal')) return '🏠';
+  if (n.includes('pago')) return '💳';
+  if (n.includes('venta')) return '💰';
+  if (n.includes('cobr')) return '🧾';
+  if (n.includes('operaci') || n.includes('cedis')) return '📦';
+  return '🗂️';
+};
 interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; }
 
 const EIS_ORDER = ['fuego', 'estrella', 'delegar', 'eliminar'];
@@ -135,7 +150,7 @@ export default function TareasScreen({ navigation, route }: Props) {
             const active = b.id === activeId;
             return (
               <TouchableOpacity key={b.id} onPress={() => setActiveId(b.id)} style={[styles.boardChip, active && styles.boardChipActive]}>
-                <Text style={[styles.boardChipTxt, active && { color: '#fff' }]}>{b.board_type === 'operativo' ? '🎯 ' : '🗂️ '}{b.name}</Text>
+                <Text style={[styles.boardChipTxt, active && { color: '#fff' }]}>{boardIcon(b.name, b.board_type)} {b.name}</Text>
               </TouchableOpacity>
             );
           })}
