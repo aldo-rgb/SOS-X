@@ -219,11 +219,11 @@ const menuItemsConfig: Array<{
   subItems?: Array<{ key: string; icon: React.ReactElement }>;
 }> = [
   { key: 'dashboard', icon: <DashboardIcon /> },
+  { key: 'calendar', icon: <CalendarMonthIcon /> }, // Calendario - todos los empleados
+  { key: 'myTasks', icon: <ChecklistIcon /> }, // Mis Tareas - todos los empleados
+  { key: 'tasks', icon: <AssignmentTurnedInIcon /> }, // Tareas - super_admin/admin/director
   { key: 'salesReport', icon: <BarChartIcon /> }, // CRM - Reportes de Ventas
   { key: 'clients', icon: <PeopleIcon /> },
-  { key: 'myTasks', icon: <ChecklistIcon /> }, // Mis Tareas - todos los empleados
-  { key: 'calendar', icon: <CalendarMonthIcon /> }, // Calendario - todos los empleados
-  { key: 'tasks', icon: <AssignmentTurnedInIcon /> }, // Tareas - super_admin/admin/director
   { 
     key: 'panels', 
     icon: <DashboardCustomizeIcon />, 
@@ -1693,8 +1693,9 @@ function App() {
 
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
 
-      {/* Navigation */}
-      <List sx={{ flex: 1, py: 2, px: 1.5 }}>
+      {/* Navigation — scroll interno para que TODAS las opciones sean alcanzables
+          sin que se corten (header y footer quedan fijos). */}
+      <List sx={{ flex: 1, minHeight: 0, overflowY: 'auto', py: 2, px: 1.5 }}>
         {menuItems.map((item, index) => (
           <Box key={item.key}>
             <ListItem disablePadding sx={{ mb: 0.5 }}>
@@ -1781,7 +1782,7 @@ function App() {
       </List>
 
       {/* User Info Footer */}
-      <Box sx={{ p: 2, borderTop: 1, borderColor: 'rgba(255,255,255,0.1)' }}>
+      <Box sx={{ p: 2, borderTop: 1, borderColor: 'rgba(255,255,255,0.1)', flexShrink: 0, bgcolor: '#111111' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Avatar sx={{ background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)', width: 36, height: 36, fontSize: '0.875rem' }}>
             {currentUser ? getInitials(currentUser.name) : 'U'}
