@@ -229,6 +229,7 @@
     "clients": "Users",
     "tasks": "Tasks",
     "myTasks": "My Tasks",
+    "calendar": "Calendar",
     "panels": "Tools",
     "panelsAdmin": "Administration",
     "panelsOperations": "Operations",

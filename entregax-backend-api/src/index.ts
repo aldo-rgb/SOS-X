@@ -12106,6 +12106,15 @@ const hrLicenseUpload = multer({ storage: multer.memoryStorage(), limits: { file
 app.put('/api/admin/hr/employees/:id/license', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), hrLicenseUpload.fields([{ name: 'front_photo', maxCount: 1 }, { name: 'back_photo', maxCount: 1 }]), updateAdminDriverLicense);
 app.put('/api/hr/my-license', authenticateToken, hrLicenseUpload.fields([{ name: 'front_photo', maxCount: 1 }, { name: 'back_photo', maxCount: 1 }]), updateMyLicense);
 
+// ========== CALENDARIO (Eventos + Tareas con fecha) ==========
+{
+  const cal = require('./calendarController');
+  app.get('/api/calendar/feed', authenticateToken, cal.getCalendarFeed);
+  app.post('/api/calendar/events', authenticateToken, cal.createCalendarEvent);
+  app.put('/api/calendar/events/:id', authenticateToken, cal.updateCalendarEvent);
+  app.delete('/api/calendar/events/:id', authenticateToken, cal.deleteCalendarEvent);
+}
+
 // ========== ORGANIGRAMA (Estructura Organizacional) ==========
 {
   const org = require('./orgChartController');
