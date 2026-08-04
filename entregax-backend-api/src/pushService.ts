@@ -19,6 +19,28 @@ export function isMxWorkHours(d: Date = new Date()): boolean {
   } catch { return true; }
 }
 
+// Roles que reciben push SIEMPRE, sin restricción de horario laboral ni fines de
+// semana (dirección / administración necesita enterarse en el momento).
+export const ALWAYS_NOTIFY_ROLES = ['admin', 'super_admin'];
+
+// Dado un conjunto de destinatarios y si la notificación está topada a horario
+// laboral, devuelve SOLO los que deben recibir push AHORA:
+//   • admins / super_admins → siempre (24/7, incluidos sábado y domingo)
+//   • los demás → solo dentro del horario laboral
+// Si la notificación no está topada a horario, pasan todos.
+export async function filterRecipientsForPush(userIds: number[], workHoursGated: boolean): Promise<number[]> {
+  const ids = Array.isArray(userIds) ? userIds.filter(Boolean) : [];
+  if (ids.length === 0) return [];
+  if (!workHoursGated || isMxWorkHours()) return ids; // todos pasan
+  try {
+    const r = await pool.query(
+      `SELECT id FROM users WHERE id = ANY($1::int[]) AND role = ANY($2::text[])`,
+      [ids, ALWAYS_NOTIFY_ROLES]
+    );
+    return r.rows.map((x: any) => x.id);
+  } catch { return []; }
+}
+
 let firebaseAdmin: any = null;
 let initialized = false;
 let initPromise: Promise<void> | null = null;

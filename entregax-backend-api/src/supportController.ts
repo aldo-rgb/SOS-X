@@ -1712,10 +1712,11 @@ export async function notifyTicketDepartment(ticketId: number, departmentId: num
     for (const uid of userIds) {
       await createCustomNotification(uid, title, body, 'ticket', 'headset', { ticket_id: ticketId, department: deptName }, '/support');
     }
-    // Push SOLO en horario laboral.
-    const { sendPushToUsers, isMxWorkHours } = await import('./pushService');
-    if (isMxWorkHours()) {
-      await sendPushToUsers(userIds, { title, body, data: { type: 'support_ticket', ticket_id: String(ticketId) } });
+    // Push SOLO en horario laboral — salvo admins/super_admins, que reciben siempre.
+    const { sendPushToUsers, filterRecipientsForPush } = await import('./pushService');
+    const pushIds = await filterRecipientsForPush(userIds, true);
+    if (pushIds.length) {
+      await sendPushToUsers(pushIds, { title, body, data: { type: 'support_ticket', ticket_id: String(ticketId) } });
     }
   } catch (e) {
     console.error('[SUPPORT] notifyTicketDepartment:', e);
@@ -1775,9 +1776,11 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
       for (const saId of superAdminIds) {
         await createCustomNotification(saId, `🐛 Error reportado · ${folio}`, `${title}. Revísalo en Mis Tareas.`, 'task', 'checkbox', { task_id: taskId, ticket_id: ticketId }, '/tareas');
       }
-      const { sendPushToUsers, isMxWorkHours } = await import('./pushService');
-      if (isMxWorkHours()) {
-        await sendPushToUsers(superAdminIds, { title: `🐛 Error reportado · ${folio}`, body: `${title}. Revísalo en Mis Tareas.`, data: { screen: 'MyTasks', task_id: String(taskId) } });
+      const { sendPushToUsers, filterRecipientsForPush } = await import('./pushService');
+      // Super admins reciben siempre (24/7); el filtro los deja pasar aunque sea fin de semana o fuera de horario.
+      const pushIds = await filterRecipientsForPush(superAdminIds, true);
+      if (pushIds.length) {
+        await sendPushToUsers(pushIds, { title: `🐛 Error reportado · ${folio}`, body: `${title}. Revísalo en Mis Tareas.`, data: { screen: 'MyTasks', task_id: String(taskId) } });
       }
     } catch (e) { console.error('[support] reportTicketError notif:', e); }
 
