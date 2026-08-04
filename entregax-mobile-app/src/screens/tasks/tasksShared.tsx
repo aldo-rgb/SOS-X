@@ -648,6 +648,18 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [comment, setComment] = useState('');
+  const [mentions, setMentions] = useState<{ id: number; name: string }[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const onCommentChange = (txt: string) => {
+    setComment(txt);
+    const m = txt.match(/(?:^|\s)@([^\s@]*)$/); // @palabra al final
+    setMentionQuery(m ? m[1] : null);
+  };
+  const pickMention = (p: { id: number; full_name: string }) => {
+    setComment(prev => prev.replace(/(?:^|\s)@([^\s@]*)$/, (mt) => `${mt.startsWith('@') ? '' : mt[0]}@${p.full_name} `));
+    setMentionQuery(null);
+    setMentions(prev => prev.some(x => x.id === p.id) ? prev : [...prev, { id: p.id, name: p.full_name }]);
+  };
   const [newSub, setNewSub] = useState('');
   const [busy, setBusy] = useState(false);
   // Edición inline
@@ -796,7 +808,8 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   };
   const addComment = async () => {
     if (!comment.trim()) return;
-    try { await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim() }); setComment(''); reload(true); } catch { /* */ }
+    const activeMentions = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
+    try { await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions }); setComment(''); setMentions([]); setMentionQuery(null); reload(true); } catch { /* */ }
   };
   const addPhoto = async () => {
     try {
@@ -1085,8 +1098,26 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 );
               })}
               {(data.comments || []).length === 0 && <Text style={styles.commentBody}>Sin comentarios todavía.</Text>}
+              {/* Selector de @menciones (involucrados de la tarea) */}
+              {mentionQuery !== null && (() => {
+                const q = mentionQuery.toLowerCase();
+                const opts = ((data?.participants || []) as any[])
+                  .filter(p => Number(p.id) !== Number(myId) && String(p.full_name || '').toLowerCase().includes(q))
+                  .slice(0, 6);
+                if (opts.length === 0) return null;
+                return (
+                  <View style={styles.mentionBox}>
+                    {opts.map(p => (
+                      <TouchableOpacity key={p.id} style={styles.mentionOpt} onPress={() => pickMention(p)}>
+                        <Ionicons name="at" size={14} color="#5E35B1" />
+                        <Text style={styles.mentionName}>{p.full_name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                );
+              })()}
               <View style={styles.addSubRow}>
-                <TextInput style={styles.input} placeholder="Deja un comentario…" value={comment} onChangeText={setComment} placeholderTextColor="#999" />
+                <TextInput style={styles.input} placeholder="Deja un comentario…  (@ para mencionar)" value={comment} onChangeText={onCommentChange} placeholderTextColor="#999" />
                 <TouchableOpacity style={styles.addBtn} onPress={addComment}><Ionicons name="send" size={16} color="#fff" /></TouchableOpacity>
               </View>
             </ScrollView>
@@ -1314,6 +1345,9 @@ export const styles = StyleSheet.create({
   mxCardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   mxCardBoard: { fontSize: 9.5, color: '#888', flexShrink: 1 },
   mxCardMetaTxt: { fontSize: 9.5, color: '#888' },
+  mentionBox: { borderWidth: 1, borderColor: '#E2DFF0', borderRadius: 10, backgroundColor: '#FAF9FF', marginBottom: 6, overflow: 'hidden' },
+  mentionOpt: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 9, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#ECE9F5' },
+  mentionName: { fontSize: 14, fontWeight: '600', color: '#333' },
   unreadChip: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#E53935', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 },
   unreadTxt: { color: '#fff', fontSize: 11, fontWeight: '800' },
   mxUnread: { flexDirection: 'row', alignItems: 'center', gap: 2, alignSelf: 'flex-start', backgroundColor: '#E53935', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 7, marginTop: 3 },

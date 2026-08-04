@@ -1296,22 +1296,16 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
       `INSERT INTO task_comments (task_id, author_id, body, mentions, attachment_url) VALUES ($1,$2,$3,$4::jsonb,$5) RETURNING *`,
       [taskId, uid, String(b.body).trim(), JSON.stringify(mentions), b.attachment_url || null]);
     await logActivity(taskId, uid, 'comment', {});
-    // Notificar a los mencionados.
+    // Notificar SOLO a los mencionados con @ (push en horario laboral + in-app siempre).
+    // Los demás involucrados se enteran por el badge de "comentarios sin leer".
+    const author = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'Alguien';
+    const preview = String(b.body).trim().slice(0, 90);
     const notified = new Set<number>();
     for (const m of mentions) {
-      if (m !== uid && !notified.has(m)) { await notify(m, '💬 Te mencionaron en una tarea', t.rows[0].title, { task_id: taskId }, 'task_comment'); notified.add(m); }
-    }
-    // Notificar por push a los involucrados (participantes + asignado) del comentario.
-    const author = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'Alguien';
-    const preview = String(b.body).trim().slice(0, 80);
-    const parts = await pool.query(
-      `SELECT user_id FROM task_participants WHERE task_id = $1
-       UNION SELECT assignee_id FROM tasks WHERE id = $1 AND assignee_id IS NOT NULL`, [taskId]);
-    for (const row of parts.rows) {
-      const p = Number(row.user_id);
-      if (!p || p === uid || notified.has(p)) continue;
-      await notify(p, `💬 ${author} comentó en "${t.rows[0].title}"`, preview, { task_id: taskId }, 'task_comment');
-      notified.add(p);
+      if (m && m !== uid && !notified.has(m)) {
+        await notify(m, `💬 ${author} te mencionó en una tarea`, preview, { task_id: taskId }, 'task_comment');
+        notified.add(m);
+      }
     }
     res.json({ comment: r.rows[0] });
   } catch (e: any) {
