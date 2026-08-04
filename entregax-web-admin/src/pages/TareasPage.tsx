@@ -836,12 +836,18 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
               )}
             </Box>
 
-            <FormControl size="small" sx={{ minWidth: 220, mb: 2 }}>
-              <InputLabel>Mover a columna</InputLabel>
-              <Select label="Mover a columna" value={t.column_id || ''} onChange={e => onPickColumn(Number(e.target.value))}>
-                {board?.columns.map((c: Col) => <MenuItem key={c.id} value={c.id}>{c.name}{c.is_done ? ' (cierra)' : ''}</MenuItem>)}
-              </Select>
-            </FormControl>
+            {/* Botón directo para poner "En proceso" (abre el prompt de fecha/hora
+                objetivo). Sustituye al antiguo dropdown "Mover a columna". */}
+            {(() => {
+              const proc = board?.columns.find((c: Col) => c.col_key === 'en_proceso');
+              if (!proc || t.status === 'completed' || Number(t.column_id) === Number(proc.id)) return null;
+              return (
+                <Button variant="outlined" startIcon={<AccessTimeIcon />} onClick={() => onPickColumn(proc.id)}
+                  sx={{ mb: 2, textTransform: 'none', color: '#B07206', borderColor: '#B07206', '&:hover': { borderColor: '#8a5a05', bgcolor: '#FFF7E8' } }}>
+                  Poner en proceso
+                </Button>
+              );
+            })()}
 
             {/* Diálogo: fecha/hora objetivo al pasar a "En proceso" */}
             <Dialog open={etaDlg.open} onClose={() => setEtaDlg({ open: false, columnId: null, value: '' })} maxWidth="xs" fullWidth>
