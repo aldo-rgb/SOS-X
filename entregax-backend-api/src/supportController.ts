@@ -8,7 +8,7 @@ import { pool } from './db';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { uploadToS3, isS3Configured, getSignedDownloadUrl, signS3UrlIfNeeded } from './s3Service';
+import { uploadToS3, isS3Configured, getSignedDownloadUrl, signS3UrlIfNeeded, s3KeyFromUrl } from './s3Service';
 import { sendPushToUsers } from './pushService';
 import { sendTicketConfirmation, sendTicketResolved, sendQuoteRequestConfirmation, sendAdvisorQuotePending } from './whatsappService';
 import { quotePqtxClientPrice } from './paqueteExpressController';
@@ -1759,10 +1759,14 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
 
     const desc = `🐛 Error reportado desde el ticket ${folio}${ticket.client_name ? ' · ' + ticket.client_name : ''}.\n${ticket.subject || ''}`.trim();
 
+    // Tablero "Error de Sistema" (categoría). Si no existe, cae al personal.
+    const boardRes = await pool.query(`SELECT id FROM task_boards WHERE name = 'Error de Sistema' AND is_active = TRUE ORDER BY id LIMIT 1`);
+    const errorBoardId = boardRes.rows[0]?.id || undefined;
+
     // Se crea la tarea SIN el push automático de "tarea asignada" (notifyAssignee:false)
     // porque notificamos a TODOS los super admin explícitamente abajo (evita duplicado).
     const { createAssignedTaskInternal } = await import('./tasksController');
-    const taskId = await createAssignedTaskInternal({ creatorId: Number(uid), assigneeId: superAdminId, title, description: desc, eisenhower: 'fuego', notifyAssignee: false });
+    const taskId = await createAssignedTaskInternal({ creatorId: Number(uid), assigneeId: superAdminId, title, description: desc, eisenhower: 'fuego', notifyAssignee: false, boardId: errorBoardId });
     if (!taskId) return res.status(500).json({ error: 'No se pudo crear la tarea' });
 
     // Notificar a TODOS los super admin: in-app siempre + push solo en horario laboral.
@@ -1785,8 +1789,11 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
       try { urls = typeof m.attachments === 'string' ? JSON.parse(m.attachments) : (Array.isArray(m.attachments) ? m.attachments : []); } catch { urls = []; }
       for (const u of urls) {
         if (!u) continue;
-        const fileName = String(u).split('/').pop()?.split('?')[0] || 'archivo';
-        await pool.query(`INSERT INTO task_attachments (task_id, file_key, file_name, uploaded_by) VALUES ($1,$2,$3,$4)`, [taskId, String(u), fileName, Number(uid)]);
+        // Guardar la KEY de S3 (bucket privado → se firma al leer). Si no es de
+        // nuestro bucket (disco local/externa), se guarda la URL tal cual.
+        const fileKey = s3KeyFromUrl(String(u)) || String(u);
+        const fileName = fileKey.split('/').pop()?.split('?')[0] || 'archivo';
+        await pool.query(`INSERT INTO task_attachments (task_id, file_key, file_name, uploaded_by) VALUES ($1,$2,$3,$4)`, [taskId, fileKey, fileName, Number(uid)]);
         copied++;
       }
     }

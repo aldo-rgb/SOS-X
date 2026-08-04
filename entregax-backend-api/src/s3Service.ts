@@ -103,6 +103,24 @@ export const getSignedUrlForKey = async (key: string, expiresIn: number = 3600):
  * temporal para acceso desde el navegador (útil cuando el bucket NO es público).
  * Si no es URL de S3 (data: o cualquier otra), la regresa intacta.
  */
+/**
+ * Extrae la KEY de S3 de una URL de nuestro bucket (para almacenar y firmar luego).
+ * Devuelve null si la URL no es de nuestro bucket (ej. disco local / externa).
+ */
+export const s3KeyFromUrl = (url: string): string | null => {
+  const region = process.env.AWS_REGION || 'us-east-1';
+  const patterns = [
+    new RegExp(`^https?://${BUCKET_NAME}\\.s3\\.${region}\\.amazonaws\\.com/(.+)$`),
+    new RegExp(`^https?://${BUCKET_NAME}\\.s3\\.amazonaws\\.com/(.+)$`),
+    new RegExp(`^https?://s3\\.${region}\\.amazonaws\\.com/${BUCKET_NAME}/(.+)$`),
+  ];
+  for (const re of patterns) {
+    const m = url.match(re);
+    if (m && m[1]) return decodeURIComponent(m[1].split('?')[0] || m[1]);
+  }
+  return null;
+};
+
 export const signS3UrlIfNeeded = async (url: string | null | undefined, expiresIn: number = 3600): Promise<string | null> => {
   if (!url) return null;
   // No firmar data: URLs ni rutas locales

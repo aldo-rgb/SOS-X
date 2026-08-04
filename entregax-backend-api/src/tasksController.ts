@@ -7,7 +7,7 @@
 // ============================================================
 import { Request, Response } from 'express';
 import { pool } from './db';
-import { uploadToS3WithSignedUrl, getSignedUrlForKey } from './s3Service';
+import { uploadToS3WithSignedUrl, getSignedUrlForKey, signS3UrlIfNeeded } from './s3Service';
 
 const authUserId = (req: Request): number | null => {
   const u = (req as any).user;
@@ -174,10 +174,16 @@ async function getOrCreatePersonalBoard(): Promise<number | null> {
 // Crea una tarea asignada a un usuario (reutilizable desde otros módulos, p.ej.
 // convertir la "declaración de meta" de un asesor en tarea). Devuelve el task_id.
 export async function createAssignedTaskInternal(opts: {
-  creatorId: number; assigneeId: number; title: string; description?: string | null; dueAt?: string | null; eisenhower?: string; notifyAssignee?: boolean;
+  creatorId: number; assigneeId: number; title: string; description?: string | null; dueAt?: string | null; eisenhower?: string; notifyAssignee?: boolean; boardId?: number;
 }): Promise<number | null> {
   try {
-    const boardId = await getOrCreatePersonalBoard();
+    // Tablero destino: el indicado (ej. "Error de Sistema") o el personal por default.
+    let boardId: number | null = null;
+    if (opts.boardId) {
+      const b = await pool.query(`SELECT id FROM task_boards WHERE id = $1 AND is_active = TRUE`, [opts.boardId]);
+      boardId = b.rows[0]?.id || null;
+    }
+    if (!boardId) boardId = await getOrCreatePersonalBoard();
     if (!boardId) return null;
     const col = await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [boardId]);
     const columnId = col.rows[0]?.id || null;
@@ -745,10 +751,13 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
          LEFT JOIN users u ON u.id = at.uploaded_by WHERE at.task_id = $1 ORDER BY at.id DESC`, [id]);
     const attachments = await Promise.all(attRows.rows.map(async (a: any) => {
       let url: string | null = null;
-      // Los adjuntos copiados de un ticket ya vienen como URL http completa; el resto
-      // son keys de S3 que se firman al leer.
-      if (/^https?:\/\//i.test(String(a.file_key || ''))) { url = a.file_key; }
-      else { try { url = await getSignedUrlForKey(a.file_key, 6 * 3600); } catch { /* ignore */ } }
+      // Si el file_key es una URL http (adjunto copiado de un ticket), se firma si es
+      // de nuestro bucket privado (signS3UrlIfNeeded) o se deja igual si es externa.
+      // Si es una key de S3, se firma directo.
+      try {
+        if (/^https?:\/\//i.test(String(a.file_key || ''))) url = await signS3UrlIfNeeded(a.file_key, 6 * 3600);
+        else url = await getSignedUrlForKey(a.file_key, 6 * 3600);
+      } catch { /* ignore */ }
       return { id: a.id, file_name: a.file_name, uploaded_by_name: a.uploaded_by_name, created_at: a.created_at, url };
     }));
     // Involucrados (participantes) de la tarea.
