@@ -10,7 +10,7 @@ import {
   Box, Typography, Button, IconButton, Chip, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
   Avatar, Divider, Checkbox, Snackbar, Alert, LinearProgress, ToggleButton, ToggleButtonGroup, Tooltip,
-  Autocomplete,
+  Autocomplete, Paper,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -188,6 +188,8 @@ function InvolvedPicker({ users, involvedIds, setInvolvedIds, fixedId = MY_ID, f
 
 export default function MisTareasPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
+  const [eventDetail, setEventDetail] = useState<any | null>(null);
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'matrix'>('list');
@@ -221,6 +223,7 @@ export default function MisTareasPage() {
     try {
       const r = await axios.get(`${API_URL}/tasks/mine${showDone ? '?all=true' : ''}`, H());
       setTasks(r.data?.tasks || []);
+      setEvents(r.data?.events || []);
     } catch { notify('No se pudieron cargar las tareas', 'error'); }
     finally { setLoading(false); }
   }, [showDone]);
@@ -450,9 +453,30 @@ export default function MisTareasPage() {
         </FormControl>
       </Box>
 
+      {/* Eventos del calendario de HOY (para el usuario involucrado) */}
+      {events.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: 14, mb: 1, color: '#1565C0' }}>
+            📅 Hoy tienes {events.length} evento{events.length === 1 ? '' : 's'}
+          </Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr' }, gap: 1.5 }}>
+            {events.map(ev => (
+              <Paper key={ev.id} onClick={() => setEventDetail(ev)}
+                sx={{ p: 1.5, borderRadius: 2, borderLeft: '4px solid #1565C0', cursor: 'pointer', bgcolor: '#F5F9FF', '&:hover': { boxShadow: 2 } }}>
+                <Typography sx={{ fontWeight: 700, fontSize: 14 }} noWrap>{ev.title}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  🕒 {ev.all_day ? 'Todo el día' : new Date(ev.start_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                  {ev.location ? ` · 📍 ${ev.location}` : ''}
+                </Typography>
+              </Paper>
+            ))}
+          </Box>
+        </Box>
+      )}
+
       {loading ? (
         <Box sx={{ textAlign: 'center', mt: 8 }}><CircularProgress /></Box>
-      ) : tasks.length === 0 ? (
+      ) : tasks.length === 0 && events.length === 0 ? (
         <Alert severity="success">No tienes tareas pendientes 🎉</Alert>
       ) : visibleTasks.length === 0 ? (
         personalOk.length === 0 && hidePersonal ? (
@@ -496,6 +520,23 @@ export default function MisTareasPage() {
           {visibleTasks.map(renderCard)}
         </Box>
       )}
+
+      {/* Detalle de evento (desde Mis Tareas) */}
+      <Dialog open={!!eventDetail} onClose={() => setEventDetail(null)} maxWidth="xs" fullWidth>
+        {eventDetail && (
+          <>
+            <DialogTitle sx={{ fontWeight: 800, color: '#1565C0' }}>📅 {eventDetail.title}</DialogTitle>
+            <DialogContent>
+              <Typography variant="body2" color="text.secondary">
+                🕒 {eventDetail.all_day ? 'Todo el día' : `${new Date(eventDetail.start_at).toLocaleString('es-MX')}${eventDetail.end_at ? ' – ' + new Date(eventDetail.end_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : ''}`}
+              </Typography>
+              {eventDetail.location && <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>📍 {eventDetail.location}</Typography>}
+              {eventDetail.description && <Typography variant="body2" sx={{ mt: 1 }}>{eventDetail.description}</Typography>}
+            </DialogContent>
+            <DialogActions><Button onClick={() => setEventDetail(null)}>Cerrar</Button></DialogActions>
+          </>
+        )}
+      </Dialog>
 
       {/* Crear tarea personal */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>

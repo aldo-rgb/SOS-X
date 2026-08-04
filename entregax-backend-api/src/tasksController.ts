@@ -730,7 +730,25 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
        WHERE (t.assignee_id = $1 OR EXISTS (SELECT 1 FROM task_participants tp WHERE tp.task_id = t.id AND tp.user_id = $1))
          AND ${statusCond}
        ORDER BY (t.status='open') DESC, (t.eisenhower='fuego') DESC, t.due_at NULLS LAST, t.id DESC`, [uid]);
-    res.json({ tasks: r.rows });
+    // Eventos del calendario que ocurren HOY (hora Monterrey) donde el usuario es
+    // creador o involucrado → aparecen en Mis Tareas ese día. Se evalúa el día en
+    // tz local; start_at/end_at son timestamp-naive en UTC.
+    let events: any[] = [];
+    try {
+      const evRes = await pool.query(`
+        SELECT e.id, e.title, e.description, e.location, e.all_day,
+               to_char(e.start_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS start_at,
+               to_char(e.end_at,   'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS end_at
+          FROM calendar_events e
+         WHERE (e.created_by = $1 OR EXISTS (SELECT 1 FROM calendar_event_participants p WHERE p.event_id = e.id AND p.user_id = $1))
+           AND (e.start_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey')::date
+                 <= (NOW() AT TIME ZONE 'America/Monterrey')::date
+           AND (COALESCE(e.end_at, e.start_at) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey')::date
+                 >= (NOW() AT TIME ZONE 'America/Monterrey')::date
+         ORDER BY e.start_at ASC`, [uid]);
+      events = evRes.rows;
+    } catch { /* calendar_events puede no existir aún */ }
+    res.json({ tasks: r.rows, events });
   } catch (e: any) {
     console.error('[tasks] myTasks:', e); res.status(500).json({ error: 'Error al obtener mis tareas' });
   }

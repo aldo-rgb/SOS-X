@@ -3,7 +3,7 @@
  * todos los tableros. Dos vistas: Lista y Matriz Eisenhower.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, ActivityIndicator, RefreshControl, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +20,8 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   // Asesor/sub-asesor: al crear tarea NO ve categorías ni involucrados (solo Personal).
   const isAdvisorUser = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(String(user?.role || '').toLowerCase());
   const [tasks, setTasks] = useState<TaskT[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
+  const [eventDetail, setEventDetail] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [view, setView] = useState<'list' | 'matrix'>('list');
@@ -38,6 +40,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
       const r = await fetch(`${API_URL}/api/tasks/mine${showDone ? '?all=true' : ''}`, { headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
       setTasks(d.tasks || []);
+      setEvents(d.events || []);
     } catch { /* */ } finally { setLoading(false); setRefreshing(false); }
   }, [token, showDone]);
   useEffect(() => { load(); }, [load]);
@@ -114,9 +117,26 @@ export default function MisTareasScreen({ navigation, route }: Props) {
         </View>
       )}
 
+      {/* Eventos del calendario de HOY (usuario involucrado) */}
+      {events.length > 0 && (
+        <View style={styles.evBox}>
+          <Text style={styles.evHead}>📅 Hoy tienes {events.length} evento{events.length === 1 ? '' : 's'}</Text>
+          {events.map(ev => (
+            <TouchableOpacity key={ev.id} style={styles.evCard} onPress={() => setEventDetail(ev)}>
+              <Ionicons name="calendar" size={18} color="#1565C0" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.evTitle} numberOfLines={1}>{ev.title}</Text>
+                <Text style={styles.evSub}>🕒 {ev.all_day ? 'Todo el día' : new Date(ev.start_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}{ev.location ? ` · 📍 ${ev.location}` : ''}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#B0B0B0" />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       {loading ? (
         <View style={styles.center}><ActivityIndicator size="large" color={ORANGE} /></View>
-      ) : tasks.length === 0 ? (
+      ) : tasks.length === 0 && events.length === 0 ? (
         <View style={styles.center}><Ionicons name="checkmark-done-circle-outline" size={44} color="#BBB" /><Text style={styles.empty}>No tienes tareas pendientes 🎉</Text></View>
       ) : visibleTasks.length === 0 ? (
         personalOk.length === 0 && hidePersonal ? (
@@ -157,11 +177,40 @@ export default function MisTareasScreen({ navigation, route }: Props) {
         onClose={() => setCreateOpen(false)} onCreated={load} />
       <ScheduleTaskModal visible={schedOpen} token={token} myId={myId} advisorMode={isAdvisorUser}
         onClose={() => setSchedOpen(false)} onCreated={load} />
+
+      {/* Detalle de evento */}
+      <Modal visible={!!eventDetail} transparent animationType="fade" onRequestClose={() => setEventDetail(null)}>
+        <View style={styles.evBackdrop}>
+          <View style={styles.evModal}>
+            {eventDetail && (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={styles.evModalTitle}>📅 {eventDetail.title}</Text>
+                  <TouchableOpacity onPress={() => setEventDetail(null)}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
+                </View>
+                <Text style={styles.evSub}>🕒 {eventDetail.all_day ? 'Todo el día' : `${new Date(eventDetail.start_at).toLocaleString('es-MX')}${eventDetail.end_at ? ' – ' + new Date(eventDetail.end_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : ''}`}</Text>
+                {!!eventDetail.location && <Text style={[styles.evSub, { marginTop: 4 }]}>📍 {eventDetail.location}</Text>}
+                {!!eventDetail.description && <Text style={{ fontSize: 14, color: '#333', marginTop: 10 }}>{eventDetail.description}</Text>}
+                <TouchableOpacity style={styles.evCloseBtn} onPress={() => setEventDetail(null)}><Text style={{ color: '#fff', fontWeight: '700' }}>Cerrar</Text></TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  evBox: { paddingHorizontal: 12, paddingTop: 10 },
+  evHead: { fontSize: 13, fontWeight: '800', color: '#1565C0', marginBottom: 6 },
+  evCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#F5F9FF', borderLeftWidth: 4, borderLeftColor: '#1565C0', borderRadius: 10, padding: 10, marginBottom: 8 },
+  evTitle: { fontSize: 14, fontWeight: '700', color: '#222' },
+  evSub: { fontSize: 12, color: '#777', marginTop: 2 },
+  evBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 },
+  evModal: { backgroundColor: '#fff', borderRadius: 16, padding: 18 },
+  evModalTitle: { fontSize: 16, fontWeight: '800', color: '#1565C0', flex: 1 },
+  evCloseBtn: { backgroundColor: '#777', borderRadius: 10, paddingVertical: 11, alignItems: 'center', marginTop: 16 },
   safe: { flex: 1, backgroundColor: BG },
   center: { alignItems: 'center', justifyContent: 'center', padding: 40, gap: 10 },
   empty: { color: '#888', fontSize: 14 },
