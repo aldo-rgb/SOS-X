@@ -1459,6 +1459,20 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               </TouchableOpacity>
             )}
 
+            {/* =============== WIDGET: CALENDARIO (todos) =============== */}
+            <TouchableOpacity activeOpacity={0.85}
+              onPress={() => navigation.navigate('Calendar', { user, token })}
+              style={styles.taskWidget}>
+              <View style={styles.taskWidgetIcon}>
+                <Ionicons name="calendar-outline" size={26} color="#1565C0" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.taskWidgetNum}>Calendario</Text>
+                <Text style={styles.taskWidgetLabel}>Eventos y tareas programadas</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#B0B0B0" />
+            </TouchableOpacity>
+
             {/* =============== WIDGETS DE LEADS (admin / super_admin) =============== */}
             {isAdminLevel && leadsWidgets && (
               <View style={styles.leadsSection}>

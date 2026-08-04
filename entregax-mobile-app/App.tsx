@@ -90,6 +90,7 @@ import BranchesHubScreen from './src/screens/BranchesHubScreen';
 import UsersAdminScreen from './src/screens/UsersAdminScreen';
 import WelcomeKitAdminScreen from './src/screens/WelcomeKitAdminScreen';
 import MisTareasScreen from './src/screens/MisTareasScreen';
+import CalendarScreen from './src/screens/CalendarScreen';
 import TareasScreen from './src/screens/TareasScreen';
 import SystemSettingsScreen from './src/screens/SystemSettingsScreen';
 import PanelPermissionsScreen from './src/screens/PanelPermissionsScreen';
@@ -534,6 +535,7 @@ function App() {
           <Stack.Screen name="UsersAdmin" component={UsersAdminScreen} />
           <Stack.Screen name="WelcomeKitAdmin" component={WelcomeKitAdminScreen} />
           <Stack.Screen name="MyTasks" component={MisTareasScreen} />
+          <Stack.Screen name="Calendar" component={CalendarScreen} />
           <Stack.Screen name="TareasAdmin" component={TareasScreen} />
           <Stack.Screen name="SystemSettings" component={SystemSettingsScreen} />
           <Stack.Screen name="PanelPermissions" component={PanelPermissionsScreen} />
