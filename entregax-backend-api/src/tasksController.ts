@@ -1006,27 +1006,21 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     };
     // Si la tarea nació de "Reportar error" (título "Error localizado {folio}"),
     // al completarla se avisa AL CLIENTE en el mismo ticket que ya fue corregido.
+    // Solo ESCRIBE la respuesta en el ticket (sin notificación push/in-app).
     const notifyTicketFixed = async () => {
       try {
         const m = String(task.title || '').match(/^Error localizado\s+(\S+)/i);
         if (!m) return;
         const folio = m[1];
-        const tk = await pool.query(`SELECT id, user_id FROM support_tickets WHERE ticket_folio = $1 LIMIT 1`, [folio]);
+        const tk = await pool.query(`SELECT id FROM support_tickets WHERE ticket_folio = $1 LIMIT 1`, [folio]);
         if (tk.rows.length === 0) return;
         const ticketId = Number(tk.rows[0].id);
-        const clientId = Number(tk.rows[0].user_id) || null;
         const msg = '✅ El error ya fue corregido. Por favor intenta de nuevo la operación; si el problema persiste, avísanos por este mismo ticket.';
         await pool.query(
           `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, FALSE)`,
           [ticketId, msg]
         );
         await pool.query(`UPDATE support_tickets SET status='waiting_client', updated_at=NOW() WHERE id=$1`, [ticketId]);
-        if (clientId) {
-          const { createCustomNotification } = await import('./notificationController');
-          await createCustomNotification(clientId, `✅ ${folio}: error corregido`, 'El error que reportaste ya fue corregido. Intenta de nuevo.', 'ticket', 'headset', { ticket_id: ticketId }, `/support/ticket/${ticketId}`);
-          const { sendPushToUsers } = await import('./pushService');
-          await sendPushToUsers([clientId], { title: `✅ ${folio}: error corregido`, body: 'El error que reportaste ya fue corregido. Intenta de nuevo.', data: { type: 'support_ticket', ticket_id: String(ticketId) } });
-        }
       } catch (e) { console.error('[tasks] notifyTicketFixed:', e); }
     };
     // Al cerrar, mover a la columna terminal (is_done) del tablero si existe.

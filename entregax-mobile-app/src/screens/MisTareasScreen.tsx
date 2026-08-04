@@ -17,6 +17,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'MyTasks'>;
 export default function MisTareasScreen({ navigation, route }: Props) {
   const { token, user } = route.params;
   const myId = Number(user?.id) || 0;
+  // Asesor/sub-asesor: al crear tarea NO ve categorías ni involucrados (solo Personal).
+  const isAdvisorUser = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(String(user?.role || '').toLowerCase());
   const [tasks, setTasks] = useState<TaskT[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -146,9 +148,9 @@ export default function MisTareasScreen({ navigation, route }: Props) {
 
       <TaskDetailModal visible={openId != null} taskId={openId} token={token} canManage={false}
         onClose={() => setOpenId(null)} onChanged={load} />
-      <CreateTaskModal visible={createOpen} token={token} myId={myId}
+      <CreateTaskModal visible={createOpen} token={token} myId={myId} advisorMode={isAdvisorUser}
         onClose={() => setCreateOpen(false)} onCreated={load} />
-      <ScheduleTaskModal visible={schedOpen} token={token} myId={myId}
+      <ScheduleTaskModal visible={schedOpen} token={token} myId={myId} advisorMode={isAdvisorUser}
         onClose={() => setSchedOpen(false)} onCreated={load} />
     </SafeAreaView>
   );

@@ -183,8 +183,8 @@ function EisPicker({ value, onChange }: { value: string; onChange: (k: string) =
 }
 
 // ── Modal: crear tarea (mismas funciones que web) ──
-export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
-  visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void;
+export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advisorMode }: {
+  visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void; advisorMode?: boolean;
 }) {
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
@@ -279,6 +279,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
             <Text style={styles.fieldLbl}>Título</Text>
             <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
+            {!advisorMode && (<>
             <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
             <View style={styles.eisRow}>
               <TouchableOpacity onPress={() => setCatId(null)} style={[styles.dateChip, !catId && styles.dateChipOn]}>
@@ -315,6 +316,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
                 </>
               ) : null;
             })()}
+            </>)}
             <Text style={styles.fieldLbl}>Descripción</Text>
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
@@ -327,9 +329,11 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
                 </TouchableOpacity>
               ))}
             </View>
+            {!advisorMode && (<>
             <Text style={styles.fieldLbl}>Involucrados</Text>
             <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} />
             <Text style={styles.helpTxt}>Tú siempre quedas incluido. Agrega a quien deba participar.</Text>
+            </>)}
 
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
               <Text style={[styles.fieldLbl, { marginTop: 0 }]}>Archivos {photos.length > 0 && `(${photos.length})`}</Text>
@@ -368,8 +372,8 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated }: {
 }
 
 // ── Modal: programar tarea (futura / recurrente) ──
-export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: {
-  visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void;
+export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, advisorMode }: {
+  visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void; advisorMode?: boolean;
 }) {
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
@@ -457,6 +461,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
             <Text style={styles.helpTxt}>La tarea se creará automáticamente en la fecha y hora elegidas. Si es recurrente, se regenera en cada ciclo.</Text>
             <Text style={styles.fieldLbl}>Título</Text>
             <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
+            {!advisorMode && (<>
             <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
             <View style={styles.eisRow}>
               <TouchableOpacity onPress={() => { setCatId(null); setCatSection(null); }} style={[styles.dateChip, !catId && styles.dateChipOn]}>
@@ -492,6 +497,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
                 </>
               ) : null;
             })()}
+            </>)}
             <Text style={styles.fieldLbl}>Descripción</Text>
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
@@ -551,8 +557,10 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated }: 
                 </View>
               </>
             )}
+            {!advisorMode && (<>
             <Text style={styles.fieldLbl}>Involucrados</Text>
             <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} />
+            </>)}
 
             {schedules.length > 0 && (
               <View style={{ marginTop: 18 }}>
