@@ -12104,6 +12104,29 @@ const hrLicenseUpload = multer({ storage: multer.memoryStorage(), limits: { file
 app.put('/api/admin/hr/employees/:id/license', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), hrLicenseUpload.fields([{ name: 'front_photo', maxCount: 1 }, { name: 'back_photo', maxCount: 1 }]), updateAdminDriverLicense);
 app.put('/api/hr/my-license', authenticateToken, hrLicenseUpload.fields([{ name: 'front_photo', maxCount: 1 }, { name: 'back_photo', maxCount: 1 }]), updateMyLicense);
 
+// ========== ORGANIGRAMA (Estructura Organizacional) ==========
+{
+  const org = require('./orgChartController');
+  const orgRoles = requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR);
+  // Árbol
+  app.get('/api/admin/hr/org-chart', authenticateToken, orgRoles, org.getOrgChart);
+  // Nodos (puestos / departamentos)
+  app.post('/api/admin/hr/org-chart/nodes', authenticateToken, orgRoles, org.createOrgNode);
+  app.put('/api/admin/hr/org-chart/nodes/:id', authenticateToken, orgRoles, org.updateOrgNode);
+  app.delete('/api/admin/hr/org-chart/nodes/:id', authenticateToken, orgRoles, org.deleteOrgNode);
+  // Asignación de personal
+  app.post('/api/admin/hr/org-chart/nodes/:id/assign', authenticateToken, orgRoles, org.assignPersonToNode);
+  app.delete('/api/admin/hr/org-chart/nodes/:id/assign/:userId', authenticateToken, orgRoles, org.unassignPersonFromNode);
+  // Tareas por puesto (+ checklist)
+  app.get('/api/admin/hr/org-chart/nodes/:id/tasks', authenticateToken, orgRoles, org.getNodeTasks);
+  app.post('/api/admin/hr/org-chart/nodes/:id/tasks', authenticateToken, orgRoles, org.createNodeTask);
+  app.put('/api/admin/hr/org-chart/tasks/:taskId', authenticateToken, orgRoles, org.updateNodeTask);
+  app.delete('/api/admin/hr/org-chart/tasks/:taskId', authenticateToken, orgRoles, org.deleteNodeTask);
+  app.post('/api/admin/hr/org-chart/tasks/:taskId/items', authenticateToken, orgRoles, org.addTaskItem);
+  app.put('/api/admin/hr/org-chart/items/:itemId', authenticateToken, orgRoles, org.updateTaskItem);
+  app.delete('/api/admin/hr/org-chart/items/:itemId', authenticateToken, orgRoles, org.deleteTaskItem);
+}
+
 // ========== MÓDULO DE GESTIÓN DE FLOTILLA ==========
 // Vehículos - Admin
 app.get('/api/admin/fleet/vehicles', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getVehicles);

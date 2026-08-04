@@ -4,6 +4,7 @@ import axios from 'axios';
 import ConfirmDialog from '../components/ConfirmDialog';
 import EmployeeProfilePage from './EmployeeProfilePage';
 import VacationQuintaDialog from '../components/VacationQuintaDialog';
+import OrgChartTab from './OrgChartTab';
 import {
   Box,
   Typography,
@@ -68,6 +69,7 @@ import {
   Delete as DeleteIcon,
   ContentCopy as CopyIcon,
   BeachAccess as BeachAccessIcon,
+  AccountTree as AccountTreeIcon,
 } from '@mui/icons-material';
 
 // Roles disponibles para empleados
@@ -641,6 +643,7 @@ export default function HRManagementPage() {
         <Tab icon={<ClockIcon />} label="Asistencias" iconPosition="start" />
         <Tab icon={<MapIcon />} label="Rastreo en Vivo" iconPosition="start" />
         <Tab icon={<TrendingUpIcon />} label="Estadísticas" iconPosition="start" />
+        <Tab icon={<AccountTreeIcon />} label="Organigrama" iconPosition="start" />
       </Tabs>
 
       {/* TAB 0: Lista de Personal */}
@@ -1111,6 +1114,9 @@ export default function HRManagementPage() {
           </Grid>
         </Grid>
       )}
+
+      {/* TAB 4: Organigrama */}
+      {tab === 4 && <OrgChartTab />}
 
       {/* Diálogo de Expediente */}
       <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} maxWidth="md" fullWidth>
