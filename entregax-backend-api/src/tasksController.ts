@@ -1016,13 +1016,16 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     if (!mgr && Number(task.assignee_id) !== Number(uid) && !isParticipant) {
       return res.status(403).json({ error: 'Solo un involucrado o gerencia puede cerrar la tarea' });
     }
-    // Avisa (push 'task_completed') a los involucrados, excepto quien la cerró.
+    // Avisa (push 'task_completed') a los involucrados, al responsable y a QUIEN
+    // ASIGNÓ la tarea (created_by), excepto a quien la cerró. Así el que la asignó
+    // siempre se entera cuando el responsable la termina.
     const notifyCompleted = async () => {
       try {
         const who = (await pool.query(`SELECT full_name FROM users WHERE id=$1`, [uid])).rows[0]?.full_name || 'Alguien';
         const inv = await pool.query(
           `SELECT user_id FROM task_participants WHERE task_id=$1
-           UNION SELECT assignee_id FROM tasks WHERE id=$1 AND assignee_id IS NOT NULL`, [id]);
+           UNION SELECT assignee_id FROM tasks WHERE id=$1 AND assignee_id IS NOT NULL
+           UNION SELECT created_by FROM tasks WHERE id=$1 AND created_by IS NOT NULL`, [id]);
         const done = new Set<number>();
         for (const row of inv.rows) {
           const p = Number(row.user_id);
