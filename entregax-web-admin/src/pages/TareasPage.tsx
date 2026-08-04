@@ -126,6 +126,17 @@ interface Task {
 }
 interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; }
 
+// Etiqueta legible del tipo de usuario (para agrupar involucrados por grupo,
+// igual que en Mis Tareas).
+const ROLE_LABEL: Record<string, string> = {
+  super_admin: 'Administración', admin: 'Administración', director: 'Dirección', finanzas: 'Finanzas',
+  accountant: 'Contabilidad', abogado: 'Legal', branch_manager: 'Operación CEDIS', operaciones: 'Operaciones',
+  warehouse_ops: 'Bodega', counter_staff: 'Mostrador', customer_service: 'Servicio a cliente',
+  soporte_tecnico: 'Soporte técnico', advisor: 'Asesores', sub_advisor: 'Sub-asesores',
+  repartidor: 'Repartidores', monitoreo: 'Monitoreo',
+};
+const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r : 'Otros');
+
 export default function TareasPage() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -139,6 +150,8 @@ export default function TareasPage() {
   const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '' });
   const [involvedIds, setInvolvedIds] = useState<number[]>([]);
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
+  const [newSubtasks, setNewSubtasks] = useState<string[]>([]); // checklist al crear
+  const [subInput, setSubInput] = useState('');
   const [detailId, setDetailId] = useState<number | null>(null);
   const [newBoardOpen, setNewBoardOpen] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
@@ -191,8 +204,8 @@ export default function TareasPage() {
   useEffect(() => { loadBoards(); }, [loadBoards]);
   useEffect(() => { if (activeId) { loadTasks(activeId); loadAssignees(activeId); setActiveSection(null); } }, [activeId, loadTasks, loadAssignees]);
   useEffect(() => {
-    axios.get(`${API_URL}/admin/users`, H())
-      .then(r => setUsers((Array.isArray(r.data) ? r.data : r.data?.users || []).map((u: any) => ({ id: u.id, full_name: u.full_name, role: u.role }))))
+    axios.get(`${API_URL}/tasks/assignable-users`, H())
+      .then(r => setUsers((Array.isArray(r.data) ? r.data : r.data?.users || []).map((u: any) => ({ id: u.id, full_name: u.full_name, role: u.role, avg_resolution_seconds: u.avg_resolution_seconds }))))
       .catch(() => {});
   }, []);
 
@@ -219,6 +232,7 @@ export default function TareasPage() {
         involved_ids: involvedIds,
         due_at: form.due_at || null, column_id: form.column_id || null,
         section_id: form.section_id || activeSection || null,
+        subtasks: newSubtasks.filter(s => s.trim()).map(body => ({ body: body.trim() })),
       }, H());
       const newId = res.data?.task?.id;
       // Subir fotos adjuntas (si el usuario agregó alguna).
@@ -230,7 +244,7 @@ export default function TareasPage() {
       }
       setCreateOpen(false);
       setForm({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '', section_id: '' });
-      setInvolvedIds([]); setNewPhotos([]);
+      setInvolvedIds([]); setNewPhotos([]); setNewSubtasks([]); setSubInput('');
       notify('Tarea creada');
       refresh();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear', 'error'); }
@@ -528,29 +542,62 @@ export default function TareasPage() {
             <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
               value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
           </Box>
-          {/* Otros responsables (involucrados) */}
+          {/* Involucrados (otros responsables) — buscador agrupado por tipo + chips
+              de grupo, igual que en Mis Tareas. */}
           <Box sx={{ mt: 1.5 }}>
             <Autocomplete
               multiple size="small" disableCloseOnSelect
-              options={[...assignees].filter(u => u.id !== form.assignee_id).sort((a, b) => a.full_name.localeCompare(b.full_name))}
-              value={assignees.filter(u => involvedIds.includes(u.id))}
+              options={[...users].filter(u => u.id !== form.assignee_id)
+                .sort((a, b) => roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name))}
+              value={users.filter(u => u.id !== form.assignee_id && involvedIds.includes(u.id))}
               onChange={(_, val) => setInvolvedIds(val.map(u => u.id))}
+              groupBy={(u) => roleGroup(u.role)}
               getOptionLabel={(u) => u.full_name}
               isOptionEqualToValue={(a, b) => a.id === b.id}
-              renderOption={(props, u) => {
-                const avg = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
-                return (
-                  <li {...props} key={u.id}>
-                    <Checkbox size="small" checked={involvedIds.includes(u.id)} sx={{ mr: 1, p: 0.5 }} />
-                    <Box>
-                      <Typography variant="body2">{u.full_name}</Typography>
-                      <Typography variant="caption" color="text.secondary">⏱ {avg && avg > 0 ? `${fmtDur(avg * 1000)} prom.` : 'sin datos'}</Typography>
-                    </Box>
-                  </li>
-                );
+              filterOptions={(opts, { inputValue }) => {
+                const q = inputValue.trim().toLowerCase();
+                return q ? opts.filter(u => u.full_name.toLowerCase().includes(q) || roleGroup(u.role).toLowerCase().includes(q)) : opts;
               }}
-              renderInput={(params) => <TextField {...params} label="Otros responsables (involucrados)" placeholder="Agrega a más personas…" />}
+              renderOption={(props, u) => (
+                <li {...props} key={u.id}>
+                  <Checkbox size="small" checked={involvedIds.includes(u.id)} sx={{ mr: 1, p: 0.5 }} />
+                  <Typography variant="body2">{u.full_name}</Typography>
+                </li>
+              )}
+              renderInput={(params) => <TextField {...params} label="Involucrados (otros responsables)" placeholder="Buscar por nombre o tipo…" />}
             />
+            {/* Agregar por grupo */}
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 1 }}>
+              <Chip label="👥 Todos los empleados" size="small"
+                onClick={() => setInvolvedIds(Array.from(new Set(users.filter(u => u.id !== form.assignee_id).map(u => u.id))))}
+                sx={{ bgcolor: '#FFF3EC', color: '#D6521C', fontWeight: 700, border: '1px solid #F0B79A' }} />
+              {Array.from(new Set(users.filter(u => u.id !== form.assignee_id).map(u => roleGroup(u.role)))).sort().map(g => (
+                <Chip key={g} label={`+ ${g}`} size="small" variant="outlined"
+                  onClick={() => setInvolvedIds(Array.from(new Set([...involvedIds, ...users.filter(u => u.id !== form.assignee_id && roleGroup(u.role) === g).map(u => u.id)])))}
+                  sx={{ fontWeight: 600, borderColor: '#ddd' }} />
+              ))}
+            </Box>
+          </Box>
+          {/* Checklist (subtareas) al crear — como en Mis Tareas */}
+          <Box sx={{ mt: 2 }}>
+            <Typography sx={{ fontWeight: 700, fontSize: 14, mb: 0.75 }}>☑️ Checklist</Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <TextField fullWidth size="small" placeholder="Agregar punto del checklist…"
+                value={subInput} onChange={e => setSubInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const v = subInput.trim(); if (v) { setNewSubtasks(prev => [...prev, v]); setSubInput(''); } } }} />
+              <Button variant="outlined" onClick={() => { const v = subInput.trim(); if (v) { setNewSubtasks(prev => [...prev, v]); setSubInput(''); } }}
+                sx={{ minWidth: 44 }}>+</Button>
+            </Box>
+            {newSubtasks.length > 0 && (
+              <Box sx={{ mt: 1 }}>
+                {newSubtasks.map((s, i) => (
+                  <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
+                    <Typography variant="body2" sx={{ flex: 1 }}>• {s}</Typography>
+                    <IconButton size="small" onClick={() => setNewSubtasks(prev => prev.filter((_, k) => k !== i))}><CloseIcon sx={{ fontSize: 16 }} /></IconButton>
+                  </Box>
+                ))}
+              </Box>
+            )}
           </Box>
           {/* Archivos adjuntos (fotos, PDF, Excel…) */}
           <Box sx={{ mt: 2 }}>
@@ -583,7 +630,7 @@ export default function TareasPage() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setCreateOpen(false); setNewPhotos([]); }}>Cancelar</Button>
+          <Button onClick={() => { setCreateOpen(false); setNewPhotos([]); setNewSubtasks([]); setSubInput(''); }}>Cancelar</Button>
           <Button variant="contained" onClick={createTask} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Crear</Button>
         </DialogActions>
       </Dialog>
