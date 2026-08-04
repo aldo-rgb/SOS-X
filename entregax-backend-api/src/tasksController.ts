@@ -1051,6 +1051,31 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
   }
 };
 
+// ─── TAREAS: REABRIR (regresar una tarea completada a pendiente) ──
+export const reopenTask = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const uid = authUserId(req);
+    const id = parseInt(String(req.params.id));
+    const cur = await pool.query(`SELECT * FROM tasks WHERE id = $1`, [id]);
+    if (cur.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
+    const task = cur.rows[0];
+    const mgr = await canManageBoard(req, task.board_id);
+    const isParticipant = (await pool.query(`SELECT 1 FROM task_participants WHERE task_id=$1 AND user_id=$2`, [id, uid])).rows.length > 0;
+    if (!mgr && Number(task.assignee_id) !== Number(uid) && !isParticipant) {
+      return res.status(403).json({ error: 'Solo un involucrado o gerencia puede reabrir la tarea' });
+    }
+    if (task.status !== 'completed') return res.json({ success: true, already_open: true });
+    // Mover a la primera columna NO terminal del tablero y limpiar el cierre.
+    const openCol = (await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 AND COALESCE(is_done,false)=false ORDER BY sort_order LIMIT 1`, [task.board_id])).rows[0]?.id || null;
+    const colSet = openCol ? `column_id=${Number(openCol)},` : '';
+    await pool.query(`UPDATE tasks SET status='open', completed_at=NULL, ${colSet} updated_at=NOW() WHERE id=$1`, [id]);
+    await logActivity(id, uid, 'reopened', {});
+    res.json({ success: true });
+  } catch (e: any) {
+    console.error('[tasks] reopenTask:', e); res.status(500).json({ error: 'Error al reabrir la tarea' });
+  }
+};
+
 // ─── TAREAS: poner EN PROCESO (marca inicio + fecha compromiso) ──
 // Guarda started_at (inicio real) y commitment_date (compromiso de término,
 // por defecto la fecha deseada). Mueve a la columna "En proceso" si existe.

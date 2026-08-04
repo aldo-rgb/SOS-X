@@ -13623,6 +13623,7 @@ import {
   createTask as tasksCreate,
   updateTask as tasksUpdate,
   completeTask as tasksComplete,
+  reopenTask as tasksReopen,
   deleteTask as tasksDelete,
   addSubtask as tasksAddSubtask,
   toggleSubtask as tasksToggleSubtask,
@@ -13672,6 +13673,7 @@ app.post('/api/tasks', authenticateToken, tasksCreate);
 app.get('/api/tasks/:id', authenticateToken, tasksGet);
 app.put('/api/tasks/:id', authenticateToken, tasksUpdate);
 app.post('/api/tasks/:id/complete', authenticateToken, tasksComplete);
+app.post('/api/tasks/:id/reopen', authenticateToken, tasksReopen);
 app.post('/api/tasks/:id/start', authenticateToken, tasksStart);
 app.post('/api/tasks/schedules', authenticateToken, tasksCreateSchedule);
 app.get('/api/tasks/schedules', authenticateToken, tasksListSchedules);

@@ -782,6 +782,14 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
       onChanged(); onClose();
     } catch { /* */ } finally { setBusy(false); }
   };
+  const reopen = async () => {
+    setBusy(true);
+    try {
+      const r = await post(`${API_URL}/api/tasks/${taskId}/reopen`, {});
+      if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo reabrir', e.error || ''); setBusy(false); return; }
+      onChanged(); reload(true);
+    } catch { /* */ } finally { setBusy(false); }
+  };
   const addComment = async () => {
     if (!comment.trim()) return;
     try { await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim() }); setComment(''); reload(true); } catch { /* */ }
@@ -1067,6 +1075,16 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 {busy ? <ActivityIndicator color="#fff" /> : <>
                   <Ionicons name={pending > 0 ? 'lock-closed' : 'checkmark-circle'} size={18} color="#fff" />
                   <Text style={styles.completeTxt}>{pending > 0 ? `Completa el checklist (${pending})` : 'Completar'}</Text>
+                </>}
+              </TouchableOpacity>
+            </View>
+          )}
+          {t && t.status === 'completed' && (
+            <View style={styles.modalFoot}>
+              <TouchableOpacity style={[styles.completeBtn, { backgroundColor: '#B07206' }]} onPress={reopen} disabled={busy}>
+                {busy ? <ActivityIndicator color="#fff" /> : <>
+                  <Ionicons name="refresh" size={18} color="#fff" />
+                  <Text style={styles.completeTxt}>Reabrir (regresar a pendientes)</Text>
                 </>}
               </TouchableOpacity>
             </View>
