@@ -1777,7 +1777,7 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
         await createCustomNotification(saId, `🐛 Error reportado · ${folio}`, `${title}. Revísalo en Mis Tareas.`, 'task', 'checkbox', { task_id: taskId, ticket_id: ticketId }, '/tareas');
       }
       const { sendPushToUsers, filterRecipientsForPush } = await import('./pushService');
-      // Super admins reciben siempre (24/7); el filtro los deja pasar aunque sea fin de semana o fuera de horario.
+      // Push topado a horario laboral (super_admin no está en la lista 24/7). El in-app ya quedó creado arriba.
       const pushIds = await filterRecipientsForPush(superAdminIds, true);
       if (pushIds.length) {
         await sendPushToUsers(pushIds, { title: `🐛 Error reportado · ${folio}`, body: `${title}. Revísalo en Mis Tareas.`, data: { screen: 'MyTasks', task_id: String(taskId) } });

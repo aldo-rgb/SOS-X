@@ -20,8 +20,9 @@ export function isMxWorkHours(d: Date = new Date()): boolean {
 }
 
 // Roles que reciben push SIEMPRE, sin restricción de horario laboral ni fines de
-// semana (dirección / administración necesita enterarse en el momento).
-export const ALWAYS_NOTIFY_ROLES = ['admin', 'super_admin'];
+// semana. Solo el rol 'admin' (administración) necesita enterarse en el momento;
+// super_admin y los demás roles quedan topados a horario laboral.
+export const ALWAYS_NOTIFY_ROLES = ['admin'];
 
 // Dado un conjunto de destinatarios y si la notificación está topada a horario
 // laboral, devuelve SOLO los que deben recibir push AHORA:
