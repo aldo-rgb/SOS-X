@@ -4,12 +4,13 @@ import {
   Box, Typography, Paper, IconButton, Button, Chip, Avatar, AvatarGroup, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, CircularProgress,
   Menu, MenuItem, ListItemIcon, ListItemText, Divider, Autocomplete, Checkbox,
-  Snackbar, Alert, Stack,
+  Snackbar, Alert, Stack, Collapse,
 } from '@mui/material';
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, MoreVert as MoreVertIcon,
   PersonAdd as PersonAddIcon, Assignment as TaskIcon, Groups as GroupsIcon,
   AccountTree as AccountTreeIcon, Close as CloseIcon, PlaylistAddCheck as ChecklistIcon,
+  Print as PrintIcon, PersonOff as PersonOffIcon, ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 
 const ORANGE = '#F05A28';
@@ -67,6 +68,7 @@ export default function OrgChartTab() {
   const [assignNode, setAssignNode] = useState<OrgNode | null>(null);
   const [tasksNode, setTasksNode] = useState<OrgNode | null>(null);
   const [confirmDel, setConfirmDel] = useState<OrgNode | null>(null);
+  const [showUnassigned, setShowUnassigned] = useState(false);
 
   const loadChart = useCallback(async () => {
     setLoading(true);
@@ -100,6 +102,72 @@ export default function OrgChartTab() {
   }, [nodes]);
 
   const departments = childrenOf['root'] || [];
+
+  // Personal sin asignar a ningún puesto
+  const unassigned = useMemo(() => {
+    const assigned = new Set<number>();
+    for (const n of nodes) for (const a of n.assignees) assigned.add(a.user_id);
+    return employees.filter(e => !assigned.has(e.id)).sort((a, b) => a.full_name.localeCompare(b.full_name));
+  }, [nodes, employees]);
+
+  // ---- Exportar / imprimir (documento limpio en ventana nueva) ----
+  const printChart = () => {
+    const esc = (s: string) => (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
+    const renderList = (parentId: number | null, level: number): string => {
+      const kids = (childrenOf[parentId === null ? 'root' : String(parentId)] || []);
+      if (!kids.length) return '';
+      return `<ul class="lvl${level}">` + kids.map(n => {
+        const people = n.assignees.length
+          ? `<span class="people">${n.assignees.map(a => esc(a.full_name)).join(' · ')}</span>`
+          : `<span class="none">Sin asignar</span>`;
+        return `<li>
+          <div class="node ${n.node_type}">
+            <div class="title">${esc(n.title)} ${people}</div>
+            ${n.description ? `<div class="desc">${esc(n.description)}</div>` : ''}
+          </div>
+          ${renderList(n.id, level + 1)}
+        </li>`;
+      }).join('') + `</ul>`;
+    };
+    const body = departments.map(d => `
+      <section class="dept">
+        <h2>${esc(d.title)}</h2>
+        ${d.description ? `<p class="mission">${esc(d.description)}</p>` : ''}
+        ${renderList(d.id, 1)}
+      </section>`).join('');
+    const unassignedHtml = unassigned.length
+      ? `<section class="dept unassigned"><h2>Personal sin asignar</h2><p>${unassigned.map(u => esc(u.full_name)).join(' · ')}</p></section>`
+      : '';
+    const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Organigrama EntregaX</title>
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1a1a1a; margin: 32px; }
+        h1 { color: #F05A28; margin: 0 0 4px; }
+        .sub { color: #666; margin: 0 0 24px; font-size: 13px; }
+        section.dept { break-inside: avoid; margin-bottom: 22px; border: 1px solid #eee; border-radius: 8px; padding: 14px 18px; }
+        section.dept h2 { color: #F05A28; text-transform: uppercase; letter-spacing: .3px; font-size: 15px; margin: 0 0 4px; }
+        .mission { color: #555; font-size: 12.5px; margin: 0 0 10px; }
+        ul { list-style: none; margin: 0; padding-left: 18px; border-left: 2px solid #e5e5e5; }
+        ul.lvl1 { padding-left: 0; border-left: none; }
+        li { margin: 8px 0; }
+        .node { border-left: 4px solid #F05A28; padding: 4px 10px; background: #fafafa; border-radius: 4px; }
+        .title { font-weight: 700; font-size: 13.5px; }
+        .people { font-weight: 500; color: #0a7d33; font-size: 12px; }
+        .none { font-weight: 400; color: #999; font-style: italic; font-size: 11.5px; }
+        .desc { color: #555; font-size: 12px; margin-top: 2px; }
+        .unassigned h2 { color: #b26a00; } .unassigned { background: #fff8ec; }
+        @media print { body { margin: 12px; } }
+      </style></head><body>
+      <h1>Organigrama · EntregaX</h1>
+      <p class="sub">Estructura Organizacional y Descriptivo de Puestos — generado ${new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+      ${body}${unassignedHtml}
+      <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };<\/script>
+      </body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { notify('Permite las ventanas emergentes para imprimir', 'info'); return; }
+    w.document.write(html);
+    w.document.close();
+  };
 
   // ---- Acciones nodo ----
   const openMenu = (e: React.MouseEvent<HTMLElement>, node: OrgNode) => { setMenuAnchor(e.currentTarget); setMenuNode(node); };
@@ -222,12 +290,45 @@ export default function OrgChartTab() {
               interno y no se conectan con el módulo Tareas.
             </Typography>
           </Box>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => openCreateChild(null, true)}
-            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d64d1e' }, whiteSpace: 'nowrap' }}>
-            Nuevo Departamento
-          </Button>
+          <Stack spacing={1} sx={{ flexShrink: 0 }}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => openCreateChild(null, true)}
+              sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d64d1e' }, whiteSpace: 'nowrap' }}>
+              Nuevo Departamento
+            </Button>
+            <Button variant="outlined" startIcon={<PrintIcon />} onClick={printChart}
+              sx={{ color: ORANGE, borderColor: ORANGE, whiteSpace: 'nowrap', '&:hover': { borderColor: '#d64d1e', bgcolor: '#fff3ee' } }}>
+              Imprimir / Exportar
+            </Button>
+          </Stack>
         </Stack>
       </Paper>
+
+      {/* Panel: personal sin asignar */}
+      {!loading && (
+        <Paper variant="outlined" sx={{ mb: 2, borderRadius: 2, borderColor: unassigned.length ? '#f0c078' : undefined, bgcolor: unassigned.length ? '#fff8ec' : undefined }}>
+          <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1, cursor: unassigned.length ? 'pointer' : 'default' }}
+            onClick={() => unassigned.length && setShowUnassigned(v => !v)}>
+            <PersonOffIcon sx={{ color: unassigned.length ? '#b26a00' : 'text.disabled' }} />
+            <Typography sx={{ fontWeight: 600, flex: 1, fontSize: 14 }}>
+              {unassigned.length === 0
+                ? 'Todo el personal está asignado a un puesto ✓'
+                : `${unassigned.length} ${unassigned.length === 1 ? 'persona sin asignar' : 'personas sin asignar'} a ningún puesto`}
+            </Typography>
+            {unassigned.length > 0 && (
+              <ExpandMoreIcon sx={{ transform: showUnassigned ? 'rotate(180deg)' : 'none', transition: '.2s' }} />
+            )}
+          </Box>
+          <Collapse in={showUnassigned && unassigned.length > 0}>
+            <Divider />
+            <Box sx={{ p: 1.5, display: 'flex', flexWrap: 'wrap', gap: 0.8 }}>
+              {unassigned.map(u => (
+                <Chip key={u.id} size="small" avatar={<Avatar src={u.profile_photo_url || undefined} sx={{ bgcolor: ORANGE }}>{initials(u.full_name)}</Avatar>}
+                  label={`${u.full_name} · ${roleLabel(u.role)}`} variant="outlined" />
+              ))}
+            </Box>
+          </Collapse>
+        </Paper>
+      )}
 
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress sx={{ color: ORANGE }} /></Box>
