@@ -9,10 +9,11 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box, Paper, Typography, Tabs, Tab, TextField, MenuItem, Chip,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  CircularProgress, Alert, InputAdornment, Stack,
+  CircularProgress, Alert, InputAdornment, Stack, IconButton, Tooltip,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -264,6 +265,7 @@ export default function PaymentOrdersHistoryPage() {
                   <TableCell>Status</TableCell>
                   <TableCell>Pagado</TableCell>
                   <TableCell>Origen</TableCell>
+                  <TableCell align="center">PDF</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -306,6 +308,16 @@ export default function PaymentOrdersHistoryPage() {
                         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
                           {r.source}
                         </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        {(r.reference || r.folio) ? (
+                          <Tooltip title="Descargar orden en PDF (si se generó)">
+                            <IconButton size="small" sx={{ color: '#C62828' }}
+                              onClick={() => window.open(`${API_URL}/api/ctz/${encodeURIComponent(String(r.reference || r.folio))}`, '_blank')}>
+                              <PictureAsPdfIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        ) : <Typography variant="caption" color="text.disabled">—</Typography>}
                       </TableCell>
                     </TableRow>
                   );
