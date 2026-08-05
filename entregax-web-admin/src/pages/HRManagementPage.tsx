@@ -242,12 +242,14 @@ export default function HRManagementPage() {
     fullName: '',
     email: '',
     phone: '',
-    role: 'repartidor'
+    role: 'repartidor',
+    branchId: '' as string,
   });
-  
+  const [branchesList, setBranchesList] = useState<Array<{ id: number; name: string }>>([]);
+
   // Estado para mostrar contraseña temporal
   const [showTempPassword, setShowTempPassword] = useState(false);
-  const [tempPasswordInfo, setTempPasswordInfo] = useState<{ name: string; password: string } | null>(null);
+  const [tempPasswordInfo, setTempPasswordInfo] = useState<{ name: string; email: string; password: string } | null>(null);
   const [searchEmployee, setSearchEmployee] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [filterIncompleto, setFilterIncompleto] = useState(false);
@@ -344,7 +346,8 @@ export default function HRManagementPage() {
       fullName: '',
       email: '',
       phone: '',
-      role: 'repartidor'
+      role: 'repartidor',
+      branchId: '',
     });
     setCreateDialogOpen(true);
   };
@@ -357,7 +360,8 @@ export default function HRManagementPage() {
       fullName: employee.full_name,
       email: employee.email,
       phone: employee.phone || '',
-      role: employee.role
+      role: employee.role,
+      branchId: employee.branch_id ? String(employee.branch_id) : '',
     });
     setCreateDialogOpen(true);
   };
@@ -386,9 +390,10 @@ export default function HRManagementPage() {
           newEmployee,
           { headers: { Authorization: `Bearer ${getToken()}` } }
         );
-        // Mostrar contraseña temporal
+        // Mostrar credenciales (usuario + contraseña) para compartir.
         setTempPasswordInfo({
           name: response.data.employee.fullName,
+          email: response.data.employee.email || newEmployee.email,
           password: response.data.employee.tempPassword
         });
         setShowTempPassword(true);
@@ -477,6 +482,13 @@ export default function HRManagementPage() {
       setSnackbar({ open: true, message: msg, severity: 'error' });
     }
   };
+
+  // Sucursales (para el selector al crear empleado).
+  useEffect(() => {
+    axios.get(`${API_URL}/api/admin/branches`, { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then(r => setBranchesList((Array.isArray(r.data) ? r.data : r.data?.branches || []).map((b: any) => ({ id: b.id, name: b.name }))))
+      .catch(() => {});
+  }, []);
 
   // Carga inicial
   useEffect(() => {
@@ -1544,11 +1556,26 @@ export default function HRManagementPage() {
                 </Select>
               </FormControl>
             </Grid>
+            <Grid size={12}>
+              <FormControl fullWidth>
+                <InputLabel>Sucursal</InputLabel>
+                <Select
+                  value={newEmployee.branchId}
+                  label="Sucursal"
+                  onChange={(e) => setNewEmployee({ ...newEmployee, branchId: String(e.target.value) })}
+                >
+                  <MenuItem value="">Sin sucursal</MenuItem>
+                  {branchesList.map((b) => (
+                    <MenuItem key={b.id} value={String(b.id)}>{b.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
           </Grid>
-          
+
           {!editMode && (
             <Alert severity="info" sx={{ mt: 2 }}>
-              Se generará una contraseña temporal. El empleado completará sus datos personales (contacto de emergencia, tallas de uniforme) cuando inicie sesión en la app móvil.
+              La contraseña por defecto es <b>Entregax123.4</b>. El empleado completará sus datos personales (contacto de emergencia, tallas de uniforme) cuando inicie sesión en la app móvil.
             </Alert>
           )}
         </DialogContent>
@@ -1572,47 +1599,39 @@ export default function HRManagementPage() {
         <DialogTitle sx={{ bgcolor: '#4CAF50', color: 'white' }}>
           ✅ Empleado Creado
         </DialogTitle>
-        <DialogContent sx={{ textAlign: 'center', py: 3 }}>
-          <Typography variant="body1" gutterBottom>
+        <DialogContent sx={{ py: 3 }}>
+          <Typography variant="body1" gutterBottom sx={{ textAlign: 'center' }}>
             <strong>{tempPasswordInfo?.name}</strong> ha sido dado de alta.
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Contraseña temporal:
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, textAlign: 'center' }}>
+            Comparte sus credenciales de acceso:
           </Typography>
-          <Paper 
-            variant="outlined" 
-            sx={{ 
-              p: 2, 
-              bgcolor: '#f5f5f5', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              gap: 1
-            }}
-          >
-            <Typography variant="h5" fontFamily="monospace" fontWeight="bold">
-              {tempPasswordInfo?.password}
-            </Typography>
-            <IconButton 
-              size="small" 
-              onClick={() => copyToClipboard(tempPasswordInfo?.password || '')}
-              sx={{ ml: 1 }}
-            >
-              <CopyIcon />
-            </IconButton>
+          <Paper variant="outlined" sx={{ p: 2, bgcolor: '#f7f7f9' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">Usuario</Typography>
+              <Typography fontFamily="monospace" fontWeight="bold">{tempPasswordInfo?.email}</Typography>
+            </Box>
+            <Divider sx={{ my: 1 }} />
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="body2" color="text.secondary">Contraseña</Typography>
+              <Typography fontFamily="monospace" fontWeight="bold">{tempPasswordInfo?.password}</Typography>
+            </Box>
           </Paper>
-          <Alert severity="warning" sx={{ mt: 2, textAlign: 'left' }}>
-            El empleado deberá cambiar esta contraseña en su primer inicio de sesión.
+          <Button
+            fullWidth
+            variant="contained"
+            startIcon={<CopyIcon />}
+            onClick={() => copyToClipboard(`User: ${tempPasswordInfo?.email || ''}\nPass: ${tempPasswordInfo?.password || ''}`)}
+            sx={{ mt: 2, bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}
+          >
+            Compartir usuario (copiar)
+          </Button>
+          <Alert severity="info" sx={{ mt: 2, textAlign: 'left' }}>
+            Se copia al portapapeles como <b>User / Pass</b>, listo para pegar en WhatsApp o correo.
           </Alert>
         </DialogContent>
         <DialogActions>
-          <Button 
-            variant="contained" 
-            onClick={() => setShowTempPassword(false)}
-            fullWidth
-          >
-            Entendido
-          </Button>
+          <Button onClick={() => setShowTempPassword(false)} fullWidth>Entendido</Button>
         </DialogActions>
       </Dialog>
 

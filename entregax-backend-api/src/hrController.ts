@@ -1000,7 +1000,7 @@ export const createWorkLocation = async (req: Request, res: Response): Promise<v
 import bcrypt from 'bcrypt';
 
 // Contraseña por defecto para nuevos empleados
-const DEFAULT_PASSWORD = 'Entregax123';
+const DEFAULT_PASSWORD = 'Entregax123.4';
 
 // Generar número de empleado consecutivo
 async function generateEmployeeNumber(): Promise<string> {
@@ -1015,15 +1015,17 @@ async function generateEmployeeNumber(): Promise<string> {
 
 export const createEmployee = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { 
-      fullName, 
-      email, 
-      phone, 
-      role, 
+    const {
+      fullName,
+      email,
+      phone,
+      role,
       emergencyContact,
       pantsSize,
-      shirtSize
+      shirtSize,
+      branchId
     } = req.body;
+    const branch = branchId ? parseInt(String(branchId), 10) : null;
 
     // Validaciones
     if (!fullName || !email || !role) {
@@ -1057,22 +1059,23 @@ export const createEmployee = async (req: Request, res: Response): Promise<void>
     // Crear el empleado
     const result = await pool.query(`
       INSERT INTO users (
-        full_name, 
-        email, 
-        password, 
-        phone, 
+        full_name,
+        email,
+        password,
+        phone,
         role,
         box_id,
         employee_number,
         emergency_contact,
         pants_size,
         shirt_size,
+        branch_id,
         must_change_password,
         hire_date,
         is_employee_onboarded
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, CURRENT_DATE, FALSE)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, CURRENT_DATE, FALSE)
       RETURNING id, full_name, email, phone, role, employee_number, hire_date
-    `, [fullName, email, hashedPassword, phone, role, boxId, employeeNumber, emergencyContact, pantsSize, shirtSize]);
+    `, [fullName, email, hashedPassword, phone, role, boxId, employeeNumber, emergencyContact, pantsSize, shirtSize, branch]);
 
     const newEmployee = result.rows[0];
 
@@ -1087,7 +1090,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<void>
         role: newEmployee.role,
         employeeNumber: newEmployee.employee_number,
         hireDate: newEmployee.hire_date,
-        tempPassword: 'Entregax123' // Se mostrará una sola vez
+        tempPassword: DEFAULT_PASSWORD // Contraseña por defecto para nuevos empleados
       }
     });
   } catch (error) {
@@ -1109,8 +1112,12 @@ export const updateEmployee = async (req: Request, res: Response): Promise<void>
       emergencyContact,
       hireDate,
       pantsSize,
-      shirtSize
+      shirtSize,
+      branchId
     } = req.body;
+    // branch_id: solo se actualiza si el campo viene en el body. '' → NULL (sin sucursal).
+    const branchProvided = Object.prototype.hasOwnProperty.call(req.body, 'branchId');
+    const branch = branchId ? parseInt(String(branchId), 10) : null;
 
     // Validar rol permitido
     const allowedRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'soporte_tecnico', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'abogado', 'operaciones', 'director'];
@@ -1127,10 +1134,11 @@ export const updateEmployee = async (req: Request, res: Response): Promise<void>
         emergency_contact = COALESCE($4, emergency_contact),
         hire_date = COALESCE($5, hire_date),
         pants_size = COALESCE($6, pants_size),
-        shirt_size = COALESCE($7, shirt_size)
+        shirt_size = COALESCE($7, shirt_size),
+        branch_id = CASE WHEN $9::boolean THEN $10::int ELSE branch_id END
       WHERE id = $8
       RETURNING id, full_name, email, phone, role, employee_number, hire_date, emergency_contact
-    `, [fullName, phone, role, emergencyContact || null, hireDate || null, pantsSize, shirtSize, id]);
+    `, [fullName, phone, role, emergencyContact || null, hireDate || null, pantsSize, shirtSize, id, branchProvided, branch]);
 
     if (result.rows.length === 0) {
       res.status(404).json({ error: 'Empleado no encontrado' });
