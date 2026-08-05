@@ -257,12 +257,13 @@
 
   <!-- ============ METAS ============ -->
   <section class="card hide" id="tab-metas">
-    <div class="hdr"><h3>Metas para el acelerador</h3><span class="section-note">solo servicios acelerados (Aéreo/TDI/Marítimo) · meta = <b id="metaPctLbl">75</b>% de sus ventas aceleradas · para el 1.5× hay que superar el <b id="thrLbl">120</b>% de la meta</span></div>
-    <div class="bd tblwrap">
-      <table>
-        <thead><tr><th>Asesor <span style="font-weight:400;color:#8a7f72">· meta por servicio (histórico)</span></th><th class="num">Ventas aceleradas</th><th class="num">Meta</th><th class="num">Vender este mes p/ acelerador</th><th class="num">Falta</th></tr></thead>
-        <tbody id="metasBody"></tbody>
-      </table>
+    <div class="hdr"><h3>🎯 Plan del asesor · qué hacer para cada bono y acelerador</h3><span class="section-note">Elige un asesor: verás, paso a paso y en claro, todo lo que le falta este mes.</span></div>
+    <div class="bd">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <label style="font-weight:800;font-size:13px;color:#6b5f52">Asesor:</label>
+        <select id="metaSel" style="padding:9px 12px;border:1px solid #e4d9c9;border-radius:8px;font-size:14px;font-weight:700;background:#fff;min-width:240px;cursor:pointer"></select>
+      </div>
+      <div id="metaPlan"></div>
     </div>
   </section>
 
@@ -421,7 +422,7 @@
     const penN2 = m.penN2 || 0;
     const propuesto = afterCap - penN2;
 
-    return { rows, totalVentas, ventasAccel, baseReal, base, accel, attain, meta, volBonus, poboxDhlGuias,
+    return { rows, totalVentas, totalGuias, ventasAccel, baseReal, base, accel, attain, meta, volBonus, poboxDhlGuias,
              gexBonus, attach, gexGuias, xpayOps, comboBonus, cleanBonus, subtotal, okXpay, okSeg, capPct, capCut, penN2, propuesto };
   }
 
@@ -508,45 +509,141 @@
     el("advCount").textContent = DATA.length;
   }
 
-  // ── Metas para el acelerador ──
+  // ── Plan del asesor (metas como tareas, "for dummies") ──
+  const metaSel = el("metaSel");
+  function buildMetaOptions(){ metaSel.innerHTML=""; DATA.forEach((a,i)=>{const o=document.createElement("option");o.value=i;o.textContent=a.name;metaSel.appendChild(o);}); }
+  buildMetaOptions();
+
+  // Tarjeta de "tarea" del plan.
+  function planTask({icon, title, done, lines, bonus, tip, na}) {
+    const color = na ? '#8a8a8a' : (done ? '#2E7D46' : '#D6521C');
+    const bg = na ? '#F7F5F1' : (done ? '#F3F9F4' : '#FDFBF8');
+    const badge = na ? '<span style="font-size:11px;font-weight:700;color:#8a8a8a">—</span>'
+      : (done ? '<span style="font-size:11px;font-weight:800;color:#2E7D46;background:#E4F1E8;padding:2px 8px;border-radius:10px">✓ LOGRADO</span>'
+              : '<span style="font-size:11px;font-weight:800;color:#C1502E;background:#FDECE4;padding:2px 8px;border-radius:10px">⬜ FALTA</span>');
+    return `<div style="border:1px solid #ecdfce;border-left:4px solid ${color};border-radius:10px;padding:12px 14px;margin-bottom:10px;background:${bg}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="font-weight:800;font-size:14px;color:#3a332c">${icon} ${title}</div>
+        <div style="display:flex;gap:8px;align-items:center">${bonus?`<span style="font-size:12px;font-weight:800;color:#2E7D46">${bonus}</span>`:''}${badge}</div>
+      </div>
+      <div style="font-size:12.5px;color:#5b5147;margin-top:6px;line-height:1.6">${lines.join('<br>')}</div>
+      ${tip?`<div style="font-size:11.5px;color:#8a7f72;margin-top:5px">💡 ${tip}</div>`:''}
+    </div>`;
+  }
+
   function renderMetas() {
     const p = getParams();
-    el("metaPctLbl").textContent = p.metaPct;
-    el("thrLbl").textContent = (p.thr*100).toFixed(0);
-    const tb = el("metasBody"); tb.innerHTML="";
-    const list = DATA.map(a => ({ a, r: compute(a, p, null) }))
-      .filter(x => x.r.ventasAccel > 0)
-      .sort((x,y) => y.r.ventasAccel - x.r.ventasAccel);
-    if (list.length === 0) {
-      tb.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#999;padding:16px">Ningún asesor tiene ventas en servicios acelerados (Aéreo / TDI / Marítimo).</td></tr>`;
-      return;
-    }
-    list.forEach(({a, r}) => {
-      const umbral = p.thr * r.meta;          // ventas aceleradas necesarias para el 1.5×
-      const falta = umbral - r.ventasAccel;   // cuánto más vender este mes
-      const parts = [];
-      for (const k of SVC_ORDER) {
-        const s = SERVICES[k]; const v = a.servicios[k];
-        if (!v || !s.accel) continue;
-        const tgt = r.ventasAccel > 0 ? umbral * (v.ventas / r.ventasAccel) : 0;
-        parts.push(`${s.icon} ${s.label}: ${fmt0(tgt)}`);
+    if (metaSel.options.length !== DATA.length) buildMetaOptions();
+    const idx = Math.min(parseInt(metaSel.value||"0",10)||0, DATA.length-1);
+    const a = DATA[idx];
+    const box = el("metaPlan");
+    if (!a) { box.innerHTML = `<div style="color:#999;padding:16px;text-align:center">Sin datos de asesores.</div>`; return; }
+    const r = compute(a, p, null);
+    const cards = [];
+
+    // 1) ACELERADOR 1.5× (Aéreo/TDI/Marítimo)
+    {
+      const svc = ["aereo_china_mx","tdi_express","maritimo_china_mx"].map(k=>{
+        const v=a.servicios[k]; const s=SERVICES[k];
+        return `${s.icon} ${s.label}: <b>${fmt0(v?v.ventas:0)}</b>`;
+      }).join(" &nbsp;·&nbsp; ");
+      const umbral = r.meta>0 ? p.thr*r.meta : 0;
+      const done = r.ventasAccel>0 && r.ventasAccel > umbral;
+      const gap = Math.max(0, umbral - r.ventasAccel);
+      const lines = [];
+      if (r.ventasAccel<=0) {
+        lines.push(`Aún <b>no tiene ventas</b> en servicios acelerados.`);
+        lines.push(`Desglose: ${svc}`);
+        lines.push(`👉 Empieza a vender <b>Aéreo / TDI / Marítimo</b> para activar el acelerador.`);
+      } else {
+        lines.push(`Hoy lleva <b>${fmt0(r.ventasAccel)}</b> en acelerados &nbsp;(${svc})`);
+        lines.push(`Meta del mes: <b>${fmt0(r.meta)}</b> · para el <b>1.5×</b> hay que superar <b>${fmt0(umbral)}</b>.`);
+        lines.push(done ? `✅ Ya supera la meta → el excedente paga <b>1.5×</b>.` : `👉 Le faltan <b>${fmt0(gap)}</b> en ventas aceleradas este mes.`);
       }
-      const estado = falta <= 0 ? `<span class="v pos">✓ logrado</span>` : `<span class="v neg">${fmt0(falta)}</span>`;
-      tb.insertAdjacentHTML("beforeend",
-        `<tr>
-          <td><div style="font-weight:600">${a.name}</div><div style="font-size:11px;color:#8a7f72">${parts.join(" · ") || "—"}</div></td>
-          <td class="num">${fmt0(r.ventasAccel)}</td>
-          <td class="num">${fmt0(r.meta)}</td>
-          <td class="num" style="font-weight:700">${fmt0(umbral)}</td>
-          <td class="num">${estado}</td>
-        </tr>`);
-    });
+      cards.push(planTask({icon:"🚀", title:"Acelerador 1.5× (Aéreo / TDI / Marítimo)", done, lines, bonus: done?"1.5× excedente":"", tip:"Solo Aéreo, TDI y Marítimo cuentan para el acelerador."}));
+    }
+
+    // 2) BONO DE VOLUMEN (PO Box + DHL guías)
+    {
+      const g = r.poboxDhlGuias;
+      let curB=0, curG=0; for (const st of p.vol) { if (g>=st.g){curB=st.b;curG=st.g;break;} }
+      const asc=[...p.vol].sort((x,y)=>x.g-y.g); let nx=null; for (const st of asc){ if (g<st.g){nx=st;break;} }
+      const done = curB>0;
+      const lines=[`Lleva <b>${g} guías</b> de PO Box + DHL. Bono actual: <b>${fmt0(curB)}</b>.`];
+      if (nx) lines.push(`👉 Para el bono de <b>${fmt0(nx.b)}</b> necesita <b>${nx.g} guías</b> → le faltan <b>${nx.g-g} guías</b>.`);
+      else lines.push(`🏆 Ya está en el <b>escalón máximo</b> de volumen.`);
+      const tiers = asc.map(st=>`${st.g}g→${fmt0(st.b)}`).join(" · ");
+      cards.push(planTask({icon:"📦", title:"Bono de volumen (PO Box + DHL)", done, lines, bonus: curB>0?fmt0(curB):"", tip:`Escalones: ${tiers}`}));
+    }
+
+    // 3) ATTACH GEX (%)
+    {
+      const attach=r.attach, totalG=r.totalGuias, gexG=r.gexGuias;
+      const needFor=(t)=> attach>=t?0:Math.max(0, Math.ceil((t*totalG - gexG)/(1-t)));
+      const done = attach>=p.gexT1;
+      const lines=[`Attach GEX actual: <b>${(attach*100).toFixed(1)}%</b> &nbsp;(${gexG} GEX de ${totalG} guías). Bono actual: <b>${fmt0(r.gexBonus)}</b>.`];
+      if (attach>=p.gexT2) lines.push(`🏆 Ya está en el <b>máximo (≥${(p.gexT2*100).toFixed(0)}%)</b>.`);
+      else if (attach>=p.gexT1) lines.push(`👉 Para <b>${fmt0(p.gexB2)}</b> necesita <b>≥${(p.gexT2*100).toFixed(0)}%</b> → vender <b>${needFor(p.gexT2)} GEX más</b>.`);
+      else lines.push(`👉 Para <b>${fmt0(p.gexB1)}</b> necesita <b>≥${(p.gexT1*100).toFixed(0)}%</b> → vender <b>${needFor(p.gexT1)} GEX más</b>.`);
+      cards.push(planTask({icon:"🛡️", title:"Attach GEX (seguros por envío)", done, lines, bonus: r.gexBonus>0?fmt0(r.gexBonus):"", tip:`% = pólizas GEX ÷ total de guías. Umbrales: ≥${(p.gexT1*100).toFixed(0)}%→${fmt0(p.gexB1)} · ≥${(p.gexT2*100).toFixed(0)}%→${fmt0(p.gexB2)}`}));
+    }
+
+    // 4) CUOTA X-PAY (gate)
+    {
+      const need=Math.max(0,p.qXpay-r.xpayOps); const done=need===0;
+      const lines=[`Lleva <b>${r.xpayOps}</b> operación(es) X-Pay. Cuota del mes: <b>${p.qXpay}</b>.`,
+        done?`✅ Cuota X-Pay cumplida.`:`👉 Le faltan <b>${need}</b> operación(es) X-Pay.`];
+      cards.push(planTask({icon:"💱", title:"Cuota X-Pay (venta cruzada)", done, lines, tip:"Cumplir X-Pay + Seguros desbloquea cobrar el 100% (gate)."}));
+    }
+
+    // 5) CUOTA SEGUROS / GEX (gate)
+    {
+      const need=Math.max(0,p.qSeg-r.gexGuias); const done=need===0;
+      const lines=[`Lleva <b>${r.gexGuias}</b> póliza(s) GEX/Seguros. Cuota del mes: <b>${p.qSeg}</b>.`,
+        done?`✅ Cuota de Seguros cumplida.`:`👉 Le faltan <b>${need}</b> póliza(s) de Seguros.`];
+      cards.push(planTask({icon:"🧾", title:"Cuota de Seguros (venta cruzada)", done, lines, tip:"Cumplir X-Pay + Seguros desbloquea cobrar el 100% (gate)."}));
+    }
+
+    // 6) GATE (resumen de venta cruzada)
+    {
+      const done=r.capPct===100;
+      const lines=[`Con lo actual cobra el <b>${r.capPct}%</b> de sus comisiones + bonos.`,
+        `X-Pay ${r.okXpay?'✅':'⬜'} &nbsp;·&nbsp; Seguros ${r.okSeg?'✅':'⬜'}`,
+        done?`✅ ¡Gate al 100%! No pierde nada.`:`👉 Cumple <b>ambas cuotas</b> (X-Pay y Seguros) para cobrar el <b>100%</b> (hoy pierde ${100-r.capPct}%).`];
+      cards.push(planTask({icon:"🔓", title:"Gate de venta cruzada (cuánto cobra)", done, lines}));
+    }
+
+    // 7) BONOS MANUALES (combo / venta limpia) — informativos
+    {
+      const lines=[`<b>Combo</b> (envío + seguro + X-Pay al mismo cliente): <b>${fmt0(p.comboAmt)}</b> por cliente.`,
+        `<b>Venta limpia</b> (cliente sin quejas en el trimestre): <b>${fmt0(p.cleanAmt)}</b> por cliente.`,
+        `👉 Arma paquetes completos y cuida el servicio para sumar estos bonos.`];
+      cards.push(planTask({icon:"🎁", title:"Bonos extra (combo y venta limpia)", na:true, done:false, lines}));
+    }
+
+    // Resumen: qué gana si lo logra todo
+    let potVol=0; for (const st of p.vol) potVol=Math.max(potVol, st.b);
+    const potGex=p.gexB2;
+    const resumen = `<div style="border:2px solid #F0B79A;border-radius:12px;padding:14px 16px;margin-bottom:14px;background:linear-gradient(180deg,#FFF6EF,#FFFCFA)">
+      <div style="font-weight:900;font-size:15px;color:#C1502E">🏆 Si ${a.name} logra TODO este mes:</div>
+      <ul style="margin:8px 0 0;padding-left:20px;font-size:13px;color:#4a423a;line-height:1.7">
+        <li>Desbloquea el <b>gate al 100%</b> (X-Pay + Seguros).</li>
+        <li>Bono de volumen de hasta <b>${fmt0(potVol)}</b>.</li>
+        <li>Bono GEX de hasta <b>${fmt0(potGex)}</b>.</li>
+        <li>Acelerador <b>1.5×</b> sobre el excedente en Aéreo/TDI/Marítimo.</li>
+        <li>+ Bonos combo (${fmt0(p.comboAmt)}/cliente) y venta limpia (${fmt0(p.cleanAmt)}/cliente).</li>
+      </ul>
+      <div style="margin-top:8px;font-size:12px;color:#8a7f72">Comisión propuesta con lo actual: <b>${fmt(r.propuesto)}</b>.</div>
+    </div>`;
+
+    box.innerHTML = resumen + cards.join("");
   }
 
   function renderAll(){ renderKpis(); renderAsesor(); renderEquipo(); renderMetas(); }
 
   el("params").addEventListener("input", renderAll);
   ["advSel","mCombos","mClean","mPenN2"].forEach(id => el(id).addEventListener("input", () => { renderKpis(); renderAsesor(); }));
+  metaSel.addEventListener("change", renderMetas);
 
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
@@ -566,7 +663,7 @@
     if (Array.isArray(d.advisors) && d.advisors.length) {
       DATA = d.advisors;
       if (advSel.value >= DATA.length) advSel.value = 0;
-      buildAdvOptions();
+      buildAdvOptions(); buildMetaOptions();
       const mode = document.getElementById("dataMode");
       if (mode) mode.textContent = d.asOfLabel || "Datos en vivo";
       renderAll();
