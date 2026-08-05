@@ -232,7 +232,6 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
     { key: 'liberacion_aa_dhl', label: '📮 DHL' },
     { key: 'gex_warranty', label: '🛡️ GEX' },
     { key: 'xpay', label: '💱 X-Pay' },
-    { key: 'nacional_mx', label: '🚚 Nacional' },
   ];
 
   return (
@@ -427,24 +426,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   serviceChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     borderRadius: 16,
-    backgroundColor: '#fff',
+    backgroundColor: '#F2F2F4',
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: '#D8D8DC',
   },
   serviceChipActive: {
     backgroundColor: ORANGE,
     borderColor: ORANGE,
   },
   serviceChipText: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
+    fontSize: 12.5,
+    color: '#333333',
+    fontWeight: '700',
   },
   serviceChipTextActive: {
-    color: '#fff',
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
   filterChip: {
     paddingHorizontal: 16,
