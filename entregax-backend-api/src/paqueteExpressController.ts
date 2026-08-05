@@ -1490,6 +1490,12 @@ export interface PqtxAddrCtx {
   state: string | null;
   zip_code: string | null;
   phone: string | null;
+  // OCURRE (entrega en sucursal): cuando true la etiqueta va rotulada
+  // "OCURRE - PAQUETE EXPRESS" y usa el municipio/ciudad de la sucursal,
+  // no la dirección de domicilio del cliente. El nombre del receptor
+  // sigue siendo el cliente para que la sucursal sepa a quién entregar.
+  is_ocurre?: boolean;
+  ocurre_branch_city?: string | null;
 }
 
 export async function generateOnePqtxGuide(params: {
@@ -1635,6 +1641,32 @@ export async function generateOnePqtxGuide(params: {
 
   const commentSuffix = totalPieces > 1 ? ` (${totalPieces} cajas)` : '';
 
+  // ─── OCURRE (entrega en sucursal PQTX) ────────────────────────────────
+  // Cuando la dirección tiene el toggle OCURRE encendido, la guía NO se
+  // entrega al domicilio del cliente: se deposita en la sucursal PQTX más
+  // cercana y el cliente la recoge. Por eso el destino impreso en la guía
+  // debe rotular claramente "OCURRE" en la calle y usar la ciudad de la
+  // sucursal — no la dirección de domicilio.
+  const isOcurre = params.addr.is_ocurre === true;
+  const ocurreBranchCity = (params.addr.ocurre_branch_city || '').trim().toUpperCase();
+  const destStreetName = isOcurre
+    ? 'OCURRE - SUCURSAL PAQUETE EXPRESS'
+    : (params.addr.street || ' ').toUpperCase();
+  const destDrnr = isOcurre ? 'S/N' : buildDrnr(params.addr.exterior_number, params.addr.interior_number);
+  const destColonia = isOcurre
+    ? 'CENTRO'
+    : (cleanAddr.neighborhood || ' ').toUpperCase();
+  const destCityLabel = isOcurre && ocurreBranchCity
+    ? ocurreBranchCity
+    : (cleanAddr.city || ' ').toUpperCase();
+  // El nombre y contacto siguen siendo el cliente para que el mostrador de
+  // la sucursal sepa a quién entregar cuando pregunte por su casillero.
+  const destClntName = (params.addr.recipient_name || params.userName || 'CLIENTE').toUpperCase();
+  const destPhone = (params.addr.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0') || '0000000000';
+  const destComt = isOcurre
+    ? `OCURRE - ${destClntName} recoge en sucursal · ${params.trackingInternal}${commentSuffix}`
+    : `Paquete ${params.trackingInternal}${commentSuffix}`;
+
 
   const url = `${PQTX_BASE_URL}/RadRestFul/api/rad/v1/guia`;
   const body = {
@@ -1650,7 +1682,7 @@ export async function generateOnePqtxGuide(params: {
           billClntId: PQTX_BILL_CLIENT_ID,
           pymtMode: 'PAID',
           pymtType: 'C',
-          comt: `Paquete ${params.trackingInternal}${commentSuffix}`,
+          comt: destComt,
           radGuiaAddrDTOList: [
             {
               addrLin1: 'MEXICO',
@@ -1670,21 +1702,22 @@ export async function generateOnePqtxGuide(params: {
             },
             {
               addrLin1: 'MEXICO',
-              // El destino se construye a partir de `cleanAddr`, que ya fue
-              // normalizado contra SEPOMEX/Zippopotam para garantizar el
-              // orden municipio/ciudad/colonia que Paquete Express requiere.
+              // Destino: normalizado contra SEPOMEX/Zippopotam. Cuando la
+              // dirección es OCURRE, strtName/colonia/city se sobreescriben
+              // con la etiqueta "OCURRE" y la ciudad de la sucursal PQTX
+              // (destStreetName/destColonia/destCityLabel).
               addrLin3: (cleanAddr.state || ' ').toUpperCase(),
-              addrLin4: (cleanAddr.city || ' ').toUpperCase(),
-              addrLin5: (cleanAddr.city || ' ').toUpperCase(),
-              addrLin6: (cleanAddr.neighborhood || ' ').toUpperCase(),
+              addrLin4: destCityLabel,
+              addrLin5: destCityLabel,
+              addrLin6: destColonia,
               zipCode: params.addr.zip_code || '',
-              strtName: (params.addr.street || ' ').toUpperCase(),
-              drnr: buildDrnr(params.addr.exterior_number, params.addr.interior_number),
-              phno1: (params.addr.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0') || '0000000000',
-              phno2: (params.addr.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0') || '0000000000',
-              clntName: (params.addr.recipient_name || params.userName || 'CLIENTE').toUpperCase(),
+              strtName: destStreetName,
+              drnr: destDrnr,
+              phno1: destPhone,
+              phno2: destPhone,
+              clntName: destClntName,
               email: params.userEmail || '',
-              contacto: (params.addr.recipient_name || params.userName || 'CLIENTE').toUpperCase(),
+              contacto: destClntName,
               addrType: 'DESTINATION',
             },
           ],
@@ -1976,6 +2009,11 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       } catch (e: any) { console.error('No se pudo persistir national_delivery_zip (ocurre):', e.message); }
     }
     let effectiveZip = ocurreZipClean || pkg.national_delivery_zip || pkg.zip_code;
+    // Ciudad de la sucursal PQTX (llenada si detectamos que es OCURRE por
+    // is_ocurre y encontramos la sucursal más cercana). Se usa en la
+    // etiqueta para que el municipio impreso sea el de la sucursal, no el
+    // domicilio del cliente.
+    let ocurreBranchCity: string | null = null;
     // Dirección marcada como OCURRE (toggle is_ocurre) sin CP de sucursal aún:
     // resolver la sucursal PQTX más cercana al cliente y usar su CP (mismo
     // mecanismo que el ocurre manual). Así la guía sale a sucursal, no a domicilio.
@@ -1986,8 +2024,9 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
         const branch = await findNearestOcurreBranch(originZip, String(pkg.zip_code), quotePieces);
         if (branch?.usedZip) {
           effectiveZip = branch.usedZip;
+          ocurreBranchCity = branch.cityName || null;
           try { await pool.query(`UPDATE ${persistTable} SET national_delivery_zip = $1, updated_at = NOW() WHERE id = $2`, [effectiveZip, pkg.id]); pkg.national_delivery_zip = effectiveZip; } catch { /* no crítico */ }
-          console.log(`[PQTX-GEN] Ocurre por is_ocurre: sucursal CP ${effectiveZip} (cliente ${pkg.zip_code})`);
+          console.log(`[PQTX-GEN] Ocurre por is_ocurre: sucursal CP ${effectiveZip} (${ocurreBranchCity || 's/ciudad'}), cliente ${pkg.zip_code}`);
         }
       } catch (e: any) { console.error('[PQTX-GEN] is_ocurre nearest branch:', e.message); }
     }
@@ -1995,6 +2034,11 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     if (effectiveZip !== pkg.zip_code) {
       console.log(`[PQTX-GEN] Ocurre: usando CP sucursal ${effectiveZip} en lugar de CP cliente ${pkg.zip_code}`);
     }
+
+    // Flag OCURRE: la etiqueta debe rotular "OCURRE" y usar la ciudad de la
+    // sucursal cuando el operador pidió Ocurre manual (ocurreZip) o cuando la
+    // dirección tiene el toggle is_ocurre encendido.
+    const isOcurreGuide = !!ocurreZipClean || pkg.addr_is_ocurre === true;
 
     const addr: PqtxAddrCtx = {
       recipient_name: pkg.recipient_name,
@@ -2006,6 +2050,8 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       state: pkg.state,
       zip_code: effectiveZip,
       phone: pkg.phone,
+      is_ocurre: isOcurreGuide,
+      ocurre_branch_city: ocurreBranchCity,
     };
 
     // Construir lista de bultos: hijas si existen, si no master como única caja.
