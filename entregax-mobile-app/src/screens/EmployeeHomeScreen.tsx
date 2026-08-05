@@ -1667,7 +1667,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             {/* Módulos Disponibles */}
             <View style={styles.modulesSection}>
               <Text style={styles.sectionTitle}>📱 Mis Módulos</Text>
-              {/* Calendario — disponible para todos, mismo diseño que los módulos */}
+              {/* Calendario — visible para todos MENOS repartidores */}
+              {user?.role !== 'repartidor' && (
               <TouchableOpacity style={styles.moduleCard} activeOpacity={0.85}
                 onPress={() => navigation.navigate('Calendar', { user, token })}>
                 <View style={[styles.moduleIcon, { backgroundColor: '#F05A28' }]}>
@@ -1679,6 +1680,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#999" />
               </TouchableOpacity>
+              )}
               {!permissionsLoaded ? (
                 <View style={styles.noModules}>
                   <Ionicons name="sync-outline" size={48} color={ORANGE} />
