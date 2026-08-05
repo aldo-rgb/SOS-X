@@ -238,6 +238,141 @@ export const saveSequenceScheduleConfig = async (req: Request, res: Response): P
   }
 };
 
+// ─── Auto-inscripción de prospectos externos ────────────────────────────────
+// Toggle guardado en system_configurations. Cuando está activo, un cron
+// (Lun/Mar/Mié 8:00 a.m. hora Monterrey) inscribe automáticamente hasta
+// AUTO_ENROLL_BATCH prospectos EXTERNOS elegibles en la secuencia.
+// Elegible = estado "nuevo" + con teléfono + NO inscrito aún + fecha de alta de
+// hace MÁS de AUTO_ENROLL_MIN_AGE_DAYS días (los muy recientes se dejan para
+// después). Si no se completa el lote, en la siguiente corrida sube los que
+// sigan pendientes cumpliendo el mismo requisito (se ordena por antigüedad).
+export const AUTO_ENROLL_BATCH = 500;
+export const AUTO_ENROLL_MIN_AGE_DAYS = 2;
+export const AUTO_ENROLL_DAYS = [1, 2, 3];   // Lun, Mar, Mié (0=Dom … 6=Sáb)
+export const AUTO_ENROLL_HOUR = 8;           // 8:00 a.m. Monterrey
+
+export const isAutoEnrollEnabled = async (): Promise<boolean> => {
+  try {
+    const r = await pool.query(`SELECT config_value FROM system_configurations WHERE config_key = 'wa_auto_enroll_external' AND is_active = TRUE`);
+    return r.rows[0]?.config_value?.enabled === true;
+  } catch { return false; }
+};
+
+// GET /api/admin/crm/auto-enroll → estado del toggle + metadatos de la corrida.
+export const getAutoEnrollConfig = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    const r = await pool.query(`SELECT config_value FROM system_configurations WHERE config_key = 'wa_auto_enroll_external'`);
+    const v = r.rows[0]?.config_value || {};
+    res.json({
+      success: true,
+      enabled: v.enabled === true,
+      batchSize: AUTO_ENROLL_BATCH,
+      minAgeDays: AUTO_ENROLL_MIN_AGE_DAYS,
+      days: AUTO_ENROLL_DAYS,
+      hour: AUTO_ENROLL_HOUR,
+      lastRunAt: v.lastRunAt || null,
+      lastEnrolled: v.lastEnrolled ?? null,
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// POST /api/admin/crm/auto-enroll { enabled } → prende/apaga la automatización.
+export const setAutoEnrollConfig = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const enabled = req.body?.enabled === true;
+    const prev = await pool.query(`SELECT config_value FROM system_configurations WHERE config_key = 'wa_auto_enroll_external'`);
+    const value = { ...(prev.rows[0]?.config_value || {}), enabled };
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('wa_auto_enroll_external', $1::jsonb, 'Auto-inscripción de prospectos externos en la secuencia (Lun/Mar/Mié 8am, hasta 500)', TRUE)
+       ON CONFLICT (config_key) DO UPDATE SET config_value = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify(value)]
+    );
+    res.json({ success: true, enabled });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// Ejecuta UNA corrida de auto-inscripción. La usa el cron; con force=true corre
+// aunque el toggle esté apagado (para pruebas manuales). Devuelve el conteo.
+export const runAutoEnrollExternalProspects = async (opts?: { force?: boolean }): Promise<{ enrolled: number; eligible: number }> => {
+  await ensureSequenceSchema();
+  if (!opts?.force && !(await isAutoEnrollEnabled())) return { enrolled: 0, eligible: 0 };
+
+  // Secuencia destino: la primera activa (por defecto la de 3 mensajes).
+  const seqRow = await pool.query(`SELECT id FROM wa_sequences WHERE active = TRUE ORDER BY id ASC LIMIT 1`);
+  const sequenceId = seqRow.rows[0]?.id;
+  if (!sequenceId) { console.warn('[SEQ][auto] no hay secuencia activa'); return { enrolled: 0, eligible: 0 }; }
+
+  // Prospectos externos elegibles = mismos que en la lista (prospects "nuevos" +
+  // reactivación sin reclamar y sin clic), con teléfono, >N días de antigüedad y
+  // no inscritos. Orden por antigüedad para drenar primero el backlog.
+  const eligibleRes = await pool.query(
+    `WITH eligible AS (
+       SELECT lead_key, name, phone, created_at FROM (
+         SELECT ('pr_' || p.id::text) AS lead_key,
+                COALESCE(NULLIF(TRIM(p.full_name), ''), '') AS name,
+                p.whatsapp AS phone, p.created_at
+           FROM prospects p
+          WHERE p.status = 'new'
+            AND p.whatsapp IS NOT NULL AND btrim(p.whatsapp) <> ''
+            AND p.created_at <= NOW() - make_interval(days => $2::int)
+            AND NOT EXISTS (SELECT 1 FROM lead_blacklist bl WHERE bl.lead_key = ('pr_' || p.id::text))
+         UNION ALL
+         SELECT ('lc_' || lc.id::text),
+                COALESCE(NULLIF(TRIM(lc.full_name), ''), mu.full_name, '(sin nombre)'),
+                COALESCE(NULLIF(TRIM(mu.phone), ''), lc.phone),
+                COALESCE(lc.chartback_i_since, lc.created_at)
+           FROM legacy_clients lc
+           LEFT JOIN LATERAL (
+             SELECT u2.id, u2.full_name, u2.phone FROM users u2
+              WHERE lc.box_id IS NOT NULL AND UPPER(TRIM(u2.box_id)) = UPPER(TRIM(lc.box_id))
+              ORDER BY u2.id ASC LIMIT 1
+           ) mu ON true
+          WHERE LOWER(TRIM(COALESCE(lc.chartback_status, ''))) NOT IN ('not_interested','recovered','no_answer','callback','retention')
+            AND lc.recovery_advisor_id IS NULL
+            AND mu.id IS NULL
+            AND COALESCE(lc.chartback_i_since, lc.created_at) <= NOW() - make_interval(days => $2::int)
+            AND COALESCE(NULLIF(TRIM(mu.phone), ''), lc.phone) IS NOT NULL
+            AND btrim(COALESCE(NULLIF(TRIM(mu.phone), ''), lc.phone)) <> ''
+            AND NOT EXISTS (SELECT 1 FROM lead_blacklist bl WHERE bl.lead_key = ('lc_' || lc.id::text))
+            AND NOT EXISTS (SELECT 1 FROM wa_click_links wl WHERE wl.lead_key = ('lc_' || lc.id::text) AND wl.click_count > 0)
+            AND NOT EXISTS (SELECT 1 FROM crm_requests cr WHERE cr.user_id IS NOT NULL AND cr.user_id = lc.claimed_by_user_id)
+       ) u
+       WHERE NOT EXISTS (SELECT 1 FROM wa_sequence_enrollments en WHERE en.lead_key = u.lead_key)
+       ORDER BY created_at ASC
+       LIMIT $1
+     )
+     SELECT lead_key, name, phone FROM eligible`,
+    [AUTO_ENROLL_BATCH, AUTO_ENROLL_MIN_AGE_DAYS]
+  );
+
+  let enrolled = 0;
+  for (const row of eligibleRes.rows) {
+    if (!row.phone || String(row.phone).trim() === '') continue;
+    const r = await pool.query(
+      `INSERT INTO wa_sequence_enrollments (sequence_id, lead_key, name, phone, status, current_step, next_send_at)
+       VALUES ($1, $2, $3, $4, 'active', 0, NOW())
+       ON CONFLICT (sequence_id, lead_key) DO NOTHING
+       RETURNING id`,
+      [sequenceId, row.lead_key, row.name || null, String(row.phone)]
+    );
+    if (r.rows[0]) enrolled++;
+  }
+
+  await pool.query(
+    `UPDATE system_configurations
+        SET config_value = COALESCE(config_value, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
+      WHERE config_key = 'wa_auto_enroll_external'`,
+    [JSON.stringify({ lastRunAt: new Date().toISOString(), lastEnrolled: enrolled })]
+  ).catch(() => {});
+  console.log(`[SEQ][auto] Auto-inscritos ${enrolled}/${eligibleRes.rows.length} prospectos externos en secuencia ${sequenceId}`);
+  return { enrolled, eligible: eligibleRes.rows.length };
+};
+
 // GET /api/admin/crm/sequence/next-send → próximo envío (según config) + a cuántos
 // usuarios activos les toca en esa corrida.
 export const getSequenceNextSend = async (_req: Request, res: Response): Promise<any> => {

@@ -1111,6 +1111,22 @@ export const startWaSequenceCron = () => {
   console.log('✅ Cron de secuencias WhatsApp activo (horario configurable + auto-recuperación tras redeploy)');
 };
 
+// 📩 Auto-inscripción de prospectos externos en la secuencia. Lun/Mar/Mié 8:00
+// a.m. hora Monterrey. Solo corre si el toggle (Central de Leads) está activo.
+// Inscribe hasta 500 prospectos "nuevos", no inscritos, con >2 días de antigüedad.
+export const startAutoEnrollExternalProspectsCron = () => {
+  cron.schedule('0 8 * * 1,2,3', async () => {
+    try {
+      const { runAutoEnrollExternalProspects } = await import('./waSequenceController');
+      const { enrolled, eligible } = await runAutoEnrollExternalProspects();
+      if (enrolled > 0) console.log(`✅ [CRON] Auto-inscripción prospectos externos: ${enrolled}/${eligible} inscritos`);
+    } catch (e) {
+      console.error('[CRON] startAutoEnrollExternalProspectsCron:', (e as Error).message);
+    }
+  }, { timezone: 'America/Mexico_City' });
+  console.log('✅ Cron de auto-inscripción de prospectos externos activo (Lun/Mar/Mié 8am MTY, si el toggle está activo)');
+};
+
 // 📦 Enlaza envíos huérfanos a su cliente por box_id (DHL/aéreo/marítimo/packages)
 // que hayan quedado con user_id NULL — p.ej. llegaron después de que el cliente
 // ya se registró. Evita que aparezcan "Sin alta" y que el cliente no los vea.
@@ -1505,6 +1521,7 @@ export const initCronJobs = () => {
   startRecoveryCronJob();
   startTaskRemindersCron();
   startWaSequenceCron();
+  startAutoEnrollExternalProspectsCron();
   startScheduledBulkCron();
   startFunnelRulesCron();
   startAutoInvoiceSweeperCron();

@@ -1013,7 +1013,8 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
     let client: any = null;
     if (isBoxIdLike) {
       const r = await pool.query(
-        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at
+        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at,
+                is_verified, verification_status
            FROM users
           WHERE UPPER(TRIM(box_id)) = UPPER(TRIM($1))
           LIMIT 1`,
@@ -1023,7 +1024,8 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
     }
     if (!client && isNumeric) {
       const r = await pool.query(
-        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at
+        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at,
+                is_verified, verification_status
            FROM users WHERE id = $1 LIMIT 1`,
         [parseInt(q, 10)]
       );
@@ -1031,7 +1033,8 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
     }
     if (!client && isEmail) {
       const r = await pool.query(
-        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at
+        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at,
+                is_verified, verification_status
            FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
         [q]
       );
@@ -1041,7 +1044,8 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
       // Búsqueda parcial: si hay UNA sola coincidencia, la devolvemos como cliente; si hay varias, devolvemos sugerencias.
       const like = `%${q}%`;
       const r = await pool.query(
-        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at
+        `SELECT id, full_name, email, phone, box_id, role, advisor_id, referred_by_id, created_at,
+                is_verified, verification_status
            FROM users
           WHERE box_id ILIKE $1 OR full_name ILIKE $1 OR email ILIKE $1
           ORDER BY (UPPER(box_id) = UPPER($2)) DESC, box_id NULLS LAST
@@ -1322,6 +1326,11 @@ export const clientLookup = async (req: AuthRequest, res: Response): Promise<voi
         created_at: client.created_at,
         is_legacy: isLegacy,
         claimed_by_user_id: client.claimed_by_user_id || null,
+        // Estado de verificación — se muestra como badge en el rastreo de
+        // Cajito para que el agente sepa si el cliente ya está verificado.
+        // Legacy no verificados por definición (todavía no reclamados).
+        is_verified: isLegacy ? false : !!client.is_verified,
+        verification_status: isLegacy ? 'legacy' : (client.verification_status || 'unverified'),
       },
       advisor,
       summary: {

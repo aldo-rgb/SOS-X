@@ -695,6 +695,8 @@ import {
   getSequenceNextSend,
   getSequenceScheduleConfig,
   saveSequenceScheduleConfig,
+  getAutoEnrollConfig,
+  setAutoEnrollConfig,
 } from './waSequenceController';
 import {
   verifyWhatsappWebhook,
@@ -7570,6 +7572,9 @@ app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel
 app.get('/api/admin/crm/sequence/next-send', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSequenceNextSend);
 app.get('/api/admin/crm/sequence/schedule', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSequenceScheduleConfig);
 app.post('/api/admin/crm/sequence/schedule', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveSequenceScheduleConfig);
+// Toggle de auto-inscripción de prospectos externos (Lun/Mar/Mié 8am, hasta 500).
+app.get('/api/admin/crm/auto-enroll', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAutoEnrollConfig);
+app.post('/api/admin/crm/auto-enroll', authenticateToken, requireMinLevel(ROLES.DIRECTOR), setAutoEnrollConfig);
 // 🚀 Disparar la secuencia ahora mismo (drena la cola de vencidos en tandas de
 // 200 cada 20 min, sin esperar a la ventana programada). Fire-and-forget.
 app.post('/api/admin/crm/sequence/run-now', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (_req, res) => {

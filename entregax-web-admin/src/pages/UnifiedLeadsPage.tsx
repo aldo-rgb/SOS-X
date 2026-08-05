@@ -1243,6 +1243,30 @@ export default function UnifiedLeadsPage() {
     } finally { setSavingSchedule(false); }
   };
 
+  // ── Auto-inscripción de prospectos externos (toggle) ─────────────────────
+  // Cuando está activa, el sistema inscribe automáticamente Lun/Mar/Mié 8am
+  // hasta 500 prospectos "nuevos", no inscritos y con >2 días de antigüedad.
+  const [autoEnroll, setAutoEnroll] = useState<{ enabled: boolean; batchSize: number; minAgeDays: number; hour: number; lastRunAt: string | null; lastEnrolled: number | null }>({ enabled: false, batchSize: 500, minAgeDays: 2, hour: 8, lastRunAt: null, lastEnrolled: null });
+  const [autoEnrollSaving, setAutoEnrollSaving] = useState(false);
+  const fetchAutoEnroll = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/admin/crm/auto-enroll`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (res.data?.success) setAutoEnroll({ enabled: !!res.data.enabled, batchSize: res.data.batchSize ?? 500, minAgeDays: res.data.minAgeDays ?? 2, hour: res.data.hour ?? 8, lastRunAt: res.data.lastRunAt || null, lastEnrolled: res.data.lastEnrolled ?? null });
+    } catch { /* ignore */ }
+  };
+  useEffect(() => { fetchAutoEnroll(); }, []);
+  const toggleAutoEnroll = async (enabled: boolean) => {
+    setAutoEnrollSaving(true);
+    setAutoEnroll(a => ({ ...a, enabled })); // optimista
+    try {
+      await axios.post(`${API_URL}/admin/crm/auto-enroll`, { enabled }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({ open: true, message: enabled ? 'Automatización activada: Lun/Mar/Mié 8am inscribe hasta 500 prospectos nuevos' : 'Automatización desactivada', severity: 'success' });
+    } catch (e: any) {
+      setAutoEnroll(a => ({ ...a, enabled: !enabled })); // revertir
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo guardar', severity: 'error' });
+    } finally { setAutoEnrollSaving(false); }
+  };
+
   // Filtros prospectos
   const [prospectStatusFilter, setProspectStatusFilter] = useState('all');
   const [prospectSeqFilter, setProspectSeqFilter] = useState('all');
@@ -3089,6 +3113,29 @@ export default function UnifiedLeadsPage() {
             >
               {runningSeqNow ? 'Enviando…' : 'Enviar ahora'}
             </Button>
+            {/* Toggle de auto-inscripción automática de prospectos externos */}
+            <Tooltip
+              arrow
+              title={`Lun, Mar y Mié a las 8:00 a.m. inscribe automáticamente hasta ${autoEnroll.batchSize} prospectos en la secuencia. Criterio: estado "Nuevo", no inscritos y con más de ${autoEnroll.minAgeDays} días de antigüedad (los más recientes se dejan para después). Si no completa ${autoEnroll.batchSize}, la siguiente corrida sube los que sigan pendientes.`}
+            >
+              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.5, py: 0.5, borderRadius: 2, border: '1px solid', borderColor: autoEnroll.enabled ? 'rgba(46,125,70,0.5)' : 'rgba(0,0,0,0.15)', bgcolor: autoEnroll.enabled ? 'rgba(46,125,70,0.08)' : 'transparent' }}>
+                <FormControlLabel
+                  sx={{ m: 0 }}
+                  control={<Switch size="small" color="success" checked={autoEnroll.enabled} disabled={autoEnrollSaving} onChange={(e) => toggleAutoEnroll(e.target.checked)} />}
+                  label={
+                    <Box sx={{ lineHeight: 1.1 }}>
+                      <Typography variant="body2" fontWeight={800} sx={{ color: autoEnroll.enabled ? '#2E7D46' : 'text.secondary' }}>
+                        Inscripción automática
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                        Lun/Mar/Mié 8am · {autoEnroll.batchSize} nuevos
+                        {autoEnroll.lastRunAt ? ` · última: ${new Date(autoEnroll.lastRunAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })} (${autoEnroll.lastEnrolled ?? 0})` : ''}
+                      </Typography>
+                    </Box>
+                  }
+                />
+              </Box>
+            </Tooltip>
             <Dialog open={scheduleOpen} onClose={() => setScheduleOpen(false)} maxWidth="xs" fullWidth>
               <DialogTitle>⏰ Horario de la secuencia</DialogTitle>
               <DialogContent dividers>
