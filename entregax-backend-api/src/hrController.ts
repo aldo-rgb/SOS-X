@@ -612,10 +612,11 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
         COALESCE(u.is_blocked, FALSE) AS is_blocked,
         COALESCE(u.attendance_enabled, FALSE) AS attendance_enabled,
         u.block_reason, u.blocked_at, u.deleted_at,
-        CASE 
-          WHEN u.profile_photo_url IS NOT NULL AND LENGTH(u.profile_photo_url) < 500 THEN u.profile_photo_url 
-          ELSE NULL 
+        CASE
+          WHEN u.profile_photo_url IS NOT NULL AND LENGTH(u.profile_photo_url) < 500 THEN u.profile_photo_url
+          ELSE NULL
         END AS profile_photo_url,
+        (u.profile_photo_url IS NOT NULL AND u.profile_photo_url <> '') AS has_photo,
         u.privacy_accepted_at,
         CASE WHEN u.privacy_signature_url IS NOT NULL THEN TRUE ELSE FALSE END AS has_privacy_signature,
         CASE WHEN u.ine_front_url IS NOT NULL AND u.ine_front_url <> '' THEN TRUE ELSE FALSE END AS has_ine_front_url,
@@ -1346,5 +1347,25 @@ export const setEmployeeAttendanceEnabled = async (req: Request, res: Response):
   } catch (error) {
     console.error('Error setEmployeeAttendanceEnabled:', error);
     res.status(500).json({ error: 'Error al actualizar el checador' });
+  }
+};
+
+// GET /api/admin/hr/employees/:id/photo → { photo } (foto de perfil, base64 o URL).
+// Endpoint ligero para cargar la foto del avatar bajo demanda (el listado la omite
+// por tamaño). Firma la URL de S3 si aplica.
+export const getEmployeePhoto = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = parseInt(String(req.params.id || ''), 10);
+    if (!id) { res.status(400).json({ error: 'Empleado inválido' }); return; }
+    const r = await pool.query(`SELECT profile_photo_url FROM users WHERE id = $1`, [id]);
+    let photo: string | null = r.rows[0]?.profile_photo_url || null;
+    // Si es una key/URL de S3 de nuestro bucket privado, firmarla.
+    if (photo && /^https?:\/\//i.test(photo)) {
+      try { const { signS3UrlIfNeeded } = require('./s3Service'); photo = await signS3UrlIfNeeded(photo, 6 * 3600); } catch { /* dejar tal cual */ }
+    }
+    res.json({ photo });
+  } catch (error) {
+    console.error('Error getEmployeePhoto:', error);
+    res.status(500).json({ error: 'Error al obtener la foto' });
   }
 };

@@ -1283,7 +1283,8 @@ import {
   createEmployee,
   updateEmployee,
   deleteEmployee,
-  setEmployeeAttendanceEnabled
+  setEmployeeAttendanceEnabled,
+  getEmployeePhoto
 } from './hrController';
 import {
   getVehicles,
@@ -12048,6 +12049,7 @@ app.post('/api/admin/hr/employees', authenticateToken, requireRole(ROLES.SUPER_A
 app.put('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), updateEmployee);
 app.delete('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), deleteEmployee);
 app.put('/api/admin/hr/employees/:id/attendance-enabled', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), setEmployeeAttendanceEnabled);
+app.get('/api/admin/hr/employees/:id/photo', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeePhoto);
 app.post('/api/admin/hr/employees/:id/reactivate', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req, res) => {
   const mod = await import('./hrController');
   return mod.reactivateEmployee(req, res);

@@ -118,6 +118,7 @@ interface Employee {
   deleted_at?: string | null;
   // Documentos
   profile_photo_url?: string;
+  has_photo?: boolean;
   ine_front_url?: string;
   ine_back_url?: string;
   driver_license_front_url?: string;
@@ -213,6 +214,29 @@ const getRoleColor = (role: string): "error" | "warning" | "info" | "success" | 
 const getInitials = (name: string): string => {
   return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 };
+
+// Avatar del empleado: muestra la foto de perfil si existe (cargándola bajo
+// demanda para no inflar el listado); si no, las iniciales.
+const PHOTO_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const photoCache = new Map<number, string>();
+function EmployeeAvatar({ emp, size = 40 }: { emp: Employee; size?: number }) {
+  const [src, setSrc] = useState<string | undefined>(emp.profile_photo_url || photoCache.get(emp.id) || undefined);
+  useEffect(() => {
+    let alive = true;
+    if (emp.profile_photo_url) { setSrc(emp.profile_photo_url); return; }
+    if (!emp.has_photo) { setSrc(undefined); return; }
+    if (photoCache.has(emp.id)) { setSrc(photoCache.get(emp.id)); return; }
+    axios.get(`${PHOTO_API_URL}/api/admin/hr/employees/${emp.id}/photo`, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } })
+      .then(r => { const p = r.data?.photo; if (p && alive) { photoCache.set(emp.id, p); setSrc(p); } })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [emp.id, emp.has_photo, emp.profile_photo_url]);
+  return (
+    <Avatar src={src} sx={{ width: size, height: size, bgcolor: getRoleColor(emp.role) === 'default' ? '#666' : undefined }}>
+      {getInitials(emp.full_name)}
+    </Avatar>
+  );
+}
 
 export default function HRManagementPage() {
   const { t: _t } = useTranslation();
@@ -824,9 +848,7 @@ export default function HRManagementPage() {
                 <TableRow key={emp.id} hover sx={emp.is_active === false || emp.is_blocked ? { opacity: 0.55, bgcolor: '#fafafa' } : undefined}>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Avatar sx={{ bgcolor: getRoleColor(emp.role) === 'default' ? '#666' : undefined }}>
-                        {getInitials(emp.full_name)}
-                      </Avatar>
+                      <EmployeeAvatar emp={emp} />
                       <Box>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Typography fontWeight="bold">{emp.full_name}</Typography>
