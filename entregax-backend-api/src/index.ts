@@ -6553,7 +6553,9 @@ app.get('/api/admin/users', authenticateToken, requireRole(ROLES.SUPER_ADMIN, RO
     const includeBranch = req.query.include_branch === 'true';
     
     let query = `
-      SELECT u.id, u.full_name, u.email, u.role, u.branch_id
+      SELECT u.id, u.full_name, u.email, u.role, u.branch_id,
+             COALESCE(u.is_active, TRUE) AS is_active,
+             COALESCE(u.is_blocked, FALSE) AS is_blocked
       ${includeBranch ? ', b.name as branch_name' : ''}
       FROM users u
       ${includeBranch ? 'LEFT JOIN branches b ON u.branch_id = b.id' : ''}

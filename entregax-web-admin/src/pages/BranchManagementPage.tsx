@@ -82,6 +82,10 @@ interface User {
   branch_name: string | null;
   profile_picture?: string | null;
   avatar_url?: string | null;
+  // Estado de la cuenta — usados para no mostrar empleados dados de baja o
+  // bloqueados en la pestaña “SIN ASIGNAR”.
+  is_active?: boolean;
+  is_blocked?: boolean;
 }
 
 // Roles excluidos de la asignación a sucursales (cuentas administrativas)
@@ -419,9 +423,15 @@ export default function BranchManagementPage() {
   const employeeUsers = users.filter(u => EMPLOYEE_ROLES.includes(u.role));
 
   // Usuarios sin sucursal asignada (excluyendo cuentas super_admin/admin
-  // que no deben asignarse a una sucursal específica)
+  // que no deben asignarse a una sucursal específica). Se OMITEN además
+  // los empleados dados de baja (is_active=false) o bloqueados (is_blocked)
+  // para no ensuciar la lista con cuentas cerradas.
   const unassignedUsers = employeeUsers.filter(
-    u => !u.branch_id && !NON_ASSIGNABLE_ROLES.includes(u.role)
+    u =>
+      !u.branch_id &&
+      !NON_ASSIGNABLE_ROLES.includes(u.role) &&
+      u.is_active !== false &&
+      u.is_blocked !== true
   );
 
   // Usuarios por sucursal
