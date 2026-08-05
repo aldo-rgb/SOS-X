@@ -148,6 +148,21 @@ export const getPaymentOrdersHistory = async (
           pp.paid_at,
           COALESCE(jsonb_array_length(pp.package_ids), 0) AS items_count,
           CASE
+            -- Fuente autoritativa: si el cobro nació de una orden de asesor,
+            -- su service_type_cfg manda. Evita colisiones de ID entre tablas
+            -- (p.ej. un package_id que existe tanto en dhl_shipments como en
+            -- maritime_orders y se etiquetaba mal).
+            WHEN (
+              SELECT apo.service_type_cfg FROM advisor_payment_orders apo
+               WHERE apo.pobox_payment_id = pp.id
+                 AND apo.service_type_cfg IS NOT NULL
+               ORDER BY apo.id DESC LIMIT 1
+            ) IS NOT NULL THEN (
+              SELECT apo.service_type_cfg FROM advisor_payment_orders apo
+               WHERE apo.pobox_payment_id = pp.id
+                 AND apo.service_type_cfg IS NOT NULL
+               ORDER BY apo.id DESC LIMIT 1
+            )
             WHEN EXISTS (
               SELECT 1 FROM maritime_orders mo
                WHERE mo.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
@@ -308,7 +323,11 @@ export const getPaymentOrdersHistory = async (
 
     // Ejecuta solo las queries relevantes según el filtro de servicio.
     const shouldRunPobox = service === 'ALL' || ['POBOX_USA','MARITIMO','AA_DHL','AIR_CHN_MX','TDI_EXPRESS'].includes(service);
-    const shouldRunApo   = service === 'ALL' || ['POBOX_USA','AA_DHL','AIR_CHN_MX'].includes(service);
+    // Las órdenes de asesor (OP-…) son un registro interno: cada una ya genera
+    // su cobro en pobox_payments, que sí se muestra. Mostrarlas aquí duplicaba
+    // cada orden (folio OP-… y su referencia) y causaba confusión, así que se
+    // omiten del historial. Su cobro sigue apareciendo vía pobox_payments.
+    const shouldRunApo   = false;
     const shouldRunXpay  = service === 'ALL' || service === 'XPAY';
     const shouldRunGex   = service === 'ALL' || service === 'GEX';
 
