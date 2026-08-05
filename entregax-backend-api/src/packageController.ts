@@ -5015,27 +5015,42 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                         // (carrier_service_options.price_label, ej. Estafeta "$99" por caja):
                         // si el frontend no mandó costo, tomarlo del config × cajas. Excluye
                         // las "por cobrar" (allows_collect) — esas se pagan al recibir.
+                        //
+                        // ➕ Tarifa escalonada (tier): si price_per_package y/o free_from_qty
+                        // están configurados, mandan sobre price_label. Ejemplo típico:
+                        // "150 MXN por caja, gratis a partir de 3 cajas".
                         if (shippingCostMxn <= 0 && !isPqtxPaid && !isEvisaPre && carrierNorm) {
                             try {
                                 const cfgFx = await pool.query(
-                                    `SELECT price_label FROM carrier_service_options
+                                    `SELECT price_label, price_per_package, free_from_qty
+                                       FROM carrier_service_options
                                       WHERE REPLACE(REPLACE(LOWER(carrier_key), '_', ''), ' ', '') = $1
                                         AND COALESCE(allows_collect, false) = false
                                         AND is_active = true
                                       LIMIT 1`,
                                     [carrierNorm]
                                 );
-                                const perBoxFx = parseFloat(String(cfgFx.rows[0]?.price_label || '').replace(/[^0-9.]/g, '')) || 0;
-                                if (perBoxFx > 0) {
-                                    const boxesFxRes = await pool.query(
-                                        `SELECT COALESCE(total_boxes, 1) AS boxes FROM packages WHERE id = $1`, [packageId]
-                                    );
-                                    const boxesFx = Number(boxesFxRes.rows[0]?.boxes) || 1;
-                                    shippingCostMxn = perBoxFx * boxesFx;
-                                    console.log(`💰 [Precio fijo ${carrier}] Paquete ${packageId}: ${boxesFx} caja(s) × $${perBoxFx} = $${shippingCostMxn} MXN`);
+                                const row = cfgFx.rows[0] || {};
+                                const boxesFxRes = await pool.query(
+                                    `SELECT COALESCE(total_boxes, 1) AS boxes FROM packages WHERE id = $1`, [packageId]
+                                );
+                                const boxesFx = Number(boxesFxRes.rows[0]?.boxes) || 1;
+                                const perBoxTier = Number(row.price_per_package);
+                                const freeFromQty = Number(row.free_from_qty);
+                                const hasTier = Number.isFinite(perBoxTier) && perBoxTier >= 0 && Number.isFinite(freeFromQty) && freeFromQty >= 1;
+                                if (hasTier) {
+                                    // Umbral: cajas >= free_from_qty → gratis; de lo contrario perBox × cajas.
+                                    shippingCostMxn = boxesFx >= freeFromQty ? 0 : perBoxTier * boxesFx;
+                                    console.log(`💰 [Tier ${carrier}] Paquete ${packageId}: ${boxesFx} caja(s), umbral ${freeFromQty} → $${shippingCostMxn} MXN`);
+                                } else {
+                                    const perBoxFx = parseFloat(String(row.price_label || '').replace(/[^0-9.]/g, '')) || 0;
+                                    if (perBoxFx > 0) {
+                                        shippingCostMxn = perBoxFx * boxesFx;
+                                        console.log(`💰 [Precio fijo ${carrier}] Paquete ${packageId}: ${boxesFx} caja(s) × $${perBoxFx} = $${shippingCostMxn} MXN`);
+                                    }
                                 }
                             } catch (fxErr: any) {
-                                console.warn(`[Precio fijo] No se pudo leer price_label de ${carrier}:`, fxErr?.message);
+                                console.warn(`[Precio fijo] No se pudo leer tarifa de ${carrier}:`, fxErr?.message);
                             }
                         }
 

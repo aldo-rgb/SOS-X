@@ -106,7 +106,8 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
     const weight = Number.isFinite(weightRaw) && weightRaw > 0 ? weightRaw : null;
 
     const result = await pool.query(`
-      SELECT co.carrier_key, co.name, co.description, co.price_label, co.subtext, co.icon, co.priority, co.allows_collect, co.max_weight_kg
+      SELECT co.carrier_key, co.name, co.description, co.price_label, co.subtext, co.icon, co.priority, co.allows_collect, co.max_weight_kg,
+             co.price_per_package, co.free_from_qty
       FROM carrier_service_options co
       INNER JOIN carrier_service_type_map cm ON co.id = cm.carrier_option_id
       WHERE cm.service_type = $1
@@ -169,7 +170,7 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
 // =========================================
 export const createCarrierOption = async (req: Request, res: Response) => {
   try {
-    const { carrier_key, name, description, price_label, subtext, icon, priority, service_types, allows_collect, carrier_type, max_weight_kg } = req.body;
+    const { carrier_key, name, description, price_label, subtext, icon, priority, service_types, allows_collect, carrier_type, max_weight_kg, price_per_package, free_from_qty } = req.body;
 
     if (!carrier_key || !name) {
       return res.status(400).json({ success: false, error: 'carrier_key y name son requeridos' });
@@ -187,11 +188,21 @@ export const createCarrierOption = async (req: Request, res: Response) => {
       max_weight_kg == null || max_weight_kg === '' || !Number.isFinite(Number(max_weight_kg))
         ? null
         : Number(max_weight_kg);
+    // price_per_package: idem, null si no viene número válido.
+    const pricePerPackageNormalized =
+      price_per_package == null || price_per_package === '' || !Number.isFinite(Number(price_per_package))
+        ? null
+        : Number(price_per_package);
+    // free_from_qty: entero >= 1 o null.
+    const freeFromQtyNormalized =
+      free_from_qty == null || free_from_qty === '' || !Number.isFinite(Number(free_from_qty)) || Number(free_from_qty) < 1
+        ? null
+        : Math.floor(Number(free_from_qty));
     const result = await pool.query(`
-      INSERT INTO carrier_service_options (carrier_key, name, description, price_label, subtext, icon, priority, allows_collect, carrier_type, max_weight_kg)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      INSERT INTO carrier_service_options (carrier_key, name, description, price_label, subtext, icon, priority, allows_collect, carrier_type, max_weight_kg, price_per_package, free_from_qty)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
-    `, [carrier_key, name, description || null, price_label || null, subtext || null, icon || '🚛', priority || 0, allows_collect === true, cType, maxWeightNormalized]);
+    `, [carrier_key, name, description || null, price_label || null, subtext || null, icon || '🚛', priority || 0, allows_collect === true, cType, maxWeightNormalized, pricePerPackageNormalized, freeFromQtyNormalized]);
 
     const carrierId = result.rows[0].id;
 
@@ -233,7 +244,7 @@ export const createCarrierOption = async (req: Request, res: Response) => {
 export const updateCarrierOption = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { carrier_key, name, description, price_label, subtext, icon, is_active, priority, service_types, allows_collect, carrier_type, max_weight_kg } = req.body;
+    const { carrier_key, name, description, price_label, subtext, icon, is_active, priority, service_types, allows_collect, carrier_type, max_weight_kg, price_per_package, free_from_qty } = req.body;
 
     // Verificar que exista
     const existing = await pool.query('SELECT id FROM carrier_service_options WHERE id = $1', [id]);
@@ -266,6 +277,29 @@ export const updateCarrierOption = async (req: Request, res: Response) => {
       maxWeightForUpdate = undefined; // no tocar
     }
 
+    // price_per_package y free_from_qty: mismo patrón — solo tocar si el field vino
+    // en el body. null = borrar, número = actualizar, undefined = no tocar.
+    let pricePerPackageForUpdate: number | null | undefined;
+    if (Object.prototype.hasOwnProperty.call(req.body, 'price_per_package')) {
+      if (price_per_package == null || price_per_package === '' || !Number.isFinite(Number(price_per_package))) {
+        pricePerPackageForUpdate = null;
+      } else {
+        pricePerPackageForUpdate = Number(price_per_package);
+      }
+    } else {
+      pricePerPackageForUpdate = undefined;
+    }
+    let freeFromQtyForUpdate: number | null | undefined;
+    if (Object.prototype.hasOwnProperty.call(req.body, 'free_from_qty')) {
+      if (free_from_qty == null || free_from_qty === '' || !Number.isFinite(Number(free_from_qty)) || Number(free_from_qty) < 1) {
+        freeFromQtyForUpdate = null;
+      } else {
+        freeFromQtyForUpdate = Math.floor(Number(free_from_qty));
+      }
+    } else {
+      freeFromQtyForUpdate = undefined;
+    }
+
     await pool.query(`
       UPDATE carrier_service_options SET
         carrier_key = COALESCE($1, carrier_key),
@@ -279,14 +313,20 @@ export const updateCarrierOption = async (req: Request, res: Response) => {
         allows_collect = COALESCE($9, allows_collect),
         carrier_type = COALESCE($10, carrier_type),
         max_weight_kg = CASE WHEN $12::boolean THEN $11::numeric ELSE max_weight_kg END,
+        price_per_package = CASE WHEN $14::boolean THEN $13::numeric ELSE price_per_package END,
+        free_from_qty = CASE WHEN $16::boolean THEN $15::integer ELSE free_from_qty END,
         updated_at = NOW()
-      WHERE id = $13
+      WHERE id = $17
     `, [
       carrier_key, name, description, price_label,
       subtext !== undefined ? subtext : null, icon, is_active, priority,
       allows_collect, cType,
       maxWeightForUpdate === undefined ? null : maxWeightForUpdate,
-      maxWeightForUpdate !== undefined, // sólo actualizar cuando el campo vino en el body
+      maxWeightForUpdate !== undefined,
+      pricePerPackageForUpdate === undefined ? null : pricePerPackageForUpdate,
+      pricePerPackageForUpdate !== undefined,
+      freeFromQtyForUpdate === undefined ? null : freeFromQtyForUpdate,
+      freeFromQtyForUpdate !== undefined,
       id,
     ]);
 

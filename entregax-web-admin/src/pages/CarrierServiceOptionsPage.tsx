@@ -60,6 +60,9 @@ interface CarrierOption {
   priority: number;
   service_types: string[];
   max_weight_kg: number | string | null;
+  // Tarifa por caja + umbral de gratuidad. Ambos opcionales.
+  price_per_package: number | string | null;
+  free_from_qty: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -75,6 +78,8 @@ interface CarrierFormData {
   allows_collect: boolean;
   service_types: string[];
   max_weight_kg: string; // string en el form; se convierte a número o null al guardar
+  price_per_package: string;
+  free_from_qty: string;
 }
 
 const SERVICE_TYPE_OPTIONS = [
@@ -96,6 +101,8 @@ const emptyForm: CarrierFormData = {
   allows_collect: false,
   service_types: [],
   max_weight_kg: '',
+  price_per_package: '',
+  free_from_qty: '',
 };
 
 export default function CarrierServiceOptionsPage() {
@@ -189,6 +196,8 @@ export default function CarrierServiceOptionsPage() {
       allows_collect: carrier.allows_collect || false,
       service_types: carrier.service_types || [],
       max_weight_kg: carrier.max_weight_kg != null ? String(carrier.max_weight_kg) : '',
+      price_per_package: carrier.price_per_package != null ? String(carrier.price_per_package) : '',
+      free_from_qty: carrier.free_from_qty != null ? String(carrier.free_from_qty) : '',
     });
     setDialogOpen(true);
   };
@@ -205,10 +214,30 @@ export default function CarrierServiceOptionsPage() {
       const maxWeightPayload =
         trimmedMax === '' ? null : (Number.isFinite(Number(trimmedMax)) ? Number(trimmedMax) : null);
 
+      // price_per_package: blank -> null; si trae valor, número.
+      const trimmedPpp = String(form.price_per_package || '').trim();
+      const pricePerPackagePayload =
+        trimmedPpp === '' ? null : (Number.isFinite(Number(trimmedPpp)) ? Number(trimmedPpp) : null);
+
+      // free_from_qty: blank -> null; entero >= 1 o null.
+      const trimmedFree = String(form.free_from_qty || '').trim();
+      const freeFromQtyPayload =
+        trimmedFree === ''
+          ? null
+          : (Number.isFinite(Number(trimmedFree)) && Number(trimmedFree) >= 1
+              ? Math.floor(Number(trimmedFree))
+              : null);
+
       const res = await fetch(url, {
         method,
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, max_weight_kg: maxWeightPayload, carrier_type: carrierType }),
+        body: JSON.stringify({
+          ...form,
+          max_weight_kg: maxWeightPayload,
+          price_per_package: pricePerPackagePayload,
+          free_from_qty: freeFromQtyPayload,
+          carrier_type: carrierType,
+        }),
       });
       const data = await res.json();
       
@@ -566,6 +595,35 @@ export default function CarrierServiceOptionsPage() {
               helperText={t('carrierOptions.maxWeightHelper', 'Si se ingresa, el sistema no permitirá asignar esta paquetería a cajas que excedan este peso.')}
               slotProps={{ htmlInput: { min: 0, step: 0.5 } }}
             />
+
+            {/* Tarifa por paquete + umbral de gratuidad (opcional).
+                Si se ingresan, el cotizador cobra price_per_package × cajas mientras
+                cajas < free_from_qty, y cobra $0 cuando cajas >= free_from_qty. */}
+            <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
+              <TextField
+                label="Precio por paquete (MXN)"
+                type="number"
+                value={form.price_per_package}
+                onChange={e => setForm(prev => ({ ...prev, price_per_package: e.target.value }))}
+                size="small"
+                fullWidth
+                placeholder="ej: 150"
+                slotProps={{ htmlInput: { min: 0, step: 0.5 } }}
+              />
+              <TextField
+                label="Gratis a partir de (paquetes)"
+                type="number"
+                value={form.free_from_qty}
+                onChange={e => setForm(prev => ({ ...prev, free_from_qty: e.target.value }))}
+                size="small"
+                fullWidth
+                placeholder="ej: 3"
+                slotProps={{ htmlInput: { min: 1, step: 1 } }}
+              />
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
+              Deja ambos vacíos si la paquetería usa precio fijo. Ejemplo: 150 y 3 = $150 por caja hasta 2 cajas, gratis desde 3 cajas en adelante.
+            </Typography>
 
             {/* Permite por cobrar */}
             <FormControlLabel
