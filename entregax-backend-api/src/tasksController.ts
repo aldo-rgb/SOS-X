@@ -1154,10 +1154,12 @@ export const startTask = async (req: Request, res: Response): Promise<any> => {
     }
     if (task.status === 'completed') return res.status(400).json({ error: 'La tarea ya está completada' });
 
-    // Regla: el usuario solo puede tener UNA tarea en proceso a la vez. Una tarea
-    // está "en proceso" si está abierta, iniciada y en una columna intermedia
-    // (no la primera ni la terminal). Si ya hay una y no se confirma (force), se
-    // pide confirmación; con force, la anterior regresa a Pendiente.
+    // Recomendación (NO bloqueo): lo ideal es terminar la tarea en proceso antes
+    // de iniciar otra. Si ya hay una y no se confirmó (force), respondemos 409
+    // con needs_confirm SOLO para que el frontend muestre el consejo; el usuario
+    // puede iniciar de todos modos (force=true) y ambas quedan en proceso.
+    // Una tarea está "en proceso" si está abierta, iniciada y en una columna
+    // intermedia (no la primera ni la terminal).
     const inProc = await pool.query(
       `SELECT t.id, t.title FROM tasks t
          JOIN task_columns c ON c.id = t.column_id
@@ -1166,20 +1168,11 @@ export const startTask = async (req: Request, res: Response): Promise<any> => {
           AND c.sort_order > (SELECT MIN(sort_order) FROM task_columns WHERE board_id = t.board_id)
           AND (t.assignee_id = $2 OR EXISTS (SELECT 1 FROM task_participants p WHERE p.task_id = t.id AND p.user_id = $2))`,
       [id, uid]);
-    if (inProc.rows.length > 0) {
-      if (req.body?.force !== true) {
-        return res.status(409).json({ needs_confirm: true, current: { id: inProc.rows[0].id, title: inProc.rows[0].title } });
-      }
-      // Regresa las que estén en proceso a Pendiente (primera columna, reinicia tiempos).
-      for (const prev of inProc.rows) {
-        const firstCol = (await pool.query(
-          `SELECT id FROM task_columns WHERE board_id=(SELECT board_id FROM tasks WHERE id=$1) ORDER BY sort_order LIMIT 1`, [prev.id])).rows[0]?.id || null;
-        await pool.query(
-          `UPDATE tasks SET column_id = COALESCE($2, column_id), started_at = NULL, commitment_date = NULL, updated_at = NOW() WHERE id = $1`,
-          [prev.id, firstCol]);
-        await logActivity(prev.id, uid, 'reverted_to_pending', { reason: 'otra_en_proceso', new_task_id: id });
-      }
+    if (inProc.rows.length > 0 && req.body?.force !== true) {
+      return res.status(409).json({ needs_confirm: true, current: { id: inProc.rows[0].id, title: inProc.rows[0].title } });
     }
+    // Con force=true no se toca la otra tarea: se permite tener más de una en
+    // proceso (la puntuación penaliza dejar en proceso lo ya terminado).
 
     // Fecha compromiso: la enviada, o la fecha deseada (due_at) por defecto.
     const commitment = req.body?.commitment_date || task.due_at || null;

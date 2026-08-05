@@ -1159,23 +1159,26 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             </DialogActions>
           </Dialog>
 
-          {/* Confirmar dejar otra tarea pendiente para iniciar esta (regla 1 en proceso) */}
+          {/* Consejo (no bloqueo): ya hay una tarea en proceso. Puede iniciar igual. */}
           <Dialog open={procConfirm != null} onClose={() => setProcConfirm(null)} maxWidth="xs" fullWidth>
             <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
               <PlayArrowIcon sx={{ color: '#B07206' }} /> Ya tienes una tarea en proceso
             </DialogTitle>
             <DialogContent>
               <Typography variant="body2" color="text.secondary">
-                Solo puedes tener <b>una tarea en proceso</b> a la vez. Ya tienes «<b>{procConfirm?.title}</b>» en proceso.
+                Para mejorar tu efectividad, lo ideal es <b>no iniciar una tarea nueva hasta terminar</b> «<b>{procConfirm?.title}</b>».
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                ¿La dejas <b>pendiente</b> para iniciar esta?
+                Dejar en proceso una tarea que ya terminaste <b>afecta tu puntuación</b>. Termina tus tareas 💪
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Aun así puedes iniciar esta y trabajar ambas a la vez.
               </Typography>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setProcConfirm(null)}>Cancelar</Button>
               <Button variant="contained" onClick={() => { setProcConfirm(null); start(true); }} sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
-                Sí, iniciar esta
+                Iniciar de todos modos
               </Button>
             </DialogActions>
           </Dialog>
