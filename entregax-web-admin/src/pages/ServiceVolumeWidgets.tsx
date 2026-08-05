@@ -6,7 +6,7 @@ import { ResponsiveContainer, AreaChart, Area } from 'recharts';
 import api from '../services/api';
 
 const SERVICES = [
-  { key: 'todos',       label: 'Volumen de toda la operación', emoji: '🏢', color: '#F05A28' },
+  { key: 'todos',       label: 'Volumen bruto', emoji: '🏢', color: '#F05A28' },
   { key: 'tdi_aereo',   label: 'TDI Aéreo',     emoji: '✈️',  color: '#1565C0' },
   { key: 'tdi_express', label: 'TDI Express',   emoji: '🚀',  color: '#7B1FA2' },
   { key: 'maritimo',    label: 'Marítimo China', emoji: '🚢',  color: '#00695C' },

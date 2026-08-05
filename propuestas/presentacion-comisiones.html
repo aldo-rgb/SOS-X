@@ -1,0 +1,315 @@
+<title>EntregaX · Simulador y Nuevo Esquema de Comisiones</title>
+<style>
+  :root {
+    --bg: #FAF6F1; --ink: #201A14; --muted: #7B6F63; --faint: #A99C8D;
+    --surface: #FFFFFF; --surface-2: #F3ECE3; --border: #E7DDD0;
+    --accent: #D8531C; --accent-2: #B23F12; --accent-soft: #FBE6D8;
+    --dark: #17120D; --dark-2: #221A12;
+    --green: #2E7D46; --green-bg: #E4F1E8; --amber: #B0740A; --amber-bg: #F7EBD3;
+    --red: #C0392B; --blue: #1D6FB8;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141019; --ink:#F1EAE1; --muted:#A99C8E; --faint:#7E7264;
+      --surface:#201A22; --surface-2:#2A2230; --border:#39303f;
+      --accent:#EE8646; --accent-2:#F29C62; --accent-soft:#39271b;
+      --green:#6FC28A; --green-bg:#1d2e22; --amber:#E0A94C; --amber-bg:#33280f; --red:#E8776A; --blue:#6BB0EC; }
+  }
+  :root[data-theme="dark"] { --bg:#141019; --ink:#F1EAE1; --muted:#A99C8E; --faint:#7E7264;
+      --surface:#201A22; --surface-2:#2A2230; --border:#39303f;
+      --accent:#EE8646; --accent-2:#F29C62; --accent-soft:#39271b;
+      --green:#6FC28A; --green-bg:#1d2e22; --amber:#E0A94C; --amber-bg:#33280f; --red:#E8776A; --blue:#6BB0EC; }
+  :root[data-theme="light"] { --bg:#FAF6F1; --ink:#201A14; --muted:#7B6F63; --faint:#A99C8D;
+      --surface:#FFFFFF; --surface-2:#F3ECE3; --border:#E7DDD0;
+      --accent:#D8531C; --accent-2:#B23F12; --accent-soft:#FBE6D8;
+      --green:#2E7D46; --green-bg:#E4F1E8; --amber:#B0740A; --amber-bg:#F7EBD3; --red:#C0392B; --blue:#1D6FB8; }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-snap-type: y mandatory; scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.5;
+    -webkit-font-smoothing: antialiased; }
+  .slide { min-height: 100vh; min-height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always;
+    display: flex; flex-direction: column; justify-content: center; padding: 6vh 7vw; position: relative; }
+  .slide-in { max-width: 1000px; margin: 0 auto; width: 100%; }
+  .num-tag { font-family: var(--mono); font-size: 12px; letter-spacing: .1em; color: var(--accent);
+    font-weight: 700; text-transform: uppercase; }
+  h1 { font-size: clamp(30px, 6.4vw, 62px); line-height: 1.02; letter-spacing: -.025em; font-weight: 850;
+    text-wrap: balance; }
+  h2 { font-size: clamp(26px, 5vw, 44px); line-height: 1.05; letter-spacing: -.02em; font-weight: 850;
+    text-wrap: balance; margin-bottom: 6px; }
+  .kicker { font-size: 13px; letter-spacing: .16em; text-transform: uppercase; font-weight: 800;
+    color: var(--accent); margin-bottom: 14px; }
+  .lede { font-size: clamp(16px, 2.2vw, 21px); color: var(--muted); max-width: 60ch; margin-top: 14px; }
+  p { margin-bottom: 10px; }
+  strong { font-weight: 750; color: var(--ink); }
+  .mono { font-family: var(--mono); }
+
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 800;
+    padding: 5px 12px; border-radius: 999px; letter-spacing: .02em; }
+  .b-proj { background: var(--amber-bg); color: var(--amber); border: 1px dashed var(--amber); }
+  .b-live { background: var(--green-bg); color: var(--green); }
+  .b-accent { background: var(--accent-soft); color: var(--accent-2); }
+
+  /* dark slides */
+  .slide.dark { background: var(--dark); color: #F5EEE6; }
+  .slide.dark h1, .slide.dark h2 { color: #fff; }
+  .slide.dark .lede { color: #C9BEB2; }
+  .slide.dark .kicker { color: var(--accent-2); }
+  .slide.dark .divider-x { color: var(--accent-2); }
+
+  .cards { display: grid; gap: 16px; margin-top: 26px; }
+  .c3 { grid-template-columns: repeat(3, 1fr); }
+  .c2 { grid-template-columns: 1fr 1fr; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px; }
+  .card .n { font-family: var(--mono); font-size: 13px; color: var(--accent); font-weight: 700; }
+  .card h3 { font-size: 18px; margin: 8px 0 6px; font-weight: 800; letter-spacing: -.01em; }
+  .card p { font-size: 14.5px; color: var(--muted); margin: 0; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: clamp(14px, 1.7vw, 17px); }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 800; }
+  td .pct { font-family: var(--mono); font-weight: 800; font-size: 1.1em; }
+  tr td:last-child, tr th:last-child { text-align: center; }
+  .yes { color: var(--green); font-weight: 800; } .no { color: var(--faint); font-weight: 700; }
+  .tbl-wrap { overflow-x: auto; }
+
+  .stat-row { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 26px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px 22px; flex: 1; min-width: 150px; }
+  .stat .v { font-size: clamp(26px, 4vw, 40px); font-weight: 850; letter-spacing: -.02em; }
+  .stat .l { font-size: 12.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+
+  .steps { display: grid; gap: 14px; margin-top: 24px; }
+  .step { display: flex; gap: 16px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px 18px; }
+  .step .k { font-family: var(--mono); font-weight: 800; font-size: 20px; color: var(--accent); flex: none; width: 34px; }
+  .step b { display: block; font-size: 16px; margin-bottom: 2px; }
+  .step span { font-size: 14px; color: var(--muted); }
+
+  .gate { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 26px; }
+  .gate .g { border-radius: 16px; padding: 22px; text-align: center; border: 2px solid; }
+  .gate .g .big { font-size: clamp(34px, 6vw, 54px); font-weight: 900; line-height: 1; }
+  .gate .g .cap { font-size: 13px; font-weight: 700; margin-top: 8px; }
+  .g100 { border-color: var(--green); background: var(--green-bg); color: var(--green); }
+  .g90 { border-color: var(--amber); background: var(--amber-bg); color: var(--amber); }
+  .g80 { border-color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+
+  .callout { border-radius: 14px; padding: 16px 20px; margin-top: 22px; font-size: 15px; }
+  .callout.proj { background: var(--amber-bg); border: 1px dashed var(--amber); color: var(--amber); }
+  .callout.proj strong { color: var(--amber); }
+  .shot { margin-top: 22px; border: 2px dashed var(--border); border-radius: 14px; padding: 30px; text-align: center;
+    color: var(--faint); font-size: 14px; background: var(--surface-2); }
+
+  .logo { font-weight: 900; font-size: 20px; letter-spacing: -.01em; }
+  .logo .x { color: var(--accent); }
+  .divider-x { font-size: clamp(60px, 14vw, 150px); font-weight: 900; color: var(--accent); line-height: 1; }
+
+  /* progress + counter */
+  .progress { position: fixed; top: 0; left: 0; height: 4px; background: var(--accent); width: 0; z-index: 50;
+    transition: width .2s; }
+  .counter { position: fixed; bottom: 16px; right: 20px; font-family: var(--mono); font-size: 12.5px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px;
+    color: var(--muted); z-index: 50; }
+  .hint { position: fixed; bottom: 16px; left: 20px; font-size: 12px; color: var(--faint); z-index: 50; }
+
+  @media (max-width: 720px) {
+    .c3, .c2, .gate { grid-template-columns: 1fr; }
+    .slide { padding: 7vh 8vw; }
+    .hint { display: none; }
+  }
+</style>
+
+<div class="progress" id="progress"></div>
+<div class="counter" id="counter">01</div>
+<div class="hint">↓ / → para avanzar</div>
+
+<!-- 1 · Portada -->
+<section class="slide dark">
+  <div class="slide-in">
+    <div class="logo" style="margin-bottom:26px">Entrega<span class="x">X</span> · Paquetería</div>
+    <div class="kicker">Capacitación interna · Equipo comercial</div>
+    <h1>Simulador &amp; Nuevo Esquema<br>de Comisiones</h1>
+    <p class="lede">Cómo cotizar sin errores y cómo ganar más vendiendo el portafolio completo: Servicio + X‑Pay + GEX.</p>
+    <div style="margin-top:26px; display:flex; gap:8px; flex-wrap:wrap">
+      <span class="badge b-live">🟢 Simulador · disponible hoy</span>
+      <span class="badge b-proj">◷ Esquema · entra en vigor pronto</span>
+    </div>
+  </div>
+</section>
+
+<!-- 2 · Agenda -->
+<section class="slide">
+  <div class="slide-in">
+    <div class="num-tag">Agenda</div>
+    <h2>Dos temas, una meta: vender mejor</h2>
+    <div class="cards c2">
+      <div class="card"><div class="n">Parte 1 · Hoy</div><h3>🧪 El Simulador de Cotizaciones</h3><p>La herramienta para dar precios exactos en segundos y no perder ventas por errores.</p></div>
+      <div class="card"><div class="n">Parte 2 · Próximos meses</div><h3>💰 El Nuevo Esquema de Comisiones</h3><p>Cómo evoluciona tu pago para premiar la venta integral. Reglas claras, sin sorpresas.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 · Divider parte 1 -->
+<section class="slide dark">
+  <div class="slide-in">
+    <div class="divider-x">01</div>
+    <div class="kicker" style="margin-top:14px">Parte 1</div>
+    <h1>El Simulador<br>de Cotizaciones</h1>
+    <p class="lede">"Cierra ventas sin errores."</p>
+  </div>
+</section>
+
+<!-- 4 · Simulador cómo usarlo -->
+<section class="slide">
+  <div class="slide-in">
+    <div class="num-tag">Simulador EntregaX</div>
+    <h2>Cotizaciones exactas en segundos</h2>
+    <p class="lede">Nuestra herramienta interna para cotizar cualquier servicio (PO Box, Aéreo, Marítimo, DHL) sin calculadora ni adivinar.</p>
+    <div class="steps">
+      <div class="step"><div class="k">1</div><div><b>Ingresa datos precisos</b><span>Medidas exactas (largo × ancho × alto), peso real y tipo de mercancía. El CBM y el peso cobrable salen solos.</span></div></div>
+      <div class="step"><div class="k">2</div><div><b>Valida siempre los servicios extra</b><span>Agrega en toda cotización el <strong>X‑Pay</strong> (pago a proveedor) y el <strong>GEX / Seguro de mercancía</strong>. No es opcional: es parte de la venta.</span></div></div>
+      <div class="step"><div class="k">3</div><div><b>Comparte el total al cliente</b><span>Un solo número claro. Menos dudas, cierre más rápido.</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 · Reglas de oro cotizador + captura -->
+<section class="slide">
+  <div class="slide-in">
+    <div class="num-tag">Reglas de oro del cotizador</div>
+    <h2>Precisión = confianza = venta</h2>
+    <div class="cards c3">
+      <div class="card"><h3>📏 Medidas reales</h3><p>Cotiza con las dimensiones y peso verdaderos. Un dato mal capturado = un cobro incorrecto = un cliente molesto.</p></div>
+      <div class="card"><h3>🛡️ Siempre GEX</h3><p>Ofrece el Seguro de mercancía en cada cotización. Protege al cliente y suma a tu comisión.</p></div>
+      <div class="card"><h3>💱 Siempre X‑Pay</h3><p>Explica el pago seguro a proveedores en China. Es un servicio que el cliente necesita — y tú cierras.</p></div>
+    </div>
+    <div class="shot">📸 Espacio para tus capturas del simulador: ejemplo de cálculo de CBM (medidas → m³) y de GEX (valor asegurado → costo).</div>
+  </div>
+</section>
+
+<!-- 6 · Divider parte 2 -->
+<section class="slide dark">
+  <div class="slide-in">
+    <div class="divider-x">02</div>
+    <div class="kicker" style="margin-top:14px">Parte 2 · El nuevo esquema</div>
+    <h1>Gana más,<br>vendiendo mejor</h1>
+    <p class="lede">Evolucionamos tu compensación para premiar la venta integral: Servicio + X‑Pay + GEX.</p>
+  </div>
+</section>
+
+<!-- 7 · Comisión base por servicio -->
+<section class="slide">
+  <div class="slide-in">
+    <div class="num-tag">Regla 1 · La base</div>
+    <h2>Comisión base por servicio</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Servicio</th><th>Comisión base</th><th>¿Acelerador?</th></tr></thead>
+        <tbody>
+          <tr><td>✈️ Aéreo China</td><td><span class="pct">2.5%</span></td><td class="yes">Sí</td></tr>
+          <tr><td>🚀 TDI Express</td><td><span class="pct">2.75%</span></td><td class="yes">Sí</td></tr>
+          <tr><td>🚢 Marítimo China</td><td><span class="pct">3.75%</span></td><td class="yes">Sí</td></tr>
+          <tr><td>📦 PO Box USA</td><td><span class="pct">10%</span></td><td class="no">No · va por volumen</td></tr>
+          <tr><td>🚚 DHL Nacional</td><td><span class="pct">10%</span></td><td class="no">No · va por volumen</td></tr>
+          <tr><td>💱 X‑Pay · 🛡️ GEX</td><td>Margen · $325 fijo</td><td class="no">No · bonos propios</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 8 · El acelerador -->
+<section class="slide">
+  <div class="slide-in">
+    <div class="num-tag">Regla 2 · El premio</div>
+    <h2>El Acelerador <span class="badge b-accent" style="vertical-align:middle">1.5×</span></h2>
+    <p class="lede">Solo en Aéreo, TDI y Marítimo. No te "relajas" al llegar a la meta: pasar del 120% vale más.</p>
+    <div class="cards c2">
+      <div class="card"><div class="n">0 – 120% de tu meta</div><h3>Comisión normal</h3><p>Tu % base de siempre sobre lo que vendas.</p></div>
+      <div class="card" style="border-color:var(--accent); background:var(--accent-soft)"><div class="n" style="color:var(--accent-2)">Excedente arriba del 120%</div><h3>Se paga a 1.5× 🚀</h3><p>Esa porción vale 50% más. Vender de más te paga de más.</p></div>
+    </div>
+    <div class="callout" style="background:var(--surface-2)"><strong>Ejemplo:</strong> meta $100,000. Vendes $150,000 → los primeros $120,000 pagan comisión normal; los $30,000 que pasan del 120% pagan a <strong>1.5×</strong>.</div>
+  </div>
+</section>
+
+<!-- 9 · Las metas · PROYECCIÓN -->
+<section class="slide">
+  <div class="slide-in">
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap"><div class="num-tag">¿Cómo funcionan las metas?</div><span class="badge b-proj">◷ Proyección · aún no en vigor</span></div>
+    <h2>Tu meta mensual</h2>
+    <p class="lede">Un objetivo mensual de ventas (MXN) por asesor, solo para los servicios acelerados (Aéreo / TDI / Marítimo).</p>
+    <div class="cards c2">
+      <div class="card"><h3>Cómo se pagará</h3><p>Hasta el 120% → comisión normal. El excedente arriba del 120% → a 1.5×. Así siempre conviene empujar más.</p></div>
+      <div class="card"><h3>Cómo lo vamos a fijar</h3><p>Cada asesor tendrá una <strong>meta fija en MXN al mes</strong>, definida por gerencia según su cartera y temporada.</p></div>
+    </div>
+    <div class="callout proj">◷ <strong>Proyección:</strong> las metas individuales todavía se están definiendo. En el simulador se muestran como una estimación (% de tus propias ventas) solo para ilustrar el acelerador; el número oficial lo asigna gerencia cuando el esquema entre en vigor.</div>
+  </div>
+</section>
+
+<!-- 10 · Premios extra -->
+<section class="slide">
+  <div class="slide-in">
+    <div class="num-tag">Regla 3 · Más formas de ganar</div>
+    <h2>No solo el flete: bonos extra</h2>
+    <div class="cards c3">
+      <div class="card"><h3>📦 Volumen · PO Box + DHL</h3><p>Por # de guías al mes:<br><strong>80 → +$500</strong><br><strong>150 → +$1,200</strong><br><strong>250 → +$2,500</strong></p></div>
+      <div class="card" style="border-color:var(--accent)"><h3>💱🛡️ Venta cruzada</h3><p><strong>Combo</strong> (envío + Seguro + X‑Pay en la misma venta) → <strong>+$500</strong> inmediato.<br><strong>Attach GEX:</strong> ≥30% guías con seguro → $500 · ≥50% → $1,000.</p></div>
+      <div class="card"><h3>🏆 Bonos globales</h3><p><strong>Venta Limpia</strong> (trimestral, clientes sin quejas).<br><strong>Premio de Lealtad:</strong> Kit de Bienvenida "Gold" al de mayor retención.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 11 · La condición · gate -->
+<section class="slide">
+  <div class="slide-in">
+    <div class="num-tag">Regla 4 · La condición</div>
+    <h2>El portafolio completo, cada mes</h2>
+    <p class="lede">Para cobrar el <strong>100%</strong> de tus bonos, la cuota mínima de venta cruzada: <strong>≥3 X‑Pay y ≥3 Seguros al mes</strong>. No te quitamos dinero — te pedimos vender completo.</p>
+    <div class="gate">
+      <div class="g g100"><div class="big">100%</div><div class="cap">Cumples AMBAS cuotas ✅</div></div>
+      <div class="g g90"><div class="big">90%</div><div class="cap">Cumples solo UNA ⚠️</div></div>
+      <div class="g g80"><div class="big">80%</div><div class="cap">Cero venta cruzada ⛔</div></div>
+    </div>
+    <div class="callout" style="background:var(--surface-2)">El efecto: ofrecer X‑Pay y Seguro en <strong>cada llamada</strong> se vuelve natural. El cliente gana protección, tú ganas comisión completa.</div>
+  </div>
+</section>
+
+<!-- 12 · Transparencia + cierre -->
+<section class="slide dark">
+  <div class="slide-in">
+    <div class="kicker">Transparencia</div>
+    <h1>Entra en vigor de forma<br>oficial para todos</h1>
+    <p class="lede">Este esquema arranca en <strong style="color:#fff">[ MES / FECHA ]</strong>. Hasta entonces, úsalo para entender cómo ganarás más — nadie sale afectado en la primera etapa.</p>
+    <div class="stat-row">
+      <div class="stat"><div class="v" style="color:var(--accent-2)">+</div><div class="l">Vende el portafolio</div></div>
+      <div class="stat"><div class="v" style="color:var(--accent-2)">1.5×</div><div class="l">Acelerador al pasar la meta</div></div>
+      <div class="stat"><div class="v" style="color:var(--accent-2)">100%</div><div class="l">Bono con venta cruzada</div></div>
+    </div>
+    <p style="margin-top:26px; color:#C9BEB2; font-size:15px">💡 Practica en el <strong style="color:#fff">Simulador de comisiones</strong> con tus ventas reales para ver, tú mismo, cuánto ganarías con el nuevo modelo.</p>
+  </div>
+</section>
+
+<script>
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var counter = document.getElementById('counter');
+  var progress = document.getElementById('progress');
+  var pad = function(n){ return (n<10?'0':'')+n; };
+  function current(){
+    var mid = window.scrollY + window.innerHeight/2;
+    for (var i=0;i<slides.length;i++){ if (slides[i].offsetTop <= mid) var idx=i; }
+    return idx||0;
+  }
+  function update(){
+    var i = current();
+    counter.textContent = pad(i+1) + ' / ' + pad(slides.length);
+    progress.style.width = ((i)/(slides.length-1)*100) + '%';
+  }
+  window.addEventListener('scroll', update, { passive:true });
+  window.addEventListener('resize', update);
+  update();
+  document.addEventListener('keydown', function(e){
+    var i = current();
+    if (e.key==='ArrowDown'||e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){ e.preventDefault(); if(slides[i+1]) slides[i+1].scrollIntoView(); }
+    if (e.key==='ArrowUp'||e.key==='ArrowLeft'||e.key==='PageUp'){ e.preventDefault(); if(slides[i-1]) slides[i-1].scrollIntoView(); }
+  });
+</script>

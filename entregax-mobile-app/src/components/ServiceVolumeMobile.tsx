@@ -218,7 +218,7 @@ export default function ServiceVolumeMobile({ apiUrl, token }: { apiUrl: string;
         </View>
       </View>
 
-      {/* Tarjeta compacta: VOLUMEN de toda la operación (dinero, todos los servicios) */}
+      {/* Tarjeta compacta: VOLUMEN BRUTO (dinero, todos los servicios) */}
       <TouchableOpacity activeOpacity={0.9} onPress={() => requestDetail(0)} style={styles.bigCard}>
         {loading ? (
           <View style={{ height: 150, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color={ORANGE} /></View>
