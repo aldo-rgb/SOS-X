@@ -238,6 +238,10 @@ export default function MisTareasPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
   const [involvedIds, setInvolvedIds] = useState<number[]>(MY_ID ? [MY_ID] : []);
+  // Responsable principal de la nueva tarea. Se pide OBLIGATORIO cuando el
+  // creador involucra a alguien más (además de sí mismo). Debe ser uno de los
+  // involucrados. 0 = sin elegir.
+  const [newAssigneeId, setNewAssigneeId] = useState<number>(0);
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
@@ -245,6 +249,17 @@ export default function MisTareasPage() {
   const [catSection, setCatSection] = useState<number | ''>(''); // subsección elegida
   const [newSubtasks, setNewSubtasks] = useState<string[]>([]); // checklist al crear
   const [subInput, setSubInput] = useState('');
+
+  // Auto-limpia el responsable si ya no está entre los involucrados (p. ej. lo
+  // quitó del picker). Auto-selecciona al primer involucrado distinto de "yo"
+  // apenas aparece uno para no obligar al usuario a un clic extra — pero el
+  // creador sigue teniendo que confirmarlo o cambiarlo antes de enviar.
+  useEffect(() => {
+    const others = involvedIds.filter(id => id && id !== MY_ID);
+    if (newAssigneeId && !involvedIds.includes(newAssigneeId)) setNewAssigneeId(0);
+    else if (!newAssigneeId && others.length > 0) setNewAssigneeId(others[0]);
+    else if (others.length === 0 && newAssigneeId !== 0) setNewAssigneeId(0);
+  }, [involvedIds, newAssigneeId]);
 
   // Programar tareas (futuras / recurrentes).
   const [schedOpen, setSchedOpen] = useState(false);
@@ -299,6 +314,13 @@ export default function MisTareasPage() {
 
   const createTask = async () => {
     if (!form.title.trim()) return notify('El título es obligatorio', 'error');
+    // Si el creador involucró a alguien más (aparte de "yo"), el responsable
+    // es obligatorio y tiene que ser uno de los involucrados.
+    const others = involvedIds.filter(id => id && id !== MY_ID);
+    if (others.length > 0) {
+      if (!newAssigneeId) return notify('Selecciona un responsable para la tarea', 'error');
+      if (!involvedIds.includes(newAssigneeId)) return notify('El responsable debe estar entre los involucrados', 'error');
+    }
     try {
       const res = await axios.post(`${API_URL}/tasks/personal`, {
         title: form.title.trim(), description: form.description || null,
@@ -306,6 +328,9 @@ export default function MisTareasPage() {
         board_id: catId || null, // 0/'' = Sin categoría → Tareas Personales
         section_id: catSection || null,
         subtasks: newSubtasks.filter(s => s.trim()).map(body => ({ body: body.trim() })),
+        // Solo mandamos assignee_id cuando aplicó el picker (evita que el
+        // backend sobreescriba su default cuando la tarea es 100% personal).
+        ...(others.length > 0 && newAssigneeId ? { assignee_id: newAssigneeId } : {}),
       }, H());
       const newId = res.data?.task?.id;
       if (newId && newPhotos.length) {
@@ -316,7 +341,7 @@ export default function MisTareasPage() {
       }
       setCreateOpen(false);
       setForm({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
-      setInvolvedIds(MY_ID ? [MY_ID] : []); setNewPhotos([]);
+      setInvolvedIds(MY_ID ? [MY_ID] : []); setNewAssigneeId(0); setNewPhotos([]);
       setNewSubtasks([]); setSubInput('');
       notify('Tarea creada');
       load();
@@ -616,6 +641,33 @@ export default function MisTareasPage() {
             Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
           </Typography>
 
+          {/* Responsable — visible SOLO cuando hay al menos un involucrado
+              distinto del creador. Obligatorio antes de crear la tarea. */}
+          {involvedIds.filter(id => id && id !== MY_ID).length > 0 && (
+            <FormControl fullWidth size="small" sx={{ mt: 1.5 }} required error={!newAssigneeId}>
+              <InputLabel>Responsable *</InputLabel>
+              <Select
+                label="Responsable *"
+                value={newAssigneeId || ''}
+                onChange={e => setNewAssigneeId(Number(e.target.value))}
+              >
+                {involvedIds
+                  .map(id => users.find(u => u.id === id))
+                  .filter((u): u is UserOpt => !!u)
+                  .map(u => (
+                    <MenuItem key={u.id} value={u.id}>
+                      {u.full_name}{u.id === MY_ID ? ' (yo)' : ''}
+                    </MenuItem>
+                  ))}
+              </Select>
+              <Typography variant="caption" color={newAssigneeId ? 'text.secondary' : 'error'} sx={{ mt: 0.5 }}>
+                {newAssigneeId
+                  ? 'Debe ser una persona involucrada. Si nadie es responsable, la tarea puede quedar en el aire.'
+                  : 'Selecciona un responsable de la tarea.'}
+              </Typography>
+            </FormControl>
+          )}
+
           {/* Checklist (subtareas) */}
           <Box sx={{ mt: 2 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
@@ -672,7 +724,20 @@ export default function MisTareasPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { setCreateOpen(false); setNewPhotos([]); }}>Cancelar</Button>
-          <Button variant="contained" onClick={createTask} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Crear</Button>
+          {(() => {
+            const needsAssignee = involvedIds.filter(id => id && id !== MY_ID).length > 0;
+            const disableCrear = !form.title.trim() || (needsAssignee && !newAssigneeId);
+            return (
+              <Button
+                variant="contained"
+                onClick={createTask}
+                disabled={disableCrear}
+                sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}
+              >
+                Crear
+              </Button>
+            );
+          })()}
         </DialogActions>
       </Dialog>
 
