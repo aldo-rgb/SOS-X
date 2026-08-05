@@ -839,6 +839,22 @@ function ClientLookupResult({ data }: { data: PackageData }) {
           {client.is_legacy && (
             <Chip size="small" label="Legacy" sx={{ bgcolor: '#ECEFF1', color: '#455A64', fontWeight: 600 }} />
           )}
+          {/* Estado de verificación del cliente — el equipo de soporte necesita
+              saber de un vistazo si ya está verificado o sigue pendiente. */}
+          {(() => {
+            const status = String(client.verification_status || '').toLowerCase();
+            if (client.is_legacy) return null;
+            if (client.is_verified || status === 'approved' || status === 'verified') {
+              return <Chip size="small" label="✅ Verificado" sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700 }} />;
+            }
+            if (status === 'pending' || status === 'submitted' || status === 'in_review') {
+              return <Chip size="small" label="⏳ Verificación pendiente" sx={{ bgcolor: '#FFF8E1', color: '#F57F17', fontWeight: 700 }} />;
+            }
+            if (status === 'rejected') {
+              return <Chip size="small" label="❌ Verificación rechazada" sx={{ bgcolor: '#FFEBEE', color: '#C62828', fontWeight: 700 }} />;
+            }
+            return <Chip size="small" label="⚠️ Sin verificar" sx={{ bgcolor: '#FFF3E0', color: '#D84315', fontWeight: 700 }} />;
+          })()}
         </Box>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, color: 'text.secondary' }}>
           {client.email && <Typography variant="caption">📧 {client.email}</Typography>}
@@ -1035,7 +1051,7 @@ export default function CajitoFab() {
   // arrancan en modo track.
   const [mode, setMode] = useState<'chat' | 'track'>(() => {
     const u = getCurrentUser();
-    return ['advisor', 'sub_advisor', 'customer_service'].includes(String(u?.role || '').toLowerCase()) ? 'track' : 'chat';
+    return ['advisor', 'sub_advisor', 'customer_service', 'soporte_tecnico'].includes(String(u?.role || '').toLowerCase()) ? 'track' : 'chat';
   });
   const [imgError, setImgError] = useState(false);
   // Acceso por CAPACIDAD (cajito.access), no solo por rol: un admin con el permiso
@@ -1087,8 +1103,10 @@ export default function CajitoFab() {
   const isAdvisor = ['advisor', 'sub_advisor'].includes(_role);
   // Servicio a cliente: misma versión "Rastrear guía" por default (sin scope).
   const isCustomerService = _role === 'customer_service';
+  // Soporte técnico: misma versión "Rastrear guía" que servicio a cliente.
+  const isSoporteTecnico = _role === 'soporte_tecnico';
   // Roles que solo ven "Rastrear guía" (sin Chat IA) y sin costo proveedor.
-  const isTrackOnly = isAdvisor || isCustomerService;
+  const isTrackOnly = isAdvisor || isCustomerService || isSoporteTecnico;
 
   useEffect(() => {
     if (open && mode === 'chat' && messages.length === 0) {

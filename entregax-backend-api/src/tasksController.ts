@@ -1067,6 +1067,10 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     // Si la tarea nació de "Reportar error" (título "Error localizado {folio}"),
     // al completarla se avisa AL CLIENTE en el mismo ticket que ya fue corregido.
     // Solo ESCRIBE la respuesta en el ticket (sin notificación push/in-app).
+    // ⚠️ NO cambiamos el status del ticket: el soporte técnico debe leer la
+    // corrección, decidir si el cliente confirma que ya funciona y cerrar
+    // ellos mismos el ticket (o pedir más contexto). Antes se ponía en
+    // 'waiting_client' y desaparecía de su cola sin que lo revisaran.
     const notifyTicketFixed = async () => {
       try {
         const m = String(task.title || '').match(/^Error localizado\s+(\S+)/i);
@@ -1080,7 +1084,9 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
           `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, FALSE)`,
           [ticketId, msg]
         );
-        await pool.query(`UPDATE support_tickets SET status='waiting_client', updated_at=NOW() WHERE id=$1`, [ticketId]);
+        // Solo tocamos updated_at para que el ticket suba de posición en la
+        // bandeja de Soporte Técnico — el status queda intacto.
+        await pool.query(`UPDATE support_tickets SET updated_at=NOW() WHERE id=$1`, [ticketId]);
       } catch (e) { console.error('[tasks] notifyTicketFixed:', e); }
     };
     // Al cerrar, mover a la columna terminal (is_done) del tablero si existe.
