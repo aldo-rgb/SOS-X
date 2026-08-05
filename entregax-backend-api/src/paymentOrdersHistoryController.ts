@@ -19,6 +19,7 @@
 // ============================================================================
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { isS3Configured, listS3Keys } from './s3Service';
 
 type ServiceKey =
   | 'ALL'
@@ -47,6 +48,7 @@ interface PaymentOrderRow {
   created_at: string | Date;
   paid_at: string | Date | null;
   items_count: number;
+  has_pdf: boolean;
 }
 
 const SERVICE_LABELS: Record<Exclude<ServiceKey, 'ALL'>, string> = {
@@ -360,6 +362,7 @@ export const getPaymentOrdersHistory = async (
         created_at: r.created_at,
         paid_at: r.paid_at,
         items_count: Number(r.items_count) || 0,
+        has_pdf: false,
       });
     }
 
@@ -382,6 +385,7 @@ export const getPaymentOrdersHistory = async (
         created_at: r.created_at,
         paid_at: r.paid_at || null,
         items_count: Number(r.items_count) || 0,
+        has_pdf: false,
       });
     }
 
@@ -403,6 +407,7 @@ export const getPaymentOrdersHistory = async (
         created_at: r.created_at,
         paid_at: r.paid_at || null,
         items_count: Number(r.items_count) || 1,
+        has_pdf: false,
       });
     }
 
@@ -424,7 +429,30 @@ export const getPaymentOrdersHistory = async (
         created_at: r.created_at,
         paid_at: r.paid_at || null,
         items_count: Number(r.items_count) || 0,
+        has_pdf: false,
       });
+    }
+
+    // ¿Qué órdenes tienen PDF guardado? Se resuelve con UNA sola operación de
+    // listado en S3 (prefijo de cotizaciones) en vez de un HEAD por fila. El
+    // botón de PDF en el frontend solo se muestra si has_pdf === true.
+    try {
+      if (isS3Configured() && normalized.length > 0) {
+        const keys = await listS3Keys('payment-orders/cotizacion-');
+        const pdfRefs = new Set<string>();
+        for (const k of keys) {
+          const m = k.match(/payment-orders\/cotizacion-(.+)\.pdf$/);
+          if (m && m[1]) pdfRefs.add(m[1]);
+        }
+        const safeRefOf = (ref: string | null): string =>
+          String(ref || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60);
+        for (const r of normalized) {
+          const candidate = safeRefOf(r.reference || r.folio);
+          r.has_pdf = !!candidate && pdfRefs.has(candidate);
+        }
+      }
+    } catch (e: any) {
+      console.warn('[payment-orders-history] no se pudo verificar PDFs en S3:', e?.message || e);
     }
 
     // Filtro adicional por status (aplicado en JS para permitir aliases entre tablas).

@@ -3,7 +3,7 @@
  * Reemplaza el almacenamiento local efímero de Render
  */
 
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // Configuración del cliente S3
@@ -258,4 +258,30 @@ export const headS3Object = async (key: string): Promise<{ exists: boolean; size
     console.warn('[headS3Object] error:', err?.message || err);
     return { exists: false };
   }
+};
+
+/**
+ * Lista todas las claves (keys) bajo un prefijo. Paginado internamente.
+ * Útil para saber, con UNA sola operación, qué objetos existen en una carpeta
+ * lógica (p.ej. saber qué órdenes tienen PDF guardado sin un HEAD por fila).
+ */
+export const listS3Keys = async (prefix: string): Promise<string[]> => {
+  const keys: string[] = [];
+  try {
+    let token: string | undefined = undefined;
+    do {
+      const r: any = await s3Client.send(new ListObjectsV2Command({
+        Bucket: BUCKET_NAME,
+        Prefix: prefix,
+        ContinuationToken: token,
+      }));
+      for (const obj of (r?.Contents || [])) {
+        if (obj?.Key) keys.push(String(obj.Key));
+      }
+      token = r?.IsTruncated ? r?.NextContinuationToken : undefined;
+    } while (token);
+  } catch (err: any) {
+    console.warn('[listS3Keys] error:', err?.message || err);
+  }
+  return keys;
 };

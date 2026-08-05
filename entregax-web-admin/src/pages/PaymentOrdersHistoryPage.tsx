@@ -36,6 +36,7 @@ interface OrderRow {
   created_at: string;
   paid_at: string | null;
   items_count: number;
+  has_pdf?: boolean;
 }
 
 interface ApiResponse {
@@ -310,8 +311,8 @@ export default function PaymentOrdersHistoryPage() {
                         </Typography>
                       </TableCell>
                       <TableCell align="center">
-                        {(r.reference || r.folio) ? (
-                          <Tooltip title="Descargar orden en PDF (si se generó)">
+                        {(r.has_pdf && (r.reference || r.folio)) ? (
+                          <Tooltip title="Descargar orden en PDF">
                             <IconButton size="small" sx={{ color: '#C62828' }}
                               onClick={() => window.open(`${API_URL}/api/ctz/${encodeURIComponent(String(r.reference || r.folio))}`, '_blank')}>
                               <PictureAsPdfIcon fontSize="small" />
