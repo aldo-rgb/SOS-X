@@ -427,16 +427,18 @@ export default function SupportBoardPage() {
     return allowed.includes(currentUserRole);
   };
 
-  const loadTickets = useCallback(async () => {
+  const loadTickets = useCallback(async (): Promise<SupportTicket[]> => {
     try {
       let url = `${API_URL}/admin/support/tickets?limit=200`;
       if (deptFilter !== 'all') url += `&department_id=${deptFilter}`;
       if (creatorFilter !== 'all') url += `&creator_type=${creatorFilter}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) { setTickets([]); return; }
+      if (!res.ok) { setTickets([]); return []; }
       const data = await res.json();
-      setTickets(Array.isArray(data) ? data : []);
-    } catch { setTickets([]); }
+      const list = Array.isArray(data) ? data : [];
+      setTickets(list);
+      return list;
+    } catch { setTickets([]); return []; }
   }, [token, deptFilter, creatorFilter]);
 
   const loadArchivedTickets = useCallback(async () => {
@@ -521,22 +523,43 @@ export default function SupportBoardPage() {
   // Abrir ticket específico cuando se navega desde el Dashboard
   useEffect(() => {
     const handler = (e: Event) => {
-      const ticketId = (e as CustomEvent).detail?.ticketId;
-      if (!ticketId) return;
-      const found = tickets.find(t => t.id === ticketId);
+      const detail = (e as CustomEvent).detail || {};
+      const ticketId = detail.ticketId;
+      const folio: string | undefined = detail.folio ? String(detail.folio).trim() : undefined;
+      if (!ticketId && !folio) return;
+      const match = (t: SupportTicket) =>
+        (ticketId && t.id === ticketId) ||
+        (folio && String(t.ticket_folio || '').toUpperCase() === folio.toUpperCase());
+      const found = tickets.find(match);
       if (found) {
         handleOpenTicket(found);
-      } else {
-        // Ticket no está en la lista actual — recargar y reintentar
-        loadTickets().then(() => {
-          const t2 = tickets.find(t => t.id === ticketId);
-          if (t2) handleOpenTicket(t2);
-        });
+        return;
       }
+      // No está en la lista actual (otro depto o aún no cargado). Recargamos;
+      // si sigue sin aparecer y buscamos por folio, hacemos un fetch SIN filtro
+      // de depto (para no perder tickets de otro departamento).
+      (async () => {
+        let list = await loadTickets();
+        let t2 = list.find(match);
+        if (!t2 && folio) {
+          try {
+            const res = await fetch(`${API_URL}/admin/support/tickets?limit=200`, { headers: { Authorization: `Bearer ${token}` } });
+            if (res.ok) {
+              const all = await res.json();
+              if (Array.isArray(all)) {
+                setTickets(all);
+                if (deptFilter !== 'all') setDeptFilter('all');
+                t2 = all.find(match);
+              }
+            }
+          } catch { /* ignore */ }
+        }
+        if (t2) handleOpenTicket(t2);
+      })();
     };
     window.addEventListener('open-support-ticket', handler);
     return () => window.removeEventListener('open-support-ticket', handler);
-  }, [tickets, loadTickets]);
+  }, [tickets, loadTickets, deptFilter, token]);
 
   const handleOpenTicket = async (ticket: SupportTicket) => {
     setSelectedTicket(ticket);

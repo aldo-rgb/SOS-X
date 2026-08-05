@@ -802,7 +802,7 @@ function App() {
   // Navegación rápida desde DashboardBranchManager
   useEffect(() => {
     const quickNavHandler = (rawEvent: Event) => {
-      const event = rawEvent as CustomEvent<{ action?: string; employeeId?: number; emitterId?: number; service?: string }>;
+      const event = rawEvent as CustomEvent<{ action?: string; employeeId?: number; emitterId?: number; service?: string; ticketFolio?: string }>;
       const action = event.detail?.action;
       if (!action) return;
 
@@ -950,6 +950,14 @@ function App() {
         setPanelsExpanded(true);
         setSelectedIndex(panelsIndex);
         setSelectedSubIndex(serviceSubIndex >= 0 ? serviceSubIndex : null);
+        // Si viene un folio (p.ej. desde una tarea "Error localizado TKT-…"),
+        // abrimos ese ticket una vez montado el tablero de soporte.
+        const ticketFolio = event.detail?.ticketFolio;
+        if (ticketFolio) {
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('open-support-ticket', { detail: { folio: ticketFolio } }));
+          }, 600);
+        }
       }
 
       if (action === 'verifications') {

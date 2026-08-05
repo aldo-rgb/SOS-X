@@ -108,6 +108,39 @@ const ACT_LABEL: Record<string, string> = {
 };
 const actLabel = (a: any): string => ACT_LABEL[a.action] || a.action;
 
+// Folio de ticket de soporte (TKT-2026-1919, TKT-ACQ-123-456, …). Se usa para
+// convertir en hipervínculo la referencia dentro del título/descripción de las
+// tareas que nacen de "Reportar error" ("Error localizado {folio}").
+const TICKET_FOLIO_RE = /TKT-[A-Za-z0-9]+-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*/g;
+const openTicketByFolio = (folio: string) => {
+  // Navega al Centro de Soporte y abre el ticket (App.tsx escucha este evento).
+  window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', {
+    detail: { action: 'service_tickets', ticketFolio: folio },
+  }));
+};
+// Renderiza `text` dejando los folios TKT-… como enlaces al ticket.
+const LinkifyTickets = ({ text, onNavigate }: { text?: string | null; onNavigate?: () => void }) => {
+  const src = String(text || '');
+  const parts: any[] = [];
+  const re = new RegExp(TICKET_FOLIO_RE.source, 'g');
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    if (m.index > last) parts.push(src.slice(last, m.index));
+    const folio = m[0];
+    parts.push(
+      <Box component="span" key={`${m.index}-${folio}`} role="link" tabIndex={0}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); openTicketByFolio(folio); onNavigate?.(); }}
+        sx={{ color: '#D6521C', fontWeight: 800, textDecoration: 'underline', cursor: 'pointer', '&:hover': { color: '#B23F12' } }}>
+        {folio}
+      </Box>
+    );
+    last = m.index + folio.length;
+  }
+  if (last < src.length) parts.push(src.slice(last));
+  return <>{parts}</>;
+};
+
 interface Task {
   id: number; title: string; description?: string; eisenhower: string; status: string;
   due_at?: string; created_at?: string; completed_at?: string; assignee_name?: string; assignee_id?: number; board_id?: number;
@@ -914,7 +947,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               <Chip label={EIS[t.eisenhower]?.short} size="small" sx={{ height: 20, bgcolor: EIS[t.eisenhower]?.bg, color: EIS[t.eisenhower]?.color, fontWeight: 700 }} />
               {t.status === 'completed' && <Chip label="✅ Completada" size="small" color="success" />}
             </Box>
-            <Typography fontWeight={800} fontSize={17}>{t.title}</Typography>
+            <Typography fontWeight={800} fontSize={17}><LinkifyTickets text={t.title} onNavigate={onClose} /></Typography>
             {data.can_edit && !editing && t.status !== 'completed' && (
               <IconButton onClick={openEdit} title="Editar" sx={{ position: 'absolute', right: 44, top: 8, color: '#D6521C' }}><EditIcon /></IconButton>
             )}
@@ -969,7 +1002,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 </Box>
               </Box>
             ) : (
-              t.description && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{t.description}</Typography>
+              t.description && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, whiteSpace: 'pre-wrap' }}><LinkifyTickets text={t.description} onNavigate={onClose} /></Typography>
             )}
             {!editing && (canInline ? (
               // ── Edición inline: prioridad, categoría, responsable, involucrados ──
