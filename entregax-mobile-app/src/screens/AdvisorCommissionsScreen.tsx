@@ -227,6 +227,7 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
     { key: 'all', label: '🗂️ Todos' },
     { key: 'pobox_usa_mx', label: '📦 PO Box' },
     { key: 'aereo_china_mx', label: '✈️ Aéreo' },
+    { key: 'tdi_express', label: '🚀 TDX' },
     { key: 'maritimo_china_mx', label: '🚢 Marítimo' },
     { key: 'liberacion_aa_dhl', label: '📮 DHL' },
     { key: 'gex_warranty', label: '🛡️ GEX' },
