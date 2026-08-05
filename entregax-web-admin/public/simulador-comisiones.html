@@ -235,7 +235,7 @@
         <div class="grouplab">Datos de este asesor (recompensas y consecuencias)</div>
         <div class="manual">
           <div class="field"><label>Combos cerrados (envío+seg+xpay) <span class="pill reward">bono</span></label><input type="number" id="mCombos" value="0" min="0"></div>
-          <div class="field"><label>Clientes sin quejas (venta limpia) <span class="pill reward">bono</span></label><input type="number" id="mClean" value="0" min="0"></div>
+          <div class="field"><label>Clientes sin tickets (venta limpia) <span class="pill reward">bono</span></label><input type="number" id="mClean" value="0" min="0"></div>
           <div class="field"><label>N2 · Comisión a retirar (overpromise) <span class="pill pen">castigo</span></label><input type="number" id="mPenN2" value="0" min="0"></div>
         </div>
         <div class="flag"><span>⚠️</span><span>El <strong>gate de venta cruzada</strong> y las consecuencias (N2) los <strong>calcula</strong> el sistema pero los <strong>confirma gerencia</strong>. Los combos se capturan por venta (no están en el histórico agregado).</span></div>
@@ -280,7 +280,7 @@
           <p><b>En este simulador</b> (aún sin la tabla real de metas) la meta se estima como un <b>% de las propias ventas aéreas</b> del asesor — el control <i>"Meta = % de sus ventas"</i>. Ej: al 75%, la meta = 75% de lo que vendió, así siempre queda por arriba y se ve el acelerador. <b>En producción</b> la meta sería un <b>objetivo fijo en MXN por asesor/mes</b> (tabla <code>advisor_sales_targets</code>), no un % de sus propias ventas.</p></div>
         <div class="item"><h4>Escalones de volumen — PO Box + DHL <span class="tag have">guías: dato existe</span></h4><p>Como el 10% ya es alto, el premio va por # de guías/mes: 80→$500 · 150→$1,200 · 250→$2,500.</p></div>
         <div class="item"><h4>Venta cruzada — la zanahoria <span class="tag have">X-Pay/GEX: dato existe</span></h4><p><b>Bono combo:</b> envío + Seguro + X-Pay en la misma venta → <b>+$500</b> inmediato. <b>Attach GEX mensual:</b> ≥30% guías con seguro → $500 · ≥50% → $1,000.</p></div>
-        <div class="item"><h4>Bonos globales <span class="tag have">dato existe</span></h4><p>Venta Limpia (trimestral, clientes sin quejas) + Premio de Lealtad (retención, no financiero: Kit de Bienvenida "Gold").</p></div>
+        <div class="item"><h4>Bonos globales <span class="tag have">dato existe</span></h4><p>Venta Limpia (trimestral, clientes <b>sin tickets de soporte</b>) + Premio de Lealtad (retención, no financiero: Kit de Bienvenida "Gold").</p></div>
       </div>
     </div>
     <div class="phase">
@@ -571,18 +571,6 @@
       cards.push(planTask({icon:"📦", title:"Bono de volumen (PO Box + DHL)", done, lines, bonus: curB>0?fmt0(curB):"", tip:`Escalones: ${tiers}`}));
     }
 
-    // 3) ATTACH GEX (%)
-    {
-      const attach=r.attach, totalG=r.totalGuias, gexG=r.gexGuias;
-      const needFor=(t)=> attach>=t?0:Math.max(0, Math.ceil((t*totalG - gexG)/(1-t)));
-      const done = attach>=p.gexT1;
-      const lines=[`Attach GEX actual: <b>${(attach*100).toFixed(1)}%</b> &nbsp;(${gexG} GEX de ${totalG} guías). Bono actual: <b>${fmt0(r.gexBonus)}</b>.`];
-      if (attach>=p.gexT2) lines.push(`🏆 Ya está en el <b>máximo (≥${(p.gexT2*100).toFixed(0)}%)</b>.`);
-      else if (attach>=p.gexT1) lines.push(`👉 Para <b>${fmt0(p.gexB2)}</b> necesita <b>≥${(p.gexT2*100).toFixed(0)}%</b> → vender <b>${needFor(p.gexT2)} GEX más</b>.`);
-      else lines.push(`👉 Para <b>${fmt0(p.gexB1)}</b> necesita <b>≥${(p.gexT1*100).toFixed(0)}%</b> → vender <b>${needFor(p.gexT1)} GEX más</b>.`);
-      cards.push(planTask({icon:"🛡️", title:"Attach GEX (seguros por envío)", done, lines, bonus: r.gexBonus>0?fmt0(r.gexBonus):"", tip:`% = pólizas GEX ÷ total de guías. Umbrales: ≥${(p.gexT1*100).toFixed(0)}%→${fmt0(p.gexB1)} · ≥${(p.gexT2*100).toFixed(0)}%→${fmt0(p.gexB2)}`}));
-    }
-
     // 4) CUOTA X-PAY (gate)
     {
       const need=Math.max(0,p.qXpay-r.xpayOps); const done=need===0;
@@ -611,20 +599,18 @@
     // 7) BONOS MANUALES (combo / venta limpia) — informativos
     {
       const lines=[`<b>Combo</b> (envío + seguro + X-Pay al mismo cliente): <b>${fmt0(p.comboAmt)}</b> por cliente.`,
-        `<b>Venta limpia</b> (cliente sin quejas en el trimestre): <b>${fmt0(p.cleanAmt)}</b> por cliente.`,
-        `👉 Arma paquetes completos y cuida el servicio para sumar estos bonos.`];
+        `<b>Venta limpia</b> (cliente <b>sin tickets de soporte</b> en el trimestre): <b>${fmt0(p.cleanAmt)}</b> por cliente. <span style="color:#8a7f72">Cuenta los tickets levantados por el cliente.</span>`,
+        `👉 Arma paquetes completos y da buen servicio (cero tickets) para sumar estos bonos.`];
       cards.push(planTask({icon:"🎁", title:"Bonos extra (combo y venta limpia)", na:true, done:false, lines}));
     }
 
     // Resumen: qué gana si lo logra todo
     let potVol=0; for (const st of p.vol) potVol=Math.max(potVol, st.b);
-    const potGex=p.gexB2;
     const resumen = `<div style="border:2px solid #F0B79A;border-radius:12px;padding:14px 16px;margin-bottom:14px;background:linear-gradient(180deg,#FFF6EF,#FFFCFA)">
       <div style="font-weight:900;font-size:15px;color:#C1502E">🏆 Si ${a.name} logra TODO este mes:</div>
       <ul style="margin:8px 0 0;padding-left:20px;font-size:13px;color:#4a423a;line-height:1.7">
         <li>Desbloquea el <b>gate al 100%</b> (X-Pay + Seguros).</li>
         <li>Bono de volumen de hasta <b>${fmt0(potVol)}</b>.</li>
-        <li>Bono GEX de hasta <b>${fmt0(potGex)}</b>.</li>
         <li>${a.hist_accel && a.hist_accel.avg>0 ? `Acelerador <b>1.5×</b> si supera <b>${fmt0(Math.round(p.thr*a.hist_accel.avg))}</b> este mes (120% de su promedio de ${fmt0(a.hist_accel.avg)}).` : `Acelerador <b>1.5×</b> sobre el excedente en Aéreo/TDI/Marítimo.`}</li>
         <li>+ Bonos combo (${fmt0(p.comboAmt)}/cliente) y venta limpia (${fmt0(p.cleanAmt)}/cliente).</li>
       </ul>
