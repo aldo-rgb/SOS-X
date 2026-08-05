@@ -1867,14 +1867,76 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             }
         }
 
+        // 5) Servicio autoritativo por orden (desde openpay_webhook_logs). Sirve
+        //    para desambiguar la tabla de origen de package_ids: un mismo id puede
+        //    existir en `packages` (aéreo/PO Box) y en `dhl_shipments` (colisión),
+        //    y antes las órdenes DHL mostraban un paquete aéreo equivocado y no
+        //    ofrecían el crédito DHL.
+        const svcByRef = new Map<string, string>();
+        if (allRefs.length > 0) {
+            const svcRes = await pool.query(
+                `SELECT DISTINCT ON (transaction_id) transaction_id, service_type
+                   FROM openpay_webhook_logs
+                  WHERE transaction_id = ANY($1::text[]) AND service_type IS NOT NULL
+                  ORDER BY transaction_id, id DESC`,
+                [allRefs]
+            ).catch(() => ({ rows: [] as any[] }));
+            for (const r of svcRes.rows) svcByRef.set(String(r.transaction_id), String(r.service_type).toUpperCase());
+        }
+        // 6) Para las órdenes DHL, cargar sus embarques desde dhl_shipments (no packages).
+        const dhlIdSet = new Set<number>();
+        for (let i = 0; i < result.rows.length; i++) {
+            if (svcByRef.get(String(result.rows[i].payment_reference)) === 'AA_DHL') {
+                for (const id of (rowPkgIds[i] || [])) dhlIdSet.add(id);
+            }
+        }
+        const dhlById = new Map<number, any>();
+        if (dhlIdSet.size > 0) {
+            const dRes = await pool.query(
+                `SELECT id, COALESCE(secondary_tracking, inbound_tracking) AS tracking,
+                        inbound_tracking, national_tracking, national_carrier,
+                        weight_kg, description, status,
+                        COALESCE(length_cm, 0) AS length_cm, COALESCE(width_cm, 0) AS width_cm, COALESCE(height_cm, 0) AS height_cm,
+                        total_cost_mxn, saldo_pendiente, import_tax_mxn, national_cost_mxn
+                   FROM dhl_shipments WHERE id = ANY($1)`,
+                [Array.from(dhlIdSet)]
+            ).catch(() => ({ rows: [] as any[] }));
+            for (const d of dRes.rows) dhlById.set(Number(d.id), d);
+        }
+
         // ─── Construir respuesta por orden usando los maps batch ────────
         const payments = [];
         for (let i = 0; i < result.rows.length; i++) {
             const row = result.rows[i];
             const pkgIds = rowPkgIds[i] || [];
             let packages: any[] = [];
+            const orderSvc = svcByRef.get(String(row.payment_reference)) || null;
+            const isDhlOrder = orderSvc === 'AA_DHL';
 
-            // 1) Expandir paquetes (top + hijas si master)
+            // 1) Expandir paquetes. DHL se resuelve contra dhl_shipments (NO packages)
+            //    para no caer en la colisión de id que mostraba un paquete aéreo.
+            if (isDhlOrder) {
+                for (const id of pkgIds) {
+                    const d = dhlById.get(id);
+                    if (!d) continue;
+                    packages.push({
+                        id: d.id,
+                        service_type: 'AA_DHL',
+                        tracking_internal: d.tracking,
+                        tracking: d.tracking,
+                        international_tracking: d.inbound_tracking,
+                        national_tracking: d.national_tracking,
+                        national_carrier: d.national_carrier,
+                        weight: d.weight_kg,
+                        length_cm: d.length_cm, width_cm: d.width_cm, height_cm: d.height_cm,
+                        description: d.description,
+                        status: d.status,
+                        saldo_pendiente: d.saldo_pendiente ?? d.total_cost_mxn,
+                        assigned_cost_mxn: d.total_cost_mxn,
+                        is_master: false,
+                    });
+                }
+            } else {
             for (const id of pkgIds) {
                 const pkg = topPkgById.get(id);
                 if (!pkg) continue;
@@ -1907,9 +1969,18 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                 }
             }
 
-            // 3) cost_breakdown: usa los maps (sin más queries)
+            } // fin resolución de paquetes no-DHL
+
+            // 3) cost_breakdown. DHL: el total ya es todo-incluido; se desglosa
+            //    con los campos del embarque (nacional + impuestos DHL).
             const cost_breakdown = { pobox: 0, paqueteria: 0, gex: 0, extra: 0 };
-            try {
+            if (isDhlOrder) {
+                const firstId = pkgIds[0];
+                const d = firstId != null ? dhlById.get(firstId) : undefined;
+                cost_breakdown.paqueteria = Number(d?.national_cost_mxn) || 0;
+                cost_breakdown.extra = Number(d?.import_tax_mxn) || 0;
+                cost_breakdown.pobox = Math.max(0, (Number(row.amount) || 0) - cost_breakdown.paqueteria - cost_breakdown.extra);
+            } else try {
                 if (pkgIds.length > 0) {
                     for (const id of pkgIds) {
                         const pkg = topPkgById.get(id);
@@ -1935,7 +2006,10 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                 console.error('[getPoboxPaymentHistory] cost_breakdown error:', e);
             }
 
-            const enriched: any = { ...row, packages, cost_breakdown };
+            // service_type autoritativo (del log): permite al frontend ofrecer el
+            // crédito del servicio correcto (DHL → dhl_liberacion), que antes no
+            // aparecía porque la orden se resolvía como aéreo/PO Box.
+            const enriched: any = { ...row, packages, cost_breakdown, service_type: orderSvc || (row as any).service_type || null };
             // El monto de las órdenes PO Box siempre está en MXN; normalizamos la
             // moneda para corregir filas heredadas marcadas como 'USD' (evita que la
             // app las muestre/cobre como dólares).
