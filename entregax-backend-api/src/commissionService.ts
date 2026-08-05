@@ -37,6 +37,9 @@ const SERVICE_TYPE_MAP: Record<string, string> = {
   'sea_china': 'maritimo_china_mx',
   'AA_DHL': 'liberacion_aa_dhl',
   'dhl': 'liberacion_aa_dhl',
+  'TDI_EXPRESS': 'tdi_express',
+  'tdi_express': 'tdi_express',
+  'tdi': 'tdi_express',
   'NACIONAL': 'nacional_mx',
   'nacional': 'nacional_mx',
   'gex_warranty': 'gex_warranty',
@@ -212,7 +215,12 @@ export async function generateCommissionForShipment(
     const leaderName = advisor.leader_name || null;
 
     // 4. Obtener tasa de comisión para este tipo de servicio
-    const commissionServiceType = mapServiceType(shipmentData.serviceType, shipmentType);
+    let commissionServiceType = mapServiceType(shipmentData.serviceType, shipmentType);
+    // TDI Express: las guías inician con "TDX-". Tienen su propia tarifa
+    // (tdi_express); antes caían en el default de PO Box (10%).
+    if (shipmentType === 'PKG' && /^TDX-/i.test(String(shipmentData.tracking || '').trim())) {
+      commissionServiceType = 'tdi_express';
+    }
     const rateRes = await pool.query(`
       SELECT percentage, leader_override, fixed_fee, is_gex
       FROM commission_rates 

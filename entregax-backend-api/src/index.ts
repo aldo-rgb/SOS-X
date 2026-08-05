@@ -14683,6 +14683,13 @@ async function ensureRequiredColumns() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_accepted_at TIMESTAMP`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_employee_onboarded BOOLEAN DEFAULT FALSE`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE`);
+    // TDI Express: tarifa de comisión propia (guías con tracking TDX-). Antes caían
+    // en el default de PO Box (10%). Idempotente.
+    await pool.query(`
+      INSERT INTO commission_rates (service_type, label, percentage, leader_override, fixed_fee)
+      SELECT 'tdi_express', 'TDI Express → México', 2.75, 0, 0
+      WHERE NOT EXISTS (SELECT 1 FROM commission_rates WHERE service_type = 'tdi_express')
+    `).catch(() => {});
     // Checador de asistencia: toggle por usuario. Al crear la columna, se activa
     // para los roles que hoy ya checaban (repartidor, bodega, mostrador) para no
     // cambiar el comportamiento actual; el resto queda apagado y se activa manual.

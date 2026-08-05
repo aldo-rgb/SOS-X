@@ -369,7 +369,7 @@
   function compute(a, p, manual) {
     const m = manual || {combos:0, clean:0, penN2:0};
     let base = 0, baseReal = 0, totalVentas = 0, totalGuias = 0;
-    let accelBase = 0, ventasAccel = 0, poboxDhlGuias = 0, gexGuias = 0, xpayOps = 0;
+    let accelBase = 0, ventasAccel = 0, poboxDhlGuias = 0, poboxGuias = 0, dhlGuias = 0, gexGuias = 0, xpayOps = 0;
     const rows = [];
     for (const k of SVC_ORDER) {
       const v = a.servicios[k]; if (!v) continue;
@@ -387,6 +387,8 @@
         svcBase = hist > 0 ? v.comision * (rate / hist) : v.ventas * rate/100;
         if (s.accel) { accelBase += svcBase; ventasAccel += v.ventas; }
         if (s.vol) poboxDhlGuias += v.guias;
+        if (k === 'pobox_usa_mx') poboxGuias += v.guias;
+        if (k === 'liberacion_aa_dhl') dhlGuias += v.guias;
       }
       base += svcBase;
       rows.push({ k, ventas:v.ventas, guias:v.guias, com:v.comision, svcBase });
@@ -400,9 +402,11 @@
       attain = ventasAccel/meta;
       if (ventasAccel > p.thr*meta) accel = accelBase * ((ventasAccel - p.thr*meta)/ventasAccel) * (p.mult-1);
     }
-    // Bono volumen PO Box + DHL
-    let volBonus = 0;
-    for (const st of p.vol) { if (poboxDhlGuias >= st.g) { volBonus = st.b; break; } }
+    // Bono volumen: PO Box y DHL POR SEPARADO (cada uno genera su bono).
+    const tierBonus = (g) => { for (const st of p.vol) { if (g >= st.g) return st.b; } return 0; };
+    const volBonusPobox = tierBonus(poboxGuias);
+    const volBonusDhl = tierBonus(dhlGuias);
+    const volBonus = volBonusPobox + volBonusDhl;
     // Attach GEX
     const attach = totalGuias > 0 ? gexGuias/totalGuias : 0;
     const gexBonus = attach >= p.gexT2 ? p.gexB2 : attach >= p.gexT1 ? p.gexB1 : 0;
@@ -423,6 +427,7 @@
     const propuesto = afterCap - penN2;
 
     return { rows, totalVentas, totalGuias, ventasAccel, baseReal, base, accel, attain, meta, volBonus, poboxDhlGuias,
+             poboxGuias, dhlGuias, volBonusPobox, volBonusDhl,
              gexBonus, attach, gexGuias, xpayOps, comboBonus, cleanBonus, subtotal, okXpay, okSeg, capPct, capCut, penN2, propuesto };
   }
 
@@ -463,7 +468,8 @@
     const L = [];
     L.push(["Base por servicio", fmt(r.base), ""]);
     L.push([`Acelerador (${r.ventasAccel>0?(r.attain*100).toFixed(0)+"% meta aérea":"n/a"})`, (r.accel>0?"+ ":"")+fmt(r.accel), r.accel>0?"pos":""]);
-    L.push([`Bono volumen (${r.poboxDhlGuias} guías PO Box+DHL)`, (r.volBonus>0?"+ ":"")+fmt(r.volBonus), r.volBonus>0?"pos":""]);
+    L.push([`Bono volumen PO Box (${r.poboxGuias} guías)`, (r.volBonusPobox>0?"+ ":"")+fmt(r.volBonusPobox), r.volBonusPobox>0?"pos":""]);
+    L.push([`Bono volumen DHL (${r.dhlGuias} guías)`, (r.volBonusDhl>0?"+ ":"")+fmt(r.volBonusDhl), r.volBonusDhl>0?"pos":""]);
     L.push([`Attach GEX (${(r.attach*100).toFixed(0)}%)`, (r.gexBonus>0?"+ ":"")+fmt(r.gexBonus), r.gexBonus>0?"pos":""]);
     if (r.comboBonus>0) L.push(["Bono combo", "+ "+fmt(r.comboBonus), "pos"]);
     if (r.cleanBonus>0) L.push(["Bono venta limpia", "+ "+fmt(r.cleanBonus), "pos"]);
@@ -541,34 +547,47 @@
     const r = compute(a, p, null);
     const cards = [];
 
-    // 1) ACELERADOR 1.5× — meta = PROMEDIO MENSUAL HISTÓRICO (Excel de Histórico)
+    // 1) ACELERADOR 1.5× — META SEPARADA POR SERVICIO (cada uno su promedio histórico)
     {
       const h = a.hist_accel;
-      const lines = [];
-      if (h && h.avg > 0) {
-        const target = Math.round(p.thr * h.avg);
-        lines.push(`Tu <b>promedio mensual histórico</b> en acelerados (Aéreo+TDI+Marítimo): <b>${fmt0(h.avg)}</b> <span style="color:#8a7f72">· ${h.months} meses de historial</span>`);
-        lines.push(`👉 <b>Este mes</b>, para ganar el <b>acelerador 1.5×</b>, tienes que vender <b>más de ${fmt0(target)}</b> (${(p.thr*100).toFixed(0)}% de tu promedio).`);
-        lines.push(`Meta por servicio: &nbsp; ✈️ Aéreo <b>${fmt0(Math.round(h.aereo*p.thr))}</b> &nbsp;·&nbsp; 🚀 TDI <b>${fmt0(Math.round(h.tdi*p.thr))}</b> &nbsp;·&nbsp; 🚢 Marítimo <b>${fmt0(Math.round(h.mar*p.thr))}</b>`);
-        cards.push(planTask({icon:"🚀", title:"Acelerador 1.5× (meta = tu promedio mensual)", done:false, lines, bonus:"1.5× excedente", tip:"La meta sale de tu promedio mensual histórico (Excel de Histórico). Supera el "+(p.thr*100).toFixed(0)+"% para activar el 1.5× sobre el excedente."}));
+      const svcs = [
+        { key:'aereo', icon:'✈️', name:'Aéreo' },
+        { key:'tdi',   icon:'🚀', name:'TDI Express' },
+        { key:'mar',   icon:'🚢', name:'Marítimo' },
+      ];
+      if (h) {
+        for (const s of svcs) {
+          const avg = h[s.key] || 0;
+          const lines = [];
+          if (avg > 0) {
+            const target = Math.round(p.thr * avg);
+            lines.push(`Tu <b>promedio mensual histórico</b> en ${s.name}: <b>${fmt0(avg)}</b> <span style="color:#8a7f72">· ${h.months} meses</span>`);
+            lines.push(`👉 <b>Este mes</b>, para el <b>acelerador 1.5× en ${s.name}</b>, vende <b>más de ${fmt0(target)}</b> (${(p.thr*100).toFixed(0)}% de tu promedio).`);
+            cards.push(planTask({icon:s.icon, title:`Acelerador 1.5× · ${s.name}`, done:false, lines, bonus:"1.5× excedente", tip:`Meta propia de ${s.name} (su comisión es distinta). Sale de tu promedio histórico.`}));
+          } else {
+            cards.push(planTask({icon:s.icon, title:`Acelerador 1.5× · ${s.name}`, na:true, done:false, lines:[`Sin historial de ${s.name} para calcular su meta.`]}));
+          }
+        }
       } else {
-        lines.push(`No hay histórico de ventas (Excel) para calcular su meta.`);
-        lines.push(`👉 Sube el archivo en <b>Historial de ventas → Histórico</b> (Aéreo/TDI/Marítimo) para fijar la meta del acelerador.`);
-        cards.push(planTask({icon:"🚀", title:"Acelerador 1.5× (meta por definir)", na:true, done:false, lines}));
+        cards.push(planTask({icon:"🚀", title:"Acelerador 1.5× (meta por definir)", na:true, done:false,
+          lines:[`No hay histórico de ventas (Excel) para calcular sus metas.`, `👉 Sube el archivo en <b>Historial de ventas → Histórico</b> (Aéreo/TDI/Marítimo).`]}));
       }
     }
 
-    // 2) BONO DE VOLUMEN (PO Box + DHL guías)
+    // 2) BONO DE VOLUMEN — PO Box y DHL POR SEPARADO (cada uno su bono)
     {
-      const g = r.poboxDhlGuias;
-      let curB=0, curG=0; for (const st of p.vol) { if (g>=st.g){curB=st.b;curG=st.g;break;} }
-      const asc=[...p.vol].sort((x,y)=>x.g-y.g); let nx=null; for (const st of asc){ if (g<st.g){nx=st;break;} }
-      const done = curB>0;
-      const lines=[`Lleva <b>${g} guías</b> de PO Box + DHL. Bono actual: <b>${fmt0(curB)}</b>.`];
-      if (nx) lines.push(`👉 Para el bono de <b>${fmt0(nx.b)}</b> necesita <b>${nx.g} guías</b> → le faltan <b>${nx.g-g} guías</b>.`);
-      else lines.push(`🏆 Ya está en el <b>escalón máximo</b> de volumen.`);
+      const asc=[...p.vol].sort((x,y)=>x.g-y.g);
       const tiers = asc.map(st=>`${st.g}g→${fmt0(st.b)}`).join(" · ");
-      cards.push(planTask({icon:"📦", title:"Bono de volumen (PO Box + DHL)", done, lines, bonus: curB>0?fmt0(curB):"", tip:`Escalones: ${tiers}`}));
+      const volCard = (icon, name, g, curB) => {
+        let nx=null; for (const st of asc){ if (g<st.g){nx=st;break;} }
+        const done = curB>0;
+        const lines=[`Lleva <b>${g} guías</b> de ${name}. Bono actual: <b>${fmt0(curB)}</b>.`];
+        if (nx) lines.push(`👉 Para el bono de <b>${fmt0(nx.b)}</b> necesita <b>${nx.g} guías</b> → le faltan <b>${nx.g-g} guías</b>.`);
+        else lines.push(`🏆 Ya está en el <b>escalón máximo</b> de ${name}.`);
+        return planTask({icon, title:`Bono de volumen · ${name}`, done, lines, bonus: curB>0?fmt0(curB):"", tip:`Escalones: ${tiers}`});
+      };
+      cards.push(volCard("📦", "PO Box", r.poboxGuias, r.volBonusPobox));
+      cards.push(volCard("🚚", "DHL Nacional", r.dhlGuias, r.volBonusDhl));
     }
 
     // 4) CUOTA X-PAY (gate)
@@ -610,7 +629,7 @@
       <div style="font-weight:900;font-size:15px;color:#C1502E">🏆 Si ${a.name} logra TODO este mes:</div>
       <ul style="margin:8px 0 0;padding-left:20px;font-size:13px;color:#4a423a;line-height:1.7">
         <li>Desbloquea el <b>gate al 100%</b> (X-Pay + Seguros).</li>
-        <li>Bono de volumen de hasta <b>${fmt0(potVol)}</b>.</li>
+        <li>Bono de volumen de hasta <b>${fmt0(potVol)}</b> en <b>PO Box</b> + hasta <b>${fmt0(potVol)}</b> en <b>DHL</b> (por separado).</li>
         <li>${a.hist_accel && a.hist_accel.avg>0 ? `Acelerador <b>1.5×</b> si supera <b>${fmt0(Math.round(p.thr*a.hist_accel.avg))}</b> este mes (120% de su promedio de ${fmt0(a.hist_accel.avg)}).` : `Acelerador <b>1.5×</b> sobre el excedente en Aéreo/TDI/Marítimo.`}</li>
         <li>+ Bonos combo (${fmt0(p.comboAmt)}/cliente) y venta limpia (${fmt0(p.cleanAmt)}/cliente).</li>
       </ul>

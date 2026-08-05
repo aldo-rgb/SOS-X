@@ -38,6 +38,7 @@ interface CommissionRate {
 
 const getServiceIcon = (serviceType: string) => {
   if (serviceType.includes('gex')) return <SecurityIcon />;
+  if (serviceType.includes('tdi')) return <FlightIcon />;
   if (serviceType.includes('aereo')) return <FlightIcon />;
   if (serviceType.includes('maritimo')) return <DirectionsBoatIcon />;
   return <LocalShippingIcon />;
@@ -45,6 +46,7 @@ const getServiceIcon = (serviceType: string) => {
 
 const getServiceColor = (serviceType: string) => {
   if (serviceType.includes('gex')) return '#9c27b0';
+  if (serviceType.includes('tdi')) return '#5e35b1';
   if (serviceType.includes('aereo')) return '#2196f3';
   if (serviceType.includes('maritimo')) return '#00bcd4';
   if (serviceType.includes('pobox') || serviceType.includes('usa')) return ORANGE;
@@ -193,6 +195,7 @@ function CommissionRow({ rate, onSave, language }: CommissionRowProps) {
 
   const getRowBgColor = () => {
     if (rate.is_gex) return '#f3e5f5';
+    if (rate.service_type.includes('tdi')) return '#ede7f6';
     if (rate.service_type.includes('aereo')) return '#e3f2fd';
     if (rate.service_type.includes('maritimo')) return '#e0f7fa';
     if (rate.service_type.includes('pobox') || rate.service_type.includes('usa')) return '#fff3e0';
