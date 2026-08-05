@@ -81,6 +81,12 @@ export default function AdvisorGoalsScreen({ navigation, route }: any) {
         <TouchableOpacity onPress={() => { setRefreshing(true); load(); }} hitSlop={12}><Ionicons name="refresh" size={22} color="#fff" /></TouchableOpacity>
       </View>
 
+      {/* Aviso: simulador / versión no oficial */}
+      <View style={styles.betaBar}>
+        <Ionicons name="flask" size={15} color="#8a5a00" />
+        <Text style={styles.betaTxt}>Simulador · versión no oficial en proceso de autorización</Text>
+      </View>
+
       {loading ? (
         <View style={styles.center}><ActivityIndicator size="large" color={ORANGE} /></View>
       ) : !goals ? (
@@ -181,6 +187,8 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
   header: { backgroundColor: ORANGE, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   hTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  betaBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#FFF3CD', paddingVertical: 6, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#F0DCA0' },
+  betaTxt: { color: '#8a5a00', fontSize: 12, fontWeight: '700', textAlign: 'center' },
   hero: { backgroundColor: ORANGE, borderRadius: 16, padding: 16, marginBottom: 16, flexDirection: 'row', alignItems: 'center' },
   heroSub: { color: '#ffe8dd', fontSize: 12, fontWeight: '600', textTransform: 'capitalize' },
   heroTitle: { color: '#fff', fontSize: 20, fontWeight: '900', marginTop: 2 },
