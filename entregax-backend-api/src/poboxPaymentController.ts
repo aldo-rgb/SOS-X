@@ -2255,31 +2255,44 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
 
         const amount = parseFloat(order.amount);
 
-        // 🔧 FIX: Derivar el servicio REAL desde los packages de la orden
-        // (el frontend puede mandar 'po_box' por fallback aunque sean china_air)
+        // 🔧 FIX: Derivar el servicio REAL de la orden. Se prioriza el
+        // service_type autoritativo de openpay_webhook_logs (por payment_reference)
+        // porque package_ids puede apuntar a dhl_shipments y sus ids COLISIONAN con
+        // ids de la tabla packages (aéreo/PO Box): derivar desde packages resolvía
+        // una orden DHL como 'aereo' y luego el crédito DHL salía en $0.
         let dbServiceType: string | null = null;
         try {
-            const pkgIdsRaw = typeof order.package_ids === 'string'
-                ? JSON.parse(order.package_ids)
-                : order.package_ids;
-            if (Array.isArray(pkgIdsRaw) && pkgIdsRaw.length > 0) {
-                const stRes = await client.query(
-                    `SELECT DISTINCT service_type FROM packages WHERE id = ANY($1::int[]) AND service_type IS NOT NULL LIMIT 1`,
-                    [pkgIdsRaw]
-                );
-                dbServiceType = stRes.rows[0]?.service_type || null;
-                const derived = normalizeServiceForCredit(dbServiceType);
-                if (derived) {
-                    if (service && service !== derived) {
-                        console.warn(`[pay-internal] service override: frontend=${service} derivedFromPackages=${derived} (using derived)`);
-                    }
-                    service = derived;
-                } else if (!service) {
-                    service = 'po_box';
+            const logRes = await client.query(
+                `SELECT service_type FROM openpay_webhook_logs
+                  WHERE transaction_id = $1 AND service_type IS NOT NULL
+                  ORDER BY id DESC LIMIT 1`,
+                [order.payment_reference]
+            );
+            dbServiceType = logRes.rows[0]?.service_type || null;
+            // Fallback: solo si el log no trae servicio, derivar desde packages.
+            if (!dbServiceType) {
+                const pkgIdsRaw = typeof order.package_ids === 'string'
+                    ? JSON.parse(order.package_ids)
+                    : order.package_ids;
+                if (Array.isArray(pkgIdsRaw) && pkgIdsRaw.length > 0) {
+                    const stRes = await client.query(
+                        `SELECT DISTINCT service_type FROM packages WHERE id = ANY($1::int[]) AND service_type IS NOT NULL LIMIT 1`,
+                        [pkgIdsRaw]
+                    );
+                    dbServiceType = stRes.rows[0]?.service_type || null;
                 }
             }
+            const derived = normalizeServiceForCredit(dbServiceType);
+            if (derived) {
+                if (service && service !== derived) {
+                    console.warn(`[pay-internal] service override: frontend=${service} derived=${derived} (using derived)`);
+                }
+                service = derived;
+            } else if (!service) {
+                service = 'po_box';
+            }
         } catch (deriveErr) {
-            console.warn('[pay-internal] no pude derivar service desde packages:', deriveErr);
+            console.warn('[pay-internal] no pude derivar service:', deriveErr);
         }
         console.log(`[pay-internal] final service=${service} dbServiceType=${dbServiceType}`);
 
@@ -2289,6 +2302,7 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
             maritime: 'SEA_CHN_MX',
             fcl: 'SEA_CHN_MX',
             dhl: 'AA_DHL',
+            dhl_liberacion: 'AA_DHL',
             po_box: 'POBOX_USA',
             pobox: 'POBOX_USA',
             usa: 'POBOX_USA',
@@ -2409,8 +2423,22 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
         const packageIds = typeof order.package_ids === 'string'
             ? JSON.parse(order.package_ids)
             : order.package_ids;
+        // Para órdenes DHL, package_ids apunta a dhl_shipments (no a packages).
+        // Marcar la tabla equivocada dejaba el embarque DHL sin liberar y pagaba
+        // un paquete aéreo colisionado por id.
+        const isDhlOrder = service === 'dhl_liberacion' || String(dbServiceType || '').toUpperCase() === 'AA_DHL';
 
-        if (Array.isArray(packageIds) && packageIds.length > 0) {
+        if (Array.isArray(packageIds) && packageIds.length > 0 && isDhlOrder) {
+            await client.query(
+                `UPDATE dhl_shipments SET
+                    paid_at = CURRENT_TIMESTAMP,
+                    cost_payment_status = 'paid',
+                    monto_pagado = COALESCE(total_cost_mxn, saldo_pendiente, 0),
+                    saldo_pendiente = 0
+                 WHERE id = ANY($1) AND paid_at IS NULL`,
+                [packageIds]
+            );
+        } else if (Array.isArray(packageIds) && packageIds.length > 0) {
             await client.query(
                 `UPDATE packages SET
                     payment_status = 'paid',
@@ -2651,7 +2679,18 @@ export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): 
             );
 
             const packageIds = typeof order.package_ids === 'string' ? JSON.parse(order.package_ids) : order.package_ids;
-            if (Array.isArray(packageIds) && packageIds.length > 0) {
+            const isDhlOrder = service === 'dhl_liberacion';
+            if (Array.isArray(packageIds) && packageIds.length > 0 && isDhlOrder) {
+                await client.query(
+                    `UPDATE dhl_shipments SET
+                        paid_at = CURRENT_TIMESTAMP,
+                        cost_payment_status = 'paid',
+                        monto_pagado = COALESCE(total_cost_mxn, saldo_pendiente, 0),
+                        saldo_pendiente = 0
+                     WHERE id = ANY($1) AND paid_at IS NULL`,
+                    [packageIds]
+                );
+            } else if (Array.isArray(packageIds) && packageIds.length > 0) {
                 await client.query(
                     `UPDATE packages SET
                         payment_status='paid',
@@ -2900,7 +2939,27 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
             );
 
             const packageIds = typeof order.package_ids === 'string' ? JSON.parse(order.package_ids) : order.package_ids;
-            if (Array.isArray(packageIds) && packageIds.length > 0) {
+            // DHL: package_ids apunta a dhl_shipments. Se detecta por el service_type
+            // autoritativo del log (evita la colisión de id con la tabla packages).
+            let isDhlOrder = false;
+            try {
+                const lg = await client.query(
+                    `SELECT service_type FROM openpay_webhook_logs WHERE transaction_id = $1 AND service_type IS NOT NULL ORDER BY id DESC LIMIT 1`,
+                    [order.payment_reference]
+                );
+                isDhlOrder = String(lg.rows[0]?.service_type || '').toUpperCase() === 'AA_DHL';
+            } catch { /* ignore */ }
+            if (Array.isArray(packageIds) && packageIds.length > 0 && isDhlOrder) {
+                await client.query(
+                    `UPDATE dhl_shipments SET
+                        paid_at = CURRENT_TIMESTAMP,
+                        cost_payment_status = 'paid',
+                        monto_pagado = COALESCE(total_cost_mxn, saldo_pendiente, 0),
+                        saldo_pendiente = 0
+                     WHERE id = ANY($1) AND paid_at IS NULL`,
+                    [packageIds]
+                );
+            } else if (Array.isArray(packageIds) && packageIds.length > 0) {
                 await client.query(
                     `UPDATE packages SET
                         payment_status='paid',
