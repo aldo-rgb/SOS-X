@@ -383,15 +383,18 @@ export const getWelcomeKits = async (req: Request, res: Response): Promise<any> 
     })) };
     const statsRes = await pool.query(`
       SELECT
-        COUNT(*) FILTER (WHERE status = 'solicitado')   AS solicitado,
-        COUNT(*) FILTER (WHERE status = 'seleccionado') AS seleccionado,
-        COUNT(*) FILTER (WHERE status = 'instrucciones') AS instrucciones,
-        COUNT(*) FILTER (WHERE status = 'por_enviar')    AS por_enviar,
-        COUNT(*) FILTER (WHERE status = 'enviado')       AS enviado,
-        COUNT(*) FILTER (WHERE status = 'entregado')     AS entregado,
-        COUNT(*) FILTER (WHERE status = 'cancelado')     AS cancelado,
+        COUNT(*) FILTER (WHERE k.status = 'solicitado')   AS solicitado,
+        COUNT(*) FILTER (WHERE k.status = 'seleccionado') AS seleccionado,
+        COUNT(*) FILTER (WHERE k.status = 'instrucciones') AS instrucciones,
+        COUNT(*) FILTER (WHERE k.status = 'por_enviar')    AS por_enviar,
+        COUNT(*) FILTER (WHERE k.status = 'enviado')       AS enviado,
+        COUNT(*) FILTER (WHERE k.status = 'entregado')     AS entregado,
+        COUNT(*) FILTER (WHERE k.status = 'cancelado')     AS cancelado,
+        -- Ya dados de alta / con número de cliente (box_id del usuario o el guardado).
+        COUNT(*) FILTER (WHERE NULLIF(TRIM(COALESCE(u.box_id, k.box_id, '')), '') IS NOT NULL) AS con_cliente,
         COUNT(*) AS total
-      FROM welcome_kit_requests
+      FROM welcome_kit_requests k
+      LEFT JOIN users u ON u.id = k.user_id
     `);
     const s = statsRes.rows[0];
     const stats = Object.fromEntries(Object.entries(s).map(([k, v]) => [k, Number(v)]));

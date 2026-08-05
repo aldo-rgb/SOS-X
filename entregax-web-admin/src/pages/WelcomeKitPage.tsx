@@ -91,6 +91,7 @@ const guideStatusColor = (s: string | null): 'default' | 'info' | 'warning' | 'p
 interface KitStats {
   solicitado: number; seleccionado: number; instrucciones: number; por_enviar: number;
   enviado: number; entregado: number; cancelado: number; total: number;
+  con_cliente: number;
 }
 
 const STATUSES: { value: string; label: string; color: 'default' | 'info' | 'warning' | 'primary' | 'success' | 'error' | 'secondary' }[] = [
@@ -338,6 +339,7 @@ export default function WelcomeKitPage() {
     { key: 'enviado', label: 'Enviados', color: '#2e7d32' },
     { key: 'entregado', label: 'Entregados', color: '#1b5e20' },
     { key: 'cancelado', label: 'Cancelados', color: '#c62828' },
+    { key: 'con_cliente', label: 'Ya son clientes', color: '#00897b' },
   ];
 
   return (
