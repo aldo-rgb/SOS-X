@@ -541,26 +541,21 @@
     const r = compute(a, p, null);
     const cards = [];
 
-    // 1) ACELERADOR 1.5× (Aéreo/TDI/Marítimo)
+    // 1) ACELERADOR 1.5× — meta = PROMEDIO MENSUAL HISTÓRICO (Excel de Histórico)
     {
-      const svc = ["aereo_china_mx","tdi_express","maritimo_china_mx"].map(k=>{
-        const v=a.servicios[k]; const s=SERVICES[k];
-        return `${s.icon} ${s.label}: <b>${fmt0(v?v.ventas:0)}</b>`;
-      }).join(" &nbsp;·&nbsp; ");
-      const umbral = r.meta>0 ? p.thr*r.meta : 0;
-      const done = r.ventasAccel>0 && r.ventasAccel > umbral;
-      const gap = Math.max(0, umbral - r.ventasAccel);
+      const h = a.hist_accel;
       const lines = [];
-      if (r.ventasAccel<=0) {
-        lines.push(`Aún <b>no tiene ventas</b> en servicios acelerados.`);
-        lines.push(`Desglose: ${svc}`);
-        lines.push(`👉 Empieza a vender <b>Aéreo / TDI / Marítimo</b> para activar el acelerador.`);
+      if (h && h.avg > 0) {
+        const target = Math.round(p.thr * h.avg);
+        lines.push(`Tu <b>promedio mensual histórico</b> en acelerados (Aéreo+TDI+Marítimo): <b>${fmt0(h.avg)}</b> <span style="color:#8a7f72">· ${h.months} meses de historial</span>`);
+        lines.push(`👉 <b>Este mes</b>, para ganar el <b>acelerador 1.5×</b>, tienes que vender <b>más de ${fmt0(target)}</b> (${(p.thr*100).toFixed(0)}% de tu promedio).`);
+        lines.push(`Meta por servicio: &nbsp; ✈️ Aéreo <b>${fmt0(Math.round(h.aereo*p.thr))}</b> &nbsp;·&nbsp; 🚀 TDI <b>${fmt0(Math.round(h.tdi*p.thr))}</b> &nbsp;·&nbsp; 🚢 Marítimo <b>${fmt0(Math.round(h.mar*p.thr))}</b>`);
+        cards.push(planTask({icon:"🚀", title:"Acelerador 1.5× (meta = tu promedio mensual)", done:false, lines, bonus:"1.5× excedente", tip:"La meta sale de tu promedio mensual histórico (Excel de Histórico). Supera el "+(p.thr*100).toFixed(0)+"% para activar el 1.5× sobre el excedente."}));
       } else {
-        lines.push(`Hoy lleva <b>${fmt0(r.ventasAccel)}</b> en acelerados &nbsp;(${svc})`);
-        lines.push(`Meta del mes: <b>${fmt0(r.meta)}</b> · para el <b>1.5×</b> hay que superar <b>${fmt0(umbral)}</b>.`);
-        lines.push(done ? `✅ Ya supera la meta → el excedente paga <b>1.5×</b>.` : `👉 Le faltan <b>${fmt0(gap)}</b> en ventas aceleradas este mes.`);
+        lines.push(`No hay histórico de ventas (Excel) para calcular su meta.`);
+        lines.push(`👉 Sube el archivo en <b>Historial de ventas → Histórico</b> (Aéreo/TDI/Marítimo) para fijar la meta del acelerador.`);
+        cards.push(planTask({icon:"🚀", title:"Acelerador 1.5× (meta por definir)", na:true, done:false, lines}));
       }
-      cards.push(planTask({icon:"🚀", title:"Acelerador 1.5× (Aéreo / TDI / Marítimo)", done, lines, bonus: done?"1.5× excedente":"", tip:"Solo Aéreo, TDI y Marítimo cuentan para el acelerador."}));
     }
 
     // 2) BONO DE VOLUMEN (PO Box + DHL guías)
@@ -630,7 +625,7 @@
         <li>Desbloquea el <b>gate al 100%</b> (X-Pay + Seguros).</li>
         <li>Bono de volumen de hasta <b>${fmt0(potVol)}</b>.</li>
         <li>Bono GEX de hasta <b>${fmt0(potGex)}</b>.</li>
-        <li>Acelerador <b>1.5×</b> sobre el excedente en Aéreo/TDI/Marítimo.</li>
+        <li>${a.hist_accel && a.hist_accel.avg>0 ? `Acelerador <b>1.5×</b> si supera <b>${fmt0(Math.round(p.thr*a.hist_accel.avg))}</b> este mes (120% de su promedio de ${fmt0(a.hist_accel.avg)}).` : `Acelerador <b>1.5×</b> sobre el excedente en Aéreo/TDI/Marítimo.`}</li>
         <li>+ Bonos combo (${fmt0(p.comboAmt)}/cliente) y venta limpia (${fmt0(p.cleanAmt)}/cliente).</li>
       </ul>
       <div style="margin-top:8px;font-size:12px;color:#8a7f72">Comisión propuesta con lo actual: <b>${fmt(r.propuesto)}</b>.</div>

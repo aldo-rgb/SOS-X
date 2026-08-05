@@ -998,6 +998,41 @@ export const getCommissionSimulatorData = async (req: Request, res: Response): P
                 return sum(b) - sum(a);
             });
 
+        // 📚 Promedio mensual histórico de servicios ACELERADOS por asesor, tomado
+        //    del Excel de "Histórico" (svc_historico_reports). Sirve como META real
+        //    del acelerador en el simulador. Se empata por nombre normalizado.
+        try {
+            const norm = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+            const SVC_KEY: Record<string, 'aereo' | 'tdi' | 'mar'> = { tdi_aereo: 'aereo', tdi_express: 'tdi', maritimo: 'mar' };
+            const histRes = await pool.query(`SELECT service, records FROM svc_historico_reports WHERE service = ANY($1::text[])`, [Object.keys(SVC_KEY)]);
+            // name → { months:Set, monthTotals:Map(ym→monto), aereo/tdi/mar: {sum, months:Set} }
+            const byName: Record<string, any> = {};
+            for (const row of histRes.rows) {
+                const key = SVC_KEY[row.service]; if (!key) continue;
+                const recs = Array.isArray(row.records) ? row.records : [];
+                for (const rec of recs) {
+                    const nm = norm(rec.asesor); if (!nm) continue;
+                    const monto = Number(rec.monto) || 0; if (monto <= 0) continue;
+                    const ym = `${rec.anio}-${rec.mes}`;
+                    const b = (byName[nm] ||= { months: new Set(), monthTotals: {}, aereo: { sum: 0, months: new Set() }, tdi: { sum: 0, months: new Set() }, mar: { sum: 0, months: new Set() } });
+                    b.months.add(ym);
+                    b.monthTotals[ym] = (b.monthTotals[ym] || 0) + monto;
+                    b[key].sum += monto; b[key].months.add(ym);
+                }
+            }
+            const avgOf = (o: any) => (o && o.months.size > 0 ? Math.round(o.sum / o.months.size) : 0);
+            for (const a of advisors as any[]) {
+                const b = byName[norm(a.name)];
+                if (!b) { a.hist_accel = null; continue; }
+                const totalSum = Object.values(b.monthTotals).reduce((t: number, v: any) => t + Number(v), 0);
+                a.hist_accel = {
+                    avg: b.months.size > 0 ? Math.round(totalSum / b.months.size) : 0, // promedio mensual combinado
+                    aereo: avgOf(b.aereo), tdi: avgOf(b.tdi), mar: avgOf(b.mar),
+                    months: b.months.size,
+                };
+            }
+        } catch (e) { console.warn('[simulator] hist_accel:', (e as Error).message); }
+
         res.json({ asOf: new Date().toISOString(), count: advisors.length, advisors });
     } catch (error) {
         console.error('Error getting commission simulator data:', error);
