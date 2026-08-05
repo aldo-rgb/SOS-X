@@ -224,14 +224,14 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
   ];
 
   const serviceFilters = [
-    { key: 'all', label: '🗂️ Todos' },
-    { key: 'pobox_usa_mx', label: '📦 PO Box' },
-    { key: 'aereo_china_mx', label: '✈️ Aéreo' },
-    { key: 'tdi_express', label: '🚀 TDX' },
-    { key: 'maritimo_china_mx', label: '🚢 Marítimo' },
-    { key: 'liberacion_aa_dhl', label: '📮 DHL' },
-    { key: 'gex_warranty', label: '🛡️ GEX' },
-    { key: 'xpay', label: '💱 X-Pay' },
+    { key: 'all', label: 'Todos' },
+    { key: 'pobox_usa_mx', label: 'PO Box' },
+    { key: 'aereo_china_mx', label: 'Aéreo' },
+    { key: 'tdi_express', label: 'TDX' },
+    { key: 'maritimo_china_mx', label: 'Marítimo' },
+    { key: 'liberacion_aa_dhl', label: 'DHL' },
+    { key: 'gex_warranty', label: 'GEX' },
+    { key: 'xpay', label: 'X-Pay' },
   ];
 
   return (
@@ -310,7 +310,7 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
             style={[styles.serviceChip, serviceFilter === f.key && styles.serviceChipActive]}
             onPress={() => setServiceFilter(f.key)}
           >
-            <Text style={[styles.serviceChipText, serviceFilter === f.key && styles.serviceChipTextActive]}>
+            <Text numberOfLines={1} style={[styles.serviceChipText, serviceFilter === f.key && styles.serviceChipTextActive]}>
               {f.label}
             </Text>
           </TouchableOpacity>
