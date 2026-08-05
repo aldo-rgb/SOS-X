@@ -1797,10 +1797,17 @@ const MyPaymentsScreen = () => {
                 const walletApplied = Number(order.wallet_applied || 0);
                 const walletBal = Number(walletStatus?.wallet_balance || 0);
                 const creditBlocked = !!walletStatus?.is_credit_blocked;
-                // Match service credit por servicio de los paquetes
+                // Match service credit por servicio de los paquetes.
+                // Normalizamos ambos lados: la orden puede llegar como
+                // 'AA_DHL' / 'dhl' / 'mx_cedis' y la tabla user_service_credits
+                // guarda 'dhl_liberacion'. Antes se hacía comparación directa
+                // y la tarjeta de crédito nunca aparecía para DHL.
                 const pkgs: any[] = Array.isArray(order.packages) ? order.packages : [];
-                const orderService = pkgs[0]?.service_type || order.service_type || 'po_box';
-                const matchingCredit = (serviceCredits || []).find((c: any) => String(c.service) === String(orderService));
+                const orderServiceRaw = pkgs[0]?.service_type || order.service_type || 'po_box';
+                const orderService = normalizeServiceForCredit(orderServiceRaw);
+                const matchingCredit = (serviceCredits || []).find(
+                  (c: any) => normalizeServiceForCredit(c.service) === orderService
+                );
                 const availableCredit = Number(
                   matchingCredit?.available_credit ??
                   matchingCredit?.available ??
