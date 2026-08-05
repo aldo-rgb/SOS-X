@@ -125,6 +125,13 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     if (isPickup) {
       return sum + (parseFloat(String(pp.saldo_pendiente ?? pp.assigned_cost_mxn ?? 0)) || 0);
     }
+    // 📮 DHL (AA_DHL): el saldo (total_cost_mxn) YA incluye importación +
+    // impuestos DHL + paquetería nacional + GEX. Antes se calculaba con campos
+    // PO Box (pobox_service_cost=0) y el total salía en $0.00.
+    const isDhl = pp.shipment_type === 'dhl' || pp.servicio === 'AA_DHL' || pp.servicio === 'DHL_MTY';
+    if (isDhl) {
+      return sum + (parseFloat(String(pp.saldo_pendiente ?? pp.monto ?? pp.assigned_cost_mxn ?? 0)) || 0);
+    }
     const gex = parseFloat(pp.gex_total_cost) || 0;
     const ship = parseFloat(pp.national_shipping_cost) || 0;
     const extra = parseFloat(pp.extra_charges_total) || 0;
@@ -922,8 +929,11 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 // 🚚 Pick Up: cobrar SOLO la tarifa de recolección (saldo_pendiente real).
                 const isPickup = pp.status === 'ready_pickup'
                   || String(pp.carrier || '').toLowerCase().includes('pick up');
-                const totalCost = isPickup
-                  ? (parseFloat(String(pp.saldo_pendiente ?? pp.assigned_cost_mxn ?? 0)) || 0)
+                // 📮 DHL: el saldo (total_cost_mxn) ya es todo-incluido; sin esto
+                // el desglose PO Box daba $0.00 para este paquete.
+                const isDhlPkg = pp.shipment_type === 'dhl' || pp.servicio === 'AA_DHL' || pp.servicio === 'DHL_MTY';
+                const totalCost = (isPickup || isDhlPkg)
+                  ? (parseFloat(String(pp.saldo_pendiente ?? pp.monto ?? pp.assigned_cost_mxn ?? 0)) || 0)
                   : (poboxMxn > 0
                       ? Math.max(0, poboxMxn + gex + ship + extra - pagado)
                       : Math.max(0, gex + ship + extra - pagado));

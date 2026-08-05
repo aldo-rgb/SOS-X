@@ -3940,7 +3940,10 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           CASE WHEN ds.delivery_address_id IS NOT NULL THEN true ELSE false END as has_delivery_instructions,
           false as needs_instructions,
           ds.national_carrier,
-          NULL::numeric as national_shipping_cost,
+          -- Costo real de la paquetería nacional (Paquete Express, etc.). Antes
+          -- era NULL y el front usaba un fallback de $400; ya viene del embarque.
+          -- OJO: 'monto' (total_cost_mxn) YA lo incluye, es solo para el desglose.
+          COALESCE(ds.national_cost_mxn, 0) as national_shipping_cost,
           ds.national_tracking,
           ds.import_cost_usd as declared_value,
           COALESCE(ds.import_tax_mxn, 0) as import_tax_mxn,

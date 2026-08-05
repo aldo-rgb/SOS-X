@@ -978,6 +978,12 @@ export default function DashboardClient() {
       envioMXN = Number(pkg.saldo_pendiente) || Number(pkg.assigned_cost_mxn) || 0;
     }
 
+    // DHL (AA_DHL): el 'monto' = total_cost_mxn del embarque YA incluye
+    // importación + impuestos DHL + paquetería nacional + GEX. Sumar paquetería
+    // o cargos encima duplicaba el costo (p.ej. 4,806 + 400 fallback = 5,206).
+    const isDhl = pkg.shipment_type === 'dhl' || pkg.servicio === 'AA_DHL' || pkg.servicio === 'DHL_MTY';
+    if (isDhl) return envioMXN;
+
     const gexFromChildren = included.reduce((sum, g) => sum + (Number(g.gex_total_cost) || 0), 0);
 
     const gex = (Number(pkg.gex_total_cost) || 0) > 0 ? (Number(pkg.gex_total_cost) || 0) : gexFromChildren;
@@ -14125,7 +14131,15 @@ export default function DashboardClient() {
                       </Typography>
                     </Box>
                   )}
-                  {Number(pkg.extra_charges_total) !== 0 && (() => {
+                  {(pkg.shipment_type === 'dhl' || pkg.servicio === 'AA_DHL' || pkg.servicio === 'DHL_MTY') && Number(pkg.import_tax_mxn) > 0 && (
+                    <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#fff3e0', borderRadius: 1, px: 1, py: 0.5 }}>
+                      <Typography variant="caption">🧾 Impuestos DHL</Typography>
+                      <Typography variant="caption" fontWeight="bold" sx={{ color: '#C2410C' }}>
+                        {formatCurrency(Number(pkg.import_tax_mxn))}
+                      </Typography>
+                    </Box>
+                  )}
+                  {Number.isFinite(Number(pkg.extra_charges_total)) && Number(pkg.extra_charges_total) !== 0 && (() => {
                     const conceptos = (pkg.extra_charges || []).map((c: any) => c.concepto).filter(Boolean).join(', ');
                     // Si alguno viene en USD, mostrar la conversión (USD × TC = MXN).
                     const usdItems = (pkg.extra_charges || []).filter((c: any) => String(c.moneda || 'MXN').toUpperCase() === 'USD');
