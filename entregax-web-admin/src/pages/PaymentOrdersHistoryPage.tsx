@@ -235,16 +235,6 @@ export default function PaymentOrdersHistoryPage() {
             <Typography variant="caption" color="text.secondary">Órdenes en el rango</Typography>
             <Typography variant="h6" fontWeight={800}>{data.totals.rows.toLocaleString('es-MX')}</Typography>
           </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">Total MXN</Typography>
-            <Typography variant="h6" fontWeight={800} sx={{ color: '#1B5E20' }}>{moneyFmt(data.totals.total_mxn, 'MXN')}</Typography>
-          </Box>
-          {data.totals.total_usd > 0 && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Total USD/RMB (X-Pay)</Typography>
-              <Typography variant="h6" fontWeight={800} sx={{ color: '#4527A0' }}>{moneyFmt(data.totals.total_usd, 'USD')}</Typography>
-            </Box>
-          )}
         </Paper>
       )}
 
