@@ -3941,7 +3941,11 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           'MXN' as monto_currency,
           CASE WHEN ds.delivery_address_id IS NOT NULL THEN true ELSE false END as has_delivery_instructions,
           false as needs_instructions,
-          ds.national_carrier,
+          -- Paquetería nacional real: puede estar en dhl_shipments o (según el
+          -- flujo de asignación) sólo en la dirección de entrega (carrier_config).
+          -- Antes se leía solo dhl_shipments.national_carrier (NULL) y la cotización
+          -- decía "DHL" en vez de la paquetería seleccionada (p.ej. Paquete Express).
+          COALESCE(ds.national_carrier, addr.carrier_config->>'dhl') as national_carrier,
           -- Costo real de la paquetería nacional (Paquete Express, etc.). Antes
           -- era NULL y el front usaba un fallback de $400; ya viene del embarque.
           -- OJO: 'monto' (total_cost_mxn) YA lo incluye, es solo para el desglose.
@@ -3956,6 +3960,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
             + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END
             as assigned_cost_mxn
         FROM dhl_shipments ds
+        LEFT JOIN addresses addr ON addr.id = ds.delivery_address_id
         WHERE (ds.user_id = $1 OR ds.box_id = $2)
           AND ds.status NOT IN ('delivered', 'cancelled')
         ORDER BY ds.created_at DESC

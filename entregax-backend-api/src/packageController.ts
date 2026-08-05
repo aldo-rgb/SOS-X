@@ -1545,7 +1545,11 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                                ds.status, ds.created_at,
                                1 as total_boxes,
                                ds.import_cost_mxn, ds.import_cost_usd, ds.import_tax_mxn, ds.exchange_rate,
-                               ds.national_carrier, ds.national_tracking, ds.national_label_url,
+                               ds.national_cost_mxn,
+                               -- Paquetería nacional real: si no está en dhl_shipments, tomarla de
+                               -- la dirección (carrier_config), donde vive según el flujo de asignación.
+                               COALESCE(ds.national_carrier, a.carrier_config->>'dhl') AS national_carrier,
+                               ds.national_tracking, ds.national_label_url,
                                ds.delivery_address_id,
                                u.id as user_id, u.full_name, u.email, u.box_id as user_box_id, u.is_verified as user_is_verified,
                                a.alias as addr_alias, a.recipient_name as addr_recipient,
@@ -1776,6 +1780,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         nationalCarrier: fallbackRow.national_carrier || null,
                         nationalTracking: shortPqtxTracking(fallbackRow.national_tracking),
                         nationalLabelUrl: fallbackRow.national_label_url || null,
+                        // Costo de la paquetería nacional (Paquete Express, etc.) para el desglose.
+                        nationalCost: (fallbackKind === 'dhl' && fallbackRow.national_cost_mxn != null)
+                            ? Number(fallbackRow.national_cost_mxn) : null,
                         // 🚢 ETA / semana / contenedor marítimo (containers.eta vía container_id)
                         eta: fallbackRow.container_eta || null,
                         containerWeek: fallbackRow.container_week ?? null,

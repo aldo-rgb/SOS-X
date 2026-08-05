@@ -297,6 +297,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
     : (airSaleUsd && airSaleUsd > 0 ? airSaleUsd : null);
   const totalCost = m.totalCost != null ? Number(m.totalCost) : null;
   const importTax = (m as any).importTaxMxn != null ? Number((m as any).importTaxMxn) : null;
+  const nationalCostMxn = (m as any).nationalCost != null ? Number((m as any).nationalCost) : null;
   const importCostUsd = (m as any).importCostUsd != null ? Number((m as any).importCostUsd) : null;
   const dhlExchangeRate = (m as any).exchangeRate != null ? Number((m as any).exchangeRate) : null;
   const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
@@ -305,7 +306,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const airCw = (m as any).airChargeableWeight != null ? Number((m as any).airChargeableWeight) : null;
   const airPerKgUsd = (m as any).airPricePerKgUsd != null ? Number((m as any).airPricePerKgUsd) : null;
   const airTc = (m as any).airExchangeRate != null ? Number((m as any).airExchangeRate) : null;
-  const hasCosts = lastMileCost != null || providerCostMxn != null || ventaUsd != null || totalCost != null || (importTax != null && importTax > 0);
+  const hasCosts = lastMileCost != null || providerCostMxn != null || ventaUsd != null || totalCost != null || (importTax != null && importTax > 0) || (nationalCostMxn != null && nationalCostMxn > 0);
   // 🩹 Si la guía ya está marcada como pagada, el desglose NO debe mostrar saldo
   // pendiente fantasma (caso: costo nunca congelado → assigned_cost_mxn=0 pero
   // pagada). Cuando está pagada: pagado = total y saldo = 0.
@@ -704,6 +705,12 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                 <Typography variant="caption" color="text.secondary">Impuestos DHL</Typography>
                 <Typography variant="caption" fontWeight={600}>{fmtMoney(importTax)}</Typography>
+              </Box>
+            )}
+            {nationalCostMxn != null && nationalCostMxn > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Envío nacional{carrierDisplay ? ` (${carrierDisplay})` : ''}</Typography>
+                <Typography variant="caption" fontWeight={600}>{fmtMoney(nationalCostMxn)}</Typography>
               </Box>
             )}
             {totalCost != null && (
