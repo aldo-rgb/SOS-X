@@ -5226,11 +5226,19 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                 // DHL packages viven en dhl_shipments con offset +300000 en el ID
                 const realDhlId = Number(packageId) >= 300000 ? Number(packageId) - 300000 : Number(packageId);
                 const dhlShipCost = parseFloat(carrierCost) || 0;
+                // Al elegir la paquetería nacional (ej. Paquete Express) se guarda su
+                // costo en national_cost_mxn Y se recalcula el total para que SÍ lo sume:
+                //   total = (servicio DHL USD × TC) + impuestos DHL + envío nacional.
                 result = await pool.query(`
                     UPDATE dhl_shipments
                     SET delivery_address_id = $1,
                         national_carrier = $3,
-                        national_cost_mxn = COALESCE(NULLIF($4::numeric, 0), national_cost_mxn)
+                        national_cost_mxn = COALESCE(NULLIF($4::numeric, 0), national_cost_mxn),
+                        total_cost_mxn = ROUND(
+                          COALESCE(import_cost_usd, 0)::numeric * COALESCE(exchange_rate, 0)::numeric
+                          + COALESCE(import_tax_mxn, 0)::numeric
+                          + COALESCE(NULLIF($4::numeric, 0), national_cost_mxn, 0)::numeric, 2),
+                        updated_at = NOW()
                     WHERE id = $2${ownerCondition.replace(`user_id = ${userId}`, `user_id = ${userId}`)}
                     RETURNING id, inbound_tracking as tracking_internal
                 `, [deliveryAddressId, realDhlId, carrierName || carrier || null, dhlShipCost]);
