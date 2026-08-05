@@ -145,6 +145,8 @@ export default function BranchManagementPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [tabValue, setTabValue] = useState(0);
+  // Filtro de sucursal para la pestaña "Asignaciones" ('all' = todas).
+  const [assignBranchFilter, setAssignBranchFilter] = useState<number | 'all'>('all');
 
   // Permisos de módulos del panel admin_branches. Si el usuario NO
   // es super_admin, solo verá las sub-tabs cuyo module_key esté en
@@ -953,6 +955,24 @@ export default function BranchManagementPage() {
 
       {/* Tab 1: Asignaciones actuales */}
       {tabValue === 1 && canView('asignaciones') && (
+        <>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
+          <FormControl size="small" sx={{ minWidth: 220 }}>
+            <InputLabel>Filtrar por sucursal</InputLabel>
+            <Select label="Filtrar por sucursal" value={assignBranchFilter}
+              onChange={(e) => setAssignBranchFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
+              <MenuItem value="all">Todas las sucursales</MenuItem>
+              {branches.map(b => (
+                <MenuItem key={b.id} value={b.id}>
+                  {b.name} · {employeeUsers.filter(u => u.branch_id === b.id).length}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Typography sx={{ fontSize: 13, color: FINTECH.textMuted }}>
+            {employeeUsers.filter(u => u.branch_id && (assignBranchFilter === 'all' || u.branch_id === assignBranchFilter)).length} empleado(s)
+          </Typography>
+        </Box>
         <TableContainer
           sx={{
             bgcolor: FINTECH.surface,
@@ -973,7 +993,7 @@ export default function BranchManagementPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {employeeUsers.filter(u => u.branch_id).map((user) => (
+              {employeeUsers.filter(u => u.branch_id && (assignBranchFilter === 'all' || u.branch_id === assignBranchFilter)).map((user) => (
                 <TableRow key={user.id} sx={{ '&:hover': { bgcolor: FINTECH.surfaceAlt } }}>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -1011,6 +1031,7 @@ export default function BranchManagementPage() {
             </TableBody>
           </Table>
         </TableContainer>
+        </>
       )}
 
       {/* Tab 2: Sin asignar */}
