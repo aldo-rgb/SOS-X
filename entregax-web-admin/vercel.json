@@ -55,6 +55,10 @@
       "destination": "https://api.entregax.app/api/external/:path*"
     },
     {
+      "source": "/orden-de-pago/:code",
+      "destination": "https://api.entregax.app/api/ctz/:code"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

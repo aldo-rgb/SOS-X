@@ -314,7 +314,7 @@ export default function PaymentOrdersHistoryPage() {
                         {(r.has_pdf && (r.reference || r.folio)) ? (
                           <Tooltip title="Descargar orden en PDF">
                             <IconButton size="small" sx={{ color: '#C62828' }}
-                              onClick={() => window.open(`${API_URL}/api/ctz/${encodeURIComponent(String(r.reference || r.folio))}`, '_blank')}>
+                              onClick={() => window.open(`/orden-de-pago/${encodeURIComponent(String(r.reference || r.folio))}`, '_blank')}>
                               <PictureAsPdfIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>

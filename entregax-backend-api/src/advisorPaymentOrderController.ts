@@ -3,7 +3,10 @@ import * as crypto from 'crypto';
 import { pool } from './db';
 import { createInvoice, isAutoFacturaEnabled } from './fiscalController';
 import { FacturamaClient } from './facturamaClient';
-import { uploadToS3WithSignedUrl, headS3Object, isS3Configured, getSignedUrlForKey } from './s3Service';
+import { uploadToS3WithSignedUrl, headS3Object, isS3Configured, getS3ObjectBuffer } from './s3Service';
+
+// Dominio web público para enmascarar el enlace del PDF (entregax.app/orden-de-pago/…)
+const webBaseUrl = (): string => (process.env.FRONTEND_URL || 'https://entregax.app').replace(/\/$/, '');
 
 // Nombre de archivo/clave S3 determinístico para la cotización de una orden.
 // Permite que un enlace corto (/api/ctz/:code) reconstruya la misma clave y
@@ -1220,10 +1223,9 @@ export const shareAdvisorPaymentOrderPdf = async (req: Request, res: Response): 
     if (!head.exists || (head.size || 0) < 512) {
       return res.status(502).json({ error: 'No se pudo almacenar el PDF' });
     }
-    // URL corta que redirige al PDF (usa el host desde el que llegó la petición;
-    // en prod = https://api.entregax.app).
-    const base = `${req.protocol}://${req.get('host')}`;
-    const shortUrl = `${base}/api/ctz/${encodeURIComponent(safeRef)}`;
+    // Enlace enmascarado en el dominio web (entregax.app/orden-de-pago/:code).
+    // Vercel lo enruta al backend, que transmite el PDF: el cliente nunca ve S3.
+    const shortUrl = `${webBaseUrl()}/orden-de-pago/${encodeURIComponent(safeRef)}`;
     return res.json({ pdfUrl: shortUrl });
   } catch (e: any) {
     console.error('[share-pdf] error:', e?.message);
@@ -1243,8 +1245,13 @@ export const getSharedQuotePdf = async (req: Request, res: Response): Promise<an
     const key = quotePdfKeyFromRef(safeRef);
     const head = await headS3Object(key);
     if (!head.exists) return res.status(404).send('Cotización no encontrada o expirada');
-    const url = await getSignedUrlForKey(key, 60 * 60); // 1h para la descarga inmediata
-    return res.redirect(302, url);
+    // Transmitimos el PDF desde el backend (no redirigimos a S3) para que la URL
+    // se mantenga enmascarada (entregax.app/orden-de-pago/:code) y no exponga S3.
+    const buf = await getS3ObjectBuffer(key);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="cotizacion-${safeRef}.pdf"`);
+    res.setHeader('Cache-Control', 'private, no-cache, max-age=0');
+    return res.send(buf);
   } catch (e: any) {
     console.error('[ctz] error:', e?.message);
     return res.status(500).send('Error al abrir la cotización');
