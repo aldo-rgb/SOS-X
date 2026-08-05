@@ -14564,7 +14564,8 @@ async function ensureRequiredColumns() {
         ('cs_referidos',     'Gestión de Referidos', 'customer_service', 'PeopleOutline',       'Programa "Trae un amigo": referidos, estados y bonos',  TRUE, 8),
         ('cs_legacy_clients','Migración de Clientes','customer_service', 'UploadFile',          'Importar y gestionar clientes de la base anterior',     TRUE, 9),
         ('cs_chartback',     'Chartback — Reactivación', 'customer_service', 'Sync',            'Asignar asesores a clientes chartback para contactarlos', TRUE, 10),
-        ('cs_welcome_kit',   'Kit de Bienvenida',   'customer_service', 'CardGiftcard',        'Quién solicitó su kit (báscula + PO Box) y a dónde enviarlo', TRUE, 11)
+        ('cs_welcome_kit',   'Kit de Bienvenida',   'customer_service', 'CardGiftcard',        'Quién solicitó su kit (báscula + PO Box) y a dónde enviarlo', TRUE, 11),
+        ('cs_payment_orders_history', 'Historial de Órdenes de Pago', 'customer_service', 'ReceiptLong', 'Consulta unificada de órdenes de pago por servicio: GEX, X-Pay, TDI Aéreo, TDI Express, PO Box, DHL y Marítimo', TRUE, 12)
       ON CONFLICT (panel_key) DO UPDATE SET
         panel_name  = EXCLUDED.panel_name,
         description = EXCLUDED.description,
