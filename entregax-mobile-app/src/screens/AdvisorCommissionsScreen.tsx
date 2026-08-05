@@ -131,24 +131,19 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
     loadCommissions(true);
   };
 
-  const getServiceIcon = (serviceType: string) => {
-    switch (serviceType) {
-      case 'pobox':
-      case 'PO_BOX':
-        return 'mail';
-      case 'china_air':
-      case 'AIR_CHN_MX':
-        return 'airplane';
-      case 'maritime':
-      case 'MARITIME':
-        return 'boat';
-      case 'dhl':
-      case 'DHL':
-        return 'car';
-      default:
-        return 'cube';
-    }
+  // Metadatos por tipo de servicio (los service_type REALES que devuelve el sistema).
+  const SERVICE_META: Record<string, { icon: string; label: string }> = {
+    pobox_usa_mx:      { icon: 'mail',              label: 'PO Box USA' },
+    aereo_china_mx:    { icon: 'airplane',          label: 'Aéreo China' },
+    maritimo_china_mx: { icon: 'boat',              label: 'Marítimo China' },
+    tdi_express:       { icon: 'rocket',            label: 'TDI Express' },
+    liberacion_aa_dhl: { icon: 'cube',              label: 'DHL Nacional' },
+    nacional_mx:       { icon: 'car',               label: 'Envío Nacional' },
+    gex_warranty:      { icon: 'shield-checkmark',  label: 'Garantía GEX' },
+    xpay:              { icon: 'swap-horizontal',   label: 'X-Pay' },
   };
+  const serviceMeta = (st: string) => SERVICE_META[st] || { icon: 'cube', label: st || 'Servicio' };
+  const getServiceIcon = (serviceType: string) => serviceMeta(serviceType).icon;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -191,7 +186,12 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
           <Text style={styles.clientName}>
             {item.client_box_id ? `${item.client_box_id} · ` : ''}{item.client_name}
           </Text>
-          <Text style={styles.tracking}>{item.package_tracking || 'Sin tracking'}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+            <View style={{ backgroundColor: ORANGE + '18', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: ORANGE }}>{serviceMeta(item.service_type).label}</Text>
+            </View>
+            <Text style={styles.tracking}>{item.package_tracking || 'Sin tracking'}</Text>
+          </View>
         </View>
         <View style={styles.commissionAmount}>
           <Text style={styles.amountLabel}>Comisión</Text>
@@ -271,6 +271,17 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Botón: Mis Metas (simulador gamificado de bonos y aceleradores) */}
+      <TouchableOpacity activeOpacity={0.85} style={styles.goalsBtn}
+        onPress={() => navigation.navigate('AdvisorGoals', { user, token })}>
+        <View style={styles.goalsIcon}><Ionicons name="trophy" size={22} color="#fff" /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.goalsTitle}>Mis Metas y Bonos</Text>
+          <Text style={styles.goalsSub}>Qué te falta para cada acelerador y bono este mes</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={22} color="#fff" />
+      </TouchableOpacity>
 
       {/* Filtros por estado */}
       <View style={styles.filtersContainer}>
@@ -369,6 +380,15 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  goalsBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginHorizontal: 16, marginBottom: 6, padding: 14, borderRadius: 14,
+    backgroundColor: ORANGE,
+    shadowColor: ORANGE, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3,
+  },
+  goalsIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' },
+  goalsTitle: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  goalsSub: { color: '#fff', fontSize: 12, opacity: 0.92, marginTop: 1 },
   summaryCard: {
     flex: 1,
     backgroundColor: '#fff',

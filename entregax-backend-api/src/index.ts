@@ -215,6 +215,7 @@ import {
   markCommissionsAsPaid,
   getCommissionsByAdvisor,
   getCommissionSimulatorData,
+  getMyGoals,
   runCommissionBackfill,
   toggleAdvisorRecovery,
   toggleAdvisorActive,
@@ -5766,6 +5767,8 @@ app.get('/api/admin/commissions/stats', authenticateToken, requireMinLevel(ROLES
 app.get('/api/admin/commissions/ledger', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAdvisorCommissionsList);
 app.get('/api/admin/commissions/by-advisor', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionsByAdvisor);
 app.get('/api/admin/commissions/simulator-data', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionSimulatorData);
+// Metas del asesor (app): plan gamificado del propio asesor.
+app.get('/api/advisor/my-goals', authenticateToken, getMyGoals);
 app.post('/api/admin/commissions/pay', authenticateToken, requireMinLevel(ROLES.DIRECTOR), markCommissionsAsPaid);
 app.post('/api/admin/commissions/backfill', authenticateToken, requireMinLevel(ROLES.DIRECTOR), runCommissionBackfill);
 

@@ -1040,6 +1040,97 @@ export const getCommissionSimulatorData = async (req: Request, res: Response): P
     }
 };
 
+// ============================================================================
+// 13b. ASESOR: "Mis Metas" — plan gamificado del asesor (app). Devuelve el
+//      progreso del MES en curso vs las metas/bonos y aceleradores, con la meta
+//      del acelerador tomada del promedio mensual histórico (Excel de Histórico).
+// ============================================================================
+export const getMyGoals = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const uid = (req as any).user?.userId || (req as any).user?.id;
+        if (!uid) return res.status(401).json({ error: 'No autenticado' });
+        const uRes = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid]);
+        const advisorName = uRes.rows[0]?.full_name || '';
+
+        // Parámetros del modelo (mismos defaults que el simulador).
+        const P = { thr: 1.2, vol: [{ g: 80, b: 500 }, { g: 150, b: 1200 }, { g: 250, b: 2500 }], qXpay: 3, qSeg: 3, combo: 500, clean: 300 };
+
+        // Progreso del MES en curso (advisor_commissions del asesor).
+        const cm = await pool.query(`
+            SELECT service_type,
+                   COALESCE(SUM(payment_amount_mxn), 0)::numeric AS ventas,
+                   COUNT(*)::int AS guias
+              FROM advisor_commissions
+             WHERE advisor_id = $1 AND COALESCE(penalized, false) = false
+               AND created_at >= date_trunc('month', now())
+             GROUP BY service_type`, [uid]);
+        const bySvc: Record<string, { ventas: number; guias: number }> = {};
+        for (const r of cm.rows) bySvc[r.service_type] = { ventas: Number(r.ventas), guias: Number(r.guias) };
+        const sv = (k: string) => bySvc[k] || { ventas: 0, guias: 0 };
+
+        // Promedio mensual histórico de acelerados (Excel), por servicio.
+        const norm = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+        const SVC_KEY: Record<string, 'aereo' | 'tdi' | 'mar'> = { tdi_aereo: 'aereo', tdi_express: 'tdi', maritimo: 'mar' };
+        const hist: any = { aereo: { sum: 0, months: new Set() }, tdi: { sum: 0, months: new Set() }, mar: { sum: 0, months: new Set() } };
+        try {
+            const hr = await pool.query(`SELECT service, records FROM svc_historico_reports WHERE service = ANY($1::text[])`, [Object.keys(SVC_KEY)]);
+            const me = norm(advisorName);
+            for (const row of hr.rows) {
+                const key = SVC_KEY[row.service]; if (!key) continue;
+                const recs = Array.isArray(row.records) ? row.records : [];
+                for (const rec of recs) {
+                    if (norm(rec.asesor) !== me) continue;
+                    const monto = Number(rec.monto) || 0; if (monto <= 0) continue;
+                    hist[key].sum += monto; hist[key].months.add(`${rec.anio}-${rec.mes}`);
+                }
+            }
+        } catch { /* svc_historico puede no existir */ }
+        const avg = (o: any) => (o.months.size > 0 ? Math.round(o.sum / o.months.size) : 0);
+
+        // Aceleradores por servicio: meta = promedio histórico × 120%.
+        const accelServices = [
+            { key: 'aereo', name: 'Aéreo China', emoji: '✈️', st: 'aereo_china_mx' },
+            { key: 'tdi',   name: 'TDI Express', emoji: '🚀', st: 'tdi_express' },
+            { key: 'mar',   name: 'Marítimo China', emoji: '🚢', st: 'maritimo_china_mx' },
+        ];
+        const accelerators = accelServices.map(s => {
+            const monthlyAvg = avg(hist[s.key]);
+            const target = Math.round(P.thr * monthlyAvg);
+            const current = Math.round(sv(s.st).ventas);
+            return { key: s.key, name: s.name, emoji: s.emoji, monthlyAvg, target, current, done: monthlyAvg > 0 && current >= target, hasHist: monthlyAvg > 0 };
+        });
+
+        // Bono de volumen: PO Box y DHL por separado.
+        const tierBonus = (g: number) => { for (const t of P.vol) if (g >= t.g) return t.b; return 0; };
+        const nextTier = (g: number) => { const asc = [...P.vol].sort((a, b) => a.g - b.g); for (const t of asc) if (g < t.g) return t; return null; };
+        const volCard = (name: string, emoji: string, g: number) => {
+            const nx = nextTier(g);
+            return { name, emoji, guias: g, bonusNow: tierBonus(g), nextGuias: nx?.g || null, nextBonus: nx?.b || null, faltan: nx ? nx.g - g : 0, done: tierBonus(g) > 0, tiers: P.vol };
+        };
+        const volume = [volCard('PO Box', '📦', sv('pobox_usa_mx').guias), volCard('DHL Nacional', '🚚', sv('liberacion_aa_dhl').guias)];
+
+        // Cuotas de venta cruzada (gate).
+        const xpayOps = sv('xpay').guias, gexOps = sv('gex_warranty').guias;
+        const okXpay = xpayOps >= P.qXpay, okSeg = gexOps >= P.qSeg;
+        const capPct = (okXpay ? 1 : 0) + (okSeg ? 1 : 0) === 2 ? 100 : (okXpay || okSeg) ? 90 : 80;
+        const quotas = [
+            { key: 'xpay', name: 'X-Pay', emoji: '💱', current: xpayOps, target: P.qXpay, done: okXpay },
+            { key: 'seguros', name: 'Seguros (GEX)', emoji: '🛡️', current: gexOps, target: P.qSeg, done: okSeg },
+        ];
+
+        res.json({
+            advisor_name: advisorName,
+            month_label: new Date().toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }),
+            accelerators, volume, quotas,
+            gate: { capPct, okXpay, okSeg },
+            bonos: { combo: P.combo, clean: P.clean },
+        });
+    } catch (error) {
+        console.error('Error getMyGoals:', error);
+        res.status(500).json({ error: 'Error al obtener tus metas' });
+    }
+};
+
 // 14. ADMIN: Backfill - generar comisiones faltantes para pagos históricos
 export const runCommissionBackfill = async (req: Request, res: Response): Promise<any> => {
     try {
