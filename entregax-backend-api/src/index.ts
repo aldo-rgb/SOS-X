@@ -10232,17 +10232,20 @@ app.delete('/api/admin/finance/pending-payment/:referencia', authenticateToken, 
     try {
       await client.query('BEGIN');
 
-      // 1. Eliminar de openpay_webhook_logs
+      // 1. Cancelar en openpay_webhook_logs (SOFT: se conserva el registro para
+      //    el Historial de Órdenes de Pago; antes se borraba y se perdía).
       const webhookResult = await client.query(`
-        DELETE FROM openpay_webhook_logs 
-        WHERE transaction_id = $1 AND estatus_procesamiento = 'pending_payment'
+        UPDATE openpay_webhook_logs
+           SET estatus_procesamiento = 'cancelled'
+         WHERE transaction_id = $1 AND estatus_procesamiento = 'pending_payment'
         RETURNING id, user_id, monto_recibido
       `, [refStr]);
 
-      // 2. Eliminar de pobox_payments
+      // 2. Cancelar en pobox_payments (SOFT: se conserva como 'cancelled').
       const poboxResult = await client.query(`
-        DELETE FROM pobox_payments 
-        WHERE payment_reference = $1 AND status IN ('pending', 'pending_payment')
+        UPDATE pobox_payments
+           SET status = 'cancelled'
+         WHERE payment_reference = $1 AND status IN ('pending', 'pending_payment')
         RETURNING id, user_id, amount, package_ids
       `, [refStr]);
 
@@ -10252,7 +10255,7 @@ app.delete('/api/admin/finance/pending-payment/:referencia', authenticateToken, 
 
       if (webhookDeleted === 0 && poboxDeleted === 0) {
         await client.query('ROLLBACK');
-        return res.status(404).json({ 
+        return res.status(404).json({
           error: 'Referencia no encontrada',
           message: 'No se encontró ningún pago pendiente con esa referencia'
         });
@@ -10260,7 +10263,7 @@ app.delete('/api/admin/finance/pending-payment/:referencia', authenticateToken, 
 
       await client.query('COMMIT');
 
-      console.log(`🗑️ Referencia eliminada: ${refStr} por ${adminName} (webhook: ${webhookDeleted}, pobox: ${poboxDeleted})`);
+      console.log(`🚫 Referencia cancelada (soft): ${refStr} por ${adminName} (webhook: ${webhookDeleted}, pobox: ${poboxDeleted})`);
 
       res.json({
         success: true,
