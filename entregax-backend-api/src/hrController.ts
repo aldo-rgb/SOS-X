@@ -620,8 +620,10 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
         CASE WHEN u.privacy_signature_url IS NOT NULL THEN TRUE ELSE FALSE END AS has_privacy_signature,
         CASE WHEN u.ine_front_url IS NOT NULL AND u.ine_front_url <> '' THEN TRUE ELSE FALSE END AS has_ine_front_url,
         CASE WHEN u.ine_back_url IS NOT NULL AND u.ine_back_url <> '' THEN TRUE ELSE FALSE END AS has_ine_back_url,
-        CASE WHEN u.contract_pdf_url IS NOT NULL AND u.contract_pdf_url <> '' THEN TRUE ELSE FALSE END AS has_contract_url
+        CASE WHEN u.contract_pdf_url IS NOT NULL AND u.contract_pdf_url <> '' THEN TRUE ELSE FALSE END AS has_contract_url,
+        u.branch_id, b.name AS branch_name
       FROM users u
+      LEFT JOIN branches b ON b.id = u.branch_id
       WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'soporte_tecnico', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'director', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor')
         ${showInactive ? '' : 'AND COALESCE(u.is_active, TRUE) = TRUE AND COALESCE(u.is_blocked, FALSE) = FALSE'}
       ORDER BY u.role, u.full_name

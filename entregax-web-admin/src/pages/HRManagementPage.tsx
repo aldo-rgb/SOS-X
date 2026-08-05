@@ -111,6 +111,8 @@ interface Employee {
   is_active?: boolean;
   is_blocked?: boolean;
   attendance_enabled?: boolean;
+  branch_id?: number | null;
+  branch_name?: string | null;
   block_reason?: string | null;
   blocked_at?: string | null;
   deleted_at?: string | null;
@@ -250,6 +252,7 @@ export default function HRManagementPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [filterIncompleto, setFilterIncompleto] = useState(false);
   const [filterRole, setFilterRole] = useState('');
+  const [filterBranch, setFilterBranch] = useState<string>(''); // '' = todas, 'none' = sin sucursal, o branch_id
   
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
@@ -693,6 +696,21 @@ export default function HRManagementPage() {
               ))}
             </Select>
           </FormControl>
+          {/* Filtro por sucursal */}
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel>Filtrar por sucursal</InputLabel>
+            <Select value={filterBranch} label="Filtrar por sucursal" onChange={(e) => setFilterBranch(e.target.value)}>
+              <MenuItem value="">Todas las sucursales</MenuItem>
+              {Array.from(new Map(employees.filter(e => e.branch_id).map(e => [e.branch_id, e.branch_name])).entries())
+                .sort((a, b) => String(a[1]).localeCompare(String(b[1])))
+                .map(([id, name]) => (
+                  <MenuItem key={id} value={String(id)}>
+                    {name} · {employees.filter(e => e.branch_id === id).length}
+                  </MenuItem>
+                ))}
+              <MenuItem value="none">Sin sucursal</MenuItem>
+            </Select>
+          </FormControl>
           {/* Filtro incompletos */}
           <Button
             size="small"
@@ -725,6 +743,7 @@ export default function HRManagementPage() {
                   )
                 : [...employees];
               if (filterRole) list = list.filter(e => e.role === filterRole);
+              if (filterBranch) list = list.filter(e => filterBranch === 'none' ? !e.branch_id : String(e.branch_id) === filterBranch);
               if (filterIncompleto) list = list.filter(e => !e.expediente_completo);
               return `${list.length}${list.length !== employees.length ? ` de ${employees.length}` : ''} empleados`;
             })()}
@@ -736,6 +755,7 @@ export default function HRManagementPage() {
               <TableRow>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Empleado</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Rol</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Sucursal</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Tallas (P/C)</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Contacto Emergencia</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Expediente</TableCell>
@@ -758,6 +778,7 @@ export default function HRManagementPage() {
                       </Box>
                     </TableCell>
                     <TableCell><Skeleton variant="rounded" width={80} height={24} /></TableCell>
+                    <TableCell><Skeleton variant="rounded" width={90} height={24} /></TableCell>
                     <TableCell><Skeleton variant="text" width={60} /></TableCell>
                     <TableCell><Skeleton variant="text" width={100} /></TableCell>
                     <TableCell><Skeleton variant="rounded" width={80} height={24} /></TableCell>
@@ -774,11 +795,12 @@ export default function HRManagementPage() {
                     )
                   : [...employees];
                 if (filterRole) filteredEmployees = filteredEmployees.filter(e => e.role === filterRole);
+                if (filterBranch) filteredEmployees = filteredEmployees.filter(e => filterBranch === 'none' ? !e.branch_id : String(e.branch_id) === filterBranch);
                 if (filterIncompleto) filteredEmployees = filteredEmployees.filter(e => !e.expediente_completo);
                 if (filteredEmployees.length === 0) {
                   return (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                         <Typography color="text.secondary">
                           {employees.length === 0 ? 'No hay empleados registrados' : 'Sin coincidencias para la búsqueda'}
                         </Typography>
@@ -805,12 +827,20 @@ export default function HRManagementPage() {
                     </Box>
                   </TableCell>
                   <TableCell>
-                    <Chip 
-                      label={translateRole(emp.role)} 
-                      size="small" 
+                    <Chip
+                      label={translateRole(emp.role)}
+                      size="small"
                       color={getRoleColor(emp.role)}
                       variant="outlined"
                     />
+                  </TableCell>
+                  <TableCell>
+                    {emp.branch_name ? (
+                      <Chip label={emp.branch_name} size="small" icon={<BadgeIcon sx={{ fontSize: 14 }} />}
+                        sx={{ bgcolor: '#FFF3EC', color: '#D6521C', fontWeight: 600, border: '1px solid #F0B79A' }} />
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">Sin sucursal</Typography>
+                    )}
                   </TableCell>
                   <TableCell>
                     {emp.is_employee_onboarded ? (
