@@ -1217,6 +1217,7 @@ import {
   uploadCarrierIcon,
   carrierIconUpload
 } from './carrierServiceController';
+import { getPaymentOrdersHistory } from './paymentOrdersHistoryController';
 import { listExcludedZips, addExcludedZip, removeExcludedZip } from './mtyMetroController';
 import {
   listZones as coverageListZones,
@@ -8624,6 +8625,13 @@ app.get('/api/admin/payment-invoices', authenticateToken, requireMinLevel(ROLES.
 // DASHBOARD DE COBRANZA Y FLUJO DE EFECTIVO - MULTI-EMPRESA
 // Unifica ingresos de Caja Chica + SPEI (Openpay) por empresa
 // ============================================
+
+// ============================================
+// HISTORIAL DE ÓRDENES DE PAGO (solo consulta)
+// Vista unificada de pobox_payments + advisor_payment_orders +
+// entangled_payment_requests (X-Pay) + warranties (GEX). No modifica nada.
+// ============================================
+app.get('/api/admin/payment-orders-history', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), getPaymentOrdersHistory);
 app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req: Request, res: Response): Promise<any> => {
   try {
     const { date_from, date_to, empresa_id, service_type } = req.query;

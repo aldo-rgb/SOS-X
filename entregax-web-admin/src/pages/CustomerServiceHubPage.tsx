@@ -34,8 +34,10 @@ import LegacyClientsPage from './LegacyClientsPage';
 import ChartbackManagementPage from './ChartbackManagementPage';
 import WelcomeKitPage from './WelcomeKitPage';
 import LeadRegistrationPage from './LeadRegistrationPage';
+import PaymentOrdersHistoryPage from './PaymentOrdersHistoryPage';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -52,6 +54,7 @@ const TOOL_PERMISSIONS: Record<string, string> = {
   'legacy_clients': 'cs_legacy_clients',
   'chartback': 'cs_chartback',
   'welcome_kit': 'cs_welcome_kit',
+  'payment_orders_history': 'cs_payment_orders_history',
 };
 
 interface User {
@@ -70,7 +73,7 @@ interface CustomerServiceHubPageProps {
   onViewApplied?: () => void;
 }
 
-type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback' | 'welcome_kit' | 'lead_registration';
+type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos' | 'legacy_clients' | 'chartback' | 'welcome_kit' | 'lead_registration' | 'payment_orders_history';
 
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh, pendingView, onViewApplied }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
@@ -316,6 +319,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       color: '#3F51B5',
       bgColor: 'rgba(63, 81, 181, 0.1)',
     },
+    {
+      key: 'payment_orders_history',
+      title: 'Historial de Órdenes de Pago',
+      description: 'Consulta unificada de órdenes de pago por servicio: GEX, X-Pay, TDI Aéreo, TDI Express, PO Box, DHL y Marítimo',
+      icon: <ReceiptLongIcon sx={{ fontSize: 40 }} />,
+      color: '#F05A28',
+      bgColor: 'rgba(240, 90, 40, 0.1)',
+    },
   ];
 
   // Renderizar página activa
@@ -494,6 +505,20 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           <Typography variant="h5" fontWeight={700}>Kit de Bienvenida</Typography>
         </Box>
         <WelcomeKitPage />
+      </Box>
+    );
+  }
+
+  if (activeView === 'payment_orders_history') {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>Historial de Órdenes de Pago</Typography>
+        </Box>
+        <PaymentOrdersHistoryPage />
       </Box>
     );
   }
