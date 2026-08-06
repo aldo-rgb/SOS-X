@@ -561,6 +561,42 @@ export default function SupportBoardPage() {
     return () => window.removeEventListener('open-support-ticket', handler);
   }, [tickets, loadTickets, deptFilter, token]);
 
+  // Fallback: cuando SupportBoardPage monta o cuando termina de cargar los
+  // tickets, revisamos si hay un folio pendiente en localStorage (dejado por
+  // App.tsx al navegar desde una tarea "Error localizado TKT-…"). Si el
+  // listener del evento no alcanzó a registrarse antes de que se disparara,
+  // este chequeo asegura que el ticket se abra igual.
+  useEffect(() => {
+    if (tickets.length === 0) return;
+    let pending: string | null = null;
+    try { pending = localStorage.getItem('pending_open_ticket_folio'); } catch { /* ignore */ }
+    if (!pending) return;
+    const folio = pending.trim().toUpperCase();
+    const match = tickets.find(t => String(t.ticket_folio || '').toUpperCase() === folio);
+    if (match) {
+      try { localStorage.removeItem('pending_open_ticket_folio'); } catch { /* ignore */ }
+      handleOpenTicket(match);
+      return;
+    }
+    // No está en la lista actual: si el usuario tiene filtro por depto, se lo
+    // quitamos para poder mostrarle el ticket sin importar el depto.
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/admin/support/tickets?limit=200`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const all = await res.json();
+        if (!Array.isArray(all)) return;
+        setTickets(all);
+        if (deptFilter !== 'all') setDeptFilter('all');
+        const found = all.find((t: SupportTicket) => String(t.ticket_folio || '').toUpperCase() === folio);
+        if (found) {
+          try { localStorage.removeItem('pending_open_ticket_folio'); } catch { /* ignore */ }
+          handleOpenTicket(found);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [tickets, token, deptFilter]);
+
   const handleOpenTicket = async (ticket: SupportTicket) => {
     setSelectedTicket(ticket);
     setDialogOpen(true);

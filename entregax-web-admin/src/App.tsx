@@ -951,12 +951,21 @@ function App() {
         setSelectedIndex(panelsIndex);
         setSelectedSubIndex(serviceSubIndex >= 0 ? serviceSubIndex : null);
         // Si viene un folio (p.ej. desde una tarea "Error localizado TKT-…"),
-        // abrimos ese ticket una vez montado el tablero de soporte.
+        // abrimos ese ticket una vez montado el tablero de soporte. Como el
+        // tablero puede tardar en montarse (transiciones/carga), dejamos el
+        // folio en localStorage; SupportBoardPage lo recoge en su onMount
+        // aunque el evento haya llegado antes de que el listener existiera.
         const ticketFolio = event.detail?.ticketFolio;
         if (ticketFolio) {
+          try { localStorage.setItem('pending_open_ticket_folio', String(ticketFolio)); } catch { /* quota */ }
+          // Reintentos: si el tablero se monta rápido, el evento lo abre
+          // enseguida; si tarda, el onMount lo abrirá desde localStorage.
           setTimeout(() => {
             window.dispatchEvent(new CustomEvent('open-support-ticket', { detail: { folio: ticketFolio } }));
           }, 600);
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('open-support-ticket', { detail: { folio: ticketFolio } }));
+          }, 1600);
         }
       }
 
