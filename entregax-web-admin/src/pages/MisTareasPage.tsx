@@ -70,6 +70,22 @@ const fmtDur = (ms: number): string => {
   if (h < 24) return `${h}h ${mm}m`;
   const d = Math.floor(h / 24), hh = h % 24; return `${d}d ${hh}h`;
 };
+
+// Paleta de colores para autores de comentarios (estilo WhatsApp). Cada usuario
+// obtiene un color estable a partir de su id — así en un hilo con varios
+// participantes no se confunden entre sí (antes salían todos en morado).
+const AUTHOR_COLOR_PALETTE = [
+  '#1976D2', '#7B1FA2', '#2E7D32', '#EF6C00', '#C2185B',
+  '#00838F', '#5D4037', '#455A64', '#AD1457', '#0288D1',
+  '#388E3C', '#F57C00', '#5E35B1', '#00695C', '#BF360C',
+];
+const authorColor = (id?: number | string | null, name?: string | null): string => {
+  const key = String(id ?? name ?? '').trim();
+  if (!key) return AUTHOR_COLOR_PALETTE[0];
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  return AUTHOR_COLOR_PALETTE[hash % AUTHOR_COLOR_PALETTE.length];
+};
 // Milisegundos HÁBILES entre dos momentos: solo cuenta el horario laboral
 // 10:30–18:30 (hora de México, UTC−6 fijo) de lunes a viernes. No cuenta
 // noches ni fines de semana. Se usa para el "tiempo en curso" de las tareas.
@@ -920,8 +936,22 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const complete = async () => {
     if (pending > 0) { notify(`Completa el checklist antes de terminar (${pending} pendiente${pending === 1 ? '' : 's'}).`, 'error'); return; }
     setBusy(true);
-    try { await axios.post(`${API_URL}/tasks/${id}/complete`, {}, H()); notify('Tarea completada'); onChanged(); onClose(); }
-    catch (e: any) { notify(e?.response?.data?.error || 'No se pudo completar', 'error'); }
+    try {
+      const res = await axios.post(`${API_URL}/tasks/${id}/complete`, {}, H());
+      // El backend responde con awaiting_confirmation=true cuando el
+      // responsable termina una tarea que creó otra persona: queda en espera
+      // de que el creador confirme. En ese caso NO cerramos el diálogo — el
+      // creador la marca desde su propia acción.
+      if (res.data?.awaiting_confirmation) {
+        notify('Tarea marcada como terminada · esperando confirmación del creador', 'success');
+        reload();
+        onChanged();
+      } else {
+        notify('Tarea completada');
+        onChanged();
+        onClose();
+      }
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo completar', 'error'); }
     finally { setBusy(false); }
   };
   const addComment = async () => {
@@ -1195,13 +1225,40 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
 
             <Divider sx={{ my: 2 }} />
             <Typography fontWeight={800} fontSize={14} sx={{ mb: 1 }}>Comentarios</Typography>
-            {(data.comments || []).map((c: any) => (
-              <Box key={c.id} sx={{ mb: 1 }}>
-                <Typography variant="caption" color="text.secondary"><b>{c.author_name || '—'}</b> · {fmtDate(c.created_at)}</Typography>
-                <Typography variant="body2">{c.body}</Typography>
-              </Box>
-            ))}
-            <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+            {(data.comments || []).length === 0 && (
+              <Typography variant="caption" color="text.secondary">Sin comentarios todavía.</Typography>
+            )}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+              {(data.comments || []).map((c: any) => {
+                const mine = MY_ID > 0 && Number(c.author_id) === Number(MY_ID);
+                const nameColor = authorColor(c.author_id, c.author_name);
+                return (
+                  <Box key={c.id} sx={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+                    <Box sx={{
+                      maxWidth: '78%',
+                      px: 1.25, py: 0.75,
+                      borderRadius: 2,
+                      borderTopRightRadius: mine ? 0.5 : 2,
+                      borderTopLeftRadius: mine ? 2 : 0.5,
+                      bgcolor: mine ? '#DCF8C6' : '#F1F0F0',
+                    }}>
+                      {!mine && (
+                        <Typography sx={{ fontSize: 11.5, fontWeight: 800, color: nameColor, mb: 0.25 }}>
+                          {c.author_name || '—'}
+                        </Typography>
+                      )}
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: mine ? '#0B3D1E' : '#1a1a1a' }}>
+                        {c.body}
+                      </Typography>
+                      <Typography sx={{ fontSize: 10.5, color: mine ? '#3A7D53' : '#9AA0A6', textAlign: 'right', mt: 0.25 }}>
+                        {fmtDate(c.created_at)}
+                      </Typography>
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
               <TextField fullWidth size="small" placeholder="Deja un comentario…" value={comment} onChange={e => setComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addComment(); }} />
               <IconButton color="primary" onClick={addComment}><SendIcon /></IconButton>
             </Box>
@@ -1231,11 +1288,41 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 Poner en proceso
               </Button>
             )}
-            {t.status !== 'completed' && t.started_at && (
-              <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={complete} disabled={busy || pending > 0}>
-                {pending > 0 ? `Completa el checklist (${pending})` : 'Completar'}
-              </Button>
-            )}
+            {t.status !== 'completed' && t.started_at && (() => {
+              // ── Doble confirmación ──
+              // Si el creador y el responsable son distintos, el responsable
+              // manda la tarea a "Esperando confirmación" y solo el creador
+              // (o gerencia) la cierra en un segundo paso.
+              const creatorId = Number(t.created_by) || 0;
+              const assigneeId = Number(t.assignee_id) || 0;
+              const iAmCreator = creatorId > 0 && creatorId === MY_ID;
+              const differentCreator = creatorId > 0 && assigneeId > 0 && creatorId !== assigneeId;
+              const isAwaiting = t.status === 'awaiting_confirmation';
+
+              if (isAwaiting) {
+                if (iAmCreator) {
+                  return (
+                    <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={complete} disabled={busy || pending > 0}>
+                      {pending > 0 ? `Completa el checklist (${pending})` : 'Confirmar y cerrar'}
+                    </Button>
+                  );
+                }
+                return (
+                  <Button variant="outlined" disabled sx={{ borderColor: '#B07206', color: '#B07206' }}>
+                    ⏳ Esperando confirmación del creador
+                  </Button>
+                );
+              }
+
+              const label = differentCreator && !iAmCreator
+                ? (pending > 0 ? `Completa el checklist (${pending})` : 'Marcar terminada')
+                : (pending > 0 ? `Completa el checklist (${pending})` : 'Completar');
+              return (
+                <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={complete} disabled={busy || pending > 0}>
+                  {label}
+                </Button>
+              );
+            })()}
             <Button onClick={onClose}>Cerrar</Button>
           </DialogActions>
 

@@ -76,6 +76,22 @@ const fmtDate = (iso?: string | null) => {
   catch { return '—'; }
 };
 
+// Paleta de colores para autores de comentarios (estilo WhatsApp): cada
+// usuario recibe un color distinto y estable a partir de su id. Antes salía
+// todo el mundo en morado y los usuarios se confundían entre sí.
+const AUTHOR_COLOR_PALETTE = [
+  '#1976D2', '#7B1FA2', '#2E7D32', '#EF6C00', '#C2185B',
+  '#00838F', '#5D4037', '#455A64', '#AD1457', '#0288D1',
+  '#388E3C', '#F57C00', '#5E35B1', '#00695C', '#BF360C',
+];
+const authorColor = (id?: number | string | null, name?: string | null): string => {
+  const key = String(id ?? name ?? '').trim();
+  if (!key) return AUTHOR_COLOR_PALETTE[0];
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  return AUTHOR_COLOR_PALETTE[hash % AUTHOR_COLOR_PALETTE.length];
+};
+
 // ── Usuarios asignables: agrupación por tipo + tiempo promedio (igual que web) ──
 export interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; }
 export const ROLE_LABEL: Record<string, string> = {
@@ -1090,7 +1106,11 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 return (
                   <View key={c.id} style={[styles.msgRow, mine ? styles.msgRowMine : styles.msgRowOther]}>
                     <View style={[styles.msgBubble, mine ? styles.msgBubbleMine : styles.msgBubbleOther]}>
-                      {!mine && <Text style={styles.msgAuthor}>{c.author_name || '—'}</Text>}
+                      {!mine && (
+                        <Text style={[styles.msgAuthor, { color: authorColor(c.author_id, c.author_name) }]}>
+                          {c.author_name || '—'}
+                        </Text>
+                      )}
                       <Text style={[styles.msgText, mine && { color: '#0B3D1E' }]}>{c.body}</Text>
                       <Text style={[styles.msgTime, mine ? { color: '#3A7D53' } : { color: '#9AA0A6' }]}>{fmtDate(c.created_at)}</Text>
                     </View>

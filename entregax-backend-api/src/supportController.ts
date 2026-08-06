@@ -1412,6 +1412,34 @@ export const resolveTicket = async (req: Request, res: Response): Promise<any> =
         .catch(() => {});
     }
 
+    // 🔗 Cierre de la tarea vinculada "Error localizado {folio}".
+    // Cuando el ticket se marca como resuelto, la tarea de soporte tecnico que
+    // nacio de "Reportar error" se cierra automaticamente — sin importar si
+    // estaba en 'open' o esperando confirmacion del creador.
+    if (updated.rows[0]?.ticket_folio) {
+      const folio = updated.rows[0].ticket_folio;
+      try {
+        await pool.query(
+          `UPDATE tasks
+              SET status = 'completed',
+                  completed_at = COALESCE(completed_at, NOW()),
+                  updated_at = NOW(),
+                  column_id = COALESCE(
+                    (SELECT id FROM task_columns tc
+                      WHERE tc.board_id = tasks.board_id AND tc.is_done = TRUE
+                      ORDER BY sort_order LIMIT 1),
+                    column_id
+                  )
+            WHERE title = $1
+              AND status <> 'completed'
+              AND status <> 'cancelled'`,
+          [`Error localizado ${folio}`]
+        );
+      } catch (e: any) {
+        console.error('[support] Auto-cerrar tarea vinculada al ticket', folio, e?.message);
+      }
+    }
+
     res.json({ success: true, message: 'Ticket resuelto' });
   } catch (error) {
     console.error('Error resolviendo ticket:', error);

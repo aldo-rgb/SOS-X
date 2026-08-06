@@ -1045,6 +1045,25 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     if (!mgr && Number(task.assignee_id) !== Number(uid) && !isParticipant) {
       return res.status(403).json({ error: 'Solo un involucrado o gerencia puede cerrar la tarea' });
     }
+
+    // ── Doble confirmación ───────────────────────────────────────────────
+    // Si el responsable y el que creó la tarea son distintos, la tarea NO se
+    // cierra directamente al terminarla el responsable: pasa a
+    // 'awaiting_confirmation' y solo el creador (o gerencia) la marca como
+    // completada. Si son la misma persona, o si la termina el propio creador,
+    // se cierra en un solo paso como siempre.
+    const creatorId = Number(task.created_by) || 0;
+    const assigneeId = Number(task.assignee_id) || 0;
+    const isCreator = creatorId > 0 && Number(uid) === creatorId;
+    const needsDoubleConfirm = creatorId > 0 && assigneeId > 0 && creatorId !== assigneeId;
+    const alreadyAwaiting = String(task.status || '') === 'awaiting_confirmation';
+
+    // Bypass explícito (por ejemplo, cierre automático desde el ticket): se salta
+    // el paso intermedio de espera y va derecho a 'completed'.
+    const skipAwaiting = String((req as any)?.body?.skip_double_confirm || '') === 'true' || (req as any)?.body?.skip_double_confirm === true;
+
+    const goingToAwaiting = needsDoubleConfirm && !alreadyAwaiting && !isCreator && !mgr && !skipAwaiting;
+
     // Avisa (push 'task_completed') a los involucrados, al responsable y a QUIEN
     // ASIGNÓ la tarea (created_by), excepto a quien la cerró. Así el que la asignó
     // siempre se entera cuando el responsable la termina.
@@ -1064,6 +1083,23 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
         }
       } catch { /* opcional */ }
     };
+
+    // Notifica al creador cuando el responsable manda la tarea a
+    // 'awaiting_confirmation' para que la revise y la marque como completada.
+    const notifyAwaitingConfirmation = async () => {
+      if (!creatorId || creatorId === Number(uid)) return;
+      try {
+        const who = (await pool.query(`SELECT full_name FROM users WHERE id=$1`, [uid])).rows[0]?.full_name || 'El responsable';
+        await notify(
+          creatorId,
+          `👀 ${who} terminó "${task.title}" — confirma para cerrarla`,
+          task.title,
+          { task_id: id, awaiting_confirmation: true },
+          'task_awaiting_confirmation'
+        );
+      } catch { /* opcional */ }
+    };
+
     // Si la tarea nació de "Reportar error" (título "Error localizado {folio}"),
     // al completarla se avisa AL CLIENTE en el mismo ticket que ya fue corregido.
     // Solo ESCRIBE la respuesta en el ticket (sin notificación push/in-app).
@@ -1089,6 +1125,7 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
         await pool.query(`UPDATE support_tickets SET updated_at=NOW() WHERE id=$1`, [ticketId]);
       } catch (e) { console.error('[tasks] notifyTicketFixed:', e); }
     };
+
     // Al cerrar, mover a la columna terminal (is_done) del tablero si existe.
     const doneCol = (await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 AND is_done=TRUE ORDER BY sort_order LIMIT 1`, [task.board_id])).rows[0]?.id || null;
     const colSet = doneCol ? `column_id=${Number(doneCol)},` : '';
@@ -1105,13 +1142,27 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
       await logActivity(id, uid, 'forced_close', { pending, reason });
       await notifyCompleted();
       await notifyTicketFixed();
-      return res.json({ success: true, forced: true });
+      return res.json({ success: true, forced: true, awaiting_confirmation: false });
     }
+
+    if (goingToAwaiting) {
+      // El responsable terminó su parte pero el creador es otro: dejamos la
+      // tarea en espera de confirmación (no se cierra ni se mueve a la columna
+      // terminal aún — sigue visible como pendiente para el creador).
+      await pool.query(
+        `UPDATE tasks SET status='awaiting_confirmation', updated_at=NOW() WHERE id=$1`,
+        [id]
+      );
+      await logActivity(id, uid, 'awaiting_confirmation', { by_assignee: assigneeId === Number(uid) });
+      await notifyAwaitingConfirmation();
+      return res.json({ success: true, forced: false, awaiting_confirmation: true });
+    }
+
     await pool.query(`UPDATE tasks SET status='completed', completed_at=NOW(), ${colSet} updated_at=NOW() WHERE id=$1`, [id]);
-    await logActivity(id, uid, 'completed', {});
+    await logActivity(id, uid, alreadyAwaiting ? 'confirmed' : 'completed', alreadyAwaiting ? { from: 'awaiting_confirmation' } : {});
     await notifyCompleted();
     await notifyTicketFixed();
-    res.json({ success: true, forced: false });
+    res.json({ success: true, forced: false, awaiting_confirmation: false });
   } catch (e: any) {
     console.error('[tasks] completeTask:', e); res.status(500).json({ error: 'Error al completar tarea' });
   }
