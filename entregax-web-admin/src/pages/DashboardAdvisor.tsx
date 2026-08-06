@@ -987,6 +987,8 @@ export default function DashboardAdvisor() {
     const beneficiario = bi.beneficiario || op.beneficiario || '';
     const totalAmt = op.total_mxn ? Number(op.total_mxn) : 0;
 
+    const isDhlOp = String(op?.service_type_cfg || '').toUpperCase() === 'AA_DHL';
+    const svcLabelOp = isDhlOp ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aérea';
     const rows = items.length > 0 ? items : guideList.map((g) => ({ tracking: g, weight: 0, lengthCm: 0, widthCm: 0, heightCm: 0, tipo: '', total_boxes: 0, venta_mxn: 0, children: [] }));
     let pkgRows = '';
     rows.forEach((it: any, idx: number) => {
@@ -1042,7 +1044,7 @@ export default function DashboardAdvisor() {
       <div class="section">
         <div class="section-title">2. Detalle del Embarque</div>
         <div class="info-grid">
-          <div class="info-row"><span class="info-label">Servicio:</span><span class="info-value">PO Box USA - Carga Aérea</span></div>
+          <div class="info-row"><span class="info-label">Servicio:</span><span class="info-value">${svcLabelOp}</span></div>
           <div class="info-row"><span class="info-label">Origen:</span><span class="info-value">Estados Unidos</span></div>
           <div class="info-row"><span class="info-label">Destino:</span><span class="info-value">Monterrey, N.L., México</span></div>
           <div class="info-row"><span class="info-label">Paquetes:</span><span class="info-value">${rows.length} paquete(s)</span></div>
