@@ -265,7 +265,8 @@ export default function MisTareasPage() {
   const notify = (msg: string, sev: 'success' | 'error' = 'success') => setSnack({ open: true, msg, sev });
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
+  const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: '', due_at: '' });
+  const [creating, setCreating] = useState(false); // anti doble-envío
   const [involvedIds, setInvolvedIds] = useState<number[]>(MY_ID ? [MY_ID] : []);
   // Responsable principal de la nueva tarea. Se pide OBLIGATORIO cuando el
   // creador involucra a alguien más (además de sí mismo). Debe ser uno de los
@@ -274,7 +275,7 @@ export default function MisTareasPage() {
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
-  const [catId, setCatId] = useState<number>(0); // 0 = Sin categoría (Tareas Personales)
+  const [catId, setCatId] = useState<number | ''>(''); // '' = sin elegir (obligatorio); 0 = Personal
   const [catSection, setCatSection] = useState<number | ''>(''); // subsección elegida
   const [newSubtasks, setNewSubtasks] = useState<string[]>([]); // checklist al crear
   const [subInput, setSubInput] = useState('');
@@ -343,6 +344,9 @@ export default function MisTareasPage() {
 
   const createTask = async () => {
     if (!form.title.trim()) return notify('El título es obligatorio', 'error');
+    if (catId === '' || catId === null || catId === undefined) return notify('Selecciona una categoría', 'error');
+    if (!form.eisenhower) return notify('Selecciona la prioridad', 'error');
+    if (!form.due_at) return notify('Selecciona la fecha deseada', 'error');
     // Si el creador involucró a alguien más (aparte de "yo"), el responsable
     // es obligatorio y tiene que ser uno de los involucrados.
     const others = involvedIds.filter(id => id && id !== MY_ID);
@@ -350,6 +354,8 @@ export default function MisTareasPage() {
       if (!newAssigneeId) return notify('Selecciona un responsable para la tarea', 'error');
       if (!involvedIds.includes(newAssigneeId)) return notify('El responsable debe estar entre los involucrados', 'error');
     }
+    if (creating) return; // anti doble-click
+    setCreating(true);
     try {
       const res = await axios.post(`${API_URL}/tasks/personal`, {
         title: form.title.trim(), description: form.description || null,
@@ -369,12 +375,14 @@ export default function MisTareasPage() {
         }
       }
       setCreateOpen(false);
-      setForm({ title: '', description: '', eisenhower: 'estrella', due_at: '' });
+      setForm({ title: '', description: '', eisenhower: '', due_at: '' });
+      setCatId(''); setCatSection('');
       setInvolvedIds(MY_ID ? [MY_ID] : []); setNewAssigneeId(0); setNewPhotos([]);
       setNewSubtasks([]); setSubInput('');
       notify('Tarea creada');
       load();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear', 'error'); }
+    finally { setCreating(false); }
   };
 
   const loadSchedules = useCallback(async () => {
@@ -520,7 +528,7 @@ export default function MisTareasPage() {
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button variant="outlined" startIcon={<ScheduleIcon />} onClick={openSchedule} sx={{ color: '#B07206', borderColor: '#B07206', '&:hover': { borderColor: '#8a5a05', bgcolor: 'rgba(176,114,6,0.06)' } }}>Programar tarea</Button>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setInvolvedIds(MY_ID ? [MY_ID] : []); setCatId(0); setCatSection(''); setCreateOpen(true); }} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setInvolvedIds(MY_ID ? [MY_ID] : []); setCatId(''); setCatSection(''); setCreateOpen(true); }} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load}>Actualizar</Button>
         </Box>
       </Box>
@@ -711,10 +719,11 @@ export default function MisTareasPage() {
         <DialogContent>
           <TextField autoFocus fullWidth label="Título (usa un verbo de acción)" margin="dense"
             value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
-          <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
-            <InputLabel>Categoría (flujo)</InputLabel>
-            <Select label="Categoría (flujo)" value={catId} onChange={e => { setCatId(Number(e.target.value)); setCatSection(''); }}>
-              <MenuItem value={0}>Sin categoría (personal)</MenuItem>
+          <FormControl fullWidth size="small" sx={{ mt: 1.5 }} required error={catId === ''}>
+            <InputLabel>Categoría (flujo) *</InputLabel>
+            <Select label="Categoría (flujo) *" value={catId} displayEmpty onChange={e => { setCatId(Number(e.target.value)); setCatSection(''); }}>
+              <MenuItem value="" disabled><em>Selecciona una categoría…</em></MenuItem>
+              <MenuItem value={0}>Personal</MenuItem>
               {categories.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </Select>
           </FormControl>
@@ -731,18 +740,20 @@ export default function MisTareasPage() {
             ) : null;
           })()}
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-            «Sin categoría» solo aparece en tu panel personal de Mis Tareas. Con categoría, la tarea aparece en ese flujo.
+            «Personal» solo aparece en tu panel personal de Mis Tareas. Con otra categoría, la tarea aparece en ese flujo.
           </Typography>
           <TextField fullWidth label="Descripción" margin="dense" multiline rows={2}
             value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
           <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Prioridad (Eisenhower)</InputLabel>
-              <Select label="Prioridad (Eisenhower)" value={form.eisenhower} onChange={e => setForm({ ...form, eisenhower: e.target.value })}>
+            <FormControl fullWidth size="small" required error={!form.eisenhower}>
+              <InputLabel>Prioridad (Eisenhower) *</InputLabel>
+              <Select label="Prioridad (Eisenhower) *" value={form.eisenhower} displayEmpty onChange={e => setForm({ ...form, eisenhower: e.target.value })}>
+                <MenuItem value="" disabled><em>Selecciona la prioridad…</em></MenuItem>
                 {Object.entries(EIS).map(([k, v]) => <MenuItem key={k} value={k}>{v.label}</MenuItem>)}
               </Select>
             </FormControl>
-            <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
+            <TextField fullWidth size="small" required type="datetime-local" label="Fecha deseada *" InputLabelProps={{ shrink: true }}
+              error={!form.due_at}
               value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
           </Box>
           {!IS_ASESOR && (<>
@@ -837,15 +848,16 @@ export default function MisTareasPage() {
           <Button onClick={() => { setCreateOpen(false); setNewPhotos([]); }}>Cancelar</Button>
           {(() => {
             const needsAssignee = involvedIds.filter(id => id && id !== MY_ID).length > 0;
-            const disableCrear = !form.title.trim() || (needsAssignee && !newAssigneeId);
+            const disableCrear = creating || !form.title.trim() || catId === '' || !form.eisenhower || !form.due_at || (needsAssignee && !newAssigneeId);
             return (
               <Button
                 variant="contained"
                 onClick={createTask}
                 disabled={disableCrear}
+                startIcon={creating ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : undefined}
                 sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}
               >
-                Crear
+                {creating ? 'Creando…' : 'Crear'}
               </Button>
             );
           })()}
@@ -985,6 +997,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [delAttId, setDelAttId] = useState<number | null>(null); // confirmar borrar archivo
   const [procConfirm, setProcConfirm] = useState<{ title: string } | null>(null); // confirmar dejar otra pendiente
+  const [forceConfirmOpen, setForceConfirmOpen] = useState(false); // pregunta doble: completar en espera sin revisión
 
   const reload = useCallback(async () => {
     try { const r = await axios.get(`${API_URL}/tasks/${id}`, H()); setData(r.data); } catch { /* */ }
@@ -1057,9 +1070,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
       // la asignó → confirmar el cierre sin su revisión.
       if (e?.response?.status === 409 && e?.response?.data?.needs_force_confirm) {
         setBusy(false);
-        if (window.confirm('¿Seguro que deseas marcar esta tarea como COMPLETADA sin la revisión de quien la asignó?')) {
-          complete(true);
-        }
+        setForceConfirmOpen(true); // abre el diálogo con diseño
         return;
       }
       notify(e?.response?.data?.error || 'No se pudo completar', 'error');
@@ -1513,6 +1524,32 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               <Button onClick={() => setProcConfirm(null)}>Cancelar</Button>
               <Button variant="contained" onClick={() => { setProcConfirm(null); start(true); }} sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
                 Iniciar de todos modos
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          {/* Pregunta doble: completar una tarea en espera sin la revisión de quien la asignó */}
+          <Dialog open={forceConfirmOpen} onClose={() => setForceConfirmOpen(false)} maxWidth="xs" fullWidth
+            PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+            <Box sx={{ bgcolor: '#FBE9D0', px: 3, pt: 2.5, pb: 2, display: 'flex', alignItems: 'center', gap: 1.2 }}>
+              <Box sx={{ width: 40, height: 40, borderRadius: '50%', bgcolor: '#B07206', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+                <span style={{ fontSize: 20 }}>⏳</span>
+              </Box>
+              <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', color: '#7a4f04' }}>En espera de confirmación</Typography>
+            </Box>
+            <DialogContent sx={{ pt: 2.5 }}>
+              <Typography variant="body2" sx={{ color: 'text.primary' }}>
+                Esta tarea está esperando que <b>quien la asignó</b> la revise y la cierre.
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
+                ¿Seguro que deseas marcarla como <b>COMPLETADA</b> sin su revisión?
+              </Typography>
+            </DialogContent>
+            <DialogActions sx={{ px: 3, pb: 2.5 }}>
+              <Button onClick={() => setForceConfirmOpen(false)} sx={{ color: 'text.secondary' }}>Cancelar</Button>
+              <Button variant="contained" onClick={() => { setForceConfirmOpen(false); complete(true); }}
+                sx={{ bgcolor: '#2E7D46', '&:hover': { bgcolor: '#25683a' }, fontWeight: 700 }}>
+                Sí, completar
               </Button>
             </DialogActions>
           </Dialog>

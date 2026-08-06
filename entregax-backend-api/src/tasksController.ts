@@ -380,6 +380,14 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
     // involucrado distinto del creador; y si no hay involucrados, el creador.
     const firstNonCreator = extra.find((x) => x !== uid);
     const primaryAssignee = explicitAssignee > 0 ? explicitAssignee : (firstNonCreator || uid);
+    // Anti doble-envío: si el mismo usuario creó una tarea idéntica (mismo título
+    // + tablero) en los últimos 20 s, devolvemos esa en lugar de duplicar.
+    const dup = await pool.query(
+      `SELECT id FROM tasks WHERE created_by = $1 AND title = $2
+         AND COALESCE(board_id,0) = COALESCE($3,0) AND created_at > NOW() - INTERVAL '20 seconds'
+       ORDER BY id DESC LIMIT 1`,
+      [uid, String(b.title).trim(), boardId]);
+    if (dup.rows[0]) return res.json({ task: { id: dup.rows[0].id }, duplicate: true });
     const r = await pool.query(
       `INSERT INTO tasks (board_id, column_id, section_id, title, description, assignee_id, due_at, eisenhower, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
@@ -1263,7 +1271,7 @@ export const startTask = async (req: Request, res: Response): Promise<any> => {
         WHERE t.id <> $1 AND t.status = 'open' AND t.started_at IS NOT NULL AND t.completed_at IS NULL
           AND c.is_done = FALSE
           AND c.sort_order > (SELECT MIN(sort_order) FROM task_columns WHERE board_id = t.board_id)
-          AND (t.assignee_id = $2 OR EXISTS (SELECT 1 FROM task_participants p WHERE p.task_id = t.id AND p.user_id = $2))`,
+          AND t.assignee_id = $2`,
       [id, uid]);
     if (inProc.rows.length > 0 && req.body?.force !== true) {
       return res.status(409).json({ needs_confirm: true, current: { id: inProc.rows[0].id, title: inProc.rows[0].title } });
