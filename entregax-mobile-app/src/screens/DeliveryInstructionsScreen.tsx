@@ -994,7 +994,16 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     
     setRepackLoading(true);
     try {
-      const packageIds = packagesToRepack.map(p => p.id);
+      // Expandir masters a sus hijas: el backend sólo debe recibir IDs "hoja"
+      // para evitar jerarquías anidadas (REPACK → master viejo → hijas).
+      const packageIds: number[] = [];
+      for (const info of (repackValidation.packages || [])) {
+        if (info.hasChildren && info.children && info.children.length > 0) {
+          for (const child of info.children) packageIds.push(child.id);
+        } else {
+          packageIds.push(info.id);
+        }
+      }
       
       const response = await fetch(`${API_URL}/api/packages/repack`, {
         method: 'POST',
@@ -1210,8 +1219,10 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
               <Text style={styles.packageSummaryTitle}>
                 {isMultiple ? 'Paquetes Seleccionados' : 'Paquete Seleccionado'}
               </Text>
-              {/* Botón de Reempaque - Solo si hay múltiples paquetes y NO hay multi-paquetes */}
-              {isMultiple && !hasMultiPackages && (
+              {/* Botón de Reempaque - Se muestra cuando hay 2+ paquetes.
+                   Si hay masters con hijas, al confirmar se expanden automáticamente
+                   a sus hijas (los masters vacíos se marcan como absorbidos en el backend). */}
+              {isMultiple && (
                 <TouchableOpacity 
                   style={styles.repackButton}
                   onPress={openRepackModal}

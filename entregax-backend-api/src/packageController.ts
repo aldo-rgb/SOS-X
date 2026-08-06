@@ -6058,7 +6058,63 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
         
         const packages = packagesResult.rows;
         const firstPkg = packages[0];
-        
+
+        // ─────────────────────────────────────────────────────────────
+        // GUARDS PARA AUTO-EXPAND DE MASTERS
+        // El front envía IDs "hoja" (hijas ya expandidas), nunca IDs de masters
+        // con hijas. Aquí validamos que sea así y protegemos a los masters viejos
+        // que van a quedar "vacíos" tras el reempaque.
+        // ─────────────────────────────────────────────────────────────
+
+        // Guard 1: rechazar si alguno de los IDs recibidos es un master con hijas.
+        // Si el front no expandió, esto evita la jerarquía anidada REPACK → master → hijas.
+        const stillMaster = packages.filter((p: any) =>
+            p.is_master === true && Number(p.total_boxes || 0) > 1
+        );
+        if (stillMaster.length > 0) {
+            const list = stillMaster.map((p: any) => p.tracking_internal).join(', ');
+            res.status(400).json({
+                error: `Estos paquetes son multi-guía y deben expandirse a sus cajas antes de reempacar: ${list}`
+            });
+            return;
+        }
+
+        // Guard 2/3: validar los masters viejos de los que provienen las hijas.
+        // Si alguno de esos masters todavía tiene saldo pendiente propio o guía
+        // de última milla generada, no permitimos absorberlo automáticamente.
+        const oldMasterIds = Array.from(new Set(
+            packages.map((p: any) => p.master_id).filter((v: any) => v != null)
+        )) as number[];
+
+        if (oldMasterIds.length > 0) {
+            const mastersResult = await pool.query(
+                `SELECT id, tracking_internal, saldo_pendiente, national_label_url,
+                        assigned_cost_mxn
+                   FROM packages
+                  WHERE id = ANY($1)`,
+                [oldMasterIds]
+            );
+
+            for (const m of mastersResult.rows) {
+                const saldo = Number(m.saldo_pendiente || 0);
+                if (saldo > 0) {
+                    res.status(400).json({
+                        error: `El paquete ${m.tracking_internal} tiene saldo pendiente ($${saldo.toFixed(2)} MXN). Cobra o libera el saldo antes de reempacar sus cajas.`
+                    });
+                    return;
+                }
+                const labelUrl = String(m.national_label_url || '').trim();
+                // 'manual-printed' es un placeholder que se pone al marcar como
+                // impresa sin PDF real. Lo tratamos como "sin guía real".
+                if (labelUrl && labelUrl !== 'manual-printed') {
+                    res.status(400).json({
+                        error: `El paquete ${m.tracking_internal} ya tiene guía de última milla generada. Cancélala antes de reempacar sus cajas.`
+                    });
+                    return;
+                }
+            }
+        }
+
         // Generar tracking para el paquete consolidado: US-REPACK- + 4 dígitos numéricos
         let consolidatedTracking = '';
         for (let attempt = 0; attempt < 25; attempt++) {
@@ -6245,7 +6301,45 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
                 throw updateError;
             }
         }
-        
+
+        // ─────────────────────────────────────────────────────────────
+        // ABSORCIÓN DE MASTERS VIEJOS
+        // Si un master viejo se quedó sin hijas (todas fueron movidas al REPACK),
+        // lo marcamos como absorbido: is_master=false, total_boxes=0,
+        // status='cancelled' (deja de aparecer en outbound / cobros) y anexamos nota.
+        // ─────────────────────────────────────────────────────────────
+        if (oldMasterIds.length > 0) {
+            try {
+                for (const oldMasterId of oldMasterIds) {
+                    const remaining = await pool.query(
+                        `SELECT COUNT(*)::int AS n FROM packages WHERE master_id = $1`,
+                        [oldMasterId]
+                    );
+                    const remainingCount = Number(remaining.rows[0]?.n || 0);
+                    if (remainingCount === 0) {
+                        await pool.query(
+                            `UPDATE packages
+                                SET is_master = FALSE,
+                                    total_boxes = 0,
+                                    status = 'cancelled',
+                                    assigned_cost_mxn = 0,
+                                    saldo_pendiente = 0,
+                                    needs_instructions = FALSE,
+                                    notes = COALESCE(notes, '') || E'\\n' || '🔀 Absorbido en ' || $2 || ' (todas sus hijas fueron reempacadas)',
+                                    updated_at = CURRENT_TIMESTAMP
+                              WHERE id = $1`,
+                            [oldMasterId, consolidatedTracking]
+                        );
+                        console.log(`   🔀 Master viejo ${oldMasterId} absorbido en ${consolidatedTracking}`);
+                    } else {
+                        console.log(`   ℹ️ Master viejo ${oldMasterId} conserva ${remainingCount} hija(s); NO se marca como absorbido`);
+                    }
+                }
+            } catch (absorbErr: any) {
+                console.warn('[REPACK] No se pudieron marcar masters viejos como absorbidos:', absorbErr?.message);
+            }
+        }
+
         // Registrar en historial de cargos (si existe la tabla)
         try {
             await pool.query(`
