@@ -1750,6 +1750,12 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     importTaxMxn: b.import_tax_mxn != null ? Number(b.import_tax_mxn) : null,
                 })) : [];
                 dhlTotalCost = boxes.reduce((s, b) => s + (Number(b.total_cost_mxn) || 0), 0);
+                // Incluir costo de la paquetería nacional (Paquete Express / etc.).
+                // Se cobra a nivel master DHL (no por caja hija), así que se toma
+                // del fallbackRow.national_cost_mxn — sin él, el "Total a cobrar"
+                // no reflejaba el envío nacional (bug visible en Cajito).
+                const nationalCostForTotal = Number(fallbackRow.national_cost_mxn) || 0;
+                if (nationalCostForTotal > 0) dhlTotalCost = (dhlTotalCost || 0) + nationalCostForTotal;
                 dhlTaxTotal = boxes.reduce((s, b) => s + (Number(b.import_tax_mxn) || 0), 0);
                 dhlMontoPagado = boxes.reduce((s, b) => s + (Number(b.monto_pagado) || 0), 0);
                 dhlSaldoPendiente = boxes.reduce((s, b) => s + (Number(b.saldo_pendiente) || 0), 0);
