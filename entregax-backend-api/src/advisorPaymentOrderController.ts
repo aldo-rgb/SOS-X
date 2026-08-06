@@ -727,14 +727,21 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
       const dhlRes = await pool.query(`
         SELECT ds.id, ds.inbound_tracking AS tracking, ds.secondary_tracking,
                ds.description, ds.weight_kg AS weight,
-               ds.total_cost_mxn, ds.saldo_pendiente, ds.monto_pagado
-        FROM dhl_shipments ds WHERE ds.id = ANY($1::int[])
+               ds.total_cost_mxn, ds.saldo_pendiente, ds.monto_pagado,
+               COALESCE(ds.national_carrier, a.carrier_config->>'dhl') AS national_carrier
+        FROM dhl_shipments ds
+        LEFT JOIN addresses a ON a.id = ds.delivery_address_id
+        WHERE ds.id = ANY($1::int[])
       `, [dhlIds]);
+      const carrierMap: Record<string, string> = { paquete_express: 'Paquete Express', paquete_express_pc: 'Paquete Express (PC)', pqtx_cod: 'Paquete Express (PC)', dhl: 'DHL', estafeta: 'Estafeta', fedex: 'FedEx', local: 'EntregaX Local', entregax_local: 'EntregaX Local', entregax_local_mty: 'EntregaX Local MTY', entregax_local_cdmx: 'EntregaX Local CDMX', pickup: 'Pick Up', ocurre: 'Ocurre' };
+      const carrierLabel = (c: any): string => { const k = String(c || '').toLowerCase().trim(); if (!k) return 'DHL'; return carrierMap[k] || String(c).replace(/[_-]+/g, ' ').replace(/\b\w/g, (mm: string) => mm.toUpperCase()); };
       for (const d of dhlRes.rows) {
         items.push({
           id: d.id, tracking: d.secondary_tracking || d.tracking, service_type: 'AA_DHL',
           description: d.description, weight: parseFloat(d.weight) || 0,
-          tipo: 'DHL',
+          // Paquetería nacional real (Paquete Express, etc.), no el fijo "DHL".
+          tipo: carrierLabel(d.national_carrier),
+          national_carrier: d.national_carrier || null,
           venta_mxn: parseFloat(d.total_cost_mxn) || parseFloat(d.saldo_pendiente) || 0,
           children: [],
         });

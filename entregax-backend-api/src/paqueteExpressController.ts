@@ -629,6 +629,36 @@ export async function pqtxCreateShipment(req: Request, res: Response) {
         console.error('Error guardando guía PQTX en DB:', dbErr.message);
       }
 
+      // Respaldo de captura de costo nacional para embarques DHL: si esta guía
+      // Paquete Express corresponde a un dhl_shipment que aún NO tiene su costo
+      // nacional (national_cost_mxn) capturado en la asignación, lo fijamos aquí
+      // con la MISMA regla de precio al cliente (pqtxPricePerBox del costo
+      // proveedor) y recalculamos el total. No sobreescribe si ya venía asignado.
+      try {
+        const providerTotal = Number(addData?.totalAmnt) || 0;
+        const boxes = Math.max(1, packages.reduce((s: number, p: any) => s + (Number(p.quantity) || 1), 0));
+        if (providerTotal > 0 && reference) {
+          const clientPerBox = pqtxPricePerBox(providerTotal / boxes);
+          const clientNationalCost = Math.round(clientPerBox * boxes * 100) / 100;
+          if (clientNationalCost > 0) {
+            await pool.query(
+              `UPDATE dhl_shipments
+                  SET national_cost_mxn = $2,
+                      national_tracking = COALESCE(NULLIF($3,''), national_tracking),
+                      total_cost_mxn = ROUND(
+                        COALESCE(import_cost_usd,0)::numeric * COALESCE(exchange_rate,0)::numeric
+                        + COALESCE(import_tax_mxn,0)::numeric + $2::numeric, 2),
+                      updated_at = NOW()
+                WHERE (inbound_tracking = $1 OR secondary_tracking = $1)
+                  AND COALESCE(national_cost_mxn, 0) = 0`,
+              [String(reference), clientNationalCost, String(guiaNo || '')]
+            );
+          }
+        }
+      } catch (e: any) {
+        console.warn('[pqtx] no pude persistir costo nacional en dhl_shipments:', e?.message);
+      }
+
       res.json({
         success: true,
         trackingNumber: guiaNo,

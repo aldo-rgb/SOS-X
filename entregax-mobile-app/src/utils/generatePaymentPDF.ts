@@ -92,6 +92,12 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
 
   // Build package rows
   let packageRows = '';
+  // Nombre legible de la paquetería (la columna mostraba la clave cruda / 'DHL').
+  const carrierNameMap: Record<string, string> = { paquete_express: 'Paquete Express', paquete_express_pc: 'Paquete Express (Por Cobrar)', pqtx_cod: 'Paquete Express (Por Cobrar)', dhl: 'DHL', estafeta: 'Estafeta', fedex: 'FedEx', local: 'EntregaX Local', entregax_local: 'EntregaX Local', entregax_local_mty: 'EntregaX Local MTY', entregax_local_cdmx: 'EntregaX Local CDMX', pickup: 'Pick Up', ocurre: 'Ocurre' };
+  const carrierLabel = (c: any): string => { const k = String(c || '').toLowerCase().trim(); if (!k) return '—'; return carrierNameMap[k] || String(c).replace(/[_-]+/g, ' ').replace(/\b\w/g, (mm: string) => mm.toUpperCase()); };
+  // Servicio real (era fijo "PO Box USA - Carga Aérea" incluso para DHL).
+  const isDhlQuote = (data.packages || []).some((p: any) => /DHL/i.test(String(p.service_type || p.servicio || p.shipment_type || '')) ) || String((data as any).service_type || '').toUpperCase() === 'AA_DHL';
+  const svcLabel = isDhlQuote ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aérea';
   if (data.packages && data.packages.length > 0) {
     packageRows = data.packages.map((pkg, i) => {
       const tracking = pkg.tracking_internal || '-';
@@ -100,7 +106,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
       const dims = (pkg.length_cm && pkg.length_cm > 0) || (pkg.width_cm && pkg.width_cm > 0) || (pkg.height_cm && pkg.height_cm > 0)
         ? `${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm`
         : '—';
-      const carrier = pkg.national_carrier || '—';
+      const carrier = carrierLabel(pkg.national_carrier);
       const cost = formatCurrency(Number(pkg.pobox_service_cost || pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0));
       return `
         <tr>
@@ -222,7 +228,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
     <div class="info-grid">
       <div class="info-row">
         <span class="info-label">Servicio:</span>
-        <span class="info-value">PO Box USA - Carga Aérea</span>
+        <span class="info-value">${svcLabel}</span>
       </div>
       <div class="info-row">
         <span class="info-label">Origen:</span>

@@ -103,6 +103,11 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
   const today = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
   const pkgCount = items.length > 0 ? items.length : (order.trackings || []).length;
 
+  // Servicio real (era fijo "PO Box USA - Carga Aerea" incluso para DHL).
+  const isDhlOp = items.some((it: any) => String(it.service_type || '').toUpperCase() === 'AA_DHL')
+    || String((order as any).service_type_cfg || '').toUpperCase() === 'AA_DHL';
+  const svcLabel = isDhlOp ? 'DHL — Liberación y Envío Nacional' : 'PO Box USA - Carga Aerea';
+
   let pkgRows = '';
   if (items.length > 0) {
     items.forEach((it, idx) => {
@@ -167,7 +172,7 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
   <div class="section">
     <div class="section-title">2. Detalle del Embarque</div>
     <div class="info-grid">
-      <div class="info-row"><span class="info-label">Servicio:</span><span class="info-value">PO Box USA - Carga Aerea</span></div>
+      <div class="info-row"><span class="info-label">Servicio:</span><span class="info-value">${svcLabel}</span></div>
       <div class="info-row"><span class="info-label">Origen:</span><span class="info-value">Estados Unidos</span></div>
       <div class="info-row"><span class="info-label">Destino:</span><span class="info-value">Monterrey, N.L., Mexico</span></div>
       <div class="info-row"><span class="info-label">Paquetes:</span><span class="info-value">${pkgCount} paquete(s)</span></div>
