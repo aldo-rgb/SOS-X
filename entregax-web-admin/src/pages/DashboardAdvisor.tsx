@@ -110,6 +110,7 @@ import {
   ListAlt as ListAltIcon,
   HelpOutline as UnidentifiedIcon,
   PersonAdd as AssignIcon,
+  Checklist as TasksIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Download as DownloadIcon,
@@ -398,6 +399,17 @@ export default function DashboardAdvisor() {
   const [transitClients, setTransitClients] = useState<{ id: number; name: string; boxId: string; count: number }[]>([]);
   const [transitClientsLoading, setTransitClientsLoading] = useState(false);
   const [transitSearch, setTransitSearch] = useState('');
+
+  // Mis Tareas pendientes (widget)
+  const [pendingTasks, setPendingTasks] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.get('/tasks/mine')
+      .then(r => { if (alive) setPendingTasks(Array.isArray(r.data?.tasks) ? r.data.tasks.length : 0); })
+      .catch(() => { if (alive) setPendingTasks(0); });
+    return () => { alive = false; };
+  }, []);
+  const goToMyTasks = () => window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'mytasks' } }));
 
   // Guías sin identificar (dashboard widget)
   const [unidentifiedPkgs, setUnidentifiedPkgs] = useState<any[]>([]);
@@ -2332,6 +2344,42 @@ export default function DashboardAdvisor() {
                         <Typography variant="body2" color="text.secondary">Guías sin identificar · Click para ver y asignar cliente</Typography>
                       </Box>
                       <AssignIcon sx={{ color: '#9C27B0', opacity: 0.6 }} />
+                    </Box>
+                  </CardActionArea>
+                </Card>
+              </Grid>
+            </Grid>
+          )}
+
+          {/* Mis Tareas — widget de tareas pendientes */}
+          {isMobile ? (
+            <Card sx={{ minWidth: 140, flexShrink: 0, mb: 2 }}>
+              <CardActionArea onClick={goToMyTasks} sx={{ p: 1.5 }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                  <Avatar sx={{ bgcolor: alpha('#D6521C', 0.1), color: '#D6521C', width: 40, height: 40 }}>
+                    {pendingTasks == null ? <CircularProgress size={18} sx={{ color: '#D6521C' }} /> : <TasksIcon sx={{ fontSize: '1.2rem' }} />}
+                  </Avatar>
+                  <Typography variant="h6" fontWeight={700}>{pendingTasks ?? '—'}</Typography>
+                  <Typography variant="caption" color="text.secondary" textAlign="center" sx={{ lineHeight: 1.2 }}>Tareas pendientes</Typography>
+                </Box>
+              </CardActionArea>
+            </Card>
+          ) : (
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              <Grid size={{ xs: 12 }}>
+                <Card sx={{ border: (pendingTasks || 0) > 0 ? '1px solid rgba(214,82,28,0.4)' : undefined }}>
+                  <CardActionArea onClick={goToMyTasks} sx={{ p: 2.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar sx={{ bgcolor: alpha('#D6521C', 0.1), color: '#D6521C' }}>
+                        {pendingTasks == null ? <CircularProgress size={20} sx={{ color: '#D6521C' }} /> : <TasksIcon />}
+                      </Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="h6" fontWeight={600}>{pendingTasks ?? '—'}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {(pendingTasks || 0) === 0 ? 'Sin tareas pendientes 🎉' : `Tarea${pendingTasks === 1 ? '' : 's'} pendiente${pendingTasks === 1 ? '' : 's'} · Click para ver Mis Tareas`}
+                        </Typography>
+                      </Box>
+                      <TasksIcon sx={{ color: '#D6521C', opacity: 0.6 }} />
                     </Box>
                   </CardActionArea>
                 </Card>

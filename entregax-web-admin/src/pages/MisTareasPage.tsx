@@ -251,7 +251,7 @@ export default function MisTareasPage() {
   const [eventDetail, setEventDetail] = useState<any | null>(null);
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'list' | 'matrix'>('matrix');
+  const [view, setView] = useState<'list' | 'matrix'>('list');
   const [showDone, setShowDone] = useState(false);
   // Tareas personales ocultas en horario laboral (10am–7pm); toggle apagado por
   // default cada vez que se entra a la pantalla (no se persiste).

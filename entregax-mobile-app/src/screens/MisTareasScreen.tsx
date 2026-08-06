@@ -24,7 +24,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   const [eventDetail, setEventDetail] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [view, setView] = useState<'list' | 'matrix'>('matrix');
+  const [view, setView] = useState<'list' | 'matrix'>('list');
   // Ocultar tareas personales en horario laboral (10am–7pm). El toggle se apaga
   // por default cada vez que se entra a la pantalla (useFocusEffect).
   const [showPersonal, setShowPersonal] = useState(false);

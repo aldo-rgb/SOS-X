@@ -945,6 +945,12 @@ function App() {
         return;
       }
 
+      if (action === 'mytasks') {
+        const mtIdx = menuItems.findIndex((item) => item.key === 'myTasks');
+        if (mtIdx >= 0) { setSelectedIndex(mtIdx); setSelectedSubIndex(null); }
+        return;
+      }
+
       if (action === 'service_tickets') {
         setCsHubPendingView('support');
         setPanelsExpanded(true);
