@@ -530,18 +530,41 @@ export default function MisTareasPage() {
           <ToggleButton value="list" sx={{ textTransform: 'none', gap: 0.5 }}><ViewListIcon sx={{ fontSize: 18 }} /> Lista</ToggleButton>
           <ToggleButton value="matrix" sx={{ textTransform: 'none', gap: 0.5 }}><GridViewIcon sx={{ fontSize: 18 }} /> Matriz Eisenhower</ToggleButton>
         </ToggleButtonGroup>
-        <Button size="small" variant={globalView ? 'contained' : 'outlined'} onClick={() => setGlobalView(v => !v)}
-          sx={{ textTransform: 'none', ...(globalView ? { bgcolor: '#5E35B1', '&:hover': { bgcolor: '#4a2a8f' } } : { borderColor: '#5E35B1', color: '#5E35B1' }) }}>
-          {globalView ? '🌐 Mostrando tareas globales' : '👤 Solo mis tareas'}
+        {/* Toggle: "Solo mis tareas" activo cuando globalView=false (filtro aplicado).
+            Label fijo; el color contained indica que el filtro está ON. */}
+        <Button
+          size="small"
+          variant={!globalView ? 'contained' : 'outlined'}
+          onClick={() => setGlobalView(v => !v)}
+          startIcon={<span>👤</span>}
+          sx={{ textTransform: 'none', ...(!globalView
+            ? { bgcolor: '#5E35B1', '&:hover': { bgcolor: '#4a2a8f' } }
+            : { borderColor: '#5E35B1', color: '#5E35B1' }) }}
+        >
+          Solo mis tareas
         </Button>
-        <Button size="small" variant={showDone ? 'contained' : 'outlined'} onClick={() => setShowDone(v => !v)}
-          sx={{ textTransform: 'none', ...(showDone ? { bgcolor: '#2E7D46', '&:hover': { bgcolor: '#256B3B' } } : { borderColor: '#2E7D46', color: '#2E7D46' }) }}>
-          {showDone ? '✅ Mostrando completadas' : 'Ver completadas'}
+        <Button
+          size="small"
+          variant={showDone ? 'contained' : 'outlined'}
+          onClick={() => setShowDone(v => !v)}
+          startIcon={<span>✅</span>}
+          sx={{ textTransform: 'none', ...(showDone
+            ? { bgcolor: '#2E7D46', '&:hover': { bgcolor: '#256B3B' } }
+            : { borderColor: '#2E7D46', color: '#2E7D46' }) }}
+        >
+          Ver completadas
         </Button>
         {isWorkHours && (
-          <Button size="small" variant={showPersonal ? 'contained' : 'outlined'} onClick={() => setShowPersonal(v => !v)}
-            sx={{ textTransform: 'none', ...(showPersonal ? { bgcolor: '#B07206', '&:hover': { bgcolor: '#8a5a05' } } : { borderColor: '#B07206', color: '#B07206' }) }}>
-            {showPersonal ? '🏠 Mostrando personales' : '🏠 Mostrar personales'}
+          <Button
+            size="small"
+            variant={showPersonal ? 'contained' : 'outlined'}
+            onClick={() => setShowPersonal(v => !v)}
+            startIcon={<span>🏠</span>}
+            sx={{ textTransform: 'none', ...(showPersonal
+              ? { bgcolor: '#B07206', '&:hover': { bgcolor: '#8a5a05' } }
+              : { borderColor: '#B07206', color: '#B07206' }) }}
+          >
+            Mostrar personales
           </Button>
         )}
         <FormControl size="small" sx={{ minWidth: 180 }}>
