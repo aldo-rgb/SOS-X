@@ -138,7 +138,7 @@ interface PackageMovement {
 }
 
 // 💰 Tarifas PO Box por nivel (USD)
-const TARIFAS_POBOX_USD: Record<number, number> = { 1: 39, 2: 79, 3: 750 };
+const TARIFAS_POBOX_USD: Record<number, number> = { 1: 19.99, 2: 29.99, 3: 49.99, 4: 750 };
 
 // 🚚 Nombres legibles de paqueterías
 const CARRIER_DISPLAY_NAMES: Record<string, string> = {
