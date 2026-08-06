@@ -941,9 +941,12 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   }, [data?.can_edit]);
 
   // Guarda un cambio parcial (prioridad, categoría, responsable, involucrados) sin modo edición.
+  // "dirty" es solo para la sensación de guardado: cuando el usuario cambia algo
+  // (que ya se guarda solo), el botón "Poner en proceso" se vuelve "Guardar".
+  const [dirty, setDirty] = useState(false);
   const patch = async (payload: any) => {
     setBusy(true);
-    try { await axios.put(`${API_URL}/tasks/${id}`, payload, H()); await reload(); onChanged(); }
+    try { await axios.put(`${API_URL}/tasks/${id}`, payload, H()); await reload(); onChanged(); setDirty(true); }
     catch (e: any) { notify(e?.response?.data?.error || 'No se pudo actualizar', 'error'); }
     finally { setBusy(false); }
   };
@@ -1343,7 +1346,16 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             )}
           </DialogContent>
           <DialogActions>
-            {t.status !== 'completed' && !t.started_at && (
+            {/* Sensación de guardado: al cambiar algo (que ya se guarda solo), el
+                botón "Poner en proceso" se convierte en "Guardar". */}
+            {dirty && t.status !== 'completed' && (
+              <Button variant="contained" startIcon={<CheckCircleIcon />} disabled={busy}
+                onClick={() => { setDirty(false); notify('✓ Cambios guardados'); }}
+                sx={{ bgcolor: '#2E7D46', '&:hover': { bgcolor: '#25683a' } }}>
+                Guardar
+              </Button>
+            )}
+            {!dirty && t.status !== 'completed' && !t.started_at && (
               <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={openStart} disabled={busy}
                 sx={{ bgcolor: '#B07206', '&:hover': { bgcolor: '#8F5D05' } }}>
                 Poner en proceso

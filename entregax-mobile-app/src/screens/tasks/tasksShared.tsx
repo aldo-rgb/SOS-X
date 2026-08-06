@@ -634,6 +634,7 @@ export interface TaskT {
   id: number; board_id?: number; column_id?: number; section_id?: number | null;
   title: string; description?: string; assignee_id?: number; assignee_name?: string;
   due_at?: string; eisenhower: string; status: string; created_at?: string; completed_at?: string;
+  started_at?: string; updated_at?: string;
   subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
   board_name?: string; board_key?: string; column_name?: string; participants_count?: number; unread_count?: number;
 }
@@ -1282,7 +1283,9 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove }: { tasks: 
   // Matriz: tareas donde soy responsable + tareas con comentarios sin leer (para que
   // el involucrado se dé cuenta de que hay respuesta pendiente).
   const base = myId ? tasks.filter(t => Number(t.assignee_id) === Number(myId) || (t.unread_count || 0) > 0) : tasks;
-  const cells = QUADRANTS.map(q => ({ q, qt: base.filter(t => t.eisenhower === q.key) }));
+  // Las tareas en espera de confirmación se van al fondo de cada cuadrante.
+  const cells = QUADRANTS.map(q => ({ q, qt: base.filter(t => t.eisenhower === q.key)
+    .sort((a, b) => (a.status === 'awaiting_confirmation' ? 1 : 0) - (b.status === 'awaiting_confirmation' ? 1 : 0)) }));
   // Tarea seleccionada para mover (mantén presionada una tarjeta).
   const [moveFor, setMoveFor] = useState<TaskT | null>(null);
   const renderCell = ({ q, qt }: { q: typeof QUADRANTS[number]; qt: TaskT[] }) => (
@@ -1299,6 +1302,7 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove }: { tasks: 
               onLongPress={onMove ? () => setMoveFor(t) : undefined} delayLongPress={250}
               style={[styles.mxCard, t.overdue && styles.cardOverdue, done && { opacity: 0.6 }]}>
               <Text style={[styles.mxCardTitle, done && { textDecorationLine: 'line-through', color: '#999' }]} numberOfLines={3}>{t.title}</Text>
+              {t.status === 'awaiting_confirmation' && <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#B07206', marginTop: 2 }}>⏳ En espera</Text>}
               {(t.unread_count || 0) > 0 && (
                 <View style={styles.mxUnread}><Ionicons name="chatbubble-ellipses" size={9} color="#fff" /><Text style={styles.mxUnreadTxt}>{t.unread_count}</Text></View>
               )}

@@ -24,7 +24,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   const [eventDetail, setEventDetail] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [view, setView] = useState<'list' | 'matrix'>('list');
+  const [view, setView] = useState<'list' | 'matrix'>('matrix');
   // Ocultar tareas personales en horario laboral (10am–7pm). El toggle se apaga
   // por default cada vez que se entra a la pantalla (useFocusEffect).
   const [showPersonal, setShowPersonal] = useState(false);
@@ -165,8 +165,26 @@ export default function MisTareasScreen({ navigation, route }: Props) {
       ) : (
         <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={ORANGE} />}>
-          <View style={{ gap: 10 }}>
-            {visibleTasks.map(t => <TaskCard key={t.id} task={t} onPress={() => setOpenId(t.id)} showBoard />)}
+          <View style={{ gap: 16 }}>
+            {(() => {
+              const ms = (s?: string) => (s ? new Date(s).getTime() : 0);
+              const nueva = visibleTasks.filter(t => t.status === 'open' && !t.started_at).sort((a, b) => ms(b.created_at) - ms(a.created_at));
+              const proceso = visibleTasks.filter(t => t.status === 'open' && !!t.started_at).sort((a, b) => ms(a.started_at) - ms(b.started_at));
+              const espera = visibleTasks.filter(t => t.status === 'awaiting_confirmation').sort((a, b) => ms(a.updated_at) - ms(b.updated_at));
+              const terminadas = visibleTasks.filter(t => t.status === 'completed').sort((a, b) => ms(b.completed_at) - ms(a.completed_at));
+              const secs = [
+                { key: 'nueva', title: '🆕 Nueva', color: '#1D6FB8', tasks: nueva },
+                { key: 'proceso', title: '⚙️ En proceso', color: '#B07206', tasks: proceso },
+                { key: 'espera', title: '⏳ En espera de confirmación', color: '#C77800', tasks: espera },
+                { key: 'done', title: '✅ Terminadas', color: '#2E7D46', tasks: terminadas },
+              ];
+              return secs.filter(s => s.tasks.length > 0).map(s => (
+                <View key={s.key} style={{ gap: 8 }}>
+                  <Text style={{ fontWeight: '800', fontSize: 13, color: s.color }}>{s.title} ({s.tasks.length})</Text>
+                  {s.tasks.map(t => <TaskCard key={t.id} task={t} onPress={() => setOpenId(t.id)} showBoard />)}
+                </View>
+              ));
+            })()}
           </View>
         </ScrollView>
       )}
