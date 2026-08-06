@@ -31,6 +31,11 @@ const getToken = () => localStorage.getItem('token') || '';
 const H = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
 const ME = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } })();
 const MY_ID = Number(ME?.id) || 0;
+// Los asesores no pueden involucrar a otras personas al crear una tarea.
+const IS_ASESOR = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(String(ME?.role || ''));
+// Alias de visualización en la sección de Tareas: Aldo Campos (Super Admin) se
+// muestra como "Sistemas".
+const displayTaskName = (name?: string | null): string => (String(name || '').trim() === 'Aldo Campos' ? 'Sistemas' : String(name || ''));
 
 const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual', monthly_weekday: 'Mensual (día de semana)' };
 const ORDINAL_LABEL: Record<number, string> = { 1: 'Primer', 2: 'Segundo', 3: 'Tercer', 4: 'Cuarto', [-1]: 'Último' };
@@ -113,8 +118,12 @@ const businessMs = (startMs: number, endMs: number): number => {
 const taskTime = (t: any) => {
   if (!t?.created_at) return null;
   const start = new Date(t.created_at).getTime();
-  const end = t.completed_at ? new Date(t.completed_at).getTime() : Date.now();
-  return { done: !!t.completed_at, ms: businessMs(start, end) };
+  // En espera de confirmación el reloj se CONGELA (en el momento en que se mandó
+  // a espera = updated_at). Se reanuda si un comentario la regresa a pendientes.
+  const awaiting = t.status === 'awaiting_confirmation';
+  const end = t.completed_at ? new Date(t.completed_at).getTime()
+    : (awaiting && t.updated_at ? new Date(t.updated_at).getTime() : Date.now());
+  return { done: !!t.completed_at, paused: awaiting, ms: businessMs(start, end) };
 };
 const ACT_LABEL: Record<string, string> = {
   created: '📌 Creó la tarea', assigned: '👤 Reasignó la tarea', moved: '➡️ Movió de columna',
@@ -429,15 +438,15 @@ export default function MisTareasPage() {
         {involved.length > 1 && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
             {involved.map((name, i) => (
-              <Tooltip key={i} title={i === 0 ? `${name} · Responsable` : name}>
-                <Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: i === 0 ? '#D6521C' : '#5E35B1', border: i === 0 ? '2px solid #B07206' : 'none', fontWeight: i === 0 ? 800 : 400 }}>{initials(name)}</Avatar>
+              <Tooltip key={i} title={i === 0 ? `${displayTaskName(name)} · Responsable` : displayTaskName(name)}>
+                <Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: i === 0 ? '#D6521C' : '#5E35B1', border: i === 0 ? '2px solid #B07206' : 'none', fontWeight: i === 0 ? 800 : 400 }}>{initials(displayTaskName(name))}</Avatar>
               </Tooltip>
             ))}
             <Typography fontSize={11} color="text.secondary">{involved.length} involucrados</Typography>
           </Box>
         )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
-          {involved.length <= 1 && t.assignee_name && <Tooltip title={t.assignee_name}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#D6521C' }}>{initials(t.assignee_name)}</Avatar></Tooltip>}
+          {involved.length <= 1 && t.assignee_name && <Tooltip title={displayTaskName(t.assignee_name)}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#D6521C' }}>{initials(displayTaskName(t.assignee_name))}</Avatar></Tooltip>}
           <Box sx={{ flex: 1 }} />
           {(t.subtasks_total || 0) > 0 && (
             <Typography fontSize={11} color={t.subtasks_done === t.subtasks_total ? 'success.main' : 'text.secondary'}>☑ {t.subtasks_done}/{t.subtasks_total}</Typography>
@@ -572,9 +581,17 @@ export default function MisTareasPage() {
             // Matriz Eisenhower: SOLO tareas donde el usuario es el responsable (assignee),
             // no en las que solo está involucrado.
             // Matriz: donde soy responsable + con comentarios sin leer (para notar respuestas pendientes).
+            // Rango de orden (menor = más arriba): sin leer primero; luego las que
+            // están en espera y ME toca confirmar (soy quien la asignó); luego lo
+            // normal; y al fondo las en espera donde YO soy el que espera.
+            const rank = (t: Task) => {
+              if ((t.unread_count || 0) > 0) return 0;
+              const iAssigned = Number((t as any).created_by) === MY_ID;
+              if (t.status === 'awaiting_confirmation') return iAssigned ? 1 : 3;
+              return 2;
+            };
             const qt = visibleTasks.filter(t => t.eisenhower === q.key && (Number(t.assignee_id) === MY_ID || (t.unread_count || 0) > 0))
-              // Las tareas en espera de confirmación se van al fondo del cuadrante.
-              .sort((a, b) => (a.status === 'awaiting_confirmation' ? 1 : 0) - (b.status === 'awaiting_confirmation' ? 1 : 0));
+              .sort((a, b) => rank(a) - rank(b));
             const over = dragOverKey === q.key;
             return (
               <Box key={q.key}
@@ -691,10 +708,12 @@ export default function MisTareasPage() {
             <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
               value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
           </Box>
+          {!IS_ASESOR && (<>
           <InvolvedPicker users={users} involvedIds={involvedIds} setInvolvedIds={setInvolvedIds} />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
           </Typography>
+          </>)}
 
           {/* Responsable — visible SOLO cuando hay al menos un involucrado
               distinto del creador. Obligatorio antes de crear la tarea. */}
@@ -1019,7 +1038,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   };
   const addComment = async () => {
     if (!comment.trim()) return;
-    try { await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim() }, H()); setComment(''); reload(); }
+    try { const res = await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim() }, H()); setComment(''); reload(); onChanged(); if (res.data?.reopened) notify('💬 Comentario agregado · la tarea volvió a pendientes', 'success'); }
     catch { notify('Error al comentar', 'error'); }
   };
   const uploadPhotos = async (files: FileList | null) => {
@@ -1188,7 +1207,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                     </Select>
                   </FormControl>
                   <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.25 }}>
-                    {t.created_by_name && <Typography variant="caption" color="text.secondary"><b>Asignada por:</b> {t.created_by_name}</Typography>}
+                    {t.created_by_name && <Typography variant="caption" color="text.secondary"><b>Asignada por:</b> {displayTaskName(t.created_by_name)}</Typography>}
                     {t.due_at && <Typography variant="caption" color={t.overdue ? 'error.main' : 'text.secondary'}><b>Fecha deseada:</b> {fmtDate(t.due_at)}</Typography>}
                   </Box>
                 </Box>
@@ -1199,8 +1218,8 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             ) : (
               <>
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1.5 }}>
-                  <Typography variant="body2"><b>Responsable:</b> {t.assignee_name || '—'}</Typography>
-                  {t.created_by_name && <Typography variant="body2"><b>Asignada por:</b> {t.created_by_name}</Typography>}
+                  <Typography variant="body2"><b>Responsable:</b> {displayTaskName(t.assignee_name) || "—"}</Typography>
+                  {t.created_by_name && <Typography variant="body2"><b>Asignada por:</b> {displayTaskName(t.created_by_name)}</Typography>}
                   {t.due_at && <Typography variant="body2" color={t.overdue ? 'error.main' : 'inherit'}><b>Fecha deseada:</b> {fmtDate(t.due_at)}</Typography>}
                 </Box>
                 {(data.participants || []).length > 0 && (

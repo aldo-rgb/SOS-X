@@ -1411,7 +1411,7 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
   try {
     const uid = authUserId(req);
     const taskId = parseInt(String(req.params.id));
-    const t = await pool.query(`SELECT board_id, title, assignee_id FROM tasks WHERE id = $1`, [taskId]);
+    const t = await pool.query(`SELECT board_id, title, assignee_id, status FROM tasks WHERE id = $1`, [taskId]);
     if (t.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
     const b = req.body || {};
     if (!String(b.body || '').trim()) return res.status(400).json({ error: 'Comentario vacío' });
@@ -1420,6 +1420,19 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
       `INSERT INTO task_comments (task_id, author_id, body, mentions, attachment_url) VALUES ($1,$2,$3,$4::jsonb,$5) RETURNING *`,
       [taskId, uid, String(b.body).trim(), JSON.stringify(mentions), b.attachment_url || null]);
     await logActivity(taskId, uid, 'comment', {});
+    // Si la tarea estaba EN ESPERA de confirmación, un comentario la regresa a
+    // PENDIENTES (Nueva): se reanuda el conteo de tiempo y quien la asignó ya no
+    // la confirma hasta que se vuelva a terminar.
+    let reopenedFromAwaiting = false;
+    if (String(t.rows[0].status) === 'awaiting_confirmation') {
+      const firstCol = (await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [t.rows[0].board_id])).rows[0]?.id || null;
+      await pool.query(
+        `UPDATE tasks SET status='open', started_at=NULL, commitment_date=NULL, ${firstCol ? `column_id=${Number(firstCol)},` : ''} updated_at=NOW() WHERE id=$1`,
+        [taskId]
+      );
+      await logActivity(taskId, uid, 'reopened', { reason: 'comment' });
+      reopenedFromAwaiting = true;
+    }
     // Notificar SOLO a los mencionados con @ (push en horario laboral + in-app siempre).
     // Los demás involucrados se enteran por el badge de "comentarios sin leer".
     const author = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'Alguien';
@@ -1431,7 +1444,7 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
         notified.add(m);
       }
     }
-    res.json({ comment: r.rows[0] });
+    res.json({ comment: r.rows[0], reopened: reopenedFromAwaiting });
   } catch (e: any) {
     console.error('[tasks] addComment:', e); res.status(500).json({ error: 'Error al comentar' });
   }

@@ -64,11 +64,15 @@ export const businessMs = (startMs: number, endMs: number): number => {
   }
   return total;
 };
-export const taskTime = (t: { created_at?: string; completed_at?: string }) => {
+export const taskTime = (t: { created_at?: string; completed_at?: string; status?: string; updated_at?: string }) => {
   if (!t.created_at) return null;
   const start = new Date(t.created_at).getTime();
-  const end = t.completed_at ? new Date(t.completed_at).getTime() : Date.now();
-  return { done: !!t.completed_at, ms: businessMs(start, end) };
+  // En espera de confirmación el reloj se CONGELA (updated_at). Se reanuda si un
+  // comentario regresa la tarea a pendientes.
+  const awaiting = t.status === 'awaiting_confirmation';
+  const end = t.completed_at ? new Date(t.completed_at).getTime()
+    : (awaiting && t.updated_at ? new Date(t.updated_at).getTime() : Date.now());
+  return { done: !!t.completed_at, paused: awaiting, ms: businessMs(start, end) };
 };
 const fmtDate = (iso?: string | null) => {
   if (!iso) return '—';
@@ -875,7 +879,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const addComment = async () => {
     if (!comment.trim()) return;
     const activeMentions = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
-    try { await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions }); setComment(''); setMentions([]); setMentionQuery(null); reload(true); } catch { /* */ }
+    try { const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions }); const d = await r.json().catch(() => ({})); setComment(''); setMentions([]); setMentionQuery(null); reload(true); onChanged(); if (d?.reopened) Alert.alert('💬 Comentario agregado', 'La tarea volvió a pendientes (se reanuda el conteo de tiempo).'); } catch { /* */ }
   };
   const addPhoto = async () => {
     try {
@@ -1283,9 +1287,16 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove }: { tasks: 
   // Matriz: tareas donde soy responsable + tareas con comentarios sin leer (para que
   // el involucrado se dé cuenta de que hay respuesta pendiente).
   const base = myId ? tasks.filter(t => Number(t.assignee_id) === Number(myId) || (t.unread_count || 0) > 0) : tasks;
-  // Las tareas en espera de confirmación se van al fondo de cada cuadrante.
-  const cells = QUADRANTS.map(q => ({ q, qt: base.filter(t => t.eisenhower === q.key)
-    .sort((a, b) => (a.status === 'awaiting_confirmation' ? 1 : 0) - (b.status === 'awaiting_confirmation' ? 1 : 0)) }));
+  // Orden (menor = más arriba): sin leer primero; luego en espera que ME toca
+  // confirmar (soy quien la asignó); luego lo normal; al fondo las en espera
+  // donde YO soy el que espera.
+  const rank = (t: TaskT) => {
+    if ((t.unread_count || 0) > 0) return 0;
+    const iAssigned = myId != null && Number((t as any).created_by) === Number(myId);
+    if (t.status === 'awaiting_confirmation') return iAssigned ? 1 : 3;
+    return 2;
+  };
+  const cells = QUADRANTS.map(q => ({ q, qt: base.filter(t => t.eisenhower === q.key).sort((a, b) => rank(a) - rank(b)) }));
   // Tarea seleccionada para mover (mantén presionada una tarjeta).
   const [moveFor, setMoveFor] = useState<TaskT | null>(null);
   const renderCell = ({ q, qt }: { q: typeof QUADRANTS[number]; qt: TaskT[] }) => (
