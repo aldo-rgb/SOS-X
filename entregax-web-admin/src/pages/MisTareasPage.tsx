@@ -954,6 +954,16 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo completar', 'error'); }
     finally { setBusy(false); }
   };
+  const reopen = async () => {
+    setBusy(true);
+    try {
+      await axios.post(`${API_URL}/tasks/${id}/reopen`, {}, H());
+      notify('Tarea reabierta');
+      reload();
+      onChanged();
+    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo reabrir', 'error'); }
+    finally { setBusy(false); }
+  };
   const addComment = async () => {
     if (!comment.trim()) return;
     try { await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim() }, H()); setComment(''); reload(); }
@@ -1323,6 +1333,12 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 </Button>
               );
             })()}
+            {t.status === 'completed' && (data.can_edit || Number(t.assignee_id) === MY_ID || (data.participants || []).some((p: any) => Number(p.id) === MY_ID)) && (
+              <Button variant="outlined" startIcon={<RefreshIcon />} onClick={reopen} disabled={busy}
+                sx={{ borderColor: '#B07206', color: '#B07206' }}>
+                Reabrir
+              </Button>
+            )}
             <Button onClick={onClose}>Cerrar</Button>
           </DialogActions>
 

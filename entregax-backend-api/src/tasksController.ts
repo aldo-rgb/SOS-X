@@ -1069,6 +1069,7 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     const creatorId = Number(task.created_by) || 0;
     const assigneeId = Number(task.assignee_id) || 0;
     const isCreator = creatorId > 0 && Number(uid) === creatorId;
+    const isAssignee = assigneeId > 0 && Number(uid) === assigneeId;
     const needsDoubleConfirm = creatorId > 0 && assigneeId > 0 && creatorId !== assigneeId;
     const alreadyAwaiting = String(task.status || '') === 'awaiting_confirmation';
 
@@ -1076,7 +1077,11 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     // el paso intermedio de espera y va derecho a 'completed'.
     const skipAwaiting = String((req as any)?.body?.skip_double_confirm || '') === 'true' || (req as any)?.body?.skip_double_confirm === true;
 
-    const goingToAwaiting = needsDoubleConfirm && !alreadyAwaiting && !isCreator && !mgr && !skipAwaiting;
+    // La gerencia puede cerrar en un solo paso SOLO si NO es el propio responsable
+    // de la tarea: un responsable que además es gerente (admin/super_admin) NO
+    // puede auto-aprobar su trabajo — igual pasa por la confirmación del creador.
+    const managerOverride = mgr && !isAssignee;
+    const goingToAwaiting = needsDoubleConfirm && !alreadyAwaiting && !isCreator && !managerOverride && !skipAwaiting;
 
     // Avisa (push 'task_completed') a los involucrados, al responsable y a QUIEN
     // ASIGNÓ la tarea (created_by), excepto a quien la cerró. Así el que la asignó
