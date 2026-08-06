@@ -418,6 +418,7 @@ export default function MisTareasPage() {
         <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
           <Chip label={eis?.short || t.eisenhower} size="small" sx={{ height: 20, fontSize: 11, bgcolor: eis?.bg, color: eis?.color, fontWeight: 700 }} />
           {done && <Chip label="✅ Completada" size="small" color="success" sx={{ height: 20, fontSize: 11 }} />}
+          {t.status === 'awaiting_confirmation' && <Chip label="⏳ En espera" size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700 }} />}
           {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count} sin leer`} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#E53935', color: '#fff', fontWeight: 700 }} />}
         </Box>
         <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: done ? 'line-through' : 'none' }}>{t.title}</Typography>
@@ -933,17 +934,17 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     try { await axios.post(`${API_URL}/tasks/${id}/subtasks`, { body: newSub.trim() }, H()); setNewSub(''); reload(); onChanged(); }
     catch (e: any) { notify(e?.response?.data?.error || 'No se pudo agregar', 'error'); }
   };
-  const complete = async () => {
+  const complete = async (force = false) => {
     if (pending > 0) { notify(`Completa el checklist antes de terminar (${pending} pendiente${pending === 1 ? '' : 's'}).`, 'error'); return; }
     setBusy(true);
     try {
-      const res = await axios.post(`${API_URL}/tasks/${id}/complete`, {}, H());
+      const res = await axios.post(`${API_URL}/tasks/${id}/complete`, force ? { force_confirm: true } : {}, H());
       // El backend responde con awaiting_confirmation=true cuando el
       // responsable termina una tarea que creó otra persona: queda en espera
       // de que el creador confirme. En ese caso NO cerramos el diálogo — el
       // creador la marca desde su propia acción.
       if (res.data?.awaiting_confirmation) {
-        notify('Tarea marcada como terminada · esperando confirmación del creador', 'success');
+        notify('Tarea marcada como terminada · esperando confirmación de quien la asignó', 'success');
         reload();
         onChanged();
       } else {
@@ -951,7 +952,18 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
         onChanged();
         onClose();
       }
-    } catch (e: any) { notify(e?.response?.data?.error || 'No se pudo completar', 'error'); }
+    } catch (e: any) {
+      // Pregunta doble: la tarea ya está en espera y quien la cierra no es quien
+      // la asignó → confirmar el cierre sin su revisión.
+      if (e?.response?.status === 409 && e?.response?.data?.needs_force_confirm) {
+        setBusy(false);
+        if (window.confirm('¿Seguro que deseas marcar esta tarea como COMPLETADA sin la revisión de quien la asignó?')) {
+          complete(true);
+        }
+        return;
+      }
+      notify(e?.response?.data?.error || 'No se pudo completar', 'error');
+    }
     finally { setBusy(false); }
   };
   const reopen = async () => {
@@ -1051,6 +1063,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5 }}>
               <Chip label={EIS[t.eisenhower]?.short} size="small" sx={{ height: 20, bgcolor: EIS[t.eisenhower]?.bg, color: EIS[t.eisenhower]?.color, fontWeight: 700 }} />
               {t.status === 'completed' && <Chip label="✅ Completada" size="small" color="success" />}
+              {t.status === 'awaiting_confirmation' && <Chip label="⏳ En espera de confirmación" size="small" sx={{ bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700 }} />}
             </Box>
             <Typography fontWeight={800} fontSize={17}><LinkifyTickets text={t.title} onNavigate={onClose} /></Typography>
             {data.can_edit && !editing && t.status !== 'completed' && (
@@ -1306,21 +1319,20 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               const creatorId = Number(t.created_by) || 0;
               const assigneeId = Number(t.assignee_id) || 0;
               const iAmCreator = creatorId > 0 && creatorId === MY_ID;
+              const canManageTask = !!data?.can_edit;
               const differentCreator = creatorId > 0 && assigneeId > 0 && creatorId !== assigneeId;
               const isAwaiting = t.status === 'awaiting_confirmation';
 
               if (isAwaiting) {
-                if (iAmCreator) {
-                  return (
-                    <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={complete} disabled={busy || pending > 0}>
-                      {pending > 0 ? `Completa el checklist (${pending})` : 'Confirmar y cerrar'}
-                    </Button>
-                  );
-                }
+                const canConfirm = iAmCreator || canManageTask;
                 return (
-                  <Button variant="outlined" disabled sx={{ borderColor: '#B07206', color: '#B07206' }}>
-                    ⏳ Esperando confirmación del creador
-                  </Button>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    <Chip size="small" label="⏳ En espera de confirmación de quien la asignó" sx={{ bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700 }} />
+                    <Button variant="contained" color={canConfirm ? 'success' : 'warning'} startIcon={<CheckCircleIcon />}
+                      onClick={() => complete(false)} disabled={busy || pending > 0}>
+                      {pending > 0 ? `Completa el checklist (${pending})` : (canConfirm ? 'Confirmar y cerrar' : 'Completar (en espera)')}
+                    </Button>
+                  </Box>
                 );
               }
 
@@ -1328,7 +1340,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 ? (pending > 0 ? `Completa el checklist (${pending})` : 'Marcar terminada')
                 : (pending > 0 ? `Completa el checklist (${pending})` : 'Completar');
               return (
-                <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={complete} disabled={busy || pending > 0}>
+                <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={() => complete(false)} disabled={busy || pending > 0}>
                   {label}
                 </Button>
               );

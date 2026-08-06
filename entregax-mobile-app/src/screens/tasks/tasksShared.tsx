@@ -650,6 +650,7 @@ export function TaskCard({ task, onPress, showBoard }: { task: TaskT; onPress: (
           <Text style={[styles.chipTxt, { color: eis?.color }]}>{eis?.short || task.eisenhower}</Text>
         </View>
         {done && <View style={[styles.chip, { backgroundColor: '#E4F1E8' }]}><Text style={[styles.chipTxt, { color: '#2E7D46' }]}>✅ Completada</Text></View>}
+        {task.status === 'awaiting_confirmation' && <View style={[styles.chip, { backgroundColor: '#FBE9D0' }]}><Text style={[styles.chipTxt, { color: '#B07206' }]}>⏳ En espera</Text></View>}
         {(task.unread_count || 0) > 0 && (
           <View style={styles.unreadChip}><Ionicons name="chatbubble-ellipses" size={11} color="#fff" /><Text style={styles.unreadTxt}>{task.unread_count} sin leer</Text></View>
         )}
@@ -826,7 +827,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
       reload(true); onChanged();
     } catch { /* */ }
   };
-  const complete = async () => {
+  const complete = async (force = false) => {
     // Gate: no se puede completar con checklist pendiente (Filtro de Cierre).
     if (pending > 0) {
       Alert.alert('Checklist pendiente', `Completa el checklist antes de terminar (${pending} pendiente${pending === 1 ? '' : 's'}).`);
@@ -834,9 +835,32 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     }
     setBusy(true);
     try {
-      const r = await post(`${API_URL}/api/tasks/${taskId}/complete`, {});
-      if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo completar', e.error || ''); setBusy(false); return; }
-      onChanged(); onClose();
+      const r = await post(`${API_URL}/api/tasks/${taskId}/complete`, force ? { force_confirm: true } : {});
+      const d = await r.json().catch(() => ({}));
+      // La tarea ya está en espera y quien la cierra no es quien la asignó:
+      // pregunta doble antes de forzar el cierre sin su revisión.
+      if (r.status === 409 && d?.needs_force_confirm) {
+        setBusy(false);
+        Alert.alert(
+          'En espera de confirmación',
+          '¿Seguro que deseas marcar esta tarea como COMPLETADA sin la revisión de quien la asignó?',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Sí, completar', style: 'destructive', onPress: () => complete(true) },
+          ],
+        );
+        return;
+      }
+      if (!r.ok) { Alert.alert('No se pudo completar', d.error || ''); setBusy(false); return; }
+      // Doble confirmación: si el responsable termina una tarea asignada por otra
+      // persona, NO se cierra — queda "En espera de confirmación" y regresa a
+      // quien la asignó para que él la marque como completada.
+      if (d?.awaiting_confirmation) {
+        Alert.alert('⏳ En espera de confirmación', 'Marcaste la tarea como terminada. Regresó a quien la asignó para que la revise y la marque como completada.');
+        onChanged(); reload(true);
+      } else {
+        onChanged(); onClose();
+      }
     } catch { /* */ } finally { setBusy(false); }
   };
   const reopen = async () => {
@@ -977,6 +1001,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
               <View style={styles.chipsRow}>
                 <View style={[styles.chip, { backgroundColor: eis?.bg }]}><Text style={[styles.chipTxt, { color: eis?.color }]}>{eis?.short}</Text></View>
                 {t.status === 'completed' && <View style={[styles.chip, { backgroundColor: '#E4F1E8' }]}><Text style={[styles.chipTxt, { color: '#2E7D46' }]}>✅ Completada</Text></View>}
+                {t.status === 'awaiting_confirmation' && <View style={[styles.chip, { backgroundColor: '#FBE9D0' }]}><Text style={[styles.chipTxt, { color: '#B07206' }]}>⏳ En espera de confirmación</Text></View>}
               </View>
               {!!t.description && (
                 <View>
@@ -1168,22 +1193,44 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
             </ScrollView>
           )}
           {t && t.status !== 'completed' && (() => {
-            // Bloqueamos el botón "Completar" mientras el usuario está
-            // escribiendo un comentario para evitar clicks accidentales que
-            // cierren la tarea antes de enviar lo que estaba escribiendo.
             const typing = comment.trim().length > 0;
+            const iAmCreator = creatorId > 0 && Number(myId) === creatorId;
+            const isAwaiting = t.status === 'awaiting_confirmation';
+            const assigneeId = Number(t.assignee_id) || 0;
+            const differentCreator = creatorId > 0 && assigneeId > 0 && creatorId !== assigneeId;
+
+            // ── En espera de confirmación ──
+            // El responsable terminó su parte. Quien la asignó (o gerencia) la
+            // confirma directo; cualquier otro involucrado puede forzar el cierre
+            // sin su revisión, pero con la pregunta doble (la maneja complete()).
+            if (isAwaiting) {
+              const canConfirm = iAmCreator || !!canManage;
+              const dis = busy || pending > 0 || typing;
+              return (
+                <View style={styles.modalFoot}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingBottom: 8 }}>
+                    <Ionicons name="hourglass-outline" size={14} color="#B07206" />
+                    <Text style={{ color: '#B07206', fontWeight: '700', fontSize: 12.5 }}>En espera de confirmación de quien la asignó</Text>
+                  </View>
+                  <TouchableOpacity style={[styles.completeBtn, { backgroundColor: canConfirm ? '#2E7D46' : '#B07206' }, dis && { backgroundColor: '#B7C3BB' }]} onPress={() => complete(false)} disabled={dis}>
+                    {busy ? <ActivityIndicator color="#fff" /> : <><Ionicons name="checkmark-done" size={18} color="#fff" /><Text style={styles.completeTxt}>{pending > 0 ? `Completa el checklist (${pending})` : (canConfirm ? 'Confirmar y cerrar' : 'Completar (en espera)')}</Text></>}
+                  </TouchableOpacity>
+                </View>
+              );
+            }
+
             const disabled = busy || pending > 0 || typing;
             const label = pending > 0
               ? `Completa el checklist (${pending})`
               : typing
                 ? 'Envía o borra el comentario para completar'
-                : 'Completar';
+                : (differentCreator && !iAmCreator ? 'Marcar terminada' : 'Completar');
             const icon = pending > 0 ? 'lock-closed' : typing ? 'chatbubble-ellipses' : 'checkmark-circle';
             return (
               <View style={styles.modalFoot}>
                 <TouchableOpacity
                   style={[styles.completeBtn, disabled && { backgroundColor: '#B7C3BB' }]}
-                  onPress={complete}
+                  onPress={() => complete(false)}
                   disabled={disabled}
                 >
                   {busy ? <ActivityIndicator color="#fff" /> : (

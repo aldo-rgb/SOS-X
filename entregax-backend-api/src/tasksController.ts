@@ -710,7 +710,9 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
     if (!uid) return res.status(401).json({ error: 'No autenticado' });
     // ?all=true incluye las completadas (historial); por defecto solo abiertas.
     const includeAll = String(req.query.all || '') === 'true';
-    const statusCond = includeAll ? `t.status <> 'cancelled'` : `t.status = 'open'`;
+    // Las tareas en espera de confirmación siguen siendo "pendientes" (aún no se
+    // cierran): deben aparecer en la lista hasta que quien asignó las confirme.
+    const statusCond = includeAll ? `t.status <> 'cancelled'` : `t.status IN ('open','awaiting_confirmation')`;
     await ensureTaskReadsTable();
     const r = await pool.query(`
       SELECT t.*, b.name AS board_name, b.board_key, col.name AS column_name, col.is_done AS column_is_done,
@@ -1183,10 +1185,18 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
       return res.json({ success: true, forced: false, awaiting_confirmation: true });
     }
 
-    // Confirmación (paso final): solo quien asignó la tarea (o gerencia no-responsable)
-    // puede cerrarla. Un responsable/involucrado no puede confirmar su propia tarea.
+    // Confirmación (paso final). Quien asignó la tarea (o gerencia no-responsable)
+    // la confirma directo. Un involucrado SÍ puede forzar el cierre sin la
+    // revisión de quien asignó, pero solo con confirmación explícita
+    // (force_confirm) — el frontend muestra la pregunta doble.
     if (alreadyAwaiting && !canFinalize) {
-      return res.status(403).json({ error: 'Solo quien asignó la tarea puede confirmarla y marcarla como completada.' });
+      const forceConfirm = req.body?.force_confirm === true || String(req.body?.force_confirm) === 'true';
+      if (!forceConfirm) {
+        return res.status(409).json({
+          needs_force_confirm: true,
+          message: 'Esta tarea está en espera de confirmación de quien la asignó. ¿Deseas marcarla como completada sin su revisión?',
+        });
+      }
     }
     await pool.query(`UPDATE tasks SET status='completed', completed_at=NOW(), ${colSet} updated_at=NOW() WHERE id=$1`, [id]);
     await logActivity(id, uid, alreadyAwaiting ? 'confirmed' : 'completed', alreadyAwaiting ? { from: 'awaiting_confirmation' } : {});
