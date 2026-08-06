@@ -1142,16 +1142,35 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
               </View>
             </ScrollView>
           )}
-          {t && t.status !== 'completed' && (
-            <View style={styles.modalFoot}>
-              <TouchableOpacity style={[styles.completeBtn, pending > 0 && { backgroundColor: '#B7C3BB' }]} onPress={complete} disabled={busy || pending > 0}>
-                {busy ? <ActivityIndicator color="#fff" /> : <>
-                  <Ionicons name={pending > 0 ? 'lock-closed' : 'checkmark-circle'} size={18} color="#fff" />
-                  <Text style={styles.completeTxt}>{pending > 0 ? `Completa el checklist (${pending})` : 'Completar'}</Text>
-                </>}
-              </TouchableOpacity>
-            </View>
-          )}
+          {t && t.status !== 'completed' && (() => {
+            // Bloqueamos el botón "Completar" mientras el usuario está
+            // escribiendo un comentario para evitar clicks accidentales que
+            // cierren la tarea antes de enviar lo que estaba escribiendo.
+            const typing = comment.trim().length > 0;
+            const disabled = busy || pending > 0 || typing;
+            const label = pending > 0
+              ? `Completa el checklist (${pending})`
+              : typing
+                ? 'Envía o borra el comentario para completar'
+                : 'Completar';
+            const icon = pending > 0 ? 'lock-closed' : typing ? 'chatbubble-ellipses' : 'checkmark-circle';
+            return (
+              <View style={styles.modalFoot}>
+                <TouchableOpacity
+                  style={[styles.completeBtn, disabled && { backgroundColor: '#B7C3BB' }]}
+                  onPress={complete}
+                  disabled={disabled}
+                >
+                  {busy ? <ActivityIndicator color="#fff" /> : (
+                    <>
+                      <Ionicons name={icon as any} size={18} color="#fff" />
+                      <Text style={styles.completeTxt}>{label}</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            );
+          })()}
           {t && t.status === 'completed' && (
             <View style={styles.modalFoot}>
               <TouchableOpacity style={[styles.completeBtn, { backgroundColor: '#B07206' }]} onPress={reopen} disabled={busy}>
