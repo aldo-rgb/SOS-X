@@ -996,24 +996,57 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                       </Text>
                     </View>
                     {(() => {
+                      // Costo real de la caja en USA:
+                      // - REPACK: precio consolidado (venta USD del master)
+                      // - Regular: tarifa por caja × #cajas
+                      const isRepack = isRepackPackage();
                       const baseUsd = TARIFAS_POBOX_USD[costSummary.nivel] || 39;
-                      const repackFee = isRepackPackage()
-                        ? Math.max(0, costSummary.precioUnitarioUsd - baseUsd)
+                      const ventaUsdReal = costSummary.tc > 0
+                        ? costSummary.costoMxn / costSummary.tc
+                        : (costSummary.precioUnitarioUsd * (costSummary.totalBoxes || 1));
+                      const repackFee = isRepack
+                        ? Math.max(0, ventaUsdReal - baseUsd)
                         : 0;
-                      const boxesLabel = costSummary.totalBoxes > 1
-                        ? `${costSummary.totalBoxes} cajas × `
-                        : '';
                       return (
                         <>
+                          {/* Costo de la caja en USA (USD real, no la tarifa nivel) */}
                           <View style={[styles.costRow, { paddingLeft: 16, marginTop: -4 }]}>
                             <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
-                              {`💵 ${boxesLabel}$${baseUsd.toFixed(2)} USD × TC $${costSummary.tc.toFixed(2)} (Nivel ${costSummary.nivel})`}
+                              {isRepack
+                                ? `💵 Costo caja (USA)`
+                                : `💵 ${costSummary.totalBoxes > 1 ? `${costSummary.totalBoxes} cajas × ` : ''}Costo caja (USA)`}
+                            </Text>
+                            <Text style={[styles.costValue, { fontSize: 12, color: '#666' }]}>
+                              {isRepack
+                                ? `$${ventaUsdReal.toFixed(2)} USD`
+                                : `$${baseUsd.toFixed(2)} USD${costSummary.totalBoxes > 1 ? ` × ${costSummary.totalBoxes}` : ''}`}
+                            </Text>
+                          </View>
+                          {/* Tipo de cambio */}
+                          <View style={[styles.costRow, { paddingLeft: 16, marginTop: -2 }]}>
+                            <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
+                              {`💱 Tipo de cambio`}
+                            </Text>
+                            <Text style={[styles.costValue, { fontSize: 12, color: '#666' }]}>
+                              {`× $${costSummary.tc.toFixed(2)}`}
+                            </Text>
+                          </View>
+                          {/* Nivel de tarifa */}
+                          <View style={[styles.costRow, { paddingLeft: 16, marginTop: -2 }]}>
+                            <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
+                              {`📊 Nivel de tarifa`}
+                            </Text>
+                            <Text style={[styles.costValue, { fontSize: 12, color: '#666' }]}>
+                              {`Nivel ${costSummary.nivel}`}
                             </Text>
                           </View>
                           {repackFee > 0 && (
-                            <View style={[styles.costRow, { paddingLeft: 16 }]}>
+                            <View style={[styles.costRow, { paddingLeft: 16, marginTop: -2 }]}>
                               <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
-                                {`📦 Reempaque: +$${repackFee.toFixed(2)} USD × TC $${costSummary.tc.toFixed(2)}`}
+                                {`📦 Servicio de reempaque`}
+                              </Text>
+                              <Text style={[styles.costValue, { fontSize: 12, color: '#666' }]}>
+                                {`+$${repackFee.toFixed(2)} USD`}
                               </Text>
                             </View>
                           )}
