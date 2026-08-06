@@ -209,12 +209,12 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
 }) {
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
-  const [catId, setCatId] = useState<number | null>(null);
+  const [catId, setCatId] = useState<number | null | undefined>(undefined); // undefined = sin elegir; null = Personal
   const [catSection, setCatSection] = useState<number | null>(null);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
-  const [eis, setEis] = useState('estrella');
-  const [dueOpt, setDueOpt] = useState<string>('none');
+  const [eis, setEis] = useState(''); // en blanco: obligatorio elegir
+  const [dueOpt, setDueOpt] = useState<string>(''); // en blanco: fecha obligatoria
   const [involved, setInvolved] = useState<number[]>([]);
   const [assignee, setAssignee] = useState<number>(0); // responsable principal
   const [assigneeTouched, setAssigneeTouched] = useState(false); // el usuario eligió manualmente
@@ -224,14 +224,14 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
 
   useEffect(() => {
     if (!visible) return;
-    setTitle(''); setDesc(''); setEis('estrella'); setDueOpt('none'); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setPhotos([]); setCatSection(null);
+    setTitle(''); setDesc(''); setEis(''); setDueOpt(''); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setPhotos([]); setCatSection(null); setCatId(undefined);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H })
       .then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H })
       .then(r => r.json()).then(d => {
         // Excluye el tablero personal: se representa como "Sin categoría".
         setCategories((d.categories || []).filter((c: any) => c.board_key !== 'personales'));
-        setCatId(null); setCatSection(null); // Sin categoría por defecto
+        setCatSection(null); // categoría queda sin elegir (obligatoria)
       }).catch(() => {});
   }, [visible]);
 
@@ -243,7 +243,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   }, [involved, myId, assigneeTouched, visible]);
 
   const dueStamp = (): string | null => {
-    if (dueOpt === 'none') return null;
+    if (!dueOpt || dueOpt === 'none') return null;
     const d = new Date();
     if (dueOpt === 'today') { d.setHours(18, 0, 0, 0); }
     else if (dueOpt === 'tomorrow') { d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); }
@@ -272,13 +272,17 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   };
 
   const submit = async () => {
+    if (busy) return; // anti doble-envío
     if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
+    if (!advisorMode && catId === undefined) { Alert.alert('Falta categoría', 'Selecciona una categoría (o «Personal»).'); return; }
+    if (!eis) { Alert.alert('Falta prioridad', 'Selecciona la prioridad de la tarea.'); return; }
+    if (!dueOpt) { Alert.alert('Falta fecha', 'Selecciona la fecha deseada.'); return; }
     if (!advisorMode && !assignee) { Alert.alert('Falta responsable', 'Elige quién es el responsable de la tarea. Solo esa persona la puede marcar como completada.'); return; }
     setBusy(true);
     try {
       const r = await fetch(`${API_URL}/api/tasks/personal`, {
         method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, assignee_id: assignee || myId || null, due_at: dueStamp(), board_id: catId, section_id: catSection }),
+        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, assignee_id: assignee || myId || null, due_at: dueStamp(), board_id: catId ?? null, section_id: catSection }),
       });
       if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo crear', e.error || ''); setBusy(false); return; }
       const d = await r.json();
@@ -295,7 +299,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   };
 
   const DUE_OPTS = [
-    { k: 'none', l: 'Sin fecha' }, { k: 'today', l: 'Hoy' }, { k: 'tomorrow', l: 'Mañana' },
+    { k: 'today', l: 'Hoy' }, { k: 'tomorrow', l: 'Mañana' },
     { k: 'd3', l: '+3 días' }, { k: 'week', l: 'Próx. semana' },
   ];
 
@@ -313,8 +317,8 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
             {!advisorMode && (<>
             <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
             <View style={styles.eisRow}>
-              <TouchableOpacity onPress={() => setCatId(null)} style={[styles.dateChip, !catId && styles.dateChipOn]}>
-                <Text style={[styles.dateChipTxt, !catId && { color: '#fff' }]}>Personal</Text>
+              <TouchableOpacity onPress={() => setCatId(null)} style={[styles.dateChip, catId === null && styles.dateChipOn]}>
+                <Text style={[styles.dateChipTxt, catId === null && { color: '#fff' }]}>Personal</Text>
               </TouchableOpacity>
               {categories.map(c => {
                 const on = catId === c.id;
