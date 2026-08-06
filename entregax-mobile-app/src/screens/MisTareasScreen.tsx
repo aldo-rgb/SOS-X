@@ -29,6 +29,9 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   // por default cada vez que se entra a la pantalla (useFocusEffect).
   const [showPersonal, setShowPersonal] = useState(false);
   const [showDone, setShowDone] = useState(false);
+  // Global = todas donde estoy involucrado; !global = solo mis tareas (responsable,
+  // sin leer, o esperando mi confirmación).
+  const [globalView, setGlobalView] = useState(false);
   const [catFilter, setCatFilter] = useState<number | 'all'>('all');
   useFocusEffect(useCallback(() => { setShowPersonal(false); }, []));
   const [openId, setOpenId] = useState<number | null>(null);
@@ -68,7 +71,11 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   const boardOptions = Array.from(
     new Map(tasks.filter(t => t.board_id).map(t => [Number(t.board_id), t.board_name || 'Sin categoría'])).entries()
   ).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  const visibleTasks = catFilter === 'all' ? personalOk : personalOk.filter(t => Number(t.board_id) === catFilter);
+  const catTasks = catFilter === 'all' ? personalOk : personalOk.filter(t => Number(t.board_id) === catFilter);
+  const isMine = (t: TaskT) => Number(t.assignee_id) === myId
+    || (t.unread_count || 0) > 0
+    || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === myId);
+  const visibleTasks = globalView ? catTasks : catTasks.filter(isMine);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -89,6 +96,10 @@ export default function MisTareasScreen({ navigation, route }: Props) {
             <Ionicons name="home" size={18} color={showPersonal ? '#fff' : '#B07206'} />
           </TouchableOpacity>
         )}
+        {/* Global vs solo mis tareas */}
+        <TouchableOpacity onPress={() => setGlobalView(v => !v)} style={[styles.iconBtnOutline, { borderColor: '#5E35B1' }, globalView && { backgroundColor: '#5E35B1' }]} hitSlop={8}>
+          <Ionicons name={globalView ? 'earth' : 'person'} size={18} color={globalView ? '#fff' : '#5E35B1'} />
+        </TouchableOpacity>
         {/* Ver completadas (incluye terminadas) */}
         <TouchableOpacity onPress={() => setShowDone(v => !v)} style={[styles.iconBtnOutline, { borderColor: '#2E7D46' }, showDone && { backgroundColor: '#2E7D46' }]} hitSlop={8}>
           <Ionicons name="checkmark-done" size={18} color={showDone ? '#fff' : '#2E7D46'} />
@@ -160,7 +171,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
       ) : view === 'matrix' ? (
         // Matriz 2×2 que llena la pantalla (fuera del ScrollView; cada cuadrante hace scroll interno).
         <View style={{ flex: 1, padding: 10 }}>
-          <MatrixView tasks={visibleTasks} onOpen={setOpenId} showBoard myId={myId} onMove={moveTask} />
+          <MatrixView tasks={visibleTasks} onOpen={setOpenId} showBoard myId={myId} onMove={moveTask} preScoped />
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}

@@ -1318,12 +1318,16 @@ export function ViewToggle({ view, onChange, firstLabel }: { view: 'list' | 'mat
 }
 
 // ── Vista Matriz (4 cuadrantes apilados) ──
-export function MatrixView({ tasks, onOpen, showBoard, myId, onMove }: { tasks: TaskT[]; onOpen: (id: number) => void; showBoard?: boolean; myId?: number; onMove?: (taskId: number, eisenhower: string) => void }) {
+export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }: { tasks: TaskT[]; onOpen: (id: number) => void; showBoard?: boolean; myId?: number; onMove?: (taskId: number, eisenhower: string) => void; preScoped?: boolean }) {
   // Si se pasa myId, la matriz muestra SOLO las tareas donde el usuario es el
   // responsable (assignee), no en las que solo está involucrado.
   // Matriz: tareas donde soy responsable + tareas con comentarios sin leer (para que
   // el involucrado se dé cuenta de que hay respuesta pendiente).
-  const base = myId ? tasks.filter(t => Number(t.assignee_id) === Number(myId) || (t.unread_count || 0) > 0) : tasks;
+  // Si ya viene scopeado (preScoped) se muestra tal cual; si no y hay myId, se
+  // filtra a "mis tareas" (responsable, sin leer, o esperando mi confirmación).
+  const base = (myId && !preScoped)
+    ? tasks.filter(t => Number(t.assignee_id) === Number(myId) || (t.unread_count || 0) > 0 || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === Number(myId)))
+    : tasks;
   // Orden (menor = más arriba): sin leer primero; luego en espera que ME toca
   // confirmar (soy quien la asignó); luego lo normal; al fondo las en espera
   // donde YO soy el que espera.
