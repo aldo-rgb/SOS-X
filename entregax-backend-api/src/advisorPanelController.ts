@@ -794,10 +794,22 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         MAX(COALESCE(ds.width_cm, 0)) as width_cm,
         MAX(COALESCE(ds.height_cm, 0)) as height_cm,
         (array_agg(ds.description ORDER BY ds.id DESC))[1] as description,
-        (SELECT cso.name FROM addresses addr JOIN carrier_service_options cso ON cso.carrier_key = addr.carrier_config->>'dhl'
-         WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_carrier_name,
-        (SELECT cso.icon FROM addresses addr JOIN carrier_service_options cso ON cso.carrier_key = addr.carrier_config->>'dhl'
-         WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_carrier_icon,
+        -- Paquetería nacional REAL usada (ds.national_carrier). Si no está seteada,
+        -- se cae a la configurada en la dirección (address.carrier_config->>'dhl').
+        -- Antes usábamos solo la del address y por eso el panel decía "Estafeta"
+        -- aunque la guía ya se hubiera generado con Paquete Express.
+        (SELECT cso.name FROM carrier_service_options cso
+          WHERE cso.carrier_key = COALESCE(
+            MAX(ds.national_carrier),
+            (SELECT addr.carrier_config->>'dhl' FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id))
+          )
+          LIMIT 1) as delivery_carrier_name,
+        (SELECT cso.icon FROM carrier_service_options cso
+          WHERE cso.carrier_key = COALESCE(
+            MAX(ds.national_carrier),
+            (SELECT addr.carrier_config->>'dhl' FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id))
+          )
+          LIMIT 1) as delivery_carrier_icon,
         (SELECT addr.alias FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_address_name,
         (SELECT addr.city || ', ' || addr.state FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_address_city,
         (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_address_recipient,
@@ -813,7 +825,9 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
              AND pp.package_ids @> jsonb_build_array(MIN(ds.id)) LIMIT 1)
         ) AS in_payment_order_ref,
         COALESCE(MAX(ds.national_label_url), '') as national_label_url,
-        0::numeric as national_shipping_cost,
+        -- Costo real de la paquetería nacional (suma de cajas del master).
+        -- Antes estaba hardcodeado a 0 y por eso la columna "Flete Nac." salía "—".
+        COALESCE(SUM(COALESCE(ds.national_cost_mxn, 0)), 0)::numeric as national_shipping_cost,
         0::int as boxes_count
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
