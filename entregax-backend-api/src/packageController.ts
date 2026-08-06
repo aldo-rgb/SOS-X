@@ -6089,8 +6089,12 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
         }
 
         // Guard 2/3: validar los masters viejos de los que provienen las hijas.
-        // Si alguno de esos masters todavía tiene saldo pendiente propio o guía
-        // de última milla generada, no permitimos absorberlo automáticamente.
+        // El reempaque REASIGNA costos: el saldo del master viejo se descarta y
+        // el cliente pasa a deber la tarifa del nuevo REPACK (40x40x50 + $10 USD).
+        // Por eso NO bloqueamos por saldo_pendiente > 0 (eso es lo normal).
+        // Solo bloqueamos cuando algo ya no es reversible:
+        //   • el cliente ya pagó (monto_pagado > 0 o client_paid = TRUE)
+        //   • ya se generó la guía de última milla (national_label_url).
         const oldMasterIds = Array.from(new Set(
             packages.map((p: any) => p.master_id).filter((v: any) => v != null)
         )) as number[];
@@ -6098,17 +6102,18 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
         if (oldMasterIds.length > 0) {
             const mastersResult = await pool.query(
                 `SELECT id, tracking_internal, saldo_pendiente, national_label_url,
-                        assigned_cost_mxn
+                        assigned_cost_mxn, monto_pagado, client_paid
                    FROM packages
                   WHERE id = ANY($1)`,
                 [oldMasterIds]
             );
 
             for (const m of mastersResult.rows) {
-                const saldo = Number(m.saldo_pendiente || 0);
-                if (saldo > 0) {
+                const montoPagado = Number(m.monto_pagado || 0);
+                const clientPaid = m.client_paid === true;
+                if (montoPagado > 0 || clientPaid) {
                     res.status(400).json({
-                        error: `El paquete ${m.tracking_internal} tiene saldo pendiente ($${saldo.toFixed(2)} MXN). Cobra o libera el saldo antes de reempacar sus cajas.`
+                        error: `El paquete ${m.tracking_internal} ya tiene un pago del cliente por $${montoPagado.toFixed(2)} MXN. Antes de reempacar, cancela o reembolsa ese pago para no perder el crédito del cliente.`
                     });
                     return;
                 }
