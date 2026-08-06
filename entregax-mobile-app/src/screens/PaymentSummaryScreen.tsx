@@ -125,12 +125,17 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     if (isPickup) {
       return sum + (parseFloat(String(pp.saldo_pendiente ?? pp.assigned_cost_mxn ?? 0)) || 0);
     }
-    // 📮 DHL (AA_DHL): el saldo (total_cost_mxn) YA incluye importación +
-    // impuestos DHL + paquetería nacional + GEX. Antes se calculaba con campos
-    // PO Box (pobox_service_cost=0) y el total salía en $0.00.
+    // 📮 DHL (AA_DHL): el saldo (total_cost_mxn del embarque) incluye importación
+    // + impuestos DHL, pero NO la paquetería nacional (national_cost_mxn está en
+    // columna aparte). Se suma explícitamente para que el total refleje el
+    // envío nacional (bug: el modal cobraba $4,311.75 en vez de $4,773.75).
     const isDhl = pp.shipment_type === 'dhl' || pp.servicio === 'AA_DHL' || pp.servicio === 'DHL_MTY';
     if (isDhl) {
-      return sum + (parseFloat(String(pp.saldo_pendiente ?? pp.monto ?? pp.assigned_cost_mxn ?? 0)) || 0);
+      const baseDhl = parseFloat(String(pp.saldo_pendiente ?? pp.monto ?? pp.assigned_cost_mxn ?? 0)) || 0;
+      const nationalDhl = parseFloat(pp.national_shipping_cost) || 0;
+      const gexDhl = parseFloat(pp.gex_total_cost) || 0;
+      const extraDhl = parseFloat(pp.extra_charges_total) || 0;
+      return sum + baseDhl + nationalDhl + gexDhl + extraDhl;
     }
     const gex = parseFloat(pp.gex_total_cost) || 0;
     const ship = parseFloat(pp.national_shipping_cost) || 0;
@@ -929,14 +934,19 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 // 🚚 Pick Up: cobrar SOLO la tarifa de recolección (saldo_pendiente real).
                 const isPickup = pp.status === 'ready_pickup'
                   || String(pp.carrier || '').toLowerCase().includes('pick up');
-                // 📮 DHL: el saldo (total_cost_mxn) ya es todo-incluido; sin esto
-                // el desglose PO Box daba $0.00 para este paquete.
+                // 📮 DHL: el saldo (total_cost_mxn del embarque) incluye importación
+                // + impuestos DHL pero NO la paquetería nacional. Se suma ship
+                // explícitamente para que el total refleje el envío nacional.
                 const isDhlPkg = pp.shipment_type === 'dhl' || pp.servicio === 'AA_DHL' || pp.servicio === 'DHL_MTY';
-                const totalCost = (isPickup || isDhlPkg)
+                const totalCost = isPickup
                   ? (parseFloat(String(pp.saldo_pendiente ?? pp.monto ?? pp.assigned_cost_mxn ?? 0)) || 0)
-                  : (poboxMxn > 0
-                      ? Math.max(0, poboxMxn + gex + ship + extra - pagado)
-                      : Math.max(0, gex + ship + extra - pagado));
+                  : isDhlPkg
+                    ? Math.max(0,
+                        (parseFloat(String(pp.saldo_pendiente ?? pp.monto ?? pp.assigned_cost_mxn ?? 0)) || 0)
+                        + ship + gex + extra - pagado)
+                    : (poboxMxn > 0
+                        ? Math.max(0, poboxMxn + gex + ship + extra - pagado)
+                        : Math.max(0, gex + ship + extra - pagado));
                 const hasChildren = pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0;
                 const isExpanded = expandedPkgs.has(pkg.id);
                 const carrier = pp.national_carrier || pp.carrier || null;

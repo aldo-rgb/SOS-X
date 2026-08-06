@@ -978,11 +978,19 @@ export default function DashboardClient() {
       envioMXN = Number(pkg.saldo_pendiente) || Number(pkg.assigned_cost_mxn) || 0;
     }
 
-    // DHL (AA_DHL): el 'monto' = total_cost_mxn del embarque YA incluye
-    // importación + impuestos DHL + paquetería nacional + GEX. Sumar paquetería
-    // o cargos encima duplicaba el costo (p.ej. 4,806 + 400 fallback = 5,206).
+    // DHL (AA_DHL): el 'monto' = total_cost_mxn del embarque = importación en MXN
+    // + impuestos DHL. NO incluye la paquetería nacional (national_cost_mxn),
+    // que está en una columna aparte del embarque. Antes se asumía que iba
+    // incluida y el "Total a cobrar" al cliente se quedaba corto (bug visible
+    // cuando el total mostraba $4,311.75 sin sumar $462 de Paquete Express).
+    // GEX SÍ está fuera y se suma abajo cuando aplica (pkg.gex_total_cost).
     const isDhl = pkg.shipment_type === 'dhl' || pkg.servicio === 'AA_DHL' || pkg.servicio === 'DHL_MTY';
-    if (isDhl) return envioMXN;
+    if (isDhl) {
+      const nationalCostMxn = Number(pkg.national_shipping_cost) || 0;
+      const gexMxnDhl = Number(pkg.gex_total_cost) || 0;
+      const extraMxnDhl = Number(pkg.extra_charges_total) || 0;
+      return envioMXN + nationalCostMxn + gexMxnDhl + extraMxnDhl;
+    }
 
     const gexFromChildren = included.reduce((sum, g) => sum + (Number(g.gex_total_cost) || 0), 0);
 
