@@ -159,6 +159,7 @@ const LinkifyTickets = ({ text, onNavigate }: { text?: string | null; onNavigate
 
 interface Task {
   id: number; title: string; description?: string; eisenhower: string; status: string;
+  started_at?: string; updated_at?: string;
   due_at?: string; created_at?: string; completed_at?: string; assignee_name?: string; assignee_id?: number; board_id?: number;
   board_name?: string; board_key?: string; column_name?: string; subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
   participants_count?: number; participant_names?: string[] | null; unread_count?: number;
@@ -241,7 +242,7 @@ export default function MisTareasPage() {
   const [eventDetail, setEventDetail] = useState<any | null>(null);
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'list' | 'matrix'>('list');
+  const [view, setView] = useState<'list' | 'matrix'>('matrix');
   const [showDone, setShowDone] = useState(false);
   // Tareas personales ocultas en horario laboral (10am–7pm); toggle apagado por
   // default cada vez que se entra a la pantalla (no se persiste).
@@ -466,6 +467,7 @@ export default function MisTareasPage() {
         sx={{ bgcolor: '#fff', borderRadius: 1, px: 0.75, py: 0.5, cursor: 'grab', border: '1px solid #E8DFD3',
           borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3', '&:hover': { boxShadow: 1 }, '&:active': { cursor: 'grabbing' }, opacity: done ? 0.6 : 1 }}>
         <Typography fontSize={12} fontWeight={600} sx={{ lineHeight: 1.25, textDecoration: done ? 'line-through' : 'none', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{t.title}</Typography>
+        {t.status === 'awaiting_confirmation' && <Chip label="⏳ En espera" size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, mr: 0.5, bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count}`} size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, bgcolor: '#E53935', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
           {boardLabel && <Typography fontSize={10} color="text.secondary" noWrap sx={{ flex: 1, minWidth: 0 }}>🗂️ {boardLabel}</Typography>}
@@ -570,7 +572,9 @@ export default function MisTareasPage() {
             // Matriz Eisenhower: SOLO tareas donde el usuario es el responsable (assignee),
             // no en las que solo está involucrado.
             // Matriz: donde soy responsable + con comentarios sin leer (para notar respuestas pendientes).
-            const qt = visibleTasks.filter(t => t.eisenhower === q.key && (Number(t.assignee_id) === MY_ID || (t.unread_count || 0) > 0));
+            const qt = visibleTasks.filter(t => t.eisenhower === q.key && (Number(t.assignee_id) === MY_ID || (t.unread_count || 0) > 0))
+              // Las tareas en espera de confirmación se van al fondo del cuadrante.
+              .sort((a, b) => (a.status === 'awaiting_confirmation' ? 1 : 0) - (b.status === 'awaiting_confirmation' ? 1 : 0));
             const over = dragOverKey === q.key;
             return (
               <Box key={q.key}
@@ -591,9 +595,43 @@ export default function MisTareasPage() {
           })}
         </Box>
       ) : (
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr' }, gap: 1.5 }}>
-          {visibleTasks.map(renderCard)}
-        </Box>
+        // Lista por estado en 4 columnas, cada una con su propio orden.
+        (() => {
+          const ms = (s?: string) => (s ? new Date(s).getTime() : 0);
+          // Nueva: abierta y sin iniciar → la más nueva arriba.
+          const nueva = visibleTasks.filter(t => t.status === 'open' && !t.started_at)
+            .sort((a, b) => ms(b.created_at) - ms(a.created_at));
+          // En proceso: abierta e iniciada → la más VIEJA puesta en proceso arriba.
+          const proceso = visibleTasks.filter(t => t.status === 'open' && !!t.started_at)
+            .sort((a, b) => ms(a.started_at) - ms(b.started_at));
+          // En espera: la más RECIENTE puesta en espera va abajo (vieja arriba).
+          const espera = visibleTasks.filter(t => t.status === 'awaiting_confirmation')
+            .sort((a, b) => ms(a.updated_at) - ms(b.updated_at));
+          // Terminadas: en orden de terminadas (más reciente arriba).
+          const terminadas = visibleTasks.filter(t => t.status === 'completed')
+            .sort((a, b) => ms(b.completed_at) - ms(a.completed_at));
+          const cols = [
+            { key: 'nueva', title: '🆕 Nueva', color: '#1D6FB8', bg: '#EAF3FB', tasks: nueva },
+            { key: 'proceso', title: '⚙️ En proceso', color: '#B07206', bg: '#FBF3E5', tasks: proceso },
+            { key: 'espera', title: '⏳ En espera de confirmación', color: '#C77800', bg: '#FBE9D0', tasks: espera },
+            { key: 'done', title: '✅ Terminadas', color: '#2E7D46', bg: '#E9F5EE', tasks: terminadas },
+          ];
+          return (
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(4, 1fr)' }, gap: 1, height: 'calc(100vh - 210px)', minHeight: 440 }}>
+              {cols.map(c => (
+                <Box key={c.key} sx={{ bgcolor: c.bg, borderRadius: 2, borderTop: `3px solid ${c.color}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.6, flexShrink: 0 }}>
+                    <Typography fontWeight={800} fontSize={12.5} sx={{ flex: 1, color: c.color, lineHeight: 1.1 }} noWrap>{c.title}</Typography>
+                    <Chip label={c.tasks.length} size="small" sx={{ height: 18, fontSize: 11 }} />
+                  </Box>
+                  <Box sx={{ flex: 1, overflowY: 'auto', px: 0.75, pb: 0.75, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    {c.tasks.length === 0 ? <Typography fontSize={11} color="text.disabled" sx={{ py: 1, textAlign: 'center' }}>—</Typography> : c.tasks.map(renderCard)}
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          );
+        })()
       )}
 
       {/* Detalle de evento (desde Mis Tareas) */}
