@@ -709,6 +709,10 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   };
   const [newSub, setNewSub] = useState('');
   const [busy, setBusy] = useState(false);
+  // Marca "sucio": se activa cuando el usuario hace CUALQUIER cambio en la tarea
+  // (categoría, responsable, involucrados, checklist, archivos, comentarios, etc.)
+  // y hace que el botón inferior cambie de "Completar" → "Guardar" para salir sin cerrar la tarea.
+  const [dirty, setDirty] = useState(false);
   // Edición inline
   const [editing, setEditing] = useState(false);
   const [eTitle, setETitle] = useState('');
@@ -732,7 +736,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
       setData(await r.json());
     } catch { /* */ } finally { if (!silent) setLoading(false); }
   }, [taskId, token]);
-  useEffect(() => { if (visible && taskId) { setData(null); setEditing(false); reload(); } }, [visible, taskId, reload]);
+  useEffect(() => { if (visible && taskId) { setData(null); setEditing(false); setDirty(false); reload(); } }, [visible, taskId, reload]);
   // Cargar usuarios y categorías cuando el detalle es editable (para editar inline).
   useEffect(() => {
     if (!visible || !data?.can_edit) return;
@@ -796,6 +800,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     try {
       const r = await put(`${API_URL}/api/tasks/${taskId}`, body);
       if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo actualizar', e.error || ''); return; }
+      setDirty(true);
       reload(true); onChanged();
     } catch { Alert.alert('Error', 'No se pudo actualizar'); } finally { setBusy(false); }
   };
@@ -814,16 +819,17 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     if (!s.done && s.requires_photo && !s.evidence_url) { Alert.alert('Evidencia requerida', 'Esta subtarea requiere una foto para completarse.'); return; }
     // Optimista: palomea al instante; luego confirma con el backend en silencio.
     setData((prev: any) => prev ? { ...prev, subtasks: (prev.subtasks || []).map((x: any) => x.id === s.id ? { ...x, done: !x.done } : x) } : prev);
+    setDirty(true);
     try { await put(`${API_URL}/api/tasks/subtasks/${s.id}`, { done: !s.done }); reload(true); onChanged(); }
     catch { reload(true); }
   };
   const addSub = async () => {
     if (!newSub.trim()) return;
-    try { await post(`${API_URL}/api/tasks/${taskId}/subtasks`, { body: newSub.trim() }); setNewSub(''); reload(true); onChanged(); }
+    try { await post(`${API_URL}/api/tasks/${taskId}/subtasks`, { body: newSub.trim() }); setNewSub(''); setDirty(true); reload(true); onChanged(); }
     catch (e: any) { Alert.alert('Error', 'No se pudo agregar la subtarea'); }
   };
   const deleteSub = async (id: number) => {
-    try { await fetch(`${API_URL}/api/tasks/subtasks/${id}`, { method: 'DELETE', headers: H }); reload(true); onChanged(); } catch { /* */ }
+    try { await fetch(`${API_URL}/api/tasks/subtasks/${id}`, { method: 'DELETE', headers: H }); setDirty(true); reload(true); onChanged(); } catch { /* */ }
   };
   const move = async (colId: number) => {
     try {
@@ -879,7 +885,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const addComment = async () => {
     if (!comment.trim()) return;
     const activeMentions = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
-    try { const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions }); const d = await r.json().catch(() => ({})); setComment(''); setMentions([]); setMentionQuery(null); reload(true); onChanged(); if (d?.reopened) Alert.alert('💬 Comentario agregado', 'La tarea volvió a pendientes (se reanuda el conteo de tiempo).'); } catch { /* */ }
+    try { const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions }); const d = await r.json().catch(() => ({})); setComment(''); setMentions([]); setMentionQuery(null); setDirty(true); reload(true); onChanged(); if (d?.reopened) Alert.alert('💬 Comentario agregado', 'La tarea volvió a pendientes (se reanuda el conteo de tiempo).'); } catch { /* */ }
   };
   const addPhoto = async () => {
     try {
@@ -893,6 +899,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
       fd.append('photo', { uri: a.uri, name: a.fileName || 'foto.jpg', type: a.mimeType || 'image/jpeg' } as any);
       const r = await fetch(`${API_URL}/api/tasks/${taskId}/attachments`, { method: 'POST', headers: H, body: fd });
       if (!r.ok) throw new Error();
+      setDirty(true);
       reload();
     } catch { Alert.alert('Error', 'No se pudo subir la foto'); } finally { setBusy(false); }
   };
@@ -906,11 +913,12 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
         fd.append('photo', { uri: a.uri, name: a.name || 'archivo', type: a.mimeType || 'application/octet-stream' } as any);
         await fetch(`${API_URL}/api/tasks/${taskId}/attachments`, { method: 'POST', headers: H, body: fd });
       }
+      setDirty(true);
       reload();
     } catch { Alert.alert('Error', 'No se pudo subir el archivo'); } finally { setBusy(false); }
   };
   const deletePhoto = async (id: number) => {
-    try { await fetch(`${API_URL}/api/tasks/attachments/${id}`, { method: 'DELETE', headers: H }); reload(); } catch { /* */ }
+    try { await fetch(`${API_URL}/api/tasks/attachments/${id}`, { method: 'DELETE', headers: H }); setDirty(true); reload(); } catch { /* */ }
   };
   const openAttachment = (url?: string) => { if (url) Linking.openURL(url).catch(() => Alert.alert('Error', 'No se pudo abrir el archivo')); };
 
@@ -1225,6 +1233,23 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
             }
 
             const disabled = busy || pending > 0 || typing;
+            // Si el usuario hizo cualquier cambio (categoría, responsable, involucrados,
+            // checklist, archivos, comentarios) el botón cambia a "Guardar" para salir
+            // sin cerrar la tarea. Los cambios ya se persisten al hacerlos, así que
+            // "Guardar" simplemente cierra el modal y regresa a la vista anterior.
+            if (dirty && !typing && !busy && pending === 0) {
+              return (
+                <View style={styles.modalFoot}>
+                  <TouchableOpacity
+                    style={[styles.completeBtn, { backgroundColor: '#1F6FEB' }]}
+                    onPress={() => { setDirty(false); onChanged(); onClose(); }}
+                  >
+                    <Ionicons name="save" size={18} color="#fff" />
+                    <Text style={styles.completeTxt}>Guardar</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            }
             const label = pending > 0
               ? `Completa el checklist (${pending})`
               : typing
