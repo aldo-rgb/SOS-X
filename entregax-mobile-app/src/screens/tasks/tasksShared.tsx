@@ -709,6 +709,9 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   };
   const [newSub, setNewSub] = useState('');
   const [busy, setBusy] = useState(false);
+  // Bandera específica del envío de comentario: deshabilita el botón y muestra spinner
+  // mientras la petición POST está en curso para evitar envíos múltiples.
+  const [sendingComment, setSendingComment] = useState(false);
   // Marca "sucio": se activa cuando el usuario hace CUALQUIER cambio en la tarea
   // (categoría, responsable, involucrados, checklist, archivos, comentarios, etc.)
   // y hace que el botón inferior cambie de "Completar" → "Guardar" para salir sin cerrar la tarea.
@@ -883,9 +886,12 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     } catch { /* */ } finally { setBusy(false); }
   };
   const addComment = async () => {
-    if (!comment.trim()) return;
+    if (!comment.trim() || sendingComment) return;
     const activeMentions = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
-    try { const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions }); const d = await r.json().catch(() => ({})); setComment(''); setMentions([]); setMentionQuery(null); setDirty(true); reload(true); onChanged(); if (d?.reopened) Alert.alert('💬 Comentario agregado', 'La tarea volvió a pendientes (se reanuda el conteo de tiempo).'); } catch { /* */ }
+    setSendingComment(true);
+    try { const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions }); const d = await r.json().catch(() => ({})); setComment(''); setMentions([]); setMentionQuery(null); setDirty(true); reload(true); onChanged(); if (d?.reopened) Alert.alert('💬 Comentario agregado', 'La tarea volvió a pendientes (se reanuda el conteo de tiempo).'); }
+    catch { /* */ }
+    finally { setSendingComment(false); }
   };
   const addPhoto = async () => {
     try {
@@ -1200,8 +1206,14 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 );
               })()}
               <View style={styles.addSubRow}>
-                <TextInput style={styles.input} placeholder="Deja un comentario…  (@ para mencionar)" value={comment} onChangeText={onCommentChange} placeholderTextColor="#999" />
-                <TouchableOpacity style={styles.addBtn} onPress={addComment}><Ionicons name="send" size={16} color="#fff" /></TouchableOpacity>
+                <TextInput style={styles.input} placeholder="Deja un comentario…  (@ para mencionar)" value={comment} onChangeText={onCommentChange} placeholderTextColor="#999" editable={!sendingComment} />
+                <TouchableOpacity
+                  style={[styles.addBtn, (sendingComment || !comment.trim()) && { opacity: 0.5 }]}
+                  onPress={addComment}
+                  disabled={sendingComment || !comment.trim()}
+                >
+                  {sendingComment ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={16} color="#fff" />}
+                </TouchableOpacity>
               </View>
             </ScrollView>
           )}

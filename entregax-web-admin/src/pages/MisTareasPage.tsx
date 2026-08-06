@@ -252,6 +252,9 @@ export default function MisTareasPage() {
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'matrix'>('list');
+  // Vista global (todas en las que estoy involucrado) vs solo mis tareas
+  // (responsable, con comentarios sin leer, o esperando mi confirmación).
+  const [globalView, setGlobalView] = useState(false);
   const [showDone, setShowDone] = useState(false);
   // Tareas personales ocultas en horario laboral (10am–7pm); toggle apagado por
   // default cada vez que se entra a la pantalla (no se persiste).
@@ -497,7 +500,14 @@ export default function MisTareasPage() {
   const boardOptions = Array.from(
     new Map(tasks.filter(t => t.board_id).map(t => [Number(t.board_id), t.board_name || 'Sin categoría'])).entries()
   ).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  const visibleTasks = catFilter === 'all' ? personalOk : personalOk.filter(t => Number(t.board_id) === catFilter);
+  const catTasks = catFilter === 'all' ? personalOk : personalOk.filter(t => Number(t.board_id) === catFilter);
+  // "Solo mis tareas": soy responsable, o hay comentarios sin leer, o está en
+  // espera de MI confirmación (yo la asigné). En global se muestran todas las
+  // que /tasks/mine devuelve (donde estoy involucrado).
+  const isMine = (t: Task) => Number(t.assignee_id) === MY_ID
+    || (t.unread_count || 0) > 0
+    || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === MY_ID);
+  const visibleTasks = globalView ? catTasks : catTasks.filter(isMine);
 
   return (
     <Box>
@@ -520,6 +530,10 @@ export default function MisTareasPage() {
           <ToggleButton value="list" sx={{ textTransform: 'none', gap: 0.5 }}><ViewListIcon sx={{ fontSize: 18 }} /> Lista</ToggleButton>
           <ToggleButton value="matrix" sx={{ textTransform: 'none', gap: 0.5 }}><GridViewIcon sx={{ fontSize: 18 }} /> Matriz Eisenhower</ToggleButton>
         </ToggleButtonGroup>
+        <Button size="small" variant={globalView ? 'contained' : 'outlined'} onClick={() => setGlobalView(v => !v)}
+          sx={{ textTransform: 'none', ...(globalView ? { bgcolor: '#5E35B1', '&:hover': { bgcolor: '#4a2a8f' } } : { borderColor: '#5E35B1', color: '#5E35B1' }) }}>
+          {globalView ? '🌐 Mostrando tareas globales' : '👤 Solo mis tareas'}
+        </Button>
         <Button size="small" variant={showDone ? 'contained' : 'outlined'} onClick={() => setShowDone(v => !v)}
           sx={{ textTransform: 'none', ...(showDone ? { bgcolor: '#2E7D46', '&:hover': { bgcolor: '#256B3B' } } : { borderColor: '#2E7D46', color: '#2E7D46' }) }}>
           {showDone ? '✅ Mostrando completadas' : 'Ver completadas'}
@@ -590,7 +604,7 @@ export default function MisTareasPage() {
               if (t.status === 'awaiting_confirmation') return iAssigned ? 1 : 3;
               return 2;
             };
-            const qt = visibleTasks.filter(t => t.eisenhower === q.key && (Number(t.assignee_id) === MY_ID || (t.unread_count || 0) > 0))
+            const qt = visibleTasks.filter(t => t.eisenhower === q.key)
               .sort((a, b) => rank(a) - rank(b));
             const over = dragOverKey === q.key;
             return (
@@ -934,6 +948,9 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [comment, setComment] = useState('');
   const [newSub, setNewSub] = useState('');
   const [busy, setBusy] = useState(false);
+  // Bandera específica del envío de comentario: deshabilita el botón y muestra spinner
+  // mientras la petición POST está en curso para evitar envíos múltiples.
+  const [sendingComment, setSendingComment] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
   const [commitDate, setCommitDate] = useState('');
   const [editing, setEditing] = useState(false);
@@ -1037,9 +1054,11 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     finally { setBusy(false); }
   };
   const addComment = async () => {
-    if (!comment.trim()) return;
+    if (!comment.trim() || sendingComment) return;
+    setSendingComment(true);
     try { const res = await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim() }, H()); setComment(''); reload(); onChanged(); if (res.data?.reopened) notify('💬 Comentario agregado · la tarea volvió a pendientes', 'success'); }
     catch { notify('Error al comentar', 'error'); }
+    finally { setSendingComment(false); }
   };
   const uploadPhotos = async (files: FileList | null) => {
     if (!files || !files.length) return;
@@ -1342,8 +1361,18 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               })}
             </Box>
             <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
-              <TextField fullWidth size="small" placeholder="Deja un comentario…" value={comment} onChange={e => setComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addComment(); }} />
-              <IconButton color="primary" onClick={addComment}><SendIcon /></IconButton>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder={sendingComment ? 'Enviando comentario…' : 'Deja un comentario…'}
+                value={comment}
+                onChange={e => setComment(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !sendingComment) addComment(); }}
+                disabled={sendingComment}
+              />
+              <IconButton color="primary" onClick={addComment} disabled={sendingComment || !comment.trim()}>
+                {sendingComment ? <CircularProgress size={18} /> : <SendIcon />}
+              </IconButton>
             </Box>
 
             <Divider sx={{ my: 2 }} />
