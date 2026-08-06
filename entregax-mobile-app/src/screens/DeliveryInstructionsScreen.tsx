@@ -1940,9 +1940,10 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                             <Chip 
                               mode="flat" 
                               style={styles.repackMasterChip}
-                              textStyle={{ fontSize: 10 }}
+                              textStyle={styles.repackMasterChipText}
+                              compact
                             >
-                              Master ({pkgInfo.children?.length || 0} cajas)
+                              {`📦 ${pkgInfo.children?.length || 0} hijas`}
                             </Chip>
                           )}
                         </View>
@@ -2787,8 +2788,19 @@ const styles = StyleSheet.create({
     color: BLACK,
   },
   repackMasterChip: {
-    height: 20,
-    backgroundColor: ORANGE + '20',
+    height: 24,
+    backgroundColor: '#FFE5DA',
+    borderWidth: 1,
+    borderColor: ORANGE,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 2,
+  },
+  repackMasterChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: ORANGE,
+    lineHeight: 14,
+    marginVertical: 0,
   },
   repackPackageDims: {
     fontSize: 12,
