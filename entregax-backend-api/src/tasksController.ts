@@ -721,6 +721,13 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
              (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
              -- Responsable (assignee) primero; luego el resto por nombre.
              (SELECT array_agg(u2.full_name ORDER BY (u2.id = t.assignee_id) DESC, u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_names,
+             -- Último comentario y actividad efectiva (MAX de comentarios y updated_at).
+             (SELECT MAX(created_at) FROM task_comments cc WHERE cc.task_id = t.id) AS last_comment_at,
+             GREATEST(
+               t.updated_at,
+               t.created_at,
+               COALESCE((SELECT MAX(created_at) FROM task_comments cc WHERE cc.task_id = t.id), t.created_at)
+             ) AS last_activity_at,
              (t.due_at IS NOT NULL AND t.status='open' AND t.due_at < NOW()) AS overdue
         FROM tasks t
         JOIN task_boards b ON b.id = t.board_id
@@ -729,7 +736,14 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
         LEFT JOIN users cu ON cu.id = t.created_by
        WHERE (t.assignee_id = $1 OR EXISTS (SELECT 1 FROM task_participants tp WHERE tp.task_id = t.id AND tp.user_id = $1))
          AND ${statusCond}
-       ORDER BY (t.status='open') DESC, (t.eisenhower='fuego') DESC, t.due_at NULLS LAST, t.id DESC`, [uid]);
+       ORDER BY (t.status='open') DESC,
+                -- Las tareas con comentarios más recientes (o actividad reciente) suben.
+                GREATEST(
+                  t.updated_at,
+                  t.created_at,
+                  COALESCE((SELECT MAX(created_at) FROM task_comments cc WHERE cc.task_id = t.id), t.created_at)
+                ) DESC NULLS LAST,
+                (t.eisenhower='fuego') DESC, t.due_at NULLS LAST, t.id DESC`, [uid]);
     // Eventos del calendario que ocurren HOY (hora Monterrey) donde el usuario es
     // creador o involucrado → aparecen en Mis Tareas ese día. Se evalúa el día en
     // tz local; start_at/end_at son timestamp-naive en UTC.
