@@ -3724,7 +3724,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
         let childrenByMaster: Record<number, any[]> = {};
         if (masterIds.length > 0) {
             const childrenResult = await pool.query(`
-                SELECT * FROM packages WHERE master_id = ANY($1) ORDER BY box_number
+                SELECT * FROM packages
+                 WHERE master_id = ANY($1)
+                   AND COALESCE(total_boxes, 1) > 0  -- excluye masters viejos absorbidos por reempaque
+                 ORDER BY box_number
             `, [masterIds]);
             
             // Agrupar hijos por master_id
@@ -6305,8 +6308,13 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
         // ─────────────────────────────────────────────────────────────
         // ABSORCIÓN DE MASTERS VIEJOS
         // Si un master viejo se quedó sin hijas (todas fueron movidas al REPACK),
-        // lo marcamos como absorbido: is_master=false, total_boxes=0,
-        // status='cancelled' (deja de aparecer en outbound / cobros) y anexamos nota.
+        // lo marcamos como absorbido: is_master=false, total_boxes=0, saldos en 0,
+        // needs_instructions=false y master_id=<nuevo REPACK> para que quede
+        // colgado del REPACK y NO aparezca como paquete independiente en el panel
+        // del cliente. Los filtros en getMyPackages/child_packages/en_bodega
+        // excluyen filas con total_boxes=0 para que tampoco se cuente.
+        // NOTA: el enum package_status no acepta 'cancelled', así que no tocamos
+        // el status; los otros signals bastan para ocultarlo en toda la UI.
         // ─────────────────────────────────────────────────────────────
         if (oldMasterIds.length > 0) {
             try {
@@ -6321,16 +6329,16 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
                             `UPDATE packages
                                 SET is_master = FALSE,
                                     total_boxes = 0,
-                                    status = 'cancelled',
+                                    master_id = $2,
                                     assigned_cost_mxn = 0,
                                     saldo_pendiente = 0,
                                     needs_instructions = FALSE,
-                                    notes = COALESCE(notes, '') || E'\\n' || '🔀 Absorbido en ' || $2 || ' (todas sus hijas fueron reempacadas)',
+                                    notes = COALESCE(notes, '') || E'\\n' || '🔀 Absorbido en ' || $3 || ' (todas sus hijas fueron reempacadas)',
                                     updated_at = CURRENT_TIMESTAMP
                               WHERE id = $1`,
-                            [oldMasterId, consolidatedTracking]
+                            [oldMasterId, parentId, consolidatedTracking]
                         );
-                        console.log(`   🔀 Master viejo ${oldMasterId} absorbido en ${consolidatedTracking}`);
+                        console.log(`   🔀 Master viejo ${oldMasterId} absorbido en ${consolidatedTracking} (master_id=${parentId})`);
                     } else {
                         console.log(`   ℹ️ Master viejo ${oldMasterId} conserva ${remainingCount} hija(s); NO se marca como absorbido`);
                     }

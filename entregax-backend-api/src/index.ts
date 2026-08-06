@@ -3518,15 +3518,17 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
 
     // 2. Contar paquetes por estado (usando user_id, no box_id)
     // Separar PO Box USA de Aéreo China
+    // OJO: excluimos masters "absorbidos" por reempaque (total_boxes=0) para
+    // no contarlos ni sumar sus saldos (aunque ya vienen en 0).
     const packagesStatsQuery = await pool.query(`
       SELECT 
-        COUNT(*) FILTER (WHERE status::text IN ('in_transit')) as en_transito,
-        COUNT(*) FILTER (WHERE status::text IN ('received', 'customs', 'reempacado')) as en_bodega,
-        COUNT(*) FILTER (WHERE status::text = 'ready_pickup') as listos_recoger,
+        COUNT(*) FILTER (WHERE status::text IN ('in_transit') AND COALESCE(total_boxes,1) > 0) as en_transito,
+        COUNT(*) FILTER (WHERE status::text IN ('received', 'customs', 'reempacado') AND COALESCE(total_boxes,1) > 0) as en_bodega,
+        COUNT(*) FILTER (WHERE status::text = 'ready_pickup' AND COALESCE(total_boxes,1) > 0) as listos_recoger,
         COUNT(*) FILTER (WHERE status::text = 'delivered' AND delivered_at >= NOW() - INTERVAL '30 days') as entregados_mes,
-        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered')), 0) as saldo_pendiente,
-        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered') AND service_type = 'POBOX_USA'), 0) as saldo_pobox,
-        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered') AND service_type = 'AIR_CHN_MX'), 0) as saldo_aereo
+        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered') AND COALESCE(total_boxes,1) > 0), 0) as saldo_pendiente,
+        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered') AND service_type = 'POBOX_USA' AND COALESCE(total_boxes,1) > 0), 0) as saldo_pobox,
+        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered') AND service_type = 'AIR_CHN_MX' AND COALESCE(total_boxes,1) > 0), 0) as saldo_aereo
       FROM packages
       WHERE user_id = $1
          OR (user_id IS NULL AND EXISTS (
