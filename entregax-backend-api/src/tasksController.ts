@@ -373,9 +373,13 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
     // Involucrados: el creador SIEMPRE + los seleccionados. Compat: assignee_id único.
     const extra: number[] = Array.isArray(b.involved_ids)
       ? b.involved_ids.map((x: any) => parseInt(String(x))).filter((n: number) => Number.isFinite(n) && n > 0) : [];
-    if (b.assignee_id) extra.push(parseInt(String(b.assignee_id)));
+    const explicitAssignee = b.assignee_id ? parseInt(String(b.assignee_id)) : 0;
+    if (explicitAssignee > 0) extra.push(explicitAssignee);
     const participants = Array.from(new Set<number>([uid, ...extra]));
-    const primaryAssignee = extra.length ? extra[0] : uid; // responsable principal
+    // Responsable principal: el elegido explícitamente; si no vino, el PRIMER
+    // involucrado distinto del creador; y si no hay involucrados, el creador.
+    const firstNonCreator = extra.find((x) => x !== uid);
+    const primaryAssignee = explicitAssignee > 0 ? explicitAssignee : (firstNonCreator || uid);
     const r = await pool.query(
       `INSERT INTO tasks (board_id, column_id, section_id, title, description, assignee_id, due_at, eisenhower, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
@@ -1070,18 +1074,20 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     const assigneeId = Number(task.assignee_id) || 0;
     const isCreator = creatorId > 0 && Number(uid) === creatorId;
     const isAssignee = assigneeId > 0 && Number(uid) === assigneeId;
-    const needsDoubleConfirm = creatorId > 0 && assigneeId > 0 && creatorId !== assigneeId;
     const alreadyAwaiting = String(task.status || '') === 'awaiting_confirmation';
 
     // Bypass explícito (por ejemplo, cierre automático desde el ticket): se salta
     // el paso intermedio de espera y va derecho a 'completed'.
     const skipAwaiting = String((req as any)?.body?.skip_double_confirm || '') === 'true' || (req as any)?.body?.skip_double_confirm === true;
 
-    // La gerencia puede cerrar en un solo paso SOLO si NO es el propio responsable
-    // de la tarea: un responsable que además es gerente (admin/super_admin) NO
-    // puede auto-aprobar su trabajo — igual pasa por la confirmación del creador.
-    const managerOverride = mgr && !isAssignee;
-    const goingToAwaiting = needsDoubleConfirm && !alreadyAwaiting && !isCreator && !managerOverride && !skipAwaiting;
+    // REGLA: solo QUIEN ASIGNÓ la tarea (creador) puede marcarla como COMPLETADA.
+    // El responsable y los involucrados solo pueden mandarla a "esperando
+    // confirmación"; el creador la cierra en un segundo paso. Gerencia que NO sea
+    // el responsable puede confirmar como apoyo (override), pero un
+    // responsable/involucrado (aunque sea gerente) NUNCA auto-aprueba su trabajo.
+    const canFinalize = isCreator || (mgr && !isAssignee);
+    // Si hay un creador conocido y quien cierra no puede finalizar → a espera.
+    const goingToAwaiting = creatorId > 0 && !alreadyAwaiting && !canFinalize && !skipAwaiting;
 
     // Avisa (push 'task_completed') a los involucrados, al responsable y a QUIEN
     // ASIGNÓ la tarea (created_by), excepto a quien la cerró. Así el que la asignó
@@ -1177,6 +1183,11 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
       return res.json({ success: true, forced: false, awaiting_confirmation: true });
     }
 
+    // Confirmación (paso final): solo quien asignó la tarea (o gerencia no-responsable)
+    // puede cerrarla. Un responsable/involucrado no puede confirmar su propia tarea.
+    if (alreadyAwaiting && !canFinalize) {
+      return res.status(403).json({ error: 'Solo quien asignó la tarea puede confirmarla y marcarla como completada.' });
+    }
     await pool.query(`UPDATE tasks SET status='completed', completed_at=NOW(), ${colSet} updated_at=NOW() WHERE id=$1`, [id]);
     await logActivity(id, uid, alreadyAwaiting ? 'confirmed' : 'completed', alreadyAwaiting ? { from: 'awaiting_confirmation' } : {});
     await notifyCompleted();

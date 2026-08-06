@@ -212,13 +212,15 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   const [eis, setEis] = useState('estrella');
   const [dueOpt, setDueOpt] = useState<string>('none');
   const [involved, setInvolved] = useState<number[]>([]);
+  const [assignee, setAssignee] = useState<number>(0); // responsable principal
+  const [assigneeTouched, setAssigneeTouched] = useState(false); // el usuario eligió manualmente
   const [photos, setPhotos] = useState<Array<{ uri: string; name?: string; type?: string }>>([]);
   const [busy, setBusy] = useState(false);
   const H = { Authorization: `Bearer ${token}` };
 
   useEffect(() => {
     if (!visible) return;
-    setTitle(''); setDesc(''); setEis('estrella'); setDueOpt('none'); setInvolved([]); setPhotos([]); setCatSection(null);
+    setTitle(''); setDesc(''); setEis('estrella'); setDueOpt('none'); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setPhotos([]); setCatSection(null);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H })
       .then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H })
@@ -228,6 +230,13 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
         setCatId(null); setCatSection(null); // Sin categoría por defecto
       }).catch(() => {});
   }, [visible]);
+
+  // Responsable por default = primer involucrado seleccionado (después del creador);
+  // si no hay involucrados, el creador. Se respeta si el usuario lo elige a mano.
+  useEffect(() => {
+    if (assigneeTouched) return;
+    setAssignee(involved.length ? involved[0] : (myId || 0));
+  }, [involved, myId, assigneeTouched, visible]);
 
   const dueStamp = (): string | null => {
     if (dueOpt === 'none') return null;
@@ -260,11 +269,12 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
 
   const submit = async () => {
     if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
+    if (!advisorMode && !assignee) { Alert.alert('Falta responsable', 'Elige quién es el responsable de la tarea. Solo esa persona la puede marcar como completada.'); return; }
     setBusy(true);
     try {
       const r = await fetch(`${API_URL}/api/tasks/personal`, {
         method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, due_at: dueStamp(), board_id: catId, section_id: catSection }),
+        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, assignee_id: assignee || myId || null, due_at: dueStamp(), board_id: catId, section_id: catSection }),
       });
       if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo crear', e.error || ''); setBusy(false); return; }
       const d = await r.json();
@@ -350,6 +360,21 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
             <Text style={styles.fieldLbl}>Involucrados</Text>
             <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} />
             <Text style={styles.helpTxt}>Tú siempre quedas incluido. Agrega a quien deba participar.</Text>
+
+            <Text style={styles.fieldLbl}>Responsable <Text style={{ color: '#C0392B' }}>*</Text></Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {Array.from(new Set<number>([...(myId ? [myId] : []), ...involved])).map((cid) => {
+                const nombre = cid === myId ? 'Yo' : (users.find((u: any) => u.id === cid)?.full_name || `#${cid}`);
+                const on = assignee === cid;
+                return (
+                  <TouchableOpacity key={cid} onPress={() => { setAssignee(cid); setAssigneeTouched(true); }}
+                    style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, borderWidth: 1, borderColor: on ? ORANGE : '#D8D8DD', backgroundColor: on ? ORANGE : '#FFF' }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: on ? '#FFF' : '#333' }}>{nombre}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={styles.helpTxt}>El responsable ejecuta la tarea y la envía a confirmación. Solo tú (quien la asigna) puedes marcarla como completada.</Text>
             </>)}
 
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
