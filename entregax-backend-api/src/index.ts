@@ -2920,7 +2920,7 @@ app.get('/api/admin/dashboard', authenticateToken, requireMinLevel(ROLES.COUNTER
 app.get('/api/dashboard/summary', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDashboardSummary);
 
 // --- RUTA DE DASHBOARD GERENTE DE SUCURSAL ---
-app.get('/api/dashboard/branch-manager', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getBranchManagerDashboard);
+app.get('/api/dashboard/branch-manager', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getBranchManagerDashboard);
 app.get('/api/admin/dashboard/pending-charge-list', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getPendingChargeList);
 
 // --- RUTA DE DASHBOARD COUNTER STAFF (Mostrador) ---

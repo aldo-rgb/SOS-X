@@ -1251,6 +1251,19 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             [targetBranchId]
         );
 
+        // En tránsito a ESTA sucursal: paquetes en tránsito cuyo current_branch_id
+        // es el CEDIS del usuario (ej. China aéreo/marítimo ruteado a CDMX). A
+        // diferencia de en_transito_pobox (que es el cruce PO Box USA→MTY, un
+        // concepto solo de Monterrey), esta métrica sirve para cualquier sucursal.
+        const inTransitBranchResult = await pool.query(
+            `SELECT COALESCE(SUM(CASE WHEN COALESCE(p.total_boxes,0) > 0 THEN p.total_boxes ELSE 1 END),0)::int AS total
+               FROM packages p
+              WHERE (p.is_master = TRUE OR p.master_id IS NULL)
+                AND p.status::text IN ('in_transit','in_transit_mty')
+                AND $1::int IS NOT NULL AND p.current_branch_id = $1`,
+            [targetBranchId]
+        );
+
         // Retraso de cobro (alerta): paquetes recibidos en CEDIS MTY o CDMX,
         // sin pagar y con más de 30 días desde la fecha de ingreso. Ámbito por
         // sucursal del usuario (mismo criterio que la lista de detalle).
@@ -1476,6 +1489,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 en_transito: parseInt(waitingBoxesResult.rows[0]?.total || 0) || 0,
                 en_espera_cajas: parseInt(waitingBoxesResult.rows[0]?.total || 0) || 0,
                 en_transito_pobox: parseInt(waitingBoxesPoboxResult.rows[0]?.total || 0) || 0,
+                en_transito_branch: parseInt(inTransitBranchResult.rows[0]?.total || 0) || 0,
                 en_transito_transfer_cdmx: parseInt(waitingBoxesTransferResult.rows[0]?.total || 0) || 0,
                 tdx_por_recibir: parseInt(waitingTdxBoxesResult.rows[0]?.total || 0) || 0,
                 en_espera_maritimo: parseInt(waitingMaritimeBoxesResult.rows[0]?.total || 0) || 0,
@@ -1524,6 +1538,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 en_transito: 0,
                 en_espera_cajas: 0,
                 en_transito_pobox: 0,
+                en_transito_branch: 0,
                 en_transito_transfer_cdmx: 0,
                 tdx_por_recibir: 0,
                 en_espera_maritimo: 0,

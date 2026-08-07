@@ -1541,22 +1541,40 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               const suc = cedisStats?.sucursal || {};
               const branchCode = String(suc.codigo || '').toUpperCase();
               const branchName = String(suc.nombre || '').toUpperCase();
-              // Solo CEDIS Monterrey hace entrega local / recepción MTY. Sucursales
-              // como Hidalgo (recepción USA) NO ven esos widgets de MTY.
+              // CEDIS Monterrey: cruce PO Box USA→MTY + TDX (recepción MTY).
               const isMty = branchCode === 'MTY' || branchName.includes('MONTERREY') || branchName.includes('MTY');
+              // Sucursales de REPARTO (entrega local): MTY y CDMX. Ven los widgets de
+              // ruta (entregas, asignados, salidas) filtrados por su propia sucursal
+              // vía /api/driver/route-today. Otras (ej. Hidalgo, solo recepción USA) no.
+              const isCdmx = branchCode === 'CDMX' || branchName.includes('CDMX') || branchName.includes('CIUDAD DE M');
+              const isDeliveryBranch = isMty || isCdmx;
               const branchLabel = isMty
                 ? 'CEDIS MTY'
+                : isCdmx ? 'CEDIS CDMX'
                 : (branchName.includes('HIDALGO') || branchCode === 'HGO' ? 'CEDIS Hidalgo' : (suc.nombre || 'CEDIS'));
+              const codeShort = branchCode || (isMty ? 'MTY' : isCdmx ? 'CDMX' : 'sucursal');
               const nav = (screen: string, params?: any) => navigation.navigate(screen as any, { user, token, ...(params || {}) });
+              // El widget de tránsito: en MTY es el cruce PO Box (en_transito_pobox);
+              // en otras sucursales, los paquetes en tránsito ruteados a ese CEDIS
+              // (en_transito_branch, p. ej. China aéreo/marítimo → CDMX).
+              const transitValue = isMty ? Number(p.en_transito_pobox ?? 0) : Number(p.en_transito_branch ?? 0);
+              const transitSub = isMty ? 'PO Box · cruce USA→MTY' : `en ruta a CEDIS ${codeShort}`;
+              const transitPress = isMty ? () => nav('POBoxConsolidationReception') : () => nav('ChinaAirReception');
               const widgets = [
-                { key: 'entregas', mtyOnly: true, label: 'Entregas Hoy', sub: 'completadas', icon: 'checkmark-done-circle', color: '#2E7D32', value: Number(d.deliveredToday ?? p.entregados_hoy ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'assigned' }) },
-                { key: 'transito', mtyOnly: false, label: 'En Tránsito a MTY', sub: 'PO Box · cruce USA→MTY', icon: 'car', color: '#1976D2', value: Number(p.en_transito_pobox ?? 0), onPress: () => nav('POBoxConsolidationReception') },
-                { key: 'tdx', mtyOnly: true, label: 'TDX por Recibir', sub: 'cajas → CEDIS MTY', icon: 'airplane', color: '#F05A28', value: Number(p.tdx_por_recibir ?? 0), onPress: () => nav('TdiCedisMtyReception') },
-                { key: 'asignados', mtyOnly: true, label: 'Asignados Hoy', sub: 'ruta sucursal MTY', icon: 'file-tray-full', color: '#F05A28', value: Number(d.totalAssigned ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'assigned' }) },
-                { key: 'salidas_paq', mtyOnly: true, label: 'Salidas Paqueterías', sub: 'handoff a courier', icon: 'send', color: '#7B1FA2', value: Number(d.paqueteriaCount ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'paqueteria' }) },
-                { key: 'salidas_loc', mtyOnly: true, label: 'Salidas Locales', sub: 'carga a unidad', icon: 'cube', color: '#0097A7', value: Number(d.pendingToLoad ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'local' }) },
-                { key: 'tickets', mtyOnly: false, label: 'Tickets Abiertos', sub: `soporte ${branchLabel}`, icon: 'headset', color: '#3F51B5', value: Number(cedisStats?.tickets_abiertos ?? 0), onPress: () => nav('SupportTickets') },
-              ].filter((w) => isMty || !w.mtyOnly);
+                { key: 'entregas', deliveryOnly: true, label: 'Entregas Hoy', sub: 'completadas', icon: 'checkmark-done-circle', color: '#2E7D32', value: Number(d.deliveredToday ?? p.entregados_hoy ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'assigned' }) },
+                { key: 'transito', deliveryOnly: false, label: `En Tránsito a ${codeShort}`, sub: transitSub, icon: 'car', color: '#1976D2', value: transitValue, onPress: transitPress },
+                { key: 'tdx', deliveryOnly: true, mtyOnly: true, label: 'TDX por Recibir', sub: 'cajas → CEDIS MTY', icon: 'airplane', color: '#F05A28', value: Number(p.tdx_por_recibir ?? 0), onPress: () => nav('TdiCedisMtyReception') },
+                { key: 'asignados', deliveryOnly: true, label: 'Asignados Hoy', sub: `ruta sucursal ${codeShort}`, icon: 'file-tray-full', color: '#F05A28', value: Number(d.totalAssigned ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'assigned' }) },
+                { key: 'salidas_paq', deliveryOnly: true, label: 'Salidas Paqueterías', sub: 'handoff a courier', icon: 'send', color: '#7B1FA2', value: Number(d.paqueteriaCount ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'paqueteria' }) },
+                { key: 'salidas_loc', deliveryOnly: true, label: 'Salidas Locales', sub: 'carga a unidad', icon: 'cube', color: '#0097A7', value: Number(d.pendingToLoad ?? 0), onPress: () => nav('DriverHome', { autoOpen: 'local' }) },
+                { key: 'tickets', deliveryOnly: false, label: 'Tickets Abiertos', sub: `soporte ${branchLabel}`, icon: 'headset', color: '#3F51B5', value: Number(cedisStats?.tickets_abiertos ?? 0), onPress: () => nav('SupportTickets') },
+              ].filter((w) => {
+                // TDX es exclusivo de MTY; los demás widgets de reparto se muestran en
+                // cualquier sucursal de reparto (MTY/CDMX). Los no-deliveryOnly siempre.
+                if ((w as any).mtyOnly) return isMty;
+                if (w.deliveryOnly) return isDeliveryBranch;
+                return true;
+              });
               return (
                 <View style={styles.modulesSection}>
                   <Text style={styles.sectionTitle}>🏢 Panel de Operación</Text>
