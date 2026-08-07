@@ -13,6 +13,7 @@ import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EditIcon from '@mui/icons-material/Edit';
 import AssignmentIcon from '@mui/icons-material/AssignmentTurnedIn';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -32,6 +33,7 @@ export default function MetasTab() {
   const [decls, setDecls] = useState<Declaration[]>([]);
   const [measured, setMeasured] = useState<Record<string, number>>({});
   const [pendingTasks, setPendingTasks] = useState<Record<number, number>>({});
+  const [avgResponseSecs, setAvgResponseSecs] = useState<Record<number, number>>({});
   const [periodLabels, setPeriodLabels] = useState<Record<number, string>>({});
   const [goalId, setGoalId] = useState<number | null>(null);
   const [view, setView] = useState<'detalle' | 'compacto'>('detalle');
@@ -55,6 +57,7 @@ export default function MetasTab() {
       setDecls(r.data?.declarations || []);
       setMeasured(r.data?.measured || {});
       setPendingTasks(r.data?.pendingTasks || {});
+      setAvgResponseSecs(r.data?.avgResponseSecs || {});
       setPeriodLabels(r.data?.periodLabels || {});
       setGoalId(prev => prev ?? (r.data?.goals?.[0]?.id ?? null));
     } catch { notify('No se pudieron cargar las metas', 'error'); }
@@ -72,6 +75,18 @@ export default function MetasTab() {
   };
   const targetOf = (advId: number): number => Number(declOf(advId)?.declared_target || 0);
   const pendingOf = (advId: number): number => pendingTasks[advId] || 0;
+  const avgRespOf = (advId: number): number | null => {
+    const s = avgResponseSecs[advId];
+    return s != null && s > 0 ? s : null;
+  };
+  const fmtDur = (secs: number): string => {
+    const m = Math.round(secs / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 24) { const r = m % 60; return r ? `${h}h ${r}m` : `${h}h`; }
+    const d = Math.floor(h / 24); const rh = h % 24;
+    return rh ? `${d}d ${rh}h` : `${d}d`;
+  };
   const hasDecl = (advId: number): boolean => {
     const d = declOf(advId);
     return !!(d && (Number(d.declared_target) > 0 || (d.declaration_text && d.declaration_text.trim())));
@@ -186,6 +201,13 @@ export default function MetasTab() {
                 </Box>
               </Tooltip>
             )}
+            {avgRespOf(a.id) != null && (
+              <Tooltip title="Tiempo prom. de respuesta (creada→completada, 90 días)">
+                <Box component="span" sx={{ ml: pendingOf(a.id) > 0 ? 0.5 : 'auto', flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', gap: 0.25, px: 0.6, py: 0.1, borderRadius: 1, bgcolor: '#EEF2FF', color: '#3538CD', fontSize: 10.5, fontWeight: 700 }}>
+                  <AccessTimeIcon sx={{ fontSize: 12 }} />{fmtDur(avgRespOf(a.id)!)}
+                </Box>
+              </Tooltip>
+            )}
           </Box>
           <LinearProgress variant="determinate" value={pct} sx={{ height: 5, borderRadius: 3, mt: 0.25, bgcolor: '#F0E9DF',
             '& .MuiLinearProgress-bar': { bgcolor: done ? '#2E7D46' : '#D6521C', borderRadius: 3 } }} />
@@ -241,6 +263,18 @@ export default function MetasTab() {
                 <Typography fontWeight={800} fontSize={15}>{pendingOf(a.id)}</Typography>
               </Box>
               <Typography variant="caption" color="text.secondary" fontSize={10}>pendientes</Typography>
+            </Box>
+          </Tooltip>
+        </Box>
+        <Box sx={{ textAlign: 'center', minWidth: 74 }}>
+          <Tooltip title="Tiempo promedio de respuesta: de creada a completada (últimos 90 días)">
+            <Box sx={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
+              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 0.9, py: 0.2, borderRadius: 1.5,
+                bgcolor: avgRespOf(a.id) != null ? '#EEF2FF' : '#F1F1F1', color: avgRespOf(a.id) != null ? '#3538CD' : '#9AA0A6' }}>
+                <AccessTimeIcon sx={{ fontSize: 15 }} />
+                <Typography fontWeight={800} fontSize={13.5}>{avgRespOf(a.id) != null ? fmtDur(avgRespOf(a.id)!) : '—'}</Typography>
+              </Box>
+              <Typography variant="caption" color="text.secondary" fontSize={10}>resp. prom.</Typography>
             </Box>
           </Tooltip>
         </Box>

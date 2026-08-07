@@ -125,7 +125,25 @@ export const getMetas = async (req: AuthRequest, res: Response): Promise<any> =>
       for (const r of ptRows) pendingTasks[Number(r.adv)] = Number(r.n);
     } catch (e: any) { console.warn('[metas] pendingTasks:', e?.message); }
 
-    res.json({ goals, advisors, declarations, measured, periodLabels, pendingTasks });
+    // Tiempo PROMEDIO de respuesta por asesor: promedio (en segundos) desde que se
+    // crea la tarea hasta que el asesor (responsable) la completa. Solo tareas
+    // completadas en los últimos 90 días para que sea representativo del ritmo actual.
+    const avgResponseSecs: Record<number, number> = {};
+    try {
+      const arRows = (await pool.query(
+        `SELECT assignee_id AS adv,
+                AVG(EXTRACT(EPOCH FROM (completed_at - created_at)))::float AS secs
+           FROM tasks
+          WHERE assignee_id IS NOT NULL
+            AND status = 'completed'
+            AND completed_at IS NOT NULL
+            AND completed_at >= created_at
+            AND completed_at >= NOW() - INTERVAL '90 days'
+          GROUP BY assignee_id`)).rows;
+      for (const r of arRows) if (r.secs != null) avgResponseSecs[Number(r.adv)] = Math.round(Number(r.secs));
+    } catch (e: any) { console.warn('[metas] avgResponseSecs:', e?.message); }
+
+    res.json({ goals, advisors, declarations, measured, periodLabels, pendingTasks, avgResponseSecs });
   } catch (e: any) {
     console.error('[metas] getMetas:', e); res.status(500).json({ error: 'Error al cargar metas' });
   }
