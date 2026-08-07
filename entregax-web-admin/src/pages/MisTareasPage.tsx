@@ -47,7 +47,29 @@ const schedLabel = (s: any): string => s.recurrence === 'monthly_weekday' && s.r
   : (RECUR_LABEL[s.recurrence] || 'Una vez');
 
 // Adjuntos: fotos + documentos (PDF, Excel, Word, CSV, texto).
-const ACCEPT_FILES = 'image/*,.pdf,.xls,.xlsx,.csv,.doc,.docx,.txt,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const ACCEPT_FILES = [
+  // Imágenes
+  'image/*',
+  // PDF
+  '.pdf', 'application/pdf',
+  // Word
+  '.doc', '.docx',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  // Excel
+  '.xls', '.xlsx', '.csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
+  // PowerPoint
+  '.ppt', '.pptx',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  // Texto plano / RTF
+  '.txt', '.rtf',
+  'text/plain',
+  'application/rtf',
+].join(',');
 const isImg = (name?: string): boolean => /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(String(name || ''));
 const fileIcon = (name?: string): string => {
   const n = String(name || '').toLowerCase();
@@ -819,7 +841,7 @@ export default function MisTareasPage() {
           {/* Archivos adjuntos (fotos, PDF, Excel…) */}
           <Box sx={{ mt: 2 }}>
             <Button component="label" size="small" startIcon={<AttachFileIcon />} sx={{ textTransform: 'none' }}>
-              Agregar archivos (fotos, PDF, Excel)
+              Agregar archivos (fotos, PDF, Word, Excel, PowerPoint)
               <input hidden type="file" accept={ACCEPT_FILES} multiple
                 onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) setNewPhotos(prev => [...prev, ...fs]); (e.target as HTMLInputElement).value = ''; }} />
             </Button>

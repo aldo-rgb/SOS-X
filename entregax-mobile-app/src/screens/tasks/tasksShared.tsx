@@ -264,7 +264,22 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   };
   const pickDoc = async () => {
     try {
-      const res = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], copyToCacheDirectory: true, multiple: true });
+      const res = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-powerpoint',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          'text/csv',
+          'text/plain',
+          'application/rtf',
+        ],
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
       if (res.canceled) return;
       const assets = res.assets || [];
       setPhotos(prev => [...prev, ...assets.map(a => ({ uri: a.uri, name: a.name || 'archivo', type: a.mimeType || 'application/octet-stream' }))]);
@@ -939,7 +954,22 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   };
   const addDoc = async () => {
     try {
-      const res = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], copyToCacheDirectory: true, multiple: true });
+      const res = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-powerpoint',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          'text/csv',
+          'text/plain',
+          'application/rtf',
+        ],
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
       if (res.canceled) return;
       setBusy(true);
       for (const a of (res.assets || [])) {
