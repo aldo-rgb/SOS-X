@@ -1685,8 +1685,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             {/* Módulos Disponibles */}
             <View style={styles.modulesSection}>
               <Text style={styles.sectionTitle}>📱 Mis Módulos</Text>
-              {/* Calendario — visible para todos MENOS repartidores */}
-              {user?.role !== 'repartidor' && (
+              {/* Calendario — oculto para operaciones (bodega/marítimas), mostrador y repartidores */}
+              {!['repartidor', 'warehouse_ops', 'counter_staff', 'operaciones'].includes(String(user?.role || '')) && (
               <TouchableOpacity style={styles.moduleCard} activeOpacity={0.85}
                 onPress={() => navigation.navigate('Calendar', { user, token })}>
                 <View style={[styles.moduleIcon, { backgroundColor: '#F05A28' }]}>
