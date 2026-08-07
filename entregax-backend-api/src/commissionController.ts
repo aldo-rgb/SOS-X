@@ -1031,6 +1031,78 @@ export const getCommissionSimulatorData = async (req: Request, res: Response): P
                     months: b.months.size,
                 };
             }
+
+            // ─── VOLUMEN FÍSICO (kg / CBM) por asesor y servicio ───────────
+            // Se calcula desde advisor_commissions + packages/maritime_orders
+            // en los ÚLTIMOS 12 MESES cerrados. Se agrega a hist_accel como
+            // aereo_kg, tdi_kg, mar_cbm + *_months para que el simulador HTML
+            // pinte las metas en kg/m³ en vez de $.
+            try {
+                const volSql = `
+                  WITH src AS (
+                    SELECT ac.advisor_id, ac.service_type, ac.created_at,
+                      CASE
+                        WHEN ac.service_type IN ('aereo_china_mx','tdi_express') AND ac.shipment_type = 'PKG' THEN
+                          COALESCE(
+                            (SELECT NULLIF(p.air_chargeable_weight, 0) FROM packages p WHERE p.id = ac.shipment_id),
+                            (SELECT NULLIF(p.weight, 0) FROM packages p WHERE p.id = ac.shipment_id),
+                            0)::numeric
+                        ELSE 0::numeric END AS kg,
+                      CASE
+                        WHEN ac.service_type = 'maritimo_china_mx' AND ac.shipment_type = 'MAR' THEN
+                          COALESCE((SELECT NULLIF(mo.summary_volume, 0) FROM maritime_orders mo WHERE mo.id = ac.shipment_id), 0)::numeric
+                        ELSE 0::numeric END AS cbm
+                    FROM advisor_commissions ac
+                    WHERE COALESCE(ac.penalized, false) = false
+                      AND ac.service_type IN ('aereo_china_mx','tdi_express','maritimo_china_mx')
+                      AND ac.created_at >= date_trunc('month', now()) - interval '12 months'
+                      AND ac.created_at < date_trunc('month', now())
+                  )
+                  SELECT advisor_id, service_type,
+                    SUM(kg)::numeric AS kg_total,
+                    SUM(cbm)::numeric AS cbm_total,
+                    COUNT(DISTINCT date_trunc('month', created_at))::int AS months_n
+                  FROM src
+                  GROUP BY advisor_id, service_type`;
+                const volRes = await pool.query(volSql);
+                // Map por advisor_id → { aereo_kg, tdi_kg, mar_cbm, *_months }
+                const volByAdv: Record<number, any> = {};
+                for (const r of volRes.rows) {
+                    const aid = Number(r.advisor_id);
+                    volByAdv[aid] ||= {};
+                    const st = String(r.service_type);
+                    const months = Number(r.months_n) || 0;
+                    if (st === 'aereo_china_mx') {
+                        volByAdv[aid].aereo_kg = months > 0 ? Math.round((Number(r.kg_total) / months) * 100) / 100 : 0;
+                        volByAdv[aid].aereo_months = months;
+                    } else if (st === 'tdi_express') {
+                        volByAdv[aid].tdi_kg = months > 0 ? Math.round((Number(r.kg_total) / months) * 100) / 100 : 0;
+                        volByAdv[aid].tdi_months = months;
+                    } else if (st === 'maritimo_china_mx') {
+                        volByAdv[aid].mar_cbm = months > 0 ? Math.round((Number(r.cbm_total) / months) * 1000) / 1000 : 0;
+                        volByAdv[aid].mar_months = months;
+                    }
+                }
+                for (const a of advisors as any[]) {
+                    const v = volByAdv[Number(a.id)];
+                    if (v && a.hist_accel) {
+                        a.hist_accel.aereo_kg = v.aereo_kg || 0;
+                        a.hist_accel.tdi_kg = v.tdi_kg || 0;
+                        a.hist_accel.mar_cbm = v.mar_cbm || 0;
+                        a.hist_accel.aereo_months = v.aereo_months || 0;
+                        a.hist_accel.tdi_months = v.tdi_months || 0;
+                        a.hist_accel.mar_months = v.mar_months || 0;
+                    } else if (v && !a.hist_accel) {
+                        // Sin Excel de histórico pero SÍ hay comisiones registradas;
+                        // creamos hist_accel solo con volumen.
+                        a.hist_accel = {
+                            avg: 0, aereo: 0, tdi: 0, mar: 0, months: 0,
+                            aereo_kg: v.aereo_kg || 0, tdi_kg: v.tdi_kg || 0, mar_cbm: v.mar_cbm || 0,
+                            aereo_months: v.aereo_months || 0, tdi_months: v.tdi_months || 0, mar_months: v.mar_months || 0,
+                        };
+                    }
+                }
+            } catch (e) { console.warn('[simulator] volumen kg/cbm:', (e as Error).message); }
         } catch (e) { console.warn('[simulator] hist_accel:', (e as Error).message); }
 
         res.json({ asOf: new Date().toISOString(), count: advisors.length, advisors });

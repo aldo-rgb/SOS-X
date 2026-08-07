@@ -193,9 +193,9 @@
         <div class="param"><label>Multiplicador excedente</label><input type="number" id="pMult" value="1.5" step="0.1" min="1"></div>
 
         <div class="grouplab">Escalones de volumen (PO Box + DHL)</div>
-        <div class="param"><label><input type="number" class="sm" id="vg1" value="80" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb1" value="500" step="50" min="0"></span></div>
-        <div class="param"><label><input type="number" class="sm" id="vg2" value="150" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb2" value="1200" step="50" min="0"></span></div>
-        <div class="param"><label><input type="number" class="sm" id="vg3" value="250" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb3" value="2500" step="50" min="0"></span></div>
+        <div class="param"><label><input type="number" class="sm" id="vg1" value="50" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb1" value="500" step="50" min="0"></span></div>
+        <div class="param"><label><input type="number" class="sm" id="vg2" value="75" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb2" value="1200" step="50" min="0"></span></div>
+        <div class="param"><label><input type="number" class="sm" id="vg3" value="100" min="0"> guías →</label><span class="two"><span class="cur">$</span><input type="number" id="vb3" value="2500" step="50" min="0"></span></div>
 
         <div class="grouplab">Attach GEX (mensual)</div>
         <div class="param"><label>≥ <input type="number" class="sm" id="gexT1" value="30" min="0" max="100">% →</label><span class="two"><span class="cur">$</span><input type="number" id="gexB1" value="500" step="50" min="0"></span></div>
@@ -278,7 +278,7 @@
           <p><b>0–120% de la meta</b> → comisión normal (su % base). <b>El excedente por encima del 120%</b> → esa porción se paga a <b>1.5×</b> (un 50% extra). Así el vendedor no se "relaja" al llegar al 100%: pasar del 120% vale más.</p>
           <p><b>Ejemplo:</b> meta $100,000. Vende $150,000 → los primeros $120,000 pagan comisión normal; los $30,000 que pasan del 120% pagan al 1.5×.</p>
           <p><b>En este simulador</b> (aún sin la tabla real de metas) la meta se estima como un <b>% de las propias ventas aéreas</b> del asesor — el control <i>"Meta = % de sus ventas"</i>. Ej: al 75%, la meta = 75% de lo que vendió, así siempre queda por arriba y se ve el acelerador. <b>En producción</b> la meta sería un <b>objetivo fijo en MXN por asesor/mes</b> (tabla <code>advisor_sales_targets</code>), no un % de sus propias ventas.</p></div>
-        <div class="item"><h4>Escalones de volumen — PO Box + DHL <span class="tag have">guías: dato existe</span></h4><p>Como el 10% ya es alto, el premio va por # de guías/mes: 80→$500 · 150→$1,200 · 250→$2,500.</p></div>
+        <div class="item"><h4>Escalones de volumen — PO Box + DHL <span class="tag have">guías: dato existe</span></h4><p>Como el 10% ya es alto, el premio va por # de guías/mes: 50→$500 · 75→$1,200 · 100→$2,500.</p></div>
         <div class="item"><h4>Venta cruzada — la zanahoria <span class="tag have">X-Pay/GEX: dato existe</span></h4><p><b>Bono combo:</b> envío + Seguro + X-Pay en la misma venta → <b>+$500</b> inmediato. <b>Attach GEX mensual:</b> ≥30% guías con seguro → $500 · ≥50% → $1,000.</p></div>
         <div class="item"><h4>Bonos globales <span class="tag have">dato existe</span></h4><p>Venta Limpia (trimestral, clientes <b>sin tickets de soporte</b>) + Premio de Lealtad (retención, no financiero: Kit de Bienvenida "Gold").</p></div>
       </div>
@@ -548,29 +548,38 @@
     const cards = [];
 
     // 1) ACELERADOR 1.5× — META SEPARADA POR SERVICIO (cada uno su promedio histórico)
+    //    Los servicios Aéreo/TDI se miden en KILOS y Marítimo en CBM (m³).
+    //    Si el backend manda aéreo_kg/tdi_kg/mar_cbm los usamos; si no,
+    //    se cae a aéreo/tdi/mar (montos $) como fallback compatible.
     {
       const h = a.hist_accel;
+      const fmtUnit = (v, unit) => `${(Math.round((v || 0) * 100) / 100).toLocaleString('es-MX')} ${unit}`;
       const svcs = [
-        { key:'aereo', icon:'✈️', name:'Aéreo' },
-        { key:'tdi',   icon:'🚀', name:'TDI Express' },
-        { key:'mar',   icon:'🚢', name:'Marítimo' },
+        { key:'aereo', volKey:'aereo_kg', unit:'kg', icon:'✈️', name:'Aéreo' },
+        { key:'tdi',   volKey:'tdi_kg',   unit:'kg', icon:'🚀', name:'TDI Express' },
+        { key:'mar',   volKey:'mar_cbm',  unit:'m³', icon:'🚢', name:'Marítimo' },
       ];
       if (h) {
         for (const s of svcs) {
-          const avg = h[s.key] || 0;
+          const useVol = h[s.volKey] > 0;
+          const avg = useVol ? h[s.volKey] : (h[s.key] || 0);
+          const format = (v) => useVol ? fmtUnit(v, s.unit) : fmt0(v);
           const lines = [];
           if (avg > 0) {
-            const target = Math.round(p.thr * avg);
-            lines.push(`Tu <b>promedio mensual histórico</b> en ${s.name}: <b>${fmt0(avg)}</b> <span style="color:#8a7f72">· ${h.months} meses</span>`);
-            lines.push(`👉 <b>Este mes</b>, para el <b>acelerador 1.5× en ${s.name}</b>, vende <b>más de ${fmt0(target)}</b> (${(p.thr*100).toFixed(0)}% de tu promedio).`);
-            cards.push(planTask({icon:s.icon, title:`Acelerador 1.5× · ${s.name}`, done:false, lines, bonus:"1.5× excedente", tip:`Meta propia de ${s.name} (su comisión es distinta). Sale de tu promedio histórico.`}));
+            const target = useVol
+              ? Math.round(p.thr * avg * 100) / 100
+              : Math.round(p.thr * avg);
+            const monthsN = useVol ? (h[`${s.key}_months`] || h.months) : h.months;
+            lines.push(`Tu <b>promedio mensual histórico</b> en ${s.name}: <b>${format(avg)}</b> <span style="color:#8a7f72">· ${monthsN} meses</span>`);
+            lines.push(`👉 <b>Este mes</b>, para el <b>acelerador 1.5× en ${s.name}</b>, coloca <b>más de ${format(target)}</b> (${(p.thr*100).toFixed(0)}% de tu promedio).`);
+            cards.push(planTask({icon:s.icon, title:`Acelerador 1.5× · ${s.name}`, done:false, lines, bonus:"1.5× excedente", tip:`Meta propia de ${s.name} (su comisión es distinta). Sale de tu promedio histórico en ${s.unit}.`}));
           } else {
             cards.push(planTask({icon:s.icon, title:`Acelerador 1.5× · ${s.name}`, na:true, done:false, lines:[`Sin historial de ${s.name} para calcular su meta.`]}));
           }
         }
       } else {
         cards.push(planTask({icon:"🚀", title:"Acelerador 1.5× (meta por definir)", na:true, done:false,
-          lines:[`No hay histórico de ventas (Excel) para calcular sus metas.`, `👉 Sube el archivo en <b>Historial de ventas → Histórico</b> (Aéreo/TDI/Marítimo).`]}));
+          lines:[`No hay histórico de ventas para calcular sus metas.`, `👉 Sube el archivo en <b>Historial de ventas → Histórico</b> (Aéreo/TDI/Marítimo).`]}));
       }
     }
 
