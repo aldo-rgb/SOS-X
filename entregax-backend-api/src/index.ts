@@ -227,6 +227,7 @@ import {
 import {
   getMetas as metasGet,
   getAltasPorAsesor as metasAltasPorAsesor,
+  getBonosStaff as metasBonosStaff,
   createGoal as metasCreateGoal,
   updateGoal as metasUpdateGoal,
   deleteGoal as metasDeleteGoal,
@@ -5808,6 +5809,7 @@ app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.ADMIN), 
 // ─── Metas de asesores ───
 app.get('/api/admin/metas', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasGet);
 app.get('/api/admin/altas-por-asesor', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasAltasPorAsesor);
+app.get('/api/admin/bonos/staff', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasBonosStaff);
 app.post('/api/admin/metas/goals', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasCreateGoal);
 app.put('/api/admin/metas/goals/:id', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasUpdateGoal);
 app.delete('/api/admin/metas/goals/:id', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasDeleteGoal);

@@ -174,6 +174,26 @@ export const getAltasPorAsesor = async (req: AuthRequest, res: Response): Promis
   }
 };
 
+// GET /api/admin/bonos/staff — personal de OFICINA para la sección de Bonos.
+// Incluye todos los roles MENOS: clientes, asesores, sub-asesores y abogado.
+// Agrupado por sucursal en el frontend.
+export const getBonosStaff = async (_req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const rows = (await pool.query(
+      `SELECT u.id, u.full_name, u.email, u.role, u.profile_photo_url,
+              u.branch_id, b.code AS branch_code, b.name AS branch_name
+         FROM users u
+         LEFT JOIN branches b ON b.id = u.branch_id
+        WHERE u.role NOT IN ('client','advisor','sub_advisor','asesor','sub_asesor','asesor_lider','abogado')
+          AND COALESCE(u.is_active, TRUE) = TRUE
+          AND COALESCE(u.is_blocked, FALSE) = FALSE
+        ORDER BY b.name NULLS LAST, u.full_name`)).rows;
+    res.json({ staff: rows });
+  } catch (e: any) {
+    console.error('[bonos] getBonosStaff:', e); res.status(500).json({ error: 'Error al obtener personal' });
+  }
+};
+
 // POST /api/admin/metas/goals — crear meta.
 export const createGoal = async (req: AuthRequest, res: Response): Promise<any> => {
   try {

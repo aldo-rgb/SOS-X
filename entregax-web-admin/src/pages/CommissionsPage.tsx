@@ -15,6 +15,7 @@ import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import PeopleIcon from '@mui/icons-material/People';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import FlightIcon from '@mui/icons-material/Flight';
 import DirectionsBoatIcon from '@mui/icons-material/DirectionsBoat';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
@@ -31,6 +32,7 @@ import AdvisorCommissionsLedgerPage from './AdvisorCommissionsLedgerPage';
 import CommissionsBoardTab from './CommissionsBoardTab';
 import CommissionSimulatorTab from './CommissionSimulatorTab';
 import MetasTab from './MetasTab';
+import BonosTab from './BonosTab';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
@@ -237,7 +239,7 @@ export default function CommissionsPage() {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
           <Typography variant="h4" fontWeight="bold" sx={{ color: BLACK }}>
-            💼 {i18n.language === 'es' ? 'Comisiones y Referidos' : 'Commissions & Referrals'}
+            💼 {i18n.language === 'es' ? 'Comisiones y Bonos' : 'Commissions & Bonuses'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             {i18n.language === 'es' 
@@ -270,6 +272,7 @@ export default function CommissionsPage() {
           {/* Pestaña "Tarifas" ocultada a pedido; el contenido (tabValue===2) queda inaccesible. */}
           {canSeeAsesores && <Tab value={3} icon={<AccountTreeIcon />} label={i18n.language === 'es' ? 'Asesores' : 'Hierarchy'} />}
           {canSeeAsesores && <Tab value={5} icon={<EmojiEventsIcon />} label={i18n.language === 'es' ? 'Metas' : 'Goals'} />}
+          {canSeeAsesores && <Tab value={6} icon={<CardGiftcardIcon />} label={i18n.language === 'es' ? 'Bonos' : 'Bonuses'} />}
           <Tab value={4} icon={<ScienceIcon />} label={i18n.language === 'es' ? 'Simulador' : 'Simulator'} />
         </Tabs>
       </Paper>
@@ -277,6 +280,11 @@ export default function CommissionsPage() {
       {/* Tab Metas de asesores */}
       {tabValue === 5 && (
         <MetasTab />
+      )}
+
+      {/* Tab Bonos — personal de oficina por sucursal */}
+      {tabValue === 6 && (
+        <BonosTab />
       )}
 
       {/* Tab Simulador (propuesta del nuevo esquema, informativo) */}
