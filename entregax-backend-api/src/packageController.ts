@@ -2277,10 +2277,37 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             } catch { /* opcional */ }
         }
 
+        // 🏷️ Procedencia de la guía nacional (etiquetado): generada o subida,
+        // cuándo y por quién. Si el actor es el cliente dueño (rol 'client') se
+        // muestra "Cliente"; si es staff/asesor, su nombre.
+        let nationalLabelInfo: any = null;
+        if (pkg.national_label_source || pkg.national_label_at || pkg.national_label_actor_id) {
+            let actorName: string | null = null;
+            let actorKind: 'cliente' | 'asesor' = 'cliente';
+            if (pkg.national_label_actor_id) {
+                try {
+                    const ar = await pool.query(`SELECT full_name, role FROM users WHERE id = $1`, [pkg.national_label_actor_id]);
+                    const a = ar.rows[0];
+                    const esCliente = !a || String(a.role || '').toLowerCase() === 'client' || Number(pkg.national_label_actor_id) === Number(pkg.user_id);
+                    actorKind = esCliente ? 'cliente' : 'asesor';
+                    actorName = esCliente ? 'Cliente' : (a?.full_name || 'Asesor');
+                } catch { actorName = 'Cliente'; }
+            } else {
+                actorName = 'Cliente';
+            }
+            nationalLabelInfo = {
+                source: pkg.national_label_source || null, // 'generated' | 'uploaded'
+                at: pkg.national_label_at || null,
+                actorKind,
+                actorName,
+            };
+        }
+
         res.json({
             success: true,
             shipment: {
                 master: { id: pkg.id, tracking: (pkg.child_no && /^AIR/i.test(String(pkg.child_no))) ? pkg.child_no : pkg.tracking_internal, trackingProvider: pkg.tracking_provider || aggregatedOriginGuides,
+                    nationalLabelInfo,
                     serviceType: pkg.service_type || null,
                     airTracking: airFno,
                     originCarrier: pkg.origin_carrier || null,
@@ -5815,10 +5842,17 @@ export const uploadNationalGuide = async (req: Request, res: Response): Promise<
         // al hacer fetch desde el módulo de etiquetado, igual que paquete-express).
         const labelPath = `/api/packages/${masterId}/national-guide.pdf`;
 
-        // Guardar en el master + todas las hijas (disponible desde cualquiera)
+        // Guardar en el master + todas las hijas (disponible desde cualquiera).
+        // Registrar procedencia: SUBIDA (uploaded) + quién y cuándo.
+        const actorId = (req as any).user?.userId || (req as any).user?.id || null;
         await pool.query(
-            `UPDATE packages SET national_label_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 OR master_id = $2`,
-            [labelPath, masterId]
+            `UPDATE packages SET national_label_url = $1,
+                    national_label_source = 'uploaded',
+                    national_label_actor_id = $3,
+                    national_label_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2 OR master_id = $2`,
+            [labelPath, masterId, actorId]
         );
 
         return res.json({ success: true, url: labelPath, pages: -1 });

@@ -1794,16 +1794,22 @@ export async function generateOnePqtxGuide(params: {
   const addData = respBody.additionalData || null;
   const labelUrl = `/api/admin/paquete-express/label/pdf/${guiaNo}`;
 
-  // Persistir master (en packages o dhl_shipments según el tipo de envío)
+  // Persistir master (en packages o dhl_shipments según el tipo de envío).
+  // Procedencia GENERADA + quién/cuándo (solo packages tiene esas columnas).
+  const isPkg = persistTable === 'packages';
+  const provSet = isPkg
+    ? `national_label_source = 'generated', national_label_actor_id = $4, national_label_at = NOW(),`
+    : '';
   try {
     await pool.query(
       `UPDATE ${persistTable}
           SET national_tracking = $1,
               national_label_url = $2,
               national_carrier = COALESCE(national_carrier, 'Paquete Express'),
+              ${provSet}
               updated_at = NOW()
         WHERE id = $3`,
-      [guiaNo, labelUrl, params.pkgId]
+      isPkg ? [guiaNo, labelUrl, params.pkgId, params.createdBy || null] : [guiaNo, labelUrl, params.pkgId]
     );
   } catch (e: any) {
     console.error(`No se pudo actualizar ${persistTable}.national_tracking (master):`, e.message);
@@ -1817,9 +1823,10 @@ export async function generateOnePqtxGuide(params: {
             SET national_tracking = $1,
                 national_label_url = $2,
                 national_carrier = COALESCE(national_carrier, 'Paquete Express'),
+                ${provSet}
                 updated_at = NOW()
           WHERE id = ANY($3::int[])`,
-        [guiaNo, labelUrl, params.childIds]
+        isPkg ? [guiaNo, labelUrl, params.childIds, params.createdBy || null] : [guiaNo, labelUrl, params.childIds]
       );
     } catch (e: any) {
       console.error('No se pudo actualizar children.national_tracking:', e.message);

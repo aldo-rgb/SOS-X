@@ -77,6 +77,13 @@ interface ShipmentData {
         nationalCarrier?: string | null;
         nationalTracking?: string | null;
         nationalLabelUrl?: string | null;
+        // Procedencia de la guía nacional (etiquetado): generada o subida, cuándo y por quién.
+        nationalLabelInfo?: {
+            source: 'generated' | 'uploaded' | null;
+            at: string | null;
+            actorKind: 'cliente' | 'asesor';
+            actorName: string | null;
+        } | null;
         // Nº de piezas REAL de la guía nacional (pqtx_shipments.pieces). Para
         // REPACK la guía es de 1 sola pieza (una caja física), aunque el master
         // tenga N guías consolidadas (totalBoxes). Se usa para la tarjeta PQTX.
@@ -1462,6 +1469,30 @@ ${body}
         return null;
     };
 
+    // Detalle de procedencia de la guía nacional: generada o subida, cuándo y por quién.
+    const renderLabelProvenance = () => {
+        const info = shipment?.master?.nationalLabelInfo;
+        if (!info || (!info.source && !info.at)) return null;
+        const fecha = info.at
+            ? new Date(info.at).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+            : null;
+        const verbo = info.source === 'uploaded' ? 'Subida' : 'Generada';
+        const quien = info.actorName || (info.actorKind === 'cliente' ? 'Cliente' : 'Asesor');
+        return (
+            <Box sx={{ mt: 0.5, mb: 1, px: 1, py: 0.75, borderRadius: 1, bgcolor: '#eef4ff', border: '1px solid #d6e4ff' }}>
+                <Typography variant="caption" sx={{ display: 'block', color: '#1e40af', fontWeight: 700 }}>
+                    {info.source === 'uploaded' ? '📤' : '🖨️'} {verbo} por {quien}
+                    {info.actorKind === 'asesor' && <span style={{ fontWeight: 400, color: '#3b5bdb' }}> (asesor)</span>}
+                </Typography>
+                {fecha && (
+                    <Typography variant="caption" sx={{ display: 'block', color: '#475569' }}>
+                        {fecha}
+                    </Typography>
+                )}
+            </Box>
+        );
+    };
+
     const handlePrintAssignedCarrierGuide = async (opts?: { format4x6?: boolean }) => {
         const guideUrl = getAssignedCarrierGuideUrl(opts);
         if (!guideUrl) {
@@ -2337,6 +2368,7 @@ ${labelsHtml}
                                             <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
                                                 Imprime la guía de la paquetería asignada
                                             </Typography>
+                                            {renderLabelProvenance()}
                                             <Box sx={{ flex: 1 }} />
                                             <Button
                                                 fullWidth

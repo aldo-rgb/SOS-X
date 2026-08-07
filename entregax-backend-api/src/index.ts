@@ -6476,11 +6476,17 @@ app.patch('/api/admin/packages/:id/mark-label-printed', authenticateToken, requi
   try {
     const pkgId = parseInt(req.params.id as string);
     if (!pkgId) return res.status(400).json({ error: 'ID inválido' });
-    // Marcar master y todas sus hijas
+    // Marcar master y todas sus hijas. Registrar procedencia: GENERADA + quién/cuándo
+    // (solo si aún no tenía procedencia, para no pisar una subida/generación previa).
+    const actorId = (req as any).user?.userId || (req as any).user?.id || null;
     await pool.query(
-      `UPDATE packages SET national_label_url = COALESCE(national_label_url, 'manual-printed'), updated_at = NOW()
+      `UPDATE packages SET national_label_url = COALESCE(national_label_url, 'manual-printed'),
+              national_label_source = COALESCE(national_label_source, 'generated'),
+              national_label_actor_id = COALESCE(national_label_actor_id, $2),
+              national_label_at = COALESCE(national_label_at, NOW()),
+              updated_at = NOW()
        WHERE id = $1 OR master_id = $1`,
-      [pkgId]
+      [pkgId, actorId]
     );
     res.json({ success: true });
   } catch (e: any) {
