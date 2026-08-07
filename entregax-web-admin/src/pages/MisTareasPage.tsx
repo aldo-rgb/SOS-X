@@ -328,12 +328,15 @@ export default function MisTareasPage() {
 
   const load = useCallback(async () => {
     try {
-      const r = await axios.get(`${API_URL}/tasks/mine${showDone ? '?all=true' : ''}`, H());
+      // Traemos SIEMPRE todas (all=true) para que la búsqueda pueda encontrar
+      // completadas aunque "Ver completadas" esté apagado. En la vista normal
+      // filtramos las 'completed' del lado cliente cuando showDone=false.
+      const r = await axios.get(`${API_URL}/tasks/mine?all=true`, H());
       setTasks(r.data?.tasks || []);
       setEvents(r.data?.events || []);
     } catch { notify('No se pudieron cargar las tareas', 'error'); }
     finally { setLoading(false); }
-  }, [showDone]);
+  }, []);
   useEffect(() => { load(); }, [load]);
 
   // Drag & drop en la Matriz Eisenhower: arrastrar una tarjeta a otro cuadrante
@@ -532,7 +535,15 @@ export default function MisTareasPage() {
   const nowHour = new Date().getHours();
   const isWorkHours = nowHour >= 10 && nowHour < 19; // 10am–7pm
   const hidePersonal = isWorkHours && !showPersonal;
-  const personalOk = hidePersonal ? tasks.filter(t => !isPersonalTask(t)) : tasks;
+  // Filtro de texto: quita acentos y compara en minúsculas contra
+  // título, descripción, categoría (board), sección, responsable, involucrados y ID.
+  const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const norm = (s: any) => stripAccents(String(s ?? '')).toLowerCase();
+  const q = norm(searchText).trim();
+  // Base: si NO hay búsqueda respetamos showDone (ocultamos completadas).
+  // Cuando hay búsqueda dejamos todas (para poder encontrar terminadas).
+  const dbSource = (showDone || q.length >= 2) ? tasks : tasks.filter(t => t.status !== 'completed');
+  const personalOk = hidePersonal ? dbSource.filter(t => !isPersonalTask(t)) : dbSource;
   // Opciones de categoría presentes en las tareas (tablero).
   const boardOptions = Array.from(
     new Map(tasks.filter(t => t.board_id).map(t => [Number(t.board_id), t.board_name || 'Sin categoría'])).entries()
@@ -545,11 +556,6 @@ export default function MisTareasPage() {
     || (t.unread_count || 0) > 0
     || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === MY_ID);
   const mineTasks = globalView ? catTasks : catTasks.filter(isMine);
-  // Filtro de texto: quita acentos y compara en minúsculas contra
-  // título, descripción, categoría (board), sección, responsable, involucrados y ID.
-  const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const norm = (s: any) => stripAccents(String(s ?? '')).toLowerCase();
-  const q = norm(searchText).trim();
   const matchesSearch = (t: Task) => {
     if (!q) return true;
     const parts: string[] = [
@@ -564,17 +570,22 @@ export default function MisTareasPage() {
     ];
     return parts.some(p => norm(p).includes(q));
   };
-  const visibleTasks = mineTasks.filter(matchesSearch);
-  // 🔎 "También encontrado en…": tareas que HACEN match con el texto pero que
-  // los filtros activos (categoría/solo mías/completadas/personales) están
-  // ocultando. Solo se calcula si hay 2+ caracteres de búsqueda.
+  // Cuando hay búsqueda, buscamos en TODAS las tareas del pool (/tasks/mine ya
+  // devuelve las que soy responsable + participante). Si no hay búsqueda,
+  // aplicamos el filtro "Solo mis tareas" (isMine). Los demás filtros
+  // (categoría, personal, completadas) siempre se respetan porque forman
+  // parte de personalOk/catTasks.
+  const searchPool = q.length >= 2 ? catTasks : mineTasks;
+  const visibleTasks = searchPool.filter(matchesSearch);
+  // 🔎 "También encontrado en…": tareas que HACEN match pero que quedaron fuera
+  // porque el usuario tiene la categoría filtrada o "personales" oculto.
+  // Se calcula sobre el pool completo (tasks) para poder saltar a esas.
   const hiddenMatches = q.length >= 2 ? tasks.filter(t => matchesSearch(t) && !visibleTasks.some(v => v.id === t.id)) : [];
   // Un chip por tarea oculta con la razón de por qué está oculta (para dar contexto).
   const reasonFor = (t: Task): string => {
     if (t.status === 'completed' && !showDone) return 'Terminada';
     if (isPersonalTask(t) && hidePersonal) return 'Personal (oculta en horario)';
     if (catFilter !== 'all' && Number(t.board_id) !== catFilter) return `Categoría: ${t.board_name || '—'}`;
-    if (!globalView && !isMine(t)) return 'No es tuya';
     return 'Oculta por filtros';
   };
   // Al hacer click abrimos la tarea Y ajustamos filtros para que quede visible.
@@ -582,7 +593,6 @@ export default function MisTareasPage() {
     if (t.status === 'completed' && !showDone) setShowDone(true);
     if (isPersonalTask(t) && hidePersonal) setShowPersonal(true);
     if (catFilter !== 'all' && Number(t.board_id) !== catFilter) setCatFilter('all');
-    if (!globalView && !isMine(t)) setGlobalView(true);
     setDetailId(t.id);
   };
 
