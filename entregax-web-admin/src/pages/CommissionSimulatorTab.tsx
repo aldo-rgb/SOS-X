@@ -99,7 +99,7 @@ export default function CommissionSimulatorTab() {
                 Actualizar ventas
               </Button>
               <Button size="small" startIcon={<OpenInNewIcon />}
-                onClick={() => window.open('/simulador-comisiones.html', '_blank')}>
+                onClick={() => window.open('/simulador-comisiones.html?v=20260807b', '_blank')}>
                 Abrir en pestaña
               </Button>
             </Stack>
@@ -112,7 +112,7 @@ export default function CommissionSimulatorTab() {
         <iframe
           ref={iframeRef}
           title="Simulador de comisiones"
-          src="/simulador-comisiones.html"
+          src="/simulador-comisiones.html?v=20260807b"
           onLoad={pushToIframe}
           style={{ width: '100%', height: 'calc(100vh - 240px)', minHeight: 680, border: 'none', display: 'block' }}
         />
