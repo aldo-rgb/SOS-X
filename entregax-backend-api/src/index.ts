@@ -8425,7 +8425,7 @@ import {
   updateUserModulePermissions,
   getMyModulePermissions
 } from './permissionController';
-import { requireSuperAdmin } from './authMiddleware';
+import { requireSuperAdmin, requireSuperAdminOrAdmin } from './authMiddleware';
 
 // Email Inbound Controller (Webhooks de correo)
 import {
@@ -11639,17 +11639,17 @@ app.post('/api/admin/permissions/add', authenticateToken, requireSuperAdmin(), a
 app.delete('/api/admin/permissions/:id', authenticateToken, requireSuperAdmin(), deletePermission);
 app.post('/api/admin/permissions/bulk', authenticateToken, requireSuperAdmin(), bulkAssignPermissions);
 
-// Permisos de Paneles por Usuario
-app.get('/api/admin/panels', authenticateToken, requireSuperAdmin(), getAllPanels);
-app.get('/api/admin/panels/users', authenticateToken, requireSuperAdmin(), listUsersWithPanelPermissions);
-app.get('/api/admin/panels/user/:userId', authenticateToken, requireSuperAdmin(), getUserPanelPermissions);
-app.put('/api/admin/panels/user/:userId', authenticateToken, requireSuperAdmin(), updateUserPanelPermissions);
+// Permisos de Paneles por Usuario (Super Admin y Admin)
+app.get('/api/admin/panels', authenticateToken, requireSuperAdminOrAdmin(), getAllPanels);
+app.get('/api/admin/panels/users', authenticateToken, requireSuperAdminOrAdmin(), listUsersWithPanelPermissions);
+app.get('/api/admin/panels/user/:userId', authenticateToken, requireSuperAdminOrAdmin(), getUserPanelPermissions);
+app.put('/api/admin/panels/user/:userId', authenticateToken, requireSuperAdminOrAdmin(), updateUserPanelPermissions);
 app.get('/api/panels/me', authenticateToken, getMyPanelPermissions);
 
 // Permisos de Módulos por Usuario (granular dentro de cada panel)
-app.get('/api/admin/panels/:panelKey/modules', authenticateToken, requireSuperAdmin(), getPanelModules);
-app.get('/api/admin/panels/:panelKey/user/:userId/modules', authenticateToken, requireSuperAdmin(), getUserModulePermissions);
-app.put('/api/admin/panels/:panelKey/user/:userId/modules', authenticateToken, requireSuperAdmin(), updateUserModulePermissions);
+app.get('/api/admin/panels/:panelKey/modules', authenticateToken, requireSuperAdminOrAdmin(), getPanelModules);
+app.get('/api/admin/panels/:panelKey/user/:userId/modules', authenticateToken, requireSuperAdminOrAdmin(), getUserModulePermissions);
+app.put('/api/admin/panels/:panelKey/user/:userId/modules', authenticateToken, requireSuperAdminOrAdmin(), updateUserModulePermissions);
 app.get('/api/modules/:panelKey/me', authenticateToken, getMyModulePermissions);
 
 // Consultas de permisos (cualquier usuario autenticado)

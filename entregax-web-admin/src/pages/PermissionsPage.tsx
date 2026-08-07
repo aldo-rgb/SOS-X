@@ -29,7 +29,13 @@ function TabPanel(props: TabPanelProps) {
 }
 
 export default function PermissionsPage() {
-  const [tabValue, setTabValue] = useState(0);
+  const myRole = (() => {
+    try { return String(JSON.parse(localStorage.getItem('user') || '{}').role || '').toLowerCase(); }
+    catch { return ''; }
+  })();
+  const isSuperAdmin = myRole === 'super_admin';
+  // Admin entra directo a "Paneles por Usuario"; solo super_admin ve "Matriz por Rol".
+  const [tabValue, setTabValue] = useState(isSuperAdmin ? 0 : 1);
 
   return (
     <Box sx={{ width: '100%' }}>
@@ -61,23 +67,29 @@ export default function PermissionsPage() {
           onChange={(_, v) => setTabValue(v)}
           sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
-          <Tab 
-            icon={<MatrixIcon />} 
-            iconPosition="start" 
-            label="Matriz por Rol" 
-          />
-          <Tab 
-            icon={<PersonIcon />} 
-            iconPosition="start" 
-            label="Paneles por Usuario" 
+          {isSuperAdmin && (
+            <Tab
+              icon={<MatrixIcon />}
+              iconPosition="start"
+              label="Matriz por Rol"
+              value={0}
+            />
+          )}
+          <Tab
+            icon={<PersonIcon />}
+            iconPosition="start"
+            label="Paneles por Usuario"
+            value={1}
           />
         </Tabs>
       </Paper>
 
-      {/* Tab 0: Matriz de Permisos por Rol */}
-      <TabPanel value={tabValue} index={0}>
-        <PermissionMatrixPanel />
-      </TabPanel>
+      {/* Tab 0: Matriz de Permisos por Rol — SOLO super_admin */}
+      {isSuperAdmin && (
+        <TabPanel value={tabValue} index={0}>
+          <PermissionMatrixPanel />
+        </TabPanel>
+      )}
 
       {/* Tab 1: Permisos de Paneles por Usuario */}
       <TabPanel value={tabValue} index={1}>

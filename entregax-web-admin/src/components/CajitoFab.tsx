@@ -410,6 +410,23 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
           <Chip label={hasLabel ? '🏷️ Etiquetado' : '📋 Sin etiqueta'} size="small" color={hasLabel ? 'success' : 'default'} variant="outlined" />
           <Chip label={hasInstr ? '📍 Con instrucciones' : '⚠️ Sin instrucciones'} size="small" color={hasInstr ? 'success' : 'warning'} variant="outlined" />
         </Box>
+        {(() => {
+          const info = (m as any).nationalLabelInfo;
+          if (!hasLabel || !info || (!info.source && !info.at)) return null;
+          const verbo = info.source === 'uploaded' ? 'Subida' : 'Generada';
+          const quien = info.actorName || (info.actorKind === 'cliente' ? 'Cliente' : 'Asesor');
+          return (
+            <Box sx={{ mt: 1, px: 1, py: 0.75, borderRadius: 1, bgcolor: '#eef4ff', border: '1px solid #d6e4ff' }}>
+              <Typography variant="caption" sx={{ display: 'block', color: '#1e40af', fontWeight: 700 }}>
+                {info.source === 'uploaded' ? '📤' : '🖨️'} Etiqueta {verbo.toLowerCase()} por {quien}
+                {info.actorKind === 'asesor' && <span style={{ fontWeight: 400 }}> (asesor)</span>}
+              </Typography>
+              {info.at && (
+                <Typography variant="caption" sx={{ display: 'block', color: '#475569' }}>{fmtDate(info.at)}</Typography>
+              )}
+            </Box>
+          );
+        })()}
       </Paper>
 
       {/* Cliente */}

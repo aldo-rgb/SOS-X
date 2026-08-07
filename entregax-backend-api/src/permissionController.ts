@@ -246,9 +246,12 @@ export const bulkAssignPermissions = async (req: Request, res: Response): Promis
 // ============================================
 export const getAllPanels = async (req: Request, res: Response): Promise<any> => {
   try {
+    // 'admin_permissions' (Matriz de Permisos) NO se ofrece como panel asignable:
+    // el acceso a Permisos se controla por rol (admin/super_admin), no por asignación.
     const result = await pool.query(`
-      SELECT * FROM admin_panels 
-      WHERE is_active = true 
+      SELECT * FROM admin_panels
+      WHERE is_active = true
+        AND panel_key <> 'admin_permissions'
       ORDER BY category, sort_order
     `);
     res.json({ panels: result.rows });

@@ -227,11 +227,28 @@ export function requireSuperAdmin() {
     }
 
     const userRole = normalizeRole(user.role);
-    
+
     if (userRole === 'Super Admin') {
       return next();
     }
 
     res.status(403).json({ error: 'Acceso Denegado - Solo Super Admin' });
+  };
+}
+
+// Permite Super Admin y Admin. Se usa en "Paneles por Usuario" (admin puede
+// asignar paneles); la "Matriz por Rol" sigue reservada a Super Admin.
+export function requireSuperAdminOrAdmin() {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const user = (req as any).user;
+    if (!user) {
+      res.status(401).json({ error: 'No autorizado' });
+      return;
+    }
+    const userRole = normalizeRole(user.role);
+    if (userRole === 'Super Admin' || userRole === 'Admin') {
+      return next();
+    }
+    res.status(403).json({ error: 'Acceso Denegado - Solo Admin o Super Admin' });
   };
 }
