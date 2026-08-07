@@ -51,6 +51,8 @@ export default function TareasScreen({ navigation, route }: Props) {
   const [view, setView] = useState<'list' | 'matrix'>('list');
   const [activeSection, setActiveSection] = useState<number | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
+  // 🔍 Buscador de texto (título, descripción, responsable, involucrados, id).
+  const [searchText, setSearchText] = useState('');
 
   // Crear tarea
   const [createOpen, setCreateOpen] = useState(false);
@@ -132,6 +134,23 @@ export default function TareasScreen({ navigation, route }: Props) {
 
   const visibleCols = board?.columns || [];
 
+  // 🔍 Filtro de búsqueda: normaliza sin acentos y compara contra título,
+  // descripción, responsable, involucrados e ID. Aplica antes de columnas/matriz.
+  const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const normSearch = (s: any) => stripAccents(String(s ?? '')).toLowerCase();
+  const searchQ = normSearch(searchText).trim();
+  const filteredTasks = !searchQ ? tasks : tasks.filter(t => {
+    const parts: string[] = [
+      String(t.id),
+      `t-${t.id}`,
+      t.title || '',
+      (t as any).description || '',
+      (t as any).assignee_name || '',
+      ...((t as any).participant_names || []),
+    ];
+    return parts.some(p => normSearch(p).includes(searchQ));
+  });
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor={ORANGE} />
@@ -167,6 +186,28 @@ export default function TareasScreen({ navigation, route }: Props) {
         </TouchableOpacity>
       </View>
 
+      {/* 🔍 Buscador de tareas */}
+      <View style={styles.searchWrap}>
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={16} color="#666" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Buscar tarea…"
+            placeholderTextColor="#999"
+            value={searchText}
+            onChangeText={setSearchText}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+          />
+          {searchText ? (
+            <TouchableOpacity onPress={() => setSearchText('')} hitSlop={10}>
+              <Ionicons name="close-circle" size={18} color="#999" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+
       {/* Sub-secciones (solo vista columnas) */}
       {view === 'list' && sections.length > 0 && (
         <View style={styles.secBar}>
@@ -192,14 +233,14 @@ export default function TareasScreen({ navigation, route }: Props) {
         <View style={styles.center}><Text style={styles.empty}>No hay tableros.</Text></View>
       ) : view === 'matrix' ? (
         <View style={{ flex: 1, padding: 12 }}>
-          <MatrixView tasks={tasks} onOpen={setOpenId} onMove={moveTask} />
+          <MatrixView tasks={filteredTasks} onOpen={setOpenId} onMove={moveTask} />
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); refresh(); }} tintColor={ORANGE} />}>
             <View style={{ gap: 14 }}>
               {visibleCols.map(col => {
-                const colTasks = tasks.filter(t => t.column_id === col.id && (
+                const colTasks = filteredTasks.filter(t => t.column_id === col.id && (
                   activeSection === null ? t.section_id !== somedayId : t.section_id === activeSection
                 ));
                 return (
@@ -321,6 +362,9 @@ const styles = StyleSheet.create({
   boardChipTxt: { fontSize: 13, fontWeight: '700', color: '#444' },
 
   toolbar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#EEE' },
+  searchWrap: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#EEE' },
+  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F4F4F4', borderRadius: 10, paddingHorizontal: 10, height: 36 },
+  searchInput: { flex: 1, fontSize: 14, color: '#222', padding: 0 },
   newBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: ORANGE, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 7 },
   newBtnTxt: { color: '#fff', fontWeight: '700', fontSize: 13 },
 

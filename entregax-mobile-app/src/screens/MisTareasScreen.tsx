@@ -3,7 +3,7 @@
  * todos los tableros. Dos vistas: Lista y Matriz Eisenhower.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, ActivityIndicator, RefreshControl, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, ActivityIndicator, RefreshControl, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -33,6 +33,8 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   // sin leer, o esperando mi confirmación).
   const [globalView, setGlobalView] = useState(false);
   const [catFilter, setCatFilter] = useState<number | 'all'>('all');
+  // 🔍 Buscador de texto (título, descripción, responsable, involucrados, id).
+  const [searchText, setSearchText] = useState('');
   useFocusEffect(useCallback(() => { setShowPersonal(false); }, []));
   const [openId, setOpenId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -75,7 +77,24 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   const isMine = (t: TaskT) => Number(t.assignee_id) === myId
     || (t.unread_count || 0) > 0
     || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === myId);
-  const visibleTasks = globalView ? catTasks : catTasks.filter(isMine);
+  const mineTasks = globalView ? catTasks : catTasks.filter(isMine);
+  // Filtro de búsqueda: normaliza sin acentos y compara contra título,
+  // descripción, categoría, responsable, involucrados e ID.
+  const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const normSearch = (s: any) => stripAccents(String(s ?? '')).toLowerCase();
+  const searchQ = normSearch(searchText).trim();
+  const visibleTasks = !searchQ ? mineTasks : mineTasks.filter(t => {
+    const parts: string[] = [
+      String(t.id),
+      `t-${t.id}`,
+      t.title || '',
+      (t as any).description || '',
+      t.board_name || '',
+      (t as any).assignee_name || '',
+      ...((t as any).participant_names || []),
+    ];
+    return parts.some(p => normSearch(p).includes(searchQ));
+  });
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -111,6 +130,28 @@ export default function MisTareasScreen({ navigation, route }: Props) {
         <TouchableOpacity style={styles.iconBtnFilled} onPress={() => setCreateOpen(true)} hitSlop={8}>
           <Ionicons name="add" size={24} color="#fff" />
         </TouchableOpacity>
+      </View>
+
+      {/* 🔍 Buscador de tareas */}
+      <View style={styles.searchWrap}>
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={16} color="#666" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Buscar tarea…"
+            placeholderTextColor="#999"
+            value={searchText}
+            onChangeText={setSearchText}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+          />
+          {searchText ? (
+            <TouchableOpacity onPress={() => setSearchText('')} hitSlop={10}>
+              <Ionicons name="close-circle" size={18} color="#999" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
       {boardOptions.length > 1 && (
@@ -257,6 +298,9 @@ const styles = StyleSheet.create({
   iconBtnFilled: { width: 40, height: 40, borderRadius: 20, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
   catBar: { paddingBottom: 8, backgroundColor: BG },
   catChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff', maxWidth: 180 },
+  searchWrap: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#DDD' },
+  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F4F4F4', borderRadius: 10, paddingHorizontal: 10, height: 36 },
+  searchInput: { flex: 1, fontSize: 14, color: '#222', padding: 0 },
   catChipOn: { backgroundColor: ORANGE, borderColor: ORANGE },
   catChipTxt: { fontSize: 12.5, fontWeight: '700', color: '#555' },
   catChipTxtOn: { color: '#fff' },
