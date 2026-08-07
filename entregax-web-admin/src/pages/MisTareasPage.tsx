@@ -10,7 +10,7 @@ import {
   Box, Typography, Button, IconButton, Chip, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
   Avatar, Divider, Checkbox, Snackbar, Alert, LinearProgress, ToggleButton, ToggleButtonGroup, Tooltip,
-  Autocomplete, Paper,
+  Autocomplete, Paper, InputAdornment,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -27,6 +27,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CheckIcon from '@mui/icons-material/Check';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
+import SearchIcon from '@mui/icons-material/Search';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -285,6 +286,10 @@ export default function MisTareasPage() {
   const [showPersonal, setShowPersonal] = useState(false);
   // Filtro por categoría (tablero). 'all' = todas.
   const [catFilter, setCatFilter] = useState<number | 'all'>('all');
+  // 🔍 Bandeja de búsqueda de texto: filtra por título, descripción, categoría,
+  // responsable, involucrados o id (T-XXX). Se normaliza sin acentos para
+  // que "cotizacion" encuentre "cotización", etc.
+  const [searchText, setSearchText] = useState('');
   const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
   const notify = (msg: string, sev: 'success' | 'error' = 'success') => setSnack({ open: true, msg, sev });
 
@@ -539,7 +544,27 @@ export default function MisTareasPage() {
   const isMine = (t: Task) => Number(t.assignee_id) === MY_ID
     || (t.unread_count || 0) > 0
     || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === MY_ID);
-  const visibleTasks = globalView ? catTasks : catTasks.filter(isMine);
+  const mineTasks = globalView ? catTasks : catTasks.filter(isMine);
+  // Filtro de texto: quita acentos y compara en minúsculas contra
+  // título, descripción, categoría (board), sección, responsable, involucrados y ID.
+  const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const norm = (s: any) => stripAccents(String(s ?? '')).toLowerCase();
+  const q = norm(searchText).trim();
+  const matchesSearch = (t: Task) => {
+    if (!q) return true;
+    const parts: string[] = [
+      String(t.id),
+      `t-${t.id}`,
+      t.title || '',
+      t.description || '',
+      t.board_name || '',
+      (t as any).section_name || '',
+      t.assignee_name || '',
+      ...((t.participant_names as string[] | null | undefined) || []),
+    ];
+    return parts.some(p => norm(p).includes(q));
+  };
+  const visibleTasks = mineTasks.filter(matchesSearch);
 
   return (
     <Box>
@@ -606,6 +631,29 @@ export default function MisTareasPage() {
             {boardOptions.map(b => <MenuItem key={b.id} value={b.id}>{b.name}</MenuItem>)}
           </Select>
         </FormControl>
+        {/* 🔍 Buscador de tareas por texto (título, descripción, categoría,
+            responsable, involucrados, ID). Filtro de cliente sobre visibleTasks. */}
+        <TextField
+          size="small"
+          placeholder="Buscar tarea…"
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          sx={{ minWidth: 240, flex: 1, maxWidth: 380 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon sx={{ fontSize: 18, color: '#666' }} />
+              </InputAdornment>
+            ),
+            endAdornment: searchText ? (
+              <InputAdornment position="end">
+                <IconButton size="small" onClick={() => setSearchText('')} aria-label="Limpiar búsqueda">
+                  <CloseIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </InputAdornment>
+            ) : undefined,
+          }}
+        />
       </Box>
 
       {/* Eventos del calendario de HOY (para el usuario involucrado) */}
