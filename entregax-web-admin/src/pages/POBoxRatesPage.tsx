@@ -415,7 +415,8 @@ export default function POBoxRatesPage() {
         </TableContainer>
       </Paper>
 
-      {/* Servicios Extra */}
+      {/* Servicios Extra — oculto a solicitud (se gestiona en otro lado) */}
+      {false && (
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
           <ShippingIcon color="primary" /> Servicios Adicionales
@@ -502,6 +503,7 @@ export default function POBoxRatesPage() {
           </Table>
         </TableContainer>
       </Paper>
+      )}
 
       {/* Precios preferenciales por cliente */}
       <PoboxClientRatesSection />

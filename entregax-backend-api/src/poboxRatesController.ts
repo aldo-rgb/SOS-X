@@ -276,6 +276,29 @@ const ensureClientTarifasTable = async (): Promise<void> => {
     `);
 };
 
+// Bitácora de asignaciones/modificaciones de precio preferencial por cliente.
+// Una fila por acción de guardado → permite mostrar «asignado por / fecha» y
+// el conteo de veces modificado. Backfill idempotente desde created_by/created_at.
+const ensureClientTarifasAudit = async (): Promise<void> => {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS pobox_client_tarifas_audit (
+            id             SERIAL PRIMARY KEY,
+            client_user_id INTEGER NOT NULL,
+            changed_by     INTEGER REFERENCES users(id),
+            changed_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_tarifas_audit ON pobox_client_tarifas_audit (client_user_id, changed_at)`);
+    // Sembrar la asignación inicial de clientes que ya tenían precio antes de la bitácora.
+    await pool.query(`
+        INSERT INTO pobox_client_tarifas_audit (client_user_id, changed_by, changed_at)
+        SELECT client_user_id, MIN(created_by), MIN(created_at)
+        FROM pobox_client_tarifas
+        WHERE client_user_id NOT IN (SELECT DISTINCT client_user_id FROM pobox_client_tarifas_audit)
+        GROUP BY client_user_id
+    `);
+};
+
 // Buscar clientes para asignarles tarifa preferencial
 export const searchPoboxClients = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -302,14 +325,31 @@ export const searchPoboxClients = async (req: Request, res: Response): Promise<v
 export const listPoboxClientTarifas = async (_req: Request, res: Response): Promise<void> => {
     try {
         await ensureClientTarifasTable();
+        await ensureClientTarifasAudit();
         const result = await pool.query(`
             SELECT u.id AS client_user_id, u.full_name, u.email, u.box_id,
                    COUNT(t.*)::int AS niveles_personalizados,
-                   MAX(t.updated_at) AS updated_at
+                   MAX(t.updated_at) AS updated_at,
+                   a.asignado_por, a.asignado_at,
+                   a.ultima_por, a.ultima_at,
+                   a.veces_modificado
             FROM pobox_client_tarifas t
             JOIN users u ON u.id = t.client_user_id
+            LEFT JOIN LATERAL (
+                SELECT
+                  (SELECT us.full_name FROM pobox_client_tarifas_audit x JOIN users us ON us.id = x.changed_by
+                     WHERE x.client_user_id = u.id ORDER BY x.changed_at ASC, x.id ASC LIMIT 1) AS asignado_por,
+                  (SELECT x.changed_at FROM pobox_client_tarifas_audit x
+                     WHERE x.client_user_id = u.id ORDER BY x.changed_at ASC, x.id ASC LIMIT 1) AS asignado_at,
+                  (SELECT us.full_name FROM pobox_client_tarifas_audit x JOIN users us ON us.id = x.changed_by
+                     WHERE x.client_user_id = u.id ORDER BY x.changed_at DESC, x.id DESC LIMIT 1) AS ultima_por,
+                  (SELECT x.changed_at FROM pobox_client_tarifas_audit x
+                     WHERE x.client_user_id = u.id ORDER BY x.changed_at DESC, x.id DESC LIMIT 1) AS ultima_at,
+                  GREATEST((SELECT COUNT(*)::int FROM pobox_client_tarifas_audit x WHERE x.client_user_id = u.id) - 1, 0) AS veces_modificado
+            ) a ON TRUE
             WHERE t.estado = TRUE
-            GROUP BY u.id, u.full_name, u.email, u.box_id
+            GROUP BY u.id, u.full_name, u.email, u.box_id,
+                     a.asignado_por, a.asignado_at, a.ultima_por, a.ultima_at, a.veces_modificado
             ORDER BY MAX(t.updated_at) DESC
         `);
         res.json({ clients: result.rows });
@@ -362,6 +402,7 @@ export const getPoboxClientTarifas = async (req: Request, res: Response): Promis
 export const savePoboxClientTarifas = async (req: Request, res: Response): Promise<void> => {
     try {
         await ensureClientTarifasTable();
+        await ensureClientTarifasAudit();
         const clientUserId = parseInt(String(req.params.userId));
         const { niveles } = req.body || {};
         const createdBy = (req as any).user?.userId || (req as any).user?.id || null;
@@ -372,6 +413,7 @@ export const savePoboxClientTarifas = async (req: Request, res: Response): Promi
         const clienteRes = await pool.query('SELECT id FROM users WHERE id = $1', [clientUserId]);
         if (clienteRes.rows.length === 0) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
+        let cambios = 0;
         for (const n of niveles) {
             const nivel = parseInt(n.nivel);
             if (!nivel) continue;
@@ -379,7 +421,8 @@ export const savePoboxClientTarifas = async (req: Request, res: Response): Promi
             const vacio = costoRaw === null || costoRaw === undefined || String(costoRaw).trim() === '';
             if (vacio) {
                 // Sin precio => quitar override de ese nivel
-                await pool.query('DELETE FROM pobox_client_tarifas WHERE client_user_id = $1 AND nivel = $2', [clientUserId, nivel]);
+                const del = await pool.query('DELETE FROM pobox_client_tarifas WHERE client_user_id = $1 AND nivel = $2', [clientUserId, nivel]);
+                cambios += del.rowCount || 0;
                 continue;
             }
             const costo = parseFloat(costoRaw);
@@ -392,6 +435,16 @@ export const savePoboxClientTarifas = async (req: Request, res: Response): Promi
                 DO UPDATE SET costo = EXCLUDED.costo, tipo_cobro = EXCLUDED.tipo_cobro,
                               estado = TRUE, updated_at = CURRENT_TIMESTAMP
             `, [clientUserId, nivel, costo, tipoCobro, createdBy]);
+            cambios++;
+        }
+
+        // Registrar la acción en la bitácora (solo si hubo cambios reales).
+        if (cambios > 0) {
+            await pool.query(
+                `INSERT INTO pobox_client_tarifas_audit (client_user_id, changed_by, changed_at)
+                 VALUES ($1, $2, CURRENT_TIMESTAMP)`,
+                [clientUserId, createdBy]
+            );
         }
 
         res.json({ success: true, message: 'Tarifa preferencial guardada' });
@@ -408,6 +461,7 @@ export const deletePoboxClientTarifas = async (req: Request, res: Response): Pro
         const clientUserId = parseInt(String(req.params.userId));
         if (!clientUserId) { res.status(400).json({ error: 'userId inválido' }); return; }
         await pool.query('DELETE FROM pobox_client_tarifas WHERE client_user_id = $1', [clientUserId]);
+        await pool.query('DELETE FROM pobox_client_tarifas_audit WHERE client_user_id = $1', [clientUserId]).catch(() => {});
         res.json({ success: true, message: 'Tarifa preferencial eliminada; el cliente vuelve al precio global' });
     } catch (error) {
         console.error('Error eliminando tarifas del cliente:', error);

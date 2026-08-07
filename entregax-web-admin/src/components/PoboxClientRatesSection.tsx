@@ -29,6 +29,11 @@ interface ClientRow {
   box_id: string | null;
   niveles_personalizados: number;
   updated_at: string;
+  asignado_por: string | null;
+  asignado_at: string | null;
+  ultima_por: string | null;
+  ultima_at: string | null;
+  veces_modificado: number;
 }
 interface SearchClient {
   id: number; full_name: string; email: string | null; box_id: string | null; phone: string | null; tiene_tarifa: boolean;
@@ -142,6 +147,12 @@ export default function PoboxClientRatesSection() {
   };
 
   const fmtCbm = (n: NivelRow) => `${Number(n.cbm_min).toFixed(4)} – ${n.cbm_max != null ? Number(n.cbm_max).toFixed(4) : '∞'} m³`;
+  const fmtFecha = (s: string | null) => {
+    if (!s) return '—';
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
 
   return (
     <Paper sx={{ p: 3, mb: 3, borderRadius: 2, borderLeft: `4px solid ${ORANGE}` }}>
@@ -173,6 +184,8 @@ export default function PoboxClientRatesSection() {
                 <TableCell><strong>Cliente</strong></TableCell>
                 <TableCell><strong>Box ID</strong></TableCell>
                 <TableCell align="center"><strong>Niveles personalizados</strong></TableCell>
+                <TableCell><strong>Asignado por</strong></TableCell>
+                <TableCell align="center"><strong>Modificaciones</strong></TableCell>
                 <TableCell align="center"><strong>Acciones</strong></TableCell>
               </TableRow>
             </TableHead>
@@ -186,6 +199,23 @@ export default function PoboxClientRatesSection() {
                   <TableCell>{c.box_id || '—'}</TableCell>
                   <TableCell align="center">
                     <Chip size="small" label={`${c.niveles_personalizados} nivel(es)`} sx={{ bgcolor: '#fbe9e0', color: '#a8431a', fontWeight: 600 }} />
+                  </TableCell>
+                  <TableCell>
+                    {c.asignado_por ? (
+                      <>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{c.asignado_por}</Typography>
+                        <Typography variant="caption" color="text.secondary">{fmtFecha(c.asignado_at)}</Typography>
+                      </>
+                    ) : <Typography variant="caption" color="text.secondary">—</Typography>}
+                  </TableCell>
+                  <TableCell align="center">
+                    {c.veces_modificado > 0 ? (
+                      <Tooltip title={c.ultima_por ? `Última: ${c.ultima_por} · ${fmtFecha(c.ultima_at)}` : ''}>
+                        <Chip size="small" label={`${c.veces_modificado} vez(es)`} sx={{ bgcolor: '#eef2ff', color: '#3538cd', fontWeight: 600 }} />
+                      </Tooltip>
+                    ) : (
+                      <Chip size="small" variant="outlined" label="Sin cambios" sx={{ color: '#9AA0A6' }} />
+                    )}
                   </TableCell>
                   <TableCell align="center">
                     <Tooltip title="Editar precios">
