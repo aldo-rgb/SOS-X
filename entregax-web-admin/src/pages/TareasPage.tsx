@@ -11,6 +11,7 @@ import {
   Box, Typography, Button, IconButton, Chip, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
   Avatar, Divider, Checkbox, Tooltip, Snackbar, Alert, LinearProgress, Tabs, Tab, Autocomplete,
+  InputAdornment,
 } from '@mui/material';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import AddIcon from '@mui/icons-material/Add';
@@ -26,6 +27,7 @@ import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import { Checkbox as MCheckbox, FormControlLabel, ListItemText, OutlinedInput, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 import GridViewIcon from '@mui/icons-material/GridView';
+import SearchIcon from '@mui/icons-material/Search';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -146,6 +148,8 @@ export default function TareasPage() {
   const [loading, setLoading] = useState(true);
   const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
   const notify = (msg: string, sev: 'success' | 'error' = 'success') => setSnack({ open: true, msg, sev });
+  // 🔍 Búsqueda de texto (título, descripción, responsable, involucrados, id). Cliente-side.
+  const [searchText, setSearchText] = useState('');
 
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '' });
@@ -171,6 +175,25 @@ export default function TareasPage() {
   const somedaySection = sections.find(s => s.is_someday) || null;
   const somedayId = somedaySection?.id ?? null;
   const sectionName = (id?: number | null) => sections.find(s => s.id === id)?.name;
+
+  // 🔍 Filtro de búsqueda: normaliza sin acentos y compara contra título,
+  // descripción, responsable, involucrados e ID. Aplica antes de cualquier
+  // separación por columna/matriz.
+  const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const normSearch = (s: any) => stripAccents(String(s ?? '')).toLowerCase();
+  const searchQ = normSearch(searchText).trim();
+  const filteredTasks = !searchQ ? tasks : tasks.filter(t => {
+    const parts: string[] = [
+      String(t.id),
+      `t-${t.id}`,
+      t.title || '',
+      t.description || '',
+      t.assignee_name || '',
+      ...((t.participant_names as string[] | undefined) || []),
+      sectionName(t.section_id) || '',
+    ];
+    return parts.some(p => normSearch(p).includes(searchQ));
+  });
 
   const loadBoards = useCallback(async (preferId?: number) => {
     try {
@@ -406,6 +429,29 @@ export default function TareasPage() {
             <ToggleButton value="columns"><ViewColumnIcon sx={{ fontSize: 18 }} /> Columnas</ToggleButton>
             <ToggleButton value="matrix"><GridViewIcon sx={{ fontSize: 18 }} /> Matriz Eisenhower</ToggleButton>
           </ToggleButtonGroup>
+          {/* 🔍 Buscador de tareas en el tablero activo. Filtra por título,
+              descripción, responsable, involucrados o ID. */}
+          <TextField
+            size="small"
+            placeholder="Buscar tarea…"
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            sx={{ minWidth: 220, flex: 1, maxWidth: 360 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 18, color: '#666' }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchText ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setSearchText('')} aria-label="Limpiar búsqueda">
+                    <CloseIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </InputAdornment>
+              ) : undefined,
+            }}
+          />
           {view === 'matrix' && <Typography fontSize={12} color="text.secondary">Muestra todas las tareas por cuadrante de prioridad.</Typography>}
         </Box>
       )}
@@ -441,7 +487,7 @@ export default function TareasPage() {
         // ── Vista MATRIZ EISENHOWER (2×2) — muestra TODAS las tareas ──
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
           {QUADRANTS.map((q) => {
-            const qTasks = tasks.filter(t => t.eisenhower === q.key);
+            const qTasks = filteredTasks.filter(t => t.eisenhower === q.key);
             return (
               <Box key={q.key} sx={{ bgcolor: q.bg, borderRadius: 2, p: 1.25, borderTop: `3px solid ${q.color}`, minHeight: 160 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -461,7 +507,7 @@ export default function TareasPage() {
         <Box sx={{ overflowX: 'auto', pb: 2 }}>
           <Box sx={{ display: 'flex', gap: 1.5, minWidth: 'min-content' }}>
             {board.columns.map((col) => {
-              const colTasks = tasks.filter(t => t.column_id === col.id && (
+              const colTasks = filteredTasks.filter(t => t.column_id === col.id && (
                 activeSection === null ? t.section_id !== somedayId : t.section_id === activeSection
               ));
               return (
