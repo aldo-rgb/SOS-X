@@ -13691,6 +13691,7 @@ import {
   addTaskAttachment as tasksAddAttachment,
   deleteTaskAttachment as tasksDeleteAttachment,
   listTasks as tasksList,
+  searchTasks as tasksSearch,
   myTasks as tasksMine,
   getTask as tasksGet,
   createTask as tasksCreate,
@@ -13743,6 +13744,7 @@ app.get('/api/tasks/mine', authenticateToken, tasksMine);
 app.post('/api/tasks/personal', authenticateToken, tasksCreatePersonal);
 app.get('/api/tasks/assignable-users', authenticateToken, tasksAssignableUsers);
 app.get('/api/tasks/categories', authenticateToken, tasksListCategories);
+app.get('/api/tasks/search', authenticateToken, tasksSearch);
 app.get('/api/tasks', authenticateToken, tasksList);
 app.post('/api/tasks', authenticateToken, tasksCreate);
 app.get('/api/tasks/:id', authenticateToken, tasksGet);

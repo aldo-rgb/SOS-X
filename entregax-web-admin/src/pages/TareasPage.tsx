@@ -150,6 +150,11 @@ export default function TareasPage() {
   const notify = (msg: string, sev: 'success' | 'error' = 'success') => setSnack({ open: true, msg, sev });
   // 🔍 Búsqueda de texto (título, descripción, responsable, involucrados, id). Cliente-side.
   const [searchText, setSearchText] = useState('');
+  // Búsqueda GLOBAL (todos los tableros). Se llena con /tasks/search cuando el
+  // usuario escribe 2+ caracteres. Permite mostrar coincidencias en OTROS
+  // tableros con chips clickeables que cambian de tablero y abren la tarea.
+  const [crossResults, setCrossResults] = useState<any[]>([]);
+  const [crossLoading, setCrossLoading] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '' });
@@ -232,6 +237,22 @@ export default function TareasPage() {
       .then(r => setUsers((Array.isArray(r.data) ? r.data : r.data?.users || []).map((u: any) => ({ id: u.id, full_name: u.full_name, role: u.role, avg_resolution_seconds: u.avg_resolution_seconds }))))
       .catch(() => {});
   }, []);
+
+  // 🔍 Búsqueda global cross-tablero (debounced 300ms).
+  // Se dispara con 2+ caracteres; limpia cuando el texto está vacío.
+  useEffect(() => {
+    const q = searchText.trim();
+    if (q.length < 2) { setCrossResults([]); setCrossLoading(false); return; }
+    setCrossLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await axios.get(`${API_URL}/tasks/search`, { ...H(), params: { q } });
+        setCrossResults(r.data?.tasks || []);
+      } catch { setCrossResults([]); }
+      finally { setCrossLoading(false); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchText]);
 
   const saveCfg = async () => {
     if (!activeId) return;
@@ -455,6 +476,64 @@ export default function TareasPage() {
           {view === 'matrix' && <Typography fontSize={12} color="text.secondary">Muestra todas las tareas por cuadrante de prioridad.</Typography>}
         </Box>
       )}
+
+      {/* 🔎 Coincidencias en OTROS tableros (búsqueda global cross-tablero).
+          Cada chip cambia al tablero destino y abre la tarea. */}
+      {searchText.trim().length >= 2 && board && (() => {
+        const others = crossResults.filter(r => Number(r.board_id) !== activeId);
+        if (others.length === 0 && !crossLoading) return null;
+        // Agrupamos por tablero para pintar "[Desarrollo Sistema (3)]" y luego los títulos.
+        const byBoard: Record<number, { board_id: number; board_name: string; items: any[] }> = {};
+        for (const t of others) {
+          const bid = Number(t.board_id);
+          if (!byBoard[bid]) byBoard[bid] = { board_id: bid, board_name: t.board_name || 'Sin tablero', items: [] };
+          byBoard[bid].items.push(t);
+        }
+        const groups = Object.values(byBoard);
+        return (
+          <Alert
+            severity="info"
+            icon={<SearchIcon fontSize="small" />}
+            sx={{ mb: 1.5, '& .MuiAlert-message': { width: '100%' } }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: groups.length ? 0.75 : 0, flexWrap: 'wrap' }}>
+              <Typography fontSize={12.5} fontWeight={700}>
+                {crossLoading ? 'Buscando en otros tableros…' : `También encontrado en ${groups.length} tablero${groups.length === 1 ? '' : 's'} · ${others.length} tarea${others.length === 1 ? '' : 's'}`}
+              </Typography>
+              {crossLoading && <CircularProgress size={14} />}
+            </Box>
+            {groups.map(g => (
+              <Box key={g.board_id} sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mt: 0.5 }}>
+                <Typography fontSize={11.5} fontWeight={700} sx={{ color: '#5E35B1', mr: 0.5 }}>
+                  {boardIcon(g.board_name)} {g.board_name} ({g.items.length}):
+                </Typography>
+                {g.items.slice(0, 6).map(t => (
+                  <Chip
+                    key={t.id}
+                    size="small"
+                    label={t.title.length > 40 ? t.title.slice(0, 38) + '…' : t.title}
+                    onClick={() => { setActiveId(g.board_id); setDetailId(t.id); }}
+                    sx={{
+                      fontWeight: 600, fontSize: 11.5, cursor: 'pointer',
+                      bgcolor: t.status === 'completed' ? '#E4F1E8' : '#FBE6D8',
+                      color: t.status === 'completed' ? '#2E7D46' : '#B23F12',
+                      '&:hover': { bgcolor: t.status === 'completed' ? '#C8E6C9' : '#F5D3B8' },
+                    }}
+                  />
+                ))}
+                {g.items.length > 6 && (
+                  <Chip
+                    size="small"
+                    label={`+${g.items.length - 6}`}
+                    onClick={() => setActiveId(g.board_id)}
+                    sx={{ fontWeight: 700, fontSize: 11.5, cursor: 'pointer', bgcolor: '#EEE' }}
+                  />
+                )}
+              </Box>
+            ))}
+          </Alert>
+        );
+      })()}
 
       {/* Sub-secciones (solo en vista Columnas) */}
       {board && view === 'columns' && (

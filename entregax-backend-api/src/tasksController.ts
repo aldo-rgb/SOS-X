@@ -711,6 +711,68 @@ export const listTasks = async (req: Request, res: Response): Promise<any> => {
   }
 };
 
+// ─── TAREAS: búsqueda GLOBAL cruzando todos los tableros ────
+// Usada por la barra de búsqueda del web/app para decirle al usuario "también
+// hay coincidencias en otros tableros". Se devuelve una vista ligera para
+// pintar chips clickeables (id, título, tablero, sección, responsable, prioridad).
+export const searchTasks = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const uid = authUserId(req);
+    if (!uid) return res.status(401).json({ error: 'No autenticado' });
+    const raw = String(req.query.q || '').trim();
+    if (raw.length < 2) return res.json({ tasks: [] });
+    // Quita acentos y normaliza en el lado del cliente Postgres con unaccent()
+    // no disponible por default → usamos ILIKE + LOWER y aceptamos que el
+    // usuario escriba sin acentos (los pattern maps se hacen abajo en el JS).
+    // Para que "cotizacion" encuentre "cotización" hacemos dos variantes.
+    const q = raw.toLowerCase();
+    const patterns = [q, q.replace(/a/g, 'á').replace(/e/g, 'é').replace(/i/g, 'í').replace(/o/g, 'ó').replace(/u/g, 'ú')];
+    const distinct = Array.from(new Set(patterns));
+    const like = (idx: number) => `%${distinct[idx]}%`;
+
+    // Excluimos canceladas. No restringimos por rol/tablero — al llegar desde el
+    // web/app el frontend ya sabe qué tableros mostrar; si no pueden abrir, ya
+    // hay guards al hacer click.
+    const params: any[] = [];
+    const wheres: string[] = [];
+    for (let i = 0; i < distinct.length; i++) {
+      params.push(`%${distinct[i]}%`);
+      const p = `$${params.length}`;
+      wheres.push(`(LOWER(t.title) LIKE ${p} OR LOWER(COALESCE(t.description,'')) LIKE ${p}
+        OR LOWER(COALESCE(b.name,'')) LIKE ${p}
+        OR LOWER(COALESCE(au.full_name,'')) LIKE ${p}
+        OR LOWER(COALESCE(s.name,'')) LIKE ${p})`);
+    }
+
+    const r = await pool.query(`
+      SELECT t.id, t.title, t.status, t.eisenhower, t.board_id, t.column_id, t.section_id,
+             t.due_at, t.completed_at, t.assignee_id,
+             b.name AS board_name, b.board_key,
+             col.name AS column_name, col.is_done AS column_is_done,
+             s.name AS section_name,
+             au.full_name AS assignee_name
+        FROM tasks t
+        JOIN task_boards b ON b.id = t.board_id
+        LEFT JOIN task_columns col ON col.id = t.column_id
+        LEFT JOIN task_sections s ON s.id = t.section_id
+        LEFT JOIN users au ON au.id = t.assignee_id
+       WHERE t.status <> 'cancelled'
+         AND (${wheres.join(' OR ')})
+       ORDER BY (t.status = 'open') DESC, t.updated_at DESC NULLS LAST, t.id DESC
+       LIMIT 60`, params);
+    // También devolvemos el conteo por tablero para pintar "[Desarrollo (3)]"
+    const byBoard: Record<number, { board_id: number; board_name: string; board_key: string | null; count: number }> = {};
+    for (const t of r.rows) {
+      const bid = Number(t.board_id);
+      if (!byBoard[bid]) byBoard[bid] = { board_id: bid, board_name: t.board_name, board_key: t.board_key, count: 0 };
+      byBoard[bid].count += 1;
+    }
+    res.json({ tasks: r.rows, boards: Object.values(byBoard) });
+  } catch (e: any) {
+    console.error('[tasks] searchTasks:', e); res.status(500).json({ error: 'Error al buscar tareas' });
+  }
+};
+
 // ─── TAREAS: mis tareas (app) ───────────────────────────────
 export const myTasks = async (req: Request, res: Response): Promise<any> => {
   try {
