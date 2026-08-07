@@ -13684,6 +13684,7 @@ import {
   listSchedules as tasksListSchedules,
   deleteSchedule as tasksDeleteSchedule,
   runDueTaskSchedules,
+  // (sync se importa aparte, más abajo)
   createBoard as tasksCreateBoard,
   deleteBoard as tasksDeleteBoard,
   getBoardAssignees as tasksGetBoardAssignees,
@@ -13708,6 +13709,12 @@ import {
   editComment as tasksEditComment,
   deleteComment as tasksDeleteComment,
 } from './tasksController';
+import {
+  upsertExternalUsers as syncUpsertExternalUsers,
+  inboundWebhook as syncInboundWebhook,
+  syncHealth as syncHealthCheck,
+} from './syncController';
+import { ensureSyncSchema, dispatchOutbox } from './syncService';
 import {
   uploadBrandAsset,
   activateBrandAsset,
@@ -13760,6 +13767,15 @@ app.delete('/api/tasks/schedules/:id', authenticateToken, tasksDeleteSchedule);
 // Cron: materializa tareas programadas/recurrentes cada 10 min.
 setInterval(() => { runDueTaskSchedules(); }, 10 * 60 * 1000);
 runDueTaskSchedules();
+
+// ── SINCRONIZACIÓN CROSS-APP (Grupo Rino) ──────────────────────────────
+// Receptores: usuarios (push) y webhooks de tareas. + cron de despacho de la
+// cola de salida (sólo envía si el peer está configurado por env).
+app.post('/api/sync/users/upsert', syncUpsertExternalUsers);
+app.post('/api/webhooks/entregax', syncInboundWebhook);
+app.get('/api/sync/health', authenticateToken, syncHealthCheck);
+ensureSyncSchema().catch((e: any) => console.error('[sync] ensureSchema:', e?.message));
+setInterval(() => { dispatchOutbox().catch(() => {}); }, 60 * 1000); // despacho cada 1 min
 app.delete('/api/tasks/:id', authenticateToken, tasksDelete);
 app.post('/api/tasks/:id/subtasks', authenticateToken, tasksAddSubtask);
 app.put('/api/tasks/subtasks/:subId', authenticateToken, tasksToggleSubtask);

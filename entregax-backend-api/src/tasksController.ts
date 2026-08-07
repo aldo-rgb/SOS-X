@@ -8,6 +8,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { uploadToS3WithSignedUrl, getSignedUrlForKey, signS3UrlIfNeeded } from './s3Service';
+import { emitTaskEventIfExternal } from './syncService';
 
 const authUserId = (req: Request): number | null => {
   const u = (req as any).user;
@@ -407,6 +408,7 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
     for (const p of participants) {
       if (Number(p) !== Number(uid)) await notify(p, '📋 Te involucraron en una tarea', task.title, { task_id: task.id });
     }
+    emitTaskEventIfExternal('task.created', Number(task.id), uid).catch(() => {});
     res.json({ task });
   } catch (e: any) {
     console.error('[tasks] createPersonalTask:', e); res.status(500).json({ error: 'Error al crear la tarea' });
@@ -592,13 +594,13 @@ export const getAssignableUsers = async (req: Request, res: Response): Promise<a
     // Tiempo PROMEDIO de resolución (creación → término) de las tareas cerradas
     // del usuario, en segundos — como estimado de respuesta.
     const r = await pool.query(
-      `SELECT u.id, u.full_name, u.role,
+      `SELECT u.id, u.full_name, u.role, u.source_app, u.external_id,
               (SELECT AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)))
                  FROM tasks t WHERE t.assignee_id = u.id AND t.completed_at IS NOT NULL) AS avg_resolution_seconds
          FROM users u
         WHERE u.role <> 'client' AND COALESCE(u.is_active,true)=true
           AND LOWER(TRIM(u.full_name)) <> 'administrador entregax'
-        ORDER BY u.full_name`);
+        ORDER BY (u.source_app IS NOT NULL), u.full_name`);
     res.json({ users: r.rows });
   } catch (e: any) {
     console.error('[tasks] getAssignableUsers:', e); res.status(500).json({ error: 'Error al obtener usuarios' });
@@ -964,6 +966,7 @@ export const createTask = async (req: Request, res: Response): Promise<any> => {
     await logActivity(task.id, uid, 'created', { title: task.title });
     if (task.assignee_id) await notify(task.assignee_id, '📋 Nueva tarea asignada', task.title, { task_id: task.id });
     for (const p of extra) if (Number(p) !== Number(uid) && Number(p) !== Number(task.assignee_id)) await notify(p, '📋 Te involucraron en una tarea', task.title, { task_id: task.id });
+    emitTaskEventIfExternal('task.created', Number(task.id), uid).catch(() => {});
     res.json({ task });
   } catch (e: any) {
     console.error('[tasks] createTask:', e); res.status(500).json({ error: 'Error al crear tarea' });
@@ -1115,6 +1118,7 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
       for (const p of participants) if (p !== creator && !prev.includes(p)) await notify(p, '📋 Te involucraron en una tarea', updated.title, { task_id: id }, 'task_new');
       await logActivity(id, uid, 'participants_updated', { participants, assignee: primary });
     }
+    emitTaskEventIfExternal('task.updated', id, uid).catch(() => {});
     res.json({ task: updated });
   } catch (e: any) {
     console.error('[tasks] updateTask:', e); res.status(500).json({ error: 'Error al actualizar tarea' });
@@ -1252,6 +1256,7 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
       );
       await logActivity(id, uid, 'awaiting_confirmation', { by_assignee: assigneeId === Number(uid) });
       await notifyAwaitingConfirmation();
+      emitTaskEventIfExternal('task.awaiting_confirmation', id, uid).catch(() => {});
       return res.json({ success: true, forced: false, awaiting_confirmation: true });
     }
 
@@ -1272,6 +1277,7 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
     await logActivity(id, uid, alreadyAwaiting ? 'confirmed' : 'completed', alreadyAwaiting ? { from: 'awaiting_confirmation' } : {});
     await notifyCompleted();
     await notifyTicketFixed();
+    emitTaskEventIfExternal('task.completed', id, uid).catch(() => {});
     res.json({ success: true, forced: false, awaiting_confirmation: false });
   } catch (e: any) {
     console.error('[tasks] completeTask:', e); res.status(500).json({ error: 'Error al completar tarea' });
@@ -1297,6 +1303,7 @@ export const reopenTask = async (req: Request, res: Response): Promise<any> => {
     const colSet = openCol ? `column_id=${Number(openCol)},` : '';
     await pool.query(`UPDATE tasks SET status='open', completed_at=NULL, ${colSet} updated_at=NOW() WHERE id=$1`, [id]);
     await logActivity(id, uid, 'reopened', {});
+    emitTaskEventIfExternal('task.reopened', id, uid).catch(() => {});
     res.json({ success: true });
   } catch (e: any) {
     console.error('[tasks] reopenTask:', e); res.status(500).json({ error: 'Error al reabrir la tarea' });
@@ -1356,6 +1363,7 @@ export const startTask = async (req: Request, res: Response): Promise<any> => {
         WHERE id = $1`,
       [id, commitment]);
     await logActivity(id, uid, 'started', { commitment_date: commitment });
+    emitTaskEventIfExternal('task.started', id, uid).catch(() => {});
     res.json({ success: true });
   } catch (e: any) {
     console.error('[tasks] startTask:', e); res.status(500).json({ error: 'Error al poner en proceso' });
@@ -1514,6 +1522,7 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
         notified.add(m);
       }
     }
+    emitTaskEventIfExternal('task.comment_added', taskId, uid).catch(() => {});
     res.json({ comment: r.rows[0], reopened: reopenedFromAwaiting });
   } catch (e: any) {
     console.error('[tasks] addComment:', e); res.status(500).json({ error: 'Error al comentar' });
@@ -1557,3 +1566,87 @@ export const deleteComment = async (req: Request, res: Response): Promise<any> =
     console.error('[tasks] deleteComment:', e); res.status(500).json({ error: 'Error al borrar comentario' });
   }
 };
+
+// ============================================================
+// SINCRONIZACIÓN — aplicar un evento de tarea que llega de la app externa
+// (Grupo Rino) vía webhook. Reusa notify/logActivity. NO re-emite hacia afuera
+// (el emit de salida vive solo en los handlers HTTP), evitando bucles de eco.
+// actorId es el id LOCAL del usuario externo (fila users con source_app).
+// ============================================================
+export async function applyInboundTaskEvent(opts: {
+  taskId: number; event: string; actorId: number | null; body?: any;
+}): Promise<{ ok: boolean; error?: string }> {
+  const { taskId, event, actorId } = opts;
+  const cur = await pool.query(`SELECT * FROM tasks WHERE id = $1`, [taskId]);
+  if (cur.rows.length === 0) return { ok: false, error: 'Tarea no encontrada' };
+  const task = cur.rows[0];
+  const firstColId = async (): Promise<number | null> =>
+    (await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [task.board_id])).rows[0]?.id || null;
+  const doneColId = async (): Promise<number | null> =>
+    (await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 AND is_done=TRUE ORDER BY sort_order LIMIT 1`, [task.board_id])).rows[0]?.id || null;
+
+  const notifyStakeholders = async (title: string, message: string, type: string, extra: any = {}) => {
+    try {
+      const rows = (await pool.query(
+        `SELECT user_id FROM task_participants WHERE task_id=$1
+         UNION SELECT assignee_id FROM tasks WHERE id=$1 AND assignee_id IS NOT NULL
+         UNION SELECT created_by FROM tasks WHERE id=$1 AND created_by IS NOT NULL`, [taskId])).rows;
+      const done = new Set<number>();
+      for (const r of rows) {
+        const p = Number(r.user_id);
+        if (!p || p === Number(actorId) || done.has(p)) continue;
+        done.add(p);
+        await notify(p, title, message, { task_id: taskId, ...extra }, type);
+      }
+    } catch { /* opcional */ }
+  };
+
+  switch (event) {
+    case 'task.started': {
+      await pool.query(`UPDATE tasks SET started_at=COALESCE(started_at,NOW()), updated_at=NOW() WHERE id=$1`, [taskId]);
+      await logActivity(taskId, actorId, 'started', { via: 'sync' });
+      break;
+    }
+    case 'task.awaiting_confirmation': {
+      await pool.query(`UPDATE tasks SET status='awaiting_confirmation', updated_at=NOW() WHERE id=$1`, [taskId]);
+      await logActivity(taskId, actorId, 'awaiting_confirmation', { via: 'sync' });
+      if (task.created_by && Number(task.created_by) !== Number(actorId)) {
+        await notify(Number(task.created_by), `👀 Terminaron "${task.title}" — confirma para cerrarla`,
+          task.title, { task_id: taskId, awaiting_confirmation: true }, 'task_awaiting_confirmation');
+      }
+      break;
+    }
+    case 'task.completed': {
+      const dc = await doneColId();
+      await pool.query(
+        `UPDATE tasks SET status='completed', completed_at=NOW(), ${dc ? `column_id=${Number(dc)},` : ''} updated_at=NOW() WHERE id=$1`, [taskId]);
+      await logActivity(taskId, actorId, 'completed', { via: 'sync' });
+      await notifyStakeholders(`✅ Completaron "${task.title}"`, task.title, 'task_completed');
+      break;
+    }
+    case 'task.reopened': {
+      const fc = await firstColId();
+      await pool.query(
+        `UPDATE tasks SET status='open', started_at=NULL, completed_at=NULL, commitment_date=NULL, ${fc ? `column_id=${Number(fc)},` : ''} updated_at=NOW() WHERE id=$1`, [taskId]);
+      await logActivity(taskId, actorId, 'reopened', { via: 'sync' });
+      break;
+    }
+    case 'task.comment_added': {
+      const body = String(opts.body?.body || '').trim();
+      if (!body) return { ok: false, error: 'Comentario vacío' };
+      await pool.query(
+        `INSERT INTO task_comments (task_id, author_id, body, mentions) VALUES ($1,$2,$3,'[]'::jsonb)`, [taskId, actorId, body]);
+      await logActivity(taskId, actorId, 'comment', { via: 'sync' });
+      if (String(task.status) === 'awaiting_confirmation') {
+        const fc = await firstColId();
+        await pool.query(
+          `UPDATE tasks SET status='open', started_at=NULL, commitment_date=NULL, ${fc ? `column_id=${Number(fc)},` : ''} updated_at=NOW() WHERE id=$1`, [taskId]);
+        await logActivity(taskId, actorId, 'reopened', { reason: 'comment', via: 'sync' });
+      }
+      break;
+    }
+    default:
+      return { ok: false, error: `Evento no soportado: ${event}` };
+  }
+  return { ok: true };
+}

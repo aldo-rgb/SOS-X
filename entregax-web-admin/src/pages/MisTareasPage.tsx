@@ -210,6 +210,7 @@ const ROLE_LABEL: Record<string, string> = {
   warehouse_ops: 'Bodega', counter_staff: 'Mostrador', customer_service: 'Servicio a cliente',
   soporte_tecnico: 'Soporte técnico', advisor: 'Asesores', sub_advisor: 'Sub-asesores',
   repartidor: 'Repartidores', monitoreo: 'Monitoreo',
+  external_partner: 'Grupo Rino', // usuarios sincronizados desde la app de Grupo Rino
 };
 const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r : 'Otros');
 
