@@ -31,6 +31,7 @@ export default function MetasTab() {
   const [advisors, setAdvisors] = useState<Advisor[]>([]);
   const [decls, setDecls] = useState<Declaration[]>([]);
   const [measured, setMeasured] = useState<Record<string, number>>({});
+  const [pendingTasks, setPendingTasks] = useState<Record<number, number>>({});
   const [periodLabels, setPeriodLabels] = useState<Record<number, string>>({});
   const [goalId, setGoalId] = useState<number | null>(null);
   const [view, setView] = useState<'detalle' | 'compacto'>('detalle');
@@ -53,6 +54,7 @@ export default function MetasTab() {
       setAdvisors(r.data?.advisors || []);
       setDecls(r.data?.declarations || []);
       setMeasured(r.data?.measured || {});
+      setPendingTasks(r.data?.pendingTasks || {});
       setPeriodLabels(r.data?.periodLabels || {});
       setGoalId(prev => prev ?? (r.data?.goals?.[0]?.id ?? null));
     } catch { notify('No se pudieron cargar las metas', 'error'); }
@@ -69,6 +71,7 @@ export default function MetasTab() {
     return d?.manual_progress != null ? Number(d.manual_progress) : 0;
   };
   const targetOf = (advId: number): number => Number(declOf(advId)?.declared_target || 0);
+  const pendingOf = (advId: number): number => pendingTasks[advId] || 0;
   const hasDecl = (advId: number): boolean => {
     const d = declOf(advId);
     return !!(d && (Number(d.declared_target) > 0 || (d.declaration_text && d.declaration_text.trim())));
@@ -174,7 +177,16 @@ export default function MetasTab() {
       }}>
         <Avatar src={a.profile_photo_url || undefined} sx={{ width: 30, height: 30, fontSize: 12, bgcolor: a.is_leader ? '#5E35B1' : '#D6521C', fontWeight: 700 }}>{initials(a.full_name)}</Avatar>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography fontWeight={700} fontSize={12.5} noWrap>{rank >= 0 && rank < 3 ? `${MEDALS[rank]} ` : ''}{a.full_name}</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+            <Typography fontWeight={700} fontSize={12.5} noWrap>{rank >= 0 && rank < 3 ? `${MEDALS[rank]} ` : ''}{a.full_name}</Typography>
+            {pendingOf(a.id) > 0 && (
+              <Tooltip title={`${pendingOf(a.id)} tarea(s) pendiente(s)`}>
+                <Box component="span" sx={{ ml: 'auto', flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', gap: 0.25, px: 0.6, py: 0.1, borderRadius: 1, bgcolor: '#FBE9E0', color: '#A8431A', fontSize: 10.5, fontWeight: 700 }}>
+                  <AssignmentIcon sx={{ fontSize: 12 }} />{pendingOf(a.id)}
+                </Box>
+              </Tooltip>
+            )}
+          </Box>
           <LinearProgress variant="determinate" value={pct} sx={{ height: 5, borderRadius: 3, mt: 0.25, bgcolor: '#F0E9DF',
             '& .MuiLinearProgress-bar': { bgcolor: done ? '#2E7D46' : '#D6521C', borderRadius: 3 } }} />
         </Box>
@@ -219,6 +231,18 @@ export default function MetasTab() {
           <LinearProgress variant="determinate" value={pct} sx={{ height: 10, borderRadius: 5, bgcolor: '#F0E9DF',
             '& .MuiLinearProgress-bar': { bgcolor: done ? '#2E7D46' : '#D6521C', borderRadius: 5 } }} />
           {d?.declaration_text && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, fontStyle: 'italic' }}>“{d.declaration_text}”</Typography>}
+        </Box>
+        <Box sx={{ textAlign: 'center', minWidth: 66 }}>
+          <Tooltip title="Tareas pendientes (donde es responsable)">
+            <Box sx={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
+              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 0.9, py: 0.2, borderRadius: 1.5,
+                bgcolor: pendingOf(a.id) > 0 ? '#FBE9E0' : '#F1F1F1', color: pendingOf(a.id) > 0 ? '#A8431A' : '#9AA0A6' }}>
+                <AssignmentIcon sx={{ fontSize: 16 }} />
+                <Typography fontWeight={800} fontSize={15}>{pendingOf(a.id)}</Typography>
+              </Box>
+              <Typography variant="caption" color="text.secondary" fontSize={10}>pendientes</Typography>
+            </Box>
+          </Tooltip>
         </Box>
         <Box sx={{ textAlign: 'right', minWidth: 70 }}>
           <Typography fontWeight={800} fontSize={20} color={done ? 'success.main' : '#D6521C'}>{actual}</Typography>

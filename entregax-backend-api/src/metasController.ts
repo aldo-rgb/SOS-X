@@ -112,7 +112,20 @@ export const getMetas = async (req: AuthRequest, res: Response): Promise<any> =>
       }
     }
 
-    res.json({ goals, advisors, declarations, measured, periodLabels });
+    // Tareas PENDIENTES por asesor: tareas donde es el responsable (assignee)
+    // y no están terminadas ni canceladas. Para mostrarlas en las tarjetas de metas.
+    const pendingTasks: Record<number, number> = {};
+    try {
+      const ptRows = (await pool.query(
+        `SELECT assignee_id AS adv, COUNT(*)::int AS n
+           FROM tasks
+          WHERE assignee_id IS NOT NULL
+            AND status NOT IN ('completed','cancelled')
+          GROUP BY assignee_id`)).rows;
+      for (const r of ptRows) pendingTasks[Number(r.adv)] = Number(r.n);
+    } catch (e: any) { console.warn('[metas] pendingTasks:', e?.message); }
+
+    res.json({ goals, advisors, declarations, measured, periodLabels, pendingTasks });
   } catch (e: any) {
     console.error('[metas] getMetas:', e); res.status(500).json({ error: 'Error al cargar metas' });
   }
