@@ -608,11 +608,37 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
 
       // Mark packages as paid
       const orderRes = await pool.query(
-        `SELECT package_ids FROM pobox_payments WHERE id = $1`,
+        `SELECT package_ids, payment_reference FROM pobox_payments WHERE id = $1`,
         [voucher.payment_order_id]
       );
-      const packageIds = orderRes.rows[0]?.package_ids || [];
-      if (packageIds.length > 0) {
+      const rawPkgIds = orderRes.rows[0]?.package_ids;
+      const packageIds: number[] = (typeof rawPkgIds === 'string' ? JSON.parse(rawPkgIds) : (rawPkgIds || []))
+        .map((n: any) => Number(String(n).replace(/^[A-Za-z]+-/, '')))
+        .filter((n: number) => Number.isFinite(n));
+      // 🔧 COLISIÓN DE ID: en órdenes DHL, package_ids apunta a dhl_shipments
+      // (no a usa_pobox_packages/packages). Marcar la tabla equivocada dejaba la
+      // guía DHL SIN pagar. El service_type autoritativo vive en openpay_webhook_logs.
+      let isDhlOrder = false;
+      try {
+        const svc = await pool.query(
+          `SELECT service_type FROM openpay_webhook_logs
+            WHERE transaction_id = $1 AND service_type IS NOT NULL
+            ORDER BY id DESC LIMIT 1`,
+          [orderRes.rows[0]?.payment_reference]
+        );
+        isDhlOrder = String(svc.rows[0]?.service_type || '').toUpperCase() === 'AA_DHL';
+      } catch { /* ignore */ }
+      if (packageIds.length > 0 && isDhlOrder) {
+        await pool.query(
+          `UPDATE dhl_shipments SET
+              paid_at = CURRENT_TIMESTAMP,
+              cost_payment_status = 'paid',
+              monto_pagado = COALESCE(total_cost_mxn, saldo_pendiente, 0),
+              saldo_pendiente = 0
+           WHERE id = ANY($1::int[]) AND paid_at IS NULL`,
+          [packageIds]
+        );
+      } else if (packageIds.length > 0) {
         await pool.query(
           `UPDATE usa_pobox_packages SET payment_status = 'paid', costing_paid = TRUE, costing_paid_at = NOW()
            WHERE id = ANY($1::int[])`,
@@ -674,8 +700,12 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
           const raw = typeof o.package_ids === 'string' ? JSON.parse(o.package_ids) : o.package_ids;
           pkgIdsCredit = (Array.isArray(raw) ? raw : []).map((n: any) => Number(n)).filter(Boolean);
         } catch { pkgIdsCredit = []; }
+        // El servicio autoritativo ya se resolvió arriba (isDhlOrder). Para DHL,
+        // derivar desde packages daría un servicio AÉREO por la colisión de id.
         let svcKeyCredit: string | null = null;
-        if (pkgIdsCredit.length > 0) {
+        if (isDhlOrder) {
+          svcKeyCredit = 'dhl_liberacion';
+        } else if (pkgIdsCredit.length > 0) {
           const svcRes = await pool.query(
             `SELECT service_type FROM packages WHERE id = ANY($1) AND service_type IS NOT NULL LIMIT 1`,
             [pkgIdsCredit]

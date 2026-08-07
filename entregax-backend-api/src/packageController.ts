@@ -1262,20 +1262,53 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 };
             }
             if (refRes.rows[0]?.ids) {
-                const rawIds = typeof refRes.rows[0].ids === 'string' ? JSON.parse(refRes.rows[0].ids) : refRes.rows[0].ids;
+                const orow0 = refRes.rows[0];
+                const rawIds = typeof orow0.ids === 'string' ? JSON.parse(orow0.ids) : orow0.ids;
                 const ids = (Array.isArray(rawIds) ? rawIds : [])
                     .map((x: any) => parseInt(String(x).replace(/^[A-Za-z]+-/, ''), 10))
                     .filter((n: number) => Number.isFinite(n));
                 if (ids.length > 0) {
                     refPackageIds = ids;
-                    const tr = await pool.query(
-                        `SELECT tracking_internal FROM packages
-                         WHERE id = ANY($1::int[])
-                         ORDER BY (master_id IS NULL) DESC, COALESCE(is_master, FALSE) DESC, id ASC
-                         LIMIT 1`,
-                        [ids]
-                    );
-                    const resolved = tr.rows[0]?.tracking_internal;
+                    // 🔧 COLISIÓN DE ID: en una orden DHL, package_ids apunta a
+                    // dhl_shipments, pero esos ids COLISIONAN con ids de la tabla
+                    // packages (aéreo/PO Box). Resolver siempre contra packages
+                    // devolvía una guía AÉREA equivocada al rastrear la orden. El
+                    // service_type autoritativo vive en openpay_webhook_logs
+                    // (por payment_reference / transaction_id).
+                    let isDhlRef = false;
+                    try {
+                        const svc = await pool.query(
+                            `SELECT service_type FROM openpay_webhook_logs
+                              WHERE transaction_id = $1 AND service_type IS NOT NULL
+                              ORDER BY id DESC LIMIT 1`,
+                            [orow0.payment_reference]
+                        );
+                        isDhlRef = String(svc.rows[0]?.service_type || '').toUpperCase() === 'AA_DHL';
+                    } catch { /* si falla, seguimos como packages */ }
+
+                    let resolved: string | null = null;
+                    if (isDhlRef) {
+                        // Guía DHL: tomar su inbound/secondary_tracking desde dhl_shipments.
+                        // Así el query principal (packages) no la encuentra y cae al
+                        // fallback DHL que la renderiza correctamente.
+                        const dr = await pool.query(
+                            `SELECT COALESCE(inbound_tracking, secondary_tracking) AS tk
+                               FROM dhl_shipments WHERE id = ANY($1::int[])
+                               ORDER BY id ASC LIMIT 1`,
+                            [ids]
+                        );
+                        resolved = dr.rows[0]?.tk || null;
+                    }
+                    if (!resolved) {
+                        const tr = await pool.query(
+                            `SELECT tracking_internal FROM packages
+                             WHERE id = ANY($1::int[])
+                             ORDER BY (master_id IS NULL) DESC, COALESCE(is_master, FALSE) DESC, id ASC
+                             LIMIT 1`,
+                            [ids]
+                        );
+                        resolved = tr.rows[0]?.tracking_internal || null;
+                    }
                     if (resolved) {
                         trackingUpper = String(resolved).toUpperCase().trim();
                         trackingCompact = trackingUpper.replace(/[^A-Z0-9]/g, '');
@@ -4983,15 +5016,23 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                                             COALESCE(pkg_length, 30) AS l,
                                             COALESCE(width_cm, pkg_width, 30) AS w,
                                             COALESCE(height_cm, pkg_height, 30) AS h,
+                                            tracking_internal,
                                             (SELECT zip_code FROM addresses WHERE id = $2) AS zip
                                        FROM packages WHERE id = $1`,
                                     [packageId, deliveryAddressId]
                                 );
                                 const d = dimsRes.rows[0] || {};
-                                const boxes = Number(d.boxes) || 1;
-                                // El peso guardado en un master es agregado (todas las cajas);
-                                // PQTX cotiza por línea/caja, así que usamos el peso POR caja.
-                                const perBoxWeight = Math.max(0.5, (Number(d.weight) || 1) / boxes);
+                                // 🩹 REPACK: físicamente 1 caja (40x40x50), aunque total_boxes
+                                // guarde el conteo de guías originales consolidadas. Antes se
+                                // cobraba perBox × N cajas originales y salía inflado.
+                                const isRepackMaster = String(d.tracking_internal || '').toUpperCase().startsWith('US-REPACK-');
+                                const boxesRaw = Number(d.boxes) || 1;
+                                const boxes = isRepackMaster ? 1 : boxesRaw;
+                                // Peso: en REPACK usamos el peso agregado (ya es la caja
+                                // consolidada); en normal seguimos dividiendo entre cajas.
+                                const perBoxWeight = isRepackMaster
+                                    ? Math.max(0.5, Number(d.weight) || 1)
+                                    : Math.max(0.5, (Number(d.weight) || 1) / boxesRaw);
                                 const zip = nationalDeliveryZipMobile || d.zip;
                                 let perBox = 400; // fallback estándar ($400/caja)
                                 if (zip) {
@@ -5003,7 +5044,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                                     if (q && q.available && Number(q.pricePerBox) > 0) perBox = Number(q.pricePerBox);
                                 }
                                 shippingCostMxn = perBox * boxes;
-                                console.log(`🚚 [Última milla PQTX] Paquete ${packageId}: ${boxes} caja(s) × $${perBox} = $${shippingCostMxn} MXN`);
+                                console.log(`🚚 [Última milla PQTX] Paquete ${packageId}${isRepackMaster ? ' (REPACK=1 caja física)' : ''}: ${boxes} caja(s) × $${perBox} = $${shippingCostMxn} MXN`);
                             } catch (qErr: any) {
                                 console.warn(`[Última milla PQTX] No se pudo precotizar paquete ${packageId}, usando $400/caja:`, qErr?.message);
                                 shippingCostMxn = shippingCostMxn > 0 ? shippingCostMxn : 400;
@@ -5020,11 +5061,14 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                             );
                             const perBoxEv = parseFloat(String(cfgEv.rows[0]?.price_label || '').replace(/[^0-9.]/g, '')) || 0;
                             const boxesEvRes = await pool.query(
-                                `SELECT COALESCE(total_boxes, 1) AS boxes FROM packages WHERE id = $1`, [packageId]
+                                `SELECT COALESCE(total_boxes, 1) AS boxes, tracking_internal FROM packages WHERE id = $1`, [packageId]
                             );
-                            const boxesEv = Number(boxesEvRes.rows[0]?.boxes) || 1;
+                            // 🩹 REPACK: físicamente 1 caja (total_boxes almacena el conteo
+                            // de guías consolidadas, no cajas físicas → no multiplicar).
+                            const isRepackEv = String(boxesEvRes.rows[0]?.tracking_internal || '').toUpperCase().startsWith('US-REPACK-');
+                            const boxesEv = isRepackEv ? 1 : (Number(boxesEvRes.rows[0]?.boxes) || 1);
                             shippingCostMxn = perBoxEv * boxesEv;
-                            console.log(`💳 [Evisa Prepagado] Paquete ${packageId}: ${boxesEv} caja(s) × $${perBoxEv} = $${shippingCostMxn} MXN`);
+                            console.log(`💳 [Evisa Prepagado] Paquete ${packageId}${isRepackEv ? ' (REPACK=1 caja)' : ''}: ${boxesEv} caja(s) × $${perBoxEv} = $${shippingCostMxn} MXN`);
                         }
 
                         // 💰 Cualquier OTRA paquetería con precio FIJO configurado
@@ -5048,21 +5092,23 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                                 );
                                 const row = cfgFx.rows[0] || {};
                                 const boxesFxRes = await pool.query(
-                                    `SELECT COALESCE(total_boxes, 1) AS boxes FROM packages WHERE id = $1`, [packageId]
+                                    `SELECT COALESCE(total_boxes, 1) AS boxes, tracking_internal FROM packages WHERE id = $1`, [packageId]
                                 );
-                                const boxesFx = Number(boxesFxRes.rows[0]?.boxes) || 1;
+                                // 🩹 REPACK: físicamente 1 caja (ver comentario Evisa arriba).
+                                const isRepackFx = String(boxesFxRes.rows[0]?.tracking_internal || '').toUpperCase().startsWith('US-REPACK-');
+                                const boxesFx = isRepackFx ? 1 : (Number(boxesFxRes.rows[0]?.boxes) || 1);
                                 const perBoxTier = Number(row.price_per_package);
                                 const freeFromQty = Number(row.free_from_qty);
                                 const hasTier = Number.isFinite(perBoxTier) && perBoxTier >= 0 && Number.isFinite(freeFromQty) && freeFromQty >= 1;
                                 if (hasTier) {
                                     // Umbral: cajas >= free_from_qty → gratis; de lo contrario perBox × cajas.
                                     shippingCostMxn = boxesFx >= freeFromQty ? 0 : perBoxTier * boxesFx;
-                                    console.log(`💰 [Tier ${carrier}] Paquete ${packageId}: ${boxesFx} caja(s), umbral ${freeFromQty} → $${shippingCostMxn} MXN`);
+                                    console.log(`💰 [Tier ${carrier}] Paquete ${packageId}${isRepackFx ? ' (REPACK=1 caja)' : ''}: ${boxesFx} caja(s), umbral ${freeFromQty} → $${shippingCostMxn} MXN`);
                                 } else {
                                     const perBoxFx = parseFloat(String(row.price_label || '').replace(/[^0-9.]/g, '')) || 0;
                                     if (perBoxFx > 0) {
                                         shippingCostMxn = perBoxFx * boxesFx;
-                                        console.log(`💰 [Precio fijo ${carrier}] Paquete ${packageId}: ${boxesFx} caja(s) × $${perBoxFx} = $${shippingCostMxn} MXN`);
+                                        console.log(`💰 [Precio fijo ${carrier}] Paquete ${packageId}${isRepackFx ? ' (REPACK=1 caja)' : ''}: ${boxesFx} caja(s) × $${perBoxFx} = $${shippingCostMxn} MXN`);
                                     }
                                 }
                             } catch (fxErr: any) {
