@@ -853,8 +853,8 @@ export default function MisTareasPage() {
           <TextField autoFocus fullWidth label="Título (usa un verbo de acción)" margin="dense"
             value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
           <FormControl fullWidth size="small" sx={{ mt: 1.5 }} required error={catId === ''}>
-            <InputLabel>Categoría (flujo) *</InputLabel>
-            <Select label="Categoría (flujo) *" value={catId} displayEmpty onChange={e => { setCatId(Number(e.target.value)); setCatSection(''); }}>
+            <InputLabel shrink>Categoría (flujo) *</InputLabel>
+            <Select label="Categoría (flujo) *" notched value={catId} displayEmpty onChange={e => { setCatId(Number(e.target.value)); setCatSection(''); }}>
               <MenuItem value="" disabled><em>Selecciona una categoría…</em></MenuItem>
               <MenuItem value={0}>Personal</MenuItem>
               {categories.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
@@ -879,8 +879,8 @@ export default function MisTareasPage() {
             value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
           <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>
             <FormControl fullWidth size="small" required error={!form.eisenhower}>
-              <InputLabel>Prioridad (Eisenhower) *</InputLabel>
-              <Select label="Prioridad (Eisenhower) *" value={form.eisenhower} displayEmpty onChange={e => setForm({ ...form, eisenhower: e.target.value })}>
+              <InputLabel shrink>Prioridad (Eisenhower) *</InputLabel>
+              <Select label="Prioridad (Eisenhower) *" notched value={form.eisenhower} displayEmpty onChange={e => setForm({ ...form, eisenhower: e.target.value })}>
                 <MenuItem value="" disabled><em>Selecciona la prioridad…</em></MenuItem>
                 {Object.entries(EIS).map(([k, v]) => <MenuItem key={k} value={k}>{v.label}</MenuItem>)}
               </Select>
