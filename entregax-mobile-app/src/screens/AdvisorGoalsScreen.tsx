@@ -15,8 +15,21 @@ const ORANGE = '#F05A28';
 const GREEN = '#2E7D46';
 const BG = '#F5F5F7';
 const fmt0 = (n: number) => '$' + Math.round(n || 0).toLocaleString('es-MX');
+// Formato para volumen: kg → "12.5 kg"  ·  m³ → "0.85 m³"
+const fmtVol = (v: number, unit: string) => {
+  const n = Number(v) || 0;
+  return `${n.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${unit}`;
+};
 
-interface Accel { key: string; name: string; emoji: string; monthlyAvg: number; target: number; current: number; done: boolean; hasHist: boolean; }
+interface Accel {
+  key: string; name: string; emoji: string;
+  // Métrica $ (compat vieja)
+  monthlyAvg: number; target: number; current: number; done: boolean; hasHist: boolean;
+  // Métrica volumen (nueva — fuente de verdad para Aéreo/TDI en kg y Marítimo en m³)
+  unit?: 'kg' | 'm³';
+  currentVol?: number; avgVol?: number; targetVol?: number;
+  doneVol?: boolean; hasHistVol?: boolean;
+}
 interface Vol { name: string; emoji: string; guias: number; bonusNow: number; nextGuias: number | null; nextBonus: number | null; faltan: number; done: boolean; }
 interface Quota { key: string; name: string; emoji: string; current: number; target: number; done: boolean; }
 interface Goals {

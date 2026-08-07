@@ -1052,10 +1052,15 @@ export const getMyGoals = async (req: Request, res: Response): Promise<any> => {
         const uRes = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid]);
         const advisorName = uRes.rows[0]?.full_name || '';
 
-        // Parámetros del modelo (mismos defaults que el simulador).
-        const P = { thr: 1.2, vol: [{ g: 80, b: 500 }, { g: 150, b: 1200 }, { g: 250, b: 2500 }], qXpay: 3, qSeg: 3, combo: 500, clean: 300 };
+        // Parámetros del modelo:
+        //  · Bono volumen (PO Box y DHL por separado): 50 → $500 · 75 → $1,200 · 100 → $2,500
+        //  · Acelerador 1.5× sobre el excedente por encima del 120% de la meta
+        //  · Aéreo/TDI se miden en KILOGRAMOS, Marítimo en CBM (m³), no en $
+        //    porque un cambio de tarifa hace ver al asesor "peor" sin que su
+        //    volumen real haya bajado. La meta = promedio de los últimos 12 meses × 120%.
+        const P = { thr: 1.2, vol: [{ g: 50, b: 500 }, { g: 75, b: 1200 }, { g: 100, b: 2500 }], qXpay: 3, qSeg: 3, combo: 500, clean: 300 };
 
-        // Progreso del MES en curso (advisor_commissions del asesor).
+        // Progreso del MES en curso (advisor_commissions del asesor): ventas $ y # guías por servicio.
         const cm = await pool.query(`
             SELECT service_type,
                    COALESCE(SUM(payment_amount_mxn), 0)::numeric AS ventas,
@@ -1068,7 +1073,54 @@ export const getMyGoals = async (req: Request, res: Response): Promise<any> => {
         for (const r of cm.rows) bySvc[r.service_type] = { ventas: Number(r.ventas), guias: Number(r.guias) };
         const sv = (k: string) => bySvc[k] || { ventas: 0, guias: 0 };
 
-        // Promedio mensual histórico de acelerados (Excel), por servicio.
+        // ────────────────────────────────────────────────────────────
+        // Volumen físico por servicio (kg/CBM) desde advisor_commissions
+        // JOIN con packages/maritime_orders. Se usa como la NUEVA meta real
+        // en vez de $. El historial en Excel (svc_historico_reports) solo
+        // tiene monto, así que la meta se calcula con el promedio de los
+        // últimos 12 meses de ESTA base (advisor_commissions + joins).
+        // ────────────────────────────────────────────────────────────
+        // Aéreo/TDI (PKG): peso cobrable si existe, si no peso real.
+        // Marítimo (MAR): CBM = summary_volume.
+        const volSql = `
+          WITH src AS (
+            SELECT ac.advisor_id, ac.service_type, ac.created_at,
+              CASE
+                WHEN ac.service_type IN ('aereo_china_mx','tdi_express') AND ac.shipment_type = 'PKG' THEN
+                  COALESCE(
+                    (SELECT NULLIF(p.air_chargeable_weight, 0) FROM packages p WHERE p.id = ac.shipment_id),
+                    (SELECT NULLIF(p.weight, 0) FROM packages p WHERE p.id = ac.shipment_id),
+                    0)::numeric
+                ELSE 0::numeric END AS kg,
+              CASE
+                WHEN ac.service_type = 'maritimo_china_mx' AND ac.shipment_type = 'MAR' THEN
+                  COALESCE((SELECT NULLIF(mo.summary_volume, 0) FROM maritime_orders mo WHERE mo.id = ac.shipment_id), 0)::numeric
+                ELSE 0::numeric END AS cbm
+            FROM advisor_commissions ac
+            WHERE ac.advisor_id = $1
+              AND COALESCE(ac.penalized, false) = false
+              AND ac.service_type IN ('aereo_china_mx','tdi_express','maritimo_china_mx')
+          )
+          SELECT service_type,
+            SUM(kg) FILTER (WHERE created_at >= date_trunc('month', now())) AS kg_cur,
+            SUM(cbm) FILTER (WHERE created_at >= date_trunc('month', now())) AS cbm_cur,
+            SUM(kg) FILTER (WHERE created_at >= date_trunc('month', now()) - interval '12 months' AND created_at < date_trunc('month', now())) AS kg_12m,
+            SUM(cbm) FILTER (WHERE created_at >= date_trunc('month', now()) - interval '12 months' AND created_at < date_trunc('month', now())) AS cbm_12m,
+            COUNT(DISTINCT date_trunc('month', created_at)) FILTER (WHERE created_at >= date_trunc('month', now()) - interval '12 months' AND created_at < date_trunc('month', now())) AS months_12m
+          FROM src
+          GROUP BY service_type`;
+        const volRes = await pool.query(volSql, [uid]);
+        const volBySvc: Record<string, { kg_cur: number; cbm_cur: number; kg_12m: number; cbm_12m: number; months_12m: number }> = {};
+        for (const r of volRes.rows) volBySvc[r.service_type] = {
+            kg_cur: Number(r.kg_cur) || 0,
+            cbm_cur: Number(r.cbm_cur) || 0,
+            kg_12m: Number(r.kg_12m) || 0,
+            cbm_12m: Number(r.cbm_12m) || 0,
+            months_12m: Number(r.months_12m) || 0,
+        };
+
+        // Promedio mensual histórico $ (Excel), por servicio — se conserva como
+        // información secundaria en la respuesta.
         const norm = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
         const SVC_KEY: Record<string, 'aereo' | 'tdi' | 'mar'> = { tdi_aereo: 'aereo', tdi_express: 'tdi', maritimo: 'mar' };
         const hist: any = { aereo: { sum: 0, months: new Set() }, tdi: { sum: 0, months: new Set() }, mar: { sum: 0, months: new Set() } };
@@ -1085,19 +1137,46 @@ export const getMyGoals = async (req: Request, res: Response): Promise<any> => {
                 }
             }
         } catch { /* svc_historico puede no existir */ }
-        const avg = (o: any) => (o.months.size > 0 ? Math.round(o.sum / o.months.size) : 0);
+        const avgMoney = (o: any) => (o.months.size > 0 ? Math.round(o.sum / o.months.size) : 0);
 
-        // Aceleradores por servicio: meta = promedio histórico × 120%.
+        // Aceleradores por servicio con la NUEVA métrica volumen (kg/CBM).
+        // El "hasHist" ahora requiere: al menos 1 mes de historial en los 12
+        // meses previos con volumen > 0. Si no hay, se marca "sin historial"
+        // (se seguirá pintando el mes en curso).
         const accelServices = [
-            { key: 'aereo', name: 'Aéreo China', emoji: '✈️', st: 'aereo_china_mx' },
-            { key: 'tdi',   name: 'TDI Express', emoji: '🚀', st: 'tdi_express' },
-            { key: 'mar',   name: 'Marítimo China', emoji: '🚢', st: 'maritimo_china_mx' },
+            { key: 'aereo', name: 'Aéreo China',    emoji: '✈️', st: 'aereo_china_mx',    unit: 'kg' as const },
+            { key: 'tdi',   name: 'TDI Express',    emoji: '🚀', st: 'tdi_express',       unit: 'kg' as const },
+            { key: 'mar',   name: 'Marítimo China', emoji: '🚢', st: 'maritimo_china_mx', unit: 'm³' as const },
         ];
         const accelerators = accelServices.map(s => {
-            const monthlyAvg = avg(hist[s.key]);
-            const target = Math.round(P.thr * monthlyAvg);
-            const current = Math.round(sv(s.st).ventas);
-            return { key: s.key, name: s.name, emoji: s.emoji, monthlyAvg, target, current, done: monthlyAvg > 0 && current >= target, hasHist: monthlyAvg > 0 };
+            const vol = volBySvc[s.st] || { kg_cur: 0, cbm_cur: 0, kg_12m: 0, cbm_12m: 0, months_12m: 0 };
+            const isMar = s.unit === 'm³';
+            const currentVol = isMar ? vol.cbm_cur : vol.kg_cur;
+            const sum12 = isMar ? vol.cbm_12m : vol.kg_12m;
+            const months = vol.months_12m || 12; // si hay 0 meses, evita div/0 más abajo
+            const avgVol = vol.months_12m > 0 ? sum12 / months : 0;
+            const targetVol = Math.round(avgVol * P.thr * 10) / 10;
+            const doneVol = avgVol > 0 && currentVol >= targetVol;
+            // Compatibilidad hacia atrás: seguimos devolviendo $ para pantallas legacy.
+            const monthlyAvgMoney = avgMoney(hist[s.key]);
+            const targetMoney = Math.round(P.thr * monthlyAvgMoney);
+            const currentMoney = Math.round(sv(s.st).ventas);
+            return {
+                key: s.key, name: s.name, emoji: s.emoji,
+                // Nueva métrica (fuente de verdad):
+                unit: s.unit,
+                currentVol: Math.round(currentVol * 10) / 10,
+                avgVol: Math.round(avgVol * 10) / 10,
+                targetVol,
+                doneVol,
+                hasHistVol: avgVol > 0,
+                // Métrica $ (secundaria — se mantiene para no romper la UI vieja):
+                monthlyAvg: monthlyAvgMoney,
+                target: targetMoney,
+                current: currentMoney,
+                done: monthlyAvgMoney > 0 && currentMoney >= targetMoney,
+                hasHist: monthlyAvgMoney > 0,
+            };
         });
 
         // Bono de volumen: PO Box y DHL por separado.
