@@ -107,6 +107,9 @@ import {
   MonetizationOn as BillingIcon,
   PersonOff as ClientIssueIcon,
   MoreHoriz as OtherIcon,
+  ReceiptLong as InvoicingIcon,
+  MailOutline as ClientRequestIcon,
+  Inventory2 as PackageAdjustIcon,
   ListAlt as ListAltIcon,
   HelpOutline as UnidentifiedIcon,
   PersonAdd as AssignIcon,
@@ -1485,11 +1488,14 @@ export default function DashboardAdvisor() {
   // ─── Actions ───
 
   const ADVISOR_TICKET_CATEGORIES = [
-    { key: 'systemError',  label: 'Error del Sistema',    icon: <BugIcon />,          color: '#f44336', noTracking: true },
-    { key: 'billing',      label: 'Comisiones / Pagos',   icon: <BillingIcon />,      color: '#4CAF50', noTracking: true },
-    { key: 'tracking',     label: 'Ajustes a un paquete', icon: <SearchIcon />,       color: '#2196F3', noTracking: false },
-    { key: 'clientIssue',  label: 'Problema con Cliente', icon: <ClientIssueIcon />,  color: '#FF9800', noTracking: true },
-    { key: 'other',        label: 'Otro',                 icon: <OtherIcon />,        color: '#9E9E9E', noTracking: true },
+    { key: 'systemError',       label: 'Error del Sistema',    icon: <BugIcon />,             color: '#f44336', noTracking: true  },
+    { key: 'billing',           label: 'Comisiones / Pagos',   icon: <BillingIcon />,         color: '#4CAF50', noTracking: true  },
+    { key: 'invoicing',         label: 'Facturación',            icon: <InvoicingIcon />,       color: '#00796B', noTracking: true  },
+    { key: 'tracking',          label: 'Rastreo de Paquete',   icon: <SearchIcon />,          color: '#2196F3', noTracking: false },
+    { key: 'packageAdjustment', label: 'Ajuste a un Paquete',  icon: <PackageAdjustIcon />,   color: '#9C27B0', noTracking: false },
+    { key: 'clientRequest',     label: 'Solicitud de Cliente', icon: <ClientRequestIcon />,   color: '#7E57C2', noTracking: true  },
+    { key: 'clientIssue',       label: 'Aclaración de Cliente',  icon: <ClientIssueIcon />,     color: '#FF9800', noTracking: true  },
+    { key: 'other',             label: 'Otro',                 icon: <OtherIcon />,           color: '#9E9E9E', noTracking: true  },
   ];
 
   // Confirmación (con diseño) para archivar un ticket de cotización.
@@ -5812,10 +5818,12 @@ export default function DashboardAdvisor() {
                   sx={{ mb: 2 }}
                 />
 
-                {/* Adjuntar archivos (imágenes + PDFs) */}
+                {/* Adjuntar archivos (imágenes + PDFs + Office) */}
                 <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Archivos adjuntos (Opcional)</Typography>
                 <input
-                  type="file" accept="image/*,application/pdf" multiple
+                  type="file"
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.rtf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/csv,text/plain,application/rtf"
+                  multiple
                   id="advisor-ticket-img"
                   style={{ display: 'none' }}
                   onChange={e => {

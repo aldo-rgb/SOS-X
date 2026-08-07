@@ -147,33 +147,39 @@ interface SupportStats {
 
 const categoryIcons: Record<string, React.ReactElement> = {
   tracking: <TrackingIcon fontSize="small" />,
+  packageAdjustment: <TrackingIcon fontSize="small" />,
   delay: <TimeIcon fontSize="small" />,
   warranty: <AgentIcon fontSize="small" />,
   compensation: <BillingIcon fontSize="small" />,
   instructionChange: <TransferIcon fontSize="small" />,
   systemError: <WarningIcon fontSize="small" />,
   billing: <BillingIcon fontSize="small" />,
+  invoicing: <BillingIcon fontSize="small" />,
   damage: <WarningIcon fontSize="small" />,
   quote: <HelpIcon fontSize="small" />,
   missing: <WarningIcon fontSize="small" />,
   other: <HelpIcon fontSize="small" />,
   accounting: <BillingIcon fontSize="small" />,
   clientIssue: <AgentIcon fontSize="small" />,
+  clientRequest: <AgentIcon fontSize="small" />,
 };
 
 const categoryLabels: Record<string, string> = {
-  tracking: 'Rastreo',
+  tracking: 'Rastreo de Paquete',
+  packageAdjustment: 'Ajuste a un Paquete',
   delay: 'Retraso',
   warranty: 'Garantía',
   compensation: 'Compensación',
   instructionChange: 'Cambio de instrucciones',
   systemError: 'Error Sistema',
   billing: 'Comisiones/Pagos',
+  invoicing: 'Facturación',
   damage: 'Daño',
   quote: 'Cotización',
   missing: 'Perdido',
   accounting: 'Contabilidad',
-  clientIssue: 'Problema con Cliente',
+  clientIssue: 'Aclaración de Cliente',
+  clientRequest: 'Solicitud de Cliente',
   other: 'Otro',
 };
 

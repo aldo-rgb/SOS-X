@@ -40,14 +40,19 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: string
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-  tracking:     'Rastreo',
-  delay:        'Retraso',
-  missing:      'Faltante',
-  warranty:     'Garantía',
-  compensation: 'Compensación',
-  accounting:   'Contabilidad',
-  systemError:  'Error del Sistema',
-  other:        'Otro',
+  tracking:          'Rastreo de Paquete',
+  packageAdjustment: 'Ajuste a un Paquete',
+  delay:             'Retraso',
+  missing:           'Faltante',
+  warranty:          'Garantía',
+  compensation:      'Compensación',
+  billing:           'Comisiones / Pagos',
+  invoicing:         'Facturación',
+  accounting:        'Contabilidad',
+  systemError:       'Error del Sistema',
+  clientIssue:       'Aclaración de Cliente',
+  clientRequest:     'Solicitud de Cliente',
+  other:             'Otro',
 };
 
 const timeAgo = (dateStr: string): string => {

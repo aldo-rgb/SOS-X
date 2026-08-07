@@ -82,8 +82,10 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: string
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-  tracking: 'Rastreo',
-  billing: 'Facturación',
+  tracking: 'Rastreo de Paquete',
+  packageAdjustment: 'Ajuste a un Paquete',
+  billing: 'Comisiones / Pagos',
+  invoicing: 'Facturación',
   quote: 'Cotización',
   missing: 'Paquete Perdido',
   damage: 'Daño',
@@ -94,7 +96,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   accounting: 'Contabilidad',
   systemError: 'Error Sistema',
   container: 'Contenedor',
-  clientIssue: 'Problema con Cliente',
+  clientIssue: 'Aclaración de Cliente',
+  clientRequest: 'Solicitud de Cliente',
 };
 
 export default function AdvisorClientTicketsScreen({ navigation, route }: any) {

@@ -13,18 +13,20 @@ const ORANGE = '#F05A28';
 const BLACK = '#111';
 
 const CATEGORIES = [
-  { key: 'systemError',       label: 'Error del Sistema',    icon: 'bug',                 color: '#f44336' },
-  { key: 'billing',           label: 'Comisiones / Pagos',   icon: 'cash',                color: '#4CAF50' },
-  { key: 'tracking',          label: 'Rastreo de Paquete',   icon: 'search',              color: '#2196F3' },
-  { key: 'clientIssue',       label: 'Problema con Cliente', icon: 'people',              color: '#FF9800' },
-  { key: 'packageAdjustment', label: 'Ajuste a un Paquete',  icon: 'cube',                color: '#9C27B0' },
-  { key: 'other',             label: 'Otro',                 icon: 'ellipsis-horizontal', color: '#9E9E9E' },
+  { key: 'systemError',       label: 'Error del Sistema',      icon: 'bug',                 color: '#f44336' },
+  { key: 'billing',           label: 'Comisiones / Pagos',     icon: 'cash',                color: '#4CAF50' },
+  { key: 'invoicing',         label: 'Facturación',              icon: 'document-text',       color: '#00796B' },
+  { key: 'tracking',          label: 'Rastreo de Paquete',     icon: 'search',              color: '#2196F3' },
+  { key: 'packageAdjustment', label: 'Ajuste a un Paquete',    icon: 'cube',                color: '#9C27B0' },
+  { key: 'clientRequest',     label: 'Solicitud de Cliente',   icon: 'mail-open',           color: '#7E57C2' },
+  { key: 'clientIssue',       label: 'Aclaración de Cliente',    icon: 'people',              color: '#FF9800' },
+  { key: 'other',             label: 'Otro',                   icon: 'ellipsis-horizontal', color: '#9E9E9E' },
 ];
 
 const CEDIS_OPTIONS = ['MTY', 'CDMX', 'USA', 'Otro'];
 
 // Categories that require client number + cedis
-const NEEDS_CLIENT_FIELDS = ['billing', 'tracking', 'clientIssue', 'packageAdjustment'];
+const NEEDS_CLIENT_FIELDS = ['billing', 'invoicing', 'tracking', 'clientIssue', 'clientRequest', 'packageAdjustment'];
 // Categories that require tracking number
 const NEEDS_GUIA = ['tracking'];
 
@@ -90,9 +92,15 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
       const result = await DocumentPicker.getDocumentAsync({
         type: [
           'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           'application/vnd.ms-excel',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-powerpoint',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
           'text/csv',
+          'text/plain',
+          'application/rtf',
         ],
         copyToCacheDirectory: true,
         multiple: true,

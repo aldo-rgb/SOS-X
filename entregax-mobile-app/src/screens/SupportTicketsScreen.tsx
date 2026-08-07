@@ -70,11 +70,13 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: string
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-  tracking: 'Rastreo', billing: 'Facturación', quote: 'Cotización',
+  tracking: 'Rastreo de Paquete', packageAdjustment: 'Ajuste a un Paquete',
+  billing: 'Comisiones / Pagos', invoicing: 'Facturación', quote: 'Cotización',
   missing: 'Paquete Perdido', damage: 'Daño', other: 'Otro',
   delivery: 'Entrega', warranty: 'Garantía', compensation: 'Compensación',
   accounting: 'Contabilidad', systemError: 'Error Sistema',
-  container: 'Contenedor', clientIssue: 'Problema con Cliente',
+  container: 'Contenedor',
+  clientIssue: 'Aclaración de Cliente', clientRequest: 'Solicitud de Cliente',
 };
 
 function getCedisDeptName(branchCode: string, branchName: string): string {

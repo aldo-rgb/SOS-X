@@ -185,11 +185,14 @@ export default function DashboardBranchManager() {
   const [newTicketSuccessFolio, setNewTicketSuccessFolio] = useState('');
 
   const OPS_TICKET_CATEGORIES = [
-    { key: 'systemError', label: 'Error del Sistema' },
-    { key: 'billing',     label: 'Comisiones / Pagos' },
-    { key: 'tracking',    label: 'Ajustes a un paquete' },
-    { key: 'clientIssue', label: 'Problema con Cliente' },
-    { key: 'other',       label: 'Otro' },
+    { key: 'systemError',       label: 'Error del Sistema' },
+    { key: 'billing',           label: 'Comisiones / Pagos' },
+    { key: 'invoicing',         label: 'Facturación' },
+    { key: 'tracking',          label: 'Rastreo de Paquete' },
+    { key: 'packageAdjustment', label: 'Ajuste a un Paquete' },
+    { key: 'clientRequest',     label: 'Solicitud de Cliente' },
+    { key: 'clientIssue',       label: 'Aclaración de Cliente' },
+    { key: 'other',             label: 'Otro' },
   ];
 
   const handleSubmitOpsTicket = async () => {
