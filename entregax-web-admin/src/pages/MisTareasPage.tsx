@@ -1438,10 +1438,12 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               <TextField
                 fullWidth
                 size="small"
-                placeholder={sendingComment ? 'Enviando comentario…' : 'Deja un comentario…'}
+                multiline
+                maxRows={6}
+                placeholder={sendingComment ? 'Enviando comentario…' : 'Deja un comentario…  (Shift+Enter = salto de línea)'}
                 value={comment}
                 onChange={e => setComment(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !sendingComment) addComment(); }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sendingComment) addComment(); } }}
                 disabled={sendingComment}
               />
               <IconButton color="primary" onClick={addComment} disabled={sendingComment || !comment.trim()}>
