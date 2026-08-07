@@ -565,6 +565,26 @@ export default function MisTareasPage() {
     return parts.some(p => norm(p).includes(q));
   };
   const visibleTasks = mineTasks.filter(matchesSearch);
+  // 🔎 "También encontrado en…": tareas que HACEN match con el texto pero que
+  // los filtros activos (categoría/solo mías/completadas/personales) están
+  // ocultando. Solo se calcula si hay 2+ caracteres de búsqueda.
+  const hiddenMatches = q.length >= 2 ? tasks.filter(t => matchesSearch(t) && !visibleTasks.some(v => v.id === t.id)) : [];
+  // Un chip por tarea oculta con la razón de por qué está oculta (para dar contexto).
+  const reasonFor = (t: Task): string => {
+    if (t.status === 'completed' && !showDone) return 'Terminada';
+    if (isPersonalTask(t) && hidePersonal) return 'Personal (oculta en horario)';
+    if (catFilter !== 'all' && Number(t.board_id) !== catFilter) return `Categoría: ${t.board_name || '—'}`;
+    if (!globalView && !isMine(t)) return 'No es tuya';
+    return 'Oculta por filtros';
+  };
+  // Al hacer click abrimos la tarea Y ajustamos filtros para que quede visible.
+  const openHidden = (t: Task) => {
+    if (t.status === 'completed' && !showDone) setShowDone(true);
+    if (isPersonalTask(t) && hidePersonal) setShowPersonal(true);
+    if (catFilter !== 'all' && Number(t.board_id) !== catFilter) setCatFilter('all');
+    if (!globalView && !isMine(t)) setGlobalView(true);
+    setDetailId(t.id);
+  };
 
   return (
     <Box>
@@ -655,6 +675,36 @@ export default function MisTareasPage() {
           }}
         />
       </Box>
+
+      {/* 🔎 Coincidencias ocultas por los filtros activos (categoría/mías/etc).
+          Chips clickeables que ajustan el filtro y abren la tarea. */}
+      {hiddenMatches.length > 0 && (
+        <Alert severity="info" icon={<SearchIcon fontSize="small" />} sx={{ mb: 1.5, '& .MuiAlert-message': { width: '100%' } }}>
+          <Typography fontSize={12.5} fontWeight={700} sx={{ mb: 0.5 }}>
+            También encontrado en {hiddenMatches.length} tarea{hiddenMatches.length === 1 ? '' : 's'} oculta{hiddenMatches.length === 1 ? '' : 's'} por los filtros actuales:
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 0.5 }}>
+            {hiddenMatches.slice(0, 12).map(t => (
+              <Tooltip key={t.id} title={reasonFor(t)} arrow>
+                <Chip
+                  size="small"
+                  label={(t.title || '').length > 42 ? (t.title || '').slice(0, 40) + '…' : (t.title || '—')}
+                  onClick={() => openHidden(t)}
+                  sx={{
+                    fontWeight: 600, fontSize: 11.5, cursor: 'pointer',
+                    bgcolor: t.status === 'completed' ? '#E4F1E8' : '#FBE6D8',
+                    color: t.status === 'completed' ? '#2E7D46' : '#B23F12',
+                    '&:hover': { bgcolor: t.status === 'completed' ? '#C8E6C9' : '#F5D3B8' },
+                  }}
+                />
+              </Tooltip>
+            ))}
+            {hiddenMatches.length > 12 && (
+              <Chip size="small" label={`+${hiddenMatches.length - 12}`} sx={{ fontWeight: 700, fontSize: 11.5, bgcolor: '#EEE' }} />
+            )}
+          </Box>
+        </Alert>
+      )}
 
       {/* Eventos del calendario de HOY (para el usuario involucrado) */}
       {events.length > 0 && (
