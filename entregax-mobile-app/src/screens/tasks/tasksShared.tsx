@@ -699,6 +699,8 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [comment, setComment] = useState('');
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState('');
   const [mentions, setMentions] = useState<{ id: number; name: string }[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const onCommentChange = (txt: string) => {
@@ -800,6 +802,8 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
 
   const put = async (url: string, body: any) => fetch(url, { method: 'PUT', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const post = async (url: string, body: any) => fetch(url, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const patch = async (url: string, body: any) => fetch(url, { method: 'PATCH', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const del = async (url: string) => fetch(url, { method: 'DELETE', headers: H });
 
   // Cambio parcial inline (prioridad, categoría, responsable, involucrados) sin modo edición.
   const patchTask = async (body: any) => {
@@ -896,6 +900,26 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     try { const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions }); const d = await r.json().catch(() => ({})); setComment(''); setMentions([]); setMentionQuery(null); setDirty(true); reload(true); onChanged(); if (d?.reopened) Alert.alert('💬 Comentario agregado', 'La tarea volvió a pendientes (se reanuda el conteo de tiempo).'); }
     catch { /* */ }
     finally { setSendingComment(false); }
+  };
+  const saveEditComment = async () => {
+    if (!editingText.trim() || editingCommentId == null) return;
+    try {
+      const r = await patch(`${API_URL}/api/tasks/${taskId}/comments/${editingCommentId}`, { body: editingText.trim() });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo editar', e.error || ''); return; }
+      setEditingCommentId(null); setEditingText(''); setDirty(true); reload(true); onChanged();
+    } catch { /* */ }
+  };
+  const deleteComment = (commentId: number) => {
+    Alert.alert('Borrar comentario', '¿Seguro que deseas borrar este comentario?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Borrar', style: 'destructive', onPress: async () => {
+        try {
+          const r = await del(`${API_URL}/api/tasks/${taskId}/comments/${commentId}`);
+          if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo borrar', e.error || ''); return; }
+          setDirty(true); reload(true); onChanged();
+        } catch { /* */ }
+      } },
+    ]);
   };
   const addPhoto = async () => {
     try {
@@ -1184,8 +1208,43 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                           {c.author_name || '—'}
                         </Text>
                       )}
-                      <Text style={[styles.msgText, mine && { color: '#0B3D1E' }]}>{c.body}</Text>
-                      <Text style={[styles.msgTime, mine ? { color: '#3A7D53' } : { color: '#9AA0A6' }]}>{fmtDate(c.created_at)}</Text>
+                      {editingCommentId === c.id ? (
+                        <View>
+                          <TextInput
+                            style={[styles.input, { backgroundColor: '#fff', minWidth: 200 }]}
+                            value={editingText}
+                            onChangeText={setEditingText}
+                            multiline
+                            autoFocus
+                            placeholderTextColor="#999"
+                          />
+                          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 14, marginTop: 6 }}>
+                            <TouchableOpacity onPress={() => { setEditingCommentId(null); setEditingText(''); }}>
+                              <Text style={{ fontSize: 12.5, color: '#9AA0A6', fontWeight: '700' }}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={saveEditComment} disabled={!editingText.trim()}>
+                              <Text style={{ fontSize: 12.5, color: '#2E7D46', fontWeight: '800', opacity: editingText.trim() ? 1 : 0.5 }}>Guardar</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ) : (
+                        <Text style={[styles.msgText, mine && { color: '#0B3D1E' }]}>{c.body}</Text>
+                      )}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 12, marginTop: 2 }}>
+                        {mine && editingCommentId !== c.id && (
+                          <>
+                            <TouchableOpacity onPress={() => { setEditingCommentId(c.id); setEditingText(c.body); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Text style={{ fontSize: 11.5, color: '#3A7D53', fontWeight: '700' }}>Editar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => deleteComment(c.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Text style={{ fontSize: 11.5, color: '#C0392B', fontWeight: '700' }}>Borrar</Text>
+                            </TouchableOpacity>
+                          </>
+                        )}
+                        <Text style={[styles.msgTime, mine ? { color: '#3A7D53' } : { color: '#9AA0A6' }]}>
+                          {c.edited_at ? `editado · ${fmtDate(c.edited_at)}` : fmtDate(c.created_at)}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 );

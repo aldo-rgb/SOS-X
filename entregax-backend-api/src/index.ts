@@ -13696,6 +13696,8 @@ import {
   toggleSubtask as tasksToggleSubtask,
   deleteSubtask as tasksDeleteSubtask,
   addComment as tasksAddComment,
+  editComment as tasksEditComment,
+  deleteComment as tasksDeleteComment,
 } from './tasksController';
 import {
   uploadBrandAsset,
@@ -13753,6 +13755,8 @@ app.post('/api/tasks/:id/subtasks', authenticateToken, tasksAddSubtask);
 app.put('/api/tasks/subtasks/:subId', authenticateToken, tasksToggleSubtask);
 app.delete('/api/tasks/subtasks/:subId', authenticateToken, tasksDeleteSubtask);
 app.post('/api/tasks/:id/comments', authenticateToken, tasksAddComment);
+app.patch('/api/tasks/:id/comments/:commentId', authenticateToken, tasksEditComment);
+app.delete('/api/tasks/:id/comments/:commentId', authenticateToken, tasksDeleteComment);
 // Admin
 app.get('/api/admin/brand-assets', authenticateToken, requireRole('super_admin'), listBrandAssets);
 app.post('/api/admin/brand-assets/upload', authenticateToken, requireRole('super_admin'), brandAssetUpload.single('file'), uploadBrandAsset);

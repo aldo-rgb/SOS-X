@@ -24,6 +24,8 @@ import GridViewIcon from '@mui/icons-material/GridView';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import CheckIcon from '@mui/icons-material/Check';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
@@ -1094,6 +1096,20 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     catch { notify('Error al comentar', 'error'); }
     finally { setSendingComment(false); }
   };
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const saveEditComment = async () => {
+    if (!editingText.trim() || editingCommentId == null) return;
+    try {
+      await axios.patch(`${API_URL}/tasks/${id}/comments/${editingCommentId}`, { body: editingText.trim() }, H());
+      setEditingCommentId(null); setEditingText(''); reload(); onChanged();
+    } catch { notify('Error al editar comentario', 'error'); }
+  };
+  const deleteComment = async (commentId: number) => {
+    if (!window.confirm('¿Borrar este comentario?')) return;
+    try { await axios.delete(`${API_URL}/tasks/${id}/comments/${commentId}`, H()); reload(); onChanged(); }
+    catch { notify('Error al borrar comentario', 'error'); }
+  };
   const uploadPhotos = async (files: FileList | null) => {
     if (!files || !files.length) return;
     try {
@@ -1383,12 +1399,36 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                           {c.author_name || '—'}
                         </Typography>
                       )}
-                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: mine ? '#0B3D1E' : '#1a1a1a' }}>
-                        {c.body}
-                      </Typography>
-                      <Typography sx={{ fontSize: 10.5, color: mine ? '#3A7D53' : '#9AA0A6', textAlign: 'right', mt: 0.25 }}>
-                        {fmtDate(c.created_at)}
-                      </Typography>
+                      {editingCommentId === c.id ? (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, minWidth: 220 }}>
+                          <TextField
+                            fullWidth size="small" multiline autoFocus
+                            value={editingText}
+                            onChange={e => setEditingText(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEditComment(); } }}
+                            sx={{ bgcolor: '#fff', borderRadius: 1 }}
+                          />
+                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                            <IconButton size="small" onClick={() => { setEditingCommentId(null); setEditingText(''); }} title="Cancelar"><CloseIcon fontSize="small" /></IconButton>
+                            <IconButton size="small" color="primary" onClick={saveEditComment} disabled={!editingText.trim()} title="Guardar"><CheckIcon fontSize="small" /></IconButton>
+                          </Box>
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: mine ? '#0B3D1E' : '#1a1a1a' }}>
+                          {c.body}
+                        </Typography>
+                      )}
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5, mt: 0.25 }}>
+                        {mine && editingCommentId !== c.id && (
+                          <>
+                            <IconButton size="small" sx={{ p: 0.25, color: '#3A7D53' }} onClick={() => { setEditingCommentId(c.id); setEditingText(c.body); }} title="Editar"><EditIcon sx={{ fontSize: 14 }} /></IconButton>
+                            <IconButton size="small" sx={{ p: 0.25, color: '#C0392B' }} onClick={() => deleteComment(c.id)} title="Borrar"><DeleteIcon sx={{ fontSize: 14 }} /></IconButton>
+                          </>
+                        )}
+                        <Typography sx={{ fontSize: 10.5, color: mine ? '#3A7D53' : '#9AA0A6' }}>
+                          {c.edited_at ? `editado · ${fmtDate(c.edited_at)}` : fmtDate(c.created_at)}
+                        </Typography>
+                      </Box>
                     </Box>
                   </Box>
                 );

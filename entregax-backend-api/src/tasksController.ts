@@ -1457,3 +1457,41 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
     console.error('[tasks] addComment:', e); res.status(500).json({ error: 'Error al comentar' });
   }
 };
+
+// PATCH /api/tasks/:id/comments/:commentId — editar comentario (solo el autor).
+// Marca edited_at para mostrar «editado» + fecha.
+export const editComment = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const uid = authUserId(req);
+    const taskId = parseInt(String(req.params.id));
+    const commentId = parseInt(String(req.params.commentId));
+    const b = req.body || {};
+    const body = String(b.body || '').trim();
+    if (!body) return res.status(400).json({ error: 'Comentario vacío' });
+    const cur = await pool.query(`SELECT author_id FROM task_comments WHERE id = $1 AND task_id = $2`, [commentId, taskId]);
+    if (cur.rows.length === 0) return res.status(404).json({ error: 'Comentario no encontrado' });
+    if (Number(cur.rows[0].author_id) !== Number(uid)) return res.status(403).json({ error: 'Solo el autor puede editar su comentario' });
+    const r = await pool.query(
+      `UPDATE task_comments SET body = $1, edited_at = NOW() WHERE id = $2 RETURNING *`,
+      [body, commentId]);
+    res.json({ comment: r.rows[0] });
+  } catch (e: any) {
+    console.error('[tasks] editComment:', e); res.status(500).json({ error: 'Error al editar comentario' });
+  }
+};
+
+// DELETE /api/tasks/:id/comments/:commentId — borrar comentario (solo el autor).
+export const deleteComment = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const uid = authUserId(req);
+    const taskId = parseInt(String(req.params.id));
+    const commentId = parseInt(String(req.params.commentId));
+    const cur = await pool.query(`SELECT author_id FROM task_comments WHERE id = $1 AND task_id = $2`, [commentId, taskId]);
+    if (cur.rows.length === 0) return res.status(404).json({ error: 'Comentario no encontrado' });
+    if (Number(cur.rows[0].author_id) !== Number(uid)) return res.status(403).json({ error: 'Solo el autor puede borrar su comentario' });
+    await pool.query(`DELETE FROM task_comments WHERE id = $1`, [commentId]);
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[tasks] deleteComment:', e); res.status(500).json({ error: 'Error al borrar comentario' });
+  }
+};
