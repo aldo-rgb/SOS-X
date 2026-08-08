@@ -1256,9 +1256,11 @@ export const startInstructionReminderCron = () => {
         if (row.client_phone && wantWa) {
           await sendInstructionReminderClient(row.client_phone, row.client_name || 'Cliente', trn).catch(() => {});
         }
-        // El asesor siempre recibe el recordatorio de trabajo (si tiene teléfono).
+        // El asesor recibe el recordatorio de trabajo (si tiene teléfono), EXCEPTO
+        // en Kits de Bienvenida (guías USK): un regalo no debe generar tarea al asesor.
         // Se le manda el CASILLERO del cliente (S1234), no el nombre.
-        if (row.advisor_phone) {
+        const isUsk = /^USK-/i.test(String(trn));
+        if (row.advisor_phone && !isUsk) {
           await sendInstructionReminderAdvisor(row.advisor_phone, row.advisor_name || 'Asesor', row.client_box || row.client_name || 'tu cliente', trn).catch(() => {});
         }
         // Marcar TODAS las cajas de esa guía master (mismo cliente + misma base)
