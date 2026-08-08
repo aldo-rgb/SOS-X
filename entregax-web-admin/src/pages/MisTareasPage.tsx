@@ -22,6 +22,7 @@ import SendIcon from '@mui/icons-material/Send';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import GridViewIcon from '@mui/icons-material/GridView';
+import GroupsIcon from '@mui/icons-material/Groups';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import EditIcon from '@mui/icons-material/Edit';
@@ -328,7 +329,11 @@ export default function MisTareasPage() {
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [frequent, setFrequent] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'list' | 'matrix'>('list');
+  const [view, setView] = useState<'list' | 'matrix' | 'team'>('list');
+  // Vista de equipo: TODAS las tareas (grid compacto con avance/status/involucrados).
+  const [teamTasks, setTeamTasks] = useState<Task[]>([]);
+  const [teamShowDone, setTeamShowDone] = useState(false);
+  const [teamLoading, setTeamLoading] = useState(false);
   // Vista global (todas en las que estoy involucrado) vs solo mis tareas
   // (responsable, con comentarios sin leer, o esperando mi confirmación).
   const [globalView, setGlobalView] = useState(false);
@@ -371,6 +376,16 @@ export default function MisTareasPage() {
     else if (!newAssigneeId && others.length > 0) setNewAssigneeId(others[0]);
     else if (others.length === 0 && newAssigneeId !== 0) setNewAssigneeId(0);
   }, [involvedIds, newAssigneeId]);
+
+  // Vista de equipo: cargar TODAS las tareas al activarla o cambiar el toggle de terminadas.
+  useEffect(() => {
+    if (view !== 'team') return;
+    setTeamLoading(true);
+    axios.get(`${API_URL}/tasks/team${teamShowDone ? '?all=true' : ''}`, H())
+      .then(r => setTeamTasks(r.data?.tasks || []))
+      .catch(() => setTeamTasks([]))
+      .finally(() => setTeamLoading(false));
+  }, [view, teamShowDone]);
 
   // Programar tareas (futuras / recurrentes).
   const [schedOpen, setSchedOpen] = useState(false);
@@ -607,6 +622,52 @@ export default function MisTareasPage() {
     );
   };
 
+  // Estado visible de una tarea (para la vista Equipo).
+  const taskState = (t: Task): { key: string; label: string; bg: string; color: string; pct: number } => {
+    if (t.status === 'completed') return { key: 'terminada', label: '✅ Terminada', bg: '#E6F4EA', color: '#1E7D34', pct: 100 };
+    if (t.status === 'awaiting_confirmation') return { key: 'espera', label: '⏳ En espera', bg: '#FBE9D0', color: '#B07206', pct: 85 };
+    if (t.stalled) return { key: 'detenida', label: '🛑 Detenida', bg: '#3A3A3A', color: '#fff', pct: 45 };
+    if (t.started_at) return { key: 'proceso', label: '⚙️ En proceso', bg: '#E3F0FB', color: '#1565C0', pct: 45 };
+    return { key: 'nueva', label: '🆕 Nueva', bg: '#EEEEEE', color: '#555', pct: 0 };
+  };
+  // Tarjeta compacta para la vista de EQUIPO (avance + status + involucrados).
+  const renderTeamCard = (t: Task) => {
+    const st = taskState(t);
+    // Barra de avance: checklist si hay subtareas; si no, se basa en el estado.
+    const pct = (t.subtasks_total || 0) > 0 ? Math.round(((t.subtasks_done || 0) / (t.subtasks_total || 1)) * 100) : st.pct;
+    const barColor = st.key === 'detenida' ? '#C0392B' : (st.key === 'terminada' ? '#2E7D46' : '#D6521C');
+    const inv: Array<{ name: string; photo?: string | null }> =
+      ((t.participant_avatars && t.participant_avatars.length ? t.participant_avatars
+        : (t.assignee_name ? [{ name: t.assignee_name, photo: t.assignee_photo || null }] : []))).filter((x: any) => x && x.name);
+    const shown = inv.slice(0, 5); const extra = inv.length - shown.length;
+    return (
+      <Box key={t.id} onClick={() => setDetailId(t.id)}
+        sx={{ bgcolor: '#fff', border: '1px solid #ECE4D8', borderRadius: 1.5, p: 1.25, cursor: 'pointer',
+          borderLeft: `3px solid ${barColor}`, '&:hover': { boxShadow: 2 } }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
+          <Chip label={st.label} size="small" sx={{ height: 20, fontSize: 11, bgcolor: st.bg, color: st.color, fontWeight: 700 }} />
+          {t.overdue && <Chip label="⏰ Vencida" size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#FDE8E8', color: '#C0392B', fontWeight: 700 }} />}
+        </Box>
+        <Typography fontSize={13} fontWeight={600} sx={{ lineHeight: 1.3 }} noWrap>{t.title}</Typography>
+        <Typography fontSize={10.5} color="text.secondary" noWrap sx={{ mb: 0.5 }}>🗂️ {t.board_name}</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <LinearProgress variant="determinate" value={pct} sx={{ flex: 1, height: 7, borderRadius: 4, bgcolor: '#F0E9DF', '& .MuiLinearProgress-bar': { bgcolor: barColor, borderRadius: 4 } }} />
+          <Typography fontSize={10.5} fontWeight={700} color="text.secondary">{(t.subtasks_total || 0) > 0 ? `${t.subtasks_done}/${t.subtasks_total}` : `${pct}%`}</Typography>
+        </Box>
+        {shown.length > 0 && (
+          <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.75 }}>
+            {shown.map((p, i) => (
+              <Tooltip key={i} title={i === 0 ? `${displayTaskName(p.name)} · Responsable` : displayTaskName(p.name)}>
+                <Avatar src={p.photo || undefined} sx={{ width: 22, height: 22, fontSize: 9.5, ml: i === 0 ? 0 : '-6px', border: '1.5px solid #fff', bgcolor: i === 0 ? '#D6521C' : '#5E35B1', fontWeight: 700, zIndex: shown.length - i }}>{initials(displayTaskName(p.name))}</Avatar>
+              </Tooltip>
+            ))}
+            {extra > 0 && <Typography fontSize={10} color="text.secondary" sx={{ ml: 0.5 }}>+{extra}</Typography>}
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
   // Tarea "personal" = tablero personal sin más involucrados (se muestra como "Personal").
   const isPersonalTask = (t: Task) => t.board_key === 'personales' && (t.participants_count || 0) <= 1;
   const nowHour = new Date().getHours();
@@ -693,6 +754,7 @@ export default function MisTareasPage() {
         <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
           <ToggleButton value="list" sx={{ textTransform: 'none', gap: 0.5 }}><ViewListIcon sx={{ fontSize: 18 }} /> Lista</ToggleButton>
           <ToggleButton value="matrix" sx={{ textTransform: 'none', gap: 0.5 }}><GridViewIcon sx={{ fontSize: 18 }} /> Matriz Eisenhower</ToggleButton>
+          <ToggleButton value="team" sx={{ textTransform: 'none', gap: 0.5 }}><GroupsIcon sx={{ fontSize: 18 }} /> Equipo</ToggleButton>
         </ToggleButtonGroup>
         {/* Toggle: "Solo mis tareas" activo cuando globalView=false (filtro aplicado).
             Label fijo; el color contained indica que el filtro está ON. */}
@@ -814,7 +876,47 @@ export default function MisTareasPage() {
         </Box>
       )}
 
-      {loading ? (
+      {view === 'team' ? (
+        (() => {
+          const counts = {
+            nueva: teamTasks.filter(t => taskState(t).key === 'nueva').length,
+            proceso: teamTasks.filter(t => taskState(t).key === 'proceso').length,
+            espera: teamTasks.filter(t => taskState(t).key === 'espera').length,
+            detenida: teamTasks.filter(t => taskState(t).key === 'detenida').length,
+            terminada: teamTasks.filter(t => taskState(t).key === 'terminada').length,
+          };
+          const chips: Array<[string, number, string, string]> = [
+            ['🆕 Nuevas', counts.nueva, '#EEEEEE', '#555'],
+            ['⚙️ En proceso', counts.proceso, '#E3F0FB', '#1565C0'],
+            ['⏳ En espera', counts.espera, '#FBE9D0', '#B07206'],
+            ['🛑 Detenidas', counts.detenida, '#3A3A3A', '#fff'],
+            ['✅ Terminadas', counts.terminada, '#E6F4EA', '#1E7D34'],
+          ];
+          return (
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+                {chips.map(([lbl, n, bg, col]) => (
+                  <Chip key={lbl} label={`${lbl}: ${n}`} size="small" sx={{ bgcolor: bg, color: col, fontWeight: 800 }} />
+                ))}
+                <Box sx={{ flex: 1 }} />
+                <Button size="small" variant={teamShowDone ? 'contained' : 'outlined'} onClick={() => setTeamShowDone(v => !v)}
+                  sx={teamShowDone ? { bgcolor: '#2E7D46', '&:hover': { bgcolor: '#256b3b' } } : { color: '#2E7D46', borderColor: '#2E7D46' }}>
+                  {teamShowDone ? 'Ocultando terminadas ✓' : 'Mostrar terminadas'}
+                </Button>
+              </Box>
+              {teamLoading ? (
+                <Box sx={{ textAlign: 'center', mt: 6 }}><CircularProgress /></Box>
+              ) : teamTasks.length === 0 ? (
+                <Alert severity="info">No hay tareas del equipo que mostrar.</Alert>
+              ) : (
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr', xl: '1fr 1fr 1fr 1fr' }, gap: 1.25 }}>
+                  {teamTasks.map(renderTeamCard)}
+                </Box>
+              )}
+            </Box>
+          );
+        })()
+      ) : loading ? (
         <Box sx={{ textAlign: 'center', mt: 8 }}><CircularProgress /></Box>
       ) : tasks.length === 0 && events.length === 0 ? (
         <Alert severity="success">No tienes tareas pendientes 🎉</Alert>

@@ -664,6 +664,47 @@ export const getAssignableUsers = async (req: Request, res: Response): Promise<a
   }
 };
 
+// ─── VISTA GLOBAL DE EQUIPO: TODAS las tareas (tarjeta compacta por tarea) ──
+// Cada tarea con: título, status (incl. detenida), barra de avance (checklist),
+// responsable e involucrados (con foto). Estilo grid compacto tipo Comisiones.
+export const getTeamTasks = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (authRole(req) === 'client') return res.status(403).json({ error: 'No disponible' });
+    const showDone = String(req.query.all || '') === 'true'; // ?all=true incluye terminadas
+    const STALLED = `(t.status='open' AND t.started_at IS NOT NULL AND GREATEST(
+        t.updated_at, t.started_at,
+        COALESCE((SELECT MAX(created_at) FROM task_comments cc WHERE cc.task_id = t.id), t.started_at),
+        COALESCE((SELECT MAX(created_at) FROM task_activity aa WHERE aa.task_id = t.id), t.started_at)
+      ) < NOW() - INTERVAL '3 days')`;
+    const r = await pool.query(`
+      SELECT t.id, t.title, t.status, t.eisenhower, t.due_at, t.started_at, t.commitment_date,
+             t.assignee_id, t.created_by,
+             b.name AS board_name, b.board_key,
+             au.full_name AS assignee_name, au.profile_photo_url AS assignee_photo,
+             (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id)::int AS subtasks_total,
+             (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id AND s.done)::int AS subtasks_done,
+             (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
+             (SELECT json_agg(json_build_object('name', u2.full_name, 'photo', u2.profile_photo_url)
+                       ORDER BY (u2.id = t.assignee_id) DESC, u2.full_name)
+                FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_avatars,
+             ${STALLED} AS stalled,
+             (t.due_at IS NOT NULL AND t.status='open' AND t.due_at < NOW()) AS overdue
+        FROM tasks t
+        JOIN task_boards b ON b.id = t.board_id
+        LEFT JOIN users au ON au.id = t.assignee_id
+       WHERE t.status <> 'cancelled'
+         ${showDone ? '' : `AND t.status <> 'completed'`}
+       ORDER BY ${STALLED} DESC,
+                (t.status='open' AND t.started_at IS NOT NULL) DESC,
+                (t.eisenhower='fuego') DESC,
+                t.due_at NULLS LAST, t.id DESC
+       LIMIT 500`);
+    res.json({ tasks: r.rows });
+  } catch (e: any) {
+    console.error('[tasks] getTeamTasks:', e); res.status(500).json({ error: 'Error al obtener tareas del equipo' });
+  }
+};
+
 // ─── TABLEROS: responsables elegibles (por rol y/o usuarios) ──
 // Resuelve QUÉ usuarios pueden ser responsables en este tablero.
 // Config del tablero: assignable_roles + assignable_user_ids.
