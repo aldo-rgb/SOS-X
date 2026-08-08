@@ -10,9 +10,12 @@ import crypto from 'crypto';
 import { pool } from './db';
 import {
   ensureSyncSchema, verifyInboundApiKey, EXTERNAL_APP, isPeerConfigured,
-  diagnoseAuth, type AuthDiag,
+  diagnoseAuth, type AuthDiag, logSyncAttempt,
 } from './syncService';
 import { applyInboundTaskEvent } from './tasksController';
+
+const clientIp = (req: Request): string =>
+  (String(req.header('x-forwarded-for') || (req.socket && (req.socket as any).remoteAddress) || '').split(',')[0] || '').trim();
 
 // Mensaje claro por cada causa de rechazo (sin filtrar secretos).
 const DIAG_MSG: Record<AuthDiag, string> = {
@@ -50,6 +53,10 @@ export const verifyAuth = async (req: Request, res: Response): Promise<any> => {
 export const upsertExternalUsers = async (req: Request, res: Response): Promise<any> => {
   try {
     await ensureSyncSchema();
+    const key0 = req.header('X-EntregaX-Key') || undefined;
+    const sig0 = req.header('X-Signature') || undefined;
+    await logSyncAttempt({ endpoint: 'users/upsert', remoteIp: clientIp(req), key: key0, sig: sig0,
+      diag: diagnoseAuth(key0, (req as any).rawBody, sig0), rawBody: (req as any).rawBody });
     if (!verifyRequest(req, res)) return;
     const body = (req as any).rawBody ? JSON.parse((req as any).rawBody.toString('utf8')) : (req.body || {});
     const list: any[] = Array.isArray(body.users) ? body.users : (body.user ? [body.user] : []);
@@ -101,6 +108,10 @@ export const upsertExternalUsers = async (req: Request, res: Response): Promise<
 export const inboundWebhook = async (req: Request, res: Response): Promise<any> => {
   try {
     await ensureSyncSchema();
+    const key0 = req.header('X-EntregaX-Key') || undefined;
+    const sig0 = req.header('X-Signature') || undefined;
+    await logSyncAttempt({ endpoint: 'webhooks/entregax', remoteIp: clientIp(req), key: key0, sig: sig0,
+      diag: diagnoseAuth(key0, (req as any).rawBody, sig0), rawBody: (req as any).rawBody });
     if (!verifyRequest(req, res)) return;
     const eventId = req.header('X-Event-Id') || req.header('x-event-id') || '';
     if (!eventId) return res.status(400).json({ error: 'Falta X-Event-Id' });

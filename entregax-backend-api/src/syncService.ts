@@ -49,7 +49,34 @@ export async function ensureSyncSchema(): Promise<void> {
        last_error      TEXT,
        created_at      TIMESTAMPTZ DEFAULT NOW())`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_sync_outbox_pending ON sync_outbox(status, next_attempt_at)`);
+  // Bitácora de intentos entrantes (debug): para ver si Grupo Rino nos llama y qué falla.
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS sync_debug_log (
+       id          SERIAL PRIMARY KEY,
+       endpoint    TEXT,
+       remote_ip   TEXT,
+       key_prefix  TEXT,
+       has_sig     BOOLEAN,
+       diag        TEXT,
+       body_size   INTEGER,
+       body_preview TEXT,
+       created_at  TIMESTAMPTZ DEFAULT NOW())`);
   _ready = true;
+}
+
+// Registra un intento entrante (sin filtrar secretos) para diagnóstico.
+export async function logSyncAttempt(opts: {
+  endpoint: string; remoteIp?: string | undefined; key?: string | undefined; sig?: string | undefined; diag: string; rawBody?: Buffer | string | undefined;
+}): Promise<void> {
+  try {
+    await ensureSyncSchema();
+    const raw = opts.rawBody == null ? '' : (Buffer.isBuffer(opts.rawBody) ? opts.rawBody.toString('utf8') : String(opts.rawBody));
+    const keyPrefix = opts.key ? String(opts.key).slice(0, 8) + '…' : null;
+    await pool.query(
+      `INSERT INTO sync_debug_log (endpoint, remote_ip, key_prefix, has_sig, diag, body_size, body_preview)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [opts.endpoint, opts.remoteIp || null, keyPrefix, !!opts.sig, opts.diag, raw.length, raw.slice(0, 400)]);
+  } catch (e: any) { console.error('[sync] logSyncAttempt:', e?.message); }
 }
 
 // ---- Firma / verificación HMAC ------------------------------------------------

@@ -13773,6 +13773,7 @@ runDueTaskSchedules();
 // Receptores: usuarios (push) y webhooks de tareas. + cron de despacho de la
 // cola de salida (sólo envía si el peer está configurado por env).
 app.post('/api/sync/users/upsert', syncUpsertExternalUsers);
+app.post('/api/sync/users', syncUpsertExternalUsers); // alias por compatibilidad
 app.post('/api/webhooks/entregax', syncInboundWebhook);
 app.post('/api/sync/verify', syncVerifyAuth);
 app.get('/api/sync/health', authenticateToken, syncHealthCheck);
