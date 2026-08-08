@@ -1287,7 +1287,9 @@ import {
   updateEmployee,
   deleteEmployee,
   setEmployeeAttendanceEnabled,
-  getEmployeePhoto
+  getEmployeePhoto,
+  getEmployeePhone,
+  upsertEmployeePhone
 } from './hrController';
 import {
   getVehicles,
@@ -12076,6 +12078,9 @@ app.put('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPE
 app.delete('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), deleteEmployee);
 app.put('/api/admin/hr/employees/:id/attendance-enabled', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), setEmployeeAttendanceEnabled);
 app.get('/api/admin/hr/employees/:id/photo', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeePhoto);
+// Equipo / línea telefónica de la empresa asignada al empleado
+app.get('/api/admin/hr/employees/:id/phone', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeePhone);
+app.put('/api/admin/hr/employees/:id/phone', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), upsertEmployeePhone);
 app.post('/api/admin/hr/employees/:id/reactivate', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req, res) => {
   const mod = await import('./hrController');
   return mod.reactivateEmployee(req, res);

@@ -1369,3 +1369,67 @@ export const getEmployeePhoto = async (req: Request, res: Response): Promise<voi
     res.status(500).json({ error: 'Error al obtener la foto' });
   }
 };
+
+// ============================================================
+// EQUIPO / LÍNEA TELEFÓNICA asignada a un empleado (celular de la empresa).
+// Guarda: equipo, modelo, número, a nombre de quién está la línea y la fecha
+// de vencimiento del saldo (para recargar a tiempo). Uno por empleado (upsert).
+// ============================================================
+let _empPhoneReady = false;
+const ensureEmployeePhoneTable = async (): Promise<void> => {
+  if (_empPhoneReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS employee_phones (
+      employee_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      equipo          TEXT,                 -- marca/tipo de equipo (ej. Samsung, iPhone)
+      modelo          TEXT,                 -- modelo (ej. A15, 13)
+      phone_number    TEXT,                 -- número de teléfono
+      line_holder     TEXT,                 -- a nombre de quién está registrada la línea
+      balance_due_date DATE,                -- vencimiento del saldo (para recargar a tiempo)
+      notes           TEXT,
+      updated_by      INTEGER REFERENCES users(id),
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  _empPhoneReady = true;
+};
+
+// GET /api/admin/hr/employees/:id/phone
+export const getEmployeePhone = async (req: Request, res: Response): Promise<void> => {
+  try {
+    await ensureEmployeePhoneTable();
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
+    const r = await pool.query(`SELECT * FROM employee_phones WHERE employee_id = $1`, [id]);
+    res.json({ phone: r.rows[0] || null });
+  } catch (error) {
+    console.error('Error getEmployeePhone:', error);
+    res.status(500).json({ error: 'Error al obtener el equipo' });
+  }
+};
+
+// PUT /api/admin/hr/employees/:id/phone  (upsert)
+export const upsertEmployeePhone = async (req: Request, res: Response): Promise<void> => {
+  try {
+    await ensureEmployeePhoneTable();
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
+    const b = req.body || {};
+    const actor = (req as any).user?.userId || (req as any).user?.id || null;
+    const dueDate = b.balance_due_date && String(b.balance_due_date).trim() ? String(b.balance_due_date) : null;
+    const r = await pool.query(
+      `INSERT INTO employee_phones (employee_id, equipo, modelo, phone_number, line_holder, balance_due_date, notes, updated_by, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+       ON CONFLICT (employee_id) DO UPDATE SET
+         equipo = EXCLUDED.equipo, modelo = EXCLUDED.modelo, phone_number = EXCLUDED.phone_number,
+         line_holder = EXCLUDED.line_holder, balance_due_date = EXCLUDED.balance_due_date,
+         notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+       RETURNING *`,
+      [id, b.equipo || null, b.modelo || null, b.phone_number || null, b.line_holder || null, dueDate, b.notes || null, actor]);
+    res.json({ phone: r.rows[0] });
+  } catch (error) {
+    console.error('Error upsertEmployeePhone:', error);
+    res.status(500).json({ error: 'Error al guardar el equipo' });
+  }
+};

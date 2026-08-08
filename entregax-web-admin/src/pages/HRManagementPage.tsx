@@ -71,6 +71,7 @@ import {
   ContentCopy as CopyIcon,
   BeachAccess as BeachAccessIcon,
   AccountTree as AccountTreeIcon,
+  PhoneAndroid as PhoneAndroidIcon,
 } from '@mui/icons-material';
 
 // Roles disponibles para empleados
@@ -249,6 +250,10 @@ export default function HRManagementPage() {
   const [tab, setTab] = useState(0);
   const [viewProfileId, setViewProfileId] = useState<number | null>(null);
   const [vacQuintaEmp, setVacQuintaEmp] = useState<Employee | null>(null);
+  // Equipo / línea telefónica de la empresa asignada al empleado
+  const [phoneEmp, setPhoneEmp] = useState<Employee | null>(null);
+  const [phoneForm, setPhoneForm] = useState({ equipo: '', modelo: '', phone_number: '', line_holder: '', balance_due_date: '', notes: '' });
+  const [phoneSaving, setPhoneSaving] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [stats, setStats] = useState<AttendanceStats | null>(null);
   const [drivers, setDrivers] = useState<DriverLocation[]>([]);
@@ -374,6 +379,31 @@ export default function HRManagementPage() {
       branchId: '',
     });
     setCreateDialogOpen(true);
+  };
+
+  // Equipo / línea telefónica: abrir modal cargando lo existente
+  const openPhoneDialog = async (employee: Employee) => {
+    setPhoneEmp(employee);
+    setPhoneForm({ equipo: '', modelo: '', phone_number: '', line_holder: '', balance_due_date: '', notes: '' });
+    try {
+      const r = await axios.get(`${API_URL}/api/admin/hr/employees/${employee.id}/phone`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      const p = r.data?.phone;
+      if (p) setPhoneForm({
+        equipo: p.equipo || '', modelo: p.modelo || '', phone_number: p.phone_number || '',
+        line_holder: p.line_holder || '',
+        balance_due_date: p.balance_due_date ? String(p.balance_due_date).slice(0, 10) : '',
+        notes: p.notes || '',
+      });
+    } catch { /* sin registro previo */ }
+  };
+  const savePhone = async () => {
+    if (!phoneEmp) return;
+    setPhoneSaving(true);
+    try {
+      await axios.put(`${API_URL}/api/admin/hr/employees/${phoneEmp.id}/phone`, phoneForm, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setPhoneEmp(null);
+    } catch (e) { alert('No se pudo guardar el equipo'); }
+    finally { setPhoneSaving(false); }
   };
 
   // Abrir diálogo para editar empleado
@@ -941,6 +971,11 @@ export default function HRManagementPage() {
                       <Tooltip title="Editar">
                         <IconButton size="small" color="primary" onClick={() => handleOpenEditDialog(emp)}>
                           <EditIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Equipo / Línea telefónica">
+                        <IconButton size="small" sx={{ color: '#6d28d9' }} onClick={() => openPhoneDialog(emp)}>
+                          <PhoneAndroidIcon />
                         </IconButton>
                       </Tooltip>
                       {!['advisor', 'asesor', 'asesor_lider', 'sub_advisor', 'sub_asesor'].includes(emp.role) && (
@@ -1654,6 +1689,40 @@ export default function HRManagementPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowTempPassword(false)} fullWidth>Entendido</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Equipo / Línea telefónica de la empresa */}
+      <Dialog open={!!phoneEmp} onClose={() => !phoneSaving && setPhoneEmp(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 800 }}>
+          <PhoneAndroidIcon sx={{ color: '#6d28d9' }} /> Equipo / Línea telefónica
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Registra el celular de la empresa entregado a <strong>{phoneEmp?.full_name}</strong>.
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField label="Equipo (marca)" size="small" fullWidth placeholder="Ej. Samsung, iPhone, Motorola"
+              value={phoneForm.equipo} onChange={e => setPhoneForm({ ...phoneForm, equipo: e.target.value })} />
+            <TextField label="Modelo" size="small" fullWidth placeholder="Ej. A15, 13, G54"
+              value={phoneForm.modelo} onChange={e => setPhoneForm({ ...phoneForm, modelo: e.target.value })} />
+            <TextField label="Número de teléfono" size="small" fullWidth placeholder="Ej. 81 1234 5678"
+              value={phoneForm.phone_number} onChange={e => setPhoneForm({ ...phoneForm, phone_number: e.target.value })} />
+            <TextField label="Línea registrada a nombre de" size="small" fullWidth placeholder="Nombre del titular de la línea"
+              value={phoneForm.line_holder} onChange={e => setPhoneForm({ ...phoneForm, line_holder: e.target.value })} />
+            <TextField label="Vencimiento de saldo" type="date" size="small" fullWidth
+              InputLabelProps={{ shrink: true }} helperText="Para recargar el saldo a tiempo"
+              value={phoneForm.balance_due_date} onChange={e => setPhoneForm({ ...phoneForm, balance_due_date: e.target.value })} />
+            <TextField label="Notas (opcional)" size="small" fullWidth multiline rows={2}
+              value={phoneForm.notes} onChange={e => setPhoneForm({ ...phoneForm, notes: e.target.value })} />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setPhoneEmp(null)} disabled={phoneSaving}>Cancelar</Button>
+          <Button variant="contained" onClick={savePhone} disabled={phoneSaving}
+            sx={{ bgcolor: '#6d28d9', '&:hover': { bgcolor: '#5b21b6' } }}>
+            {phoneSaving ? 'Guardando…' : 'Guardar'}
+          </Button>
         </DialogActions>
       </Dialog>
 
