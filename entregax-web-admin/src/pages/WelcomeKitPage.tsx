@@ -97,7 +97,7 @@ interface KitStats {
 const STATUSES: { value: string; label: string; color: 'default' | 'info' | 'warning' | 'primary' | 'success' | 'error' | 'secondary' }[] = [
   { value: 'solicitado', label: 'Solicitado', color: 'info' },
   { value: 'seleccionado', label: 'Regalo seleccionado', color: 'secondary' },
-  { value: 'instrucciones', label: 'Con instrucciones', color: 'warning' },
+  { value: 'instrucciones', label: 'Falta instrucciones', color: 'warning' },
   { value: 'por_enviar', label: 'Por enviar', color: 'primary' },
   { value: 'enviado', label: 'Enviado', color: 'success' },
   { value: 'entregado', label: 'Entregado', color: 'success' },
@@ -334,7 +334,7 @@ export default function WelcomeKitPage() {
   const statCards: { key: keyof KitStats; label: string; color: string }[] = [
     { key: 'solicitado', label: 'Solicitados', color: '#0288d1' },
     { key: 'seleccionado', label: 'Seleccionaron', color: '#7b1fa2' },
-    { key: 'instrucciones', label: 'Con instrucciones', color: '#ed6c02' },
+    { key: 'instrucciones', label: 'Falta instrucciones', color: '#ed6c02' },
     { key: 'por_enviar', label: 'Por enviar', color: '#7b1fa2' },
     { key: 'enviado', label: 'Enviados', color: '#2e7d32' },
     { key: 'entregado', label: 'Entregados', color: '#1b5e20' },
@@ -396,7 +396,7 @@ export default function WelcomeKitPage() {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mb: 2 }}>
             {[
               ['Solicitado', '#1976d2', 'El cliente está en la lista del kit (por premio de referido o alta manual). Recibe un push: "🎁 ¡Tienes un regalo!". Aún no elige su regalo.'],
-              ['Con instrucciones', '#ed6c02', 'El cliente YA eligió su regalo. En ese momento se crea automáticamente la guía USK en estado "Recibido CEDIS Hidalgo TX". Falta que capture su dirección de entrega.'],
+              ['Falta instrucciones', '#ed6c02', 'El cliente YA eligió su regalo. En ese momento se crea automáticamente la guía USK en estado "Recibido CEDIS Hidalgo TX". Aún NO tiene instrucciones: falta que capture su dirección de entrega.'],
               ['Por enviar', '#7b1fa2', 'La guía ya tiene instrucciones de envío y está pagada (EntregaX Local se paga solo; la paquetería tras el pago del cliente). Lista para despachar desde MTY.'],
               ['Enviado', '#2e7d32', 'Un operador despachó la guía desde CEDIS MTY con Estafeta por cobrar; va en ruta al cliente.'],
               ['Entregado', '#1b5e20', 'La guía se entregó al cliente.'],
@@ -414,7 +414,7 @@ export default function WelcomeKitPage() {
           <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>⏱️ El recorrido (paso a paso)</Typography>
           <Box component="ol" sx={{ pl: 3, m: 0, mb: 2, '& li': { mb: 1 } }}>
             <li><Typography variant="body2"><strong>Solicitado</strong> → al cliente le llega el aviso del regalo en la app.</Typography></li>
-            <li><Typography variant="body2"><strong>El cliente elige su regalo</strong> → se genera la guía <strong>USK-…</strong> y aparece de inmediato como <em>"Recibido CEDIS Hidalgo TX"</em> (recepción USA simulada). El kit pasa a <strong>Con instrucciones</strong>.</Typography></li>
+            <li><Typography variant="body2"><strong>El cliente elige su regalo</strong> → se genera la guía <strong>USK-…</strong> y aparece de inmediato como <em>"Recibido CEDIS Hidalgo TX"</em> (recepción USA simulada). El kit pasa a <strong>Falta instrucciones</strong> (todavía sin dirección).</Typography></li>
             <li><Typography variant="body2"><strong>El cliente captura su dirección de entrega.</strong> Este es el disparador del avance automático.</Typography></li>
             <li><Typography variant="body2"><strong>+12 h</strong> (cron cada 30 min) → la guía pasa a <em>"EN TRÁNSITO A MTY"</em>.</Typography></li>
             <li><Typography variant="body2"><strong>+24 h más</strong> → la guía pasa a <em>"RECIBIDO EN CEDIS MTY"</em> y se asigna a la sucursal MTY (aparece en "Asignados Hoy" del repartidor local).</Typography></li>
@@ -423,7 +423,7 @@ export default function WelcomeKitPage() {
 
           <Box sx={{ bgcolor: '#FFF4E5', border: '1px solid #FFD8A8', borderRadius: 1, p: 1.5, mb: 1 }}>
             <Typography variant="body2" sx={{ color: '#8a5200' }}>
-              <strong>⚠️ Si una guía se queda atorada en "Solicitado" o "Con instrucciones":</strong> casi siempre es porque
+              <strong>⚠️ Si una guía se queda atorada en "Solicitado" o "Falta instrucciones":</strong> casi siempre es porque
               el cliente <strong>nunca eligió su regalo</strong> o <strong>no capturó su dirección de entrega</strong>.
               El avance automático a CEDIS MTY solo arranca <em>después</em> de que el cliente asigna sus instrucciones.
             </Typography>
