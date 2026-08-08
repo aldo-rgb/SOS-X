@@ -556,6 +556,13 @@ export default function MisTareasPage() {
     const boardLabel = t.board_key === 'personales'
       ? ((t.participants_count || 0) > 1 ? 'Asignadas' : 'Personal')
       : t.board_name;
+    // Involucrados (responsable primero) con foto/iniciales, versión compacta.
+    const mInvolved: Array<{ name: string; photo?: string | null }> =
+      ((t.participant_avatars && t.participant_avatars.length ? t.participant_avatars
+        : (t.participant_names || []).map((n: string) => ({ name: n, photo: null })))
+      ).filter((x: any) => x && x.name);
+    const mShown = mInvolved.slice(0, 4);
+    const mExtra = mInvolved.length - mShown.length;
     return (
       <Box key={t.id} onClick={() => setDetailId(t.id)}
         draggable
@@ -565,6 +572,20 @@ export default function MisTareasPage() {
         <Typography fontSize={12} fontWeight={600} sx={{ lineHeight: 1.25, textDecoration: done ? 'line-through' : 'none', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{t.title}</Typography>
         {t.status === 'awaiting_confirmation' && <Chip label="⏳ En espera" size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, mr: 0.5, bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count}`} size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, bgcolor: '#E53935', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
+        {mShown.length > 0 && (
+          <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.4 }}>
+            {mShown.map((p, i) => (
+              <Tooltip key={i} title={i === 0 ? `${displayTaskName(p.name)} · Responsable` : displayTaskName(p.name)}>
+                <Avatar src={p.photo || undefined}
+                  sx={{ width: 18, height: 18, fontSize: 8.5, ml: i === 0 ? 0 : '-5px', border: '1.5px solid #fff',
+                    bgcolor: i === 0 ? '#D6521C' : '#5E35B1', fontWeight: 700, zIndex: mShown.length - i }}>
+                  {initials(displayTaskName(p.name))}
+                </Avatar>
+              </Tooltip>
+            ))}
+            {mExtra > 0 && <Typography fontSize={9.5} color="text.secondary" sx={{ ml: 0.5 }}>+{mExtra}</Typography>}
+          </Box>
+        )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
           {boardLabel && <Typography fontSize={10} color="text.secondary" noWrap sx={{ flex: 1, minWidth: 0 }}>🗂️ {boardLabel}</Typography>}
           {(t.subtasks_total || 0) > 0 && <Typography fontSize={10} color={t.subtasks_done === t.subtasks_total ? 'success.main' : 'text.secondary'}>☑{t.subtasks_done}/{t.subtasks_total}</Typography>}
