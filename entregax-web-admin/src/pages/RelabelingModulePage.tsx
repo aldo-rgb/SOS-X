@@ -84,6 +84,8 @@ interface ShipmentData {
             actorKind: 'cliente' | 'asesor';
             actorName: string | null;
         } | null;
+        // 🎁 Producto del Kit de Bienvenida (solo guías USK): nombre + foto firmada.
+        kitProduct?: { name: string | null; photo: string | null } | null;
         // Nº de piezas REAL de la guía nacional (pqtx_shipments.pieces). Para
         // REPACK la guía es de 1 sola pieza (una caja física), aunque el master
         // tenga N guías consolidadas (totalBoxes). Se usa para la tarjeta PQTX.
@@ -1953,6 +1955,20 @@ ${labelsHtml}
                             )}
                         </Grid>
                     </Grid>
+
+                    {/* 🎁 Kit de Bienvenida: producto elegido (solo guías USK) */}
+                    {shipment.master.kitProduct && (
+                        <Box sx={{ mt: 1, mb: 2, p: 2, border: '2px solid #F0B79A', borderRadius: 2, bgcolor: '#FFF7F2', display: 'flex', alignItems: 'center', gap: 2 }}>
+                            {shipment.master.kitProduct.photo && (
+                                <Box component="img" src={shipment.master.kitProduct.photo} alt={shipment.master.kitProduct.name || 'Producto'}
+                                    sx={{ width: 72, height: 72, borderRadius: 2, objectFit: 'cover', border: '1px solid #E8DFD3', flex: '0 0 auto' }} />
+                            )}
+                            <Box>
+                                <Typography variant="caption" sx={{ fontWeight: 800, color: '#D6521C', display: 'block' }}>🎁 KIT DE BIENVENIDA · Producto elegido</Typography>
+                                <Typography variant="body1" fontWeight={700}>{shipment.master.kitProduct.name || 'Producto sin nombre'}</Typography>
+                            </Box>
+                        </Box>
+                    )}
 
                     {shipment.master.assignedAddress && (
                         <Box

@@ -429,6 +429,20 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
         })()}
       </Paper>
 
+      {/* 🎁 Kit de Bienvenida: producto elegido (solo guías USK) */}
+      {(m as any).kitProduct && (
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, borderColor: '#F0B79A', bgcolor: '#FFF7F2' }}>
+          <Typography variant="caption" sx={{ fontWeight: 800, color: '#D6521C', display: 'block', mb: 0.75 }}>🎁 KIT DE BIENVENIDA · Producto elegido</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+            {(m as any).kitProduct.photo && (
+              <Box component="img" src={(m as any).kitProduct.photo} alt={(m as any).kitProduct.name || 'Producto'}
+                sx={{ width: 56, height: 56, borderRadius: 1.5, objectFit: 'cover', border: '1px solid #E8DFD3', flex: '0 0 auto' }} />
+            )}
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>{(m as any).kitProduct.name || 'Producto sin nombre'}</Typography>
+          </Box>
+        </Paper>
+      )}
+
       {/* Cliente */}
       {client && (
         <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>

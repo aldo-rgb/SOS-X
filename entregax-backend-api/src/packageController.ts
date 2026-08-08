@@ -2303,11 +2303,37 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             };
         }
 
+        // 🎁 Kit de Bienvenida (SOLO guías USK): producto que el cliente eligió
+        // en su kit (nombre + foto). Se liga por welcome_kit_requests.usa_tracking.
+        let kitProduct: any = null;
+        if (/^USK-/i.test(String(pkg.tracking_internal || ''))) {
+            try {
+                const kr = await pool.query(
+                    `SELECT pr.name, pr.photos
+                       FROM welcome_kit_requests k
+                       JOIN welcome_kit_products pr ON pr.id = k.selected_product_id
+                      WHERE k.usa_tracking = $1
+                      ORDER BY k.id DESC LIMIT 1`,
+                    [pkg.tracking_internal]);
+                if (kr.rows[0]) {
+                    const raw = kr.rows[0].photos;
+                    const photos = Array.isArray(raw) ? raw : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : []);
+                    const firstKey = photos[0] || null;
+                    const { signS3UrlIfNeeded: signKit } = await import('./s3Service');
+                    kitProduct = {
+                        name: kr.rows[0].name || null,
+                        photo: firstKey ? ((await signKit(firstKey)) || firstKey) : null,
+                    };
+                }
+            } catch (e) { console.warn('[getShipmentByTracking] kitProduct:', (e as Error).message); }
+        }
+
         res.json({
             success: true,
             shipment: {
                 master: { id: pkg.id, tracking: (pkg.child_no && /^AIR/i.test(String(pkg.child_no))) ? pkg.child_no : pkg.tracking_internal, trackingProvider: pkg.tracking_provider || aggregatedOriginGuides,
                     nationalLabelInfo,
+                    kitProduct,
                     serviceType: pkg.service_type || null,
                     airTracking: airFno,
                     originCarrier: pkg.origin_carrier || null,
