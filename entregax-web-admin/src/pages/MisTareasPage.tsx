@@ -198,8 +198,12 @@ interface Task {
   due_at?: string; created_at?: string; completed_at?: string; assignee_name?: string; assignee_id?: number; board_id?: number;
   board_name?: string; board_key?: string; column_name?: string; subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
   participants_count?: number; participant_names?: string[] | null; unread_count?: number;
+  assignee_photo?: string | null; participant_avatars?: Array<{ name: string; photo?: string | null }> | null;
+  created_by?: number; created_by_name?: string;
 }
-interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; }
+interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; profile_photo_url?: string | null; }
+// Iniciales para avatares (fallback cuando no hay foto). Módulo-scope: usable en InvolvedPicker.
+const initials = (n?: string) => (n || '?').split(' ').map(x => x[0]).slice(0, 2).join('').toUpperCase();
 const avgLabel = (u: UserOpt): string => {
   const s = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
   return s && s > 0 ? `⏱ ${fmtDur(s * 1000)} prom.` : '⏱ sin datos';
@@ -260,6 +264,7 @@ function InvolvedPicker({ users, involvedIds, setInvolvedIds, fixedId = MY_ID, f
         renderOption={(props, u) => (
           <li {...props} key={u.id}>
             <Checkbox size="small" checked={involvedIds.includes(u.id)} sx={{ mr: 1, p: 0.5 }} />
+            <Avatar src={u.profile_photo_url || undefined} sx={{ width: 26, height: 26, fontSize: 11, mr: 1, bgcolor: '#5E35B1' }}>{initials(u.full_name)}</Avatar>
             <Box>
               <Typography variant="body2">{u.full_name}</Typography>
               <Typography variant="caption" color="text.secondary">{avgLabel(u)}</Typography>
@@ -293,6 +298,7 @@ function InvolvedPicker({ users, involvedIds, setInvolvedIds, fixedId = MY_ID, f
           const on = involvedIds.includes(u.id);
           return (
             <Chip key={u.id} size="small" label={u.full_name}
+              avatar={<Avatar src={u.profile_photo_url || undefined}>{initials(u.full_name)}</Avatar>}
               onClick={() => toggleUser(u.id)}
               variant={on ? 'filled' : 'outlined'}
               sx={on
@@ -487,8 +493,6 @@ export default function MisTareasPage() {
     catch { notify('No se pudo eliminar', 'error'); }
   };
 
-  const initials = (n?: string) => (n || '?').split(' ').map(x => x[0]).slice(0, 2).join('').toUpperCase();
-
   const renderCard = (t: Task) => {
     const eis = EIS[t.eisenhower];
     const tt = taskTime(t);
@@ -499,7 +503,11 @@ export default function MisTareasPage() {
       ? ((t.participants_count || 0) > 1 ? 'Tareas Asignadas' : 'Tareas Personales')
       : t.board_name;
     const colLabel = done ? null : t.column_name; // no mostrar "Pendiente" si ya está completada
-    const involved = (t.participant_names || []).filter(Boolean);
+    // Avatares (nombre + foto) del backend; fallback a solo-nombres si no vienen.
+    const involved: Array<{ name: string; photo?: string | null }> =
+      ((t.participant_avatars && t.participant_avatars.length ? t.participant_avatars
+        : (t.participant_names || []).map((n: string) => ({ name: n, photo: null })))
+      ).filter((x: any) => x && x.name);
     return (
       <Box key={t.id} onClick={() => setDetailId(t.id)}
         sx={{ bgcolor: '#fff', borderRadius: 1.5, p: 1.25, cursor: 'pointer', border: '1px solid #E8DFD3',
@@ -516,16 +524,16 @@ export default function MisTareasPage() {
         )}
         {involved.length > 1 && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
-            {involved.map((name, i) => (
-              <Tooltip key={i} title={i === 0 ? `${displayTaskName(name)} · Responsable` : displayTaskName(name)}>
-                <Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: i === 0 ? '#D6521C' : '#5E35B1', border: i === 0 ? '2px solid #B07206' : 'none', fontWeight: i === 0 ? 800 : 400 }}>{initials(displayTaskName(name))}</Avatar>
+            {involved.map((p, i) => (
+              <Tooltip key={i} title={i === 0 ? `${displayTaskName(p.name)} · Responsable` : displayTaskName(p.name)}>
+                <Avatar src={p.photo || undefined} sx={{ width: 22, height: 22, fontSize: 10, bgcolor: i === 0 ? '#D6521C' : '#5E35B1', border: i === 0 ? '2px solid #B07206' : 'none', fontWeight: i === 0 ? 800 : 400 }}>{initials(displayTaskName(p.name))}</Avatar>
               </Tooltip>
             ))}
             <Typography fontSize={11} color="text.secondary">{involved.length} involucrados</Typography>
           </Box>
         )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
-          {involved.length <= 1 && t.assignee_name && <Tooltip title={displayTaskName(t.assignee_name)}><Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#D6521C' }}>{initials(displayTaskName(t.assignee_name))}</Avatar></Tooltip>}
+          {involved.length <= 1 && t.assignee_name && <Tooltip title={displayTaskName(t.assignee_name)}><Avatar src={t.assignee_photo || undefined} sx={{ width: 22, height: 22, fontSize: 10, bgcolor: '#D6521C' }}>{initials(displayTaskName(t.assignee_name))}</Avatar></Tooltip>}
           <Box sx={{ flex: 1 }} />
           {(t.subtasks_total || 0) > 0 && (
             <Typography fontSize={11} color={t.subtasks_done === t.subtasks_total ? 'success.main' : 'text.secondary'}>☑ {t.subtasks_done}/{t.subtasks_total}</Typography>

@@ -634,7 +634,7 @@ export const getAssignableUsers = async (req: Request, res: Response): Promise<a
     // Tiempo PROMEDIO de resolución (creación → término) de las tareas cerradas
     // del usuario, en segundos — como estimado de respuesta.
     const r = await pool.query(
-      `SELECT u.id, u.full_name, u.role, u.source_app, u.external_id,
+      `SELECT u.id, u.full_name, u.role, u.source_app, u.external_id, u.profile_photo_url,
               (SELECT AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)))
                  FROM tasks t WHERE t.assignee_id = u.id AND t.completed_at IS NOT NULL) AS avg_resolution_seconds
          FROM users u
@@ -844,6 +844,7 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
     const r = await pool.query(`
       SELECT t.*, b.name AS board_name, b.board_key, col.name AS column_name, col.is_done AS column_is_done,
              au.full_name AS assignee_name,
+             au.profile_photo_url AS assignee_photo,
              cu.full_name AS created_by_name,
              -- Comentarios de OTROS creados después de que este usuario leyó la tarea.
              (SELECT COUNT(*) FROM task_comments cc
@@ -854,6 +855,8 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
              (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
              -- Responsable (assignee) primero; luego el resto por nombre.
              (SELECT array_agg(u2.full_name ORDER BY (u2.id = t.assignee_id) DESC, u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_names,
+             -- Avatares (nombre + foto) en el MISMO orden que participant_names.
+             (SELECT json_agg(json_build_object('name', u2.full_name, 'photo', u2.profile_photo_url) ORDER BY (u2.id = t.assignee_id) DESC, u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_avatars,
              -- Último comentario y actividad efectiva (MAX de comentarios y updated_at).
              (SELECT MAX(created_at) FROM task_comments cc WHERE cc.task_id = t.id) AS last_comment_at,
              GREATEST(
