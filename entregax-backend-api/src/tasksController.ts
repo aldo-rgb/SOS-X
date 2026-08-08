@@ -186,6 +186,35 @@ async function getOrCreatePersonalBoard(): Promise<number | null> {
   } catch (e: any) { console.warn('[tasks] getOrCreatePersonalBoard:', e?.message); return null; }
 }
 
+// Tablero dedicado para tareas que involucran a Grupo Rino (app externa). Toda
+// tarea creada por o asignada a un usuario de Grupo Rino vive aquí.
+export async function getOrCreateGrupoRinoBoard(): Promise<number | null> {
+  try {
+    const ex = await pool.query(`SELECT id, is_active FROM task_boards WHERE board_key='grupo_rino' ORDER BY id LIMIT 1`);
+    if (ex.rows[0]) {
+      if (ex.rows[0].is_active === false) await pool.query(`UPDATE task_boards SET is_active=TRUE, updated_at=NOW() WHERE id=$1`, [ex.rows[0].id]);
+      return ex.rows[0].id;
+    }
+    const ins = await pool.query(
+      `INSERT INTO task_boards (board_key, name, board_type) VALUES ('grupo_rino','Grupo Rino','department') RETURNING id`);
+    const bid = ins.rows[0]?.id;
+    if (bid) {
+      const cols = [['nueva','🆕 Nueva',1,'#1D6FB8',false],['en_proceso','⚙️ En proceso',2,'#B07206',false],['hecho','✅ Hecho',3,'#2E7D46',true]];
+      for (const c of cols) await pool.query(`INSERT INTO task_columns (board_id, col_key, name, sort_order, color, is_done) VALUES ($1,$2,$3,$4,$5,$6)`, [bid, c[0], c[1], c[2], c[3], c[4]]);
+    }
+    return bid || null;
+  } catch (e: any) { console.warn('[tasks] getOrCreateGrupoRinoBoard:', e?.message); return null; }
+}
+
+// ¿Alguno de estos usuarios (responsable/involucrados) es de Grupo Rino?
+async function involvesGrupoRino(userIds: Array<number | null | undefined>): Promise<boolean> {
+  const ids = userIds.map(n => Number(n)).filter(n => Number.isFinite(n) && n > 0);
+  if (ids.length === 0) return false;
+  const r = await pool.query(
+    `SELECT 1 FROM users WHERE id = ANY($1::int[]) AND source_app = 'grupo_rino' LIMIT 1`, [ids]);
+  return r.rows.length > 0;
+}
+
 // Crea una tarea asignada a un usuario (reutilizable desde otros módulos, p.ej.
 // convertir la "declaración de meta" de un asesor en tarea). Devuelve el task_id.
 export async function createAssignedTaskInternal(opts: {
@@ -363,7 +392,7 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
     }
     if (!boardId) return res.status(500).json({ error: 'Tablero no disponible' });
     const col = await pool.query(`SELECT id FROM task_columns WHERE board_id = $1 ORDER BY sort_order LIMIT 1`, [boardId]);
-    const columnId = col.rows[0]?.id || null;
+    let columnId = col.rows[0]?.id || null;
     // Sub-sección (opcional): debe pertenecer al tablero elegido.
     let sectionId: number | null = null;
     if (b.section_id) {
@@ -381,6 +410,17 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
     // involucrado distinto del creador; y si no hay involucrados, el creador.
     const firstNonCreator = extra.find((x) => x !== uid);
     const primaryAssignee = explicitAssignee > 0 ? explicitAssignee : (firstNonCreator || uid);
+    // 🔗 Grupo Rino: si el responsable o algún involucrado es un usuario externo,
+    // la tarea SIEMPRE se crea en el tablero "Grupo Rino" (sin importar la categoría).
+    if (await involvesGrupoRino([primaryAssignee, ...participants])) {
+      const rinoBoard = await getOrCreateGrupoRinoBoard();
+      if (rinoBoard) {
+        boardId = rinoBoard;
+        const rc = await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [boardId]);
+        columnId = rc.rows[0]?.id || null;
+        sectionId = null;
+      }
+    }
     // Anti doble-envío: si el mismo usuario creó una tarea idéntica (mismo título
     // + tablero) en los últimos 20 s, devolvemos esa en lugar de duplicar.
     const dup = await pool.query(
@@ -913,21 +953,33 @@ export const createTask = async (req: Request, res: Response): Promise<any> => {
   try {
     const uid = authUserId(req);
     const b = req.body || {};
-    const boardId = parseInt(String(b.board_id));
+    let boardId = parseInt(String(b.board_id));
     if (!boardId) return res.status(400).json({ error: 'board_id requerido' });
     if (!(await canManageBoard(req, boardId))) return res.status(403).json({ error: 'Sin permiso para este tablero' });
     if (!String(b.title || '').trim()) return res.status(400).json({ error: 'El título es obligatorio (usa un verbo de acción)' });
     const eisenhower = EISENHOWER.includes(b.eisenhower) ? b.eisenhower : null;
     if (!eisenhower) return res.status(400).json({ error: 'La categoría (Matriz de Prioridad) es obligatoria' });
-    // Columna inicial: la indicada, o la primera del tablero.
-    let columnId = b.column_id ? parseInt(String(b.column_id)) : null;
+    // 🔗 Grupo Rino: si el responsable o algún involucrado es un usuario externo,
+    // la tarea SIEMPRE se crea en el tablero "Grupo Rino" (ignora el tablero elegido).
+    let forcedRino = false;
+    {
+      const involvedRaw = Array.isArray(b.involved_ids)
+        ? b.involved_ids.map((x: any) => parseInt(String(x))).filter((n: number) => Number.isFinite(n) && n > 0) : [];
+      const assigneeId = b.assignee_id ? parseInt(String(b.assignee_id)) : 0;
+      if (await involvesGrupoRino([assigneeId, ...involvedRaw])) {
+        const rinoBoard = await getOrCreateGrupoRinoBoard();
+        if (rinoBoard) { boardId = rinoBoard; forcedRino = true; }
+      }
+    }
+    // Columna inicial: la indicada, o la primera del tablero (forzado Rino → primera).
+    let columnId = (!forcedRino && b.column_id) ? parseInt(String(b.column_id)) : null;
     if (!columnId) {
       const c = await pool.query(`SELECT id FROM task_columns WHERE board_id = $1 ORDER BY sort_order LIMIT 1`, [boardId]);
       columnId = c.rows[0]?.id || null;
     }
     // Regla "Algún día": prioridad 'eliminar' (no importante/no urgente) se
     // auto-asigna a la sección Algún día del tablero, sin importar lo elegido.
-    let sectionId = b.section_id ? parseInt(String(b.section_id)) : null;
+    let sectionId = (!forcedRino && b.section_id) ? parseInt(String(b.section_id)) : null;
     if (eisenhower === 'eliminar') { sectionId = await getOrCreateSomedaySection(boardId); }
     const r = await pool.query(`
       INSERT INTO tasks (board_id, column_id, section_id, title, description, assignee_id, due_at, eisenhower,
