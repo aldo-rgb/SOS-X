@@ -137,8 +137,14 @@ const ROLE_LABEL: Record<string, string> = {
   warehouse_ops: 'Bodega', counter_staff: 'Mostrador', customer_service: 'Servicio a cliente',
   soporte_tecnico: 'Soporte técnico', advisor: 'Asesores', sub_advisor: 'Sub-asesores',
   repartidor: 'Repartidores', monitoreo: 'Monitoreo',
+  external_partner: 'Grupo Rino',
 };
 const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r : 'Otros');
+// Orden fijo de grupos en el selector (los no listados van al final). Legal se oculta.
+const GROUP_ORDER = ['Administración', 'Dirección', 'Servicio a cliente', 'Operación CEDIS', 'Contabilidad', 'Grupo Rino', 'Bodega', 'Monitoreo', 'Repartidores', 'Mostrador'];
+const groupRank = (g: string): number => { const i = GROUP_ORDER.indexOf(g); return i < 0 ? GROUP_ORDER.length : i; };
+const HIDDEN_GROUPS = new Set<string>(['Legal']);
+const isPickableGroup = (r?: string): boolean => !HIDDEN_GROUPS.has(roleGroup(r));
 
 export default function TareasPage() {
   const [boards, setBoards] = useState<Board[]>([]);
@@ -655,9 +661,10 @@ export default function TareasPage() {
                   // Opciones = responsables configurados del tablero + los involucrados
                   // elegidos (para poder nombrar responsable a quien acabas de involucrar).
                   const m = new Map<number, UserOpt>();
-                  for (const u of assignees) m.set(u.id, u);
-                  for (const u of users) if (involvedIds.includes(u.id)) m.set(u.id, u);
-                  const opts = Array.from(m.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
+                  for (const u of assignees) if (isPickableGroup(u.role)) m.set(u.id, u);
+                  for (const u of users) if (involvedIds.includes(u.id) && isPickableGroup(u.role)) m.set(u.id, u);
+                  const opts = Array.from(m.values())
+                    .sort((a, b) => groupRank(roleGroup(a.role)) - groupRank(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name));
                   if (opts.length === 0) return <MenuItem value="" disabled>Agrega un involucrado para elegir responsable</MenuItem>;
                   return opts.map(u => {
                     const avg = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
@@ -681,8 +688,8 @@ export default function TareasPage() {
           <Box sx={{ mt: 1.5 }}>
             <Autocomplete
               multiple size="small" disableCloseOnSelect
-              options={[...users].filter(u => u.id !== form.assignee_id)
-                .sort((a, b) => roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name))}
+              options={[...users].filter(u => u.id !== form.assignee_id && isPickableGroup(u.role))
+                .sort((a, b) => groupRank(roleGroup(a.role)) - groupRank(roleGroup(b.role)) || roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name))}
               value={users.filter(u => u.id !== form.assignee_id && involvedIds.includes(u.id))}
               onChange={(_, val) => setInvolvedIds(val.map(u => u.id))}
               groupBy={(u) => roleGroup(u.role)}
@@ -703,9 +710,10 @@ export default function TareasPage() {
             {/* Agregar por grupo */}
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 1 }}>
               <Chip label="👥 Todos los empleados" size="small"
-                onClick={() => setInvolvedIds(Array.from(new Set(users.filter(u => u.id !== form.assignee_id).map(u => u.id))))}
+                onClick={() => setInvolvedIds(Array.from(new Set(users.filter(u => u.id !== form.assignee_id && isPickableGroup(u.role)).map(u => u.id))))}
                 sx={{ bgcolor: '#FFF3EC', color: '#D6521C', fontWeight: 700, border: '1px solid #F0B79A' }} />
-              {Array.from(new Set(users.filter(u => u.id !== form.assignee_id).map(u => roleGroup(u.role)))).sort().map(g => (
+              {Array.from(new Set(users.filter(u => u.id !== form.assignee_id && isPickableGroup(u.role)).map(u => roleGroup(u.role))))
+                .sort((a, b) => groupRank(a) - groupRank(b) || a.localeCompare(b)).map(g => (
                 <Chip key={g} label={`+ ${g}`} size="small" variant="outlined"
                   onClick={() => setInvolvedIds(Array.from(new Set([...involvedIds, ...users.filter(u => u.id !== form.assignee_id && roleGroup(u.role) === g).map(u => u.id)])))}
                   sx={{ fontWeight: 600, borderColor: '#ddd' }} />
