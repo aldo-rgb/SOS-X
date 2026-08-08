@@ -640,8 +640,8 @@ export const getAssignableUsers = async (req: Request, res: Response): Promise<a
          FROM users u
         WHERE u.role <> 'client' AND COALESCE(u.is_active,true)=true
           AND LOWER(TRIM(u.full_name)) <> 'administrador entregax'
-          -- El super_admin de Grupo Rino es cuenta de sistema: no se asigna.
-          AND NOT (u.source_app = 'grupo_rino' AND LOWER(COALESCE(u.external_role,'')) = 'super_admin')
+          -- Los admin/super_admin de Grupo Rino son cuentas de sistema: no se asignan.
+          AND NOT (u.source_app = 'grupo_rino' AND LOWER(COALESCE(u.external_role,'')) IN ('super_admin','admin','administrador'))
         ORDER BY (u.source_app IS NOT NULL), u.full_name`);
     // 🔁 Frecuentes: a quién asigno más tareas (responsable o involucrado). Para
     // mostrar botones rápidos de "usuarios frecuentes" en el selector.
