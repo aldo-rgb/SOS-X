@@ -128,10 +128,11 @@ const toStamp = (d: Date): string => {
 };
 
 // ── Selector de involucrados (buscable, agrupado por tipo; "Yo" siempre incluido) ──
-export function InvolvedPicker({ users, myId, selected, onChange, fixedLabel = 'Yo' }: {
-  users: UserOpt[]; myId: number; selected: number[]; onChange: (ids: number[]) => void; fixedLabel?: string;
+export function InvolvedPicker({ users, myId, selected, onChange, fixedLabel = 'Yo', frequent = [] }: {
+  users: UserOpt[]; myId: number; selected: number[]; onChange: (ids: number[]) => void; fixedLabel?: string; frequent?: number[];
 }) {
   const [q, setQ] = useState('');
+  const [showGroups, setShowGroups] = useState(false);
   const others = users.filter(u => u.id !== myId);
   const ql = q.trim().toLowerCase();
   const filtered = others.filter(u => !ql || u.full_name.toLowerCase().includes(ql) || roleGroup(u.role).toLowerCase().includes(ql))
@@ -145,6 +146,18 @@ export function InvolvedPicker({ users, myId, selected, onChange, fixedLabel = '
     bucket.items.push(u);
   });
   const toggle = (id: number) => onChange(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id]);
+  // Grupos (roles) para agregar a todos de un tipo de una vez.
+  const allGroups = Array.from(new Set(others.map(u => roleGroup(u.role)))).sort();
+  const addGroup = (g: string) => {
+    const ids = others.filter(u => g === '__ALL__' || roleGroup(u.role) === g).map(u => u.id);
+    onChange(Array.from(new Set([...selected, ...ids])));
+    setShowGroups(false);
+  };
+  // Usuarios frecuentes: a quién asigno más (botones rápidos).
+  const freqUsers = frequent
+    .map(id => users.find(u => u.id === id))
+    .filter((u): u is UserOpt => !!u && u.id !== myId)
+    .slice(0, 8);
   return (
     <View>
       <View style={styles.involvedChips}>
@@ -160,6 +173,37 @@ export function InvolvedPicker({ users, myId, selected, onChange, fixedLabel = '
           );
         })}
       </View>
+      {/* Grupos (desplegable) + usuarios frecuentes */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center' }}>
+        <TouchableOpacity onPress={() => setShowGroups(v => !v)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#FFF3EC', borderWidth: 1, borderColor: '#F0B79A', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 }}>
+          <Text style={{ color: '#D6521C', fontWeight: '800', fontSize: 12.5 }}>👥 Grupos</Text>
+          <Ionicons name={showGroups ? 'chevron-up' : 'chevron-down'} size={13} color="#D6521C" />
+        </TouchableOpacity>
+        {freqUsers.map(u => {
+          const on = selected.includes(u.id);
+          return (
+            <TouchableOpacity key={u.id} onPress={() => toggle(u.id)}
+              style={{ backgroundColor: on ? '#EDE7F6' : '#fff', borderWidth: 1, borderColor: on ? '#5E35B1' : '#ddd', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 }}>
+              <Text style={{ color: on ? '#5E35B1' : '#555', fontWeight: '700', fontSize: 12.5 }}>{u.full_name}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      {showGroups && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, padding: 8, backgroundColor: '#FAF7F3', borderRadius: 10 }}>
+          <TouchableOpacity onPress={() => addGroup('__ALL__')}
+            style={{ backgroundColor: '#FFF3EC', borderWidth: 1, borderColor: '#F0B79A', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 }}>
+            <Text style={{ color: '#D6521C', fontWeight: '800', fontSize: 12.5 }}>👥 Todos los empleados</Text>
+          </TouchableOpacity>
+          {allGroups.map(g => (
+            <TouchableOpacity key={g} onPress={() => addGroup(g)}
+              style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 }}>
+              <Text style={{ color: '#555', fontWeight: '700', fontSize: 12.5 }}>+ {g}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
       <TextInput style={[styles.input, { marginTop: 8 }]} placeholder="Buscar por nombre o tipo…" value={q} onChangeText={setQ} placeholderTextColor="#999" />
       <View style={styles.involvedList}>
         <ScrollView nestedScrollEnabled style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
@@ -209,6 +253,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void; advisorMode?: boolean;
 }) {
   const [users, setUsers] = useState<UserOpt[]>([]);
+  const [frequent, setFrequent] = useState<number[]>([]);
   const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
   const [catId, setCatId] = useState<number | null | undefined>(undefined); // undefined = sin elegir; null = Personal
   const [catSection, setCatSection] = useState<number | null>(null);
@@ -227,7 +272,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
     if (!visible) return;
     setTitle(''); setDesc(''); setEis(''); setDueOpt(''); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setPhotos([]); setCatSection(null); setCatId(undefined);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H })
-      .then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
+      .then(r => r.json()).then(d => { setUsers(d.users || []); setFrequent(d.frequent || []); }).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H })
       .then(r => r.json()).then(d => {
         // Excluye el tablero personal: se representa como "Sin categoría".
@@ -382,7 +427,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
             </View>
             {!advisorMode && (<>
             <Text style={styles.fieldLbl}>Involucrados</Text>
-            <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} />
+            <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} frequent={frequent} />
             <Text style={styles.helpTxt}>Tú siempre quedas incluido. Agrega a quien deba participar.</Text>
 
             <Text style={styles.fieldLbl}>Responsable <Text style={{ color: '#C0392B' }}>*</Text></Text>
@@ -442,6 +487,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   visible: boolean; token: string; myId: number; onClose: () => void; onCreated: () => void; advisorMode?: boolean;
 }) {
   const [users, setUsers] = useState<UserOpt[]>([]);
+  const [frequent, setFrequent] = useState<number[]>([]);
   const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
   const [catId, setCatId] = useState<number | null>(null);
   const [catSection, setCatSection] = useState<number | null>(null);
@@ -463,7 +509,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   useEffect(() => {
     if (!visible) return;
     setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]); setCatSection(null);
-    fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => setUsers(d.users || [])).catch(() => {});
+    fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => { setUsers(d.users || []); setFrequent(d.frequent || []); }).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H }).then(r => r.json()).then(d => {
       setCategories((d.categories || []).filter((c: any) => c.board_key !== 'personales'));
       setCatId(null); // Sin categoría por defecto
@@ -625,7 +671,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
             )}
             {!advisorMode && (<>
             <Text style={styles.fieldLbl}>Involucrados</Text>
-            <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} />
+            <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} frequent={frequent} />
             </>)}
 
             {schedules.length > 0 && (
@@ -745,6 +791,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const [eEis, setEEis] = useState('estrella');
   const [eDue, setEDue] = useState('keep');
   const [eUsers, setEUsers] = useState<UserOpt[]>([]);
+  const [eFrequent, setEFrequent] = useState<number[]>([]);
   const [eInvolved, setEInvolved] = useState<number[]>([]);
   const [eAssignee, setEAssignee] = useState<number>(0); // responsable principal
   const [eCats, setECats] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
@@ -765,7 +812,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   // Cargar usuarios y categorías cuando el detalle es editable (para editar inline).
   useEffect(() => {
     if (!visible || !data?.can_edit) return;
-    if (eUsers.length === 0) fetch(`${API_URL}/api/tasks/assignable-users`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()).then(d => setEUsers(d.users || [])).catch(() => {});
+    if (eUsers.length === 0) fetch(`${API_URL}/api/tasks/assignable-users`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()).then(d => { setEUsers(d.users || []); setEFrequent(d.frequent || []); }).catch(() => {});
     if (eCats.length === 0) fetch(`${API_URL}/api/tasks/categories`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()).then(d => setECats((d.categories || []).filter((c: any) => c.board_key !== 'personales'))).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, data?.can_edit]);
@@ -778,7 +825,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     const parts = (data?.participants || []).map((p: any) => Number(p.id)).filter((pid: number) => pid !== creatorId);
     setEInvolved(parts);
     setEAssignee(Number(t.assignee_id) || creatorId);
-    if (eUsers.length === 0) fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => setEUsers(d.users || [])).catch(() => {});
+    if (eUsers.length === 0) fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => { setEUsers(d.users || []); setEFrequent(d.frequent || []); }).catch(() => {});
     if (eCats.length === 0) fetch(`${API_URL}/api/tasks/categories`, { headers: H }).then(r => r.json()).then(d => setECats((d.categories || []).filter((c: any) => c.board_key !== 'personales'))).catch(() => {});
     setEditing(true);
   };
@@ -1047,7 +1094,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                     ))}
                   </View>
                   <Text style={styles.fieldLbl}>Responsables</Text>
-                  <InvolvedPicker users={eUsers} myId={Number(t.created_by) || 0} selected={eInvolved} onChange={setEInvolved} fixedLabel={t.created_by_name || 'Creador'} />
+                  <InvolvedPicker users={eUsers} myId={Number(t.created_by) || 0} selected={eInvolved} onChange={setEInvolved} fixedLabel={t.created_by_name || 'Creador'} frequent={eFrequent} />
                   <Text style={styles.helpTxt}>El creador siempre queda incluido. Elige abajo quién es el responsable principal.</Text>
                   {(() => {
                     const cid = Number(t.created_by) || 0;
@@ -1121,7 +1168,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                   <Text style={styles.fieldLbl}>Involucrados</Text>
                   <InvolvedPicker users={eUsers} myId={creatorId} selected={involvedExtra}
                     onChange={(ids: number[]) => patchTask({ involved_ids: creatorId ? [creatorId, ...ids] : ids, assignee_id: Number(t.assignee_id) || undefined })}
-                    fixedLabel={t.created_by_name || 'Creador'} />
+                    fixedLabel={t.created_by_name || 'Creador'} frequent={eFrequent} />
                   {!!t.due_at && <Text style={[styles.metaLine, t.overdue && { color: '#C0392B' }, { marginTop: 8 }]}><Text style={styles.metaB}>Fecha deseada:</Text> {fmtDate(t.due_at)}</Text>}
                   {busy && <ActivityIndicator color={ORANGE} style={{ marginTop: 6 }} />}
                 </View>
