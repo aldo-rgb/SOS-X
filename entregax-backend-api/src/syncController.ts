@@ -70,7 +70,9 @@ export const upsertExternalUsers = async (req: Request, res: Response): Promise<
       const email = String(u.email ?? `rino-${externalId}@grupo-rino.ext`).trim().toLowerCase();
       const externalRole = u.role ? String(u.role) : null;
       const active = u.active === undefined ? true : !!u.active;
-      const boxId = `RINO-${externalId}`;
+      // box_id es varchar(20). Los external_id de Grupo Rino son UUID (36) → generamos
+      // un box_id corto derivado (no requiere unicidad; el mapeo real es external_id).
+      const boxId = ('RINO-' + String(externalId).replace(/[^A-Za-z0-9]/g, '')).slice(0, 20);
       // Password no usable (no es bcrypt → login imposible).
       const noLogin = 'external:' + crypto.randomBytes(24).toString('hex');
 
