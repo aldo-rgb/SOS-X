@@ -82,17 +82,18 @@ export const upsertExternalUsers = async (req: Request, res: Response): Promise<
           [fullName, externalRole, active, existing.rows[0].id]);
         results.push({ external_id: externalId, local_id: existing.rows[0].id, action: 'updated' });
       } else {
+        // Evitar colisión de email con un usuario existente (email no es único en la
+        // tabla; usamos un correo sintético si el enviado ya existe).
+        let finalEmail = email;
+        const emailTaken = await pool.query(`SELECT 1 FROM users WHERE LOWER(email)=LOWER($1) LIMIT 1`, [finalEmail]);
+        if (emailTaken.rows[0]) finalEmail = `rino-${externalId}@grupo-rino.ext`;
         // role='external_partner' para que aparezca en asignables (role<>'client').
-        // NOTA: la tabla users NO tiene updated_at (solo created_at).
+        // NOTA: la tabla users NO tiene updated_at (solo created_at) y email no es único.
         const ins = await pool.query(
           `INSERT INTO users (full_name, email, password, box_id, role, is_active, source_app, external_id, external_role, created_at)
            VALUES ($1,$2,$3,$4,'external_partner',$5,$6,$7,$8,NOW())
-           ON CONFLICT (email) DO UPDATE SET
-             full_name=EXCLUDED.full_name, source_app=EXCLUDED.source_app,
-             external_id=EXCLUDED.external_id, external_role=EXCLUDED.external_role,
-             is_active=EXCLUDED.is_active
            RETURNING id`,
-          [fullName, email, noLogin, boxId, active, EXTERNAL_APP, externalId, externalRole]);
+          [fullName, finalEmail, noLogin, boxId, active, EXTERNAL_APP, externalId, externalRole]);
         results.push({ external_id: externalId, local_id: ins.rows[0].id, action: 'created' });
       }
     }
