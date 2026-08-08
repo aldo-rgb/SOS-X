@@ -1289,7 +1289,8 @@ import {
   setEmployeeAttendanceEnabled,
   getEmployeePhoto,
   getEmployeePhone,
-  upsertEmployeePhone
+  upsertEmployeePhone,
+  listPhoneAssets
 } from './hrController';
 import {
   getVehicles,
@@ -12079,6 +12080,7 @@ app.delete('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.S
 app.put('/api/admin/hr/employees/:id/attendance-enabled', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), setEmployeeAttendanceEnabled);
 app.get('/api/admin/hr/employees/:id/photo', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeePhoto);
 // Equipo / línea telefónica de la empresa asignada al empleado
+app.get('/api/admin/hr/phone-assets', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), listPhoneAssets);
 app.get('/api/admin/hr/employees/:id/phone', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeePhone);
 app.put('/api/admin/hr/employees/:id/phone', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), upsertEmployeePhone);
 app.post('/api/admin/hr/employees/:id/reactivate', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req, res) => {

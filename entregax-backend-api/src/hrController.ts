@@ -1371,18 +1371,22 @@ export const getEmployeePhoto = async (req: Request, res: Response): Promise<voi
 };
 
 // ============================================================
-// EQUIPO / LÍNEA TELEFÓNICA asignada a un empleado (celular de la empresa).
-// Guarda: equipo, modelo, número, a nombre de quién está la línea y la fecha
-// de vencimiento del saldo (para recargar a tiempo). Uno por empleado (upsert).
+// LÍNEA TELEFÓNICA + EQUIPO asignado a un empleado.
+//  - El EQUIPO (marca/modelo) se da de alta en el Inventario de Activos
+//    (branch_assets, categoría 'Telefonía') y se ASIGNA aquí por asset_id
+//    (marca a branch_assets.assigned_to_user_id).
+//  - La LÍNEA (número, titular, vencimiento de saldo) vive en RRHH.
+// Uno por empleado (upsert).
 // ============================================================
+const PHONE_ASSET_CATEGORY = 'Telefonía';
 let _empPhoneReady = false;
 const ensureEmployeePhoneTable = async (): Promise<void> => {
   if (_empPhoneReady) return;
   await pool.query(`
     CREATE TABLE IF NOT EXISTS employee_phones (
       employee_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-      equipo          TEXT,                 -- marca/tipo de equipo (ej. Samsung, iPhone)
-      modelo          TEXT,                 -- modelo (ej. A15, 13)
+      equipo          TEXT,                 -- (legacy) marca de equipo texto libre
+      modelo          TEXT,                 -- (legacy) modelo texto libre
       phone_number    TEXT,                 -- número de teléfono
       line_holder     TEXT,                 -- a nombre de quién está registrada la línea
       balance_due_date DATE,                -- vencimiento del saldo (para recargar a tiempo)
@@ -1392,25 +1396,53 @@ const ensureEmployeePhoneTable = async (): Promise<void> => {
       updated_at      TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Nuevo: referencia al equipo del inventario de activos.
+  await pool.query(`ALTER TABLE employee_phones ADD COLUMN IF NOT EXISTS asset_id INTEGER REFERENCES branch_assets(id) ON DELETE SET NULL`).catch(() => {});
   _empPhoneReady = true;
 };
 
-// GET /api/admin/hr/employees/:id/phone
+// GET /api/admin/hr/employees/:id/phone — línea + equipo asignado (marca/modelo del inventario)
 export const getEmployeePhone = async (req: Request, res: Response): Promise<void> => {
   try {
     await ensureEmployeePhoneTable();
     const id = parseInt(String(req.params.id), 10);
     if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
-    const r = await pool.query(`SELECT * FROM employee_phones WHERE employee_id = $1`, [id]);
+    const r = await pool.query(
+      `SELECT ep.*, a.brand AS asset_brand, a.model AS asset_model, a.serial_number AS asset_serial, a.sku AS asset_sku
+         FROM employee_phones ep
+         LEFT JOIN branch_assets a ON a.id = ep.asset_id
+        WHERE ep.employee_id = $1`, [id]);
     res.json({ phone: r.rows[0] || null });
   } catch (error) {
     console.error('Error getEmployeePhone:', error);
-    res.status(500).json({ error: 'Error al obtener el equipo' });
+    res.status(500).json({ error: 'Error al obtener la línea/equipo' });
   }
 };
 
-// PUT /api/admin/hr/employees/:id/phone  (upsert)
+// GET /api/admin/hr/phone-assets?employee_id=X
+// Equipos de categoría 'Telefonía' DISPONIBLES (sin asignar y no dados de baja)
+// + el que ya esté asignado a ese empleado (para poder editarlo).
+export const listPhoneAssets = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const empId = parseInt(String(req.query.employee_id || ''), 10) || null;
+    const r = await pool.query(
+      `SELECT id, sku, brand, model, serial_number, status, assigned_to_user_id
+         FROM branch_assets
+        WHERE category = $1
+          AND status NOT IN ('de_baja')
+          AND (assigned_to_user_id IS NULL OR assigned_to_user_id = $2)
+        ORDER BY brand NULLS LAST, model NULLS LAST, id`,
+      [PHONE_ASSET_CATEGORY, empId]);
+    res.json({ assets: r.rows });
+  } catch (error) {
+    console.error('Error listPhoneAssets:', error);
+    res.status(500).json({ error: 'Error al listar equipos' });
+  }
+};
+
+// PUT /api/admin/hr/employees/:id/phone  (upsert línea + asignación de equipo)
 export const upsertEmployeePhone = async (req: Request, res: Response): Promise<void> => {
+  const client = await pool.connect();
   try {
     await ensureEmployeePhoneTable();
     const id = parseInt(String(req.params.id), 10);
@@ -1418,18 +1450,45 @@ export const upsertEmployeePhone = async (req: Request, res: Response): Promise<
     const b = req.body || {};
     const actor = (req as any).user?.userId || (req as any).user?.id || null;
     const dueDate = b.balance_due_date && String(b.balance_due_date).trim() ? String(b.balance_due_date) : null;
-    const r = await pool.query(
-      `INSERT INTO employee_phones (employee_id, equipo, modelo, phone_number, line_holder, balance_due_date, notes, updated_by, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+    const assetId = b.asset_id ? parseInt(String(b.asset_id), 10) : null;
+
+    await client.query('BEGIN');
+    // Equipo anterior de este empleado (para liberarlo si cambió).
+    const prev = (await client.query(`SELECT asset_id FROM employee_phones WHERE employee_id = $1`, [id])).rows[0];
+    const prevAssetId = prev?.asset_id || null;
+
+    if (assetId) {
+      // Validar que el equipo es de Telefonía y está libre o ya es de este empleado.
+      const a = (await client.query(
+        `SELECT id, assigned_to_user_id, category FROM branch_assets WHERE id = $1 FOR UPDATE`, [assetId])).rows[0];
+      if (!a) { await client.query('ROLLBACK'); res.status(400).json({ error: 'Equipo no encontrado' }); return; }
+      if (a.assigned_to_user_id && Number(a.assigned_to_user_id) !== id) {
+        await client.query('ROLLBACK'); res.status(400).json({ error: 'Ese equipo ya está asignado a otro usuario' }); return;
+      }
+      // Asignar el equipo al empleado.
+      await client.query(`UPDATE branch_assets SET assigned_to_user_id = $1, updated_at = NOW() WHERE id = $2`, [id, assetId]);
+    }
+    // Liberar el equipo anterior si cambió (o si se dejó sin equipo).
+    if (prevAssetId && prevAssetId !== assetId) {
+      await client.query(`UPDATE branch_assets SET assigned_to_user_id = NULL, updated_at = NOW() WHERE id = $1`, [prevAssetId]);
+    }
+
+    const r = await client.query(
+      `INSERT INTO employee_phones (employee_id, asset_id, phone_number, line_holder, balance_due_date, notes, updated_by, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
        ON CONFLICT (employee_id) DO UPDATE SET
-         equipo = EXCLUDED.equipo, modelo = EXCLUDED.modelo, phone_number = EXCLUDED.phone_number,
+         asset_id = EXCLUDED.asset_id, phone_number = EXCLUDED.phone_number,
          line_holder = EXCLUDED.line_holder, balance_due_date = EXCLUDED.balance_due_date,
          notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = NOW()
        RETURNING *`,
-      [id, b.equipo || null, b.modelo || null, b.phone_number || null, b.line_holder || null, dueDate, b.notes || null, actor]);
+      [id, assetId, b.phone_number || null, b.line_holder || null, dueDate, b.notes || null, actor]);
+    await client.query('COMMIT');
     res.json({ phone: r.rows[0] });
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error upsertEmployeePhone:', error);
-    res.status(500).json({ error: 'Error al guardar el equipo' });
+    res.status(500).json({ error: 'Error al guardar la línea/equipo' });
+  } finally {
+    client.release();
   }
 };

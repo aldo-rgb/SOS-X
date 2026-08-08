@@ -250,9 +250,10 @@ export default function HRManagementPage() {
   const [tab, setTab] = useState(0);
   const [viewProfileId, setViewProfileId] = useState<number | null>(null);
   const [vacQuintaEmp, setVacQuintaEmp] = useState<Employee | null>(null);
-  // Equipo / línea telefónica de la empresa asignada al empleado
+  // Línea telefónica (RRHH) + equipo asignado desde Inventario de Activos
   const [phoneEmp, setPhoneEmp] = useState<Employee | null>(null);
-  const [phoneForm, setPhoneForm] = useState({ equipo: '', modelo: '', phone_number: '', line_holder: '', balance_due_date: '', notes: '' });
+  const [phoneForm, setPhoneForm] = useState({ asset_id: '', phone_number: '', line_holder: '', balance_due_date: '', notes: '' });
+  const [phoneAssets, setPhoneAssets] = useState<Array<{ id: number; sku: string; brand: string | null; model: string | null; serial_number: string | null; status: string; assigned_to_user_id: number | null }>>([]);
   const [phoneSaving, setPhoneSaving] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [stats, setStats] = useState<AttendanceStats | null>(null);
@@ -381,15 +382,22 @@ export default function HRManagementPage() {
     setCreateDialogOpen(true);
   };
 
-  // Equipo / línea telefónica: abrir modal cargando lo existente
+  // Línea/equipo: abrir modal cargando lo existente + equipos disponibles del inventario
   const openPhoneDialog = async (employee: Employee) => {
     setPhoneEmp(employee);
-    setPhoneForm({ equipo: '', modelo: '', phone_number: '', line_holder: '', balance_due_date: '', notes: '' });
+    setPhoneForm({ asset_id: '', phone_number: '', line_holder: '', balance_due_date: '', notes: '' });
+    setPhoneAssets([]);
+    const auth = { headers: { Authorization: `Bearer ${getToken()}` } };
     try {
-      const r = await axios.get(`${API_URL}/api/admin/hr/employees/${employee.id}/phone`, { headers: { Authorization: `Bearer ${getToken()}` } });
-      const p = r.data?.phone;
+      const [ar, pr] = await Promise.all([
+        axios.get(`${API_URL}/api/admin/hr/phone-assets?employee_id=${employee.id}`, auth),
+        axios.get(`${API_URL}/api/admin/hr/employees/${employee.id}/phone`, auth),
+      ]);
+      setPhoneAssets(ar.data?.assets || []);
+      const p = pr.data?.phone;
       if (p) setPhoneForm({
-        equipo: p.equipo || '', modelo: p.modelo || '', phone_number: p.phone_number || '',
+        asset_id: p.asset_id ? String(p.asset_id) : '',
+        phone_number: p.phone_number || '',
         line_holder: p.line_holder || '',
         balance_due_date: p.balance_due_date ? String(p.balance_due_date).slice(0, 10) : '',
         notes: p.notes || '',
@@ -400,9 +408,11 @@ export default function HRManagementPage() {
     if (!phoneEmp) return;
     setPhoneSaving(true);
     try {
-      await axios.put(`${API_URL}/api/admin/hr/employees/${phoneEmp.id}/phone`, phoneForm, { headers: { Authorization: `Bearer ${getToken()}` } });
+      await axios.put(`${API_URL}/api/admin/hr/employees/${phoneEmp.id}/phone`,
+        { ...phoneForm, asset_id: phoneForm.asset_id ? Number(phoneForm.asset_id) : null },
+        { headers: { Authorization: `Bearer ${getToken()}` } });
       setPhoneEmp(null);
-    } catch (e) { alert('No se pudo guardar el equipo'); }
+    } catch (e: any) { alert(e?.response?.data?.error || 'No se pudo guardar'); }
     finally { setPhoneSaving(false); }
   };
 
@@ -1695,17 +1705,25 @@ export default function HRManagementPage() {
       {/* Equipo / Línea telefónica de la empresa */}
       <Dialog open={!!phoneEmp} onClose={() => !phoneSaving && setPhoneEmp(null)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 800 }}>
-          <PhoneAndroidIcon sx={{ color: '#6d28d9' }} /> Equipo / Línea telefónica
+          <PhoneAndroidIcon sx={{ color: '#6d28d9' }} /> Línea / Equipo telefónico
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Registra el celular de la empresa entregado a <strong>{phoneEmp?.full_name}</strong>.
+            Asigna a <strong>{phoneEmp?.full_name}</strong> un equipo del <strong>Inventario de Activos</strong> (categoría Telefonía) y captura los datos de la línea.
           </Typography>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField label="Equipo (marca)" size="small" fullWidth placeholder="Ej. Samsung, iPhone, Motorola"
-              value={phoneForm.equipo} onChange={e => setPhoneForm({ ...phoneForm, equipo: e.target.value })} />
-            <TextField label="Modelo" size="small" fullWidth placeholder="Ej. A15, 13, G54"
-              value={phoneForm.modelo} onChange={e => setPhoneForm({ ...phoneForm, modelo: e.target.value })} />
+            <TextField select size="small" fullWidth label="Equipo asignado (del inventario)"
+              value={phoneForm.asset_id} onChange={e => setPhoneForm({ ...phoneForm, asset_id: e.target.value })}
+              helperText={phoneAssets.length === 0 ? 'No hay equipos de Telefonía disponibles. Da de alta uno en Inventario de Activos.' : 'Marca y modelo vienen del inventario'}>
+              <MenuItem value="">— Sin equipo —</MenuItem>
+              {phoneAssets.map(a => (
+                <MenuItem key={a.id} value={String(a.id)}>
+                  {[a.brand, a.model].filter(Boolean).join(' ') || a.sku}
+                  {a.serial_number ? ` · S/N ${a.serial_number}` : ''} · {a.sku}
+                  {a.assigned_to_user_id ? ' (actual)' : ''}
+                </MenuItem>
+              ))}
+            </TextField>
             <TextField label="Número de teléfono" size="small" fullWidth placeholder="Ej. 81 1234 5678"
               value={phoneForm.phone_number} onChange={e => setPhoneForm({ ...phoneForm, phone_number: e.target.value })} />
             <TextField label="Línea registrada a nombre de" size="small" fullWidth placeholder="Nombre del titular de la línea"
