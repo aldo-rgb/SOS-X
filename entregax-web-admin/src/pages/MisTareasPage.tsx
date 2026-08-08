@@ -200,6 +200,7 @@ interface Task {
   participants_count?: number; participant_names?: string[] | null; unread_count?: number;
   assignee_photo?: string | null; participant_avatars?: Array<{ name: string; photo?: string | null }> | null;
   created_by?: number; created_by_name?: string;
+  stalled?: boolean;
 }
 interface UserOpt { id: number; full_name: string; role?: string; avg_resolution_seconds?: number | null; profile_photo_url?: string | null; }
 // Iniciales para avatares (fallback cuando no hay foto). Módulo-scope: usable en InvolvedPicker.
@@ -525,6 +526,7 @@ export default function MisTareasPage() {
           <Chip label={eis?.short || t.eisenhower} size="small" sx={{ height: 20, fontSize: 11, bgcolor: eis?.bg, color: eis?.color, fontWeight: 700 }} />
           {done && <Chip label="✅ Completada" size="small" color="success" sx={{ height: 20, fontSize: 11 }} />}
           {t.status === 'awaiting_confirmation' && <Chip label="⏳ En espera" size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700 }} />}
+          {t.stalled && <Tooltip title="En curso +3 días sin movimiento (comenta o avanza para reactivar)"><Chip label="🛑 Detenida" size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#3A3A3A', color: '#fff', fontWeight: 700 }} /></Tooltip>}
           {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count} sin leer`} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#E53935', color: '#fff', fontWeight: 700 }} />}
         </Box>
         <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: done ? 'line-through' : 'none' }}>{t.title}</Typography>
@@ -580,6 +582,7 @@ export default function MisTareasPage() {
           borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3', '&:hover': { boxShadow: 1 }, '&:active': { cursor: 'grabbing' }, opacity: done ? 0.6 : 1 }}>
         <Typography fontSize={12} fontWeight={600} sx={{ lineHeight: 1.25, textDecoration: done ? 'line-through' : 'none', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{t.title}</Typography>
         {t.status === 'awaiting_confirmation' && <Chip label="⏳ En espera" size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, mr: 0.5, bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
+        {t.stalled && <Chip label="🛑 Detenida" size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, mr: 0.5, bgcolor: '#3A3A3A', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count}`} size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, bgcolor: '#E53935', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         {mShown.length > 0 && (
           <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.4 }}>

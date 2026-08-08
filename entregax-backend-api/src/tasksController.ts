@@ -759,7 +759,14 @@ export const listTasks = async (req: Request, res: Response): Promise<any> => {
              (SELECT COUNT(*) FROM task_comments c WHERE c.task_id = t.id)::int AS comments,
              (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
              (SELECT array_agg(u2.full_name ORDER BY u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_names,
-             (t.due_at IS NOT NULL AND t.status='open' AND t.due_at < NOW()) AS overdue
+             (SELECT json_agg(json_build_object('name', u2.full_name, 'photo', u2.profile_photo_url) ORDER BY (u2.id = t.assignee_id) DESC, u2.full_name) FROM task_participants tp JOIN users u2 ON u2.id = tp.user_id WHERE tp.task_id = t.id) AS participant_avatars,
+             (t.due_at IS NOT NULL AND t.status='open' AND t.due_at < NOW()) AS overdue,
+             -- 🛑 DETENIDA: en curso y >3 días sin movimiento (cambios/comentarios/actividad).
+             (t.status='open' AND t.started_at IS NOT NULL AND GREATEST(
+                t.updated_at, t.started_at,
+                COALESCE((SELECT MAX(created_at) FROM task_comments cc WHERE cc.task_id = t.id), t.started_at),
+                COALESCE((SELECT MAX(created_at) FROM task_activity aa WHERE aa.task_id = t.id), t.started_at)
+              ) < NOW() - INTERVAL '3 days') AS stalled
         FROM tasks t
         LEFT JOIN users u ON u.id = t.assignee_id
        WHERE ${conds.join(' AND ')}
@@ -866,7 +873,14 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
                t.created_at,
                COALESCE((SELECT MAX(created_at) FROM task_comments cc WHERE cc.task_id = t.id), t.created_at)
              ) AS last_activity_at,
-             (t.due_at IS NOT NULL AND t.status='open' AND t.due_at < NOW()) AS overdue
+             (t.due_at IS NOT NULL AND t.status='open' AND t.due_at < NOW()) AS overdue,
+             -- 🛑 DETENIDA: en curso (open + started_at) y >3 días SIN movimiento
+             -- (ni cambios/updated_at, ni comentarios, ni actividad registrada).
+             (t.status='open' AND t.started_at IS NOT NULL AND GREATEST(
+                t.updated_at, t.started_at,
+                COALESCE((SELECT MAX(created_at) FROM task_comments cc WHERE cc.task_id = t.id), t.started_at),
+                COALESCE((SELECT MAX(created_at) FROM task_activity aa WHERE aa.task_id = t.id), t.started_at)
+              ) < NOW() - INTERVAL '3 days') AS stalled
         FROM tasks t
         JOIN task_boards b ON b.id = t.board_id
         LEFT JOIN task_columns col ON col.id = t.column_id
