@@ -107,6 +107,11 @@ export const ROLE_LABEL: Record<string, string> = {
   external_partner: 'Grupo Rino', // usuarios sincronizados desde la app de Grupo Rino
 };
 export const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r : 'Otros');
+// Orden de grupos en el selector (los no listados van al final). Legal se oculta.
+const GROUP_ORDER = ['Administración', 'Dirección', 'Servicio a cliente', 'Operación CEDIS', 'Contabilidad', 'Grupo Rino', 'Bodega', 'Monitoreo', 'Repartidores', 'Mostrador'];
+const groupRank = (g: string): number => { const i = GROUP_ORDER.indexOf(g); return i < 0 ? GROUP_ORDER.length : i; };
+const HIDDEN_GROUPS = new Set<string>(['Legal']);
+const isPickableGroup = (r?: string): boolean => !HIDDEN_GROUPS.has(roleGroup(r));
 export const avgLabel = (u: UserOpt): string => {
   const s = u.avg_resolution_seconds != null ? Number(u.avg_resolution_seconds) : null;
   return s && s > 0 ? `⏱ ${fmtDur(s * 1000)} prom.` : '⏱ sin datos';
@@ -133,10 +138,11 @@ export function InvolvedPicker({ users, myId, selected, onChange, fixedLabel = '
 }) {
   const [q, setQ] = useState('');
   const [showGroups, setShowGroups] = useState(false);
-  const others = users.filter(u => u.id !== myId);
+  // Excluye el fijo y los grupos ocultos (Legal).
+  const others = users.filter(u => u.id !== myId && isPickableGroup(u.role));
   const ql = q.trim().toLowerCase();
   const filtered = others.filter(u => !ql || u.full_name.toLowerCase().includes(ql) || roleGroup(u.role).toLowerCase().includes(ql))
-    .sort((a, b) => roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name));
+    .sort((a, b) => groupRank(roleGroup(a.role)) - groupRank(roleGroup(b.role)) || roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name));
   // Agrupa por tipo para render.
   const groups: Array<{ g: string; items: UserOpt[] }> = [];
   filtered.forEach(u => {
@@ -146,8 +152,9 @@ export function InvolvedPicker({ users, myId, selected, onChange, fixedLabel = '
     bucket.items.push(u);
   });
   const toggle = (id: number) => onChange(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id]);
-  // Grupos (roles) para agregar a todos de un tipo de una vez.
-  const allGroups = Array.from(new Set(others.map(u => roleGroup(u.role)))).sort();
+  // Grupos (roles) para agregar a todos de un tipo, en el orden definido.
+  const allGroups = Array.from(new Set(others.map(u => roleGroup(u.role))))
+    .sort((a, b) => groupRank(a) - groupRank(b) || a.localeCompare(b));
   const addGroup = (g: string) => {
     const ids = others.filter(u => g === '__ALL__' || roleGroup(u.role) === g).map(u => u.id);
     onChange(Array.from(new Set([...selected, ...ids])));

@@ -218,6 +218,12 @@ const ROLE_LABEL: Record<string, string> = {
   external_partner: 'Grupo Rino', // usuarios sincronizados desde la app de Grupo Rino
 };
 const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r : 'Otros');
+// Orden de grupos en el selector de involucrados (los no listados van al final).
+const GROUP_ORDER = ['Administración', 'Dirección', 'Servicio a cliente', 'Operación CEDIS', 'Contabilidad', 'Grupo Rino', 'Bodega', 'Monitoreo', 'Repartidores', 'Mostrador'];
+const groupRank = (g: string): number => { const i = GROUP_ORDER.indexOf(g); return i < 0 ? GROUP_ORDER.length : i; };
+// Grupos que NO se muestran en el selector de involucrados.
+const HIDDEN_GROUPS = new Set<string>(['Legal']);
+const isPickableGroup = (r?: string): boolean => !HIDDEN_GROUPS.has(roleGroup(r));
 
 // Selector reutilizable de "Involucrados" (buscador agrupado por tipo).
 // `fixedId` = usuario que SIEMPRE queda incluido (por defecto el usuario actual;
@@ -225,12 +231,15 @@ const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r 
 function InvolvedPicker({ users, involvedIds, setInvolvedIds, fixedId = MY_ID, fixedLabel = 'Yo', frequent = [] }: {
   users: UserOpt[]; involvedIds: number[]; setInvolvedIds: (v: number[]) => void; fixedId?: number; fixedLabel?: string; frequent?: number[];
 }) {
-  // Grupos presentes (para agregar a todos de un tipo de una vez).
-  const groups = Array.from(new Set(users.filter(u => u.id !== fixedId).map(u => roleGroup(u.role)))).sort();
+  // Usuarios elegibles: excluye el fijo y los grupos ocultos (Legal).
+  const pickable = (u: UserOpt) => u.id !== fixedId && isPickableGroup(u.role);
+  // Grupos presentes, en el orden definido (GROUP_ORDER; el resto al final por nombre).
+  const groups = Array.from(new Set(users.filter(pickable).map(u => roleGroup(u.role))))
+    .sort((a, b) => groupRank(a) - groupRank(b) || a.localeCompare(b));
   const [groupsAnchor, setGroupsAnchor] = useState<null | HTMLElement>(null);
   const addGroup = (group: string) => {
     const ids = users
-      .filter(u => u.id !== fixedId && (group === '__ALL__' || roleGroup(u.role) === group))
+      .filter(u => pickable(u) && (group === '__ALL__' || roleGroup(u.role) === group))
       .map(u => u.id);
     setInvolvedIds(Array.from(new Set([...involvedIds, ...(fixedId ? [fixedId] : []), ...ids])));
     setGroupsAnchor(null);
@@ -250,8 +259,8 @@ function InvolvedPicker({ users, involvedIds, setInvolvedIds, fixedId = MY_ID, f
     <Box sx={{ mt: 1.5 }}>
       <Autocomplete
         multiple size="small" disableCloseOnSelect
-        options={[...users].filter(u => u.id !== fixedId)
-          .sort((a, b) => roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name))}
+        options={[...users].filter(pickable)
+          .sort((a, b) => groupRank(roleGroup(a.role)) - groupRank(roleGroup(b.role)) || roleGroup(a.role).localeCompare(roleGroup(b.role)) || a.full_name.localeCompare(b.full_name))}
         value={users.filter(u => u.id !== fixedId && involvedIds.includes(u.id))}
         onChange={(_, val) => setInvolvedIds([...(fixedId ? [fixedId] : []), ...val.map(u => u.id)])}
         groupBy={(u) => roleGroup(u.role)}
