@@ -78,18 +78,19 @@ export const upsertExternalUsers = async (req: Request, res: Response): Promise<
         `SELECT id FROM users WHERE source_app=$1 AND external_id=$2 LIMIT 1`, [EXTERNAL_APP, externalId]);
       if (existing.rows[0]) {
         await pool.query(
-          `UPDATE users SET full_name=$1, external_role=$2, is_active=$3, updated_at=NOW() WHERE id=$4`,
+          `UPDATE users SET full_name=$1, external_role=$2, is_active=$3 WHERE id=$4`,
           [fullName, externalRole, active, existing.rows[0].id]);
         results.push({ external_id: externalId, local_id: existing.rows[0].id, action: 'updated' });
       } else {
         // role='external_partner' para que aparezca en asignables (role<>'client').
+        // NOTA: la tabla users NO tiene updated_at (solo created_at).
         const ins = await pool.query(
-          `INSERT INTO users (full_name, email, password, box_id, role, is_active, source_app, external_id, external_role, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,'external_partner',$5,$6,$7,$8,NOW(),NOW())
+          `INSERT INTO users (full_name, email, password, box_id, role, is_active, source_app, external_id, external_role, created_at)
+           VALUES ($1,$2,$3,$4,'external_partner',$5,$6,$7,$8,NOW())
            ON CONFLICT (email) DO UPDATE SET
              full_name=EXCLUDED.full_name, source_app=EXCLUDED.source_app,
              external_id=EXCLUDED.external_id, external_role=EXCLUDED.external_role,
-             is_active=EXCLUDED.is_active, updated_at=NOW()
+             is_active=EXCLUDED.is_active
            RETURNING id`,
           [fullName, email, noLogin, boxId, active, EXTERNAL_APP, externalId, externalRole]);
         results.push({ external_id: externalId, local_id: ins.rows[0].id, action: 'created' });
