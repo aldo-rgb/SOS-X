@@ -641,7 +641,22 @@ export const getAssignableUsers = async (req: Request, res: Response): Promise<a
         WHERE u.role <> 'client' AND COALESCE(u.is_active,true)=true
           AND LOWER(TRIM(u.full_name)) <> 'administrador entregax'
         ORDER BY (u.source_app IS NOT NULL), u.full_name`);
-    res.json({ users: r.rows });
+    // 🔁 Frecuentes: a quién asigno más tareas (responsable o involucrado). Para
+    // mostrar botones rápidos de "usuarios frecuentes" en el selector.
+    const uid = authUserId(req);
+    let frequent: number[] = [];
+    if (uid) {
+      const fr = await pool.query(
+        `SELECT x.uid, COUNT(*)::int AS n FROM (
+            SELECT assignee_id AS uid FROM tasks WHERE created_by = $1 AND assignee_id IS NOT NULL AND assignee_id <> $1
+            UNION ALL
+            SELECT tp.user_id AS uid FROM tasks t JOIN task_participants tp ON tp.task_id = t.id
+             WHERE t.created_by = $1 AND tp.user_id <> $1
+         ) x
+         GROUP BY x.uid ORDER BY n DESC, x.uid LIMIT 8`, [uid]);
+      frequent = fr.rows.map((r0: any) => Number(r0.uid)).filter(Boolean);
+    }
+    res.json({ users: r.rows, frequent });
   } catch (e: any) {
     console.error('[tasks] getAssignableUsers:', e); res.status(500).json({ error: 'Error al obtener usuarios' });
   }

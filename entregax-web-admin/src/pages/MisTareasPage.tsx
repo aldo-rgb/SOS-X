@@ -8,11 +8,12 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
   Box, Typography, Button, IconButton, Chip, Dialog, DialogTitle, DialogContent,
-  DialogActions, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
+  DialogActions, TextField, MenuItem, Menu, Select, FormControl, InputLabel, CircularProgress,
   Avatar, Divider, Checkbox, Snackbar, Alert, LinearProgress, ToggleButton, ToggleButtonGroup, Tooltip,
   Autocomplete, Paper, InputAdornment,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -217,17 +218,30 @@ const roleGroup = (r?: string): string => ROLE_LABEL[String(r || '')] || (r ? r 
 // Selector reutilizable de "Involucrados" (buscador agrupado por tipo).
 // `fixedId` = usuario que SIEMPRE queda incluido (por defecto el usuario actual;
 // al editar, el creador de la tarea). `fixedLabel` = etiqueta del chip fijo.
-function InvolvedPicker({ users, involvedIds, setInvolvedIds, fixedId = MY_ID, fixedLabel = 'Yo' }: {
-  users: UserOpt[]; involvedIds: number[]; setInvolvedIds: (v: number[]) => void; fixedId?: number; fixedLabel?: string;
+function InvolvedPicker({ users, involvedIds, setInvolvedIds, fixedId = MY_ID, fixedLabel = 'Yo', frequent = [] }: {
+  users: UserOpt[]; involvedIds: number[]; setInvolvedIds: (v: number[]) => void; fixedId?: number; fixedLabel?: string; frequent?: number[];
 }) {
   // Grupos presentes (para agregar a todos de un tipo de una vez).
   const groups = Array.from(new Set(users.filter(u => u.id !== fixedId).map(u => roleGroup(u.role)))).sort();
+  const [groupsAnchor, setGroupsAnchor] = useState<null | HTMLElement>(null);
   const addGroup = (group: string) => {
     const ids = users
       .filter(u => u.id !== fixedId && (group === '__ALL__' || roleGroup(u.role) === group))
       .map(u => u.id);
     setInvolvedIds(Array.from(new Set([...involvedIds, ...(fixedId ? [fixedId] : []), ...ids])));
+    setGroupsAnchor(null);
   };
+  const toggleUser = (id: number) => {
+    const has = involvedIds.includes(id);
+    const next = has ? involvedIds.filter(x => x !== id) : [...involvedIds, id];
+    setInvolvedIds(Array.from(new Set([...(fixedId ? [fixedId] : []), ...next])));
+  };
+  // Usuarios frecuentes (a quién asigno más): botones rápidos. Solo los que existen
+  // en la lista de asignables y no son el usuario fijo.
+  const freqUsers = frequent
+    .map(id => users.find(u => u.id === id))
+    .filter((u): u is UserOpt => !!u && u.id !== fixedId)
+    .slice(0, 8);
   return (
     <Box sx={{ mt: 1.5 }}>
       <Autocomplete
@@ -258,14 +272,34 @@ function InvolvedPicker({ users, involvedIds, setInvolvedIds, fixedId = MY_ID, f
         ]}
         renderInput={(params) => <TextField {...params} label="Involucrados" placeholder="Buscar por nombre o tipo…" />}
       />
-      {/* Agregar por grupo */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 1 }}>
-        <Chip label="👥 Todos los empleados" size="small" onClick={() => addGroup('__ALL__')}
-          sx={{ bgcolor: '#FFF3EC', color: '#D6521C', fontWeight: 700, border: '1px solid #F0B79A' }} />
-        {groups.map(g => (
-          <Chip key={g} label={`+ ${g}`} size="small" variant="outlined" onClick={() => addGroup(g)}
-            sx={{ fontWeight: 600, borderColor: '#ddd' }} />
-        ))}
+      {/* Menú desplegable "Grupos" + usuarios frecuentes */}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 1, alignItems: 'center' }}>
+        <Button size="small" variant="outlined" endIcon={<ArrowDropDownIcon />}
+          onClick={(e) => setGroupsAnchor(e.currentTarget)}
+          sx={{ textTransform: 'none', fontWeight: 700, color: '#D6521C', borderColor: '#F0B79A', bgcolor: '#FFF3EC' }}>
+          👥 Grupos
+        </Button>
+        <Menu anchorEl={groupsAnchor} open={!!groupsAnchor} onClose={() => setGroupsAnchor(null)}>
+          <MenuItem onClick={() => addGroup('__ALL__')} sx={{ fontWeight: 700, color: '#D6521C' }}>
+            👥 Todos los empleados
+          </MenuItem>
+          <Divider />
+          {groups.map(g => (
+            <MenuItem key={g} onClick={() => addGroup(g)}>+ {g}</MenuItem>
+          ))}
+        </Menu>
+        {/* Usuarios frecuentes: botón rápido para agregar/quitar */}
+        {freqUsers.map(u => {
+          const on = involvedIds.includes(u.id);
+          return (
+            <Chip key={u.id} size="small" label={u.full_name}
+              onClick={() => toggleUser(u.id)}
+              variant={on ? 'filled' : 'outlined'}
+              sx={on
+                ? { bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700 }
+                : { fontWeight: 600, borderColor: '#ddd' }} />
+          );
+        })}
       </Box>
     </Box>
   );
@@ -276,6 +310,7 @@ export default function MisTareasPage() {
   const [events, setEvents] = useState<any[]>([]);
   const [eventDetail, setEventDetail] = useState<any | null>(null);
   const [users, setUsers] = useState<UserOpt[]>([]);
+  const [frequent, setFrequent] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'matrix'>('list');
   // Vista global (todas en las que estoy involucrado) vs solo mis tareas
@@ -366,7 +401,7 @@ export default function MisTareasPage() {
   }, []);
   useEffect(() => {
     axios.get(`${API_URL}/tasks/assignable-users`, H())
-      .then(r => setUsers(r.data?.users || [])).catch(() => {});
+      .then(r => { setUsers(r.data?.users || []); setFrequent(r.data?.frequent || []); }).catch(() => {});
     axios.get(`${API_URL}/tasks/categories`, H())
       .then(r => {
         // Excluye el tablero personal: se representa como "Sin categoría".
@@ -890,7 +925,7 @@ export default function MisTareasPage() {
               value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
           </Box>
           {!IS_ASESOR && (<>
-          <InvolvedPicker users={users} involvedIds={involvedIds} setInvolvedIds={setInvolvedIds} />
+          <InvolvedPicker users={users} involvedIds={involvedIds} setInvolvedIds={setInvolvedIds} frequent={frequent} />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
           </Typography>
@@ -1072,7 +1107,7 @@ export default function MisTareasPage() {
             <TextField fullWidth size="small" type="datetime-local" label="Primera ejecución" InputLabelProps={{ shrink: true }} sx={{ mt: 1.5 }}
               value={schedForm.first_run_at} onChange={e => setSchedForm({ ...schedForm, first_run_at: e.target.value })} />
           )}
-          <InvolvedPicker users={users} involvedIds={schedInvolved} setInvolvedIds={setSchedInvolved} />
+          <InvolvedPicker users={users} involvedIds={schedInvolved} setInvolvedIds={setSchedInvolved} frequent={frequent} />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
           </Typography>
@@ -1128,6 +1163,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [editCat, setEditCat] = useState<number>(0); // 0 = Sin categoría
   const [cats, setCats] = useState<Array<{ id: number; name: string; board_key?: string }>>([]);
   const [users, setUsers] = useState<UserOpt[]>([]);
+  const [frequent, setFrequent] = useState<number[]>([]);
   const [delAttId, setDelAttId] = useState<number | null>(null); // confirmar borrar archivo
   const [procConfirm, setProcConfirm] = useState<{ title: string } | null>(null); // confirmar dejar otra pendiente
   const [forceConfirmOpen, setForceConfirmOpen] = useState(false); // pregunta doble: completar en espera sin revisión
@@ -1140,7 +1176,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   // Cargar usuarios y categorías cuando el detalle es editable (para los selects inline).
   useEffect(() => {
     if (!data?.can_edit) return;
-    if (users.length === 0) axios.get(`${API_URL}/tasks/assignable-users`, H()).then(r => setUsers(r.data?.users || [])).catch(() => {});
+    if (users.length === 0) axios.get(`${API_URL}/tasks/assignable-users`, H()).then(r => { setUsers(r.data?.users || []); setFrequent(r.data?.frequent || []); }).catch(() => {});
     if (cats.length === 0) axios.get(`${API_URL}/tasks/categories`, H()).then(r => setCats((r.data?.categories || []).filter((c: any) => c.board_key !== 'personales'))).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.can_edit]);
@@ -1292,7 +1328,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     const parts = (data.participants || []).map((p: any) => Number(p.id));
     setEditInvolved(parts.length ? parts : (t.created_by ? [Number(t.created_by)] : []));
     setEditAssignee(Number(t.assignee_id) || 0); // responsable actual
-    if (users.length === 0) axios.get(`${API_URL}/tasks/assignable-users`, H()).then(r => setUsers(r.data?.users || [])).catch(() => {});
+    if (users.length === 0) axios.get(`${API_URL}/tasks/assignable-users`, H()).then(r => { setUsers(r.data?.users || []); setFrequent(r.data?.frequent || []); }).catch(() => {});
     if (cats.length === 0) axios.get(`${API_URL}/tasks/categories`, H()).then(r => setCats((r.data?.categories || []).filter((c: any) => c.board_key !== 'personales'))).catch(() => {});
     setEditing(true);
   };
@@ -1356,7 +1392,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                   </Select>
                 </FormControl>
                 <InvolvedPicker users={users} involvedIds={editInvolved} setInvolvedIds={setEditInvolved}
-                  fixedId={Number(t.created_by) || undefined} fixedLabel={t.created_by_name || 'Creador'} />
+                  fixedId={Number(t.created_by) || undefined} fixedLabel={t.created_by_name || 'Creador'} frequent={frequent} />
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                   El creador siempre queda incluido. Agrega a quien deba participar.
                 </Typography>
@@ -1413,7 +1449,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 </Box>
                 <InvolvedPicker users={users} involvedIds={partIds}
                   setInvolvedIds={(ids: number[]) => patch({ involved_ids: ids, assignee_id: Number(t.assignee_id) || undefined })}
-                  fixedId={Number(t.created_by) || undefined} fixedLabel={t.created_by_name || 'Creador'} />
+                  fixedId={Number(t.created_by) || undefined} fixedLabel={t.created_by_name || 'Creador'} frequent={frequent} />
               </Box>
             ) : (
               <>
