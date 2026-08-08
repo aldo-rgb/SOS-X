@@ -56,20 +56,40 @@ export async function ensureSyncSchema(): Promise<void> {
 export function sign(body: string): string {
   return 'sha256=' + crypto.createHmac('sha256', SHARED_SECRET()).update(body, 'utf8').digest('hex');
 }
-export function verifySignature(rawBody: Buffer | string | undefined, signature: string | undefined): boolean {
+// Compara la firma recibida contra la esperada. Tolerante al formato: acepta
+// "sha256=<hex>" o el hex pelón, y compara en minúsculas (case-insensitive).
+function signatureMatches(rawBody: Buffer | string | undefined, signature: string | undefined): boolean {
   const secret = SHARED_SECRET();
   if (!secret || !signature || rawBody == null) return false;
   const raw = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : String(rawBody);
-  const expected = sign(raw);
+  const expectedHex = crypto.createHmac('sha256', secret).update(raw, 'utf8').digest('hex').toLowerCase();
+  const got = String(signature).trim().replace(/^sha256=/i, '').toLowerCase();
   try {
-    const a = Buffer.from(expected);
-    const b = Buffer.from(signature);
+    const a = Buffer.from(expectedHex);
+    const b = Buffer.from(got);
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   } catch { return false; }
+}
+export function verifySignature(rawBody: Buffer | string | undefined, signature: string | undefined): boolean {
+  return signatureMatches(rawBody, signature);
 }
 export function verifyInboundApiKey(key: string | undefined): boolean {
   const k = INBOUND_API_KEY();
   return !!k && key === k;
+}
+
+// Diagnóstico detallado (para responder al que llama QUÉ falló, sin filtrar secretos).
+export type AuthDiag = 'ok' | 'server_no_key' | 'no_key' | 'key_mismatch'
+  | 'server_no_secret' | 'no_signature' | 'signature_mismatch';
+export function diagnoseAuth(key: string | undefined, rawBody: Buffer | string | undefined, sig: string | undefined): AuthDiag {
+  const serverKey = INBOUND_API_KEY();
+  if (!serverKey) return 'server_no_key';
+  if (!key) return 'no_key';
+  if (key !== serverKey) return 'key_mismatch';
+  if (!SHARED_SECRET()) return 'server_no_secret';
+  if (!sig) return 'no_signature';
+  if (!signatureMatches(rawBody, sig)) return 'signature_mismatch';
+  return 'ok';
 }
 export const isPeerConfigured = () => !!PEER_URL() && !!SHARED_SECRET();
 

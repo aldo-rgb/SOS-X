@@ -13713,6 +13713,7 @@ import {
   upsertExternalUsers as syncUpsertExternalUsers,
   inboundWebhook as syncInboundWebhook,
   syncHealth as syncHealthCheck,
+  verifyAuth as syncVerifyAuth,
 } from './syncController';
 import { ensureSyncSchema, dispatchOutbox } from './syncService';
 import {
@@ -13773,6 +13774,7 @@ runDueTaskSchedules();
 // cola de salida (sólo envía si el peer está configurado por env).
 app.post('/api/sync/users/upsert', syncUpsertExternalUsers);
 app.post('/api/webhooks/entregax', syncInboundWebhook);
+app.post('/api/sync/verify', syncVerifyAuth);
 app.get('/api/sync/health', authenticateToken, syncHealthCheck);
 ensureSyncSchema().catch((e: any) => console.error('[sync] ensureSchema:', e?.message));
 setInterval(() => { dispatchOutbox().catch(() => {}); }, 60 * 1000); // despacho cada 1 min

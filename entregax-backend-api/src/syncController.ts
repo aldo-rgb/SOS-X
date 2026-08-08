@@ -9,18 +9,39 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { pool } from './db';
 import {
-  ensureSyncSchema, verifySignature, verifyInboundApiKey, EXTERNAL_APP, isPeerConfigured,
+  ensureSyncSchema, verifyInboundApiKey, EXTERNAL_APP, isPeerConfigured,
+  diagnoseAuth, type AuthDiag,
 } from './syncService';
 import { applyInboundTaskEvent } from './tasksController';
 
-// Middleware de verificación común (API key + firma HMAC del rawBody).
+// Mensaje claro por cada causa de rechazo (sin filtrar secretos).
+const DIAG_MSG: Record<AuthDiag, string> = {
+  ok: 'ok',
+  server_no_key: 'El servidor no tiene GRUPO_RINO_API_KEY configurada (ponla en Railway).',
+  no_key: 'Falta el header X-EntregaX-Key.',
+  key_mismatch: 'La API key enviada no coincide con la configurada en el servidor.',
+  server_no_secret: 'El servidor no tiene GRUPO_RINO_SHARED_SECRET configurado (ponlo en Railway).',
+  no_signature: 'Falta el header X-Signature.',
+  signature_mismatch: 'La firma no coincide. Firma HMAC-SHA256 del cuerpo CRUDO con el SHARED_SECRET; formato "sha256=<hex>".',
+};
+
+// Verificación común (API key + firma HMAC del rawBody). Devuelve el motivo exacto.
 function verifyRequest(req: Request, res: Response): boolean {
-  const key = req.header('X-EntregaX-Key') || req.header('x-entregax-key') || undefined;
-  const sig = req.header('X-Signature') || req.header('x-signature') || undefined;
-  if (!verifyInboundApiKey(key)) { res.status(401).json({ error: 'API key inválida' }); return false; }
-  if (!verifySignature((req as any).rawBody, sig)) { res.status(401).json({ error: 'Firma inválida' }); return false; }
+  const key = req.header('X-EntregaX-Key') || undefined;
+  const sig = req.header('X-Signature') || undefined;
+  const diag = diagnoseAuth(key, (req as any).rawBody, sig);
+  if (diag !== 'ok') { res.status(401).json({ error: DIAG_MSG[diag], reason: diag }); return false; }
   return true;
 }
+
+// POST /api/sync/verify — auto-diagnóstico para Grupo Rino: dice si su API key y
+// su firma quedaron bien, con el motivo exacto si algo falla. No cambia estado.
+export const verifyAuth = async (req: Request, res: Response): Promise<any> => {
+  const key = req.header('X-EntregaX-Key') || undefined;
+  const sig = req.header('X-Signature') || undefined;
+  const diag = diagnoseAuth(key, (req as any).rawBody, sig);
+  res.json({ ok: diag === 'ok', reason: diag, message: DIAG_MSG[diag] });
+};
 
 // POST /api/sync/users/upsert
 // Body: { users: [{ external_id*, full_name*, email?, role?, active? }] }
