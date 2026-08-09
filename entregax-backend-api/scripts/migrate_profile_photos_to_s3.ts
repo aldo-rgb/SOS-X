@@ -22,6 +22,14 @@ import { pool } from '../src/db';
 import { persistAvatarBase64ToS3, isS3Configured, AVATAR_SIZE, s3KeyFromUrl, headS3Object } from '../src/s3Service';
 
 const DRY_RUN = process.argv.includes('--dry-run');
+// --limit N procesa solo las N fotos más pesadas. Sirve para hacer el rollout
+// escalonado: migras una, confirmas que se ve bien, y sigues con el resto.
+const LIMIT = (() => {
+  const a = process.argv.find(x => x.startsWith('--limit'));
+  if (!a) return null;
+  const n = parseInt(a.includes('=') ? a.split('=')[1]! : (process.argv[process.argv.indexOf(a) + 1] || ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+})();
 
 const kb = (n: number) => `${Math.round(n / 1024)} KB`;
 
@@ -35,9 +43,11 @@ async function main(): Promise<void> {
     `SELECT id, full_name, profile_photo_url
        FROM users
       WHERE profile_photo_url LIKE 'data:%'
-      ORDER BY LENGTH(profile_photo_url) DESC`);
+      ORDER BY LENGTH(profile_photo_url) DESC
+      ${LIMIT ? `LIMIT ${LIMIT}` : ''}`);
 
   if (rows.length === 0) { console.log('✅ No hay fotos en base64. Nada que migrar.'); return; }
+  if (LIMIT) console.log(`(--limit ${LIMIT}: solo las ${rows.length} más pesadas)`);
 
   const totalBytes = rows.reduce((s: number, r: any) => s + r.profile_photo_url.length, 0);
   console.log(`${rows.length} foto(s) en base64 · ${kb(totalBytes)} en total${DRY_RUN ? ' · DRY RUN' : ''}\n`);
