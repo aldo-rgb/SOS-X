@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import { generateReferralCode } from './commissionController';
 import { sendPasswordResetEmail } from './emailService';
 import { sendWelcomeWhatsapp } from './whatsappService';
+import { persistAvatarBase64ToS3 } from './s3Service';
 
 // Función para generar un ID de Casillero único consecutivo (Ej. S4000, S4001, S4002...)
 // Exportada para uso en otros controllers (commissionController, crmController, socialAuthController)
@@ -2000,9 +2001,15 @@ export const updateProfilePhoto = async (req: Request, res: Response): Promise<v
             return;
         }
 
+        // La foto se guarda en S3 y redimensionada a tamaño de avatar, NO como
+        // base64 en la columna: un data-URI de varios MB por usuario hacía que
+        // las listas que reincrustan avatares (p. ej. /api/tasks/mine) pesaran
+        // decenas de MB por carga.
+        const stored = photo ? await persistAvatarBase64ToS3(photo, `avatars/user-${userId}`) : null;
+
         await pool.query(
             'UPDATE users SET profile_photo_url = $1 WHERE id = $2',
-            [photo || null, userId]
+            [stored || null, userId]
         );
 
         res.json({ success: true, message: 'Foto de perfil actualizada' });

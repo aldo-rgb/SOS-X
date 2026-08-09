@@ -214,6 +214,55 @@ export const isS3Configured = (): boolean => {
 
 export { s3Client, BUCKET_NAME };
 
+/** Lado del avatar cuadrado que guardamos en S3. */
+export const AVATAR_SIZE = 400;
+
+/**
+ * Sube una FOTO DE PERFIL a S3 redimensionada a tamaño de avatar.
+ *
+ * Las fotos venían del teléfono a resolución completa (había una de 8 MB) y se
+ * muestran en avatares de 22–40 px. 400×400 cubre pantallas retina hasta 200 px
+ * y deja cada foto en ~20–40 KB.
+ *
+ * Detalles que importan:
+ *  - `.rotate()` sin argumentos aplica la orientación EXIF: sin esto las fotos
+ *    tomadas con el teléfono salen giradas.
+ *  - `flatten` sobre blanco porque al pasar a JPEG la transparencia de un PNG
+ *    se volvería negra.
+ *  - `withoutEnlargement` para no escalar hacia arriba una foto ya pequeña.
+ *
+ * Devuelve la URL de S3. Si el valor no es base64, si S3 no está configurado, o
+ * si la imagen no se puede procesar, cae de vuelta a `persistBase64ToS3` para
+ * no perder el dato.
+ */
+export const persistAvatarBase64ToS3 = async (
+  value: string | null | undefined,
+  keyPrefix: string
+): Promise<string | null | undefined> => {
+  if (!value || typeof value !== 'string') return value;
+  const m = value.match(/^data:([^;]+);base64,(.+)$/s);
+  if (!m || !m[2]) return value;      // ya es URL o texto: intacto
+  if (!isS3Configured()) return value; // sin S3 no rompemos: conservar base64
+  try {
+    const sharp = (await import('sharp')).default;
+    const input = Buffer.from(m[2], 'base64');
+    if (input.length === 0) return value;
+    const output = await sharp(input)
+      .rotate()
+      .resize(AVATAR_SIZE, AVATAR_SIZE, { fit: 'cover', withoutEnlargement: true })
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer();
+    const rand = Math.random().toString(36).slice(2, 8);
+    return await uploadToS3(output, `${keyPrefix}-${Date.now()}-${rand}.jpg`, 'image/jpeg');
+  } catch (err: any) {
+    // Formato no soportado por sharp (p. ej. un SVG raro): la subimos tal cual
+    // antes que perderla o dejar otro base64 gigante en la columna.
+    console.warn('[persistAvatarBase64ToS3] no se pudo redimensionar, se sube sin procesar:', err?.message || err);
+    return persistBase64ToS3(value, keyPrefix);
+  }
+};
+
 /**
  * Si `value` es un data URI base64 (data:image/...;base64,...) y S3 está
  * configurado, lo sube a S3 y devuelve la URL estática del objeto. Para

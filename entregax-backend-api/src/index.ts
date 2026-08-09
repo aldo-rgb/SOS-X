@@ -5,6 +5,7 @@ import http from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import { collectAvatarSlots, applyAvatarSignatures } from './avatarUrls';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import path from 'path';
@@ -1623,8 +1624,19 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.use((_req: Request, res: Response, next: NextFunction) => {
   const originalJson = res.json.bind(res);
   (res as any).json = (payload: any) => {
-    // Sanitización deshabilitada temporalmente para debug de onboarding
-    return originalJson(payload);
+    // Sanitización deshabilitada temporalmente para debug de onboarding.
+    // Las fotos de perfil viven en S3 (bucket privado): firmamos aquí, de forma
+    // centralizada, cualquier URL de avatar del payload (la firma va cacheada,
+    // así que el costo real es una búsqueda en un Map).
+    // El recorrido es síncrono: si la respuesta no trae fotos —el caso normal—
+    // se envía igual que siempre, sin volverse asíncrona.
+    const { slots, urls } = collectAvatarSlots(payload);
+    if (slots.length === 0) return originalJson(payload);
+    applyAvatarSignatures(slots, urls).then(
+      () => { try { originalJson(payload); } catch { /* respuesta ya enviada */ } },
+      () => { try { originalJson(payload); } catch { /* respuesta ya enviada */ } },
+    );
+    return res;
   };
   next();
 });
