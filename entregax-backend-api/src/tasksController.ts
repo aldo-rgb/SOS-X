@@ -456,6 +456,16 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
 };
 
 // ─── TAREAS PROGRAMADAS (futuras / recurrentes) ─────────────
+// Responsable explícito de la programación (columna añadida después del módulo).
+let schedAssigneeReady = false;
+async function ensureScheduleAssignee() {
+  if (schedAssigneeReady) return;
+  try {
+    await pool.query(`ALTER TABLE task_schedules ADD COLUMN IF NOT EXISTS assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+    schedAssigneeReady = true;
+  } catch (e: any) { console.warn('ensureScheduleAssignee:', e?.message); }
+}
+
 // Crea una tarea personal a partir de una programación.
 async function createTaskFromSchedule(sch: any): Promise<number | null> {
   try {
@@ -468,7 +478,7 @@ async function createTaskFromSchedule(sch: any): Promise<number | null> {
     if (!boardId) boardId = await getOrCreatePersonalBoard();
     if (!boardId) return null;
     const col = await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [boardId]);
-    const columnId = col.rows[0]?.id || null;
+    let columnId = col.rows[0]?.id || null;
     // Sub-sección de la programación (si aplica al tablero destino).
     let sectionId: number | null = null;
     if (sch.section_id) {
@@ -477,9 +487,23 @@ async function createTaskFromSchedule(sch: any): Promise<number | null> {
     }
     const creator = sch.created_by;
     const extra: number[] = Array.isArray(sch.involved_ids) ? sch.involved_ids.map((x: any) => parseInt(String(x))).filter(Boolean) : [];
-    const participants = Array.from(new Set<number>([creator, ...extra].filter(Boolean)));
-    const primary = extra.length ? extra[0] : creator;
+    // Responsable: el elegido al programar; si no se guardó ninguno, el primer
+    // involucrado distinto del creador; y si no hay involucrados, el creador.
+    const explicit = parseInt(String(sch.assignee_id || 0)) || 0;
+    const primary = explicit > 0 ? explicit : (extra.find(x => Number(x) !== Number(creator)) || creator);
+    const participants = Array.from(new Set<number>([creator, ...extra, primary].filter(Boolean)));
     const eis = EISENHOWER.includes(sch.eisenhower) ? sch.eisenhower : 'estrella';
+    // 🔗 Grupo Rino: si el responsable o algún involucrado es externo, la tarea
+    // va al tablero "Grupo Rino" (igual que en la creación manual).
+    if (await involvesGrupoRino(participants)) {
+      const rinoBoard = await getOrCreateGrupoRinoBoard();
+      if (rinoBoard) {
+        boardId = rinoBoard;
+        const rc = await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [boardId]);
+        columnId = rc.rows[0]?.id || null;
+        sectionId = null;
+      }
+    }
     const r = await pool.query(
       `INSERT INTO tasks (board_id, column_id, section_id, title, description, assignee_id, due_at, eisenhower, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
@@ -489,6 +513,7 @@ async function createTaskFromSchedule(sch: any): Promise<number | null> {
     if (taskId) {
       await logActivity(taskId, creator, 'created', { title: sch.title, scheduled: true });
       for (const p of participants) if (Number(p) !== Number(creator)) await notify(p, '📅 Tarea programada asignada', sch.title, { task_id: taskId });
+      emitTaskEventIfExternal('task.created', Number(taskId), creator).catch(() => {});
     }
     return taskId || null;
   } catch (e: any) { console.warn('[tasks] createTaskFromSchedule:', e?.message); return null; }
@@ -521,6 +546,7 @@ function nextMonthlyWeekday(ordinal: number, weekday: number, hour: number, minu
 // Cron: materializa las programaciones vencidas y reprograma las recurrentes.
 export async function runDueTaskSchedules(): Promise<void> {
   try {
+    await ensureScheduleAssignee();
     const due = await pool.query(`SELECT * FROM task_schedules WHERE active = TRUE AND next_run_at <= NOW() ORDER BY next_run_at LIMIT 200`);
     for (const sch of due.rows) {
       const taskId = await createTaskFromSchedule(sch);
@@ -560,9 +586,15 @@ export const createSchedule = async (req: Request, res: Response): Promise<any> 
     if (!uid || authRole(req) === 'client') return res.status(403).json({ error: 'No disponible' });
     const b = req.body || {};
     if (!String(b.title || '').trim()) return res.status(400).json({ error: 'El título es obligatorio' });
+    await ensureScheduleAssignee();
     const rec = ['none', 'daily', 'weekly', 'monthly', 'monthly_weekday'].includes(b.recurrence) ? b.recurrence : 'none';
     const eis = EISENHOWER.includes(b.eisenhower) ? b.eisenhower : 'estrella';
-    const involved = Array.isArray(b.involved_ids) ? b.involved_ids.map((x: any) => parseInt(String(x))).filter(Boolean) : [];
+    const involved: number[] = Array.isArray(b.involved_ids) ? b.involved_ids.map((x: any) => parseInt(String(x))).filter(Boolean) : [];
+    // Responsable de las tareas que genere la programación. Si no viene, el
+    // primer involucrado distinto del creador; si no hay, el creador.
+    const explicitAssignee = b.assignee_id ? parseInt(String(b.assignee_id)) : 0;
+    const assigneeId = explicitAssignee > 0 ? explicitAssignee : (involved.find(x => Number(x) !== Number(uid)) || uid);
+    if (!involved.includes(assigneeId)) involved.push(assigneeId);
 
     let firstRun: string | Date = b.first_run_at;
     let ordinal: number | null = null, weekday: number | null = null;
@@ -596,9 +628,9 @@ export const createSchedule = async (req: Request, res: Response): Promise<any> 
       sectionId = sec.rows[0]?.id || null;
     }
     const r = await pool.query(
-      `INSERT INTO task_schedules (title, description, eisenhower, created_by, involved_ids, next_run_at, recurrence, recur_ordinal, recur_weekday, board_id, section_id)
-       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [String(b.title).trim(), b.description || null, eis, uid, JSON.stringify(involved), firstRun, rec, ordinal, weekday, boardId, sectionId]);
+      `INSERT INTO task_schedules (title, description, eisenhower, created_by, involved_ids, next_run_at, recurrence, recur_ordinal, recur_weekday, board_id, section_id, assignee_id)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [String(b.title).trim(), b.description || null, eis, uid, JSON.stringify(involved), firstRun, rec, ordinal, weekday, boardId, sectionId, assigneeId]);
     res.json({ schedule: r.rows[0] });
   } catch (e: any) {
     console.error('[tasks] createSchedule:', e); res.status(500).json({ error: 'Error al programar la tarea' });
@@ -608,8 +640,13 @@ export const createSchedule = async (req: Request, res: Response): Promise<any> 
 export const listSchedules = async (req: Request, res: Response): Promise<any> => {
   try {
     const uid = authUserId(req);
+    await ensureScheduleAssignee();
     const r = await pool.query(
-      `SELECT * FROM task_schedules WHERE created_by = $1 AND active = TRUE ORDER BY next_run_at`, [uid]);
+      `SELECT s.*, u.full_name AS assignee_name
+         FROM task_schedules s
+         LEFT JOIN users u ON u.id = s.assignee_id
+        WHERE s.created_by = $1 AND s.active = TRUE
+        ORDER BY s.next_run_at`, [uid]);
     res.json({ schedules: r.rows });
   } catch (e: any) {
     console.error('[tasks] listSchedules:', e); res.status(500).json({ error: 'Error al listar programadas' });

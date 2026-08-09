@@ -508,6 +508,8 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   const [ordinal, setOrdinal] = useState(1);   // 1..4 o -1 (último)
   const [weekday, setWeekday] = useState(1);   // 0=domingo..6=sábado
   const [involved, setInvolved] = useState<number[]>([]);
+  const [assignee, setAssignee] = useState<number>(0); // responsable principal
+  const [assigneeTouched, setAssigneeTouched] = useState(false); // el usuario eligió manualmente
   const [busy, setBusy] = useState(false);
   const H = { Authorization: `Bearer ${token}` };
 
@@ -515,7 +517,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
     .then(r => r.json()).then(d => setSchedules(d.schedules || [])).catch(() => {});
   useEffect(() => {
     if (!visible) return;
-    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]); setCatSection(null);
+    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setCatSection(null);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => { setUsers(d.users || []); setFrequent(d.frequent || []); }).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H }).then(r => r.json()).then(d => {
       setCategories((d.categories || []).filter((c: any) => c.board_key !== 'personales'));
@@ -523,6 +525,13 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
     }).catch(() => {});
     loadSchedules();
   }, [visible]);
+
+  // Responsable por default = primer involucrado seleccionado; si no hay
+  // involucrados, el creador. Se respeta si el usuario lo elige a mano.
+  useEffect(() => {
+    if (assigneeTouched) return;
+    setAssignee(involved.length ? involved[0] : (myId || 0));
+  }, [involved, myId, assigneeTouched, visible]);
 
   const firstRunStamp = (): string => {
     const d = new Date();
@@ -536,10 +545,11 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
 
   const submit = async () => {
     if (!title.trim()) { Alert.alert('Falta título', 'Escribe un título con verbo de acción.'); return; }
+    if (!advisorMode && !assignee) { Alert.alert('Falta responsable', 'Elige quién será el responsable de la tarea programada.'); return; }
     setBusy(true);
     try {
       const involvedIds = myId ? [myId, ...involved] : involved;
-      const body: any = { title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: involvedIds, recurrence, board_id: catId, section_id: catSection };
+      const body: any = { title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: involvedIds, assignee_id: assignee || myId || null, recurrence, board_id: catId, section_id: catSection };
       if (recurrence === 'monthly_weekday') { body.recur_ordinal = ordinal; body.recur_weekday = weekday; body.hour = hour; body.minute = 0; }
       else { body.first_run_at = firstRunStamp(); }
       const r = await fetch(`${API_URL}/api/tasks/schedules`, {
@@ -547,7 +557,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
         body: JSON.stringify(body),
       });
       if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo programar', e.error || ''); setBusy(false); return; }
-      setTitle(''); setDesc(''); setInvolved([]);
+      setTitle(''); setDesc(''); setInvolved([]); setAssignee(0); setAssigneeTouched(false);
       loadSchedules(); onCreated();
       Alert.alert('Programada', 'La tarea se creará automáticamente en la fecha elegida.');
     } catch { Alert.alert('Error', 'No se pudo programar'); } finally { setBusy(false); }
@@ -679,6 +689,22 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
             {!advisorMode && (<>
             <Text style={styles.fieldLbl}>Involucrados</Text>
             <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} frequent={frequent} />
+            <Text style={styles.helpTxt}>Tú siempre quedas incluido. Agrega a quien deba participar.</Text>
+
+            <Text style={styles.fieldLbl}>Responsable <Text style={{ color: '#C0392B' }}>*</Text></Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {Array.from(new Set<number>([...(myId ? [myId] : []), ...involved])).map((cid) => {
+                const nombre = cid === myId ? 'Yo' : (users.find((u: any) => u.id === cid)?.full_name || `#${cid}`);
+                const on = assignee === cid;
+                return (
+                  <TouchableOpacity key={cid} onPress={() => { setAssignee(cid); setAssigneeTouched(true); }}
+                    style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, borderWidth: 1, borderColor: on ? ORANGE : '#D8D8DD', backgroundColor: on ? ORANGE : '#FFF' }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: on ? '#FFF' : '#333' }}>{nombre}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={styles.helpTxt}>Cada tarea que genere esta programación quedará a cargo de esta persona.</Text>
             </>)}
 
             {schedules.length > 0 && (
@@ -688,7 +714,10 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
                   <View key={s.id} style={styles.schedRow}>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.schedTitle} numberOfLines={1}>{s.title}</Text>
-                      <Text style={styles.optMeta}>{schedLabel(s)} · próxima: {fmtDate(s.next_run_at)}</Text>
+                      <Text style={styles.optMeta}>
+                        {schedLabel(s)} · próxima: {fmtDate(s.next_run_at)}
+                        {s.assignee_name ? ` · ${Number(s.assignee_id) === Number(myId) ? 'Yo' : s.assignee_name}` : ''}
+                      </Text>
                     </View>
                     <TouchableOpacity onPress={() => del(s.id)} hitSlop={8}><Ionicons name="trash-outline" size={18} color="#BBB" /></TouchableOpacity>
                   </View>

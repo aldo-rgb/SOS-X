@@ -241,7 +241,10 @@ export default function TareasScreen({ navigation, route }: Props) {
             <View style={{ gap: 14 }}>
               {visibleCols.map(col => {
                 const colTasks = filteredTasks.filter(t => t.column_id === col.id && (
-                  activeSection === null ? t.section_id !== somedayId : t.section_id === activeSection
+                  // En "Todas" se ocultan solo las de "Algún día". Ojo: si el tablero
+                  // no tiene esa sección, somedayId es null y compararlo contra un
+                  // section_id null escondería TODAS las tareas sin sub-sección.
+                  activeSection === null ? (somedayId === null || t.section_id !== somedayId) : t.section_id === activeSection
                 ));
                 return (
                   <View key={col.id}>

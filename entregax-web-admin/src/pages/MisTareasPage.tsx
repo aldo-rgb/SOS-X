@@ -391,7 +391,19 @@ export default function MisTareasPage() {
   const [schedOpen, setSchedOpen] = useState(false);
   const [schedForm, setSchedForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', first_run_at: '', recurrence: 'none' });
   const [schedInvolved, setSchedInvolved] = useState<number[]>(MY_ID ? [MY_ID] : []);
+  // Responsable de las tareas que genere la programación. Obligatorio cuando se
+  // involucra a alguien más que el creador. 0 = sin elegir.
+  const [schedAssignee, setSchedAssignee] = useState<number>(0);
   const [schedules, setSchedules] = useState<any[]>([]);
+
+  // Mismo comportamiento que en "Nueva tarea": autoselecciona al primer
+  // involucrado distinto de "yo" y se limpia si lo quitan del picker.
+  useEffect(() => {
+    const others = schedInvolved.filter(id => id && id !== MY_ID);
+    if (schedAssignee && !schedInvolved.includes(schedAssignee)) setSchedAssignee(0);
+    else if (!schedAssignee && others.length > 0) setSchedAssignee(others[0]);
+    else if (others.length === 0 && schedAssignee !== 0) setSchedAssignee(0);
+  }, [schedInvolved, schedAssignee]);
 
   const load = useCallback(async () => {
     try {
@@ -492,24 +504,31 @@ export default function MisTareasPage() {
   const openSchedule = () => {
     setSchedForm({ ...emptySched, board_id: 0 }); // 0 = Sin categoría
     setSchedInvolved(MY_ID ? [MY_ID] : []);
+    setSchedAssignee(0);
     setSchedOpen(true); loadSchedules();
   };
   const createSchedule = async () => {
     if (!schedForm.title.trim()) return notify('El título es obligatorio', 'error');
     const isWeekday = schedForm.recurrence === 'monthly_weekday';
     if (!isWeekday && !schedForm.first_run_at) return notify('Elige la fecha y hora de la primera tarea', 'error');
+    const schedOthers = schedInvolved.filter(id => id && id !== MY_ID);
+    if (schedOthers.length > 0 && !schedAssignee) return notify('Selecciona quién será el responsable', 'error');
     try {
       const [hh, mm] = String(schedForm.time || '09:00').split(':');
       await axios.post(`${API_URL}/tasks/schedules`, {
         title: schedForm.title.trim(), description: schedForm.description || null,
         eisenhower: schedForm.eisenhower, involved_ids: schedInvolved, board_id: schedForm.board_id || null, section_id: schedForm.section_id || null,
         recurrence: schedForm.recurrence,
+        // Igual que en "Nueva tarea": solo mandamos responsable cuando aplicó el
+        // picker (si estoy solo, el backend me deja a mí como responsable).
+        ...(schedOthers.length > 0 && schedAssignee ? { assignee_id: schedAssignee } : {}),
         ...(isWeekday
           ? { recur_ordinal: schedForm.recur_ordinal, recur_weekday: schedForm.recur_weekday, hour: parseInt(hh), minute: parseInt(mm || '0') }
           : { first_run_at: schedForm.first_run_at }),
       }, H());
       setSchedForm({ ...emptySched });
       setSchedInvolved(MY_ID ? [MY_ID] : []);
+      setSchedAssignee(0);
       notify('Programación creada'); loadSchedules(); load();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al programar', 'error'); }
   };
@@ -1266,6 +1285,29 @@ export default function MisTareasPage() {
             Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.
           </Typography>
 
+          {/* Responsable — visible SOLO cuando involucras a alguien más. Cada
+              tarea que genere la programación queda a cargo de esta persona. */}
+          {schedInvolved.filter(id => id && id !== MY_ID).length > 0 && (
+            <FormControl fullWidth size="small" sx={{ mt: 1.5 }} required error={!schedAssignee}>
+              <InputLabel>Responsable *</InputLabel>
+              <Select label="Responsable *" value={schedAssignee || ''} onChange={e => setSchedAssignee(Number(e.target.value))}>
+                {schedInvolved
+                  .map(id => users.find(u => u.id === id))
+                  .filter((u): u is UserOpt => !!u)
+                  .map(u => (
+                    <MenuItem key={u.id} value={u.id}>
+                      {u.full_name}{u.id === MY_ID ? ' (yo)' : ''}
+                    </MenuItem>
+                  ))}
+              </Select>
+              <Typography variant="caption" color={schedAssignee ? 'text.secondary' : 'error'} sx={{ mt: 0.5 }}>
+                {schedAssignee
+                  ? 'Cada tarea que genere esta programación quedará a cargo de esta persona.'
+                  : 'Selecciona un responsable de la tarea programada.'}
+              </Typography>
+            </FormControl>
+          )}
+
           {schedules.length > 0 && (
             <Box sx={{ mt: 2.5 }}>
               <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 0.5 }}>Programaciones activas</Typography>
@@ -1276,6 +1318,7 @@ export default function MisTareasPage() {
                       <Typography variant="body2" fontWeight={700} noWrap>{s.title}</Typography>
                       <Typography variant="caption" color="text.secondary">
                         {schedLabel(s)} · próxima: {s.next_run_at ? new Date(s.next_run_at).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                        {s.assignee_name ? ` · ${Number(s.assignee_id) === MY_ID ? 'Yo' : displayTaskName(s.assignee_name)}` : ''}
                       </Typography>
                     </Box>
                     <IconButton size="small" onClick={() => deleteSchedule(s.id)}><CloseIcon sx={{ fontSize: 18 }} /></IconButton>

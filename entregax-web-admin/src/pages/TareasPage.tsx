@@ -598,7 +598,10 @@ export default function TareasPage() {
           <Box sx={{ display: 'flex', gap: 1.5, minWidth: 'min-content' }}>
             {board.columns.map((col) => {
               const colTasks = filteredTasks.filter(t => t.column_id === col.id && (
-                activeSection === null ? t.section_id !== somedayId : t.section_id === activeSection
+                // En "Todas" se ocultan solo las de "Algún día". Ojo: si el tablero
+                // no tiene esa sección, somedayId es null y compararlo contra un
+                // section_id null escondería TODAS las tareas sin sub-sección.
+                activeSection === null ? (somedayId === null || t.section_id !== somedayId) : t.section_id === activeSection
               ));
               return (
                 <Box key={col.id} sx={{ width: 268, flex: 'none', bgcolor: '#F4EEE6', borderRadius: 2, p: 1 }}>
