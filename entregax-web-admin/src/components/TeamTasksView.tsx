@@ -72,14 +72,19 @@ export function TeamTaskRow({ t, onOpen }: { t: TeamTask; onOpen: (id: number) =
   );
 }
 
-export default function TeamTasksView({ onOpenTask, refreshKey = 0 }: { onOpenTask: (id: number) => void; refreshKey?: number }) {
+export default function TeamTasksView({ onOpenTask, refreshKey = 0, boardFilter }: { onOpenTask: (id: number) => void; refreshKey?: number; boardFilter?: number | 'all' | null }) {
   const token = localStorage.getItem('token') || '';
   const H = () => ({ headers: { Authorization: `Bearer ${token}` } });
   const [tasks, setTasks] = useState<TeamTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
-  const [cat, setCat] = useState<number | 'all'>('all');
+  const [cat, setCat] = useState<number | 'all'>(boardFilter && boardFilter !== 'all' ? boardFilter : 'all');
   const [q, setQ] = useState('');
+
+  // Si el padre (TareasPage) cambia el tablero seleccionado, sincroniza el filtro.
+  useEffect(() => {
+    if (boardFilter !== undefined && boardFilter !== null) setCat(boardFilter);
+  }, [boardFilter]);
 
   useEffect(() => {
     setLoading(true);

@@ -693,6 +693,7 @@ export const getTeamTasks = async (req: Request, res: Response): Promise<any> =>
         JOIN task_boards b ON b.id = t.board_id
         LEFT JOIN users au ON au.id = t.assignee_id
        WHERE t.status <> 'cancelled'
+         AND COALESCE(b.board_key,'') <> 'personales'  -- las tareas personales NO son de equipo
          ${showDone ? '' : `AND t.status <> 'completed'`}
        ORDER BY ${STALLED} DESC,
                 (t.status='open' AND t.started_at IS NOT NULL) DESC,
