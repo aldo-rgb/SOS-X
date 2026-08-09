@@ -568,7 +568,7 @@ export default function TareasPage() {
       )}
 
       {view === 'team' ? (
-        <TeamTasksView onOpenTask={setDetailId} boardFilter={activeId ?? 'all'} />
+        <TeamTasksView onOpenTask={setDetailId} />
       ) : loading ? (
         <Box sx={{ textAlign: 'center', mt: 8 }}><CircularProgress /></Box>
       ) : !board ? (
