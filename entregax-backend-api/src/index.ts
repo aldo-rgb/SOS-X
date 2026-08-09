@@ -13776,6 +13776,9 @@ app.get('/api/tasks/assignable-users', authenticateToken, tasksAssignableUsers);
 app.get('/api/tasks/team', authenticateToken, tasksTeam);
 app.get('/api/tasks/categories', authenticateToken, tasksListCategories);
 app.get('/api/tasks/search', authenticateToken, tasksSearch);
+// OJO: las rutas literales van ANTES de '/api/tasks/:id', si no Express las
+// captura como si "schedules" fuera un id y el handler recibe NaN.
+app.get('/api/tasks/schedules', authenticateToken, tasksListSchedules);
 app.get('/api/tasks', authenticateToken, tasksList);
 app.post('/api/tasks', authenticateToken, tasksCreate);
 app.get('/api/tasks/:id', authenticateToken, tasksGet);
@@ -13784,7 +13787,6 @@ app.post('/api/tasks/:id/complete', authenticateToken, tasksComplete);
 app.post('/api/tasks/:id/reopen', authenticateToken, tasksReopen);
 app.post('/api/tasks/:id/start', authenticateToken, tasksStart);
 app.post('/api/tasks/schedules', authenticateToken, tasksCreateSchedule);
-app.get('/api/tasks/schedules', authenticateToken, tasksListSchedules);
 app.delete('/api/tasks/schedules/:id', authenticateToken, tasksDeleteSchedule);
 // Cron: materializa tareas programadas/recurrentes cada 10 min.
 setInterval(() => { runDueTaskSchedules(); }, 10 * 60 * 1000);
