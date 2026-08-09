@@ -678,7 +678,7 @@ export const getTeamTasks = async (req: Request, res: Response): Promise<any> =>
       ) < NOW() - INTERVAL '3 days')`;
     const r = await pool.query(`
       SELECT t.id, t.title, t.status, t.eisenhower, t.due_at, t.started_at, t.commitment_date,
-             t.assignee_id, t.created_by,
+             t.assignee_id, t.created_by, t.board_id, t.description,
              b.name AS board_name, b.board_key,
              au.full_name AS assignee_name, au.profile_photo_url AS assignee_photo,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id)::int AS subtasks_total,

@@ -630,41 +630,49 @@ export default function MisTareasPage() {
     if (t.started_at) return { key: 'proceso', label: '⚙️ En proceso', bg: '#E3F0FB', color: '#1565C0', pct: 45 };
     return { key: 'nueva', label: '🆕 Nueva', bg: '#EEEEEE', color: '#555', pct: 0 };
   };
-  // Tarjeta compacta para la vista de EQUIPO (avance + status + involucrados).
+  // Fila COMPACTA para la vista de EQUIPO (una línea: status · título · avance · involucrados).
   const renderTeamCard = (t: Task) => {
     const st = taskState(t);
-    // Barra de avance: checklist si hay subtareas; si no, se basa en el estado.
     const pct = (t.subtasks_total || 0) > 0 ? Math.round(((t.subtasks_done || 0) / (t.subtasks_total || 1)) * 100) : st.pct;
-    const barColor = st.key === 'detenida' ? '#C0392B' : (st.key === 'terminada' ? '#2E7D46' : '#D6521C');
+    const barColor = st.key === 'detenida' ? '#C0392B' : (st.key === 'terminada' ? '#2E7D46' : (st.key === 'proceso' ? '#1565C0' : '#B0752C'));
     const inv: Array<{ name: string; photo?: string | null }> =
       ((t.participant_avatars && t.participant_avatars.length ? t.participant_avatars
         : (t.assignee_name ? [{ name: t.assignee_name, photo: t.assignee_photo || null }] : []))).filter((x: any) => x && x.name);
-    const shown = inv.slice(0, 5); const extra = inv.length - shown.length;
+    const shown = inv.slice(0, 3); const extra = inv.length - shown.length;
+    const dot = st.key === 'detenida' ? '#3A3A3A' : barColor;
     return (
-      <Box key={t.id} onClick={() => setDetailId(t.id)}
-        sx={{ bgcolor: '#fff', border: '1px solid #ECE4D8', borderRadius: 1.5, p: 1.25, cursor: 'pointer',
-          borderLeft: `3px solid ${barColor}`, '&:hover': { boxShadow: 2 } }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
-          <Chip label={st.label} size="small" sx={{ height: 20, fontSize: 11, bgcolor: st.bg, color: st.color, fontWeight: 700 }} />
-          {t.overdue && <Chip label="⏰ Vencida" size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#FDE8E8', color: '#C0392B', fontWeight: 700 }} />}
-        </Box>
-        <Typography fontSize={13} fontWeight={600} sx={{ lineHeight: 1.3 }} noWrap>{t.title}</Typography>
-        <Typography fontSize={10.5} color="text.secondary" noWrap sx={{ mb: 0.5 }}>🗂️ {t.board_name}</Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <LinearProgress variant="determinate" value={pct} sx={{ flex: 1, height: 7, borderRadius: 4, bgcolor: '#F0E9DF', '& .MuiLinearProgress-bar': { bgcolor: barColor, borderRadius: 4 } }} />
-          <Typography fontSize={10.5} fontWeight={700} color="text.secondary">{(t.subtasks_total || 0) > 0 ? `${t.subtasks_done}/${t.subtasks_total}` : `${pct}%`}</Typography>
-        </Box>
-        {shown.length > 0 && (
-          <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.75 }}>
-            {shown.map((p, i) => (
-              <Tooltip key={i} title={i === 0 ? `${displayTaskName(p.name)} · Responsable` : displayTaskName(p.name)}>
-                <Avatar src={p.photo || undefined} sx={{ width: 22, height: 22, fontSize: 9.5, ml: i === 0 ? 0 : '-6px', border: '1.5px solid #fff', bgcolor: i === 0 ? '#D6521C' : '#5E35B1', fontWeight: 700, zIndex: shown.length - i }}>{initials(displayTaskName(p.name))}</Avatar>
-              </Tooltip>
-            ))}
-            {extra > 0 && <Typography fontSize={10} color="text.secondary" sx={{ ml: 0.5 }}>+{extra}</Typography>}
+      <Tooltip key={t.id} title={`${st.label.replace(/^[^ ]+ /, '')} · 🗂️ ${t.board_name}${t.overdue ? ' · ⏰ Vencida' : ''}`} disableInteractive>
+        <Box onClick={() => setDetailId(t.id)}
+          sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 0.75, py: 0.4, cursor: 'pointer',
+            bgcolor: '#fff', border: '1px solid #ECE4D8', borderRadius: 0.75, borderLeft: `3px solid ${dot}`,
+            minWidth: 0, '&:hover': { bgcolor: '#FBF8F4' } }}>
+          {/* punto de estado */}
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: dot, flex: '0 0 auto' }} />
+          {/* título */}
+          <Typography fontSize={12} fontWeight={600} noWrap sx={{ flex: 1, minWidth: 0, lineHeight: 1.2 }}>{t.title}</Typography>
+          {/* avance mini */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, flex: '0 0 auto' }}>
+            <Box sx={{ width: 34, height: 5, borderRadius: 3, bgcolor: '#EFEAE2', overflow: 'hidden' }}>
+              <Box sx={{ width: `${pct}%`, height: '100%', bgcolor: barColor }} />
+            </Box>
+            <Typography fontSize={9.5} fontWeight={700} color="text.secondary" sx={{ minWidth: 26, textAlign: 'right' }}>
+              {(t.subtasks_total || 0) > 0 ? `${t.subtasks_done}/${t.subtasks_total}` : `${pct}%`}
+            </Typography>
           </Box>
-        )}
-      </Box>
+          {/* involucrados */}
+          {shown.length > 0 && (
+            <Box sx={{ display: 'flex', alignItems: 'center', flex: '0 0 auto' }}>
+              {shown.map((p, i) => (
+                <Avatar key={i} src={p.photo || undefined} title={displayTaskName(p.name)}
+                  sx={{ width: 17, height: 17, fontSize: 8, ml: i === 0 ? 0 : '-5px', border: '1.5px solid #fff', bgcolor: i === 0 ? '#D6521C' : '#5E35B1', fontWeight: 700, zIndex: shown.length - i }}>
+                  {initials(displayTaskName(p.name))}
+                </Avatar>
+              ))}
+              {extra > 0 && <Typography fontSize={9} color="text.secondary" sx={{ ml: 0.4 }}>+{extra}</Typography>}
+            </Box>
+          )}
+        </Box>
+      </Tooltip>
     );
   };
 
@@ -878,12 +886,15 @@ export default function MisTareasPage() {
 
       {view === 'team' ? (
         (() => {
+          // Aplica los MISMOS filtros de la página: categoría (tablero) + búsqueda.
+          const teamFiltered = teamTasks.filter(t =>
+            (catFilter === 'all' || Number(t.board_id) === catFilter) && matchesSearch(t));
           const counts = {
-            nueva: teamTasks.filter(t => taskState(t).key === 'nueva').length,
-            proceso: teamTasks.filter(t => taskState(t).key === 'proceso').length,
-            espera: teamTasks.filter(t => taskState(t).key === 'espera').length,
-            detenida: teamTasks.filter(t => taskState(t).key === 'detenida').length,
-            terminada: teamTasks.filter(t => taskState(t).key === 'terminada').length,
+            nueva: teamFiltered.filter(t => taskState(t).key === 'nueva').length,
+            proceso: teamFiltered.filter(t => taskState(t).key === 'proceso').length,
+            espera: teamFiltered.filter(t => taskState(t).key === 'espera').length,
+            detenida: teamFiltered.filter(t => taskState(t).key === 'detenida').length,
+            terminada: teamFiltered.filter(t => taskState(t).key === 'terminada').length,
           };
           const chips: Array<[string, number, string, string]> = [
             ['🆕 Nuevas', counts.nueva, '#EEEEEE', '#555'],
@@ -906,11 +917,11 @@ export default function MisTareasPage() {
               </Box>
               {teamLoading ? (
                 <Box sx={{ textAlign: 'center', mt: 6 }}><CircularProgress /></Box>
-              ) : teamTasks.length === 0 ? (
-                <Alert severity="info">No hay tareas del equipo que mostrar.</Alert>
+              ) : teamFiltered.length === 0 ? (
+                <Alert severity="info">No hay tareas del equipo que mostrar{catFilter !== 'all' || searchText ? ' con este filtro' : ''}.</Alert>
               ) : (
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr', xl: '1fr 1fr 1fr 1fr' }, gap: 1.25 }}>
-                  {teamTasks.map(renderTeamCard)}
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr', xl: '1fr 1fr 1fr 1fr' }, gap: 0.6 }}>
+                  {teamFiltered.map(renderTeamCard)}
                 </Box>
               )}
             </Box>

@@ -27,6 +27,8 @@ import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import { Checkbox as MCheckbox, FormControlLabel, ListItemText, OutlinedInput, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 import GridViewIcon from '@mui/icons-material/GridView';
+import GroupsIcon from '@mui/icons-material/Groups';
+import TeamTasksView from '../components/TeamTasksView';
 import SearchIcon from '@mui/icons-material/Search';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
@@ -179,7 +181,7 @@ export default function TareasPage() {
   // Sub-sección activa (null = Todas) para filtrar el tablero.
   const [activeSection, setActiveSection] = useState<number | null>(null);
   // Vista del tablero: 'columns' (Kanban) o 'matrix' (Eisenhower 2×2).
-  const [view, setView] = useState<'columns' | 'matrix'>('columns');
+  const [view, setView] = useState<'columns' | 'matrix' | 'team'>('columns');
 
   const board = boards.find(b => b.id === activeId) || null;
   const sections = board?.sections || [];
@@ -455,6 +457,7 @@ export default function TareasPage() {
             sx={{ '& .MuiToggleButton-root': { textTransform: 'none', px: 1.5, gap: 0.5 }, '& .Mui-selected': { color: '#D6521C !important', bgcolor: '#FBE6D8 !important' } }}>
             <ToggleButton value="columns"><ViewColumnIcon sx={{ fontSize: 18 }} /> Columnas</ToggleButton>
             <ToggleButton value="matrix"><GridViewIcon sx={{ fontSize: 18 }} /> Matriz Eisenhower</ToggleButton>
+            <ToggleButton value="team"><GroupsIcon sx={{ fontSize: 18 }} /> Equipo</ToggleButton>
           </ToggleButtonGroup>
           {/* 🔍 Buscador de tareas en el tablero activo. Filtra por título,
               descripción, responsable, involucrados o ID. */}
@@ -564,7 +567,9 @@ export default function TareasPage() {
         </Box>
       )}
 
-      {loading ? (
+      {view === 'team' ? (
+        <TeamTasksView onOpenTask={setDetailId} />
+      ) : loading ? (
         <Box sx={{ textAlign: 'center', mt: 8 }}><CircularProgress /></Box>
       ) : !board ? (
         <Alert severity="info">No hay tablero configurado.</Alert>
