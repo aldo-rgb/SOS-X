@@ -669,13 +669,16 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
             const wh = String(pkg.warehouse_location || '').toLowerCase();
             const ds = String(pkg.delivery_status || '').toLowerCase();
             // warehouse_location es un marcador ESTÁTICO de origen (nunca se actualiza).
-            // Si el paquete ya está recibido en MTY (o después), NO está en origen:
-            // no debe bloquearse por el marcador. Esto cubre POBOX/USK que ya llegaron.
-            const alreadyAtMty = [
-                'received_mty', 'received_cedis', 'ready_pickup', 'ready_for_pickup',
-                'assigned', 'out_for_delivery', 'en_ruta_entrega',
+            // Si el paquete ya está recibido en CUALQUIER CEDIS de México (o después),
+            // NO está en origen: no debe bloquearse por el marcador. Esto cubre POBOX/USK
+            // (llegan a MTY) y AIR China (se reciben en CDMX, NO pasan por MTY).
+            const alreadyInMx = [
+                'received_mty', 'received_cedis', 'received_cdmx', 'received_cdx',
+                'received_gdl', 'received_qro',
+                'ready_pickup', 'ready_for_pickup',
+                'assigned', 'out_for_delivery', 'en_ruta_entrega', 'delivered',
             ].includes(ds);
-            const inOrigin = !alreadyAtMty && (
+            const inOrigin = !alreadyInMx && (
                 wh === 'usa_pobox' || wh === 'hidalgo_tx' ||
                 wh === 'china_air' || wh === 'china_sea' || wh === 'china' ||
                 (wh && wh.startsWith('china')));
