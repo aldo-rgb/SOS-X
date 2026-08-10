@@ -675,6 +675,8 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
             const alreadyInMx = [
                 'received_mty', 'received_cedis', 'received_cdmx', 'received_cdx',
                 'received_gdl', 'received_qro',
+                'received', 'in_cedis', 'received_partial', 'inspected', 'pending_inspection',
+                'returned_to_warehouse',   // se cargó y se regresó a bodega → sigue en MX
                 'ready_pickup', 'ready_for_pickup',
                 'assigned', 'out_for_delivery', 'en_ruta_entrega', 'delivered',
             ].includes(ds);
