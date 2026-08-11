@@ -181,6 +181,17 @@ function buildFacturamaCfdiPayload(emitter: FacturamaEmitter, p: FacturapiLikePa
     const subtotal = items.reduce((s, i) => s + i.Subtotal, 0);
     const total    = items.reduce((s, i) => s + i.Total, 0);
 
+    // CFDI 4.0: para RFC genérico (XAXX010101000 público en general nacional,
+    // XEXX010101000 extranjero) el SAT exige que el domicilio fiscal del receptor
+    // (TaxZipCode) sea IGUAL al Lugar de Expedición del emisor, con régimen fiscal
+    // 616 (Sin obligaciones fiscales) y uso S01 (Sin efectos fiscales). Si se manda
+    // el CP/régimen/uso del cliente, Facturama rechaza con "ExpeditionPlace ...".
+    const rfcReceptor = String(p.customer.tax_id || '').toUpperCase();
+    const esRfcGenerico = rfcReceptor === 'XAXX010101000' || rfcReceptor === 'XEXX010101000';
+    const receiverZip    = esRfcGenerico ? emitter.zip_code : (p.customer.address?.zip || emitter.zip_code);
+    const receiverRegime = esRfcGenerico ? '616' : p.customer.tax_system;
+    const receiverUse    = esRfcGenerico ? 'S01' : (p.use || 'G03');
+
     return {
         // Issuer (multiemisor): Facturama enruta al CSD del RFC indicado.
         Issuer: {
@@ -190,10 +201,11 @@ function buildFacturamaCfdiPayload(emitter: FacturamaEmitter, p: FacturapiLikePa
         },
         Receiver: {
             Rfc: p.customer.tax_id,
-            Name: p.customer.legal_name,
-            CfdiUse: p.use || 'G03',
-            FiscalRegime: p.customer.tax_system,
-            TaxZipCode: p.customer.address?.zip
+            // XAXX010101000 exige razón social exacta "PÚBLICO EN GENERAL".
+            Name: rfcReceptor === 'XAXX010101000' ? 'PÚBLICO EN GENERAL' : p.customer.legal_name,
+            CfdiUse: receiverUse,
+            FiscalRegime: receiverRegime,
+            TaxZipCode: receiverZip
         },
         CfdiType: p.type || 'I',
         NameId: '1',

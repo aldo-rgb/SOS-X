@@ -3,6 +3,7 @@ import { pool } from './db';
 import crypto from 'crypto';
 import axios from 'axios';
 import { createCustomNotification } from './notificationController';
+import { depositar as walletDepositar } from './walletService';
 
 // Helper: Enviar notificación push via Expo
 const sendExpoPushNotification = async (pushToken: string, title: string, body: string, data?: object) => {
@@ -1880,33 +1881,44 @@ async function aplicarDescuentoAOrdenes(desc: any): Promise<string> {
   const descMxn = Math.abs(Number(desc.monto) || 0) * (monedaUp === 'USD' ? tcUsdToMxn : 1);
   if (descMxn <= 0) return 'sin monto a aplicar';
 
-  // 2) Resolver id interno de la guía y dueño (cliente)
+  // 2) Resolver id interno de la guía, su master (PO Box consolidado) y dueño.
+  //    DHL: la guía se ubica por inbound_tracking O secondary_tracking (el ajuste
+  //    suele venir con el secondary, número corto que ve el cliente).
   let guiaId: number | null = null;
+  let masterId: number | null = null;
   let clienteId: number | null = desc.cliente_id || null;
   if (map) {
     try {
+      const whereExpr = servicio === 'dhl'
+        ? '(inbound_tracking = $1 OR secondary_tracking = $1)'
+        : `${map.col} = $1`;
+      const extraCol = servicio === 'package' ? ', master_id' : '';
       const gr = await pool.query(
-        `SELECT id, user_id FROM ${map.table} WHERE ${map.col} = $1 LIMIT 1`,
+        `SELECT id, user_id${extraCol} FROM ${map.table} WHERE ${whereExpr} LIMIT 1`,
         [tracking]
       );
       if (gr.rows.length > 0) {
         guiaId = Number(gr.rows[0].id);
+        if (servicio === 'package' && gr.rows[0].master_id) masterId = Number(gr.rows[0].master_id);
         if (!clienteId) clienteId = gr.rows[0].user_id || null;
       }
     } catch { /* tabla puede no tener user_id; se ignora */ }
   }
   if (!guiaId || !clienteId) return 'guía sin id/cliente resoluble (no se regeneró orden)';
 
-  // 3) Órdenes del cliente que contienen la guía (no canceladas)
+  // 3) Órdenes del cliente que contienen la guía (no canceladas). Se busca por el id
+  //    de la guía Y por el de su master, porque en PO Box consolidado la orden/pago
+  //    referencia el master, no la hija a la que se le puso el descuento.
+  const candidateIds = masterId ? [guiaId, masterId] : [guiaId];
   const ordersRes = await pool.query(
     `SELECT * FROM pobox_payments
       WHERE user_id = $1
         AND status NOT IN ('cancelled','expired')
         AND EXISTS (
-          SELECT 1 FROM jsonb_array_elements_text(package_ids) e WHERE e::int = $2
+          SELECT 1 FROM jsonb_array_elements_text(package_ids) e WHERE e::int = ANY($2::int[])
         )
       ORDER BY created_at DESC`,
-    [clienteId, guiaId]
+    [clienteId, candidateIds]
   );
 
   const UNPAID = ['pending', 'pending_payment', 'vouchers_submitted', 'vouchers_partial'];
@@ -1971,22 +1983,30 @@ async function aplicarDescuentoAOrdenes(desc: any): Promise<string> {
     notas.push(`orden ${o.payment_reference} ($${oldAmount.toFixed(2)}) → ${newRef} ($${newAmount.toFixed(2)})`);
   }
 
-  // 3b) Si NO hay órdenes por regenerar pero SÍ hay pagadas → abonar a saldo a favor
-  if (unpaid.length === 0 && paid.length > 0) {
-    await pool.query(
-      `UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + $1 WHERE id = $2`,
-      [descMxn, clienteId]
+  // 3b) Sin órdenes por regenerar pero la guía YA está pagada → abonar a saldo a favor.
+  //     Cubre tanto órdenes pagadas (pobox_payments) como guías pagadas fuera de una
+  //     orden (p. ej. DHL con pago directo) vía isGuiaPagada. Se usa walletService para
+  //     mantener sincronizados billetera_digital, sus transacciones y users.wallet_balance.
+  const guiaPagada = paid.length > 0 || await isGuiaPagada(servicio, tracking);
+  if (unpaid.length === 0 && guiaPagada) {
+    const refPagada = paid[0]?.payment_reference || tracking;
+    const dep = await walletDepositar(
+      clienteId, descMxn,
+      `Descuento aprobado sobre guía ya pagada (${refPagada})`,
+      'descuento_saldo', desc.id ? Number(desc.id) : undefined,
+      { guia_tracking: tracking, servicio, descuento_id: desc.id },
+      desc.aprobado_por || desc.autorizado_por || undefined
     );
-    try {
-      await pool.query(
-        `INSERT INTO financial_transactions (user_id, type, amount, description, reference_id, reference_type, created_at)
-         VALUES ($1, 'credit', $2, $3, $4, 'descuento_saldo', NOW())`,
-        [clienteId, descMxn,
-         `Descuento aprobado sobre orden pagada ${paid[0].payment_reference} (guía ${tracking})`,
-         String(desc.id)]
-      );
-    } catch (e) { console.warn('No se pudo registrar financial_transactions del descuento:', e); }
-    notas.push(`orden ya pagada → $${descMxn.toFixed(2)} abonados a saldo a favor`);
+    if (dep.success) {
+      try {
+        await createCustomNotification(clienteId, '💰 Saldo a favor',
+          `Se abonaron $${descMxn.toLocaleString('es-MX', { maximumFractionDigits: 2 })} MXN a tu monedero por un descuento. Se aplicará en tu próximo pago.`,
+          'payment', 'wallet', { type: 'wallet_credit', monto_mxn: descMxn, guia_tracking: tracking });
+      } catch { /* noop */ }
+      notas.push(`guía ya pagada → $${descMxn.toFixed(2)} abonados a saldo a favor (monedero)`);
+    } else {
+      notas.push(`guía ya pagada, pero NO se pudo abonar el saldo a favor: ${dep.error || 'error'}`);
+    }
   }
 
   return notas.length > 0 ? notas.join('; ') : 'sin órdenes activas para la guía';
