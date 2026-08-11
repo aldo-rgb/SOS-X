@@ -427,6 +427,25 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
             </Box>
           );
         })()}
+        {(() => {
+          // 📍 Quién puso las instrucciones de entrega (cliente vs asesor) y cuándo.
+          //    Si no se guardó el autor (guías viejas), se muestra solo la fecha sin atribuir.
+          const src = destAddress?.assignedBySource;
+          if (!destAddress || (!src && !destAddress?.assignedAt)) return null;
+          const quien = src === 'cliente' ? 'Cliente' : (src === 'asesor' ? (destAddress.assignedByName || 'Asesor') : null);
+          return (
+            <Box sx={{ mt: 1, px: 1, py: 0.75, borderRadius: 1, bgcolor: '#ecfdf5', border: '1px solid #c7f0dd' }}>
+              <Typography variant="caption" sx={{ display: 'block', color: '#047857', fontWeight: 700 }}>
+                {quien
+                  ? <>📍 Instrucciones puestas por {quien}{src === 'asesor' && <span style={{ fontWeight: 400 }}> (asesor)</span>}</>
+                  : '📍 Instrucciones registradas'}
+              </Typography>
+              {destAddress.assignedAt && (
+                <Typography variant="caption" sx={{ display: 'block', color: '#475569' }}>{fmtDate(destAddress.assignedAt)}</Typography>
+              )}
+            </Box>
+          );
+        })()}
       </Paper>
 
       {/* 🎁 Kit de Bienvenida: producto elegido (solo guías USK) */}

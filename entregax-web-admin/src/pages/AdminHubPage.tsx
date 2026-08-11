@@ -1580,9 +1580,12 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 <Grid container spacing={2}>
                     {modules
                         .filter((module) => {
-                            // Módulos financieros: acceso basado en rol, no en permisos de BD
+                            // Módulos financieros: acceso por rol (admin/director) O por permiso
+                            // de módulo asignado en BD (user_module_permissions). Antes solo miraba
+                            // el rol, así que un permiso concedido no se reflejaba (branch_manager, etc.).
                             if (['anticipos', 'transporte_control', 'demora_control'].includes(module.key)) {
-                                return ['super_admin', 'admin', 'director'].includes(currentUser?.role);
+                                return ['super_admin', 'admin', 'director'].includes(currentUser?.role)
+                                    || hasModulePermission(module.key);
                             }
                             // Super admin ve todo lo demás
                             if (isSuperAdmin) return true;

@@ -1340,6 +1340,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                    u.verification_status AS user_verification_status,
                    lc.full_name as legacy_name, lc.box_id as legacy_box_id,
                    adv.id as advisor_id, adv.full_name as advisor_name,
+                   iu.full_name as instr_by_name, iu.role as instr_by_role,
                    a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
                    a.exterior_number as addr_ext, a.interior_number as addr_int,
                    a.neighborhood as addr_neighborhood, a.city as addr_city,
@@ -1365,6 +1366,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN users adv ON adv.id = COALESCE(u.advisor_id, u.referred_by_id)
+            LEFT JOIN users iu ON p.instructions_assigned_by_id = iu.id
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
             LEFT JOIN addresses a ON p.assigned_address_id = a.id
             LEFT JOIN branches br ON p.current_branch_id = br.id
@@ -2007,6 +2009,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                             m.pobox_service_cost, m.pobox_cost_usd, m.pobox_venta_usd, m.gex_total_cost,
                             m.national_shipping_cost, m.national_carrier, m.national_tracking, m.national_label_url,
                             m.assigned_address_id, m.national_delivery_zip,
+                            m.instructions_assigned_at AS m_instr_at, m.instructions_assigned_by_id AS m_instr_by_id,
+                            iu.full_name AS m_instr_by_name, iu.role AS m_instr_by_role,
                             a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
                             a.exterior_number as addr_ext, a.interior_number as addr_int,
                             a.neighborhood as addr_neighborhood, a.city as addr_city,
@@ -2015,6 +2019,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                             a.carrier_config as addr_carrier_config
                      FROM packages m
                      LEFT JOIN addresses a ON m.assigned_address_id = a.id
+                     LEFT JOIN users iu ON m.instructions_assigned_by_id = iu.id
                      WHERE m.id = $1`,
                     [pkg.master_id]
                 );
@@ -2055,6 +2060,11 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         pkg.addr_phone = m.addr_phone;
                         pkg.addr_reference = m.addr_reference;
                         pkg.addr_carrier_config = m.addr_carrier_config;
+                        // Heredar también quién/cuándo puso las instrucciones (el master).
+                        pkg.instructions_assigned_at = m.m_instr_at;
+                        pkg.instructions_assigned_by_id = m.m_instr_by_id;
+                        pkg.instr_by_name = m.m_instr_by_name;
+                        pkg.instr_by_role = m.m_instr_by_role;
                     }
                     // Status: cuando se busca una CAJA HIJA directamente, mostramos
                     // SU PROPIO estado (no el del master). Cada caja puede tener un
@@ -2552,6 +2562,12 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         reference: pkg.addr_reference,
                         carrierConfig: pkg.addr_carrier_config,
                         isOcurre: pkg.addr_is_ocurre === true,
+                        // Quién puso las instrucciones (cliente vs asesor/staff) y cuándo.
+                        assignedAt: pkg.instructions_assigned_at || null,
+                        assignedByName: pkg.instr_by_name || null,
+                        assignedBySource: pkg.instructions_assigned_by_id
+                            ? ((String(pkg.instr_by_role || '') === 'client' || Number(pkg.instructions_assigned_by_id) === Number(pkg.user_id)) ? 'cliente' : 'asesor')
+                            : null,
                     } : null,
                     deliveryDocuments: {
                         factura: latestDocByType.factura_embarque
@@ -5193,6 +5209,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                                 notes = COALESCE($2, notes),
                                 needs_instructions = false,
                                 instructions_assigned_at = COALESCE(instructions_assigned_at, NOW()),
+                                instructions_assigned_by_id = COALESCE(instructions_assigned_by_id, $9),
                                 national_carrier = $4,
                                 national_shipping_cost = $5,
                                 assigned_cost_mxn = $6,
@@ -5201,7 +5218,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                                 updated_at = CURRENT_TIMESTAMP
                             WHERE id = $3${ownerCondition}
                             RETURNING id, tracking_internal
-                        `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || 'EntregaX Local', shippingCostMxn, newTotalMxn, nuevoSaldo, nationalDeliveryZipMobile]);
+                        `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || 'EntregaX Local', shippingCostMxn, newTotalMxn, nuevoSaldo, nationalDeliveryZipMobile, userId]);
                     }
                 }
                 // 🧒 Propagar dirección + carrier a TODAS las hijas del master
@@ -5220,6 +5237,20 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                 } catch (propErr) {
                     console.warn('[bulkAssignDelivery] No se pudo propagar dirección a hijas:', propErr);
                 }
+                // 🖊️ Autor de las instrucciones (para el rastreo "puestas por…"):
+                //    estampar en el master + hijas si aún no se había guardado. Cubre
+                //    de forma uniforme todas las ramas de asignación de arriba.
+                try {
+                    await pool.query(
+                        `UPDATE packages
+                            SET instructions_assigned_by_id = COALESCE(instructions_assigned_by_id, $2),
+                                instructions_assigned_at    = COALESCE(instructions_assigned_at, NOW())
+                          WHERE (id = $1 OR master_id = $1)
+                            AND assigned_address_id IS NOT NULL
+                            AND instructions_assigned_by_id IS NULL`,
+                        [packageId, userId]
+                    );
+                } catch (e) { console.warn('[assignDeliveryInstructions] stamp autor instrucciones:', e); }
 
                 // 🎁 Guía USK (Kit de Bienvenida) entregada por EntregaX Local MTY:
                 // es entrega local sin costo, así que al asignar instrucciones se
