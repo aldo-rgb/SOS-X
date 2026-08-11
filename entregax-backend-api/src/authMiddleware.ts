@@ -236,6 +236,27 @@ export function requireSuperAdmin() {
   };
 }
 
+// Autoriza si el usuario tiene el PANEL indicado en user_panel_permissions
+// (can_view por default; can_edit para escrituras). Super Admin siempre pasa.
+// Sirve para endpoints que hoy están fijos a un rol pero deberían respetar el
+// permiso de panel asignado por usuario (ej. tarifas/precios por cliente).
+export function requirePanelPermission(panelKey: string, needEdit = false) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const user = (req as any).user;
+    if (!user) { res.status(401).json({ error: 'No autorizado' }); return; }
+    if (normalizeRole(user.role) === 'Super Admin') { next(); return; }
+    const uid = user.userId || user.id;
+    try {
+      const col = needEdit ? 'can_edit' : 'can_view';
+      const r = await pool.query(
+        `SELECT 1 FROM user_panel_permissions WHERE user_id = $1 AND panel_key = $2 AND ${col} = TRUE LIMIT 1`,
+        [uid, panelKey]);
+      if (r.rows.length > 0) { next(); return; }
+    } catch (e) { console.error('[requirePanelPermission]', e); }
+    res.status(403).json({ error: 'No tienes permiso para este panel.' });
+  };
+}
+
 // Permite Super Admin y Admin. Se usa en "Paneles por Usuario" (admin puede
 // asignar paneles); la "Matriz por Rol" sigue reservada a Super Admin.
 export function requireSuperAdminOrAdmin() {

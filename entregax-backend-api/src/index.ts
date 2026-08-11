@@ -8442,7 +8442,7 @@ import {
   updateUserModulePermissions,
   getMyModulePermissions
 } from './permissionController';
-import { requireSuperAdmin, requireSuperAdminOrAdmin } from './authMiddleware';
+import { requireSuperAdmin, requireSuperAdminOrAdmin, requirePanelPermission } from './authMiddleware';
 
 // Email Inbound Controller (Webhooks de correo)
 import {
@@ -13589,11 +13589,13 @@ app.get('/api/admin/pobox/tarifas-volumen', authenticateToken, requireRole('supe
 app.put('/api/admin/pobox/tarifas-volumen/:id', authenticateToken, requireRole('super_admin'), updateTarifaVolumen);
 app.post('/api/admin/pobox/tarifas-volumen', authenticateToken, requireRole('super_admin'), createTarifaVolumen);
 // Tarifas preferenciales por cliente (precios especiales por nivel)
-app.get('/api/admin/pobox/client-tarifas', authenticateToken, requireRole('super_admin'), listPoboxClientTarifas);
-app.get('/api/admin/pobox/client-tarifas/search', authenticateToken, requireRole('super_admin'), searchPoboxClients);
-app.get('/api/admin/pobox/client-tarifas/:userId', authenticateToken, requireRole('super_admin'), getPoboxClientTarifas);
-app.put('/api/admin/pobox/client-tarifas/:userId', authenticateToken, requireRole('super_admin'), savePoboxClientTarifas);
-app.delete('/api/admin/pobox/client-tarifas/:userId', authenticateToken, requireRole('super_admin'), deletePoboxClientTarifas);
+// Precios preferenciales por cliente (sección de la página de Tarifas PO Box):
+// autoriza a super_admin O a quien tenga el panel PO Box USA (admin_usa_pobox).
+app.get('/api/admin/pobox/client-tarifas', authenticateToken, requirePanelPermission('admin_usa_pobox'), listPoboxClientTarifas);
+app.get('/api/admin/pobox/client-tarifas/search', authenticateToken, requirePanelPermission('admin_usa_pobox'), searchPoboxClients);
+app.get('/api/admin/pobox/client-tarifas/:userId', authenticateToken, requirePanelPermission('admin_usa_pobox'), getPoboxClientTarifas);
+app.put('/api/admin/pobox/client-tarifas/:userId', authenticateToken, requirePanelPermission('admin_usa_pobox', true), savePoboxClientTarifas);
+app.delete('/api/admin/pobox/client-tarifas/:userId', authenticateToken, requirePanelPermission('admin_usa_pobox', true), deletePoboxClientTarifas);
 // Gestión de servicios extra (Admin)
 app.get('/api/admin/pobox/servicios-extra', authenticateToken, requireRole('super_admin'), getServiciosExtra);
 app.put('/api/admin/pobox/servicios-extra/:id', authenticateToken, requireRole('super_admin'), updateServicioExtra);
