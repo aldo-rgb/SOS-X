@@ -51,9 +51,23 @@ export const createAjuste = async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Tipo debe ser cargo_extra o descuento' });
   }
 
+  // Un CARGO EXTRA se rige siempre por la lógica CEX-aware, sin importar el punto de
+  // entrada: si la guía ya se pagó genera un cobro independiente; si no, suma al saldo.
+  // Antes esta ruta creaba un ajuste plano que quedaba "muerto" sobre guías pagadas.
+  if (tipo === 'cargo_extra') {
+    try {
+      const r = await applyCargoExtra({ guia_id, guia_tracking, servicio, monto, moneda, concepto, notas, cliente_id, uid: autorizado_por });
+      if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
+      return res.json({ success: true, mode: r.mode, reference: r.reference, amount_mxn: r.amount_mxn });
+    } catch (error: any) {
+      console.error('Error createAjuste (cargo_extra):', error);
+      return res.status(500).json({ error: error.message });
+    }
+  }
+
   try {
     const result = await pool.query(
-      `INSERT INTO guias_ajustes_financieros 
+      `INSERT INTO guias_ajustes_financieros
        (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, notas, autorizado_por, cliente_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
@@ -177,19 +191,27 @@ async function actualizarSaldoGuia(tracking: string, servicio: string) {
       return;
   }
 
+  // Para DHL el ajuste se registra bajo el tracking que ve el cliente, que puede ser
+  // el inbound_tracking (JJD...) o el secondary_tracking (número corto). Antes solo se
+  // matcheaba inbound_tracking, así que los ajustes guardados con el secondary_tracking
+  // (la mayoría) no encontraban la guía y el saldo nunca se recalculaba.
+  const whereExpr = servicio === 'dhl'
+    ? '(inbound_tracking = $1 OR secondary_tracking = $1)'
+    : `${trackingColumn} = $1`;
+
   // Obtener costo base
   const baseResult = await pool.query(
-    `SELECT ${costoExpr} as costo_base, COALESCE(monto_pagado, 0) as pagado 
-     FROM ${tableName} WHERE ${trackingColumn} = $1`,
+    `SELECT ${costoExpr} as costo_base, COALESCE(monto_pagado, 0) as pagado
+     FROM ${tableName} WHERE ${whereExpr}`,
     [tracking]
   );
 
   if (baseResult.rows.length > 0) {
     const { costo_base, pagado } = baseResult.rows[0];
     const nuevoSaldo = parseFloat(costo_base) + parseFloat(cargos) - parseFloat(descuentos) - parseFloat(pagado);
-    
+
     await pool.query(
-      `UPDATE ${tableName} SET saldo_pendiente = $1 WHERE ${trackingColumn} = $2`,
+      `UPDATE ${tableName} SET saldo_pendiente = $1 WHERE ${whereExpr.replace(/\$1/g, '$2')}`,
       [Math.max(0, nuevoSaldo), tracking]
     );
   }
@@ -296,53 +318,127 @@ export async function createCexCollectible(opts: {
   return { ok: true, reference: ref, amount_mxn: montoMxn };
 }
 
-// Genera un cargo extra. Si la guía NO está pagada (saldo>0) → suma al saldo (como hoy).
-// Si YA está pagada (saldo=0) → genera una orden cobrable CEX (cuenta por pagar del
-// cliente + Cobranza + visible al asesor), usando la cuenta bancaria del servicio.
+// ¿La guía YA fue pagada de verdad? (no solo saldo=0). Se considera pagada si:
+//  · la fila de la guía tiene monto_pagado>0 (o paid_at en DHL), o
+//  · la guía —o su master consolidado (PO Box)— aparece en un pago liquidado
+//    (pobox_payments paid/completed) o en una orden de asesor ya pagada.
+// Esto cubre los masters PO Box, donde el "pagado" vive en la orden/pago y NO en
+// packages.saldo_pendiente (el master queda con saldo 0 y monto_pagado 0).
+async function isGuiaPagada(servicio: string, guia_tracking: string): Promise<boolean> {
+  const map = cargoGuiaTableFor(servicio);
+  if (!map) return false;
+  const whereExpr = servicio === 'dhl'
+    ? '(inbound_tracking = $1 OR secondary_tracking = $1)'
+    : `${map.col} = $1`;
+  const extraCols = servicio === 'package' ? ', master_id' : '';
+  const paidFlag = servicio === 'dhl' ? '(paid_at IS NOT NULL)' : 'FALSE';
+  const r = await pool.query(
+    `SELECT id, COALESCE(monto_pagado,0) AS pagado, ${paidFlag} AS paid_flag${extraCols}
+       FROM ${map.table} WHERE ${whereExpr} LIMIT 1`, [guia_tracking]);
+  if (r.rows.length === 0) return false;
+  const row = r.rows[0];
+  if (Number(row.pagado) > 0 || row.paid_flag === true) return true;
+
+  // IDs/UIDs de la guía y (para PO Box) de su master consolidado.
+  const ids: number[] = [Number(row.id)];
+  const uidPrefix = servicio === 'dhl' ? 'DHL' : (servicio === 'package' ? 'PKG' : null);
+  const uids: string[] = uidPrefix ? [`${uidPrefix}-${row.id}`] : [];
+  if (servicio === 'package' && row.master_id) {
+    ids.push(Number(row.master_id));
+    uids.push(`PKG-${row.master_id}`);
+  }
+
+  // 1) Pago liquidado (pobox_payments) que incluya la guía o su master.
+  const ppConds = ids.map((_, i) => `package_ids @> $${i + 1}::jsonb`).join(' OR ');
+  const pp = await pool.query(
+    `SELECT 1 FROM pobox_payments
+      WHERE status IN ('paid','completed') AND (${ppConds}) LIMIT 1`,
+    ids.map((id) => JSON.stringify([id])));
+  if (pp.rows.length > 0) return true;
+
+  // 2) Orden de asesor ya pagada (por uid del paquete/master o por tracking).
+  if (uids.length > 0) {
+    const ord = await pool.query(
+      `SELECT 1 FROM advisor_payment_orders
+        WHERE status = 'pagado' AND (package_uids ?| $1::text[] OR trackings ?| $2::text[]) LIMIT 1`,
+      [uids, [guia_tracking]]);
+    if (ord.rows.length > 0) return true;
+  }
+  return false;
+}
+
+// Lógica única para dar de alta un cargo extra, sin importar el punto de entrada
+// (panel "Cargos Extra" o ajuste de cartera). Regla confirmada con el negocio:
+//  · Guía NO pagada  → el cargo se SUMA al saldo/orden pendiente (aún no se cobra).
+//  · Guía YA pagada  → se genera una orden cobrable CEX independiente (cuenta por
+//    pagar del cliente + Cobranza + visible al asesor).
+export async function applyCargoExtra(opts: {
+  guia_id?: number; guia_tracking: string; servicio: string;
+  monto: number; moneda?: string; concepto: string; notas?: string | null;
+  cliente_id?: number | null; uid?: number | null;
+}): Promise<{ ok: boolean; status?: number; mode?: 'added_to_balance' | 'cex_generated'; reference?: string | undefined; amount_mxn?: number | undefined; error?: string }> {
+  await ensureCargoExtraSchema();
+  const montoNum = Math.abs(Number(opts.monto) || 0);
+  if (!opts.guia_tracking || !opts.servicio || !opts.concepto || !String(opts.concepto).trim() || montoNum <= 0) {
+    return { ok: false, status: 400, error: 'Faltan datos: guía, servicio, monto y concepto son obligatorios' };
+  }
+  const map = cargoGuiaTableFor(opts.servicio);
+  // Servicios sin tabla de saldo mapeable (ej. tdi/tdi_express): no hay flujo CEX ni
+  // saldo que recalcular; se conserva el ajuste plano (comportamiento previo).
+  if (!map) {
+    await pool.query(
+      `INSERT INTO guias_ajustes_financieros (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, notas, autorizado_por, cliente_id, activo)
+       VALUES ($1,$2,$3,'cargo_extra',$4,$5,$6,$7,$8,$9,TRUE)`,
+      [opts.guia_id || 0, opts.guia_tracking, opts.servicio, montoNum, (opts.moneda || 'MXN'), opts.concepto, opts.notas || null, opts.uid || null, opts.cliente_id || null]
+    );
+    return { ok: true, mode: 'added_to_balance' };
+  }
+
+  // Localizar la guía (para DHL, por inbound o secondary tracking).
+  const whereExpr = opts.servicio === 'dhl'
+    ? '(inbound_tracking = $1 OR secondary_tracking = $1)'
+    : `${map.col} = $1`;
+  const selCols = opts.servicio === 'package' ? 'service_type, user_id' : 'user_id';
+  const gRes = await pool.query(`SELECT ${selCols} FROM ${map.table} WHERE ${whereExpr} LIMIT 1`, [opts.guia_tracking]);
+  if (gRes.rows.length === 0) return { ok: false, status: 404, error: 'Guía no encontrada' };
+  const cliente_id = opts.cliente_id || gRes.rows[0].user_id || null;
+  const pkgServiceType = gRes.rows[0].service_type || null;
+
+  const pagada = await isGuiaPagada(opts.servicio, opts.guia_tracking);
+
+  // ── Guía NO pagada → sumar al saldo/orden pendiente ──
+  if (!pagada) {
+    await pool.query(
+      `INSERT INTO guias_ajustes_financieros (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, notas, autorizado_por, cliente_id, activo)
+       VALUES ($1,$2,$3,'cargo_extra',$4,$5,$6,$7,$8,$9,TRUE)`,
+      [opts.guia_id || 0, opts.guia_tracking, opts.servicio, montoNum, (opts.moneda || 'MXN'), opts.concepto, opts.notas || null, opts.uid || null, cliente_id]
+    );
+    await actualizarSaldoGuia(opts.guia_tracking, opts.servicio);
+    return { ok: true, mode: 'added_to_balance' };
+  }
+
+  // ── Guía YA pagada → orden cobrable CEX ──
+  if (!cliente_id) return { ok: false, status: 400, error: 'No se pudo determinar el cliente de la guía para generar el cobro.' };
+  const tcUsd = await getUsdToMxnRate();
+  const montoMxn = String(opts.moneda || 'MXN').toUpperCase() === 'USD' ? Math.round(montoNum * tcUsd * 100) / 100 : montoNum;
+  const cex = await createCexCollectible({ servicio: opts.servicio, guia_id: opts.guia_id ?? 0, guia_tracking: opts.guia_tracking, cliente_id, montoMxn, concepto: opts.concepto, uid: opts.uid ?? null, pkgServiceType });
+  if (!cex.ok) return { ok: false, status: cex.error?.includes('cuenta bancaria') ? 500 : 400, error: cex.error || 'No se pudo generar el cobro' };
+  return { ok: true, mode: 'cex_generated', reference: cex.reference, amount_mxn: cex.amount_mxn };
+}
+
+// Punto de entrada del panel "Cargos Extra". Delega en applyCargoExtra.
 export const createCargoExtra = async (req: Request, res: Response): Promise<any> => {
   try {
-    await ensureCargoExtraSchema();
     const uid = (req as any).user?.id ?? (req as any).user?.userId ?? null;
-    const { guia_id, guia_tracking, servicio, monto, moneda, concepto, notas } = req.body || {};
-    let cliente_id = req.body?.cliente_id || null;
-    const montoNum = Math.abs(Number(monto) || 0);
-    if (!guia_tracking || !servicio || !concepto || !String(concepto).trim() || montoNum <= 0) {
-      return res.status(400).json({ error: 'Faltan datos: guía, servicio, monto y concepto son obligatorios' });
+    const { guia_id, guia_tracking, servicio, monto, moneda, concepto, notas, cliente_id } = req.body || {};
+    const r = await applyCargoExtra({ guia_id, guia_tracking, servicio, monto, moneda, concepto, notas, cliente_id, uid });
+    if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
+    if (r.mode === 'added_to_balance') {
+      return res.json({ ok: true, mode: r.mode, message: 'La guía aún no estaba pagada: el cargo se sumó a su saldo/orden pendiente.' });
     }
-    const map = cargoGuiaTableFor(servicio);
-    if (!map) return res.status(400).json({ error: `Servicio no reconocido: ${servicio}` });
-
-    const selCols = servicio === 'package' ? 'COALESCE(saldo_pendiente,0) AS saldo, service_type, user_id'
-      : 'COALESCE(saldo_pendiente,0) AS saldo, user_id';
-    const gRes = await pool.query(`SELECT ${selCols} FROM ${map.table} WHERE ${map.col} = $1 LIMIT 1`, [guia_tracking]);
-    if (gRes.rows.length === 0) return res.status(404).json({ error: 'Guía no encontrada' });
-    const saldo = Number(gRes.rows[0].saldo) || 0;
-    if (!cliente_id) cliente_id = gRes.rows[0].user_id || null;
-    const pkgServiceType = gRes.rows[0].service_type || null;
-
-    // ── CASO 1: guía NO pagada → sumar al saldo (comportamiento actual) ──
-    if (saldo > 0) {
-      await pool.query(
-        `INSERT INTO guias_ajustes_financieros (guia_id, guia_tracking, servicio, tipo, monto, moneda, concepto, notas, autorizado_por, cliente_id, activo)
-         VALUES ($1,$2,$3,'cargo_extra',$4,$5,$6,$7,$8,$9,TRUE)`,
-        [guia_id || 0, guia_tracking, servicio, montoNum, (moneda || 'MXN'), concepto, notas || null, uid, cliente_id]
-      );
-      await actualizarSaldoGuia(guia_tracking, servicio);
-      return res.json({ ok: true, mode: 'added_to_balance', message: 'La guía aún no estaba pagada: el cargo se sumó a su saldo pendiente.' });
-    }
-
-    // ── CASO 2: guía YA pagada (saldo 0) → orden cobrable CEX ──
-    if (!cliente_id) return res.status(400).json({ error: 'No se pudo determinar el cliente de la guía para generar el cobro.' });
-
-    const tcUsd = await getUsdToMxnRate();
-    const montoMxn = String(moneda || 'MXN').toUpperCase() === 'USD' ? Math.round(montoNum * tcUsd * 100) / 100 : montoNum;
-
-    const cex = await createCexCollectible({ servicio, guia_id, guia_tracking, cliente_id, montoMxn, concepto, uid, pkgServiceType });
-    if (!cex.ok) return res.status(cex.error?.includes('cuenta bancaria') ? 500 : 400).json({ error: cex.error || 'No se pudo generar el cobro' });
-
     return res.json({
-      ok: true, mode: 'cex_generated', reference: cex.reference, amount_mxn: cex.amount_mxn,
-      message: `Guía ya pagada → se generó la orden cobrable ${cex.reference}.`,
+      ok: true, mode: r.mode, reference: r.reference, amount_mxn: r.amount_mxn,
+      message: `Guía ya pagada → se generó la orden cobrable ${r.reference}.`,
     });
   } catch (e: any) {
     console.error('[cs] createCargoExtra:', e); res.status(500).json({ error: 'Error al generar el cargo extra' });

@@ -969,47 +969,55 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     const extraChargesDescByShipment: Record<string, string> = {};
     try {
       const shipIds = shipmentsRes.rows.map((s: any) => Number(s.id)).filter((n: number) => Number.isFinite(n));
-      const childTrks: string[] = [];
+      // Conjunto de trackings PROPIOS de cada guía. Incluye el tracking principal,
+      // el internacional (para DHL = secondary_tracking, que es donde se registra el
+      // ajuste) y las hijas. Antes solo se usaban las hijas + guia_id; como los
+      // ajustes DHL traen guia_id=0 y viven bajo secondary_tracking (no en las
+      // hijas, que son los JJD inbound), quedaban en 0 y el total no sumaba el
+      // cargo/descuento.
+      const trkSetByShip: Record<string, Set<string>> = {};
+      const allTrks = new Set<string>();
       for (const s of shipmentsRes.rows) {
-        if (Array.isArray(s.child_trackings)) for (const t of s.child_trackings) if (t) childTrks.push(t);
+        const set = new Set<string>();
+        for (const t of [s.tracking, s.international_tracking]) if (t) set.add(String(t));
+        if (Array.isArray(s.child_trackings)) for (const t of s.child_trackings) if (t) set.add(String(t));
+        trkSetByShip[String(s.id)] = set;
+        for (const t of set) allTrks.add(t);
       }
-      if (shipIds.length > 0 || childTrks.length > 0) {
+      const trkArr = Array.from(allTrks);
+      if (shipIds.length > 0 || trkArr.length > 0) {
         const chRes = await pool.query(
           `SELECT guia_id, guia_tracking, tipo, monto, moneda, concepto FROM guias_ajustes_financieros
            WHERE activo = true AND (guia_id = ANY($1::int[]) OR guia_tracking = ANY($2::text[]))`,
-          [shipIds, childTrks]
+          [shipIds, trkArr]
         );
-        const byId: Record<number, number> = {};
-        const byTracking: Record<string, number> = {};
-        const descById: Record<number, string[]> = {};
-        const descByTracking: Record<string, string[]> = {};
-        for (const r of chRes.rows) {
+        const ajustes = chRes.rows.map((r: any) => {
           // Convertir USD a MXN usando el TC de TDI. MXN o null se queda igual.
           const monedaUp = String(r.moneda || 'MXN').toUpperCase();
           const montoMxn = monedaUp === 'USD'
             ? (Number(r.monto) || 0) * tcUsdToMxn
             : (Number(r.monto) || 0);
-          const m = (r.tipo === 'descuento' ? -1 : 1) * montoMxn;
-          if (r.guia_id != null) {
-            byId[r.guia_id] = (byId[r.guia_id] || 0) + m;
-            if (r.concepto) (descById[r.guia_id] = descById[r.guia_id] || []).push(r.concepto);
-          }
-          if (r.guia_tracking) {
-            byTracking[r.guia_tracking] = (byTracking[r.guia_tracking] || 0) + m;
-            if (r.concepto) (descByTracking[r.guia_tracking] = descByTracking[r.guia_tracking] || []).push(r.concepto);
-          }
-        }
+          return {
+            guia_id: r.guia_id != null ? Number(r.guia_id) : null,
+            guia_tracking: r.guia_tracking != null ? String(r.guia_tracking) : null,
+            m: (r.tipo === 'descuento' ? -1 : 1) * montoMxn,
+            concepto: r.concepto || null,
+          };
+        });
         for (const s of shipmentsRes.rows) {
-          let total = byId[Number(s.id)] || 0;
-          const descs = [...(descById[Number(s.id)] || [])];
-          if (Array.isArray(s.child_trackings)) {
-            for (const t of s.child_trackings) {
-              if (t && byTracking[t] != null) total += byTracking[t];
-              if (t && descByTracking[t]) descs.push(...descByTracking[t]);
-            }
+          const sid = String(s.id);
+          const set = trkSetByShip[sid] || new Set<string>();
+          let total = 0;
+          const descs: string[] = [];
+          for (const a of ajustes) {
+            // Cada ajuste cuenta UNA sola vez por guía (guia_id O guia_tracking),
+            // evitando doble conteo si coinciden ambos.
+            const match = (a.guia_id != null && a.guia_id === Number(s.id))
+              || (a.guia_tracking != null && set.has(a.guia_tracking));
+            if (match) { total += a.m; if (a.concepto) descs.push(a.concepto); }
           }
-          extraChargesByShipment[String(s.id)] = total;
-          extraChargesDescByShipment[String(s.id)] = [...new Set(descs)].join(', ');
+          extraChargesByShipment[sid] = total;
+          extraChargesDescByShipment[sid] = [...new Set(descs)].join(', ');
         }
       }
     } catch (e) {

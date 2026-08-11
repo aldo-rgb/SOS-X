@@ -475,7 +475,7 @@ export default function CarteraVencidaPage() {
     // Cargos extra: aplicar directamente
     setAjusteLoading(true);
     try {
-      await api.post('/cs/ajustes', {
+      const resp = await api.post('/cs/ajustes', {
         guia_id: resumenGuia?.guia?.id,
         guia_tracking: selectedGuia.tracking,
         servicio: selectedGuia.servicio,
@@ -486,10 +486,14 @@ export default function CarteraVencidaPage() {
         notas: ajusteForm.notas,
         cliente_id: resumenGuia?.cliente?.id || resumenGuia?.guia?.user_id,
       });
-      
+
       setAjusteDialog(false);
       setAjusteForm({ tipo: 'cargo_extra', monto: '', moneda: 'MXN', concepto: '', notas: '' });
-      setSnackbar({ open: true, message: '✅ Cargo extra aplicado correctamente', severity: 'success' });
+      // Si la guía ya estaba pagada, el backend genera un cobro independiente (CEX).
+      const msg = resp?.data?.mode === 'cex_generated'
+        ? `✅ Guía ya pagada → se generó el cobro independiente ${resp.data.reference || ''}`.trim()
+        : '✅ Cargo extra sumado al saldo pendiente';
+      setSnackbar({ open: true, message: msg, severity: 'success' });
       loadResumenGuia(selectedGuia.tracking, selectedGuia.servicio);
     } catch (error) {
       console.error('Error creando ajuste:', error);
