@@ -1023,7 +1023,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           body: fd,
         }
       );
-      const data = await res.json();
+      // Parseo seguro: si el server responde algo que no es JSON (ej. error de
+      // gateway/timeout), NO reventamos con "JSON Parse error"; mostramos el texto.
+      const rawBody = await res.text();
+      let data: any = {};
+      try { data = rawBody ? JSON.parse(rawBody) : {}; }
+      catch { data = { error: (rawBody || '').trim().slice(0, 200) || 'Respuesta no válida del servidor' }; }
       if (res.ok) {
         const rid = data?.request?.id || data?.request_id || null;
         setLastRequestId(rid ? Number(rid) : null);

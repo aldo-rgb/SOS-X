@@ -603,6 +603,38 @@ export const createPaymentRequestV2 = async (
     payload.notas = String(body.notas);
   }
 
+  // ✅ Validación PRE-ENVÍO de los datos bancarios del beneficiario. ENTANGLED
+  //    guarda estos campos en columnas cortas (BIC / varchar(20)) y, si algo se
+  //    excede, responde con un error genérico ("value too long...") SIN decir cuál
+  //    campo. Lo detectamos aquí y le decimos al usuario EXACTAMENTE qué corregir
+  //    (además, al cortar antes de la llamada externa, la respuesta es JSON rápido
+  //    y el móvil ya no ve el críptico "JSON Parse error" por timeout del gateway).
+  if (benefSnap) {
+    const bankChecks: Array<{ val: any; label: string; max: number }> = [
+      { val: benefSnap.swift,     label: 'SWIFT/BIC',         max: 11 },
+      { val: benefSnap.aba,       label: 'ABA/Routing',       max: 20 },
+      { val: benefSnap.cuenta,    label: 'número de cuenta',  max: 20 },
+      { val: benefSnap.iban,      label: 'IBAN',              max: 20 },
+    ];
+    for (const c of bankChecks) {
+      const s = String(c.val ?? '').trim();
+      if (s.length > c.max) {
+        await pool.query(
+          `UPDATE entangled_payment_requests
+              SET estatus_global = 'error_envio', error_message = $1, updated_at = NOW()
+            WHERE id = $2`,
+          [`${c.label} inválido (${s.length} caracteres, máx ${c.max})`, requestId]
+        ).catch(() => {});
+        return res.status(400).json({
+          error: `El ${c.label} del beneficiario no es válido: tiene ${s.length} caracteres (máximo ${c.max}). ` +
+                 `Corrígelo y vuelve a enviar. Valor capturado: "${s.slice(0, 40)}${s.length > 40 ? '…' : ''}"`,
+          campo: c.label,
+          request_id: requestId,
+        });
+      }
+    }
+  }
+
   if (!isEntangledConfigured()) {
     await pool.query(
       `UPDATE entangled_payment_requests

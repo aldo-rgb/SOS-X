@@ -230,11 +230,15 @@ export const sendSolicitudPago = async (
   } catch (err) {
     const ax = err as AxiosError;
     const responseData = ax.response?.data as any;
-    const message =
+    const baseMsg =
       responseData?.error ||
       responseData?.message ||
       ax.message ||
       'Error desconocido al contactar ENTANGLED';
+    // ENTANGLED manda la causa útil en `detalle` (ej. "value too long for type
+    // character varying(20)"); la incluimos para no perder la razón del rechazo.
+    const detalle = responseData?.detalle ? String(responseData.detalle).trim() : '';
+    const message = detalle && !String(baseMsg).includes(detalle) ? `${baseMsg} — ${detalle}` : baseMsg;
     console.error('[ENTANGLED] sendSolicitudPago error:', message, 'status=', ax.response?.status,
       'RESP_BODY=', JSON.stringify(responseData || {}).slice(0, 800));
     return { ok: false, error: message, status: ax.response?.status, raw: responseData };
