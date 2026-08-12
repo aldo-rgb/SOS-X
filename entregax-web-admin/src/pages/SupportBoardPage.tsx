@@ -941,7 +941,16 @@ export default function SupportBoardPage() {
           variant="scrollable"
           scrollButtons="auto"
           allowScrollButtonsMobile
-          sx={{ minHeight: 36, maxWidth: '100%', '& .MuiTab-root': { minHeight: 36, py: 0, textTransform: 'none', fontSize: 13 } }}
+          sx={{
+            minHeight: 36,
+            // width 100% + minWidth 0 → el Tabs llena el renglón y su scroller
+            // interno hace scroll horizontal en vez de cortar los chips (en un
+            // contenedor flex, maxWidth:100% no basta para forzar el encogimiento).
+            width: '100%',
+            minWidth: 0,
+            '& .MuiTabs-scroller': { overflowX: 'auto !important' },
+            '& .MuiTab-root': { minHeight: 36, py: 0, textTransform: 'none', fontSize: 13 },
+          }}
         >
           {departments.filter(d => canSeeDept(d.name)).map((d) => {
             const cnt = deptCounts.find((x) => x.id === d.id)?.open_count;
