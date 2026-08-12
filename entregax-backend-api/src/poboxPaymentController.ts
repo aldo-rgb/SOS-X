@@ -1299,47 +1299,107 @@ export const confirmPoboxCashPayment = async (req: AuthRequest, res: Response): 
             WHERE id = $3
         `, [adminId, notes, paymentId]);
 
-        // Actualizar estado de los paquetes y registrar aplicaciones
-        const packageIds = typeof payment.package_ids === 'string' 
-            ? JSON.parse(payment.package_ids) 
-            : payment.package_ids;
+        // Resolver el SERVICIO real de cada id. Los ids de pobox_payments.package_ids
+        // COLISIONAN entre tablas (packages / dhl_shipments / maritime_orders). Si el
+        // pago está ligado a una orden de asesor, sus package_uids traen el prefijo
+        // autoritativo (PKG-/DHL-/MAR-). Antes se asumía siempre 'packages', por lo que
+        // los pagos DHL/marítimos marcaban un PO Box ajeno (colisión) y NO aplicaban a
+        // la guía real (bug de la orden UW-480474B1).
+        const packageIds: number[] = (typeof payment.package_ids === 'string'
+            ? JSON.parse(payment.package_ids)
+            : (payment.package_ids || [])).map((x: any) => parseInt(String(x), 10)).filter((n: number) => Number.isFinite(n));
 
-        for (const pkgId of packageIds) {
-            // Obtener costo del paquete
+        const apoRes = await client.query(
+            `SELECT package_uids FROM advisor_payment_orders WHERE pobox_payment_id = $1 LIMIT 1`,
+            [paymentId]
+        );
+        let pkgIds: number[] = [];
+        let dhlIds: number[] = [];
+        let marIds: number[] = [];
+        const rawUids = apoRes.rows[0]?.package_uids;
+        const uidArr: string[] = Array.isArray(rawUids)
+            ? rawUids
+            : (typeof rawUids === 'string' ? JSON.parse(rawUids) : []);
+        if (uidArr.length > 0) {
+            for (const uid of uidArr) {
+                const [prefix, idStr] = String(uid).split('-');
+                const numId = parseInt(idStr ?? '', 10);
+                if (!Number.isFinite(numId)) continue;
+                if (prefix === 'DHL') dhlIds.push(numId);
+                else if (prefix === 'MAR') marIds.push(numId);
+                else pkgIds.push(numId);
+            }
+        } else {
+            // Sin orden de asesor (pago PO Box creado por el cliente): ids son packages.
+            pkgIds = packageIds;
+        }
+
+        // DHL: el master agrupa varias cajas por secondary_tracking; marcar TODAS las
+        // que compartan el mismo secondary_tracking (la orden solo referencia una).
+        if (dhlIds.length > 0) {
+            const sib = await client.query(
+                `SELECT id FROM dhl_shipments
+                  WHERE id = ANY($1::int[])
+                     OR secondary_tracking IN (
+                         SELECT secondary_tracking FROM dhl_shipments
+                          WHERE id = ANY($1::int[]) AND COALESCE(secondary_tracking,'') <> ''
+                     )`,
+                [dhlIds]
+            );
+            dhlIds = sib.rows.map((r: any) => Number(r.id));
+        }
+
+        // packages (PO Box / aéreo / TDI)
+        for (const pkgId of pkgIds) {
             const pkgResult = await client.query(
-                'SELECT assigned_cost_mxn, COALESCE(saldo_pendiente, assigned_cost_mxn) as saldo FROM packages WHERE id = $1',
+                'SELECT COALESCE(saldo_pendiente, assigned_cost_mxn) as saldo FROM packages WHERE id = $1',
                 [pkgId]
             );
-            
             if (pkgResult.rows.length > 0) {
-                const pkg = pkgResult.rows[0];
-                const montoAplicado = parseFloat(pkg.saldo);
-
-                // Registrar aplicación del pago
-                await client.query(`
-                    INSERT INTO caja_chica_aplicacion_pagos 
-                        (transaccion_id, package_id, monto_aplicado)
-                    VALUES ($1, $2, $3)
-                `, [cajaTransaccionId, pkgId, montoAplicado]);
-
-                // Actualizar paquete — payment_status/saldo/client_paid cascadean a hijos.
-                // (El pago del cliente NO marca costing_paid / pago a proveedor.)
+                const montoAplicado = parseFloat(pkgResult.rows[0].saldo) || 0;
+                await client.query(
+                    `INSERT INTO caja_chica_aplicacion_pagos (transaccion_id, package_id, monto_aplicado) VALUES ($1, $2, $3)`,
+                    [cajaTransaccionId, pkgId, montoAplicado]
+                ).catch(() => {});
+                // payment_status/saldo/client_paid cascadean a hijos. El pago del cliente
+                // NO marca costing_paid / pago a proveedor.
                 await client.query(`
                     UPDATE packages SET
-                        payment_status = 'paid',
-                        monto_pagado = assigned_cost_mxn,
-                        saldo_pendiente = 0,
-                        client_paid = TRUE
+                        payment_status = 'paid', monto_pagado = assigned_cost_mxn,
+                        saldo_pendiente = 0, client_paid = TRUE
                     WHERE id = $1 OR master_id = $1
                 `, [pkgId]);
             }
         }
+        // dhl_shipments (todas las cajas del master)
+        if (dhlIds.length > 0) {
+            await client.query(`
+                UPDATE dhl_shipments SET
+                    paid_at = CURRENT_TIMESTAMP, cost_payment_status = 'paid',
+                    monto_pagado = COALESCE(total_cost_mxn, saldo_pendiente, 0), saldo_pendiente = 0
+                 WHERE id = ANY($1::int[])
+            `, [dhlIds]).catch(() => {});
+        }
+        // maritime_orders
+        if (marIds.length > 0) {
+            await client.query(
+                `UPDATE maritime_orders SET payment_status='paid', client_paid_at=CURRENT_TIMESTAMP WHERE id = ANY($1::int[])`,
+                [marIds]
+            ).catch(() => {});
+        }
+
+        // Sincronizar la orden de asesor ligada a 'pagado' (antes quedaba 'pendiente').
+        await client.query(
+            `UPDATE advisor_payment_orders SET status='pagado', updated_at=NOW() WHERE pobox_payment_id = $1 AND status <> 'cancelado'`,
+            [paymentId]
+        ).catch(() => {});
 
         await client.query('COMMIT');
 
-        // Generar comisiones para paquetes pagados en efectivo
-        generateCommissionsForPackages(packageIds).catch(err =>
-            console.error('Error generando comisiones (efectivo PO Box):', err)
+        // Comisiones: ids reales (packages + DHL + marítimo). El generador ya enruta
+        // PKG -> DHL -> MAR internamente por id.
+        generateCommissionsForPackages([...pkgIds, ...dhlIds, ...marIds]).catch(err =>
+            console.error('Error generando comisiones (efectivo):', err)
         );
 
         console.log(`✅ Pago en efectivo ${paymentId} confirmado por ${adminName} - Registrado en caja chica`);
