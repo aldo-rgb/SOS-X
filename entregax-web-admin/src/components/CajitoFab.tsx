@@ -233,6 +233,25 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
 
   useEffect(() => { loadMovements(); }, [loadMovements]);
 
+  // 🔒 Guía que SÍ existe pero pertenece a otro cliente/asesor: no se muestran
+  //    detalles, solo se confirma que está registrada y a qué casillero pertenece.
+  if ((data as any).restricted || (m as any).restricted) {
+    const box = (m as any).clientBoxId || (data as any).clientBoxId || null;
+    return (
+      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, borderColor: '#F0B79A', bgcolor: '#FFF7F2' }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#D6521C', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+          📦 Guía encontrada
+        </Typography>
+        <Typography variant="body2" sx={{ mt: 0.5, color: '#7A4A33' }}>
+          Está <b>registrada en el sistema</b>, pero pertenece a otro cliente (no es de tu cartera).
+        </Typography>
+        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#475569' }}>
+          Guía: <b>{m.tracking || tracking}</b>{box ? <> · Cliente: <b>{box}</b></> : null}
+        </Typography>
+      </Paper>
+    );
+  }
+
   const clientPaid = m.clientPaid ?? m.client_paid ?? false;
   const paymentStatus = m.paymentStatus ?? m.payment_status ?? '';
   const paid = clientPaid || paymentStatus === 'paid';

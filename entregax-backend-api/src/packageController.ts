@@ -1702,7 +1702,13 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     );
                     owned = o.rows.length > 0;
                 }
-                if (!owned) { res.status(404).json({ error: 'Guía no encontrada' }); return; }
+                if (!owned) {
+                    // La guía SÍ existe pero es de otro cliente/asesor: no ocultarla,
+                    // solo confirmar que está registrada y a qué casillero pertenece.
+                    const box = fallbackRow.user_box_id || fallbackRow.box_id || null;
+                    res.json({ success: true, restricted: true, shipment: { master: { tracking: fallbackRow.tracking_number || tracking, restricted: true, clientBoxId: box } } });
+                    return;
+                }
             }
 
             const resolvedName = fallbackRow.full_name || 'SIN CLIENTE';
@@ -1909,7 +1915,10 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 owned = o.rows.length > 0;
             }
             if (!owned) {
-                res.status(404).json({ error: 'Guía no encontrada' });
+                // La guía SÍ existe pero es de otro cliente/asesor: no devolver 404;
+                // confirmar que está registrada y mostrar el casillero del cliente.
+                const box = pkg.user_box_id || pkg.box_id || null;
+                res.json({ success: true, restricted: true, shipment: { master: { tracking: pkg.tracking_internal || tracking, restricted: true, clientBoxId: box } } });
                 return;
             }
         }
