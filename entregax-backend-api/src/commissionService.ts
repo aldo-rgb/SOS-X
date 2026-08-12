@@ -71,7 +71,17 @@ export async function generateCommissionsForPackages(
 
   try {
     for (const pkgId of packageIds) {
-      await generateCommissionForShipment('PKG', pkgId, undefined, opts);
+      // Los ids que llegan desde pobox_payments.package_ids pueden ser de packages
+      // (PO Box/Aéreo/TDI), dhl_shipments o maritime_orders — y sus ids COLISIONAN
+      // entre tablas. Antes se asumía siempre 'PKG', así que los pagos DHL/marítimos
+      // nunca generaban comisión (o generaban la de una guía equivocada por colisión).
+      // Se intenta PKG; si ese id no es un package pagado, se prueba DHL y luego MAR.
+      // El primero que resuelve un embarque válido gana (ON CONFLICT ya separa por tipo).
+      const okPkg = await generateCommissionForShipment('PKG', pkgId, undefined, opts);
+      if (okPkg) continue;
+      const okDhl = await generateCommissionForShipment('DHL', pkgId, undefined, opts);
+      if (okDhl) continue;
+      await generateCommissionForShipment('MAR', pkgId, undefined, opts);
     }
   } catch (error) {
     console.error('[CommissionService] Error generating commissions for packages:', error);
@@ -87,7 +97,7 @@ export async function generateCommissionForShipment(
   shipmentId: number,
   overridePaymentAmount?: number,
   opts?: { creditHold?: boolean }
-): Promise<void> {
+): Promise<boolean> {
   try {
     await ensureCreditHoldSchema();
     // 1. Obtener datos del embarque según tipo
@@ -180,7 +190,7 @@ export async function generateCommissionForShipment(
     }
 
     if (!shipmentData || shipmentData.paymentAmount <= 0) {
-      return; // No hay datos o el monto es 0
+      return false; // Este id no es un embarque pagado de este tipo → probar otro tipo
     }
 
     // 2. Buscar el asesor del cliente: asignación moderna (advisor_id) o, si no,
@@ -191,7 +201,7 @@ export async function generateCommissionForShipment(
     `, [shipmentData.userId]);
 
     if (userRes.rows.length === 0 || !userRes.rows[0].advisor_id) {
-      return; // Cliente sin asesor asignado
+      return true; // Embarque válido de este tipo, pero cliente sin asesor: no probar otros tipos
     }
 
     const clientId = userRes.rows[0].id;
@@ -208,7 +218,7 @@ export async function generateCommissionForShipment(
       WHERE u.id = $1
     `, [advisorId]);
 
-    if (advisorRes.rows.length === 0) return;
+    if (advisorRes.rows.length === 0) return true;
 
     const advisor = advisorRes.rows[0];
     const leaderId = advisor.leader_id || null;
@@ -229,7 +239,7 @@ export async function generateCommissionForShipment(
 
     if (rateRes.rows.length === 0) {
       console.warn(`[CommissionService] No commission rate found for service_type: ${commissionServiceType}`);
-      return;
+      return true; // El embarque es de este tipo; falta configurar la tarifa (no probar otros tipos)
     }
 
     const rate = rateRes.rows[0];
@@ -283,10 +293,12 @@ export async function generateCommissionForShipment(
     ]);
 
     console.log(`[CommissionService] ✅ Comisión generada${creditHold ? ' (EN CRÉDITO, retenida)' : ''}: asesor=${advisor.full_name} | tipo=${commissionServiceType} | monto=${shipmentData.paymentAmount} | comisión=$${commissionAmount.toFixed(2)} | shipment=${shipmentType}-${shipmentId}`);
+    return true;
 
   } catch (error) {
     // No lanzar error para no afectar el flujo de pago
     console.error(`[CommissionService] Error generating commission for ${shipmentType}-${shipmentId}:`, error);
+    return false;
   }
 }
 
