@@ -938,7 +938,10 @@ export default function SupportBoardPage() {
         <Tabs
           value={deptFilter}
           onChange={(_, v) => setDeptFilter(v)}
-          sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0, textTransform: 'none', fontSize: 13 } }}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
+          sx={{ minHeight: 36, maxWidth: '100%', '& .MuiTab-root': { minHeight: 36, py: 0, textTransform: 'none', fontSize: 13 } }}
         >
           {departments.filter(d => canSeeDept(d.name)).map((d) => {
             const cnt = deptCounts.find((x) => x.id === d.id)?.open_count;
