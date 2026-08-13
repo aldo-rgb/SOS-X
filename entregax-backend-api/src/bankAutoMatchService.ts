@@ -104,21 +104,76 @@ const authorizeOneMatch = async (
       [order.id, surplus, `Autorizado AUTO desde estado de cuenta bancario por ${adminName}. Banco: $${bankTotal.toFixed(2)}, Orden: $${orderAmount.toFixed(2)}`]
     );
 
-    // 2) Marcar paquetes como pagados
+    // 2) Aplicar el pago a las guías del SERVICIO correcto. Los ids de package_ids
+    //    COLISIONAN entre packages/dhl_shipments/maritime_orders; se resuelve por los
+    //    package_uids de la orden de asesor (PKG-/DHL-/MAR-). Antes se aplicaba SIEMPRE
+    //    a 'packages', por lo que un depósito de una orden DHL marcaba un PO Box ajeno
+    //    (colisión) y dejaba la guía DHL sin pagar.
     let packageIds: number[] = [];
     try {
       const parsed = typeof order.package_ids === 'string' ? JSON.parse(order.package_ids) : order.package_ids;
-      packageIds = Array.isArray(parsed) ? parsed : [];
+      packageIds = (Array.isArray(parsed) ? parsed : []).map((x: any) => parseInt(String(x), 10)).filter((n: number) => Number.isFinite(n));
     } catch { packageIds = []; }
 
-    if (packageIds.length > 0) {
+    let pkgIds: number[] = [];
+    let dhlIds: number[] = [];
+    let marIds: number[] = [];
+    const apoRes = await client.query(
+      `SELECT package_uids FROM advisor_payment_orders WHERE pobox_payment_id = $1 LIMIT 1`,
+      [order.id]
+    );
+    const rawUids = apoRes.rows[0]?.package_uids;
+    const uidArr: string[] = Array.isArray(rawUids) ? rawUids : (typeof rawUids === 'string' ? JSON.parse(rawUids) : []);
+    if (uidArr.length > 0) {
+      for (const uid of uidArr) {
+        const [prefix, idStr] = String(uid).split('-');
+        const numId = parseInt(idStr ?? '', 10);
+        if (!Number.isFinite(numId)) continue;
+        if (prefix === 'DHL') dhlIds.push(numId);
+        else if (prefix === 'MAR') marIds.push(numId);
+        else pkgIds.push(numId);
+      }
+    } else {
+      pkgIds = packageIds;
+    }
+    // DHL: marcar TODAS las cajas del master (la orden solo referencia una).
+    if (dhlIds.length > 0) {
+      const sib = await client.query(
+        `SELECT id FROM dhl_shipments WHERE id = ANY($1::int[])
+            OR secondary_tracking IN (SELECT secondary_tracking FROM dhl_shipments WHERE id = ANY($1::int[]) AND COALESCE(secondary_tracking,'') <> '')`,
+        [dhlIds]
+      );
+      dhlIds = sib.rows.map((r: any) => Number(r.id));
+    }
+    if (pkgIds.length > 0) {
       await client.query(
         `UPDATE packages SET client_paid = TRUE, client_paid_at = CURRENT_TIMESTAMP,
                saldo_pendiente = 0, payment_status = 'paid'
-         WHERE id = ANY($1)`,
-        [packageIds]
+         WHERE id = ANY($1) OR master_id = ANY($1)`,
+        [pkgIds]
       );
     }
+    if (dhlIds.length > 0) {
+      await client.query(
+        `UPDATE dhl_shipments SET paid_at = CURRENT_TIMESTAMP, cost_payment_status = 'paid',
+                monto_pagado = COALESCE(total_cost_mxn, saldo_pendiente, 0), saldo_pendiente = 0
+         WHERE id = ANY($1::int[])`,
+        [dhlIds]
+      );
+    }
+    if (marIds.length > 0) {
+      await client.query(
+        `UPDATE maritime_orders SET payment_status = 'paid', client_paid_at = CURRENT_TIMESTAMP WHERE id = ANY($1::int[])`,
+        [marIds]
+      );
+    }
+    // Sincronizar la orden de asesor a 'pagado'.
+    await client.query(
+      `UPDATE advisor_payment_orders SET status = 'pagado', updated_at = NOW() WHERE pobox_payment_id = $1 AND status <> 'cancelado'`,
+      [order.id]
+    );
+    // ids REALES aplicados (para comisiones más abajo).
+    const appliedIds: number[] = [...pkgIds, ...dhlIds, ...marIds];
 
     // 2b) 💳 Orden a CRÉDITO: RESTAURAR el crédito del servicio (used_credit).
     //     Antes esto SOLO lo hacía el flujo manual de confirmación de comprobante,
@@ -254,10 +309,10 @@ const authorizeOneMatch = async (
     //    como función privada; cuando se acceda al panel manual de
     //    autorización ya queda cubierto, así que aquí omitimos GEX para no
     //    duplicar lógica.
-    if (packageIds.length > 0) {
+    if (appliedIds.length > 0) {
       try {
         const { generateCommissionsForPackages } = await import('./commissionService');
-        generateCommissionsForPackages(packageIds).catch((e: any) =>
+        generateCommissionsForPackages(appliedIds).catch((e: any) =>
           console.error('[bank-auto-auth] commissions error:', e?.message)
         );
       } catch (e: any) {
