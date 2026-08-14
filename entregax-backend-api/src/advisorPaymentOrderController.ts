@@ -685,12 +685,33 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
     const pkgIds: number[] = [];
     const marIds: number[] = [];
     const dhlIds: number[] = [];
+    // Ids SIN prefijo (órdenes creadas por el cliente: pobox_payments.package_ids).
+    // NO se puede asumir que son de `packages`: COLISIONAN con dhl_shipments y la
+    // cotización salía con guías AIR equivocadas y $0.00 (caso UW-8235EE10).
+    const bareIds: number[] = [];
     for (const u of uids) {
       const s = String(u);
       if (s.startsWith('PKG-')) pkgIds.push(parseInt(s.slice(4)));
       else if (s.startsWith('MAR-')) marIds.push(parseInt(s.slice(4)));
       else if (s.startsWith('DHL-')) dhlIds.push(parseInt(s.slice(4)));
-      else if (/^\d+$/.test(s)) pkgIds.push(parseInt(s));
+      else if (/^\d+$/.test(s)) bareIds.push(parseInt(s));
+      // (bareIds se enruta abajo según el servicio autoritativo de la orden)
+    }
+    if (bareIds.length > 0) {
+      // Servicio autoritativo: service_type_cfg de la orden o openpay_webhook_logs.
+      let svc = String((order as any).service_type_cfg || '').toUpperCase();
+      if (!svc && (order as any).payment_reference) {
+        const svcRes = await pool.query(
+          `SELECT service_type FROM openpay_webhook_logs
+            WHERE transaction_id = $1 AND service_type IS NOT NULL
+            ORDER BY id DESC LIMIT 1`,
+          [(order as any).payment_reference]
+        ).catch(() => ({ rows: [] as any[] }));
+        svc = String(svcRes.rows[0]?.service_type || '').toUpperCase();
+      }
+      if (svc === 'AA_DHL') dhlIds.push(...bareIds);
+      else if (svc === 'SEA_CHN_MX') marIds.push(...bareIds);
+      else pkgIds.push(...bareIds);
     }
 
     // Para packages: traer master + hijos con desglose POBOX (n_level, USD, MXN)
