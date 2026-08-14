@@ -19,6 +19,53 @@ import { applyReplyRule, alreadyProcessed } from './waReplyRulesController';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || process.env.FB_VERIFY_TOKEN || '';
 
+// ── Alerta de cuenta WhatsApp caída ──────────────────────────────────────────
+// Errores de Meta a nivel CUENTA que dejan caído TODO el WhatsApp saliente (no un
+// número o cliente puntual). El caso real: 131031 "Business Account locked" tuvo
+// ~2,100 fallos silenciosos durante 9 días porque los envíos se hacen fire-and-forget
+// (.catch(()=>{})). Al detectarlos en los webhooks de estado, alertamos a admins.
+const WA_ACCOUNT_FATAL_CODES = new Set<number>([
+  131031, // Business Account locked
+  131042, // Business eligibility / método de pago
+  368,    // Temporarily blocked for policy violations
+  131056, // (par) rate limit sostenido — señal de degradación
+]);
+// Throttle en memoria: máx. una alerta cada 6h (evita miles por el mismo bloqueo).
+// Se reinicia en cada redeploy, lo cual está bien (re-alerta si el problema sigue).
+let lastWaAccountAlertMs = 0;
+const WA_ALERT_THROTTLE_MS = 6 * 60 * 60 * 1000;
+
+async function maybeAlertWhatsappAccountIssue(code: number, title: string): Promise<void> {
+  try {
+    const now = Date.now();
+    if (now - lastWaAccountAlertMs < WA_ALERT_THROTTLE_MS) return;
+    lastWaAccountAlertMs = now;
+
+    const admins = await pool.query(
+      `SELECT id FROM users WHERE role IN ('super_admin','admin','director') AND COALESCE(is_active, true) = true`
+    );
+    const ids = admins.rows.map((r: any) => Number(r.id)).filter((n: number) => Number.isFinite(n));
+    console.error(`[WA-WEBHOOK] 🚨 Cuenta WhatsApp con problema (code ${code}: ${title}). Alertando a ${ids.length} admins.`);
+    if (ids.length === 0) return;
+
+    const bodyMsg = `Meta está rechazando los envíos con error ${code} ("${title}"). Ningún cliente recibe WhatsApp (llegadas, pagos, OTP). Revisa/desbloquea la cuenta en Meta Business Manager → WhatsApp Manager.`;
+    const { createCustomNotification } = await import('./notificationController');
+    await Promise.all(ids.map((uid) =>
+      createCustomNotification(uid, '🚨 WhatsApp Business bloqueado', bodyMsg, 'system_alert', 'warning', { type: 'wa_account_locked', code }).catch(() => {})
+    ));
+    try {
+      const { sendPushToUsers } = await import('./pushService');
+      await sendPushToUsers(ids, {
+        title: '🚨 WhatsApp Business bloqueado',
+        body: `Meta rechaza los envíos (error ${code}). Revisa la cuenta en Meta.`,
+        data: { type: 'wa_account_locked' }, notificationType: 'system',
+      });
+    } catch { /* push opcional */ }
+  } catch (e: any) {
+    console.error('[WA-WEBHOOK] maybeAlertWhatsappAccountIssue:', e?.message);
+  }
+}
+
 const STOP_WORDS = ['stop', 'baja', 'no', 'cancelar', 'unsubscribe', 'dar de baja', 'no gracias', 'eliminar'];
 
 const normPhone = (p: any): string => { const d = String(p ?? '').replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d; };
@@ -95,6 +142,19 @@ export const handleWhatsappWebhook = async (req: Request, res: Response): Promis
     for (const entry of body.entry || []) {
       for (const change of entry.changes || []) {
         const value = change.value || {};
+
+        // Estatuses de mensajes SALIENTES: detectar errores a nivel CUENTA (ej. 131031
+        // "Business Account locked") que dejan caído TODO el WhatsApp, y alertar a admins.
+        for (const st of (value.statuses || [])) {
+          if (st?.status === 'failed' && Array.isArray(st.errors)) {
+            const fatal = st.errors.find((err: any) => WA_ACCOUNT_FATAL_CODES.has(Number(err?.code)));
+            if (fatal) {
+              await maybeAlertWhatsappAccountIssue(Number(fatal.code), String(fatal.title || fatal.message || 'Error de cuenta'));
+              break;
+            }
+          }
+        }
+
         const messages = value.messages || [];
         for (const msg of messages) {
           const from: string = msg.from || '';
