@@ -297,6 +297,50 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
       }
     }
 
+    // ── 1c. Bloquear guías que YA ESTÁN PAGADAS ────────────────────────────
+    // Los dos checks anteriores solo miran órdenes ACTIVAS (excluyen paid/completed),
+    // así que una guía ya liquidada quedaba "libre" y se le podía generar otra orden
+    // → doble cobro. Caso real: US-7136976900 se pagó por PayPal (PP-43537B51) y luego
+    // se le crearon 3 órdenes más (RO-…). Aquí se corta en el origen.
+    {
+      const paidGuides: string[] = [];
+      if (pkgIds.length > 0) {
+        const r = await pool.query(
+          `SELECT tracking_internal FROM packages
+            WHERE id = ANY($1::int[])
+              AND (payment_status = 'paid' OR client_paid = TRUE)`,
+          [pkgIds]
+        );
+        paidGuides.push(...r.rows.map((x: any) => x.tracking_internal).filter(Boolean));
+      }
+      if (dhlIds.length > 0) {
+        const r = await pool.query(
+          `SELECT COALESCE(secondary_tracking, inbound_tracking) AS tk FROM dhl_shipments
+            WHERE id = ANY($1::int[])
+              AND (paid_at IS NOT NULL OR COALESCE(monto_pagado,0) > 0)`,
+          [dhlIds]
+        );
+        paidGuides.push(...r.rows.map((x: any) => x.tk).filter(Boolean));
+      }
+      if (marIds.length > 0) {
+        const r = await pool.query(
+          `SELECT COALESCE(national_tracking, container_number, id::text) AS tk FROM maritime_orders
+            WHERE id = ANY($1::int[])
+              AND (payment_status = 'paid' OR COALESCE(monto_pagado,0) > 0)`,
+          [marIds]
+        );
+        paidGuides.push(...r.rows.map((x: any) => x.tk).filter(Boolean));
+      }
+      if (paidGuides.length > 0) {
+        const list = [...new Set(paidGuides)].join(', ');
+        return res.status(409).json({
+          error: 'Algunas guías ya están pagadas',
+          message: `No se puede generar una orden de pago: ${list} ya ${paidGuides.length > 1 ? 'están pagadas' : 'está pagada'}. Verifica el historial de pagos del cliente antes de cobrar de nuevo.`,
+          paid_guides: [...new Set(paidGuides)],
+        });
+      }
+    }
+
     // ── 2. Determine dominant service type from actual packages ────────────
     const counts = { maritime: 0, dhl: 0, air: 0, tdi: 0, pobox: 0 };
     counts.dhl = dhlIds.length;
