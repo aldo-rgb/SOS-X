@@ -1811,26 +1811,36 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             LIMIT 50
         `, [userId]);
 
-        // Get company bank info per service type (once)
-        let bankInfo: any = null;
+        // Cuenta bancaria POR SERVICIO. Cada servicio lo opera una empresa
+        // distinta (PO Box → Rodada, DHL → Urban Wod, …) y la referencia de pago
+        // ya se genera con las iniciales de esa empresa al crear la orden.
+        // Antes esto se resolvía con 'POBOX_USA' fijo, así que una orden DHL
+        // salía con referencia UW-xxxx (correcta) pero con la cuenta de Rodada
+        // en el PDF/app: el cliente depositaba a la empresa equivocada.
+        const bankByService = new Map<string, any>();
+        let bankInfo: any = null;   // PO Box: fallback cuando no se conoce el servicio
         let branchInfo: any = null;
         try {
             const companyResult = await pool.query(`
-                SELECT fe.bank_name, fe.bank_clabe, fe.bank_account, fe.business_name AS legal_name
+                SELECT scc.service_type,
+                       fe.bank_name, fe.bank_clabe, fe.bank_account,
+                       fe.business_name AS legal_name
                 FROM service_company_config scc
                 JOIN fiscal_emitters fe ON fe.id = scc.emitter_id
-                WHERE scc.service_type = 'POBOX_USA' AND scc.is_active = TRUE
-                LIMIT 1
+                WHERE scc.is_active = TRUE
             `);
-            const companyInfo = companyResult.rows[0];
-            if (companyInfo?.bank_clabe) {
-                bankInfo = {
-                    banco: companyInfo.bank_name,
-                    clabe: companyInfo.bank_clabe,
-                    cuenta: companyInfo.bank_account || companyInfo.bank_clabe?.slice(-10) || '',
-                    beneficiario: companyInfo.legal_name,
-                };
+            for (const c of companyResult.rows) {
+                if (!c.bank_clabe) continue;
+                const svc = String(c.service_type || '').toUpperCase();
+                if (!svc || bankByService.has(svc)) continue;
+                bankByService.set(svc, {
+                    banco: c.bank_name,
+                    clabe: c.bank_clabe,
+                    cuenta: c.bank_account || String(c.bank_clabe).slice(-10) || '',
+                    beneficiario: c.legal_name,
+                });
             }
+            bankInfo = bankByService.get('POBOX_USA') || null;
             const branchResult = await pool.query(`SELECT name, address, phone, business_hours FROM branches WHERE is_active = TRUE ORDER BY id LIMIT 1`);
             const br = branchResult.rows[0];
             branchInfo = br ? { nombre: br.name, direccion: br.address, telefono: br.phone, horario: br.business_hours } : null;
@@ -2082,7 +2092,10 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             // Ahora siempre adjuntamos la cuenta bancaria del servicio para
             // que el frontend pueda mostrarla cuando el usuario elija
             // transferir manualmente.
-            enriched.bank_info = bankInfo;
+            // La cuenta debe ser la de la empresa que opera ESTE servicio, no la
+            // de PO Box: orderSvc viene de openpay_webhook_logs (fuente autoritativa,
+            // la misma que resuelve las guías de la orden).
+            enriched.bank_info = (orderSvc ? bankByService.get(String(orderSvc).toUpperCase()) : null) || bankInfo;
             // Cargo extra cobrable (CEX): la fila trae su propia cuenta (según el
             // servicio de la guía) y el concepto/motivo para el botón "Detalles".
             if (row.row_bank_clabe) {
