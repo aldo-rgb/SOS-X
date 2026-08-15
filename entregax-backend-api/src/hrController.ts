@@ -334,22 +334,59 @@ export const checkIn = async (req: Request, res: Response): Promise<void> => {
 
     // Verificar geocerca para roles de bodega/mostrador
     if (['warehouse_ops', 'counter_staff'].includes(userRole)) {
+      // El GPS puede llegar nulo/inválido (permiso denegado, GPS apagado). Antes
+      // caía al haversine, daba NaN y NaN <= radio siempre es false: el empleado
+      // veía "estás demasiado lejos" cuando en realidad no había coordenadas.
+      const uLat = Number(lat);
+      const uLng = Number(lng);
+      if (!Number.isFinite(uLat) || !Number.isFinite(uLng)) {
+        res.status(400).json({
+          error: 'Sin ubicación',
+          message: 'No recibimos tu ubicación. Activa el GPS y da permiso de ubicación a la app.'
+        });
+        return;
+      }
+
       // Obtener ubicaciones de trabajo activas
       const locations = await pool.query('SELECT * FROM work_locations WHERE is_active = TRUE');
-      
+
+      // Sin ubicaciones dadas de alta NADIE puede entrar, y el mensaje de
+      // "acércate al CEDIS" manda a buscar un problema que no existe. Pasa con
+      // sucursales nuevas: la geocerca es global y hay que registrarlas a mano.
+      if (locations.rows.length === 0) {
+        res.status(503).json({
+          error: 'Sucursal sin geocerca',
+          message: 'No hay ubicaciones de trabajo configuradas. Pide a un administrador que registre la geocerca de tu sucursal.'
+        });
+        return;
+      }
+
       let withinGeofence = false;
+      let nearest: { name: string; distance: number; radius: number } | null = null;
       for (const loc of locations.rows) {
-        const distance = getDistanceInMeters(loc.lat, loc.lng, lat, lng);
-        if (distance <= loc.radius_meters) {
+        const distance = getDistanceInMeters(Number(loc.lat), Number(loc.lng), uLat, uLng);
+        const radius = Number(loc.radius_meters) || 100;
+        if (!nearest || distance < nearest.distance) {
+          nearest = { name: loc.name || 'ubicación', distance, radius };
+        }
+        if (distance <= radius) {
           withinGeofence = true;
           break;
         }
       }
 
       if (!withinGeofence) {
-        res.status(403).json({ 
+        // Distancia real + radio real de la ubicación más cercana. El texto fijo
+        // de "150 metros" no correspondía al radio guardado en la BD, así que un
+        // empleado en una sucursal sin geocerca veía un número inventado.
+        const km = nearest ? nearest.distance / 1000 : 0;
+        const dist = km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(nearest?.distance || 0)} m`;
+        res.status(403).json({
           error: 'Ubicación no válida',
-          message: 'Estás demasiado lejos del CEDIS para registrar tu entrada. Acércate a menos de 150 metros.'
+          message: nearest
+            ? `Estás a ${dist} de "${nearest.name}" (la más cercana registrada) y el límite es de ${nearest.radius} m. Si estás en tu sucursal, su geocerca no está dada de alta: repórtalo a un administrador.`
+            : 'Estás demasiado lejos de una ubicación de trabajo registrada.',
+          nearest: nearest ? { name: nearest.name, distanceMeters: Math.round(nearest.distance), radiusMeters: nearest.radius } : null,
         });
         return;
       }

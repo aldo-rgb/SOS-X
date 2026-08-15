@@ -154,8 +154,14 @@ export default function AttendanceCheckerScreen({ route }: any) {
 
       loadAttendanceStatus();
     } catch (error: any) {
-      const message = error.response?.data?.error || 'Error al registrar entrada';
-      Alert.alert('Error', message);
+      // El backend manda `error` (título corto) y `message` (el motivo real y qué
+      // hacer). Antes solo se mostraba `error`, así que el empleado leía
+      // "Ubicación no válida" sin saber si estaba lejos o si faltaba la geocerca.
+      const data = error.response?.data;
+      Alert.alert(
+        data?.error || 'Error',
+        data?.message || data?.error || 'Error al registrar entrada'
+      );
     } finally {
       setChecking(false);
     }
@@ -223,8 +229,11 @@ export default function AttendanceCheckerScreen({ route }: any) {
 
               loadAttendanceStatus();
             } catch (error: any) {
-              const message = error.response?.data?.error || 'Error al registrar salida';
-              Alert.alert('Error', message);
+              const data = error.response?.data;
+              Alert.alert(
+                data?.error || 'Error',
+                data?.message || data?.error || 'Error al registrar salida'
+              );
             } finally {
               setChecking(false);
             }
