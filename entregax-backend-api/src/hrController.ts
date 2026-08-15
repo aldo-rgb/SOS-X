@@ -789,11 +789,18 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
     const showInactive = String(include_inactive || '').toLowerCase() === 'true' || include_inactive === '1';
 
     // Asegurar columnas (idempotente)
+    // geofence_required se lee más abajo en el SELECT. La creaba solo
+    // ensureGeofenceRequiredColumn(), que vive en el flujo del checador, así que
+    // en una base donde nadie había checado todavía la columna no existía y el
+    // SELECT reventaba: la lista completa de empleados se caía al catch y RH
+    // veía "No hay empleados registrados" con los contadores en 0.
     await pool.query(`
       ALTER TABLE users
         ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
-        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL
+        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL,
+        ADD COLUMN IF NOT EXISTS geofence_required BOOLEAN
     `);
+    geofenceRequiredColumnReady = true;
 
     // Consulta optimizada - solo datos básicos de usuarios primero
     // 🚀 Excluimos profile_photo_url (puede ser base64 enorme; ralentiza la lista).
