@@ -2219,7 +2219,10 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
             SELECT b.id FROM branches b
              WHERE LOWER(b.code) = REPLACE(LOWER(status::text), 'received_', '') LIMIT 1
           )),
-          instructions_assigned_by_id = $7
+          instructions_assigned_by_id = $7,
+          -- Sellar TAMBIÉN la fecha/hora: sin esto, el rastreo mostraba quién
+          -- asignó las instrucciones pero nunca cuándo (assignedAt llegaba NULL).
+          instructions_assigned_at = COALESCE(instructions_assigned_at, NOW())
          WHERE id = $6`,
         [addressId, effCarrier, isCollectBool, isCollectBool ? effCarrier : null, wantsFacturaBool, shipmentId, advisorId, ocurreZip, pqtxPerBox, (isCollectBool || forceEvisaZero)]
       );
@@ -2244,7 +2247,8 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
                 SELECT b.id FROM branches b
                  WHERE LOWER(b.code) = REPLACE(LOWER(status::text), 'received_', '') LIMIT 1
               )),
-              instructions_assigned_by_id = $6
+              instructions_assigned_by_id = $6,
+              instructions_assigned_at = COALESCE(instructions_assigned_at, NOW())
              WHERE tracking_internal ~ ('^' || $7 || '-\\d{1,4}$')
                AND assigned_address_id IS NULL`,
             [addressId, effCarrier, isCollectBool, isCollectBool ? effCarrier : null, wantsFacturaBool, advisorId, masterTracking, ocurreZip, pqtxPerBox, (isCollectBool || forceEvisaZero)]

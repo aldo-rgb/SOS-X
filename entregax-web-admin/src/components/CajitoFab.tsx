@@ -447,7 +447,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
           );
         })()}
         {(() => {
-          // 📍 Quién puso las instrucciones de entrega (cliente vs asesor) y cuándo.
+          // 📍 Quién asignó las instrucciones de entrega (cliente vs asesor) y cuándo.
           //    Si no se guardó el autor (guías viejas), se muestra solo la fecha sin atribuir.
           const src = destAddress?.assignedBySource;
           if (!destAddress || (!src && !destAddress?.assignedAt)) return null;
@@ -456,7 +456,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
             <Box sx={{ mt: 1, px: 1, py: 0.75, borderRadius: 1, bgcolor: '#ecfdf5', border: '1px solid #c7f0dd' }}>
               <Typography variant="caption" sx={{ display: 'block', color: '#047857', fontWeight: 700 }}>
                 {quien
-                  ? <>📍 Instrucciones puestas por {quien}{src === 'asesor' && <span style={{ fontWeight: 400 }}> (asesor)</span>}</>
+                  ? <>📍 Instrucciones asignadas por {quien}{src === 'asesor' && <span style={{ fontWeight: 400 }}> (asesor)</span>}</>
                   : '📍 Instrucciones registradas'}
               </Typography>
               {destAddress.assignedAt && (
