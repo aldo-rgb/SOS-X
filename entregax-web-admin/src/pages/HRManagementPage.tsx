@@ -108,10 +108,16 @@ interface Employee {
   check_out_time: string | null;
   attendance_status: string | null;
   check_in_address: string | null;
+  // Salida registrada fuera de la zona de trabajo → marcada para revisión de RH
+  check_out_outside_geofence?: boolean;
+  check_out_geofence_distance_m?: number | null;
+  check_out_geofence_reason?: string | null;
   privacy_accepted_at: string | null;
   is_active?: boolean;
   is_blocked?: boolean;
   attendance_enabled?: boolean;
+  // Candado de geocerca por usuario: true exige, false exenta, null = regla del rol
+  geofence_required?: boolean | null;
   branch_id?: number | null;
   branch_name?: string | null;
   block_reason?: string | null;
@@ -528,6 +534,32 @@ export default function HRManagementPage() {
     }
   };
 
+  // Candado de geocerca por empleado. El backend resuelve null = regla del rol,
+  // así que aquí solo alternamos entre exigir (true) y volver al rol (null).
+  const handleToggleGeofence = async (employee: Employee, required: boolean) => {
+    const next: boolean | null = required ? true : null;
+    const prevValue = employee.geofence_required ?? null;
+    setEmployees(prev => prev.map(e => e.id === employee.id ? { ...e, geofence_required: next } : e));
+    try {
+      await axios.put(
+        `${API_URL}/api/admin/hr/employees/${employee.id}/geofence-required`,
+        { required: next },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSnackbar({
+        open: true,
+        message: required
+          ? `Geocerca obligatoria para ${employee.full_name}`
+          : `${employee.full_name} vuelve a la regla de su rol`,
+        severity: 'success',
+      });
+    } catch (error: unknown) {
+      setEmployees(prev => prev.map(e => e.id === employee.id ? { ...e, geofence_required: prevValue } : e));
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error al actualizar el candado de geocerca';
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    }
+  };
+
   // Activar / desactivar el checador de asistencia de un empleado
   const handleToggleAttendance = async (employee: Employee, enabled: boolean) => {
     // Optimista: refleja el cambio de inmediato.
@@ -551,7 +583,18 @@ export default function HRManagementPage() {
   useEffect(() => {
     axios.get(`${API_URL}/api/admin/branches`, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(r => setBranchesList((Array.isArray(r.data) ? r.data : r.data?.branches || []).map((b: any) => ({ id: b.id, name: b.name }))))
-      .catch(() => {});
+      // Antes el error se tragaba en silencio: el selector quedaba vacío con solo
+      // "Sin sucursal" y parecía que no había sucursales, no que faltara permiso.
+      .catch((error: unknown) => {
+        const status = (error as { response?: { status?: number } })?.response?.status;
+        setSnackbar({
+          open: true,
+          message: status === 403
+            ? 'Tu rol no tiene permiso para leer las sucursales, por eso el selector está vacío.'
+            : 'No se pudieron cargar las sucursales.',
+          severity: 'error',
+        });
+      });
   }, []);
 
   // Carga inicial
@@ -836,6 +879,7 @@ export default function HRManagementPage() {
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Contacto Emergencia</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Expediente</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Checador</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Geocerca</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Acciones</TableCell>
               </TableRow>
             </TableHead>
@@ -972,6 +1016,23 @@ export default function HRManagementPage() {
                     </Tooltip>
                   </TableCell>
                   <TableCell align="center">
+                    <Tooltip
+                      title={
+                        emp.geofence_required === true
+                          ? 'Geocerca obligatoria (candado individual): debe estar en su sucursal para checar'
+                          : 'Sigue la regla de su rol (mostrador y bodega la tienen). Actívalo para exigirla a esta persona.'
+                      }
+                    >
+                      <Switch
+                        size="small"
+                        color="warning"
+                        checked={emp.geofence_required === true}
+                        onChange={(e) => handleToggleGeofence(emp, e.target.checked)}
+                        disabled={emp.is_active === false || emp.is_blocked}
+                      />
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell align="center">
                     <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
                       <Tooltip title="Ver Expediente">
                         <IconButton size="small" onClick={() => setViewProfileId(emp.id)}>
@@ -1048,6 +1109,25 @@ export default function HRManagementPage() {
                           </Typography>
                           {emp.attendance_status === 'late' && (
                             <Chip label="Retardo" size="small" color="warning" sx={{ ml: 1 }} />
+                          )}
+                          {emp.check_out_outside_geofence && (
+                            <Tooltip title={emp.check_out_geofence_reason || 'Salida marcada para revisión'}>
+                              <Chip
+                                label={
+                                  emp.check_out_geofence_distance_m != null
+                                    ? `Salida fuera de zona · ${
+                                        emp.check_out_geofence_distance_m >= 1000
+                                          ? `${(emp.check_out_geofence_distance_m / 1000).toFixed(1)} km`
+                                          : `${emp.check_out_geofence_distance_m} m`
+                                      }`
+                                    : 'Salida fuera de zona'
+                                }
+                                size="small"
+                                color="error"
+                                variant="outlined"
+                                sx={{ ml: 1 }}
+                              />
+                            </Tooltip>
                           )}
                         </Box>
                       }

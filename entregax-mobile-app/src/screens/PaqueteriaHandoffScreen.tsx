@@ -69,7 +69,8 @@ interface HandoffPackage {
 }
 
 interface CompletedPkg {
-  packageId: number;
+  // number para packages; 'dhl-<id>' (string) para guías DHL (dhl_shipments)
+  packageId: number | string;
   tracking: string;
   externalTracking?: string;
 }
@@ -86,7 +87,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   };
 
   const [scanPhase, setScanPhase] = useState<ScanPhase>('internal');
-  const [confirmedPackageId, setConfirmedPackageId] = useState<number | null>(null);
+  const [confirmedPackageId, setConfirmedPackageId] = useState<number | string | null>(null);
   const [confirmedTracking, setConfirmedTracking] = useState<string>('');
   const [manualCode, setManualCode] = useState('');
   const [completed, setCompleted] = useState<CompletedPkg[]>([]);
@@ -229,9 +230,11 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           phase: 'internal',
         }, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
 
-        if (res.data.phase === 'complete' || res.data.isDhl) {
-          // Escaneo único (Paquete Express / courier externo): ya quedó con salida,
-          // no requiere fase 2 (guía de carrier).
+        if (res.data.phase === 'complete') {
+          // Escaneo único: solo 'cargar_unidad' (subir a la camioneta). Antes esta
+          // rama también atrapaba TODO lo DHL (`|| res.data.isDhl`), así que en
+          // mostrador/recolección nunca se pedía la guía del courier y esa guía
+          // no se guardaba. Ahora DHL respeta el phase que manda el backend.
           if (completed.find(c => c.packageId === res.data.packageId)) {
             showFeedback('warn', `⚠️ ${res.data.tracking} ya fue escaneado antes`);
             setTimeout(() => inputRef.current?.focus(), 200);

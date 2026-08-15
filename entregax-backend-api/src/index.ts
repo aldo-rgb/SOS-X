@@ -1288,6 +1288,7 @@ import {
   updateEmployee,
   deleteEmployee,
   setEmployeeAttendanceEnabled,
+  setEmployeeGeofenceRequired,
   getEmployeePhoto,
   getEmployeePhone,
   upsertEmployeePhone,
@@ -6661,7 +6662,10 @@ app.get('/api/admin/users/search', authenticateToken, requireMinLevel(ROLES.WARE
 });
 
 // CRUD completo de sucursales
-app.get('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAllBranches);
+// El contador (nivel 55) queda por DEBAJO de counter_staff (60), pero sí puede
+// crear y editar empleados en RRHH — y ahí necesita el catálogo de sucursales
+// para asignarlas. Sin esto el selector le salía vacío ("Sin sucursal").
+app.get('/api/admin/branches', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getAllBranches);
 app.post('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createBranch);
 app.put('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateBranch);
 app.delete('/api/admin/branches/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteBranch);
@@ -12090,6 +12094,7 @@ app.post('/api/admin/hr/employees', authenticateToken, requireRole(ROLES.SUPER_A
 app.put('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), updateEmployee);
 app.delete('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), deleteEmployee);
 app.put('/api/admin/hr/employees/:id/attendance-enabled', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), setEmployeeAttendanceEnabled);
+app.put('/api/admin/hr/employees/:id/geofence-required', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), setEmployeeGeofenceRequired);
 app.get('/api/admin/hr/employees/:id/photo', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeePhoto);
 // Equipo / línea telefónica de la empresa asignada al empleado
 app.get('/api/admin/hr/phone-assets', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), listPhoneAssets);

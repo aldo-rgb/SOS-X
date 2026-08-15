@@ -324,35 +324,190 @@ export const saveEmployeeOnboarding = async (req: Request, res: Response): Promi
 };
 
 // ============================================
+// GEOCERCA (compartida por entrada y salida)
+// ============================================
+// Roles a los que se les valida la ubicación. El resto (gerente de sucursal,
+// admin, dirección, asesores…) marca desde donde sea — por eso dos personas de
+// la MISMA sucursal se comportan distinto: no depende de la sucursal sino del rol.
+const GEOFENCED_ROLES = ['warehouse_ops', 'counter_staff'];
+
+type GeofenceError = { status: number; body: Record<string, any> };
+
+// Candado individual: users.geofence_required permite exigir geocerca a alguien
+// cuyo rol normalmente no la tiene (p. ej. un gerente que sí debe checar en
+// sitio), o exentar a alguien de un rol que sí la tiene. NULL = manda el rol.
+let geofenceRequiredColumnReady = false;
+async function ensureGeofenceRequiredColumn(): Promise<void> {
+  if (geofenceRequiredColumnReady) return;
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS geofence_required BOOLEAN`);
+  geofenceRequiredColumnReady = true;
+}
+
+// Android devuelve el SSID entre comillas ("MiRed") y "<unknown ssid>" cuando la
+// app no tiene permiso de ubicación o el WiFi está apagado.
+const normalizeSsid = (v: any): string | null => {
+  const raw = String(v ?? '').trim().replace(/^"|"$/g, '').trim();
+  if (!raw || /^<unknown ssid>$/i.test(raw) || raw === '0x') return null;
+  return raw.toLowerCase();
+};
+
+type GeofenceOptions = { wifiSSID?: any; mockLocation?: any };
+
+async function checkGeofence(
+  userId: number,
+  userRole: string,
+  lat: any,
+  lng: any,
+  accion: 'entrada' | 'salida',
+  opts: GeofenceOptions = {}
+): Promise<GeofenceError | null> {
+  await ensureGeofenceRequiredColumn();
+
+  // Sucursal del empleado + su candado individual. La geocerca de la sucursal
+  // (branches.latitud/longitud/radio_geocerca_metros) es la que se configura
+  // desde el panel de sucursales; antes esta validación NO la leía y solo miraba
+  // work_locations, así que configurar la sucursal no surtía ningún efecto.
+  const uRes = await pool.query(
+    `SELECT u.geofence_required, u.branch_id,
+            b.name AS branch_name, b.latitud AS branch_lat, b.longitud AS branch_lng,
+            b.radio_geocerca_metros AS branch_radius,
+            b.wifi_ssid AS branch_wifi_ssid,
+            COALESCE(b.wifi_validation_enabled, FALSE) AS branch_wifi_enabled
+       FROM users u
+       LEFT JOIN branches b ON b.id = u.branch_id
+      WHERE u.id = $1`,
+    [userId]
+  ).catch(() => ({ rows: [] as any[] }));
+  const u = uRes.rows[0] || {};
+
+  const required = u.geofence_required === null || u.geofence_required === undefined
+    ? GEOFENCED_ROLES.includes(userRole)
+    : u.geofence_required === true;
+  if (!required) return null;
+
+  // Fake GPS. Se revisa antes que nada: una ubicación simulada puede caer
+  // perfectamente dentro del radio, así que validar distancia primero no sirve.
+  // En la entrada esto bloquea; en la salida queda como marca para RH.
+  if (opts.mockLocation === true) {
+    return {
+      status: 403,
+      body: {
+        error: 'Ubicación simulada',
+        message: `Se detectó una app de ubicación falsa (Fake GPS). No se puede validar tu ${accion}; desactívala e intenta de nuevo.`,
+        code: 'MOCK_LOCATION_DETECTED',
+      },
+    };
+  }
+
+  // El GPS puede llegar nulo/inválido (permiso denegado, GPS apagado). Antes
+  // caía al haversine, daba NaN y NaN <= radio siempre es false: el empleado
+  // veía "estás demasiado lejos" cuando en realidad no había coordenadas.
+  const uLat = Number(lat);
+  const uLng = Number(lng);
+  if (!Number.isFinite(uLat) || !Number.isFinite(uLng)) {
+    return {
+      status: 400,
+      body: {
+        error: 'Sin ubicación',
+        message: 'No recibimos tu ubicación. Activa el GPS y da permiso de ubicación a la app.',
+      },
+    };
+  }
+
+  // 1) Geocerca de SU sucursal (fuente configurable y acotada a su sede).
+  const bLat = Number(u.branch_lat);
+  const bLng = Number(u.branch_lng);
+  if (Number.isFinite(bLat) && Number.isFinite(bLng)) {
+    const radius = Number(u.branch_radius) || 100;
+    const distance = getDistanceInMeters(bLat, bLng, uLat, uLng);
+    if (distance <= radius) return null;
+
+    // Respaldo por WiFi: dentro de una bodega el GPS se degrada y deja a la
+    // persona "fuera" aunque esté parada en su sucursal. Si la sucursal tiene
+    // la validación activa y el teléfono está en esa red, se acepta.
+    if (u.branch_wifi_enabled === true) {
+      const branchSsid = normalizeSsid(u.branch_wifi_ssid);
+      const deviceSsid = normalizeSsid(opts.wifiSSID);
+      if (branchSsid && deviceSsid && branchSsid === deviceSsid) return null;
+    }
+
+    const km = distance / 1000;
+    const dist = km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(distance)} m`;
+    return {
+      status: 403,
+      body: {
+        error: 'Ubicación no válida',
+        message: `Estás a ${dist} de tu sucursal (${u.branch_name || 'sin nombre'}) y el límite es de ${radius} m. Acércate para marcar tu ${accion}.`
+          + (u.branch_wifi_enabled === true && u.branch_wifi_ssid
+              ? ` Si ya estás dentro, conéctate al WiFi "${u.branch_wifi_ssid}" y vuelve a intentar.`
+              : ''),
+        nearest: { name: u.branch_name || 'Sucursal', distanceMeters: Math.round(distance), radiusMeters: radius },
+      },
+    };
+  }
+
+  // 2) Sin coordenadas en su sucursal: se cae a las ubicaciones globales.
+  const locations = await pool.query('SELECT * FROM work_locations WHERE is_active = TRUE');
+
+  // Sin ubicaciones dadas de alta NADIE pasa, y el mensaje de "acércate al CEDIS"
+  // manda a buscar un problema que no existe. Pasa con sucursales nuevas: la
+  // geocerca es global y hay que registrarlas a mano.
+  if (locations.rows.length === 0) {
+    return {
+      status: 503,
+      body: {
+        error: 'Sucursal sin geocerca',
+        message: u.branch_id
+          ? `Tu sucursal (${u.branch_name || 'sin nombre'}) no tiene coordenadas configuradas y no hay ubicaciones de trabajo registradas, así que no se puede validar tu ${accion}. Pide a un administrador que configure la geocerca de tu sucursal.`
+          : `No tienes sucursal asignada ni hay ubicaciones de trabajo configuradas, así que no se puede validar tu ${accion}. Pide a un administrador que te asigne sucursal.`,
+      },
+    };
+  }
+
+  let nearest: { name: string; distance: number; radius: number } | null = null;
+  for (const loc of locations.rows) {
+    const distance = getDistanceInMeters(Number(loc.lat), Number(loc.lng), uLat, uLng);
+    const radius = Number(loc.radius_meters) || 100;
+    if (!nearest || distance < nearest.distance) {
+      nearest = { name: loc.name || 'ubicación', distance, radius };
+    }
+    if (distance <= radius) return null;   // dentro de la geocerca
+  }
+
+  // Distancia real + radio real de la ubicación más cercana. El texto fijo de
+  // "150 metros" no correspondía al radio guardado en la BD, así que un empleado
+  // en una sucursal sin geocerca veía un número inventado.
+  const km = nearest ? nearest.distance / 1000 : 0;
+  const dist = km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(nearest?.distance || 0)} m`;
+  return {
+    status: 403,
+    body: {
+      error: 'Ubicación no válida',
+      message: nearest
+        ? `Estás a ${dist} de "${nearest.name}" (la más cercana registrada) y el límite es de ${nearest.radius} m. Si estás en tu sucursal, su geocerca no está dada de alta: repórtalo a un administrador.`
+        : `Estás demasiado lejos de una ubicación de trabajo registrada para marcar ${accion}.`,
+      nearest: nearest
+        ? { name: nearest.name, distanceMeters: Math.round(nearest.distance), radiusMeters: nearest.radius }
+        : null,
+    },
+  };
+}
+
+// ============================================
 // CHECK-IN (ENTRADA) CON GEOCERCA
 // ============================================
 export const checkIn = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user;
-    const { lat, lng, address } = req.body;
+    const { lat, lng, address, wifiSSID, mockLocationDetected } = req.body;
     const userRole = user.role;
 
     // Verificar geocerca para roles de bodega/mostrador
-    if (['warehouse_ops', 'counter_staff'].includes(userRole)) {
-      // Obtener ubicaciones de trabajo activas
-      const locations = await pool.query('SELECT * FROM work_locations WHERE is_active = TRUE');
-      
-      let withinGeofence = false;
-      for (const loc of locations.rows) {
-        const distance = getDistanceInMeters(loc.lat, loc.lng, lat, lng);
-        if (distance <= loc.radius_meters) {
-          withinGeofence = true;
-          break;
-        }
-      }
-
-      if (!withinGeofence) {
-        res.status(403).json({ 
-          error: 'Ubicación no válida',
-          message: 'Estás demasiado lejos del CEDIS para registrar tu entrada. Acércate a menos de 150 metros.'
-        });
-        return;
-      }
+    const geoError = await checkGeofence(user.userId, userRole, lat, lng, 'entrada',
+      { wifiSSID, mockLocation: mockLocationDetected });
+    if (geoError) {
+      res.status(geoError.status).json(geoError.body);
+      return;
     }
 
     // Verificar si ya tiene check-in hoy
@@ -407,10 +562,36 @@ export const checkIn = async (req: Request, res: Response): Promise<void> => {
 // ============================================
 // CHECK-OUT (SALIDA)
 // ============================================
+// La salida NO se bloquea por geocerca: alguien de mostrador puede terminar su
+// turno fuera (un mandado, un traslado) y dejarlo sin marcar sería peor que
+// registrarlo. Se registra siempre y se marca para que RH lo revise.
+let attendanceGeofenceColumnsReady = false;
+async function ensureAttendanceGeofenceColumns(): Promise<void> {
+  if (attendanceGeofenceColumnsReady) return;
+  await pool.query(`
+    ALTER TABLE attendance_logs
+      ADD COLUMN IF NOT EXISTS check_out_outside_geofence BOOLEAN DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS check_out_geofence_distance_m INTEGER,
+      ADD COLUMN IF NOT EXISTS check_out_geofence_reason TEXT
+  `);
+  attendanceGeofenceColumnsReady = true;
+}
+
 export const checkOut = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user;
-    const { lat, lng, address } = req.body;
+    const { lat, lng, address, wifiSSID, mockLocationDetected } = req.body;
+
+    // Misma geocerca que la entrada, pero aquí NO bloquea: solo marca la salida
+    // para revisión de RH. Bloquearla dejaría jornadas abiertas, que es peor
+    // que una salida registrada fuera de rango.
+    const geoIssue = await checkGeofence(user.userId, user.role, lat, lng, 'salida',
+      { wifiSSID, mockLocation: mockLocationDetected });
+    const outsideGeofence = !!geoIssue;
+    const geoDistance = geoIssue?.body?.nearest?.distanceMeters ?? null;
+    const geoReason = geoIssue
+      ? `${geoIssue.body.error}: ${geoIssue.body.message}`
+      : null;
 
     // Verificar que tenga check-in hoy
     const existing = await pool.query(
@@ -434,19 +615,27 @@ export const checkOut = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    await ensureAttendanceGeofenceColumns();
     await pool.query(`
       UPDATE attendance_logs SET
         check_out_time = NOW(),
         check_out_lat = $1,
         check_out_lng = $2,
-        check_out_address = $3
+        check_out_address = $3,
+        check_out_outside_geofence = $5,
+        check_out_geofence_distance_m = $6,
+        check_out_geofence_reason = $7
       WHERE id = $4
-    `, [lat, lng, address, existing.rows[0].id]);
+    `, [lat, lng, address, existing.rows[0].id, outsideGeofence, geoDistance, geoReason]);
 
     const now = new Date();
-    res.json({ 
-      success: true, 
-      message: '✅ ¡Salida registrada! Buen trabajo hoy.',
+    res.json({
+      success: true,
+      message: outsideGeofence
+        ? '✅ Salida registrada, pero fuera de la zona de trabajo: quedó marcada para revisión de RH.'
+        : '✅ ¡Salida registrada! Buen trabajo hoy.',
+      outsideGeofence,
+      geofenceDistanceMeters: geoDistance,
       time: now.toLocaleTimeString('es-MX')
     });
   } catch (error) {
@@ -494,6 +683,8 @@ export const reopenCheckout = async (req: Request, res: Response): Promise<void>
 
     const log = existing.rows[0];
 
+    await ensureAttendanceGeofenceColumns();
+
     // Guardar la salida como una pausa (con hora de regreso = ahora)
     await pool.query(
       `INSERT INTO attendance_breaks (attendance_log_id, user_id, out_time, out_lat, out_lng, out_address, return_time)
@@ -503,7 +694,11 @@ export const reopenCheckout = async (req: Request, res: Response): Promise<void>
 
     // Reactivar la jornada limpiando el check_out del registro principal
     await pool.query(
-      `UPDATE attendance_logs SET check_out_time = NULL, check_out_lat = NULL, check_out_lng = NULL, check_out_address = NULL WHERE id = $1`,
+      // Se limpia también la marca de geocerca: esa salida pasó a ser una pausa,
+      // así que la revisión que correspondía ya no aplica al registro principal.
+      `UPDATE attendance_logs SET check_out_time = NULL, check_out_lat = NULL, check_out_lng = NULL, check_out_address = NULL,
+              check_out_outside_geofence = FALSE, check_out_geofence_distance_m = NULL, check_out_geofence_reason = NULL
+        WHERE id = $1`,
       [log.id]
     );
 
@@ -611,6 +806,7 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
         COALESCE(u.is_active, TRUE) AS is_active,
         COALESCE(u.is_blocked, FALSE) AS is_blocked,
         COALESCE(u.attendance_enabled, FALSE) AS attendance_enabled,
+        u.geofence_required,
         u.block_reason, u.blocked_at, u.deleted_at,
         CASE
           WHEN u.profile_photo_url IS NOT NULL AND LENGTH(u.profile_photo_url) < 500 THEN u.profile_photo_url
@@ -640,9 +836,12 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
     let attendanceMap: Record<number, any> = {};
     try {
       const targetDate = date || new Date().toISOString().split('T')[0];
+      await ensureAttendanceGeofenceColumns();
       const attendanceResult = await pool.query(`
         SELECT user_id, check_in_time, check_out_time, status as attendance_status,
-               check_in_address, check_out_address
+               check_in_address, check_out_address,
+               COALESCE(check_out_outside_geofence, FALSE) AS check_out_outside_geofence,
+               check_out_geofence_distance_m, check_out_geofence_reason
         FROM attendance_logs 
         WHERE date = $1
       `, [targetDate]);
@@ -663,6 +862,10 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
       attendance_status: attendanceMap[u.id]?.attendance_status || null,
       check_in_address: attendanceMap[u.id]?.check_in_address || null,
       check_out_address: attendanceMap[u.id]?.check_out_address || null,
+      // Salida marcada para revisión (fuera de geocerca): se permite, no se bloquea.
+      check_out_outside_geofence: attendanceMap[u.id]?.check_out_outside_geofence === true,
+      check_out_geofence_distance_m: attendanceMap[u.id]?.check_out_geofence_distance_m ?? null,
+      check_out_geofence_reason: attendanceMap[u.id]?.check_out_geofence_reason || null,
     }));
 
     // ============================================
@@ -1347,6 +1550,36 @@ export const setEmployeeAttendanceEnabled = async (req: Request, res: Response):
   } catch (error) {
     console.error('Error setEmployeeAttendanceEnabled:', error);
     res.status(500).json({ error: 'Error al actualizar el checador' });
+  }
+};
+
+// PUT /api/admin/hr/employees/:id/geofence-required  { required: boolean | null }
+// Candado de geocerca por usuario: TRUE la exige aunque su rol no la pida,
+// FALSE lo exenta aunque su rol sí la pida, null vuelve a la regla del rol.
+export const setEmployeeGeofenceRequired = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = parseInt(String(req.params.id || ''), 10);
+    if (!id) { res.status(400).json({ error: 'Empleado inválido' }); return; }
+    const raw = req.body?.required;
+    const required = raw === null || raw === undefined || raw === 'null' ? null : !!raw;
+    await ensureGeofenceRequiredColumn();
+    const r = await pool.query(
+      `UPDATE users SET geofence_required = $2 WHERE id = $1 RETURNING id, role, geofence_required`,
+      [id, required]
+    );
+    if (r.rows.length === 0) { res.status(404).json({ error: 'Empleado no encontrado' }); return; }
+    const row = r.rows[0];
+    res.json({
+      success: true,
+      geofence_required: row.geofence_required,
+      // Lo que aplica de facto, ya resuelto contra la regla del rol.
+      effective: row.geofence_required === null
+        ? GEOFENCED_ROLES.includes(String(row.role))
+        : row.geofence_required === true,
+    });
+  } catch (error) {
+    console.error('Error setEmployeeGeofenceRequired:', error);
+    res.status(500).json({ error: 'Error al actualizar el candado de geocerca' });
   }
 };
 
