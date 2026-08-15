@@ -583,7 +583,18 @@ export default function HRManagementPage() {
   useEffect(() => {
     axios.get(`${API_URL}/api/admin/branches`, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(r => setBranchesList((Array.isArray(r.data) ? r.data : r.data?.branches || []).map((b: any) => ({ id: b.id, name: b.name }))))
-      .catch(() => {});
+      // Antes el error se tragaba en silencio: el selector quedaba vacío con solo
+      // "Sin sucursal" y parecía que no había sucursales, no que faltara permiso.
+      .catch((error: unknown) => {
+        const status = (error as { response?: { status?: number } })?.response?.status;
+        setSnackbar({
+          open: true,
+          message: status === 403
+            ? 'Tu rol no tiene permiso para leer las sucursales, por eso el selector está vacío.'
+            : 'No se pudieron cargar las sucursales.',
+          severity: 'error',
+        });
+      });
   }, []);
 
   // Carga inicial
