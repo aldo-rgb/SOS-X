@@ -116,6 +116,8 @@ interface Employee {
   is_active?: boolean;
   is_blocked?: boolean;
   attendance_enabled?: boolean;
+  // Candado de geocerca por usuario: true exige, false exenta, null = regla del rol
+  geofence_required?: boolean | null;
   branch_id?: number | null;
   branch_name?: string | null;
   block_reason?: string | null;
@@ -532,6 +534,32 @@ export default function HRManagementPage() {
     }
   };
 
+  // Candado de geocerca por empleado. El backend resuelve null = regla del rol,
+  // así que aquí solo alternamos entre exigir (true) y volver al rol (null).
+  const handleToggleGeofence = async (employee: Employee, required: boolean) => {
+    const next: boolean | null = required ? true : null;
+    const prevValue = employee.geofence_required ?? null;
+    setEmployees(prev => prev.map(e => e.id === employee.id ? { ...e, geofence_required: next } : e));
+    try {
+      await axios.put(
+        `${API_URL}/api/admin/hr/employees/${employee.id}/geofence-required`,
+        { required: next },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSnackbar({
+        open: true,
+        message: required
+          ? `Geocerca obligatoria para ${employee.full_name}`
+          : `${employee.full_name} vuelve a la regla de su rol`,
+        severity: 'success',
+      });
+    } catch (error: unknown) {
+      setEmployees(prev => prev.map(e => e.id === employee.id ? { ...e, geofence_required: prevValue } : e));
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error al actualizar el candado de geocerca';
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    }
+  };
+
   // Activar / desactivar el checador de asistencia de un empleado
   const handleToggleAttendance = async (employee: Employee, enabled: boolean) => {
     // Optimista: refleja el cambio de inmediato.
@@ -840,6 +868,7 @@ export default function HRManagementPage() {
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Contacto Emergencia</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Expediente</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Checador</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Geocerca</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Acciones</TableCell>
               </TableRow>
             </TableHead>
@@ -971,6 +1000,23 @@ export default function HRManagementPage() {
                         color="success"
                         checked={emp.attendance_enabled === true}
                         onChange={(e) => handleToggleAttendance(emp, e.target.checked)}
+                        disabled={emp.is_active === false || emp.is_blocked}
+                      />
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell align="center">
+                    <Tooltip
+                      title={
+                        emp.geofence_required === true
+                          ? 'Geocerca obligatoria (candado individual): debe estar en su sucursal para checar'
+                          : 'Sigue la regla de su rol (mostrador y bodega la tienen). Actívalo para exigirla a esta persona.'
+                      }
+                    >
+                      <Switch
+                        size="small"
+                        color="warning"
+                        checked={emp.geofence_required === true}
+                        onChange={(e) => handleToggleGeofence(emp, e.target.checked)}
                         disabled={emp.is_active === false || emp.is_blocked}
                       />
                     </Tooltip>
