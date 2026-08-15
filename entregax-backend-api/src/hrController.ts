@@ -333,13 +333,44 @@ const GEOFENCED_ROLES = ['warehouse_ops', 'counter_staff'];
 
 type GeofenceError = { status: number; body: Record<string, any> };
 
+// Candado individual: users.geofence_required permite exigir geocerca a alguien
+// cuyo rol normalmente no la tiene (p. ej. un gerente que sí debe checar en
+// sitio), o exentar a alguien de un rol que sí la tiene. NULL = manda el rol.
+let geofenceRequiredColumnReady = false;
+async function ensureGeofenceRequiredColumn(): Promise<void> {
+  if (geofenceRequiredColumnReady) return;
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS geofence_required BOOLEAN`);
+  geofenceRequiredColumnReady = true;
+}
+
 async function checkGeofence(
+  userId: number,
   userRole: string,
   lat: any,
   lng: any,
   accion: 'entrada' | 'salida'
 ): Promise<GeofenceError | null> {
-  if (!GEOFENCED_ROLES.includes(userRole)) return null;
+  await ensureGeofenceRequiredColumn();
+
+  // Sucursal del empleado + su candado individual. La geocerca de la sucursal
+  // (branches.latitud/longitud/radio_geocerca_metros) es la que se configura
+  // desde el panel de sucursales; antes esta validación NO la leía y solo miraba
+  // work_locations, así que configurar la sucursal no surtía ningún efecto.
+  const uRes = await pool.query(
+    `SELECT u.geofence_required, u.branch_id,
+            b.name AS branch_name, b.latitud AS branch_lat, b.longitud AS branch_lng,
+            b.radio_geocerca_metros AS branch_radius
+       FROM users u
+       LEFT JOIN branches b ON b.id = u.branch_id
+      WHERE u.id = $1`,
+    [userId]
+  ).catch(() => ({ rows: [] as any[] }));
+  const u = uRes.rows[0] || {};
+
+  const required = u.geofence_required === null || u.geofence_required === undefined
+    ? GEOFENCED_ROLES.includes(userRole)
+    : u.geofence_required === true;
+  if (!required) return null;
 
   // El GPS puede llegar nulo/inválido (permiso denegado, GPS apagado). Antes
   // caía al haversine, daba NaN y NaN <= radio siempre es false: el empleado
@@ -356,6 +387,26 @@ async function checkGeofence(
     };
   }
 
+  // 1) Geocerca de SU sucursal (fuente configurable y acotada a su sede).
+  const bLat = Number(u.branch_lat);
+  const bLng = Number(u.branch_lng);
+  if (Number.isFinite(bLat) && Number.isFinite(bLng)) {
+    const radius = Number(u.branch_radius) || 100;
+    const distance = getDistanceInMeters(bLat, bLng, uLat, uLng);
+    if (distance <= radius) return null;
+    const km = distance / 1000;
+    const dist = km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(distance)} m`;
+    return {
+      status: 403,
+      body: {
+        error: 'Ubicación no válida',
+        message: `Estás a ${dist} de tu sucursal (${u.branch_name || 'sin nombre'}) y el límite es de ${radius} m. Acércate para marcar tu ${accion}.`,
+        nearest: { name: u.branch_name || 'Sucursal', distanceMeters: Math.round(distance), radiusMeters: radius },
+      },
+    };
+  }
+
+  // 2) Sin coordenadas en su sucursal: se cae a las ubicaciones globales.
   const locations = await pool.query('SELECT * FROM work_locations WHERE is_active = TRUE');
 
   // Sin ubicaciones dadas de alta NADIE pasa, y el mensaje de "acércate al CEDIS"
@@ -366,7 +417,9 @@ async function checkGeofence(
       status: 503,
       body: {
         error: 'Sucursal sin geocerca',
-        message: `No hay ubicaciones de trabajo configuradas, así que no se puede validar tu ${accion}. Pide a un administrador que registre la geocerca de tu sucursal.`,
+        message: u.branch_id
+          ? `Tu sucursal (${u.branch_name || 'sin nombre'}) no tiene coordenadas configuradas y no hay ubicaciones de trabajo registradas, así que no se puede validar tu ${accion}. Pide a un administrador que configure la geocerca de tu sucursal.`
+          : `No tienes sucursal asignada ni hay ubicaciones de trabajo configuradas, así que no se puede validar tu ${accion}. Pide a un administrador que te asigne sucursal.`,
       },
     };
   }
@@ -410,7 +463,7 @@ export const checkIn = async (req: Request, res: Response): Promise<void> => {
     const userRole = user.role;
 
     // Verificar geocerca para roles de bodega/mostrador
-    const geoError = await checkGeofence(userRole, lat, lng, 'entrada');
+    const geoError = await checkGeofence(user.userId, userRole, lat, lng, 'entrada');
     if (geoError) {
       res.status(geoError.status).json(geoError.body);
       return;
@@ -491,7 +544,7 @@ export const checkOut = async (req: Request, res: Response): Promise<void> => {
     // Misma geocerca que la entrada, pero aquí NO bloquea: solo marca la salida
     // para revisión de RH. Bloquearla dejaría jornadas abiertas, que es peor
     // que una salida registrada fuera de rango.
-    const geoIssue = await checkGeofence(user.role, lat, lng, 'salida');
+    const geoIssue = await checkGeofence(user.userId, user.role, lat, lng, 'salida');
     const outsideGeofence = !!geoIssue;
     const geoDistance = geoIssue?.body?.nearest?.distanceMeters ?? null;
     const geoReason = geoIssue
@@ -711,6 +764,7 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
         COALESCE(u.is_active, TRUE) AS is_active,
         COALESCE(u.is_blocked, FALSE) AS is_blocked,
         COALESCE(u.attendance_enabled, FALSE) AS attendance_enabled,
+        u.geofence_required,
         u.block_reason, u.blocked_at, u.deleted_at,
         CASE
           WHEN u.profile_photo_url IS NOT NULL AND LENGTH(u.profile_photo_url) < 500 THEN u.profile_photo_url
@@ -1454,6 +1508,36 @@ export const setEmployeeAttendanceEnabled = async (req: Request, res: Response):
   } catch (error) {
     console.error('Error setEmployeeAttendanceEnabled:', error);
     res.status(500).json({ error: 'Error al actualizar el checador' });
+  }
+};
+
+// PUT /api/admin/hr/employees/:id/geofence-required  { required: boolean | null }
+// Candado de geocerca por usuario: TRUE la exige aunque su rol no la pida,
+// FALSE lo exenta aunque su rol sí la pida, null vuelve a la regla del rol.
+export const setEmployeeGeofenceRequired = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = parseInt(String(req.params.id || ''), 10);
+    if (!id) { res.status(400).json({ error: 'Empleado inválido' }); return; }
+    const raw = req.body?.required;
+    const required = raw === null || raw === undefined || raw === 'null' ? null : !!raw;
+    await ensureGeofenceRequiredColumn();
+    const r = await pool.query(
+      `UPDATE users SET geofence_required = $2 WHERE id = $1 RETURNING id, role, geofence_required`,
+      [id, required]
+    );
+    if (r.rows.length === 0) { res.status(404).json({ error: 'Empleado no encontrado' }); return; }
+    const row = r.rows[0];
+    res.json({
+      success: true,
+      geofence_required: row.geofence_required,
+      // Lo que aplica de facto, ya resuelto contra la regla del rol.
+      effective: row.geofence_required === null
+        ? GEOFENCED_ROLES.includes(String(row.role))
+        : row.geofence_required === true,
+    });
+  } catch (error) {
+    console.error('Error setEmployeeGeofenceRequired:', error);
+    res.status(500).json({ error: 'Error al actualizar el candado de geocerca' });
   }
 };
 
