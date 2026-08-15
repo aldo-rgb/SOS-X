@@ -788,11 +788,15 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
     const { date, include_inactive } = req.query;
     const showInactive = String(include_inactive || '').toLowerCase() === 'true' || include_inactive === '1';
 
-    // Asegurar columnas (idempotente)
+    // Asegurar columnas (idempotente). geofence_required se consulta abajo y su
+    // ALTER vivía solo en el flujo de check-in: en un despliegue nuevo, donde
+    // nadie ha checado todavía, la columna no existía y ESTA consulta reventaba
+    // → la lista de empleados salía vacía ("No hay empleados registrados").
     await pool.query(`
       ALTER TABLE users
         ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
-        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL
+        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL,
+        ADD COLUMN IF NOT EXISTS geofence_required BOOLEAN
     `);
 
     // Consulta optimizada - solo datos básicos de usuarios primero

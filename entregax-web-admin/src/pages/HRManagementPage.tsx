@@ -320,6 +320,16 @@ export default function HRManagementPage() {
       setEmployees(res.data);
     } catch (error) {
       console.error('Error cargando empleados:', error);
+      // Un fallo aquí se veía idéntico a "No hay empleados registrados", así que
+      // una lista vacía por error de servidor parecía una plantilla sin gente.
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      setSnackbar({
+        open: true,
+        message: status === 403
+          ? 'Tu rol no tiene permiso para ver el personal.'
+          : 'No se pudo cargar el personal. La lista está vacía por un error, no porque no haya empleados.',
+        severity: 'error',
+      });
     }
   };
 
