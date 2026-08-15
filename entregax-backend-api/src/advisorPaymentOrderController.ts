@@ -122,7 +122,18 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
                p2.payment_method, p2.credit_settled,
                fe.bank_clabe, fe.bank_name, fe.business_name AS beneficiario
         FROM pobox_payments p2
-        LEFT JOIN service_company_config scc ON scc.service_type = COALESCE(apo.service_type_cfg,'POBOX_USA') AND scc.is_active = TRUE
+        -- Servicio autoritativo de la orden: service_type_cfg y, para órdenes
+        -- heredadas sin ese campo, openpay_webhook_logs (NO asumir PO Box: eso
+        -- ponía la cuenta de Rodada en órdenes DHL con referencia UW-).
+        LEFT JOIN service_company_config scc
+               ON scc.service_type = COALESCE(
+                    apo.service_type_cfg,
+                    (SELECT UPPER(owl.service_type) FROM openpay_webhook_logs owl
+                      WHERE owl.transaction_id = COALESCE(apo.payment_reference, p2.payment_reference)
+                        AND owl.service_type IS NOT NULL
+                      ORDER BY owl.id DESC LIMIT 1),
+                    'POBOX_USA')
+              AND scc.is_active = TRUE
         LEFT JOIN fiscal_emitters fe ON fe.id = scc.emitter_id
         WHERE p2.id = apo.pobox_payment_id
         LIMIT 1
@@ -185,14 +196,22 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
       LEFT JOIN LATERAL (
         SELECT fe.bank_clabe, fe.bank_name, fe.business_name AS beneficiario
           FROM (
-            SELECT COALESCE(p.service_type, 'POBOX_USA') AS svc_type
-              FROM packages p
-             WHERE p.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
-             ORDER BY p.id ASC
-             LIMIT 1
+            -- 1º el servicio autoritativo de la orden (openpay_webhook_logs); solo
+            -- si no existe, se infiere del primer paquete. Los ids de package_ids
+            -- COLISIONAN entre packages y dhl_shipments, así que inferir por
+            -- packages a secas devolvía PO Box (Rodada) en órdenes DHL.
+            SELECT COALESCE(
+              (SELECT UPPER(owl.service_type) FROM openpay_webhook_logs owl
+                WHERE owl.transaction_id = pp.payment_reference
+                  AND owl.service_type IS NOT NULL
+                ORDER BY owl.id DESC LIMIT 1),
+              (SELECT p.service_type::text FROM packages p
+                WHERE p.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
+                ORDER BY p.id ASC LIMIT 1),
+              'POBOX_USA') AS svc_type
           ) inferred
           JOIN service_company_config scc
-            ON scc.service_type = COALESCE(inferred.svc_type, 'POBOX_USA')
+            ON scc.service_type = inferred.svc_type
            AND scc.is_active = TRUE
           JOIN fiscal_emitters fe ON fe.id = scc.emitter_id
          LIMIT 1
