@@ -468,18 +468,35 @@ export const checkIn = async (req: Request, res: Response): Promise<void> => {
 // ============================================
 // CHECK-OUT (SALIDA)
 // ============================================
+// La salida NO se bloquea por geocerca: alguien de mostrador puede terminar su
+// turno fuera (un mandado, un traslado) y dejarlo sin marcar sería peor que
+// registrarlo. Se registra siempre y se marca para que RH lo revise.
+let attendanceGeofenceColumnsReady = false;
+async function ensureAttendanceGeofenceColumns(): Promise<void> {
+  if (attendanceGeofenceColumnsReady) return;
+  await pool.query(`
+    ALTER TABLE attendance_logs
+      ADD COLUMN IF NOT EXISTS check_out_outside_geofence BOOLEAN DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS check_out_geofence_distance_m INTEGER,
+      ADD COLUMN IF NOT EXISTS check_out_geofence_reason TEXT
+  `);
+  attendanceGeofenceColumnsReady = true;
+}
+
 export const checkOut = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user;
     const { lat, lng, address } = req.body;
 
-    // Misma geocerca que la entrada: sin esto la salida se podía marcar desde
-    // cualquier lado, así que la jornada quedaba sin control por el otro extremo.
-    const geoError = await checkGeofence(user.role, lat, lng, 'salida');
-    if (geoError) {
-      res.status(geoError.status).json(geoError.body);
-      return;
-    }
+    // Misma geocerca que la entrada, pero aquí NO bloquea: solo marca la salida
+    // para revisión de RH. Bloquearla dejaría jornadas abiertas, que es peor
+    // que una salida registrada fuera de rango.
+    const geoIssue = await checkGeofence(user.role, lat, lng, 'salida');
+    const outsideGeofence = !!geoIssue;
+    const geoDistance = geoIssue?.body?.nearest?.distanceMeters ?? null;
+    const geoReason = geoIssue
+      ? `${geoIssue.body.error}: ${geoIssue.body.message}`
+      : null;
 
     // Verificar que tenga check-in hoy
     const existing = await pool.query(
@@ -503,19 +520,27 @@ export const checkOut = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    await ensureAttendanceGeofenceColumns();
     await pool.query(`
       UPDATE attendance_logs SET
         check_out_time = NOW(),
         check_out_lat = $1,
         check_out_lng = $2,
-        check_out_address = $3
+        check_out_address = $3,
+        check_out_outside_geofence = $5,
+        check_out_geofence_distance_m = $6,
+        check_out_geofence_reason = $7
       WHERE id = $4
-    `, [lat, lng, address, existing.rows[0].id]);
+    `, [lat, lng, address, existing.rows[0].id, outsideGeofence, geoDistance, geoReason]);
 
     const now = new Date();
-    res.json({ 
-      success: true, 
-      message: '✅ ¡Salida registrada! Buen trabajo hoy.',
+    res.json({
+      success: true,
+      message: outsideGeofence
+        ? '✅ Salida registrada, pero fuera de la zona de trabajo: quedó marcada para revisión de RH.'
+        : '✅ ¡Salida registrada! Buen trabajo hoy.',
+      outsideGeofence,
+      geofenceDistanceMeters: geoDistance,
       time: now.toLocaleTimeString('es-MX')
     });
   } catch (error) {
@@ -563,6 +588,8 @@ export const reopenCheckout = async (req: Request, res: Response): Promise<void>
 
     const log = existing.rows[0];
 
+    await ensureAttendanceGeofenceColumns();
+
     // Guardar la salida como una pausa (con hora de regreso = ahora)
     await pool.query(
       `INSERT INTO attendance_breaks (attendance_log_id, user_id, out_time, out_lat, out_lng, out_address, return_time)
@@ -572,7 +599,11 @@ export const reopenCheckout = async (req: Request, res: Response): Promise<void>
 
     // Reactivar la jornada limpiando el check_out del registro principal
     await pool.query(
-      `UPDATE attendance_logs SET check_out_time = NULL, check_out_lat = NULL, check_out_lng = NULL, check_out_address = NULL WHERE id = $1`,
+      // Se limpia también la marca de geocerca: esa salida pasó a ser una pausa,
+      // así que la revisión que correspondía ya no aplica al registro principal.
+      `UPDATE attendance_logs SET check_out_time = NULL, check_out_lat = NULL, check_out_lng = NULL, check_out_address = NULL,
+              check_out_outside_geofence = FALSE, check_out_geofence_distance_m = NULL, check_out_geofence_reason = NULL
+        WHERE id = $1`,
       [log.id]
     );
 
@@ -709,9 +740,12 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
     let attendanceMap: Record<number, any> = {};
     try {
       const targetDate = date || new Date().toISOString().split('T')[0];
+      await ensureAttendanceGeofenceColumns();
       const attendanceResult = await pool.query(`
         SELECT user_id, check_in_time, check_out_time, status as attendance_status,
-               check_in_address, check_out_address
+               check_in_address, check_out_address,
+               COALESCE(check_out_outside_geofence, FALSE) AS check_out_outside_geofence,
+               check_out_geofence_distance_m, check_out_geofence_reason
         FROM attendance_logs 
         WHERE date = $1
       `, [targetDate]);
@@ -732,6 +766,10 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
       attendance_status: attendanceMap[u.id]?.attendance_status || null,
       check_in_address: attendanceMap[u.id]?.check_in_address || null,
       check_out_address: attendanceMap[u.id]?.check_out_address || null,
+      // Salida marcada para revisión (fuera de geocerca): se permite, no se bloquea.
+      check_out_outside_geofence: attendanceMap[u.id]?.check_out_outside_geofence === true,
+      check_out_geofence_distance_m: attendanceMap[u.id]?.check_out_geofence_distance_m ?? null,
+      check_out_geofence_reason: attendanceMap[u.id]?.check_out_geofence_reason || null,
     }));
 
     // ============================================
