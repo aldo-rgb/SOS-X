@@ -2524,10 +2524,18 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                           WHERE id = $1`,
                         [d.id, driverId]
                     );
+                    // FASE 2 también para DHL: hay que escanear la guía con la que el
+                    // courier se lo lleva. Antes esto respondía phase:'complete' y esa
+                    // guía NUNCA se guardaba — dhl_shipments.national_tracking quedaba
+                    // NULL y la consulta mostraba la paquetería (heredada de la
+                    // dirección) pero sin número de guía.
+                    // La salida ya quedó registrada arriba, así que una app vieja que
+                    // ignore este phase se comporta igual que antes (sin regresión).
                     return res.json({
-                        success: true, phase: 'complete', mode, isDhl: true,
+                        success: true, phase: 'internal', mode, isDhl: true,
                         packageId: `dhl-${d.id}`, tracking: dhlTracking, newStatus: 'shipped',
-                        message: `✅ ${dhlTracking} — Salida registrada (${d.national_carrier || carrier})`
+                        nationalTracking: d.national_tracking || null,
+                        message: `✅ ${dhlTracking} — Ahora escanea la guía de ${d.national_carrier || carrier}`
                     });
                 }
             }
@@ -2602,6 +2610,51 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
 
         // ── FASE 2: guía del carrier externo → marcar como enviado ───────────────
         if (phase === 'external' && confirmedId) {
+            // Guías DHL: viven en dhl_shipments, no en packages. El id llega como
+            // `dhl-<id>` desde la fase 1.
+            const dhlMatch = /^dhl-(\d+)$/i.exec(String(confirmedId));
+            if (dhlMatch) {
+                const dhlId = Number(dhlMatch[1]);
+                const extTracking = String(externalTracking || barcode || '').trim();
+                if (!extTracking) {
+                    return res.status(400).json({ error: '❌ Escanea la guía de la paquetería' });
+                }
+                // Rechazar si esa guía de courier ya está en OTRO envío (mal escaneo).
+                const dup = await pool.query(
+                    `SELECT id, COALESCE(secondary_tracking, inbound_tracking) AS tracking
+                       FROM dhl_shipments
+                      WHERE UPPER(COALESCE(national_tracking,'')) = UPPER($1) AND id <> $2
+                      LIMIT 1`,
+                    [extTracking, dhlId]
+                );
+                if (dup.rows.length > 0) {
+                    return res.status(400).json({
+                        error: `⚠️ La guía ${extTracking} ya está asignada a ${dup.rows[0].tracking}`
+                    });
+                }
+                const upd = await pool.query(
+                    `UPDATE dhl_shipments
+                        SET national_tracking = $2,
+                            national_carrier  = COALESCE(national_carrier, NULLIF($3,'')),
+                            status = 'shipped',
+                            dispatched_at = COALESCE(dispatched_at, NOW()),
+                            dispatched_by = COALESCE(dispatched_by, $4),
+                            updated_at = NOW()
+                      WHERE id = $1
+                      RETURNING COALESCE(secondary_tracking, inbound_tracking) AS tracking, national_carrier`,
+                    [dhlId, extTracking, carrier || '', driverId]
+                );
+                if (upd.rows.length === 0) {
+                    return res.status(404).json({ error: '❌ Envío DHL no encontrado' });
+                }
+                return res.json({
+                    success: true, phase: 'complete', mode, isDhl: true,
+                    packageId: confirmedId, tracking: upd.rows[0].tracking,
+                    externalTracking: extTracking, newStatus: 'shipped',
+                    message: `✅ ${upd.rows[0].tracking} → ${extTracking} — Enviado (${upd.rows[0].national_carrier || carrier})`
+                });
+            }
+
             const statusColumn = await getPackageStatusColumn();
             const sentStatus = await getSentWriteStatus();
             const extTracking = externalTracking || barcode || '';
