@@ -108,6 +108,10 @@ interface Employee {
   check_out_time: string | null;
   attendance_status: string | null;
   check_in_address: string | null;
+  // Salida registrada fuera de la zona de trabajo → marcada para revisión de RH
+  check_out_outside_geofence?: boolean;
+  check_out_geofence_distance_m?: number | null;
+  check_out_geofence_reason?: string | null;
   privacy_accepted_at: string | null;
   is_active?: boolean;
   is_blocked?: boolean;
@@ -1048,6 +1052,25 @@ export default function HRManagementPage() {
                           </Typography>
                           {emp.attendance_status === 'late' && (
                             <Chip label="Retardo" size="small" color="warning" sx={{ ml: 1 }} />
+                          )}
+                          {emp.check_out_outside_geofence && (
+                            <Tooltip title={emp.check_out_geofence_reason || 'Salida marcada para revisión'}>
+                              <Chip
+                                label={
+                                  emp.check_out_geofence_distance_m != null
+                                    ? `Salida fuera de zona · ${
+                                        emp.check_out_geofence_distance_m >= 1000
+                                          ? `${(emp.check_out_geofence_distance_m / 1000).toFixed(1)} km`
+                                          : `${emp.check_out_geofence_distance_m} m`
+                                      }`
+                                    : 'Salida fuera de zona'
+                                }
+                                size="small"
+                                color="error"
+                                variant="outlined"
+                                sx={{ ml: 1 }}
+                              />
+                            </Tooltip>
                           )}
                         </Box>
                       }
