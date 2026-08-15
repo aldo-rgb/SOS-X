@@ -343,12 +343,23 @@ async function ensureGeofenceRequiredColumn(): Promise<void> {
   geofenceRequiredColumnReady = true;
 }
 
+// Android devuelve el SSID entre comillas ("MiRed") y "<unknown ssid>" cuando la
+// app no tiene permiso de ubicación o el WiFi está apagado.
+const normalizeSsid = (v: any): string | null => {
+  const raw = String(v ?? '').trim().replace(/^"|"$/g, '').trim();
+  if (!raw || /^<unknown ssid>$/i.test(raw) || raw === '0x') return null;
+  return raw.toLowerCase();
+};
+
+type GeofenceOptions = { wifiSSID?: any; mockLocation?: any };
+
 async function checkGeofence(
   userId: number,
   userRole: string,
   lat: any,
   lng: any,
-  accion: 'entrada' | 'salida'
+  accion: 'entrada' | 'salida',
+  opts: GeofenceOptions = {}
 ): Promise<GeofenceError | null> {
   await ensureGeofenceRequiredColumn();
 
@@ -359,7 +370,9 @@ async function checkGeofence(
   const uRes = await pool.query(
     `SELECT u.geofence_required, u.branch_id,
             b.name AS branch_name, b.latitud AS branch_lat, b.longitud AS branch_lng,
-            b.radio_geocerca_metros AS branch_radius
+            b.radio_geocerca_metros AS branch_radius,
+            b.wifi_ssid AS branch_wifi_ssid,
+            COALESCE(b.wifi_validation_enabled, FALSE) AS branch_wifi_enabled
        FROM users u
        LEFT JOIN branches b ON b.id = u.branch_id
       WHERE u.id = $1`,
@@ -371,6 +384,20 @@ async function checkGeofence(
     ? GEOFENCED_ROLES.includes(userRole)
     : u.geofence_required === true;
   if (!required) return null;
+
+  // Fake GPS. Se revisa antes que nada: una ubicación simulada puede caer
+  // perfectamente dentro del radio, así que validar distancia primero no sirve.
+  // En la entrada esto bloquea; en la salida queda como marca para RH.
+  if (opts.mockLocation === true) {
+    return {
+      status: 403,
+      body: {
+        error: 'Ubicación simulada',
+        message: `Se detectó una app de ubicación falsa (Fake GPS). No se puede validar tu ${accion}; desactívala e intenta de nuevo.`,
+        code: 'MOCK_LOCATION_DETECTED',
+      },
+    };
+  }
 
   // El GPS puede llegar nulo/inválido (permiso denegado, GPS apagado). Antes
   // caía al haversine, daba NaN y NaN <= radio siempre es false: el empleado
@@ -394,13 +421,26 @@ async function checkGeofence(
     const radius = Number(u.branch_radius) || 100;
     const distance = getDistanceInMeters(bLat, bLng, uLat, uLng);
     if (distance <= radius) return null;
+
+    // Respaldo por WiFi: dentro de una bodega el GPS se degrada y deja a la
+    // persona "fuera" aunque esté parada en su sucursal. Si la sucursal tiene
+    // la validación activa y el teléfono está en esa red, se acepta.
+    if (u.branch_wifi_enabled === true) {
+      const branchSsid = normalizeSsid(u.branch_wifi_ssid);
+      const deviceSsid = normalizeSsid(opts.wifiSSID);
+      if (branchSsid && deviceSsid && branchSsid === deviceSsid) return null;
+    }
+
     const km = distance / 1000;
     const dist = km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(distance)} m`;
     return {
       status: 403,
       body: {
         error: 'Ubicación no válida',
-        message: `Estás a ${dist} de tu sucursal (${u.branch_name || 'sin nombre'}) y el límite es de ${radius} m. Acércate para marcar tu ${accion}.`,
+        message: `Estás a ${dist} de tu sucursal (${u.branch_name || 'sin nombre'}) y el límite es de ${radius} m. Acércate para marcar tu ${accion}.`
+          + (u.branch_wifi_enabled === true && u.branch_wifi_ssid
+              ? ` Si ya estás dentro, conéctate al WiFi "${u.branch_wifi_ssid}" y vuelve a intentar.`
+              : ''),
         nearest: { name: u.branch_name || 'Sucursal', distanceMeters: Math.round(distance), radiusMeters: radius },
       },
     };
@@ -459,11 +499,12 @@ async function checkGeofence(
 export const checkIn = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user;
-    const { lat, lng, address } = req.body;
+    const { lat, lng, address, wifiSSID, mockLocationDetected } = req.body;
     const userRole = user.role;
 
     // Verificar geocerca para roles de bodega/mostrador
-    const geoError = await checkGeofence(user.userId, userRole, lat, lng, 'entrada');
+    const geoError = await checkGeofence(user.userId, userRole, lat, lng, 'entrada',
+      { wifiSSID, mockLocation: mockLocationDetected });
     if (geoError) {
       res.status(geoError.status).json(geoError.body);
       return;
@@ -539,12 +580,13 @@ async function ensureAttendanceGeofenceColumns(): Promise<void> {
 export const checkOut = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user;
-    const { lat, lng, address } = req.body;
+    const { lat, lng, address, wifiSSID, mockLocationDetected } = req.body;
 
     // Misma geocerca que la entrada, pero aquí NO bloquea: solo marca la salida
     // para revisión de RH. Bloquearla dejaría jornadas abiertas, que es peor
     // que una salida registrada fuera de rango.
-    const geoIssue = await checkGeofence(user.userId, user.role, lat, lng, 'salida');
+    const geoIssue = await checkGeofence(user.userId, user.role, lat, lng, 'salida',
+      { wifiSSID, mockLocation: mockLocationDetected });
     const outsideGeofence = !!geoIssue;
     const geoDistance = geoIssue?.body?.nearest?.distanceMeters ?? null;
     const geoReason = geoIssue

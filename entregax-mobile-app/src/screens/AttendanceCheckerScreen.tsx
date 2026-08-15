@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import api from '../services/api';
+import { getWifiSSID } from '../utils/attendanceEnv';
 
 interface AttendanceBreak {
   out_time: string;
@@ -109,7 +110,7 @@ export default function AttendanceCheckerScreen({ route }: any) {
   };
 
   // Obtener ubicación actual
-  const getCurrentLocation = async (): Promise<{ latitude: number; longitude: number } | null> => {
+  const getCurrentLocation = async (): Promise<{ latitude: number; longitude: number; mocked: boolean } | null> => {
     try {
       const ok = await ensureLocationPermission();
       if (!ok) return null;
@@ -121,6 +122,8 @@ export default function AttendanceCheckerScreen({ route }: any) {
       return {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
+        // `mocked` = las coordenadas vienen de una app de Fake GPS (solo Android).
+        mocked: (location as any)?.mocked === true,
       };
     } catch (error) {
       console.error('Error obteniendo ubicación:', error);
@@ -141,9 +144,13 @@ export default function AttendanceCheckerScreen({ route }: any) {
         return;
       }
 
+      const wifiSSID = await getWifiSSID();
+
       const response = await api.post('/api/hr/check-in', {
         lat: location.latitude,
         lng: location.longitude,
+        wifiSSID,
+        mockLocationDetected: location.mocked,
       }, { headers: authHeaders });
 
       Alert.alert(
@@ -219,6 +226,8 @@ export default function AttendanceCheckerScreen({ route }: any) {
               const response = await api.post('/api/hr/check-out', {
                 lat: location.latitude,
                 lng: location.longitude,
+                wifiSSID: await getWifiSSID(),
+                mockLocationDetected: location.mocked,
               }, { headers: authHeaders });
 
               Alert.alert(
