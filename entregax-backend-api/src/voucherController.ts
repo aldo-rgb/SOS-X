@@ -601,6 +601,45 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
     );
     const allApproved = allVouchers.rows.every((v: any) => v.status === 'approved');
 
+    // 🔒 Aprobar los comprobantes NO significa que la orden esté cubierta: el
+    // cliente puede subir un comprobante por menos del total (pago parcial, o
+    // el pago de una sola caja de un envío multipieza). Antes bastaba con que
+    // todos estuvieran aprobados para marcar la orden pagada, así que un
+    // depósito de $1,796 liquidaba una orden de $35,211 y dejaba las guías
+    // como pagadas. Se exige que la suma aprobada cubra el monto.
+    const cubiertoRes = await pool.query(
+      `SELECT COALESCE(SUM(v.declared_amount), 0) AS aprobado, p.amount AS total
+         FROM pobox_payments p
+         LEFT JOIN payment_vouchers v
+           ON v.payment_order_id = p.id AND v.status = 'approved'
+        WHERE p.id = $1
+        GROUP BY p.amount`,
+      [voucher.payment_order_id]
+    );
+    const totalAprobado = Number(cubiertoRes.rows[0]?.aprobado || 0);
+    const totalOrden = Number(cubiertoRes.rows[0]?.total || 0);
+    // Tolerancia por redondeo de centavos al capturar el depósito.
+    const TOLERANCIA_MXN = 5;
+    const cubierta = totalAprobado >= totalOrden - TOLERANCIA_MXN;
+
+    if (allApproved && !cubierta) {
+      const faltante = +(totalOrden - totalAprobado).toFixed(2);
+      console.warn(
+        `[VOUCHER] Orden ${voucher.payment_order_id}: comprobantes aprobados por $${totalAprobado.toFixed(2)} ` +
+        `de $${totalOrden.toFixed(2)} — PAGO PARCIAL, la orden NO se marca pagada. Faltan $${faltante.toFixed(2)}.`
+      );
+      return res.json({
+        success: true,
+        voucher_id: voucher.id,
+        order_completed: false,
+        partial_payment: true,
+        approved_total: totalAprobado,
+        order_total: totalOrden,
+        remaining: faltante,
+        message: `Comprobante aprobado. La orden sigue PENDIENTE: van $${totalAprobado.toFixed(2)} de $${totalOrden.toFixed(2)}, faltan $${faltante.toFixed(2)}.`,
+      });
+    }
+
     if (allApproved) {
       // Mark order as completed
       await pool.query(

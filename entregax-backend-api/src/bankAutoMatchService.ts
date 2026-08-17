@@ -95,6 +95,28 @@ const authorizeOneMatch = async (
     const bankTotal = bankAmount || 0;
     const surplus = Math.max(0, bankTotal - orderAmount);
 
+    // 🔒 El depósito tiene que CUBRIR la orden. Antes solo se calculaba el
+    // excedente y nunca el faltante, así que un depósito menor se autorizaba
+    // igual: un abono de $1,477.94 liquidó una orden de $2,260.94 y dejó las
+    // guías marcadas como pagadas. Un pago parcial no se auto-autoriza; queda
+    // para revisión manual en Cobranza.
+    const TOLERANCIA_MXN = 5; // redondeo de centavos del banco
+    if (bankTotal < orderAmount - TOLERANCIA_MXN) {
+      await client.query('ROLLBACK');
+      const faltante = +(orderAmount - bankTotal).toFixed(2);
+      console.warn(
+        `[bankAutoMatch] Orden ${ref} NO auto-autorizada: el banco recibió $${bankTotal.toFixed(2)} ` +
+        `de $${orderAmount.toFixed(2)} (faltan $${faltante.toFixed(2)}). Pago parcial → revisión manual.`
+      );
+      return {
+        ref,
+        status: 'error',
+        amount: orderAmount,
+        bank_total: bankTotal,
+        error: `Pago parcial: se recibieron $${bankTotal.toFixed(2)} de $${orderAmount.toFixed(2)}. Faltan $${faltante.toFixed(2)}. Requiere autorización manual.`,
+      };
+    }
+
     // 1) Marcar la orden como pagada
     await client.query(
       `UPDATE pobox_payments SET
