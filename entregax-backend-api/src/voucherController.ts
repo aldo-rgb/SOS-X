@@ -6,6 +6,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { markDhlGroupPaid } from './dhlGroup';
 import { uploadToS3, getSignedUrlForKey } from './s3Service';
 import { extractAmountFromReceipt, isOcrAvailable } from './ocrService';
 import { normalizeServiceForCredit, generateInvoiceForPoboxPaymentByRef } from './poboxPaymentController';
@@ -629,15 +630,7 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
         isDhlOrder = String(svc.rows[0]?.service_type || '').toUpperCase() === 'AA_DHL';
       } catch { /* ignore */ }
       if (packageIds.length > 0 && isDhlOrder) {
-        await pool.query(
-          `UPDATE dhl_shipments SET
-              paid_at = CURRENT_TIMESTAMP,
-              cost_payment_status = 'paid',
-              monto_pagado = COALESCE(total_cost_mxn, saldo_pendiente, 0),
-              saldo_pendiente = 0
-           WHERE id = ANY($1::int[]) AND paid_at IS NULL`,
-          [packageIds]
-        );
+        await markDhlGroupPaid(pool, packageIds, { onlyUnpaid: true });
       } else if (packageIds.length > 0) {
         await pool.query(
           `UPDATE usa_pobox_packages SET payment_status = 'paid', costing_paid = TRUE, costing_paid_at = NOW()

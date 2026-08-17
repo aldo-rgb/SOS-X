@@ -14,6 +14,7 @@
  */
 
 import { pool } from './db';
+import { expandDhlGroupIds } from './dhlGroup';
 import { createNotification, createCustomNotification } from './notificationController';
 
 type AuthorizeResult = {
@@ -136,14 +137,10 @@ const authorizeOneMatch = async (
     } else {
       pkgIds = packageIds;
     }
-    // DHL: marcar TODAS las cajas del master (la orden solo referencia una).
+    // DHL: marcar TODAS las cajas del envío (la orden solo referencia una).
+    // Se expande aquí porque dhlIds se reutiliza más abajo para comisiones.
     if (dhlIds.length > 0) {
-      const sib = await client.query(
-        `SELECT id FROM dhl_shipments WHERE id = ANY($1::int[])
-            OR secondary_tracking IN (SELECT secondary_tracking FROM dhl_shipments WHERE id = ANY($1::int[]) AND COALESCE(secondary_tracking,'') <> '')`,
-        [dhlIds]
-      );
-      dhlIds = sib.rows.map((r: any) => Number(r.id));
+      dhlIds = await expandDhlGroupIds(client, dhlIds);
     }
     if (pkgIds.length > 0) {
       await client.query(

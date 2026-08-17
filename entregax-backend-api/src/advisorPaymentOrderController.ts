@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as crypto from 'crypto';
 import { pool } from './db';
+import { markDhlGroupPaid } from './dhlGroup';
 import { createInvoice, isAutoFacturaEnabled } from './fiscalController';
 import { FacturamaClient } from './facturamaClient';
 import { uploadToS3WithSignedUrl, headS3Object, isS3Configured, getS3ObjectBuffer } from './s3Service';
@@ -564,20 +565,9 @@ export const updateAdvisorPaymentOrderStatus = async (req: Request, res: Respons
         }
         if (dhlIds.length > 0) {
           // DHL MULTICAJA: la orden referencia UNA sola caja (ej. DHL-447), pero el
-          // master agrupa varias por secondary_tracking (447 y 448). Si solo se marca
+          // envío agrupa varias por secondary_tracking (447 y 448). Si solo se marca
           // la referenciada, la guía sigue apareciendo "Pendiente" pese al pago.
-          // Se expande a TODAS las cajas del mismo master.
-          await pool.query(
-            `UPDATE dhl_shipments SET paid_at=CURRENT_TIMESTAMP, cost_payment_status='paid',
-                    monto_pagado=COALESCE(total_cost_mxn, saldo_pendiente, 0), saldo_pendiente=0
-              WHERE (id = ANY($1::int[])
-                     OR secondary_tracking IN (
-                          SELECT secondary_tracking FROM dhl_shipments
-                           WHERE id = ANY($1::int[]) AND COALESCE(secondary_tracking,'') <> ''
-                     ))
-                AND paid_at IS NULL`,
-            [dhlIds]
-          ).catch(() => {});
+          await markDhlGroupPaid(pool, dhlIds, { onlyUnpaid: true }).catch(() => {});
         }
         if (marIds.length > 0) {
           await pool.query(

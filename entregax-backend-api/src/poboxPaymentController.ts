@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { markDhlGroupPaid } from './dhlGroup';
 import axios from 'axios';
 import crypto from 'crypto';
 import { getOpenpayCredentials, ServiceType } from './services/openpayConfig';
@@ -1371,14 +1372,9 @@ export const confirmPoboxCashPayment = async (req: AuthRequest, res: Response): 
                 `, [pkgId]);
             }
         }
-        // dhl_shipments (todas las cajas del master)
+        // dhl_shipments: expandir a TODAS las cajas del envío (multicaja).
         if (dhlIds.length > 0) {
-            await client.query(`
-                UPDATE dhl_shipments SET
-                    paid_at = CURRENT_TIMESTAMP, cost_payment_status = 'paid',
-                    monto_pagado = COALESCE(total_cost_mxn, saldo_pendiente, 0), saldo_pendiente = 0
-                 WHERE id = ANY($1::int[])
-            `, [dhlIds]).catch(() => {});
+            await markDhlGroupPaid(client, dhlIds).catch(() => {});
         }
         // maritime_orders
         if (marIds.length > 0) {
@@ -2502,15 +2498,7 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
         const isDhlOrder = service === 'dhl_liberacion' || String(dbServiceType || '').toUpperCase() === 'AA_DHL';
 
         if (Array.isArray(packageIds) && packageIds.length > 0 && isDhlOrder) {
-            await client.query(
-                `UPDATE dhl_shipments SET
-                    paid_at = CURRENT_TIMESTAMP,
-                    cost_payment_status = 'paid',
-                    monto_pagado = COALESCE(total_cost_mxn, saldo_pendiente, 0),
-                    saldo_pendiente = 0
-                 WHERE id = ANY($1) AND paid_at IS NULL`,
-                [packageIds]
-            );
+            await markDhlGroupPaid(client, packageIds, { onlyUnpaid: true });
         } else if (Array.isArray(packageIds) && packageIds.length > 0) {
             await client.query(
                 `UPDATE packages SET
@@ -2754,15 +2742,7 @@ export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): 
             const packageIds = typeof order.package_ids === 'string' ? JSON.parse(order.package_ids) : order.package_ids;
             const isDhlOrder = service === 'dhl_liberacion';
             if (Array.isArray(packageIds) && packageIds.length > 0 && isDhlOrder) {
-                await client.query(
-                    `UPDATE dhl_shipments SET
-                        paid_at = CURRENT_TIMESTAMP,
-                        cost_payment_status = 'paid',
-                        monto_pagado = COALESCE(total_cost_mxn, saldo_pendiente, 0),
-                        saldo_pendiente = 0
-                     WHERE id = ANY($1) AND paid_at IS NULL`,
-                    [packageIds]
-                );
+                await markDhlGroupPaid(client, packageIds, { onlyUnpaid: true });
             } else if (Array.isArray(packageIds) && packageIds.length > 0) {
                 await client.query(
                     `UPDATE packages SET
@@ -3023,15 +3003,7 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
                 isDhlOrder = String(lg.rows[0]?.service_type || '').toUpperCase() === 'AA_DHL';
             } catch { /* ignore */ }
             if (Array.isArray(packageIds) && packageIds.length > 0 && isDhlOrder) {
-                await client.query(
-                    `UPDATE dhl_shipments SET
-                        paid_at = CURRENT_TIMESTAMP,
-                        cost_payment_status = 'paid',
-                        monto_pagado = COALESCE(total_cost_mxn, saldo_pendiente, 0),
-                        saldo_pendiente = 0
-                     WHERE id = ANY($1) AND paid_at IS NULL`,
-                    [packageIds]
-                );
+                await markDhlGroupPaid(client, packageIds, { onlyUnpaid: true });
             } else if (Array.isArray(packageIds) && packageIds.length > 0) {
                 await client.query(
                     `UPDATE packages SET

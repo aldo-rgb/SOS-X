@@ -44,6 +44,7 @@ if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEBUG_LOGS !== '
 }
 
 import { pool } from './db';
+import { expandDhlGroupIds, markDhlGroupPaid } from './dhlGroup';
 import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
 import { translateTexts } from './translationController';
 import { 
@@ -7101,12 +7102,18 @@ app.patch('/api/admin/dhl/shipments/:id/mark-label-printed', authenticateToken, 
   try {
     const id = parseInt(String(req.params.id), 10);
     if (!id) return res.status(400).json({ error: 'ID inválido' });
+    // Multicaja: la etiqueta se imprime para el envío completo, no para la caja
+    // que se buscó. Sin expandir, las cajas hermanas quedaban sin etiqueta y no
+    // se les podía dar salida (reporte de CEDIS MTY).
+    const groupIds = await expandDhlGroupIds(pool, [id]);
+    if (groupIds.length === 0) return res.status(404).json({ error: 'Guía DHL no encontrada' });
     const r = await pool.query(
-      `UPDATE dhl_shipments SET national_label_url = COALESCE(NULLIF(national_label_url, ''), 'manual-printed'), updated_at = NOW() WHERE id = $1 RETURNING id, national_label_url`,
-      [id]
+      `UPDATE dhl_shipments SET national_label_url = COALESCE(NULLIF(national_label_url, ''), 'manual-printed'), updated_at = NOW() WHERE id = ANY($1::int[]) RETURNING id, national_label_url`,
+      [groupIds]
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'Guía DHL no encontrada' });
-    res.json({ success: true, national_label_url: r.rows[0].national_label_url });
+    const self = r.rows.find((x: any) => Number(x.id) === id) || r.rows[0];
+    res.json({ success: true, national_label_url: self.national_label_url, cajas_marcadas: r.rows.length });
   } catch (e: any) {
     res.status(500).json({ error: 'Error al marcar etiqueta', details: e.message });
   }
@@ -9672,10 +9679,8 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
                 else if (parts[0] === 'MAR') marIds.push(numId);
               }
               if (dhlIds.length > 0) {
-                await client.query(
-                  `UPDATE dhl_shipments SET paid_at=CURRENT_TIMESTAMP, cost_payment_status='paid', monto_pagado=COALESCE(total_cost_mxn, saldo_pendiente, 0), saldo_pendiente=0 WHERE id=ANY($1) AND paid_at IS NULL`,
-                  [dhlIds]
-                );
+                // Expandir a todas las cajas del envío (multicaja).
+                await markDhlGroupPaid(client, dhlIds, { onlyUnpaid: true });
               }
               if (marIds.length > 0) {
                 await client.query(
@@ -10038,10 +10043,8 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
             else if (parts[0] === 'MAR') marIds.push(numId);
           }
           if (dhlIds.length > 0) {
-            await client.query(
-              `UPDATE dhl_shipments SET paid_at=CURRENT_TIMESTAMP, cost_payment_status='paid', monto_pagado=COALESCE(total_cost_mxn, saldo_pendiente, 0), saldo_pendiente=0 WHERE id=ANY($1) AND paid_at IS NULL`,
-              [dhlIds]
-            );
+            // Expandir a todas las cajas del envío (multicaja).
+            await markDhlGroupPaid(client, dhlIds, { onlyUnpaid: true });
           }
           if (marIds.length > 0) {
             await client.query(
