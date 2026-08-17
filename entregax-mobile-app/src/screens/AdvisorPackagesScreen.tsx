@@ -315,6 +315,10 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const handleLongPress = (item: Shipment) => {
     if (selectionMode) return;
     if (item.in_payment_order_ref) return;
+    if (item.client_paid) {
+      Alert.alert('Guía ya pagada', `${item.tracking_number || item.uid} ya fue pagada por el cliente. Revisa el historial de pagos antes de cobrar de nuevo.`);
+      return;
+    }
     setSelectionMode(true);
     setSelectedUids([item.uid]);
     setSelectionServiceType(item.service_type);
@@ -331,6 +335,12 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       return;
     }
     if (item.in_payment_order_ref) return; // blocked — already in an order
+    // Ya pagada: el backend rechaza la orden con 409, así que no tiene sentido
+    // dejar seleccionarla. Se avisa aquí en vez de dejar que falle al generar.
+    if (item.client_paid) {
+      Alert.alert('Guía ya pagada', `${item.tracking_number || item.uid} ya fue pagada por el cliente. Revisa el historial de pagos antes de cobrar de nuevo.`);
+      return;
+    }
     if (selectedUids.includes(item.uid)) {
       const next = selectedUids.filter(u => u !== item.uid);
       setSelectedUids(next);
@@ -610,6 +620,10 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       item.status === 'customs' ? '#FF9800' : '#9E9E9E';
     const isSelected = selectedUids.includes(item.uid);
     const inOrder = !!item.in_payment_order_ref;
+    // Una guía ya pagada no se puede volver a cobrar. Se marca igual que las que
+    // están en una orden, para que no se intente generar una orden sobre ella.
+    const isPaid = !!item.client_paid;
+    const locked = inOrder || isPaid;
 
     // For DHL: show 10-digit secondary_tracking; for others: show tracking_number
     const isDHL = item.service_type === 'AA_DHL';
@@ -628,15 +642,22 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
 
     return (
       <TouchableOpacity
-        activeOpacity={inOrder ? 1 : 0.75}
+        activeOpacity={locked ? 1 : 0.75}
         onPress={() => handleCardPress(item)}
         onLongPress={() => handleLongPress(item)}
-        style={[styles.card, isSelected && styles.cardSelected, inOrder && { backgroundColor: '#FFF8F0', borderColor: '#FFCCBC', borderWidth: 1, opacity: 0.85 }]}
+        style={[
+          styles.card,
+          isSelected && styles.cardSelected,
+          inOrder && { backgroundColor: '#FFF8F0', borderColor: '#FFCCBC', borderWidth: 1, opacity: 0.85 },
+          isPaid && !inOrder && { backgroundColor: '#F1F8E9', borderColor: '#C5E1A5', borderWidth: 1, opacity: 0.9 },
+        ]}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           {selectionMode && (
             <View style={styles.checkboxArea}>
-              {inOrder ? (
+              {isPaid && !inOrder ? (
+                <Ionicons name="checkmark-done-circle" size={20} color="#2E7D32" />
+              ) : inOrder ? (
                 <Ionicons name="lock-closed" size={20} color="#FFAB40" />
               ) : (
                 <Ionicons
@@ -760,7 +781,14 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
               )}
               <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                 {item.saldo_pendiente > 0 && (
-                  <Text style={styles.saldo}>${item.saldo_pendiente.toFixed(2)}</Text>
+                  <Text style={[styles.saldo, isPaid && { color: '#2E7D32', textDecorationLine: 'line-through' }]}>
+                    ${item.saldo_pendiente.toFixed(2)}
+                  </Text>
+                )}
+                {isPaid && (
+                  <View style={styles.paidBadge}>
+                    <Text style={styles.paidBadgeText}>✓ PAGADA</Text>
+                  </View>
                 )}
                 {item.has_instructions && (
                   <View style={styles.instrBadge}>
@@ -878,7 +906,8 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
               </Text>
               <TouchableOpacity
                 onPress={() => {
-                  const selectable = filteredShipments.filter(s => !s.in_payment_order_ref);
+                  // Excluir las ya pagadas: el backend rechaza la orden si va alguna.
+                  const selectable = filteredShipments.filter(s => !s.in_payment_order_ref && !s.client_paid);
                   const uniqueTypes = [...new Set(selectable.map(s => s.service_type))];
                   const doSelectAll = (type: string) => {
                     const ofType = selectable.filter(s => s.service_type === type);
@@ -911,7 +940,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                 }}
               >
                 <Text style={{ fontSize: 11, color: ORANGE, fontWeight: '700' }}>
-                  Seleccionar todos ({filteredShipments.filter(s => !s.in_payment_order_ref).length})
+                  Seleccionar todos ({filteredShipments.filter(s => !s.in_payment_order_ref && !s.client_paid).length})
                 </Text>
               </TouchableOpacity>
             </View>
@@ -944,7 +973,10 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                         }),
                       });
                       const data = await res.json();
-                      if (!res.ok) throw new Error(data.error || 'Error al crear orden');
+                      // El backend manda `message` con el detalle (qué guía y por
+                      // qué). Sin él, el asesor solo veía "Algunas guías ya están
+                      // pagadas" y no sabía cuál ni qué hacer.
+                      if (!res.ok) throw new Error(data.message || data.error || 'Error al crear orden');
                       setPaymentOrderResult(data);
                       setSelectionMode(false);
                       setSelectedUids([]);
@@ -1636,6 +1668,8 @@ const styles = StyleSheet.create({
   saldo: { fontSize: 13, fontWeight: '700', color: '#FF9800' },
   instrBadge: { backgroundColor: '#E8F5E9', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   instrBadgeText: { fontSize: 10, color: '#2E7D32', fontWeight: '600' },
+  paidBadge: { backgroundColor: '#2E7D32', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  paidBadgeText: { fontSize: 10, color: '#fff', fontWeight: '700' },
   empty: { textAlign: 'center', color: '#999', marginTop: 40, fontSize: 14 },
   // Selection bar
   selectionBar: {
