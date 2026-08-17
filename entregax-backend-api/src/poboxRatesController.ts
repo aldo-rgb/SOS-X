@@ -142,17 +142,17 @@ export const getTarifasVolumen = async (req: Request, res: Response): Promise<vo
 };
 
 /**
- * Verifica que los niveles activos cubran el rango de CBM sin huecos.
- * Un hueco (p.ej. N3 hasta 0.0990 y N4 desde 0.1000) hace que un paquete
- * cuyo CBM caiga ahí no encuentre tarifa y se cobre en $0 — ya ocurrió y
- * generó guías PO Box sin costo. Devuelve el mensaje de error o null si está bien.
+ * Lista los pares de niveles consecutivos cuyos rangos no empalman. Los rangos
+ * son semiabiertos [min, max), así que el tope de un nivel debe ser exactamente
+ * el inicio del siguiente; cualquier diferencia deja CBMs sin tarifa (se cobran
+ * en $0 — ya pasó y generó guías PO Box sin costo) o encimados.
  */
-const validarContinuidadTarifas = (tarifas: any[]): string | null => {
+const detectarHuecosTarifas = (tarifas: any[]): string[] => {
     const activas = tarifas
         .filter((t) => t.estado !== false)
         .sort((a, b) => (parseFloat(a.cbm_min) || 0) - (parseFloat(b.cbm_min) || 0));
 
-    if (activas.length === 0) return null;
+    const problemas: string[] = [];
 
     for (let i = 0; i < activas.length - 1; i++) {
         const actual = activas[i];
@@ -160,20 +160,38 @@ const validarContinuidadTarifas = (tarifas: any[]): string | null => {
 
         // El último nivel puede ser abierto (cbm_max NULL); uno intermedio no.
         if (actual.cbm_max == null) {
-            return `El Nivel ${actual.nivel} tiene CBM máximo abierto pero existe un nivel superior. Solo el último nivel puede quedar sin tope.`;
+            problemas.push(`Nivel ${actual.nivel} sin tope teniendo un nivel superior`);
+            continue;
         }
 
         const max = parseFloat(actual.cbm_max);
         const minSiguiente = parseFloat(siguiente.cbm_min) || 0;
 
-        // Los rangos son semiabiertos [min, max), así que el tope de un nivel
-        // debe ser exactamente el inicio del siguiente. Cualquier diferencia
-        // deja CBMs sin tarifa (se cobrarían en $0) o encimados.
         if (Math.abs(minSiguiente - max) > 0.000001) {
-            return `El CBM máximo del Nivel ${actual.nivel} (${max}) debe ser exactamente el CBM mínimo del Nivel ${siguiente.nivel} (${minSiguiente}). ` +
-                `Los rangos son [mínimo, máximo): un paquete con CBM ${max} se cobra en el Nivel ${siguiente.nivel}. ` +
-                `Si no empalman, los paquetes que caen en medio se cobrarían en $0.`;
+            problemas.push(
+                `Nivel ${actual.nivel} termina en ${max} pero el Nivel ${siguiente.nivel} empieza en ${minSiguiente}`
+            );
         }
+    }
+
+    return problemas;
+};
+
+/**
+ * Rechaza una edición sólo si EMPEORA la continuidad de los rangos. Si la tabla
+ * ya venía con huecos, se permite guardar mientras no se agreguen más — de otro
+ * modo sería imposible arreglarla desde el panel, porque corregir un nivel a la
+ * vez deja necesariamente los otros huecos abiertos durante el proceso.
+ * Devuelve el mensaje de error, o null si el cambio se acepta.
+ */
+const validarContinuidadTarifas = (antes: any[], despues: any[]): string | null => {
+    const huecosAntes = detectarHuecosTarifas(antes);
+    const huecosDespues = detectarHuecosTarifas(despues);
+
+    if (huecosDespues.length > huecosAntes.length) {
+        return `Este cambio deja rangos sin empalmar: ${huecosDespues.join('; ')}. ` +
+            `Los rangos son [mínimo, máximo): el CBM máximo de un nivel debe ser exactamente el CBM mínimo del siguiente. ` +
+            `Los paquetes que caigan en medio se cobrarían en $0.`;
     }
 
     return null;
@@ -196,14 +214,14 @@ export const updateTarifaVolumen = async (req: Request, res: Response): Promise<
                   }
                 : t
         );
-        const errorRangos = validarContinuidadTarifas(simulado);
+        const errorRangos = validarContinuidadTarifas(actuales.rows, simulado);
         if (errorRangos) {
             res.status(400).json({ error: errorRangos });
             return;
         }
 
         const result = await pool.query(
-            `UPDATE pobox_tarifas_volumen 
+            `UPDATE pobox_tarifas_volumen
              SET cbm_min = COALESCE($1, cbm_min),
                  cbm_max = $2,
                  costo = COALESCE($3, costo),
@@ -232,7 +250,7 @@ export const createTarifaVolumen = async (req: Request, res: Response): Promise<
         const { nivel, cbm_min, cbm_max, costo, tipo_cobro, moneda } = req.body;
 
         const actuales = await pool.query('SELECT * FROM pobox_tarifas_volumen ORDER BY nivel ASC');
-        const errorRangos = validarContinuidadTarifas([
+        const errorRangos = validarContinuidadTarifas(actuales.rows, [
             ...actuales.rows,
             { id: null, nivel, cbm_min, cbm_max, estado: true },
         ]);
