@@ -7,6 +7,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { markDhlGroupPaid } from './dhlGroup';
+import { resolveCreditService, restoreServiceCredit } from './creditRestore';
 import { uploadToS3, getSignedUrlForKey } from './s3Service';
 import { extractAmountFromReceipt, isOcrAvailable } from './ocrService';
 import { normalizeServiceForCredit, generateInvoiceForPoboxPaymentByRef } from './poboxPaymentController';
@@ -695,37 +696,19 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
         } catch { pkgIdsCredit = []; }
         // El servicio autoritativo ya se resolvió arriba (isDhlOrder). Para DHL,
         // derivar desde packages daría un servicio AÉREO por la colisión de id.
-        let svcKeyCredit: string | null = null;
-        if (isDhlOrder) {
-          svcKeyCredit = 'dhl_liberacion';
-        } else if (pkgIdsCredit.length > 0) {
-          const svcRes = await pool.query(
-            `SELECT service_type FROM packages WHERE id = ANY($1) AND service_type IS NOT NULL LIMIT 1`,
-            [pkgIdsCredit]
-          );
-          svcKeyCredit = normalizeServiceForCredit(svcRes.rows[0]?.service_type);
-        }
-        let restoredRows = 0;
-        if (svcKeyCredit) {
-          const r = await pool.query(
-            `UPDATE user_service_credits
-                SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1),
-                    is_blocked = CASE WHEN GREATEST(0, COALESCE(used_credit, 0) - $1) <= 0 THEN FALSE ELSE is_blocked END,
-                    updated_at = NOW()
-              WHERE user_id = $2 AND service = $3`,
-            [montoCredito, o.user_id, svcKeyCredit]
-          );
-          restoredRows = r.rowCount || 0;
-        }
-        if (restoredRows === 0) {
-          await pool.query(
-            `UPDATE users
-                SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1),
-                    is_credit_blocked = CASE WHEN GREATEST(0, COALESCE(used_credit, 0) - $1) <= 0 THEN FALSE ELSE is_credit_blocked END
-              WHERE id = $2`,
-            [montoCredito, o.user_id]
-          );
-        }
+        const svcKeyCredit = isDhlOrder
+          ? 'dhl_liberacion'
+          : await resolveCreditService(pool, {
+              poboxPaymentId: o.id,
+              paymentReference: o.payment_reference,
+              packageIds: pkgIdsCredit,
+            });
+        await restoreServiceCredit(pool, {
+          userId: o.user_id,
+          amount: montoCredito,
+          service: svcKeyCredit,
+          orderRef: o.payment_reference || o.id,
+        });
         // 💸 Liberar comisiones retenidas de estas guías (el crédito ya se pagó).
         if (pkgIdsCredit.length > 0) {
           await pool.query(

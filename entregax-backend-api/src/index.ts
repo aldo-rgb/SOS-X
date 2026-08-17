@@ -45,6 +45,7 @@ if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEBUG_LOGS !== '
 
 import { pool } from './db';
 import { expandDhlGroupIds, markDhlGroupPaid } from './dhlGroup';
+import { resolveCreditService, restoreServiceCredit } from './creditRestore';
 import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
 import { translateTexts } from './translationController';
 import { 
@@ -9603,36 +9604,20 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
               `UPDATE pobox_payments SET credit_settled = TRUE, credit_settled_at = CURRENT_TIMESTAMP WHERE id = $1`,
               [poboxPay.id]
             );
-            let svcKeyCredit: string | null = null;
-            if (packageIds.length > 0) {
-              const svcRes = await client.query(
-                `SELECT service_type FROM packages WHERE id = ANY($1) AND service_type IS NOT NULL LIMIT 1`,
-                [packageIds]
-              );
-              svcKeyCredit = normalizeServiceForCredit(svcRes.rows[0]?.service_type);
-            }
-            let restoredRows = 0;
-            if (svcKeyCredit) {
-              const r = await client.query(
-                `UPDATE user_service_credits
-                    SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1),
-                        is_blocked = CASE WHEN GREATEST(0, COALESCE(used_credit, 0) - $1) <= 0 THEN FALSE ELSE is_blocked END,
-                        updated_at = NOW()
-                  WHERE user_id = $2 AND service = $3`,
-                [montoPago, poboxPay.user_id, svcKeyCredit]
-              );
-              restoredRows = r.rowCount || 0;
-            }
-            if (restoredRows === 0) {
-              // Fallback: crédito global (users.used_credit)
-              await client.query(
-                `UPDATE users
-                    SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1),
-                        is_credit_blocked = CASE WHEN GREATEST(0, COALESCE(used_credit, 0) - $1) <= 0 THEN FALSE ELSE is_credit_blocked END
-                  WHERE id = $2`,
-                [montoPago, poboxPay.user_id]
-              );
-            }
+            // El servicio se resuelve desde la orden, NO desde packages: en DHL
+            // los package_ids apuntan a dhl_shipments y colisionan con packages,
+            // así que el crédito se restauraba al servicio equivocado o a ninguno.
+            const svcKeyCredit = await resolveCreditService(client, {
+              poboxPaymentId: poboxPay.id,
+              paymentReference: poboxPay.payment_reference,
+              packageIds,
+            });
+            await restoreServiceCredit(client, {
+              userId: poboxPay.user_id,
+              amount: montoPago,
+              service: svcKeyCredit,
+              orderRef: poboxPay.payment_reference || poboxPay.id,
+            });
             // 💸 Liberar las comisiones retenidas de estas guías: el crédito ya se
             //    pagó, así que la comisión pasa de "en crédito" a cobrable.
             if (packageIds.length > 0) {
