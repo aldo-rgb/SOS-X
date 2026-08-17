@@ -59,19 +59,29 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejec
           WHERE id = $1`, [id]
       );
 
-      // Las guías (y sus hijas) vuelven a deber, con el abono ya aplicado.
+      // Las guías vuelven a deber. El abono va UNA sola vez, al nivel que se
+      // cobra (la guía referenciada por la orden): si se replica en las hijas,
+      // el sistema cuenta el mismo depósito tantas veces como cajas tenga el
+      // envío y el adeudo sale mal. El saldo se mide contra el monto de la
+      // ORDEN, que incluye paquetería y otros conceptos además del servicio.
       let afectadas = 0;
       if (pkgIds.length > 0) {
-        const r = await c.query(
+        const rHijas = await c.query(
           `UPDATE packages
               SET client_paid = FALSE, client_paid_at = NULL, payment_status = 'pending',
-                  monto_pagado = $2::numeric,
-                  saldo_pendiente = GREATEST(0, COALESCE(NULLIF(pobox_service_cost,0), NULLIF(assigned_cost_mxn,0), 0) - $2::numeric),
-                  updated_at = NOW()
-            WHERE id = ANY($1::int[]) OR master_id = ANY($1::int[])`,
-          [pkgIds, Number(o.depositado) || 0]
+                  monto_pagado = 0, saldo_pendiente = NULL, updated_at = NOW()
+            WHERE master_id = ANY($1::int[])`,
+          [pkgIds]
         );
-        afectadas = r.rowCount || 0;
+        const saldo = Math.max(0, +(Number(o.orden) - Number(o.depositado)).toFixed(2));
+        const rMaster = await c.query(
+          `UPDATE packages
+              SET client_paid = FALSE, client_paid_at = NULL, payment_status = 'pending',
+                  monto_pagado = $2::numeric, saldo_pendiente = $3::numeric, updated_at = NOW()
+            WHERE id = ANY($1::int[])`,
+          [pkgIds, Number(o.depositado) || 0, saldo]
+        );
+        afectadas = (rHijas.rowCount || 0) + (rMaster.rowCount || 0);
       }
       hechos.push({ orden: id, ref: o.payment_reference, cliente: o.box_id,
                     monto: o.orden, depositado: o.depositado, faltante: o.faltante, guias_afectadas: afectadas });
