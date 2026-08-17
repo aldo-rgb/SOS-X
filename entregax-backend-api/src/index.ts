@@ -5191,7 +5191,7 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
     if (String(source) === 'dhl') {
       const dRes = await pool.query(
         `SELECT id, inbound_tracking, secondary_tracking, delivery_address_id,
-                national_label_url, national_tracking, status
+                national_label_url, national_tracking, national_carrier, national_cost_mxn, status
            FROM dhl_shipments WHERE id = $1`,
         [id]
       );
@@ -5203,8 +5203,19 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
       if (['delivered', 'dispatched', 'out_for_delivery', 'returned_to_warehouse'].includes(String(d.status))) {
         return res.status(409).json({ error: `No se puede revertir: la guía está en estado "${d.status}". Solo se puede revertir antes de salir a ruta.` });
       }
+      // Revertir instrucciones = deshacer TODA la instrucción de envío, no solo
+      // la dirección: la paquetería nacional y su costo son parte de lo que se
+      // eligió al instruir. Si se dejan, al reinstruir la guía conserva la
+      // paquetería vieja aunque el agente elija otra (reporte de Ricardo Mendez).
       await pool.query(
-        `UPDATE dhl_shipments SET delivery_address_id = NULL, national_label_url = NULL, updated_at = NOW() WHERE id = $1`,
+        `UPDATE dhl_shipments SET
+           delivery_address_id = NULL,
+           national_label_url = NULL,
+           national_carrier = NULL,
+           national_tracking = NULL,
+           national_cost_mxn = NULL,
+           updated_at = NOW()
+         WHERE id = $1`,
         [id]
       );
       pool.query(
@@ -5213,6 +5224,11 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
         [id, req.user?.userId || null, JSON.stringify({
           tracking: d.secondary_tracking || d.inbound_tracking,
           previous_delivery_address_id: d.delivery_address_id,
+          // Se guardan para poder rastrear qué paquetería/guía se canceló,
+          // sobre todo cuando se revierte con --force y CEDIS ya la canceló.
+          previous_national_carrier: d.national_carrier,
+          previous_national_tracking: d.national_tracking,
+          previous_national_cost_mxn: d.national_cost_mxn,
           reason: String(reason || '').trim() || null,
         })]
       ).catch(() => {});
@@ -5222,7 +5238,7 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
     const cur = await pool.query(
       `SELECT id, tracking_internal, assigned_address_id,
               delivery_address_id, destination_address, national_label_url,
-              national_tracking, status, is_master
+              national_tracking, national_carrier, national_shipping_cost, status, is_master
        FROM packages WHERE id = $1`,
       [id]
     );
@@ -5263,6 +5279,16 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
          -- módulo de etiquetado. Es lo que revisa la app del repartidor (has_label)
          -- para mostrar la guía en la carga: sin etiqueta ⇒ ya no aparece.
          national_label_url = NULL,
+         -- La paquetería nacional y su costo TAMBIÉN son parte de la instrucción.
+         -- Al no limpiarlos, la guía conservaba la paquetería anterior aunque el
+         -- agente eligiera otra al reinstruir (reporte de Ricardo Mendez).
+         national_carrier = NULL,
+         national_tracking = NULL,
+         national_shipping_cost = NULL,
+         national_delivery_zip = NULL,
+         national_label_source = NULL,
+         national_label_actor_id = NULL,
+         national_label_at = NULL,
          updated_at = NOW()
        WHERE id = $1`,
       [id]
@@ -5283,6 +5309,13 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
            destination_contact = NULL,
            needs_instructions = TRUE,
            national_label_url = NULL,
+           national_carrier = NULL,
+           national_tracking = NULL,
+           national_shipping_cost = NULL,
+           national_delivery_zip = NULL,
+           national_label_source = NULL,
+           national_label_actor_id = NULL,
+           national_label_at = NULL,
            updated_at = NOW()
          WHERE master_id = $1
            AND status NOT IN ('delivered', 'out_for_delivery', 'returned_to_warehouse')`,
@@ -5301,6 +5334,10 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
         previous_assigned_address_id: pkg.assigned_address_id,
         previous_delivery_address_id: pkg.delivery_address_id,
         previous_destination_address: pkg.destination_address,
+        // Para rastrear qué paquetería/guía nacional se canceló al revertir.
+        previous_national_carrier: pkg.national_carrier,
+        previous_national_tracking: pkg.national_tracking,
+        previous_national_shipping_cost: pkg.national_shipping_cost,
         reason: String(reason || '').trim() || null,
       })]
     ).catch(() => {});
