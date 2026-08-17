@@ -1021,6 +1021,7 @@ export default function ServiceInventoryPage() {
             : <Typography variant="caption" color="text.disabled">—</Typography>}
         </TableCell>
       )}
+      {renderCostoCell(r)}
       <TableCell><Typography variant="caption">{fmt(r.received_at)}</Typography></TableCell>
       {mtaCell(r.received_at)}
       <TableCell><Typography variant="caption" color="text.secondary">{fmt(r.updated_at)}</Typography></TableCell>
