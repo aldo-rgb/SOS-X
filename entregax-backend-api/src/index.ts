@@ -3261,7 +3261,13 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         COALESCE(p.client_paid, p.costing_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL OR p.needs_instructions = FALSE) AS has_instructions,
                         (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL) AS has_delivery_address,
-                        NULLIF(p.child_no, '') AS guia_us_saved
+                        NULLIF(p.child_no, '') AS guia_us_saved,
+                        -- Costo a cobrar al cliente: pobox_venta_usd es el precio de
+                        -- venta (NO pobox_cost_usd, que es el costo interno del proveedor).
+                        p.pobox_venta_usd AS costo_venta_usd,
+                        p.pobox_service_cost AS costo_venta_mxn,
+                        p.pobox_tarifa_nivel AS tarifa_nivel,
+                        p.registered_exchange_rate AS tipo_cambio
                    FROM packages p ${PB_JOIN}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
@@ -6471,6 +6477,83 @@ app.patch('/api/admin/packages/:id/unmark-paid-manual', authenticateToken, requi
     );
     res.json({ success: true });
   } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Super admin: corregir a mano el costo de venta PO Box de una guía.
+// Existe porque un hueco en el tabulador de tarifas dejó guías cotizadas en $0
+// (TKT-2026-2190) y hacía falta poder repararlas una por una desde el panel.
+// Recibe el precio en USD; el MXN se deriva del tipo de cambio ya registrado en
+// la guía, para no recotizar con un TC distinto al que se le prometió al cliente.
+app.patch('/api/admin/packages/:id/pobox-costo', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const pkgId = parseInt(req.params.id as string);
+    if (!pkgId) return res.status(400).json({ error: 'ID inválido' });
+
+    const ventaUsd = Number(req.body?.venta_usd);
+    if (!Number.isFinite(ventaUsd) || ventaUsd < 0) {
+      return res.status(400).json({ error: 'venta_usd debe ser un número mayor o igual a 0' });
+    }
+    const nivelRaw = req.body?.tarifa_nivel;
+    const nivel = nivelRaw == null || nivelRaw === '' ? null : parseInt(String(nivelRaw));
+
+    const cur = await pool.query(
+      `SELECT id, service_type, client_paid, master_id, registered_exchange_rate
+         FROM packages WHERE id = $1`,
+      [pkgId]
+    );
+    if (cur.rows.length === 0) return res.status(404).json({ error: 'Guía no encontrada' });
+    const pkg = cur.rows[0];
+    if (pkg.service_type !== 'POBOX_USA') {
+      return res.status(400).json({ error: 'Solo aplica a guías PO Box USA' });
+    }
+    if (pkg.client_paid === true) {
+      return res.status(409).json({ error: 'La guía ya fue pagada por el cliente. Cambiar el costo alteraría una cuenta cerrada.' });
+    }
+
+    // Sin TC registrado no se puede derivar el MXN; se toma el vigente del servicio.
+    let tc = parseFloat(pkg.registered_exchange_rate) || 0;
+    if (!tc) {
+      const tcRes = await pool.query(
+        "SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE LIMIT 1"
+      );
+      tc = parseFloat(tcRes.rows[0]?.tipo_cambio_final) || 0;
+    }
+    const ventaMxn = +(ventaUsd * tc).toFixed(2);
+
+    const upd = await pool.query(
+      `UPDATE packages
+          SET pobox_venta_usd = $1,
+              pobox_service_cost = $2,
+              pobox_tarifa_nivel = COALESCE($3, pobox_tarifa_nivel),
+              registered_exchange_rate = COALESCE(NULLIF(registered_exchange_rate, 0), $4),
+              updated_at = NOW()
+        WHERE id = $5
+        RETURNING id, tracking_internal, pobox_venta_usd, pobox_service_cost, pobox_tarifa_nivel`,
+      [ventaUsd.toFixed(2), ventaMxn, nivel, tc || null, pkgId]
+    );
+
+    // Si es una guía hija, el master cobra la suma de sus piezas: hay que
+    // recalcularlo o el cambio no se refleja en lo que se le cobra al cliente.
+    let master = null;
+    if (pkg.master_id) {
+      const m = await pool.query(
+        `UPDATE packages m
+            SET pobox_venta_usd    = COALESCE((SELECT SUM(COALESCE(pobox_venta_usd,0))    FROM packages WHERE master_id = $1), 0),
+                pobox_service_cost = COALESCE((SELECT SUM(COALESCE(pobox_service_cost,0)) FROM packages WHERE master_id = $1), 0),
+                updated_at = NOW()
+          WHERE m.id = $1
+          RETURNING id, tracking_internal, pobox_venta_usd, pobox_service_cost`,
+        [pkg.master_id]
+      );
+      master = m.rows[0] || null;
+    }
+
+    console.log(`[pobox-costo] super_admin ${req.user?.userId} fijó ${upd.rows[0]?.tracking_internal} en $${ventaUsd} USD (TC ${tc} → $${ventaMxn} MXN)`);
+    res.json({ success: true, guia: upd.rows[0], master, tipo_cambio: tc, venta_mxn: ventaMxn });
+  } catch (e: any) {
+    console.error('[pobox-costo]', e.message);
     res.status(500).json({ error: e.message });
   }
 });

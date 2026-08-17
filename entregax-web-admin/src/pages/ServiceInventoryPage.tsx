@@ -97,6 +97,10 @@ interface PackageRow {
   master_id?: number | null;
   base_guia?: string;
   children?: PackageRow[];
+  costo_venta_usd?: string | number | null;
+  costo_venta_mxn?: string | number | null;
+  tarifa_nivel?: number | null;
+  tipo_cambio?: string | number | null;
 }
 
 interface DireccionEntregax {
@@ -222,9 +226,47 @@ export default function ServiceInventoryPage() {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'success' });
   const isSuperAdmin = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; } catch { return false; } })();
 
+  // Edición manual del costo de venta PO Box (solo super admin). Guarda el id de
+  // la guía que se está editando y el valor tecleado, para no re-renderizar toda
+  // la tabla en cada tecla.
+  const [editingCosto, setEditingCosto] = useState<number | null>(null);
+  const [costoInput, setCostoInput] = useState('');
+  const [savingCosto, setSavingCosto] = useState(false);
+
   // Filas sin pkg_id (DHL/marítimo viven en otras tablas) → usar sync-from-entregax
   // que enruta por servicio, en vez de /admin/packages/:id.
   const matchRow = (row: PackageRow, r: PackageRow) => r.pkg_id ? row.pkg_id === r.pkg_id : row.guia === r.guia;
+
+  const startEditCosto = (r: PackageRow) => {
+    setEditingCosto(r.pkg_id ?? null);
+    const actual = r.costo_venta_usd == null ? '' : String(parseFloat(String(r.costo_venta_usd)) || '');
+    setCostoInput(actual);
+  };
+
+  const cancelEditCosto = () => { setEditingCosto(null); setCostoInput(''); };
+
+  const handleSaveCosto = async (r: PackageRow) => {
+    if (!r.pkg_id) return;
+    const val = parseFloat(costoInput);
+    if (!Number.isFinite(val) || val < 0) {
+      setSnackbar({ open: true, message: 'Escribe un monto válido en USD', severity: 'error' });
+      return;
+    }
+    setSavingCosto(true);
+    try {
+      const resp = await api.patch(`/admin/packages/${r.pkg_id}/pobox-costo`, { venta_usd: val });
+      const mxn = resp.data?.venta_mxn;
+      setRows(prev => prev.map(row => row.pkg_id === r.pkg_id
+        ? { ...row, costo_venta_usd: val, costo_venta_mxn: mxn ?? row.costo_venta_mxn }
+        : row));
+      setSnackbar({ open: true, message: `💵 ${r.guia}: $${val.toFixed(2)} USD${mxn ? ` ($${Number(mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN)` : ''}`, severity: 'success' });
+      cancelEditCosto();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error al guardar el costo', severity: 'error' });
+    } finally {
+      setSavingCosto(false);
+    }
+  };
 
   const handleMarkPaid = async (r: PackageRow) => {
     try {
@@ -852,6 +894,90 @@ export default function ServiceInventoryPage() {
     </TableCell>
   );
 
+  // ── Celda COSTO (solo PO Box) ──
+  // Muestra el precio de venta al cliente. El super admin puede corregirlo a
+  // mano: se captura en USD y el backend deriva el MXN con el TC de la guía.
+  const showCostoCol = service === 'pobox_usa';
+
+  const renderCostoCell = (r: PackageRow) => {
+    if (!showCostoCol) return null;
+
+    const usd = r.costo_venta_usd == null ? null : parseFloat(String(r.costo_venta_usd));
+    const mxn = r.costo_venta_mxn == null ? null : parseFloat(String(r.costo_venta_mxn));
+    const enCero = usd == null || usd === 0;
+    const editable = isSuperAdmin && !!r.pkg_id && !r.costing_paid;
+    const editando = editingCosto != null && editingCosto === r.pkg_id;
+
+    if (editando) {
+      return (
+        <TableCell sx={{ minWidth: 150 }} onClick={e => e.stopPropagation()}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+            <TextField
+              autoFocus size="small" value={costoInput} disabled={savingCosto}
+              onChange={e => setCostoInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleSaveCosto(r);
+                if (e.key === 'Escape') cancelEditCosto();
+              }}
+              InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+              sx={{ width: 96, '& input': { fontSize: '0.78rem', py: 0.5 } }}
+            />
+            <Tooltip title="Guardar (Enter)">
+              <span>
+                <IconButton size="small" disabled={savingCosto} onClick={() => handleSaveCosto(r)}>
+                  {savingCosto ? <CircularProgress size={13} /> : <CheckIcon sx={{ fontSize: 16, color: '#2E7D32' }} />}
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Cancelar (Esc)">
+              <span>
+                <IconButton size="small" disabled={savingCosto} onClick={cancelEditCosto}>
+                  <CloseIcon sx={{ fontSize: 16, color: '#B71C1C' }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Box>
+        </TableCell>
+      );
+    }
+
+    return (
+      <TableCell sx={{ minWidth: 120 }}>
+        <Box
+          onClick={editable ? () => startEditCosto(r) : undefined}
+          sx={{
+            display: 'inline-flex', flexDirection: 'column', borderRadius: 1, px: 0.5, py: 0.25,
+            cursor: editable ? 'pointer' : 'default',
+            '&:hover': editable ? { bgcolor: '#FFF3E0' } : {},
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}>
+            <Typography
+              variant="body2"
+              fontWeight={700}
+              sx={{ fontSize: '0.8rem', color: enCero ? '#C62828' : '#1B5E20' }}
+            >
+              {enCero ? 'SIN COSTO' : `$${usd!.toFixed(2)}`}
+            </Typography>
+            {!enCero && <Typography variant="caption" sx={{ color: '#757575', fontSize: '0.6rem' }}>USD</Typography>}
+            {editable && <EditIcon sx={{ fontSize: 12, color: '#F05A28' }} />}
+          </Box>
+          {mxn != null && mxn > 0 && (
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.62rem' }}>
+              ${mxn.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+              {r.tarifa_nivel ? ` · N${r.tarifa_nivel}` : ''}
+            </Typography>
+          )}
+          {enCero && (
+            <Typography variant="caption" sx={{ color: '#C62828', fontSize: '0.6rem' }}>
+              {editable ? 'Click para corregir' : 'Revisar cotización'}
+            </Typography>
+          )}
+        </Box>
+      </TableCell>
+    );
+  };
+
   // ── Fila genérica (no TDI master) ──
   const renderFlatRow = (r: PackageRow, i: number) => (
     <TableRow key={i} hover selected={selectedGuias.has(r.guia)}>
@@ -1013,6 +1139,7 @@ export default function ServiceInventoryPage() {
                 </Box>
               : <Typography variant="caption" color="text.disabled">—</Typography>}
           </TableCell>
+          {renderCostoCell(r)}
           <TableCell><Typography variant="caption">{fmt(r.received_at)}</Typography></TableCell>
           {mtaCell(r.received_at)}
           <TableCell><Typography variant="caption" color="text.secondary">{fmt(r.updated_at)}</Typography></TableCell>
@@ -1040,6 +1167,7 @@ export default function ServiceInventoryPage() {
                   </Box>
                 : <Typography variant="caption" color="text.disabled">—</Typography>}
             </TableCell>
+            {renderCostoCell(child)}
             <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{fmt(child.received_at)}</Typography></TableCell>
             {mtaCell(child.received_at, true)}
             <TableCell><Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>{fmt(child.updated_at)}</Typography></TableCell>
@@ -1234,6 +1362,13 @@ export default function ServiceInventoryPage() {
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>CLIENTE</TableCell>
               {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>PAQUETERÍA</TableCell>}
               {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>GUÍA SALIDA</TableCell>}
+              {showCostoCol && (
+                <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>
+                  <Tooltip title={isSuperAdmin ? 'Costo de venta al cliente. Click en el monto para corregirlo.' : 'Costo de venta al cliente'}>
+                    <span>COSTO</span>
+                  </Tooltip>
+                </TableCell>
+              )}
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>FECHA INGRESO</TableCell>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>
                 <Tooltip title={`MTA — Max Time Arrival (${SERVICE_MTA_DAYS[service] ?? '—'} días naturales desde ingreso)`}>
@@ -1266,10 +1401,10 @@ export default function ServiceInventoryPage() {
           </TableHead>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={13} align="center" sx={{ py: 4 }}><CircularProgress size={28} /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={showCostoCol ? 14 : 13} align="center" sx={{ py: 4 }}><CircularProgress size={28} /></TableCell></TableRow>
             ) : displayRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} align="center" sx={{ py: 4, color: '#999' }}>
+                <TableCell colSpan={showCostoCol ? 14 : 13} align="center" sx={{ py: 4, color: '#999' }}>
                   {syncFilter ? 'Sin resultados para este filtro. Consulta EntregaX para ver el estado de sincronización.' : 'Sin resultados'}
                 </TableCell>
               </TableRow>
