@@ -230,28 +230,56 @@ export const calculatePOBoxCost = async (
             // PRECIO DE VENTA para esta caja individual
             let boxVentaUsd = 0;
             let boxNivel = 1;
-            
-            for (const tarifa of tarifas) {
-                const cbmMin = parseFloat(tarifa.cbm_min) || 0;
-                const cbmMax = tarifa.cbm_max ? parseFloat(tarifa.cbm_max) : Infinity;
-                
-                if (cbmParaTarifa >= cbmMin && cbmParaTarifa <= cbmMax) {
-                    boxNivel = tarifa.nivel;
-                    if (tarifa.tipo_cobro === 'fijo') {
-                        boxVentaUsd = parseFloat(tarifa.costo);
-                    } else {
-                        // Por unidad (m³)
-                        boxVentaUsd = cbmParaTarifa * parseFloat(tarifa.costo);
-                        // Protección: no cobrar menos que el nivel anterior
-                        const nivelAnterior = tarifas.find((t: any) => t.nivel === tarifa.nivel - 1);
-                        if (nivelAnterior && boxVentaUsd < parseFloat(nivelAnterior.costo)) {
-                            boxVentaUsd = parseFloat(nivelAnterior.costo);
-                        }
-                    }
-                    break;
-                }
+
+            // Buscar el nivel cuyo rango contiene al CBM. Si los rangos de
+            // pobox_tarifas_volumen quedaron con huecos (p.ej. N3 hasta 0.0990
+            // y N4 desde 0.1000, dejando muerto 0.0990–0.1000), un CBM que caiga
+            // en el hueco NO hace match y la venta se quedaría en $0 — es decir,
+            // la guía se generaría gratis. Por eso el no-match se resuelve
+            // explícitamente contra el nivel inmediato superior y se loguea.
+            let tarifaAplicada: any = tarifas.find((t: any) => {
+                const cbmMin = parseFloat(t.cbm_min) || 0;
+                // Rango semiabierto [min, max): el cbm_max de un nivel es el
+                // cbm_min del siguiente, así no quedan huecos entre niveles.
+                const cbmMax = t.cbm_max ? parseFloat(t.cbm_max) : Infinity;
+                return cbmParaTarifa >= cbmMin && cbmParaTarifa < cbmMax;
+            });
+
+            if (!tarifaAplicada && tarifas.length > 0) {
+                // Hueco en el tabulador: cobrar el nivel inmediato superior
+                // (el de menor cbm_min por encima del CBM). Si el CBM quedó por
+                // encima de todos los rangos, usar el último nivel.
+                const superiores = tarifas
+                    .filter((t: any) => (parseFloat(t.cbm_min) || 0) > cbmParaTarifa)
+                    .sort((a: any, b: any) => (parseFloat(a.cbm_min) || 0) - (parseFloat(b.cbm_min) || 0));
+                tarifaAplicada = superiores[0] || tarifas[tarifas.length - 1];
+                console.error(
+                    `🚨 [calculatePOBoxCost] HUECO EN TABULADOR: CBM ${cbmParaTarifa.toFixed(5)} no cae en ningún ` +
+                    `rango de pobox_tarifas_volumen. Se aplica Nivel ${tarifaAplicada.nivel} ($${tarifaAplicada.costo}) ` +
+                    `por fallback. Revisar cbm_min/cbm_max — los rangos deben ser contiguos.`
+                );
             }
-            
+
+            if (tarifaAplicada) {
+                boxNivel = tarifaAplicada.nivel;
+                if (tarifaAplicada.tipo_cobro === 'fijo') {
+                    boxVentaUsd = parseFloat(tarifaAplicada.costo);
+                } else {
+                    // Por unidad (m³)
+                    boxVentaUsd = cbmParaTarifa * parseFloat(tarifaAplicada.costo);
+                    // Protección: no cobrar menos que el nivel anterior
+                    const nivelAnterior = tarifas.find((t: any) => t.nivel === tarifaAplicada.nivel - 1);
+                    if (nivelAnterior && boxVentaUsd < parseFloat(nivelAnterior.costo)) {
+                        boxVentaUsd = parseFloat(nivelAnterior.costo);
+                    }
+                }
+            } else {
+                console.error(
+                    `🚨 [calculatePOBoxCost] Sin tarifas de venta activas en pobox_tarifas_volumen. ` +
+                    `La caja de CBM ${cbmParaTarifa.toFixed(5)} quedaría en $0.`
+                );
+            }
+
             totalVentaUsd += boxVentaUsd;
             if (boxNivel > nivelPredominante) nivelPredominante = boxNivel;
             

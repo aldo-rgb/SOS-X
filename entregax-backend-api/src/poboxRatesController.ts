@@ -43,9 +43,11 @@ export const calcularCotizacionPOBox = async (req: Request, res: Response): Prom
 
         for (const tarifa of tarifas) {
             const cbmMin = parseFloat(tarifa.cbm_min);
+            // Rango semiabierto [min, max): el cbm_max de un nivel es el cbm_min
+            // del siguiente, así los rangos no dejan huecos ni se traslapan.
             const cbmMax = tarifa.cbm_max ? parseFloat(tarifa.cbm_max) : Infinity;
 
-            if (cbm >= cbmMin && cbm <= cbmMax) {
+            if (cbm >= cbmMin && cbm < cbmMax) {
                 nivelAplicado = tarifa.nivel;
                 tipoCobroAplicado = tarifa.tipo_cobro;
 
@@ -139,10 +141,66 @@ export const getTarifasVolumen = async (req: Request, res: Response): Promise<vo
     }
 };
 
+/**
+ * Verifica que los niveles activos cubran el rango de CBM sin huecos.
+ * Un hueco (p.ej. N3 hasta 0.0990 y N4 desde 0.1000) hace que un paquete
+ * cuyo CBM caiga ahí no encuentre tarifa y se cobre en $0 — ya ocurrió y
+ * generó guías PO Box sin costo. Devuelve el mensaje de error o null si está bien.
+ */
+const validarContinuidadTarifas = (tarifas: any[]): string | null => {
+    const activas = tarifas
+        .filter((t) => t.estado !== false)
+        .sort((a, b) => (parseFloat(a.cbm_min) || 0) - (parseFloat(b.cbm_min) || 0));
+
+    if (activas.length === 0) return null;
+
+    for (let i = 0; i < activas.length - 1; i++) {
+        const actual = activas[i];
+        const siguiente = activas[i + 1];
+
+        // El último nivel puede ser abierto (cbm_max NULL); uno intermedio no.
+        if (actual.cbm_max == null) {
+            return `El Nivel ${actual.nivel} tiene CBM máximo abierto pero existe un nivel superior. Solo el último nivel puede quedar sin tope.`;
+        }
+
+        const max = parseFloat(actual.cbm_max);
+        const minSiguiente = parseFloat(siguiente.cbm_min) || 0;
+
+        // Los rangos son semiabiertos [min, max), así que el tope de un nivel
+        // debe ser exactamente el inicio del siguiente. Cualquier diferencia
+        // deja CBMs sin tarifa (se cobrarían en $0) o encimados.
+        if (Math.abs(minSiguiente - max) > 0.000001) {
+            return `El CBM máximo del Nivel ${actual.nivel} (${max}) debe ser exactamente el CBM mínimo del Nivel ${siguiente.nivel} (${minSiguiente}). ` +
+                `Los rangos son [mínimo, máximo): un paquete con CBM ${max} se cobra en el Nivel ${siguiente.nivel}. ` +
+                `Si no empalman, los paquetes que caen en medio se cobrarían en $0.`;
+        }
+    }
+
+    return null;
+};
+
 export const updateTarifaVolumen = async (req: Request, res: Response): Promise<void> => {
     try {
         const { id } = req.params;
         const { cbm_min, cbm_max, costo, tipo_cobro, estado } = req.body;
+
+        // Simular el resultado del update para validar ANTES de escribir.
+        const actuales = await pool.query('SELECT * FROM pobox_tarifas_volumen ORDER BY nivel ASC');
+        const simulado = actuales.rows.map((t: any) =>
+            String(t.id) === String(id)
+                ? {
+                      ...t,
+                      cbm_min: cbm_min ?? t.cbm_min,
+                      cbm_max: cbm_max,
+                      estado: estado ?? t.estado,
+                  }
+                : t
+        );
+        const errorRangos = validarContinuidadTarifas(simulado);
+        if (errorRangos) {
+            res.status(400).json({ error: errorRangos });
+            return;
+        }
 
         const result = await pool.query(
             `UPDATE pobox_tarifas_volumen 
@@ -172,6 +230,16 @@ export const updateTarifaVolumen = async (req: Request, res: Response): Promise<
 export const createTarifaVolumen = async (req: Request, res: Response): Promise<void> => {
     try {
         const { nivel, cbm_min, cbm_max, costo, tipo_cobro, moneda } = req.body;
+
+        const actuales = await pool.query('SELECT * FROM pobox_tarifas_volumen ORDER BY nivel ASC');
+        const errorRangos = validarContinuidadTarifas([
+            ...actuales.rows,
+            { id: null, nivel, cbm_min, cbm_max, estado: true },
+        ]);
+        if (errorRangos) {
+            res.status(400).json({ error: errorRangos });
+            return;
+        }
 
         const result = await pool.query(
             `INSERT INTO pobox_tarifas_volumen (nivel, cbm_min, cbm_max, costo, tipo_cobro, moneda)
