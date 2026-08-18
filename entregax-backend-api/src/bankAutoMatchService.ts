@@ -158,7 +158,34 @@ const authorizeOneMatch = async (
         else pkgIds.push(numId);
       }
     } else {
-      pkgIds = packageIds;
+      // Sin orden de asesor no hay prefijos DHL-/MAR-/PKG- que clasifiquen los
+      // ids. Tratarlos como packages aplicaba el pago a paquetes AÉREOS ajenos:
+      // los ids de dhl_shipments COLISIONAN con los de packages, así que el
+      // depósito de un cliente marcaba pagadas las guías de otro y las guías DHL
+      // reales seguían pendientes (TKT-2026-2113). El servicio se resuelve desde
+      // las fuentes autoritativas de la orden, nunca adivinando la tabla.
+      const svcOrden = await resolveCreditService(client, {
+        poboxPaymentId: order.id,
+        paymentReference: order.payment_reference,
+        // sin packageIds a propósito: derivarlo de packages es justo el error
+      });
+      if (svcOrden === 'dhl_liberacion') dhlIds = packageIds;
+      else if (svcOrden === 'maritimo') marIds = packageIds;
+      else if (svcOrden) pkgIds = packageIds;
+      else {
+        // Servicio indeterminado: aplicar a packages sería apostar. Se aborta
+        // para que un humano lo revise en vez de tocar la tabla equivocada.
+        await client.query('ROLLBACK');
+        console.error(
+          `[bankAutoMatch] Orden ${ref} NO auto-autorizada: sin orden de asesor y sin service_type ` +
+          `en openpay_webhook_logs no se puede saber a qué tabla aplicar el pago (los ids colisionan ` +
+          `entre packages/dhl_shipments/maritime_orders). Requiere autorización manual.`
+        );
+        return {
+          ref, status: 'error', amount: orderAmount, bank_total: bankTotal,
+          error: 'No se pudo determinar el servicio de la orden (sin orden de asesor ni service_type). Requiere autorización manual.',
+        };
+      }
     }
     // DHL: marcar TODAS las cajas del envío (la orden solo referencia una).
     // Se expande aquí porque dhlIds se reutiliza más abajo para comisiones.
