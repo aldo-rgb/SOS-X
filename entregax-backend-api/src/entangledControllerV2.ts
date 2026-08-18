@@ -1974,6 +1974,13 @@ export const webhookFacturaGeneradaV2 = async (
        payload.es_pesos != null ? Boolean(payload.es_pesos) : null]
     );
 
+
+    // Misma razón que en el webhook del proveedor: esta es la otra vía por la
+    // que la operación llega a 'completado' (factura emitida con el proveedor
+    // ya pagado). Si la comisión no se generó antes por falta de datos, aquí
+    // se recupera. Idempotente.
+    generateXpayCommission(Number(requestId)).catch((e: any) =>
+      console.error('[ENTANGLED v2] Error comisión XPAY (webhook factura):', e));
     await logWebhook(transaccionId, evento, payload, requestId);
     return res.status(200).json({ ok: true });
   } catch (err) {
@@ -2107,6 +2114,17 @@ export const webhookPagoProveedorV2 = async (
        payload.es_pesos != null ? Boolean(payload.es_pesos) : null]
     );
 
+
+    // 💸 La comisión XPAY se generaba solo al subir el comprobante y al
+    // sincronizar con ENTANGLED — ambos ANTES de que la operación esté
+    // completa. Si en ese momento faltaba el tc_cliente_final o el
+    // comision_entregax, la fórmula daba 0, el INSERT se descartaba por el
+    // filtro `> 0.01` y nadie volvía a intentarlo: el asesor se quedaba sin su
+    // comisión aunque el envío se completara (TKT-2026-2205). Aquí el pago al
+    // proveedor ya está confirmado y los porcentajes definidos, que es el
+    // momento correcto. generateXpayCommission es idempotente (ON CONFLICT).
+    generateXpayCommission(Number(requestId)).catch((e: any) =>
+      console.error('[ENTANGLED v2] Error comisión XPAY (webhook proveedor):', e));
     await logWebhook(transaccionId, evento, payload, requestId);
     return res.status(200).json({ ok: true });
   } catch (err) {
