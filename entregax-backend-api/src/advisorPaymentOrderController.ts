@@ -419,10 +419,10 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
 
     // ── 5. Create pobox_payments record (same format as client cash flow) ─
     const ppRes = await pool.query(`
-      INSERT INTO pobox_payments (user_id, package_ids, amount, currency, payment_method, payment_reference, status, created_at)
-      VALUES ($1, $2, $3, 'MXN', 'cash', $4, 'pending_payment', CURRENT_TIMESTAMP)
+      INSERT INTO pobox_payments (user_id, package_ids, amount, currency, payment_method, payment_reference, status, service_type, created_at)
+      VALUES ($1, $2, $3, 'MXN', 'cash', $4, 'pending_payment', $5, CURRENT_TIMESTAMP)
       RETURNING id
-    `, [client_id, JSON.stringify(allPackageIds), Number(total_mxn), paymentRef]);
+    `, [client_id, JSON.stringify(allPackageIds), Number(total_mxn), paymentRef, serviceTypeForConfig]);
 
     const poboxPaymentId = ppRes.rows[0].id;
 

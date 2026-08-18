@@ -1938,14 +1938,14 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
             await pool.query(
               `INSERT INTO pobox_payments
                  (user_id, package_ids, amount, currency, payment_method, payment_reference,
-                  status, requiere_factura, paid_at, created_at)
-               VALUES ($1, $2::jsonb, $3, $4, 'paypal', $5, 'completed', $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                  status, requiere_factura, service_type, paid_at, created_at)
+               VALUES ($1, $2::jsonb, $3, $4, 'paypal', $5, 'completed', $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                ON CONFLICT (payment_reference) DO UPDATE SET
                  status = 'completed',
                  payment_method = 'paypal',
                  paid_at = CURRENT_TIMESTAMP,
                  requiere_factura = EXCLUDED.requiere_factura`,
-              [parsedUserId, JSON.stringify(pkgIds), intentAmount, intentCurrency, paymentRef, requiresInvoiceFlag]
+              [parsedUserId, JSON.stringify(pkgIds), intentAmount, intentCurrency, paymentRef, requiresInvoiceFlag, intent.service_type || null]
             );
           }
         } catch (ordErr: any) {

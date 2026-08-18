@@ -255,8 +255,8 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
         const paymentResult = await pool.query(`
             INSERT INTO pobox_payments (
                 user_id, package_ids, amount, currency, payment_method, 
-                payment_reference, status, requiere_factura, created_at
-            ) VALUES ($1, $2, $3, $4, 'paypal', $5, 'pending', $6, CURRENT_TIMESTAMP)
+                payment_reference, status, requiere_factura, service_type, created_at
+            ) VALUES ($1, $2, $3, $4, 'paypal', $5, 'pending', $6, 'POBOX_USA', CURRENT_TIMESTAMP)
             RETURNING id
         `, [userId, JSON.stringify(packageIds), totalAmount, currency, paymentRef, requireInvoice || false]);
 
@@ -660,8 +660,8 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
         const paymentResult = await pool.query(`
             INSERT INTO pobox_payments (
                 user_id, package_ids, amount, currency, payment_method, 
-                payment_reference, status, requiere_factura, created_at
-            ) VALUES ($1, $2, $3, $4, 'openpay_card', $5, 'pending', $6, CURRENT_TIMESTAMP)
+                payment_reference, status, requiere_factura, service_type, created_at
+            ) VALUES ($1, $2, $3, $4, 'openpay_card', $5, 'pending', $6, 'POBOX_USA', CURRENT_TIMESTAMP)
             RETURNING id
         `, [userId, JSON.stringify(packageIds), totalAmount, currency, paymentRef, requireInvoice || false]);
 
@@ -1086,11 +1086,11 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         const paymentResult = await pool.query(`
             INSERT INTO pobox_payments (
                 user_id, package_ids, amount, currency, payment_method,
-                payment_reference, status, requiere_factura, created_at
-            ) VALUES ($1, $2, $3, $4, $6, $5, 'pending_payment', $7,
+                payment_reference, status, requiere_factura, service_type, created_at
+            ) VALUES ($1, $2, $3, $4, $6, $5, 'pending_payment', $7, $8,
                       CURRENT_TIMESTAMP)
             RETURNING id
-        `, [userId, JSON.stringify(filteredPackageIds), finalTotalAmount, currency, paymentRef, paymentMethod, wantsInvoice]);
+        `, [userId, JSON.stringify(filteredPackageIds), finalTotalAmount, currency, paymentRef, paymentMethod, wantsInvoice, serviceTypeForConfig]);
 
         const payment = paymentResult.rows[0];
 

@@ -16,6 +16,7 @@
 import { pool } from './db';
 import { expandDhlGroupIds } from './dhlGroup';
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
+import { resolveOrderService, classifyOrderIds } from './orderService';
 import { createNotification, createCustomNotification } from './notificationController';
 
 type AuthorizeResult = {
@@ -164,15 +165,15 @@ const authorizeOneMatch = async (
       // depósito de un cliente marcaba pagadas las guías de otro y las guías DHL
       // reales seguían pendientes (TKT-2026-2113). El servicio se resuelve desde
       // las fuentes autoritativas de la orden, nunca adivinando la tabla.
-      const svcOrden = await resolveCreditService(client, {
+      // pobox_payments.service_type lo declara la propia orden (columna nueva);
+      // para órdenes anteriores se cae a la orden de asesor y al log de Openpay.
+      const svcOrden = await resolveOrderService(client, {
         poboxPaymentId: order.id,
         paymentReference: order.payment_reference,
-        // sin packageIds a propósito: derivarlo de packages es justo el error
       });
-      if (svcOrden === 'dhl_liberacion') dhlIds = packageIds;
-      else if (svcOrden === 'maritimo') marIds = packageIds;
-      else if (svcOrden) pkgIds = packageIds;
-      else {
+      if (svcOrden) {
+        ({ pkgIds, dhlIds, marIds } = classifyOrderIds(svcOrden, packageIds));
+      } else {
         // Servicio indeterminado: aplicar a packages sería apostar. Se aborta
         // para que un humano lo revise en vez de tocar la tabla equivocada.
         await client.query('ROLLBACK');

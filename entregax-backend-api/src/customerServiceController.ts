@@ -278,9 +278,9 @@ export async function createCexCollectible(opts: {
   const guia_tracking = opts.guia_tracking;
 
   const ppRes = await pool.query(
-    `INSERT INTO pobox_payments (user_id, package_ids, amount, currency, payment_method, payment_reference, status, concepto, bank_name, bank_clabe, bank_account, beneficiario, created_at)
-     VALUES ($1, '[]'::jsonb, $2, 'MXN', 'transfer', $3, 'pending_payment', $4, $5, $6, $7, $8, CURRENT_TIMESTAMP) RETURNING id`,
-    [opts.cliente_id, montoMxn, ref, concepto, company.bank_name, company.bank_clabe, company.bank_account, company.legal_name]
+    `INSERT INTO pobox_payments (user_id, package_ids, amount, currency, payment_method, payment_reference, status, concepto, bank_name, bank_clabe, bank_account, beneficiario, service_type, created_at)
+     VALUES ($1, '[]'::jsonb, $2, 'MXN', 'transfer', $3, 'pending_payment', $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP) RETURNING id`,
+    [opts.cliente_id, montoMxn, ref, concepto, company.bank_name, company.bank_clabe, company.bank_account, company.legal_name, cfgServiceType]
   );
   const poboxPaymentId = ppRes.rows[0].id;
 
@@ -1945,11 +1945,11 @@ async function aplicarDescuentoAOrdenes(desc: any): Promise<string> {
     // Crear la nueva orden con el descuento aplicado
     const newPobox = await pool.query(
       `INSERT INTO pobox_payments
-         (user_id, package_ids, amount, currency, payment_method, payment_reference, status, requiere_factura, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending_payment', $7, CURRENT_TIMESTAMP)
+         (user_id, package_ids, amount, currency, payment_method, payment_reference, status, requiere_factura, service_type, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending_payment', $7, $8, CURRENT_TIMESTAMP)
        RETURNING id`,
       [o.user_id, o.package_ids, newAmount, o.currency || 'MXN',
-       o.payment_method || 'cash', newRef, o.requiere_factura || false]
+       o.payment_method || 'cash', newRef, o.requiere_factura || false, o.service_type || null]
     );
     const newPoboxId = newPobox.rows[0].id;
 
