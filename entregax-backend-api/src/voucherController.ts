@@ -190,11 +190,32 @@ export const confirmVoucherAmount = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Este comprobante ya fue confirmado' });
     }
 
+    // 🔁 DUPLICADO: el mismo pago suele entrar dos veces —el cliente lo sube por
+    // la app y su asesor lo sube desde el panel con la imagen que le mandaron por
+    // WhatsApp—. El sistema los sumaba como pagos distintos, inflaba
+    // voucher_total al doble y generaba saldo a favor por dinero que nunca entró
+    // (4 casos, $47,541). Se marca el comprobante repetido para que nadie lo
+    // apruebe sin verlo; NO se bloquea la subida, porque dos pagos idénticos
+    // legítimos son posibles.
+    const dupRes = await pool.query(
+      `SELECT id FROM payment_vouchers
+        WHERE payment_order_id = $1 AND id <> $2
+          AND status <> 'rejected'
+          AND ABS(COALESCE(declared_amount,0) - $3::numeric) < 0.01
+        ORDER BY id LIMIT 1`,
+      [voucher.payment_order_id, voucher_id, amount]
+    );
+    const duplicadoDe: number | null = dupRes.rows[0]?.id ?? null;
+    if (duplicadoDe) {
+      console.warn(`[VOUCHER] posible duplicado: comprobante ${voucher_id} repite el monto $${amount} del ${duplicadoDe} en la orden ${voucher.payment_order_id}`);
+    }
+
     // Update voucher with confirmed amount
     await pool.query(
-      `UPDATE payment_vouchers SET declared_amount = $1, status = 'pending_review', updated_at = NOW()
+      `UPDATE payment_vouchers SET declared_amount = $1, status = 'pending_review', updated_at = NOW(),
+           duplicate_of_voucher_id = $3
        WHERE id = $2`,
-      [amount, voucher_id]
+      [amount, voucher_id, duplicadoDe]
     );
 
     // Update order accumulated total
@@ -230,6 +251,10 @@ export const confirmVoucherAmount = async (req: AuthRequest, res: Response) => {
       success: true,
       voucher_id,
       declared_amount: amount,
+      possible_duplicate: !!duplicadoDe,
+      duplicate_warning: duplicadoDe
+        ? 'Ya hay otro comprobante por este mismo monto en la orden. Si es el mismo pago, no lo subas de nuevo: quedará en revisión para que finanzas confirme si son dos pagos distintos.'
+        : undefined,
       order: {
         total: orderTotal,
         accumulated: newTotal,
@@ -630,6 +655,30 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
   try {
     const adminId = req.user?.userId;
     const { id } = req.params;
+    // El admin puede aprobar un posible duplicado si verificó en el banco que
+    // sí son dos pagos distintos; tiene que decirlo explícitamente.
+    const confirmarDuplicado = req.body?.confirm_duplicate === true || req.body?.confirm_duplicate === 'true';
+
+    // 🔁 Freno al duplicado: aprobarlo suma el mismo pago dos veces al total de
+    // la orden y acredita saldo a favor que nunca entró al banco.
+    const dupCheck = await pool.query(
+      `SELECT v.duplicate_of_voucher_id, v.declared_amount, o.payment_reference
+         FROM payment_vouchers v
+         JOIN pobox_payments o ON o.id = v.payment_order_id
+        WHERE v.id = $1`,
+      [id]
+    );
+    const dup = dupCheck.rows[0];
+    if (dup?.duplicate_of_voucher_id && !confirmarDuplicado) {
+      return res.status(409).json({
+        error: 'Posible comprobante duplicado',
+        message: `Este comprobante repite el monto $${Number(dup.declared_amount).toFixed(2)} del comprobante #${dup.duplicate_of_voucher_id} en la orden ${dup.payment_reference}. ` +
+          `Suele pasar cuando el cliente sube su comprobante y el asesor sube el mismo. Verifica en el estado de cuenta si son DOS pagos distintos: ` +
+          `si es el mismo, recházalo; si de verdad son dos, vuelve a aprobar confirmando el duplicado.`,
+        duplicate_of_voucher_id: dup.duplicate_of_voucher_id,
+        requires_confirmation: true,
+      });
+    }
 
     const result = await pool.query(
       `UPDATE payment_vouchers 
