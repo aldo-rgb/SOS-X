@@ -881,7 +881,8 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
 
     // Impuesto DHL: si ya hay una nota de impuestos registrada para esta guía
     // (caja chica) y su monto es >= al default, se aplica ese monto; si no, el default.
-    const importTaxMxn = await resolveDhlEffectiveTax([inbound_tracking, secondary_tracking]);
+    const importTaxMxn = await resolveDhlTaxForNewBox(
+      [inbound_tracking, secondary_tracking], secondary_tracking, userId || null);
     const totalWithTax = importCostMxn !== null ? importCostMxn + importTaxMxn : importTaxMxn;
 
     // Insertar registro con costo interno auto-asignado
@@ -1797,6 +1798,52 @@ export const getDhlTaxNote = async (trackings: (string | null | undefined)[]): P
 // Impuesto efectivo POR CAJA según la regla:
 //  - per-caja = monto de la nota / número de cajas (piezas)
 //  - si per-caja >= default → usa per-caja; si no (o no hay nota) → usa default
+/**
+ * Impuesto DHL que le toca a una caja que se está registrando AHORA.
+ *
+ * El impuesto es por ENVÍO, no por caja: una guía múltiple de hasta 5 cajas paga
+ * un solo cobro (el default, $390). Antes cada caja recibía el default completo,
+ * así que una guía de 3 piezas cobraba $1,170 en vez de $390 — reportado en la
+ * guía 8350500432 (tarea #299).
+ *
+ * Si hay nota de impuestos registrada para la guía, manda la nota: su monto ya
+ * viene repartido entre las piezas por resolveDhlEffectiveTax.
+ *
+ * Más de 5 cajas: se cobra otro bloque. Las cajas 1, 6, 11… llevan el impuesto;
+ * las intermedias van en 0.
+ */
+export const CAJAS_POR_COBRO_IMPUESTO = 5;
+
+export const resolveDhlTaxForNewBox = async (
+  trackings: (string | null | undefined)[],
+  secondaryTracking: string | null | undefined,
+  userId: number | null
+): Promise<number> => {
+  const efectivo = await resolveDhlEffectiveTax(trackings);
+  const tk = secondaryTracking ? String(secondaryTracking).trim() : '';
+  if (!tk) return efectivo;
+
+  // Si hay nota de impuestos para la guía, el reparto ya lo hizo el cálculo de
+  // arriba: cada caja lleva su parte y no se toca.
+  const note = await getDhlTaxNote(trackings);
+  if (note) return efectivo;
+
+  // Sin nota: el default se cobra UNA vez por cada bloque de 5 cajas del envío.
+  const prev = await pool.query(
+    `SELECT COUNT(*)::int n FROM dhl_shipments
+      WHERE secondary_tracking = $1
+        AND user_id IS NOT DISTINCT FROM $2`,
+    [tk, userId]
+  );
+  const yaRegistradas = Number(prev.rows[0]?.n) || 0;
+  const esInicioDeBloque = yaRegistradas % CAJAS_POR_COBRO_IMPUESTO === 0;
+  if (!esInicioDeBloque) {
+    console.log(`[DHL] caja ${yaRegistradas + 1} del envío ${tk}: sin impuesto (ya cubierto por el cobro del bloque)`);
+    return 0;
+  }
+  return efectivo;
+};
+
 export const resolveDhlEffectiveTax = async (trackings: (string | null | undefined)[]): Promise<number> => {
   const def = await getDhlImportTaxMxn();
   const note = await getDhlTaxNote(trackings);
