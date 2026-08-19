@@ -200,21 +200,50 @@ async function actualizarSaldoGuia(tracking: string, servicio: string) {
     ? '(inbound_tracking = $1 OR secondary_tracking = $1)'
     : `${trackingColumn} = $1`;
 
-  // Obtener costo base
+  // Obtener costo base. OJO: en DHL multicaja el mismo tracking matchea VARIAS
+  // filas (una por caja). Antes se calculaba el saldo con rows[0] —una sola
+  // caja— y el UPDATE lo escribía en TODAS: cada caja quedaba con el costo de
+  // una más los cargos del envío completo. Al sumarlas, Cajito mostraba el
+  // flete nacional multiplicado por el número de cajas (guía 8350500432:
+  // $15,204.45 en vez de $12,138.60). El saldo se reparte proporcional al costo
+  // de cada caja para que la suma del envío sea la correcta.
   const baseResult = await pool.query(
-    `SELECT ${costoExpr} as costo_base, COALESCE(monto_pagado, 0) as pagado
-     FROM ${tableName} WHERE ${whereExpr}`,
+    `SELECT id, ${costoExpr} as costo_base, COALESCE(monto_pagado, 0) as pagado
+     FROM ${tableName} WHERE ${whereExpr} ORDER BY id`,
     [tracking]
   );
 
   if (baseResult.rows.length > 0) {
-    const { costo_base, pagado } = baseResult.rows[0];
-    const nuevoSaldo = parseFloat(costo_base) + parseFloat(cargos) - parseFloat(descuentos) - parseFloat(pagado);
+    const filas = baseResult.rows;
+    const costoTotal = filas.reduce((s: number, r: any) => s + parseFloat(r.costo_base || 0), 0);
+    const pagadoTotal = filas.reduce((s: number, r: any) => s + parseFloat(r.pagado || 0), 0);
+    const saldoEnvio = Math.max(0,
+      costoTotal + parseFloat(cargos) - parseFloat(descuentos) - pagadoTotal);
 
-    await pool.query(
-      `UPDATE ${tableName} SET saldo_pendiente = $1 WHERE ${whereExpr.replace(/\$1/g, '$2')}`,
-      [Math.max(0, nuevoSaldo), tracking]
-    );
+    if (filas.length === 1) {
+      await pool.query(
+        `UPDATE ${tableName} SET saldo_pendiente = $1 WHERE id = $2`,
+        [saldoEnvio, filas[0].id]
+      );
+    } else {
+      // Reparto proporcional; el redondeo sobrante se ajusta en la última caja
+      // para que la suma cuadre al centavo con el saldo del envío.
+      let acumulado = 0;
+      for (let i = 0; i < filas.length; i++) {
+        const proporcion = costoTotal > 0
+          ? parseFloat(filas[i].costo_base || 0) / costoTotal
+          : 1 / filas.length;
+        const parte = i === filas.length - 1
+          ? +(saldoEnvio - acumulado).toFixed(2)
+          : +(saldoEnvio * proporcion).toFixed(2);
+        acumulado += parte;
+        await pool.query(
+          `UPDATE ${tableName} SET saldo_pendiente = $1 WHERE id = $2`,
+          [Math.max(0, parte), filas[i].id]
+        );
+      }
+      console.log(`[saldo] ${servicio} ${tracking}: $${saldoEnvio.toFixed(2)} repartido entre ${filas.length} cajas`);
+    }
   }
 }
 
