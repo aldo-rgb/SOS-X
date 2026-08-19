@@ -276,19 +276,22 @@ export const createPaymentRequest = async (
   let advisorId: number | null = null;
   let advisorName: string = comisiones?.asesor_nombre || '';
   try {
+    // La columna en `users` es advisor_id (assigned_advisor_id es de
+    // prospects/crm_requests). Con el nombre equivocado la query fallaba
+    // siempre y el catch vacío dejaba la operación sin asesor ni comisión.
     const userRow = await pool.query(
-      `SELECT u.assigned_advisor_id, a.full_name AS advisor_name
+      `SELECT u.advisor_id, a.full_name AS advisor_name
        FROM users u
-       LEFT JOIN users a ON a.id = u.assigned_advisor_id
+       LEFT JOIN users a ON a.id = u.advisor_id
        WHERE u.id = $1`,
       [userId]
     );
     if (userRow.rows.length > 0) {
-      advisorId = userRow.rows[0].assigned_advisor_id || null;
+      advisorId = userRow.rows[0].advisor_id || null;
       if (!advisorName) advisorName = userRow.rows[0].advisor_name || '';
     }
   } catch (e) {
-    // assigned_advisor_id puede no existir en algunas instalaciones; lo ignoramos.
+    console.error('[ENTANGLED] no se pudo resolver el asesor del cliente', userId, (e as Error).message);
   }
 
   // Comisiones calculadas automáticamente desde la configuración del proveedor

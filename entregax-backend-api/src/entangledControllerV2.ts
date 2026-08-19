@@ -395,14 +395,23 @@ export const createPaymentRequestV2 = async (
   let advisorId: number | null = opts?.advisorId ?? null;
   if (!advisorId) {
     try {
+      // La columna en `users` es advisor_id. Antes se consultaba
+      // assigned_advisor_id —que existe en prospects/crm_requests, NO en
+      // users—, así que la query fallaba SIEMPRE y el catch vacío dejaba la
+      // operación sin asesor: 26 de 64 quedaron huérfanas y sin comisión
+      // (TKT-2026-2205 / XP940241). Solo se salvaban las que crea un asesor,
+      // porque ahí el id viene en opts.
       const r = await pool.query(
-        `SELECT assigned_advisor_id FROM users WHERE id = $1`,
+        `SELECT advisor_id FROM users WHERE id = $1`,
         [userId]
       );
-      advisorId = r.rows[0]?.assigned_advisor_id || null;
-    } catch {
-      /* columna puede no existir */
+      advisorId = r.rows[0]?.advisor_id || null;
+    } catch (e) {
+      console.error('[ENTANGLED v2] no se pudo resolver el asesor del cliente', userId, (e as Error).message);
     }
+  }
+  if (!advisorId) {
+    console.warn(`[ENTANGLED v2] operación creada SIN asesor para user=${userId}: no habrá comisión hasta asignarlo`);
   }
 
   // 1) Persistencia local (estado pendiente, sin transaccion_id aún)
