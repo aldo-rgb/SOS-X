@@ -9581,7 +9581,9 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
     // aunque quede colgado un webhook log 'pending_payment'. (Caso real: RO-4628ACA3
     // cancelada pero con log pendiente → el dashboard permitía confirmar el cobro.)
     const ordenEstadoRes = await pool.query(
-      `SELECT status FROM pobox_payments WHERE payment_reference = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT id, status, amount, COALESCE(voucher_total,0) AS voucher_total,
+              COALESCE(wallet_applied,0) AS wallet_applied, COALESCE(credit_applied,0) AS credit_applied
+         FROM pobox_payments WHERE payment_reference = $1 ORDER BY created_at DESC LIMIT 1`,
       [refStr]
     );
     const estadoOrden = String(ordenEstadoRes.rows[0]?.status || '').toLowerCase();
@@ -9590,6 +9592,38 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
         error: 'orden_cancelada',
         message: `La orden de pago ${refStr} está ${estadoOrden === 'expired' ? 'expirada' : 'cancelada'} y no puede confirmarse.`
       });
+    }
+
+    // 🔒 Lo recibido tiene que CUBRIR la orden. Esta ruta marcaba pagado sin
+    // mirar el monto, a diferencia de approveVoucher y del auto-match bancario:
+    // por aquí se colaron órdenes liquidadas de menos (UW-1229F712 quedó pagada
+    // con $3,113 de $4,266.75 tras revertirse el saldo a favor). Se cuenta lo
+    // cubierto por comprobantes, saldo a favor y crédito ya aplicados; el
+    // monto_recibido de ventanilla suele ser el mismo pago del comprobante, así
+    // que se toma el mayor de los dos en vez de sumarlos.
+    const ordenCheck = ordenEstadoRes.rows[0];
+    if (ordenCheck) {
+      const totalOrden = Number(ordenCheck.amount) || 0;
+      const recibidoMxn = currency === 'USD'
+        ? (Number(monto_recibido) || 0) * (Number(tipo_cambio) || 0)
+        : (Number(monto_recibido) || 0);
+      const cubierto = Math.max(Number(ordenCheck.voucher_total), recibidoMxn)
+        + Number(ordenCheck.wallet_applied) + Number(ordenCheck.credit_applied);
+      const TOLERANCIA_MXN = 5; // redondeo de centavos
+      const forzar = req.body?.confirm_partial === true || req.body?.confirm_partial === 'true';
+      if (totalOrden > 0 && cubierto > 0 && cubierto < totalOrden - TOLERANCIA_MXN && !forzar) {
+        const faltante = +(totalOrden - cubierto).toFixed(2);
+        console.warn(`[confirm-payment] ${refStr} NO confirmada: cubierto $${cubierto.toFixed(2)} de $${totalOrden.toFixed(2)} (faltan $${faltante.toFixed(2)})`);
+        return res.status(409).json({
+          error: 'pago_insuficiente',
+          message: `La orden ${refStr} es por $${totalOrden.toFixed(2)} y solo hay $${cubierto.toFixed(2)} cubiertos entre comprobantes, saldo a favor y crédito. Faltan $${faltante.toFixed(2)}. ` +
+            `Verifica si el cliente aplicó saldo que luego se revirtió. Si aun así quieres darla por pagada, confirma el pago parcial.`,
+          order_total: totalOrden,
+          covered: cubierto,
+          remaining: faltante,
+          requires_confirmation: true,
+        });
+      }
     }
 
     // Buscar el pago pendiente en openpay_webhook_logs
