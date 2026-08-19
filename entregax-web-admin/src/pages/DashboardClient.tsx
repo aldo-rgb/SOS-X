@@ -2344,15 +2344,28 @@ export default function DashboardClient() {
     }
 
     setAdjustingGateway(true);
+    // Declaradas fuera del try para que el catch pueda restituir lo revertido.
+    let revertedWallet = 0;
+    let revertedCredit = 0;
+    let revertedCreditService: string | null = null;
     try {
-      // 1) Revertir aplicaciones previas llamando directamente a la API
+      // 1) Revertir aplicaciones previas llamando directamente a la API.
+      //    OJO: esto NO es atómico con el re-aplicado de los pasos 3 y 4. Si algo
+      //    falla en medio, el saldo queda devuelto al monedero y la orden vuelve a
+      //    su monto completo, pero el cliente sigue viendo en pantalla el monto
+      //    reducido y paga de menos (pasó en UW-1229F712: pagó $3,113 de una orden
+      //    que había vuelto a $4,266.75). Por eso el catch de abajo restituye lo
+      //    revertido en vez de dejar la orden a medias.
       if (walletAppliedDb > 0) {
         const r = await api.post(`/pobox/payment/order/${order.id}/revert-wallet`);
         if (!r.data?.success) throw new Error(r.data?.message || r.data?.error || 'No se pudo revertir saldo');
+        revertedWallet = walletAppliedDb;
       }
       if (creditAppliedDb > 0) {
+        revertedCreditService = order.credit_service || creditPartial?.service || null;
         const r = await api.post(`/pobox/payment/order/${order.id}/revert-credit`);
         if (!r.data?.success) throw new Error(r.data?.message || r.data?.error || 'No se pudo revertir crédito');
+        revertedCredit = creditAppliedDb;
       }
 
       // 2) Calcular distribución total requerida desde recursos internos
@@ -2418,6 +2431,19 @@ export default function DashboardClient() {
       setSnackbar({ open: true, message: `✅ Pagarás ${formatCurrency(newAmount)} con tarjeta/PayPal`, severity: 'success' });
       return true;
     } catch (e: any) {
+      // Compensación: si ya se revirtió pero el re-aplicado no llegó a completarse,
+      // se vuelve a aplicar para que la orden no quede con el monto restaurado y
+      // el cliente pagando de menos.
+      try {
+        if (revertedWallet > 0.009) {
+          await api.post(`/pobox/payment/order/${order.id}/apply-wallet`, { wallet_amount: revertedWallet });
+        }
+        if (revertedCredit > 0.009 && revertedCreditService) {
+          await api.post(`/pobox/payment/order/${order.id}/apply-credit`, { service: revertedCreditService, credit_amount: revertedCredit });
+        }
+      } catch (restoreErr) {
+        console.error('No se pudo restituir el saldo/crédito revertido:', restoreErr);
+      }
       const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Error al redistribuir';
       setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
       // Recargar para reflejar estado real en BD

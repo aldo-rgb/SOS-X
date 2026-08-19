@@ -2958,7 +2958,7 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
             await client.query(
                 `INSERT INTO financial_transactions
                  (user_id, type, amount, balance_after, description, reference_id, reference_type, created_at)
-                 VALUES ($1, 'payment', $2, $3, $4, $5, 'pobox_payment', NOW())`,
+                 VALUES ($1, 'payment_wallet', $2, $3, $4, $5, 'pobox_payment', NOW())`,
                 [
                     userId,
                     -applied,
@@ -3097,6 +3097,23 @@ export const revertWalletFromPoboxOrder = async (req: AuthRequest, res: Response
         if (walletApplied <= 0) {
             await client.query('ROLLBACK');
             return res.json({ success: true, message: 'No había saldo aplicado', reverted: 0 });
+        }
+
+        // 🔒 Si el cliente ya subió un comprobante, ese importe lo calculó CON el
+        // saldo aplicado. Revertirlo ahora sube el monto de la orden y lo deja
+        // pagando de menos sin enterarse: pasó en UW-1229F712, donde el cliente
+        // depositó $3,113 de una orden que volvió a valer $4,266.75.
+        const compRes = await client.query(
+            `SELECT COUNT(*)::int n FROM payment_vouchers
+              WHERE payment_order_id = $1 AND status <> 'rejected'`,
+            [orderId]
+        );
+        if (Number(compRes.rows[0]?.n) > 0) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({
+                error: 'Ya hay un comprobante en esta orden',
+                message: 'No se puede quitar el saldo a favor porque ya subiste un comprobante calculado con él. Si necesitas cambiar la forma de pago, contacta a soporte para que ajusten la orden.',
+            });
         }
 
         // Reintegrar al wallet del usuario
