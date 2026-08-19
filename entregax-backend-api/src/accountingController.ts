@@ -764,7 +764,10 @@ function buildItemTaxBreakdown(it: {
     iva_retention_rate?: number; isr_retention_rate?: number;
 }) {
     const qty = Number(it.quantity) || 0;
-    const price = Number(it.unit_price) || 0;
+    // Mismo redondeo que aplica facturamaClient al armar el CFDI: si aquí se
+    // calcula con el precio crudo (p. ej. 24925.20690) y allá con el redondeado,
+    // lo timbrado y lo registrado quedan descuadrados por fracciones de centavo.
+    const price = +(Number(it.unit_price) || 0).toFixed(2);
     const discount = Number(it.discount) || 0;
     const subtotalRaw = qty * price;
     const subtotal = +(subtotalRaw - discount).toFixed(2);

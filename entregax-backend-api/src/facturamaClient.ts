@@ -153,7 +153,14 @@ function throwFromResponse(prefix: string, r: { status: number; data: any }): ne
  */
 function buildFacturamaCfdiPayload(emitter: FacturamaEmitter, p: FacturapiLikePayload) {
     const items = p.items.map(it => {
-        const subtotal = +(it.quantity * it.product.price).toFixed(2);
+        // El SAT exige que Importe = Cantidad × ValorUnitario cuadre exacto. Si
+        // el precio llega con más de 2 decimales (p. ej. 24925.20690, típico de
+        // dividir un monto o convertir divisa) y el Subtotal se redondea a 2, el
+        // CFDI queda descuadrado por fracciones de centavo: Facturama contesta
+        // 200 pero el PAC no lo timbra y la factura se cae sin UUID.
+        // Se redondea el unitario ANTES de calcular, para que ambos coincidan.
+        const unitPrice = +Number(it.product.price || 0).toFixed(2);
+        const subtotal = +(it.quantity * unitPrice).toFixed(2);
         const taxes = (it.product.taxes || []).map(t => ({
             Total: +(subtotal * t.rate).toFixed(2),
             Name: t.type,
@@ -171,7 +178,7 @@ function buildFacturamaCfdiPayload(emitter: FacturamaEmitter, p: FacturapiLikePa
             Unit: 'Servicio',
             Description: it.product.description,
             Quantity: it.quantity,
-            UnitPrice: it.product.price,
+            UnitPrice: unitPrice,
             Subtotal: subtotal,
             TaxObject: taxObject,
             Taxes: taxes,
