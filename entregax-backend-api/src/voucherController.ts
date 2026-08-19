@@ -212,7 +212,19 @@ export const confirmVoucherAmount = async (req: AuthRequest, res: Response) => {
 
     const remaining = orderTotal - newTotal;
     const isComplete = remaining <= 0;
-    const surplus = isComplete ? Math.abs(remaining) : 0;
+    // Si ya cubre el total, el sobrante se acredita AQUÍ. Antes solo se
+    // devolvía en el JSON y el abono dependía de que el cliente diera un paso
+    // más ("completar pago") que en la práctica no siempre ocurre, porque la
+    // orden ya cambió de estado. El helper es idempotente.
+    let surplus = 0;
+    if (isComplete) {
+      try {
+        surplus = await acreditarSobranteOrden(pool, voucher.payment_order_id);
+      } catch (e: any) {
+        console.error('[VOUCHER] no se pudo acreditar el sobrante:', e.message);
+        surplus = Math.abs(remaining);
+      }
+    }
 
     return res.json({
       success: true,
@@ -232,6 +244,66 @@ export const confirmVoucherAmount = async (req: AuthRequest, res: Response) => {
     return res.status(500).json({ error: 'Error al confirmar monto' });
   }
 };
+
+/**
+ * Acredita a la billetera de servicio el sobrante de una orden (lo pagado por
+ * encima del monto). IDEMPOTENTE: recalcula el sobrante real desde los
+ * comprobantes no rechazados y no hace nada si ya se acreditó.
+ *
+ * Existe porque el sobrante se acreditaba en dos lugares con reglas distintas y
+ * se colaba por un tercero: confirmVoucherAmount adelanta la orden a
+ * 'vouchers_submitted' cuando el monto cubre el total pero NO acreditaba nada
+ * (solo devolvía el sobrante en el JSON), y completeVoucherPayment —el único
+ * que sí acreditaba— quedaba fuera del camino. Resultado: el cliente pagaba de
+ * más y no le aparecía saldo a favor. Además completeVoucherPayment no marcaba
+ * surplus_credited, así que al aprobar el comprobante se podía acreditar dos
+ * veces el mismo excedente.
+ *
+ * Devuelve el monto acreditado (0 si no había sobrante o ya estaba acreditado).
+ */
+export async function acreditarSobranteOrden(db: any, orderId: number, adminId?: number | null): Promise<number> {
+  const oRes = await db.query(
+    `SELECT id, user_id, amount, currency, service_type, payment_reference,
+            COALESCE(surplus_credited, false) AS surplus_credited
+       FROM pobox_payments WHERE id = $1`,
+    [orderId]
+  );
+  const order = oRes.rows[0];
+  if (!order || order.surplus_credited) return 0;
+
+  // El sobrante se mide contra los comprobantes vivos, no contra voucher_total,
+  // que puede quedar obsoleto si se eliminó un comprobante duplicado.
+  const sumRes = await db.query(
+    `SELECT COALESCE(SUM(declared_amount), 0) AS total
+       FROM payment_vouchers WHERE payment_order_id = $1 AND status <> 'rejected'`,
+    [orderId]
+  );
+  const surplus = +(Number(sumRes.rows[0].total) - Number(order.amount)).toFixed(2);
+  if (!(surplus > 0)) return 0;
+
+  const serviceType = order.service_type || 'POBOX_USA';
+  const walletRes = await db.query(
+    `INSERT INTO billetera_servicio (user_id, service_type, saldo, currency)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id, service_type) DO UPDATE SET
+       saldo = billetera_servicio.saldo + $3, updated_at = NOW()
+     RETURNING id`,
+    [order.user_id, serviceType, surplus, order.currency || 'MXN']
+  );
+  await db.query(
+    `INSERT INTO billetera_servicio_transacciones
+       (billetera_servicio_id, user_id, service_type, tipo, monto, currency, concepto, payment_order_id, created_by)
+     VALUES ($1, $2, $3, 'excedente', $4, $5, $6, $7, $8)`,
+    [walletRes.rows[0].id, order.user_id, serviceType, surplus, order.currency || 'MXN',
+     `Excedente de pago orden ${order.payment_reference}`, orderId, adminId ?? null]
+  );
+  await db.query(
+    `UPDATE pobox_payments SET surplus_amount = $1, surplus_credited = TRUE WHERE id = $2`,
+    [surplus, orderId]
+  );
+  console.log(`[VOUCHER] Saldo a favor acreditado: $${surplus.toFixed(2)} orden ${order.payment_reference} (user ${order.user_id})`);
+  return surplus;
+}
 
 /**
  * POST /api/payment/voucher/complete
@@ -300,33 +372,11 @@ export const completeVoucherPayment = async (req: AuthRequest, res: Response) =>
       [surplus, payment_order_id]
     );
 
-    // If surplus, credit to service wallet
-    let walletCredited = false;
-    if (surplus > 0) {
-      // Get or create service wallet
-      const serviceType = order.service_type || 'POBOX_USA';
-      const walletRes = await client.query(
-        `INSERT INTO billetera_servicio (user_id, service_type, saldo, currency)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (user_id, service_type) DO UPDATE SET 
-           saldo = billetera_servicio.saldo + $3, updated_at = NOW()
-         RETURNING *`,
-        [userId, serviceType, surplus, order.currency || 'MXN']
-      );
-
-      // Log transaction
-      await client.query(
-        `INSERT INTO billetera_servicio_transacciones 
-         (billetera_servicio_id, user_id, service_type, tipo, monto, currency, concepto, payment_order_id)
-         VALUES ($1, $2, $3, 'excedente', $4, $5, $6, $7)`,
-        [
-          walletRes.rows[0].id, userId, serviceType, surplus, order.currency || 'MXN',
-          `Excedente de pago orden ${order.payment_reference}`,
-          payment_order_id,
-        ]
-      );
-      walletCredited = true;
-    }
+    // Acreditación por el helper idempotente: antes este bloque abonaba sin
+    // marcar surplus_credited, así que al aprobar el comprobante después se
+    // abonaba el MISMO excedente por segunda vez.
+    const acreditado = await acreditarSobranteOrden(client, payment_order_id);
+    const walletCredited = acreditado > 0;
 
     await client.query('COMMIT');
 
@@ -684,40 +734,10 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
         `SELECT * FROM pobox_payments WHERE id = $1`, [voucher.payment_order_id]
       );
       const o = order.rows[0];
-      // 🔒 Recalcular el excedente REAL desde los comprobantes NO rechazados, en vez
-      // de confiar en surplus_amount (que puede quedar obsoleto si se subió un
-      // comprobante duplicado y luego se eliminó → excedente FALSO).
-      const vsumRes = await pool.query(
-        `SELECT COALESCE(SUM(declared_amount), 0) AS total
-           FROM payment_vouchers WHERE payment_order_id = $1 AND status <> 'rejected'`,
-        [voucher.payment_order_id]
-      );
-      const realSurplus = Math.max(0, Number(vsumRes.rows[0].total) - Number(o.amount));
-      if (Number(o.surplus_amount) !== realSurplus) {
-        await pool.query(`UPDATE pobox_payments SET surplus_amount = $1 WHERE id = $2`, [realSurplus, voucher.payment_order_id]);
-        o.surplus_amount = realSurplus;
-      }
-      if (realSurplus > 0 && !o.surplus_credited) {
-        const serviceType = o.service_type || 'POBOX_USA';
-        const walletRes = await pool.query(
-          `INSERT INTO billetera_servicio (user_id, service_type, saldo, currency)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (user_id, service_type) DO UPDATE SET saldo = billetera_servicio.saldo + $3, updated_at = NOW()
-           RETURNING *`,
-          [o.user_id, serviceType, Number(o.surplus_amount), o.currency || 'MXN']
-        );
-        await pool.query(
-          `INSERT INTO billetera_servicio_transacciones 
-           (billetera_servicio_id, user_id, service_type, tipo, monto, currency, concepto, payment_order_id, created_by)
-           VALUES ($1, $2, $3, 'excedente', $4, $5, $6, $7, $8)`,
-          [walletRes.rows[0].id, o.user_id, serviceType, Number(o.surplus_amount), o.currency || 'MXN',
-           `Excedente aprobado de orden ${o.payment_reference}`, voucher.payment_order_id, adminId]
-        );
-        await pool.query(
-          `UPDATE pobox_payments SET surplus_credited = TRUE WHERE id = $1`,
-          [voucher.payment_order_id]
-        );
-      }
+      // El sobrante se acredita con el helper idempotente: recalcula desde los
+      // comprobantes vivos y no vuelve a abonar si ya se acreditó al confirmar
+      // el monto o al completar el pago.
+      await acreditarSobranteOrden(pool, voucher.payment_order_id, adminId);
 
       // 💳 Orden a CRÉDITO: al aprobar todos los comprobantes, liquidar el crédito
       // (pasa a Historial) y RESTAURAR el crédito del cliente. El crédito vive en
