@@ -1032,7 +1032,14 @@ export default function DashboardAdvisor() {
     });
 
     const brkRow = (label: string, val: number, color?: string) => Number(val) !== 0 ? `<tr><td style="border-bottom:1px solid #f0f0f0"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:${color || '#000'}">${label}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:${color || '#000'}">${fmt(val)}</td></tr>` : '';
-    const breakdownRows = brkRow('🚚 Paquetería (Envío Nacional)', Number(cb.paqueteria) || 0)
+    // Si el flete nacional va POR COBRAR, la línea se imprime igual con la
+    // leyenda en vez de omitirse: omitirla hacía que el asesor la leyera como un
+    // cobro que faltaba sumar (TKT-2026-2266).
+    const collectRow = (cb.paqueteria_collect && !(Number(cb.paqueteria) > 0))
+      ? `<tr><td style="border-bottom:1px solid #f0f0f0"></td><td colspan="4" style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#B45309">🚚 Paquetería (Envío Nacional)${cb.paqueteria_carrier ? ` — ${String(cb.paqueteria_carrier).toUpperCase()}` : ''}</td><td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:right;font-weight:600;color:#B45309">POR COBRAR</td></tr>`
+      : '';
+    const breakdownRows = collectRow
+      + brkRow('🚚 Paquetería (Envío Nacional)', Number(cb.paqueteria) || 0)
       + brkRow('🛡️ GEX — Garantía Extendida', Number(cb.gex) || 0, '#2E7D32')
       + brkRow('➕ Cargos Extra', Number(cb.extra) || 0, '#C2410C');
 

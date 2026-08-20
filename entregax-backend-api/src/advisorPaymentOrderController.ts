@@ -836,17 +836,32 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
     // Desglose de costos para la cotización/PDF (mismo criterio que el historial
     // del cliente): Paquetería y GEX desde las guías PO Box top-level; Cargos Extra
     // por tracking (master + hijas); PO Box como remanente para reconciliar el TOTAL.
-    const cost_breakdown = { pobox: 0, paqueteria: 0, gex: 0, extra: 0 };
+    // `paqueteria_collect` distingue "no hay flete" de "el flete lo paga el
+    // cliente al recibir". Sin ese dato la cotización simplemente omitía la
+    // línea del envío nacional y el asesor la leía como un cobro faltante
+    // (TKT-2026-2266: guía con Estafeta por cobrar y $0 de flete).
+    const cost_breakdown = {
+      pobox: 0, paqueteria: 0, gex: 0, extra: 0,
+      paqueteria_collect: false, paqueteria_carrier: '' as string,
+    };
     try {
       if (pkgIds.length > 0) {
         const topRes = await pool.query(`
           SELECT COALESCE(national_shipping_cost, 0) AS ship,
-                 COALESCE(gex_total_cost, 0) AS gex
+                 COALESCE(gex_total_cost, 0) AS gex,
+                 COALESCE(is_collect, false) AS is_collect,
+                 COALESCE(NULLIF(collect_carrier,''), NULLIF(national_carrier,'')) AS carrier
           FROM packages WHERE id = ANY($1::int[])
         `, [pkgIds]);
         for (const r of topRes.rows) {
           cost_breakdown.paqueteria += Number(r.ship) || 0;
           cost_breakdown.gex += Number(r.gex) || 0;
+          if (r.is_collect) {
+            cost_breakdown.paqueteria_collect = true;
+            if (r.carrier && !cost_breakdown.paqueteria_carrier) {
+              cost_breakdown.paqueteria_carrier = String(r.carrier);
+            }
+          }
         }
         const trkRes = await pool.query(`
           SELECT tracking_internal FROM packages
