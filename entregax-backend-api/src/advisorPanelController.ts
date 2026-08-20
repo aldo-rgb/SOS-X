@@ -766,7 +766,10 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     // Multiple JJDs sharing the same secondary_tracking become one master row.
     const dhlSelect = `
       SELECT
-        'DHL-' || MIN(ds.id)::text as uid,
+        -- El uid señala la caja sobre la que se generará la orden de pago. Si el
+        -- envío está pagado a medias tiene que apuntar a una caja PENDIENTE; si
+        -- apunta a la ya pagada, no hay forma de cobrar el resto.
+        'DHL-' || COALESCE(MIN(ds.id) FILTER (WHERE ds.paid_at IS NULL), MIN(ds.id))::text as uid,
         MIN(ds.id) as id,
         CASE WHEN COUNT(*) > 1 THEN NULL
              ELSE MIN(ds.inbound_tracking) END as tracking,
@@ -776,11 +779,23 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         NULL::text as child_no,
         (array_agg(ds.status ORDER BY ds.id DESC))[1] as status,
         'AA_DHL' as service_type,
-        SUM(COALESCE(ds.total_cost_mxn, ds.saldo_pendiente,
+        -- Si el envío ya tiene cajas pagadas, el monto a cobrar es solo el de las
+        -- PENDIENTES; sumarlas todas volvía a cobrar lo ya liquidado.
+        SUM(CASE WHEN ds.paid_at IS NOT NULL AND EXISTS (
+                      SELECT 1 FROM dhl_shipments dp
+                       WHERE dp.secondary_tracking = ds.secondary_tracking
+                         AND dp.user_id IS NOT DISTINCT FROM ds.user_id
+                         AND dp.paid_at IS NULL)
+                 THEN 0
+            ELSE COALESCE(ds.total_cost_mxn, ds.saldo_pendiente,
             NULLIF(COALESCE(ds.import_cost_mxn,0) + COALESCE(ds.import_tax_mxn,0) + COALESCE(ds.national_cost_mxn,0), 0), 0)
-            + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END
+            + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END END
             ) as monto,
-        CASE WHEN MIN(ds.paid_at) IS NOT NULL THEN true ELSE false END as client_paid,
+        -- Pagado solo si TODAS las cajas lo están. MIN() ignora los NULL, así que
+        -- con una sola caja pagada el envío entero se mostraba como pagado: la
+        -- guía 9473629550 (2 cajas, una pagada) aparecía saldada por $8,547
+        -- habiéndose cobrado $4,273.50 (TKT-2026-2275).
+        BOOL_AND(ds.paid_at IS NOT NULL) as client_paid,
         MIN(ds.paid_at) as paid_at,
         MIN(ds.created_at) as created_at,
         u.id as client_id, u.full_name as client_name, u.box_id as client_box_id, u.phone as client_phone,
