@@ -885,7 +885,36 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
       console.error('[payment-orders] detail cost_breakdown:', e);
     }
 
-    return res.json({ order, items, cost_breakdown });
+    // Destino real de la entrega. La cotización lo tenía fijo en "Monterrey,
+    // N.L." y mostraba esa ciudad aunque el paquete fuera a otro estado
+    // (TKT-2026-2266: guía con entrega en Veracruz que decía Monterrey).
+    let destino: string | null = null;
+    try {
+      if (pkgIds.length > 0) {
+        const dRes = await pool.query(`
+          SELECT a.city, a.state
+            FROM packages p
+            JOIN addresses a ON a.id = COALESCE(p.delivery_address_id, p.assigned_address_id)
+           WHERE p.id = ANY($1::int[])
+           LIMIT 1`, [pkgIds]);
+        const d = dRes.rows[0];
+        if (d?.city) destino = [d.city, d.state].filter(Boolean).join(', ');
+      }
+      if (!destino && dhlIds.length > 0) {
+        const dRes = await pool.query(`
+          SELECT a.city, a.state
+            FROM dhl_shipments ds
+            JOIN addresses a ON a.id = ds.delivery_address_id
+           WHERE ds.id = ANY($1::int[])
+           LIMIT 1`, [dhlIds]);
+        const d = dRes.rows[0];
+        if (d?.city) destino = [d.city, d.state].filter(Boolean).join(', ');
+      }
+    } catch (e) {
+      console.warn('[payment-orders] destino:', (e as Error).message);
+    }
+
+    return res.json({ order, items, cost_breakdown, destino });
   } catch (e: any) {
     console.error('[payment-orders] detail:', e);
     return res.status(500).json({ error: 'Error al obtener detalle de orden' });

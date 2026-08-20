@@ -988,10 +988,12 @@ export default function DashboardAdvisor() {
     // Detalle de la orden (master + guías hijas + desglose).
     let items: any[] = [];
     let cb: any = {};
+    let destino = '';
     try {
       const res = await api.get(`/advisor/payment-orders/${op.id}/detail`, { params: { source: op.created_by } });
       items = Array.isArray(res.data?.items) ? res.data.items : [];
       cb = res.data?.cost_breakdown || {};
+      destino = res.data?.destino || '';
     } catch { /* fallback a solo trackings */ }
 
     const fmt = (n: number) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 });
@@ -1068,7 +1070,7 @@ export default function DashboardAdvisor() {
         <div class="info-grid">
           <div class="info-row"><span class="info-label">Servicio:</span><span class="info-value">${svcLabelOp}</span></div>
           <div class="info-row"><span class="info-label">Origen:</span><span class="info-value">Estados Unidos</span></div>
-          <div class="info-row"><span class="info-label">Destino:</span><span class="info-value">Monterrey, N.L., México</span></div>
+          <div class="info-row"><span class="info-label">Destino:</span><span class="info-value">${destino ? `${destino}, México` : 'Por asignar'}</span></div>
           <div class="info-row"><span class="info-label">Paquetes:</span><span class="info-value">${rows.length} paquete(s)</span></div>
         </div>
       </div>

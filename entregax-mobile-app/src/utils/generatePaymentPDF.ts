@@ -54,7 +54,12 @@ interface PaymentPDFData {
     paqueteria?: number;
     gex?: number;
     extra?: number;
+    paqueteria_collect?: boolean;
+    paqueteria_carrier?: string;
   };
+  // Destino real de la entrega. Antes el PDF decía siempre "Monterrey, N.L."
+  // aunque el paquete fuera a otro estado (TKT-2026-2266: entrega en Veracruz).
+  destino?: string;
   userName?: string;
   userCasillero?: string;
   createdAt?: string;
@@ -236,7 +241,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
       </div>
       <div class="info-row">
         <span class="info-label">Destino:</span>
-        <span class="info-value">Monterrey, N.L., México</span>
+        <span class="info-value">${data.destino ? `${data.destino}, México` : 'Por asignar'}</span>
       </div>
       <div class="info-row">
         <span class="info-label">Paquetes:</span>

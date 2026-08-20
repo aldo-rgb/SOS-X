@@ -97,7 +97,7 @@ interface OrderDetailItem {
 
 interface CostBreakdown { pobox?: number; paqueteria?: number; gex?: number; extra?: number; }
 
-const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBreakdown?: CostBreakdown): string => {
+const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBreakdown?: CostBreakdown, destino?: string): string => {
   const fmt = (n: number) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const ref   = order.payment_reference || order.folio || '—';
   const today = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -174,7 +174,7 @@ const buildPdfHtml = (order: PaymentOrder, items: OrderDetailItem[] = [], costBr
     <div class="info-grid">
       <div class="info-row"><span class="info-label">Servicio:</span><span class="info-value">${svcLabel}</span></div>
       <div class="info-row"><span class="info-label">Origen:</span><span class="info-value">Estados Unidos</span></div>
-      <div class="info-row"><span class="info-label">Destino:</span><span class="info-value">Monterrey, N.L., Mexico</span></div>
+      <div class="info-row"><span class="info-label">Destino:</span><span class="info-value">${destino ? `${destino}, Mexico` : 'Por asignar'}</span></div>
       <div class="info-row"><span class="info-label">Paquetes:</span><span class="info-value">${pkgCount} paquete(s)</span></div>
     </div>
   </div>
@@ -457,6 +457,7 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
       // Intentar obtener detalle con desglose por guía hija
       let items: OrderDetailItem[] = [];
       let costBreakdown: CostBreakdown | undefined;
+      let destino = '';
       try {
         const res = await fetch(`${API_URL}/api/advisor/payment-orders/${order.id}/detail`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -465,12 +466,13 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
           const data = await res.json();
           items = Array.isArray(data?.items) ? data.items : [];
           costBreakdown = data?.cost_breakdown;
+          destino = data?.destino || '';
         }
       } catch (e) {
         // Si falla el detail, seguimos con el PDF básico (fallback a trackings)
         console.warn('[PDF] detail fetch failed', e);
       }
-      const html = buildPdfHtml(order, items, costBreakdown);
+      const html = buildPdfHtml(order, items, costBreakdown, destino);
       const { uri } = await Print.printToFileAsync({ html, base64: false });
       await Sharing.shareAsync(uri, {
         mimeType: 'application/pdf',
