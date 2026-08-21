@@ -1807,13 +1807,17 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     const advisorCustom = advisorClientId && advisorCommissionPct.trim() !== '' ? Number(advisorCommissionPct) : NaN;
     const clientPct = Number.isFinite(advisorCustom) && advisorCustom > 0 ? advisorCustom : configPct;
     const comision = base * (clientPct / 100);
-    // Costo de operación del pricing (ya incluye override si existe). SIEMPRE es
-    // en USD, así que se convierte con el TC USD→MXN — NO con el TC destino, que
-    // es 1.0 cuando la divisa destino es MXN (antes salía "$15.34 MXN" en vez de
-    // ~$270 al multiplicar por 1.0).
+    // Costo de operación del pricing (ya incluye override si existe). Está
+    // denominado en USD, así que se convierte con el TC USD→MXN — NO con el TC
+    // destino, que es 1.0 cuando la divisa destino es MXN.
+    //
+    // 🇲🇽 En pesos NO se cobra: el costo de operación cubre la operación
+    // cambiaria internacional y un pago doméstico no la tiene. ENTANGLED
+    // cotiza cero en ese carril (costo_operacion.mxn = 0), y si lo cobrábamos
+    // el total no cuadraba con su factura.
     const costoOpUsd = pricing.costo_operacion_usd;
     const tcUsd = Number(pricing.tipo_cambio_usd) || tc;
-    const costoOpMxn = costoOpUsd * tcUsd;
+    const costoOpMxn = form.divisa_destino === 'MXN' ? 0 : costoOpUsd * tcUsd;
     const total = base + comision + costoOpMxn;
     setQuote({
       tipo_cambio: tc,

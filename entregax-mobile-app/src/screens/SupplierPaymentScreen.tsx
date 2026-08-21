@@ -641,7 +641,15 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     const advisorCustom = isAdvisorMode && advisorCommissionPct.trim() !== '' ? Number(advisorCommissionPct) : NaN;
     const clientPct = Number.isFinite(advisorCustom) && advisorCustom > 0 ? advisorCustom : configPct;
     const comision = base * (clientPct / 100);
-    const costoOpMxn = (pricing.costo_operacion_usd || 0) * tc;
+    // Costo de operación: está denominado en USD, así que se convierte con el TC
+    // USD→MXN. Antes se multiplicaba por `tc` (el de la divisa destino), que solo
+    // coincide en USD: en pesos cobraba $30 en vez de $30 USD y en RMB lo
+    // convertía con el TC del yuan.
+    //
+    // 🇲🇽 En pesos NO se cobra: cubre la operación cambiaria internacional, que
+    // un pago doméstico no tiene. ENTANGLED cotiza cero en ese carril.
+    const tcUsdOp = Number(pricing.tipo_cambio_usd) || tc;
+    const costoOpMxn = divisa === 'MXN' ? 0 : (pricing.costo_operacion_usd || 0) * tcUsdOp;
     const total = base + comision + costoOpMxn;
     return {
       tipo_cambio: tc, porcentaje_compra: clientPct,
@@ -796,7 +804,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       ? Number(defaultProvider.tipo_cambio_rmb)
       : Number(defaultProvider.tipo_cambio_usd);
     const pct = Number(defaultProvider.porcentaje_compra);
-    const costoOpMxn = Number(defaultProvider.costo_operacion_usd || 0) * tc;
+    // Mismo criterio que la cotización: el costo de operación es en USD y se
+    // convierte con el TC USD, no con el de la divisa destino.
+    const costoOpMxn = Number(defaultProvider.costo_operacion_usd || 0)
+      * (Number(defaultProvider.tipo_cambio_usd) || tc);
     const base = m * tc;
     const comision = base * (pct / 100);
     return { tc, total: base + comision + costoOpMxn, divisa: calcDivisa };
