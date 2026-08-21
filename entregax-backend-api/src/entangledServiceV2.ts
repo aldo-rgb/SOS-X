@@ -734,6 +734,9 @@ export interface EntangledAsignacionPayload {
   // cambio que XPAY le cobra al cliente + % de comisión XPAY → Cliente final.
   monto_destino?: number;
   divisa_destino?: string;
+  // País del banco destino. Obligatorio desde que ENTANGLED lo usa para rutear
+  // la operación a un proveedor; sin él responde 409 destino_pais_faltante.
+  pais_destino?: string;
   tc_cliente_final?: number;
   comision_cliente_final_porcentaje?: number;
   cliente_final: {

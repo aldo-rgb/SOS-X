@@ -192,6 +192,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   // País de destino (igual que la web). Determina la divisa: China→USD/RMB,
   // Estados Unidos→USD, México→MXN (pesos, sin conversión).
   const [destCountry, setDestCountry] = useState<'CN' | 'US' | 'MX'>('CN');
+  // País del banco destino que ENTANGLED necesita para rutear la operación.
+  // Se toma del país capturado del beneficiario y, si no hay, del selector
+  // "País de Destino". NUNCA se deriva de la divisa: se puede mandar USD a China.
+  const paisDestinoNombre = (): string => {
+    const delBenef = String(benefBankAddress || '').trim();
+    if (/china/i.test(delBenef)) return 'China';
+    return destCountry === 'CN' ? 'China' : destCountry === 'US' ? 'Estados Unidos' : 'México';
+  };
   const [savedSuppliers, setSavedSuppliers] = useState<any[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | 'new'>('new');
   const [saveSupplier, setSaveSupplier] = useState(true);
@@ -682,6 +690,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             servicio: requiereFactura ? 'pago_con_factura' : 'pago_sin_factura',
             monto_destino: montoNum,
             divisa_destino: divisa,
+            pais_destino: paisDestinoNombre(),
             tc_cliente_final: tcFinal,
             comision_cliente_final_porcentaje: comisionPct,
             cliente_final: requiereFactura
@@ -742,6 +751,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         cliente_final: { razon_social: 'SIN' },
         monto_destino: Number(monto),
         divisa_destino: divisa,
+        pais_destino: paisDestinoNombre(),
         tc_cliente_final: Math.round(quote.tipo_cambio * 10000) / 10000,
         comision_cliente_final_porcentaje: Math.round(quote.porcentaje_compra * 100) / 100,
       }),
@@ -1097,7 +1107,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       if (claves.length === 0) return 'Captura al menos una clave SAT (clave_prodserv)';
       if (claveValidations.some(v => v.loading)) return 'Validando claves SAT, espera un momento...';
       const invalid = claveValidations.filter(v => !v.ok && !v.loading).map(v => v.clave);
-      if (invalid.length > 0) return `Claves SAT no encontradas en catálogo: ${invalid.join(', ')}`;
+      if (invalid.length > 0) {
+        const detalle = claveValidations.find(v => !v.ok && !v.loading && v.error)?.error;
+        return detalle
+          ? `No se pudieron validar las claves ${invalid.join(', ')}: ${detalle}`
+          : `No se pudieron validar las claves SAT: ${invalid.join(', ')}`;
+      }
       // Bloqueo de mezcla de empresas — igual que en web. Comparamos
       // por RFC (más confiable que el nombre, que puede variar en
       // mayúsculas / saltos de espacio).
@@ -2658,7 +2673,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                           </Text>
                           <Text style={{ fontSize: 12, fontWeight: '700', color: '#111', marginRight: 6 }}>{v.clave}</Text>
                           <Text style={{ fontSize: 11, color: '#374151', flex: 1 }} numberOfLines={2}>
-                            {v.loading ? 'Validando...' : v.ok ? (v.descripcion || 'Disponible en catálogo') : 'No encontrada en catálogo SAT'}
+                            {/* Mostrar el error REAL. Antes cualquier fallo de
+                                /asignacion (proveedor caído, país destino
+                                faltante, sin empresa asignada) se pintaba como
+                                "No encontrada en catálogo SAT", que mandaba a
+                                todos a buscar el problema en el catálogo SAT
+                                cuando estaba en otro lado — TKT-2026-2245. */}
+                            {v.loading ? 'Validando...' : v.ok ? (v.descripcion || 'Disponible en catálogo') : (v.error || 'No se pudo validar la clave')}
                           </Text>
                         </View>
                       ))}

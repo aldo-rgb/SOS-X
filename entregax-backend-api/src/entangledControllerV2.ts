@@ -1591,6 +1591,23 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
   const tcFixed = parseFloat(tcNum.toFixed(4));
   const comisionFixed = parseFloat(comisionNum.toFixed(2));
 
+  // 🌎 País del banco destino. ENTANGLED lo volvió OBLIGATORIO en /asignacion
+  // (409 "destino_pais_faltante"): sin él no puede rutear la operación a un
+  // proveedor. Como no lo mandábamos, TODAS las claves SAT fallaban y el front
+  // lo pintaba como "No encontrada en catálogo SAT" (TKT-2026-2245).
+  // Si el front no lo manda, lo derivamos de la divisa con la MISMA regla que
+  // ya usa la creación de la solicitud (RMB→China, MXN→México, resto→EUA).
+  const divisaUp = String(divisa_destino).toUpperCase();
+  const paisDestinoFront = String(req.body?.pais_destino || '').trim();
+  const paisDestino = paisDestinoFront
+    || (divisaUp === 'RMB' ? 'China' : divisaUp === 'MXN' ? 'México' : 'Estados Unidos');
+  if (!paisDestinoFront) {
+    // ⚠️ El país derivado de la divisa puede ser INCORRECTO (se puede pagar en
+    // USD a China) y ENTANGLED rutea la operación por él. Solo evita el 409
+    // para clientes con app vieja; el front actualizado manda el país real.
+    console.warn(`[ENTANGLED asignacion] pais_destino ausente en el request; derivado de divisa ${divisaUp} → "${paisDestino}". Puede rutear a la comercializadora equivocada.`);
+  }
+
   const payloadAsignacion = {
     servicio,
     ...(subservicio ? { subservicio } : {}),
@@ -1598,6 +1615,7 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
     cliente_final: clienteFinalSanitizado,
     monto_destino: montoNum,
     divisa_destino,
+    pais_destino: paisDestino,
     tc_cliente_final: tcFixed,
     comision_cliente_final_porcentaje: comisionFixed,
   };

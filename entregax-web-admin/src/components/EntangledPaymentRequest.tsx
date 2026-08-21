@@ -595,6 +595,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       cliente_final: { razon_social: 'SIN' },
       monto_destino: Number(form.monto),
       divisa_destino: form.divisa_destino,
+      pais_destino: paisDestinoNombre(),
       tc_cliente_final: Math.round(quote.tipo_cambio * 10000) / 10000,
       comision_cliente_final_porcentaje: Math.round(quote.porcentaje_compra * 100) / 100,
     }, { headers: { Authorization: `Bearer ${token}` } })
@@ -707,6 +708,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         servicio: requiereFactura ? 'pago_con_factura' : 'pago_sin_factura',
         monto_destino: montoNum,
         divisa_destino: form.divisa_destino,
+        pais_destino: paisDestinoNombre(),
         tc_cliente_final: quote.tipo_cambio,
         comision_cliente_final_porcentaje: quote.porcentaje_compra,
         cliente_final: requiereFactura
@@ -794,7 +796,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
   // claveValidations existe sólo para compat con código existente que la lee
   // (validations vienen ya implícitas en selectedConceptos).
-  type ClaveValidation = { clave: string; ok: boolean; descripcion?: string; loading?: boolean };
+  type ClaveValidation = { clave: string; ok: boolean; descripcion?: string; loading?: boolean; error?: string };
   const claveValidations: ClaveValidation[] = selectedConceptos.map(c => ({
     clave: c.clave_prodserv,
     ok: true,
@@ -804,6 +806,16 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
 
   // Divisa del widget según el país destino (México = MXN, 1:1).
   const widgetCurrency = CURRENCY_BY_COUNTRY[widgetDestinationCountry] || 'USD';
+
+  // País del banco destino que ENTANGLED exige para rutear la operación
+  // (409 destino_pais_faltante si falta). Mismo criterio que
+  // beneficiarioSnapshot.pais: el del beneficiario y si no el del selector.
+  // NUNCA se deriva de la divisa (se puede enviar USD a China).
+  const paisDestinoNombre = (): string =>
+    (supplierForm.pais_beneficiario || '').trim()
+    || (widgetDestinationCountry === 'CN' ? 'China'
+        : widgetDestinationCountry === 'US' ? 'Estados Unidos'
+        : widgetDestinationCountry === 'MX' ? 'México' : '');
 
   const widgetEstimate = useMemo(() => {
     const amount = Number(widgetAmountUsd);
@@ -2099,7 +2111,13 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       }
       const invalid = claveValidations.filter(v => !v.ok && !v.loading).map(v => v.clave);
       if (invalid.length > 0) {
-        return `Claves SAT no encontradas en catálogo: ${invalid.join(', ')}`;
+        // Mostrar el error REAL del proveedor. Antes cualquier fallo de
+        // /asignacion se reportaba como "no encontradas en catálogo" y mandaba
+        // a buscar el problema donde no estaba (TKT-2026-2245).
+        const detalle = claveValidations.find(v => !v.ok && !v.loading && v.error)?.error;
+        return detalle
+          ? `No se pudieron validar las claves ${invalid.join(', ')}: ${detalle}`
+          : `No se pudieron validar las claves SAT: ${invalid.join(', ')}`;
       }
     }
     return null;
