@@ -1030,7 +1030,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       if (s) {
         setSupplierForm({ ...EMPTY_SUPPLIER, ...s });
         setSaveSupplierForLater(false);
-        if (s.divisa_default) setForm((p) => ({ ...p, divisa_destino: s.divisa_default }));
+        // ⚠️ NO se pisa la divisa con s.divisa_default: sobrescribe en silencio
+        // la que el usuario ya eligió al capturar el monto. Aquí no había ni
+        // aviso, así que la operación simplemente cambiaba de divisa.
+        // (mismo caso que en la app: SupplierPaymentScreen.handlePickSupplier)
       }
     }
   };
@@ -1738,6 +1741,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     }
     if (!form.monto || Number(form.monto) <= 0) return t('entangled.messages.requiredFields');
     if (!['USD', 'RMB', 'MXN'].includes(form.divisa_destino)) return t('entangled.messages.requiredFields');
+    const sinTcSubmit = motivoDivisaNoDisponible(form.divisa_destino);
+    if (sinTcSubmit) return sinTcSubmit;
     if (!supplierForm.nombre_beneficiario || !supplierForm.numero_cuenta || !supplierForm.banco_nombre) {
       return t('entangled.suppliers.requiredFields', 'Completa beneficiario, número de cuenta y banco del proveedor de envío');
     }
@@ -2075,6 +2080,19 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     }
   };
 
+  // 💱 Motivo por el que NO se puede operar en una divisa, o null si sí se puede.
+  //    Sin esto la cotización calculaba contra un TC en 0 y el total salía mal
+  //    (un pago en RMB daba base $0.00, porque tipo_cambio_rmb está en 0).
+  const motivoDivisaNoDisponible = (d: string): string | null => {
+    if (d === 'MXN') return null;
+    if (!pricing) return null;
+    const tc = Number(d === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd) || 0;
+    if (tc > 0) return null;
+    const prov = providers.find((x) => x.id === selectedProviderId);
+    return `No hay tipo de cambio disponible para ${d}${prov ? ` con el proveedor ${prov.name}` : ''}: está en 0. `
+      + `No se puede cotizar ni continuar en ${d}. Elige otra divisa o pide que carguen el tipo de cambio de ${d}.`;
+  };
+
   const validateWizardStep = (step: 0 | 1 | 2 | 3 | 4): string | null => {
     if (step === 0) {
       // Selector de servicio: siempre válido (default: requiereFactura=true)
@@ -2083,6 +2101,8 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     if (step === 1) {
       if (!form.monto || Number(form.monto) <= 0) return 'Captura un monto válido';
       if (!['USD', 'RMB', 'MXN'].includes(form.divisa_destino)) return 'Selecciona una divisa válida';
+      const sinTc = motivoDivisaNoDisponible(form.divisa_destino);
+      if (sinTc) return sinTc;
       if (!quote) return 'No se pudo calcular la cotización';
       if (xpayBelowMin) return `La comisión al cliente no puede ser menor a la venta fija (${ventaFijaPct.toFixed(2)}%)`;
       return null;

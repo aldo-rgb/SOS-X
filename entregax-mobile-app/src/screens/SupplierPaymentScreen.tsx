@@ -601,7 +601,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setBenefSwift(s.swift_bic || '');
         setBenefAba(s.aba_routing || '');
         setBenefAlias(s.alias || '');
-        if (s.divisa_default) setDivisa(s.divisa_default);
+        // ⚠️ NO se pisa la divisa con s.divisa_default. La divisa se elige en el
+        // step 1 (Monto) y el proveedor en el step 2, así que hacerlo aquí
+        // sobrescribía en silencio lo que el usuario acababa de elegir un paso
+        // antes: elegía China + USD y, al tocar un proveedor guardado con
+        // divisa_default = 'RMB', la operación se volvía RMB sin avisar y el
+        // resumen reventaba pidiendo el nombre en chino.
         setSaveSupplier(false);
       }
     }
@@ -618,6 +623,25 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       venta_fija: Number(p.venta_fija ?? 0) || 0,
     };
   })();
+
+  // 💱 Tipo de cambio aplicable a una divisa con el proveedor seleccionado.
+  //    MXN no convierte (1:1). Si el proveedor no tiene TC cargado devuelve 0.
+  const tcDeDivisa = (d: 'USD' | 'RMB' | 'MXN'): number => {
+    if (d === 'MXN') return 1;
+    if (!pricing) return 0;
+    return Number(d === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd) || 0;
+  };
+  // Devuelve el motivo por el que NO se puede operar en esa divisa, o null.
+  // Sin esto la cotización calculaba contra un TC en 0: un pago de 7,000 RMB
+  // daba base $0.00 y el total quedaba siendo solo el costo de operación.
+  const motivoDivisaNoDisponible = (d: 'USD' | 'RMB' | 'MXN'): string | null => {
+    if (d === 'MXN') return null;
+    const tc = tcDeDivisa(d);
+    if (tc > 0) return null;
+    const prov = providers.find(x => x.id === selectedProviderId);
+    return `No hay tipo de cambio disponible para ${d}${prov ? ` con el proveedor ${prov.name}` : ''}: está en 0. `
+      + `No se puede cotizar ni continuar en ${d}. Elige otra divisa o pide que carguen el tipo de cambio de ${d}.`;
+  };
 
   // Mínimo que el asesor puede cobrar (venta fija del proveedor) y si capturó menos.
   const ventaFijaPct = Number(pricing?.venta_fija ?? 0) || 0;
@@ -793,9 +817,21 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
   const defaultProvider = providers.find(x => x.is_default) || providers[0] || null;
 
+  // Motivo por el que la calculadora no puede cotizar en esa divisa (TC en 0).
+  const calcMotivoNoDisponible = ((): string | null => {
+    if (!defaultProvider || calcDivisa === 'MXN') return null;
+    const tc = Number(calcDivisa === 'RMB'
+      ? defaultProvider.tipo_cambio_rmb : defaultProvider.tipo_cambio_usd) || 0;
+    if (tc > 0) return null;
+    return `No hay tipo de cambio disponible para ${calcDivisa} con el proveedor ${defaultProvider.name}: está en 0. `
+      + `No se puede cotizar ni continuar en ${calcDivisa}. Elige otra divisa o pide que carguen el tipo de cambio de ${calcDivisa}.`;
+  })();
+
   const calcQuote = (() => {
     const m = parseFloat(calcMonto);
     if (!defaultProvider || !m || m <= 0) return null;
+    // Sin TC no se cotiza: antes calculaba contra 0 y mostraba un total falso.
+    if (calcMotivoNoDisponible) return null;
     // 🇲🇽 México: pesos a pesos, sin conversión (TC = 1) ni comisión de cambio.
     if (calcDivisa === 'MXN') {
       return { tc: 1, total: m, divisa: calcDivisa };
@@ -919,6 +955,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     if (!benefName || !benefAccount || !benefBankName) {
       Alert.alert('Faltan datos', 'Completa beneficiario, número de cuenta y banco del proveedor de envío'); return;
     }
+    const sinTcSubmit = motivoDivisaNoDisponible(divisa);
+    if (sinTcSubmit) { Alert.alert('Divisa no disponible', sinTcSubmit); return; }
     if (divisa === 'RMB' && !benefNameZh) {
       Alert.alert('Faltan datos', 'Para envíos en RMB se requiere el nombre del beneficiario en chino'); return;
     }
@@ -1109,6 +1147,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     if (step === 1) {
       if (!selectedProviderId) return 'Selecciona un proveedor ENTANGLED';
       if (!monto || parseFloat(monto) <= 0) return 'Captura un monto válido';
+      const sinTc = motivoDivisaNoDisponible(divisa);
+      if (sinTc) return sinTc;
       if (!quote) return 'No se pudo calcular la cotización';
       if (advisorBelowMin) return `La comisión no puede ser menor a la venta fija (${ventaFijaPct.toFixed(2)}%)`;
       return null;
@@ -1707,6 +1747,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 : 'Cargando tasas...'}
           </Text>
         </View>
+
+        {calcMotivoNoDisponible && (
+          <View style={{ marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: 'rgba(192,57,43,0.10)', borderWidth: 1, borderColor: '#C0392B', flexDirection: 'row', gap: 8 }}>
+            <Ionicons name="alert-circle-outline" size={18} color="#C0392B" />
+            <Text style={{ flex: 1, fontSize: 12, color: '#C0392B' }}>{calcMotivoNoDisponible}</Text>
+          </View>
+        )}
 
         {calcQuote && (
           <TouchableOpacity
