@@ -1912,6 +1912,12 @@ export default function DashboardAdvisor() {
           formData.append('isCollect', String(instrIsCollect));
           formData.append('wantsFacturaPaqueteria', String(instrWantsFactura));
           if (ocurreZip) formData.append('nationalDeliveryZip', ocurreZip);
+          // Mandar el costo ya cotizado en el modal. Sin esto el backend tiene
+          // que re-cotizar (o caer al fallback de $400) y el flete cobrado no
+          // coincide con el que vio el asesor al guardar (TKT-2026-2266).
+          if (!instrIsCollect && Number(instrPriceEstimate?.perBox) > 0) {
+            formData.append('nationalShippingCostPerBox', String(instrPriceEstimate?.perBox));
+          }
           if (instrFacturaFile) formData.append('factura', instrFacturaFile);
           if (instrGuiaFile) formData.append('guiaExterna', instrGuiaFile);
           return api.put(`/advisor/shipments/${uid}/instructions`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
@@ -1920,6 +1926,7 @@ export default function DashboardAdvisor() {
         const body: any = { addressId: instrSelectedId };
         if (instrCarrierKey && serviceKey) { body.carrierKey = instrCarrierKey; body.serviceKey = serviceKey; }
         if (ocurreZip) body.nationalDeliveryZip = ocurreZip;
+        if (Number(instrPriceEstimate?.perBox) > 0) body.nationalShippingCostPerBox = instrPriceEstimate?.perBox;
         await Promise.all(uids.map(uid => api.put(`/advisor/shipments/${uid}/instructions`, body)));
       }
 

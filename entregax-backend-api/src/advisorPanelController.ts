@@ -2130,18 +2130,37 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       : 0;
     // Fallback autoritativo: si es Paquete Express (no collect) y el front no mandó
     // el costo precotizado, el backend precotiza aquí (regla $400 / override) para
-    // no dejar la última milla en $0. Solo aplica a paquetes (PKG).
-    if (carrierKey === 'paquete_express' && !isCollectBool && pqtxPerBox <= 0
-        && String(uid).startsWith('PKG-')) {
+    // no dejar la última milla en $0. Aplica a PKG, DHL y MAR: antes solo cubría
+    // PKG y por eso al asignar el asesor un embarque DHL/marítimo la paquetería
+    // quedaba sin costo (el cliente sí lo generaba) — TKT-2026-2266.
+    if (carrierKey === 'paquete_express' && !isCollectBool && pqtxPerBox <= 0) {
       try {
         const { quotePqtxClientPrice } = require('./paqueteExpressController');
         const pid = parseInt(String(uid).substring(String(uid).indexOf('-') + 1));
-        const dimsRes = await pool.query(
-          `SELECT COALESCE(total_boxes, 1) AS boxes, COALESCE(weight, 1) AS weight,
-                  COALESCE(pkg_length, 30) AS l, COALESCE(width_cm, pkg_width, 30) AS w,
-                  COALESCE(height_cm, pkg_height, 30) AS h,
-                  (SELECT zip_code FROM addresses WHERE id = $2) AS zip
-             FROM packages WHERE id = $1`, [pid, addressId]);
+        const kind = String(uid).substring(0, String(uid).indexOf('-'));
+        // Cada tabla guarda dimensiones/cajas distinto: DHL = una fila por caja
+        // agrupadas por secondary_tracking; PKG = master con total_boxes.
+        const dimsSql = kind === 'DHL'
+          ? `SELECT COUNT(*)::int AS boxes, COALESCE(SUM(g.weight_kg), 1) AS weight,
+                    COALESCE(MAX(g.length_cm), 30) AS l, COALESCE(MAX(g.width_cm), 30) AS w,
+                    COALESCE(MAX(g.height_cm), 30) AS h,
+                    (SELECT zip_code FROM addresses WHERE id = $2) AS zip
+               FROM dhl_shipments g
+              WHERE g.id = $1
+                 OR (COALESCE(g.secondary_tracking, '') <> ''
+                     AND g.secondary_tracking = (SELECT secondary_tracking FROM dhl_shipments WHERE id = $1))`
+          : kind === 'MAR'
+          ? `SELECT GREATEST(COALESCE(NULLIF(received_boxes, 0), NULLIF(summary_boxes, 0), 1), 1) AS boxes,
+                    COALESCE(NULLIF(weight, 0), NULLIF(summary_weight, 0), 1) AS weight,
+                    30 AS l, 30 AS w, 30 AS h,
+                    (SELECT zip_code FROM addresses WHERE id = $2) AS zip
+               FROM maritime_orders WHERE id = $1`
+          : `SELECT COALESCE(total_boxes, 1) AS boxes, COALESCE(weight, 1) AS weight,
+                    COALESCE(pkg_length, 30) AS l, COALESCE(width_cm, pkg_width, 30) AS w,
+                    COALESCE(height_cm, pkg_height, 30) AS h,
+                    (SELECT zip_code FROM addresses WHERE id = $2) AS zip
+               FROM packages WHERE id = $1`;
+        const dimsRes = await pool.query(dimsSql, [pid, addressId]);
         const d = dimsRes.rows[0] || {};
         const boxesA = Number(d.boxes) || 1;
         const perBoxWeightA = Math.max(0.5, (Number(d.weight) || 1) / boxesA);
@@ -2301,9 +2320,27 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       );
       if (addrCheck.rows.length === 0) return res.status(403).json({ error: 'Dirección no válida para este cliente' });
 
+      // Mismo caso que DHL: guardar también paquetería nacional y costo. Antes
+      // solo se escribía delivery_address_id y la última milla quedaba en $0
+      // cuando las instrucciones las asignaba el asesor (TKT-2026-2266).
+      const marBoxesRes = await pool.query(
+        `SELECT GREATEST(COALESCE(NULLIF(received_boxes, 0), NULLIF(summary_boxes, 0), 1), 1)::int AS boxes
+           FROM maritime_orders WHERE id = $1`, [shipmentId]);
+      const marBoxes = Number(marBoxesRes.rows[0]?.boxes) || 1;
+      const marCostTotal = isCollectBool ? 0 : pqtxPerBox * marBoxes;
       await pool.query(
-        `UPDATE maritime_orders SET delivery_address_id = $1 WHERE id = $2`, [addressId, shipmentId]
+        `UPDATE maritime_orders SET
+            delivery_address_id = $1,
+            national_carrier = COALESCE($3, national_carrier),
+            national_shipping_cost = CASE
+              WHEN $4::boolean THEN 0
+              WHEN $5::numeric > 0 THEN $5::numeric
+              ELSE national_shipping_cost END,
+            instructions_assigned_at = COALESCE(instructions_assigned_at, NOW())
+          WHERE id = $2`,
+        [addressId, shipmentId, carrierKey || null, isCollectBool, marCostTotal]
       );
+      console.log(`🚢 [Instrucciones asesor MAR] ${uid} carrier=${carrierKey || '-'} collect=${isCollectBool} costo=$${marCostTotal}`);
     } else if (type === 'DHL') {
       const dhlCheck = await pool.query(`
         SELECT ds.id, ds.user_id FROM dhl_shipments ds
@@ -2322,13 +2359,39 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       // MIN(id) del grupo, así que hay que asignar la dirección a TODAS las guías
       // del master; si no, has_instructions (BOOL_AND) queda false y parece que no
       // guardó. Para una guía suelta (sin secondary_tracking) solo actualiza esa.
+      //
+      // Además del address hay que persistir la paquetería nacional y su costo:
+      // este handler solo guardaba delivery_address_id, así que cuando el ASESOR
+      // asignaba instrucciones el flete nacional nunca se generaba (el flujo del
+      // cliente sí lo hace, en packageController case 'dhl') y la guía se cobraba
+      // sin última milla — TKT-2026-2266.
+      //
+      // Cada fila de dhl_shipments es una caja, así que el costo por caja se
+      // escribe tal cual en cada fila; el panel suma national_cost_mxn del grupo.
+      // "Por cobrar" (collect) → costo 0: lo paga el cliente al transportista.
+      const dhlCostPerBox = isCollectBool ? 0 : pqtxPerBox;
       await pool.query(
-        `UPDATE dhl_shipments SET delivery_address_id = $1
+        `UPDATE dhl_shipments SET
+            delivery_address_id = $1,
+            national_carrier = COALESCE($3, national_carrier),
+            national_cost_mxn = CASE
+              WHEN $4::boolean THEN 0
+              WHEN $5::numeric > 0 THEN $5::numeric
+              ELSE national_cost_mxn END,
+            total_cost_mxn = ROUND(
+              COALESCE(import_cost_usd, 0)::numeric * COALESCE(exchange_rate, 0)::numeric
+              + COALESCE(import_tax_mxn, 0)::numeric
+              + CASE
+                  WHEN $4::boolean THEN 0
+                  WHEN $5::numeric > 0 THEN $5::numeric
+                  ELSE COALESCE(national_cost_mxn, 0) END::numeric, 2),
+            updated_at = NOW()
           WHERE id = $2
              OR (COALESCE(secondary_tracking, '') <> ''
                  AND secondary_tracking = (SELECT secondary_tracking FROM dhl_shipments WHERE id = $2))`,
-        [addressId, shipmentId]
+        [addressId, shipmentId, carrierKey || null, isCollectBool, dhlCostPerBox]
       );
+      console.log(`🚚 [Instrucciones asesor DHL] ${uid} carrier=${carrierKey || '-'} collect=${isCollectBool} costo/caja=$${dhlCostPerBox}`);
     } else {
       return res.status(400).json({ error: `Tipo de envío no soportado: ${type}` });
     }
