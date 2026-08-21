@@ -5,6 +5,7 @@
 // ============================================
 
 import { pool } from './db';
+import { expandDhlGroupIds } from './dhlGroup';
 
 // ── Esquema: columnas para comisiones "en crédito" (retenidas hasta que el cliente cobre) ──
 // awaiting_client_payment = TRUE  → la orden se pagó con crédito y el cliente aún no abona;
@@ -80,7 +81,21 @@ export async function generateCommissionsForPackages(
       const okPkg = await generateCommissionForShipment('PKG', pkgId, undefined, opts);
       if (okPkg) continue;
       const okDhl = await generateCommissionForShipment('DHL', pkgId, undefined, opts);
-      if (okDhl) continue;
+      if (okDhl) {
+        // DHL MULTICAJA: la orden referencia UNA sola caja (ej. DHL-517), pero el
+        // envío agrupa varias por secondary_tracking y el cliente las pagó TODAS.
+        // Las rutas de pago ya expanden el grupo para marcarlo pagado, pero la
+        // comisión se generaba solo por la caja referenciada: el asesor cobraba
+        // 1 de 3 cajas (ticket TKT-2026-2271, orden UW-6371B9DE).
+        // Las hermanas solo generan comisión si están realmente pagadas y el
+        // ON CONFLICT del INSERT evita duplicados si ya existían.
+        const groupIds = await expandDhlGroupIds(pool, [pkgId]).catch(() => [pkgId]);
+        for (const sibling of groupIds) {
+          if (sibling === pkgId) continue;
+          await generateCommissionForShipment('DHL', sibling, undefined, opts);
+        }
+        continue;
+      }
       await generateCommissionForShipment('MAR', pkgId, undefined, opts);
     }
   } catch (error) {
