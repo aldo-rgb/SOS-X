@@ -167,7 +167,7 @@ const DEFAULT_CONGELAMIENTO_HORAS = 24;
 // Mensaje neutro de cara al cliente/asesor cuando no hay un motivo traducible.
 // Redactado por Aldo: sin nombrar al proveedor ni conceptos internos.
 const MENSAJE_GENERICO_XPAY =
-  'No hay ninguna comercializadora disponible en este momento, habla con tu asesor.';
+  'La comercializadora no está disponible en este momento, habla con tu asesor.';
 
 function friendlyEntangledError(code?: string | null): string {
   const raw = String(code || '').trim();

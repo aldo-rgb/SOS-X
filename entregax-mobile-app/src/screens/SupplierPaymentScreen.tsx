@@ -757,7 +757,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               cuentaBancaria: data.cuenta_bancaria || null,
             });
           } else {
-            out.push({ clave, ok: false, error: data?.error || 'No hay ninguna comercializadora disponible en este momento, habla con tu asesor.' });
+            out.push({ clave, ok: false, error: data?.error || 'La comercializadora no está disponible en este momento, habla con tu asesor.' });
           }
         } catch {
           out.push({ clave, ok: false, error: 'Error de red al consultar asignación' });
@@ -968,6 +968,35 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
     setSubmitting(true);
     try {
+      // 🧾 Guardar el perfil fiscal del cliente, igual que hace la web.
+      // La app solo LEÍA el perfil y nunca lo guardaba: los datos que capturaba
+      // el asesor vivían únicamente en esa operación (columnas cf_* ) y había
+      // que recapturarlos en cada solicitud.
+      if (requiereFactura) {
+        try {
+          const r = await fetch(
+            isAdvisorMode
+              ? `${API_URL}/api/advisor/xpay/fiscal-profile?client_id=${advisorClientId}`
+              : `${API_URL}/api/entangled/fiscal-profile`,
+            {
+              method: 'PUT',
+              headers: { ...authHeaders, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                rfc: String(rfc).trim().toUpperCase(),
+                razon_social: String(razon).trim(),
+                regimen_fiscal: String(regimen).trim(),
+                cp: String(cp).trim(),
+                uso_cfdi: String(uso).trim(),
+                email: String(email).trim(),
+              }),
+            }
+          );
+          if (!r.ok) console.warn('[XPAY] no se pudo guardar el perfil fiscal:', r.status);
+        } catch (e: any) {
+          console.warn('[XPAY] no se pudo guardar el perfil fiscal:', e?.message);
+        }
+      }
+
       // Persistir el supplier por separado (igual que antes) para tu base local
       if (selectedSupplierId === 'new' && saveSupplier) {
         try {
@@ -1170,7 +1199,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       const invalid = claveValidations.filter(v => !v.ok && !v.loading).map(v => v.clave);
       if (invalid.length > 0) {
         const detalle = claveValidations.find(v => !v.ok && !v.loading && v.error)?.error;
-        return detalle || 'No hay ninguna comercializadora disponible en este momento, habla con tu asesor.';
+        return detalle || 'La comercializadora no está disponible en este momento, habla con tu asesor.';
       }
       // Bloqueo de mezcla de empresas — igual que en web. Comparamos
       // por RFC (más confiable que el nombre, que puede variar en
@@ -2745,7 +2774,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                                 "No encontrada en catálogo SAT", que mandaba a
                                 todos a buscar el problema en el catálogo SAT
                                 cuando estaba en otro lado — TKT-2026-2245. */}
-                            {v.loading ? 'Validando...' : v.ok ? (v.descripcion || 'Disponible en catálogo') : (v.error || 'No hay ninguna comercializadora disponible en este momento, habla con tu asesor.')}
+                            {v.loading ? 'Validando...' : v.ok ? (v.descripcion || 'Disponible en catálogo') : (v.error || 'La comercializadora no está disponible en este momento, habla con tu asesor.')}
                           </Text>
                         </View>
                       ))}

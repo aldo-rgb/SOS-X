@@ -2140,7 +2140,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         // /asignacion se reportaba como "no encontradas en catálogo" y mandaba
         // a buscar el problema donde no estaba (TKT-2026-2245).
         const detalle = claveValidations.find(v => !v.ok && !v.loading && v.error)?.error;
-        return detalle || 'No hay ninguna comercializadora disponible en este momento, habla con tu asesor.';
+        return detalle || 'La comercializadora no está disponible en este momento, habla con tu asesor.';
       }
     }
     return null;

@@ -7220,15 +7220,47 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
 
       // If user wants to save constancia for future use
       if (saveConstanciaBool && constanciaUrl) {
+        // Fecha de emisión + vigencia (3 meses) con el MISMO extractor del flujo
+        // dedicado. Antes esta fila nacía con valid_until = NULL, y una vigencia
+        // nula se evalúa como NO vigente: el cliente quedaba bloqueado en XPAY
+        // web aunque su constancia estuviera guardada y fuera reciente.
+        let issuedAt: Date | null = null;
+        let validUntil: Date | null = null;
+        try {
+          const f: any = files?.constancia?.[0];
+          let buf: Buffer | null = f?.buffer || null;
+          if (!buf && f?.path) {
+            const fsMod = await import('fs');
+            if (fsMod.existsSync(f.path)) buf = fsMod.readFileSync(f.path);
+          }
+          if (buf) {
+            const { tryExtractIssueDateFromPdf } = await import('./fiscalConstanciaController');
+            issuedAt = await tryExtractIssueDateFromPdf({
+              buffer: buf, mimetype: f?.mimetype || 'application/pdf',
+              originalname: f?.originalname || 'constancia', size: buf.length,
+            } as any);
+          }
+          if (issuedAt) {
+            validUntil = new Date(issuedAt.getTime());
+            validUntil.setUTCMonth(validUntil.getUTCMonth() + 3);
+          } else {
+            console.warn(`[CSF] sin fecha de emisión para user=${userId} (archivo en S3 o PDF ilegible); queda sin vigencia`);
+          }
+        } catch (e: any) {
+          console.warn('[CSF] extracción de fecha falló:', e?.message);
+        }
         await client.query(`
-          INSERT INTO user_saved_documents (user_id, document_type, file_url, original_filename)
-          VALUES ($1, 'constancia_fiscal', $2, $3)
+          INSERT INTO user_saved_documents (user_id, document_type, file_url, original_filename, issued_at, valid_until)
+          VALUES ($1, 'constancia_fiscal', $2, $3, $4, $5)
           ON CONFLICT (user_id, document_type) DO UPDATE SET
             file_url = EXCLUDED.file_url,
             original_filename = EXCLUDED.original_filename,
+            -- Nunca borrar una vigencia ya conocida con una subida sin fecha.
+            issued_at = COALESCE(EXCLUDED.issued_at, user_saved_documents.issued_at),
+            valid_until = COALESCE(EXCLUDED.valid_until, user_saved_documents.valid_until),
             updated_at = CURRENT_TIMESTAMP
-        `, [userId, constanciaUrl, files?.constancia?.[0]?.originalname || 'constancia']);
-        console.log(`💾 Constancia guardada para usuario ${userId}`);
+        `, [userId, constanciaUrl, files?.constancia?.[0]?.originalname || 'constancia', issuedAt, validUntil]);
+        console.log(`💾 Constancia guardada para usuario ${userId}${validUntil ? ` (vigente hasta ${validUntil.toISOString().slice(0,10)})` : ' SIN vigencia'}`);
       }
 
       await client.query('COMMIT');
