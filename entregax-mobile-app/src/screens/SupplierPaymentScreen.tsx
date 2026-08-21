@@ -963,7 +963,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     const sinTcSubmit = motivoDivisaNoDisponible(divisa);
     if (sinTcSubmit) { Alert.alert('Divisa no disponible', sinTcSubmit); return; }
     if (divisa === 'RMB' && !benefNameZh) {
-      Alert.alert('Faltan datos', 'Para envíos en RMB se requiere el nombre del beneficiario en chino'); return;
+      // Red de seguridad: el paso Beneficiario ya lo valida y ahí está el campo.
+      Alert.alert('Faltan datos', 'Para envíos en RMB se requiere el nombre del beneficiario en chino. Captúralo en el paso Beneficiario.');
+      setWizardStep(2);
+      return;
     }
 
     // Nuevo flujo: la solicitud se crea SIN comprobante en estado pendiente.
@@ -2439,6 +2442,29 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <TouchableOpacity onPress={() => setEditingSupplierData(true)} style={{ marginTop: 6 }}>
                   <Text style={styles.editLink}>✏️ {t('xpay.editData', 'Editar datos')}</Text>
                 </TouchableOpacity>
+
+                {/* 🇨🇳 En RMB el nombre en chino es obligatorio, pero el campo
+                    solo existía dentro del formulario de "Nuevo/Editar". Con un
+                    proveedor guardado que no lo tuviera, el asesor quedaba
+                    bloqueado con un mensaje que le pedía un dato que no estaba
+                    en pantalla. Aquí se muestra en línea, sin salir del paso. */}
+                {divisa === 'RMB' && !benefNameZh && (
+                  <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(240,90,40,0.25)' }}>
+                    <Text style={[styles.label, { marginTop: 0 }]}>
+                      {t('xpay.chineseName', 'Nombre en chino')} *
+                    </Text>
+                    <Text style={{ fontSize: 11, color: TEXT_MUTED, marginBottom: 6 }}>
+                      Este proveedor no lo tiene guardado y en RMB es obligatorio.
+                    </Text>
+                    <TextInput
+                      style={styles.input}
+                      value={benefNameZh}
+                      onChangeText={setBenefNameZh}
+                      placeholder="名称"
+                      placeholderTextColor={TEXT_MUTED}
+                    />
+                  </View>
+                )}
               </View>
             )}
 
@@ -2450,7 +2476,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
                 {divisa === 'RMB' && (
                   <>
-                    <Text style={styles.label}>{t('xpay.chineseName', 'Nombre en chino')}</Text>
+                    {/* Obligatorio en RMB: sin él no se puede enviar. */}
+                    <Text style={styles.label}>{t('xpay.chineseName', 'Nombre en chino')} *</Text>
                     <TextInput style={styles.input} value={benefNameZh} onChangeText={setBenefNameZh} />
                   </>
                 )}
