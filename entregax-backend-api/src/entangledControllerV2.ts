@@ -48,6 +48,7 @@ import {
   listComisionesRemote,
   callAsignacion,
   notifyCancelledRequestIds,
+  notifyCancellationToEntangled,
 } from './entangledServiceV2';
 import { generateXpayCommission } from './commissionService';
 import { signRowFileUrls } from './entangledController';
@@ -2929,7 +2930,7 @@ export const deleteAdvisorXpayRequest = async (req: Request, res: Response): Pro
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   try {
     const row = (await pool.query(
-      `SELECT id, user_id, estatus_global, referencia_pago
+      `SELECT id, user_id, estatus_global, referencia_pago, entangled_transaccion_id
          FROM entangled_payment_requests WHERE id = $1`,
       [id]
     )).rows[0];
@@ -2940,8 +2941,48 @@ export const deleteAdvisorXpayRequest = async (req: Request, res: Response): Pro
     if (BLOCKED.includes(String(row.estatus_global || ''))) {
       return res.status(409).json({ error: 'No puedes borrar una operación cancelada, en proceso o pagada' });
     }
+
+    // 🔗 Si la orden YA existe en ENTANGLED hay que cancelarla allá ANTES de
+    // borrarla aquí. Antes se borraba en duro sin avisarles: a nosotros nos
+    // desaparecía y a ellos les quedaba una transacción huérfana viva, que
+    // podía seguir esperando pago o llegar a facturarse.
+    //
+    // Si el aviso falla NO se borra: preferimos que el asesor reintente a
+    // dejar una orden viva del otro lado sin rastro de este.
+    if (row.entangled_transaccion_id) {
+      const aviso = await notifyCancellationToEntangled(
+        String(row.entangled_transaccion_id),
+        'cancelado_por_asesor'
+      );
+      if (!aviso.ok) {
+        console.error(
+          `[XPAY-ASESOR] no se pudo cancelar ${row.referencia_pago} en ENTANGLED ` +
+          `(transaccion ${row.entangled_transaccion_id}): ${aviso.error} — NO se borra`
+        );
+        return res.status(502).json({
+          error: 'No se pudo cancelar la operación con el proveedor de pagos. Intenta de nuevo en unos minutos.',
+          error_code: aviso.error || null,
+        });
+      }
+      // ⚠️ notifyCancellationToEntangled devuelve ok:true con status 409 porque
+      // para el cron ese caso es idempotente. Aquí NO lo es: 409 significa que
+      // la orden ya no es cancelable de su lado (el cliente ya pagó, o ya
+      // estaba cancelada). Borrarla aquí nos dejaría sin registro de una
+      // operación viva o pagada allá.
+      if (aviso.status === 409) {
+        console.warn(
+          `[XPAY-ASESOR] ENTANGLED respondió 409 para ${row.referencia_pago}: ${aviso.error} — NO se borra`
+        );
+        return res.status(409).json({
+          error: 'Esta operación ya no se puede cancelar con el proveedor de pagos. Revisa si el cliente ya la pagó.',
+          error_code: aviso.error || null,
+        });
+      }
+      console.log(`[XPAY-ASESOR] ${row.referencia_pago} cancelada en ENTANGLED (transaccion ${row.entangled_transaccion_id})`);
+    }
+
     await pool.query(`DELETE FROM entangled_payment_requests WHERE id = $1`, [id]);
-    console.log(`[XPAY-ASESOR] asesor ${advisorId} borró operación ${row.referencia_pago} (id ${id}, estatus ${row.estatus_global})`);
+    console.log(`[XPAY-ASESOR] asesor ${advisorId} borró operación ${row.referencia_pago} (id ${id}, estatus ${row.estatus_global}, transaccion ${row.entangled_transaccion_id || 'sin enviar'})`);
     return res.json({ success: true, deleted_id: id });
   } catch (err: any) {
     console.error('[XPAY-ASESOR] deleteAdvisorXpayRequest:', err.message);
