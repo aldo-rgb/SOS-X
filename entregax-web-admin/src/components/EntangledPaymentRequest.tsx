@@ -1207,7 +1207,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
         || (err as Error)?.message
-        || 'No se pudo actualizar el estado. Intenta de nuevo en unos minutos.';
+        || 'No se pudo sincronizar';
       setSnack({ open: true, severity: 'error', message: msg });
     } finally {
       setSyncingId(null);
@@ -2063,7 +2063,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           res.data?.request?.estatus_global === 'error_envio'
             ? t('entangled.messages.successPending')
             : isPending
-              ? `Solicitud enviada correctamente.${venceTxt || ' Sube tu comprobante desde "Últimos envíos" para completar el pago.'}`
+              ? `Solicitud enviada.${venceTxt || ' Sube tu comprobante desde "Últimos envíos" para completar el pago.'}`
               : t('entangled.messages.success'),
       });
       loadRequests();
@@ -2510,7 +2510,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                                 </Typography>
                                 {r.entangled_transaccion_id && (
                                   <Typography sx={{ fontSize: '0.62rem', color: C.textSecondary, fontFamily: 'monospace', mt: 0.3 }}>
-                                    ID de operación: {r.entangled_transaccion_id}
+                                    ID: {r.entangled_transaccion_id}
                                   </Typography>
                                 )}
                               </Box>
@@ -3869,7 +3869,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: '1px solid rgba(239,68,68,0.5)', borderRadius: 1.5 }}>
                   <Typography sx={{ color: '#ef4444', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>⚠️ SIN CUENTA BANCARIA</Typography>
                   <Typography sx={{ color: '#fca5a5', fontSize: '0.82rem', lineHeight: 1.4 }}>
-                    No se pudo asignar una cuenta bancaria de destino para esta operación. Intenta de nuevo en unos minutos.
+                    No se devolvió una cuenta bancaria de destino. No se puede enviar la solicitud.
                   </Typography>
                 </Box>
               ) : (

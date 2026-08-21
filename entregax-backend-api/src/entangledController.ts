@@ -269,7 +269,7 @@ export const createPaymentRequest = async (
   // Calcular cotización con TC + porcentaje del proveedor seleccionado
   const quote = await computeQuote(Number(operacion.montos), operacion.divisa_destino, userId, providerId);
   if (!quote.provider_id) {
-    return res.status(400).json({ error: 'El servicio de pagos no está disponible en este momento.' });
+    return res.status(400).json({ error: 'No hay proveedor activo configurado' });
   }
 
   // Resolver asesor: si el cliente tiene asesor asignado lo tomamos.
@@ -453,7 +453,7 @@ export const createPaymentRequest = async (
     return res.status(502).json({
       error:
         remote.error ||
-        'No se pudo registrar la operación. Intenta de nuevo en unos minutos.',
+        'No se devolvió un transaccion_id. Reintentar más tarde.',
       request_id: requestId,
       referencia_pago: referenciaPago,
     });
@@ -473,7 +473,7 @@ export const createPaymentRequest = async (
   );
 
   return res.status(201).json({
-    message: 'Solicitud enviada correctamente',
+    message: 'Solicitud enviada',
     request: updated.rows[0],
     referencia_pago: referenciaPago,
     instrucciones_pago: remote.raw || null,

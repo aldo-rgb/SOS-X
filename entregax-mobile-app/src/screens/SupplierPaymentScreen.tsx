@@ -805,7 +805,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           setSinFacturaCuentaError(null);
           setSinFacturaCuenta({ loading: false, cuenta: cb });
         } else {
-          setSinFacturaCuentaError(typeof d?.error === 'string' ? d.error : 'No se pudo asignar una cuenta bancaria de destino para esta operación. Intenta de nuevo en unos minutos.');
+          setSinFacturaCuentaError(typeof d?.error === 'string' ? d.error : 'No se devolvió una cuenta bancaria de destino para esta operación. Intenta de nuevo más tarde o cambia de proveedor.');
           setSinFacturaCuenta(null);
         }
       })
@@ -1146,7 +1146,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       return null;
     }
     if (step === 1) {
-      if (!selectedProviderId) return 'El servicio de pagos no está disponible en este momento. Intenta de nuevo en unos minutos.';
+      if (!selectedProviderId) return 'Selecciona un proveedor';
       if (!monto || parseFloat(monto) <= 0) return 'Captura un monto válido';
       const sinTc = motivoDivisaNoDisponible(divisa);
       if (sinTc) return sinTc;
@@ -2997,7 +2997,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           }}>
             <Ionicons name="alert-circle" size={18} color="#F87171" style={{ marginTop: 1 }} />
             <Text style={{ flex: 1, color: '#FCA5A5', fontSize: 12, fontWeight: '600' }}>
-              {sinFacturaCuentaError || 'No se pudo asignar una cuenta bancaria de destino para esta operación. Intenta de nuevo en unos minutos o habla con tu asesor.'}
+              {sinFacturaCuentaError || 'No se devolvió una cuenta bancaria de destino. No se puede enviar la solicitud hasta que el proveedor tenga TC vigente y cuenta activa.'}
             </Text>
           </View>
         )}
