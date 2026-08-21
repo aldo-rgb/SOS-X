@@ -1203,11 +1203,11 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         { headers: authHeader }
       );
       await loadRequests();
-      setSnack({ open: true, severity: 'success', message: 'Estado actualizado desde ENTANGLED.' });
+      setSnack({ open: true, severity: 'success', message: 'Estado actualizado.' });
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
         || (err as Error)?.message
-        || 'No se pudo sincronizar con ENTANGLED';
+        || 'No se pudo actualizar el estado. Intenta de nuevo en unos minutos.';
       setSnack({ open: true, severity: 'error', message: msg });
     } finally {
       setSyncingId(null);
@@ -2063,7 +2063,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           res.data?.request?.estatus_global === 'error_envio'
             ? t('entangled.messages.successPending')
             : isPending
-              ? `Solicitud enviada a ENTANGLED.${venceTxt || ' Sube tu comprobante desde "Últimos envíos" para completar el pago.'}`
+              ? `Solicitud enviada correctamente.${venceTxt || ' Sube tu comprobante desde "Últimos envíos" para completar el pago.'}`
               : t('entangled.messages.success'),
       });
       loadRequests();
@@ -2088,9 +2088,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     if (!pricing) return null;
     const tc = Number(d === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd) || 0;
     if (tc > 0) return null;
-    const prov = providers.find((x) => x.id === selectedProviderId);
-    return `No hay tipo de cambio disponible para ${d}${prov ? ` con el proveedor ${prov.name}` : ''}: está en 0. `
-      + `No se puede cotizar ni continuar en ${d}. Elige otra divisa o pide que carguen el tipo de cambio de ${d}.`;
+    // ⚠️ Mensaje de cara al cliente/asesor: NUNCA nombrar al proveedor ni a
+    //    ENTANGLED. El detalle interno va al log, no a la pantalla.
+    console.warn(`[XPAY] TC no disponible divisa=${d} proveedor_id=${selectedProviderId}`);
+    return `No hay tipo de cambio disponible para ${d}. Elige otra divisa o habla con tu asesor.`;
   };
 
   const validateWizardStep = (step: 0 | 1 | 2 | 3 | 4): string | null => {
@@ -2509,7 +2510,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                                 </Typography>
                                 {r.entangled_transaccion_id && (
                                   <Typography sx={{ fontSize: '0.62rem', color: C.textSecondary, fontFamily: 'monospace', mt: 0.3 }}>
-                                    ID ENTANGLED: {r.entangled_transaccion_id}
+                                    ID de operación: {r.entangled_transaccion_id}
                                   </Typography>
                                 )}
                               </Box>
@@ -2654,7 +2655,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                                   <Typography sx={{ color: C.textFaint, fontSize: '0.7rem', fontStyle: 'italic' }}>—</Typography>
                                 )}
                                 {r.entangled_transaccion_id && !isTerminal && (
-                                  <Tooltip title={t('entangled.actions.syncFromEntangled', 'Refrescar estado desde ENTANGLED') as string}>
+                                  <Tooltip title={t('entangled.actions.syncFromEntangled', 'Refrescar estado') as string}>
                                     <IconButton
                                       size="small"
                                       onClick={() => handleSyncRequest(r.id)}
@@ -3868,7 +3869,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
                 <Box sx={{ mt: 0.5, p: 1.2, bgcolor: C.pageBg, border: '1px solid rgba(239,68,68,0.5)', borderRadius: 1.5 }}>
                   <Typography sx={{ color: '#ef4444', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>⚠️ SIN CUENTA BANCARIA</Typography>
                   <Typography sx={{ color: '#fca5a5', fontSize: '0.82rem', lineHeight: 1.4 }}>
-                    ENTANGLED no devolvió una cuenta bancaria de destino. No se puede enviar la solicitud.
+                    No se pudo asignar una cuenta bancaria de destino para esta operación. Intenta de nuevo en unos minutos.
                   </Typography>
                 </Box>
               ) : (

@@ -61,7 +61,7 @@
       "downloadFacturaPdf": "Descargar Factura (PDF)",
       "downloadFacturaXml": "Descargar Factura (XML)",
       "downloadProveedorProof": "Descargar comprobante de pago al proveedor",
-      "syncFromEntangled": "Refrescar estado desde ENTANGLED"
+      "syncFromEntangled": "Refrescar estado"
     },
     "wizard": {
       "invoice": "Factura",

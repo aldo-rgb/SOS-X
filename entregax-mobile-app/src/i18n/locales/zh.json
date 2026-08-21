@@ -66,7 +66,7 @@
     "aliasOptional": "别名（可选，便于复用）",
     "saveSupplierFuture": "保存此供应商以便将来使用",
     "amountSection": "发送金额",
-    "entangledProvider": "ENTANGLED 提供商",
+    "entangledProvider": "支付服务商",
     "noProviders": "没有配置活跃的提供商。",
     "amount": "金额",
     "currency": "货币",

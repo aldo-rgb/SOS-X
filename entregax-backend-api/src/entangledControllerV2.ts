@@ -698,7 +698,7 @@ export const createPaymentRequestV2 = async (
     );
     return res.status(202).json({
       message:
-        'Solicitud guardada localmente. ENTANGLED no está configurado todavía; será procesada manualmente.',
+        'Solicitud guardada. El servicio de pagos no está disponible en este momento; será procesada manualmente.',
       request_id: requestId,
       referencia_pago: referenciaPago,
       status: 'error_envio',
@@ -770,7 +770,7 @@ export const createPaymentRequestV2 = async (
     return res.status(httpStatus).json({
       error: isEfectivoBug
         ? 'La modalidad Efectivo aún no está disponible en el proveedor de pagos (error del proveedor). Por favor usa Transferencia bancaria por ahora.'
-        : (friendlyEntangledError(remote.error) || 'ENTANGLED no devolvió un transaccion_id.'),
+        : (friendlyEntangledError(remote.error) || 'No se pudo registrar la operación. Intenta de nuevo en unos minutos.'),
       error_code: remote.error || null,
       request_id: requestId,
       referencia_pago: referenciaPago,
@@ -799,7 +799,7 @@ export const createPaymentRequestV2 = async (
       ['ENTANGLED no devolvió cuenta bancaria de destino', requestId]
     );
     return res.status(502).json({
-      error: 'ENTANGLED no devolvió una cuenta bancaria de destino. No se puede procesar la solicitud.',
+      error: 'No se pudo asignar una cuenta bancaria de destino para esta operación. Intenta de nuevo en unos minutos.',
       request_id: requestId,
     });
   }
@@ -904,8 +904,8 @@ export const createPaymentRequestV2 = async (
 
   return res.status(201).json({
     message: hasFile
-      ? 'Solicitud enviada y comprobante adjuntado a ENTANGLED.'
-      : 'Solicitud enviada a ENTANGLED. Sube tu comprobante para completar el pago.',
+      ? 'Solicitud enviada y comprobante adjuntado correctamente.'
+      : 'Solicitud enviada correctamente. Sube tu comprobante para completar el pago.',
     request: updated,
     request_id: requestId,
     referencia_pago: referenciaPago,
@@ -1004,7 +1004,7 @@ export async function sendPendingRequestToEntangled(
         ok: false,
         status: 502,
         payload: {
-          error: up.error || 'No se pudo enviar el comprobante a ENTANGLED.',
+          error: up.error || 'No se pudo enviar el comprobante. Intenta de nuevo en unos minutos.',
           request_id: requestId,
         },
       };
@@ -1024,7 +1024,7 @@ export async function sendPendingRequestToEntangled(
       ok: true,
       status: 200,
       payload: {
-        message: 'Comprobante enviado a ENTANGLED.',
+        message: 'Comprobante enviado correctamente.',
         request: upd.rows[0],
         entangled_transaccion_id: reqRow.entangled_transaccion_id,
       },
@@ -1219,7 +1219,7 @@ export async function sendPendingRequestToEntangled(
       ok: false,
       status: 502,
       payload: {
-        error: remote.error || 'ENTANGLED no devolvió un transaccion_id.',
+        error: remote.error || 'No se pudo registrar la operación. Intenta de nuevo en unos minutos.',
         request_id: requestId,
       },
     };
@@ -1273,7 +1273,7 @@ export async function sendPendingRequestToEntangled(
     ok: true,
     status: 200,
     payload: {
-      message: 'Comprobante recibido y solicitud enviada a ENTANGLED.',
+      message: 'Comprobante recibido y solicitud enviada correctamente.',
       request: upd.rows[0],
       comision_cobrada_porcentaje: remote.comision_cobrada_porcentaje,
       tc_aplicado_usd: remote.tc_aplicado_usd,
@@ -1385,14 +1385,14 @@ export const proxyEntangledDocumento = async (req: Request, res: Response): Prom
   }
   if (!row.entangled_transaccion_id) {
     return res.status(400).json({
-      error: 'La solicitud aún no se envió a ENTANGLED (no hay transaccion_id).',
+      error: 'La solicitud todavía no se ha enviado a procesar.',
     });
   }
 
   const remote = await getSolicitudDocumento(String(row.entangled_transaccion_id), tipo);
   if (!remote.ok || !remote.buffer) {
     return res.status(remote.status && remote.status >= 400 && remote.status < 600 ? remote.status : 502).json({
-      error: remote.error || 'No se pudo descargar el documento de ENTANGLED',
+      error: remote.error || 'No se pudo descargar el documento.',
     });
   }
 
@@ -1430,13 +1430,13 @@ export const syncRequestFromEntangled = async (req: Request, res: Response): Pro
   }
   if (!row.entangled_transaccion_id) {
     return res.status(400).json({
-      error: 'La solicitud aún no se envió a ENTANGLED (no hay transaccion_id).',
+      error: 'La solicitud todavía no se ha enviado a procesar.',
     });
   }
 
   const remote = await getSolicitudStatus(String(row.entangled_transaccion_id));
   if (!remote.ok) {
-    return res.status(502).json({ error: remote.error || 'Error consultando ENTANGLED' });
+    return res.status(502).json({ error: remote.error || 'No se pudo consultar el estado de la operación.' });
   }
 
   // Shape oficial de la respuesta (docs):

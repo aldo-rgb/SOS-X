@@ -638,9 +638,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     if (d === 'MXN') return null;
     const tc = tcDeDivisa(d);
     if (tc > 0) return null;
-    const prov = providers.find(x => x.id === selectedProviderId);
-    return `No hay tipo de cambio disponible para ${d}${prov ? ` con el proveedor ${prov.name}` : ''}: está en 0. `
-      + `No se puede cotizar ni continuar en ${d}. Elige otra divisa o pide que carguen el tipo de cambio de ${d}.`;
+    // ⚠️ Mensaje de cara al cliente/asesor: NUNCA nombrar al proveedor ni a
+    //    ENTANGLED. El detalle interno va al log, no a la pantalla.
+    console.warn(`[XPAY] TC no disponible divisa=${d} proveedor_id=${selectedProviderId}`);
+    return `No hay tipo de cambio disponible para ${d}. Elige otra divisa o habla con tu asesor.`;
   };
 
   // Mínimo que el asesor puede cobrar (venta fija del proveedor) y si capturó menos.
@@ -804,7 +805,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           setSinFacturaCuentaError(null);
           setSinFacturaCuenta({ loading: false, cuenta: cb });
         } else {
-          setSinFacturaCuentaError(typeof d?.error === 'string' ? d.error : 'ENTANGLED no devolvió una cuenta bancaria de destino para esta operación. Intenta de nuevo más tarde o cambia de proveedor.');
+          setSinFacturaCuentaError(typeof d?.error === 'string' ? d.error : 'No se pudo asignar una cuenta bancaria de destino para esta operación. Intenta de nuevo en unos minutos.');
           setSinFacturaCuenta(null);
         }
       })
@@ -823,8 +824,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     const tc = Number(calcDivisa === 'RMB'
       ? defaultProvider.tipo_cambio_rmb : defaultProvider.tipo_cambio_usd) || 0;
     if (tc > 0) return null;
-    return `No hay tipo de cambio disponible para ${calcDivisa} con el proveedor ${defaultProvider.name}: está en 0. `
-      + `No se puede cotizar ni continuar en ${calcDivisa}. Elige otra divisa o pide que carguen el tipo de cambio de ${calcDivisa}.`;
+    // Sin nombre de proveedor: el usuario final no debe verlo (ver helper del wizard).
+    return `No hay tipo de cambio disponible para ${calcDivisa}. Elige otra divisa o habla con tu asesor.`;
   })();
 
   const calcQuote = (() => {
@@ -1145,7 +1146,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       return null;
     }
     if (step === 1) {
-      if (!selectedProviderId) return 'Selecciona un proveedor ENTANGLED';
+      if (!selectedProviderId) return 'El servicio de pagos no está disponible en este momento. Intenta de nuevo en unos minutos.';
       if (!monto || parseFloat(monto) <= 0) return 'Captura un monto válido';
       const sinTc = motivoDivisaNoDisponible(divisa);
       if (sinTc) return sinTc;
@@ -2996,7 +2997,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           }}>
             <Ionicons name="alert-circle" size={18} color="#F87171" style={{ marginTop: 1 }} />
             <Text style={{ flex: 1, color: '#FCA5A5', fontSize: 12, fontWeight: '600' }}>
-              {sinFacturaCuentaError || 'ENTANGLED no devolvió una cuenta bancaria de destino. No se puede enviar la solicitud hasta que el proveedor tenga TC vigente y cuenta activa.'}
+              {sinFacturaCuentaError || 'No se pudo asignar una cuenta bancaria de destino para esta operación. Intenta de nuevo en unos minutos o habla con tu asesor.'}
             </Text>
           </View>
         )}

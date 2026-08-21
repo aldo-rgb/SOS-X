@@ -66,7 +66,7 @@
     "aliasOptional": "Alias (optional, for reuse)",
     "saveSupplierFuture": "Save this supplier for future requests",
     "amountSection": "Amount to send",
-    "entangledProvider": "ENTANGLED provider",
+    "entangledProvider": "Payment provider",
     "noProviders": "No active providers configured.",
     "amount": "Amount",
     "currency": "Currency",
