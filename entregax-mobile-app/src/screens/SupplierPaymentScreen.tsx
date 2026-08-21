@@ -256,6 +256,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [lastRequestId, setLastRequestId] = useState<number | null>(null);
   const [lastReferencia, setLastReferencia] = useState<string | null>(null);
   const [lastEmpresas, setLastEmpresas] = useState<Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>>([]);
+  // Conceptos (clave + descripción) de la última solicitud creada, para que el
+  // PDF muestre el concepto en vez de la clave SAT.
+  const [lastConceptos, setLastConceptos] = useState<any>(null);
   const [lastTransaccionId, setLastTransaccionId] = useState<string | null>(null);
   // Snapshot del form al crear la solicitud — necesario porque
   // después del submit limpiamos el form, y el PDF que se descarga
@@ -1139,6 +1142,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setLastRequestId(rid ? Number(rid) : null);
         setLastReferencia(data?.referencia_pago || (rid ? `XP${String(rid).padStart(6, '0')}` : null));
         setLastEmpresas(Array.isArray(data?.empresas_asignadas) ? data.empresas_asignadas : []);
+        setLastConceptos(data?.request?.op_conceptos ?? null);
         setLastTransaccionId(data?.entangled_transaccion_id || data?.request?.entangled_transaccion_id || null);
         // CAPTURAR snapshot del form ANTES de limpiarlo. Sin esto el
         // PDF que se descarga desde el modal de éxito muestra monto=0
@@ -1293,11 +1297,28 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     }
   };
 
-  const downloadInstructionsPDF = async (override?: { referencia: string; empresas: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }> }) => {
+  const downloadInstructionsPDF = async (override?: { referencia: string; empresas: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>; conceptos?: any }) => {
     try {
       const referencia = override?.referencia || lastReferencia;
       const empresas = override?.empresas || lastEmpresas;
       if (!referencia) return;
+
+      // Mapa clave SAT → descripción. En el PDF se muestra el CONCEPTO, no la
+      // clave: es una instrucción de pago, no una factura. La descripción vive
+      // en op_conceptos; empresas_asignadas solo trae la clave.
+      const descPorClave = new Map<string, string>();
+      {
+        const raw = override?.conceptos ?? lastConceptos;
+        let lista: any[] = [];
+        if (Array.isArray(raw)) lista = raw;
+        else if (typeof raw === 'string') { try { lista = JSON.parse(raw) || []; } catch { lista = []; } }
+        lista.forEach((c: any) => {
+          const k = String(c?.clave_prodserv || '').trim();
+          const d = String(c?.descripcion || '').trim();
+          if (k && d) descPorClave.set(k, d);
+        });
+      }
+      const conceptoDe = (clave: string) => descPorClave.get(String(clave).trim()) || '';
 
       const esc = (s: any) => String(s ?? '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -1409,7 +1430,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         if (g.clabe) rows.push(`<tr><td class="lbl">CLABE</td><td class="mono">${esc(g.clabe)}</td></tr>`);
         if (g.cuenta) rows.push(`<tr><td class="lbl">Cuenta</td><td class="mono">${esc(g.cuenta)}</td></tr>`);
         if (g.sucursal) rows.push(`<tr><td class="lbl">Sucursal</td><td>${esc(g.sucursal)}</td></tr>`);
-        if (g.claves.length > 0) rows.push(`<tr><td class="lbl">Clave(s) SAT</td><td class="mono">${esc(g.claves.join(', '))}</td></tr>`);
+        if (g.claves.length > 0) {
+          // Si alguna clave no trae descripción se deja la clave, para no dejar
+          // el renglón incompleto.
+          const conceptos = g.claves.map((c) => conceptoDe(c) || c);
+          rows.push(`<tr><td class="lbl">Concepto(s)</td><td>${esc(conceptos.join(' · '))}</td></tr>`);
+        }
         return rows.join('');
       }).join('<tr><td colspan="2" style="height:6px;border:0;"></td></tr>') : sinFacturaCb ? (() => {
         const rows: string[] = [];
@@ -2043,6 +2069,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                               (Array.isArray(r.empresas_asignadas) && r.empresas_asignadas.length > 0)
                                 ? r.empresas_asignadas
                                 : (r.instructions_snapshot?.empresas || []),
+                            conceptos: (r as any).op_conceptos ?? null,
                           })}
                         >
                           <Ionicons name="document-text-outline" size={13} color={ORANGE} />

@@ -355,6 +355,52 @@ export const createPaymentRequestV2 = async (
 
   const clienteFinal: any = parseJson(body.cliente_final, {});
   const conceptos: any[] = parseJson(body.conceptos, []);
+
+  // 🧾 Asegurar que cada concepto lleve su DESCRIPCIÓN. El PDF de instrucciones
+  // muestra el concepto y no la clave SAT, pero cuando el asesor teclea la
+  // clave a mano en vez de elegirla del catálogo, el front la manda sin
+  // descripción y el PDF se quedaba con el número. Se completa aquí, una sola
+  // vez, contra el historial local y si no contra el catálogo SAT.
+  // Nunca bloquea el alta: si no se puede resolver, se sigue sin descripción.
+  const completarDescripciones = async () => {
+    // Normalizar primero: el front manda las claves como "clave|descripcion" y
+    // a veces el pipe se cuela sin separar ("60141001|", "25171500|Limpia...").
+    // Así se guardaba y así se le mandaba a ENTANGLED, con la clave malformada.
+    conceptos.forEach((c) => {
+      const crudo = String(c?.clave_prodserv || '').trim();
+      if (!crudo.includes('|')) return;
+      const [clave, ...resto] = crudo.split('|');
+      c.clave_prodserv = String(clave || '').trim();
+      const desc = resto.join('|').trim();
+      if (desc && !String(c?.descripcion || '').trim()) c.descripcion = desc;
+      console.warn(`[XPAY] clave SAT malformada "${crudo}" → "${c.clave_prodserv}"${desc ? ` (descripción "${desc}")` : ''}`);
+    });
+    const faltantes = conceptos.filter(
+      (c) => String(c?.clave_prodserv || '').trim() && !String(c?.descripcion || '').trim()
+    );
+    if (faltantes.length === 0) return;
+    for (const c of faltantes) {
+      const clave = String(c.clave_prodserv).trim();
+      try {
+        const hist = await pool.query(
+          `SELECT descripcion FROM entangled_clave_sat_history
+            WHERE clave = $1 AND COALESCE(descripcion, '') <> '' LIMIT 1`,
+          [clave]
+        );
+        const deHistorial = String(hist.rows[0]?.descripcion || '').trim();
+        if (deHistorial) { c.descripcion = deHistorial; continue; }
+        const cat = await searchConceptos(clave, 1);
+        const encontrado = cat.ok
+          ? (cat.results || []).find((x: any) => String(x?.clave_prodserv || '').trim() === clave)
+          : null;
+        const delCatalogo = String((encontrado as any)?.descripcion || '').trim();
+        if (delCatalogo) c.descripcion = delCatalogo;
+        else console.warn(`[XPAY] sin descripción para la clave SAT ${clave}; el PDF mostrará la clave`);
+      } catch (e: any) {
+        console.warn(`[XPAY] no se pudo resolver la descripción de ${clave}:`, e?.message);
+      }
+    }
+  };
   // Snapshot de la UI (provider + beneficiario + operation + quote) para
   // poder regenerar el PDF de instrucciones idéntico al original.
   const instructionsSnapshot: any = parseJson(body.instructions_snapshot, null);
@@ -497,6 +543,8 @@ export const createPaymentRequestV2 = async (
       `La comisión del asesor se calculará con el % registrado.`
     );
   }
+
+  if (servicio === 'pago_con_factura') await completarDescripciones();
 
   // 1) Persistencia local (estado pendiente, sin transaccion_id aún)
   const referenciaPago = `XP${String(Math.floor(100000 + Math.random() * 900000)).padStart(6, '0')}`;
@@ -2891,6 +2939,9 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
     }
     const r = await pool.query(
       `SELECT r.id, r.referencia_pago, r.servicio, r.op_monto, r.op_divisa_destino,
+              -- Conceptos con descripción, para que el PDF muestre el concepto
+              -- y no la clave SAT.
+              r.op_conceptos,
               r.op_beneficiario_nombre, r.estatus_global, r.estatus_factura, r.estatus_proveedor,
               r.created_at, r.user_id,
               r.entangled_transaccion_id,

@@ -524,6 +524,10 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
               entangled_transaccion_id,
               cf_rfc, cf_razon_social, cf_email,
               op_monto, op_divisa_destino,
+              -- Conceptos con su descripción: el PDF de instrucciones muestra
+              -- el concepto, no la clave SAT (empresas_asignadas solo trae la
+              -- clave, la descripción vive aquí).
+              op_conceptos,
               -- Beneficiario final (proveedor al que se envió) y tipo
               -- de cambio aplicado — el mobile los muestra en cada
               -- card de "Últimos envíos" (monto MXN + nombre).

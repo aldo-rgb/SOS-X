@@ -1625,6 +1625,24 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     const provSnap = data.providerSnapshot;
     const sinFacturaCb = data.sinFacturaCuenta;
 
+    // Mapa clave SAT → descripción. En el PDF se muestra el CONCEPTO, no la
+    // clave: es una instrucción de pago, no una factura, y el código no le dice
+    // nada al cliente. La descripción vive en op_conceptos de la solicitud;
+    // empresas_asignadas solo trae la clave.
+    const descPorClave = new Map<string, string>();
+    {
+      const raw = (data.request as any)?.op_conceptos;
+      let lista: any[] = [];
+      if (Array.isArray(raw)) lista = raw;
+      else if (typeof raw === 'string') { try { lista = JSON.parse(raw) || []; } catch { lista = []; } }
+      lista.forEach((c: any) => {
+        const k = String(c?.clave_prodserv || '').trim();
+        const d = String(c?.descripcion || '').trim();
+        if (k && d) descPorClave.set(k, d);
+      });
+    }
+    const conceptoDe = (clave: string) => descPorClave.get(String(clave).trim()) || '';
+
     if (empresas.length > 0) {
       // ENTANGLED devuelve una entrada por CLAVE SAT, no por empresa. Cuando
       // varias claves caen en la misma comercializadora y la misma cuenta
@@ -1664,7 +1682,12 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           if (g.clabe) panelRow('CLABE', g.clabe, { mono: true });
           if (g.cuenta) panelRow('Cuenta', g.cuenta, { mono: true });
           if (g.sucursal) panelRow('Sucursal', g.sucursal);
-          if (g.claves.length > 0) panelRow('Clave(s) SAT', g.claves.join(', '), { mono: true });
+          if (g.claves.length > 0) {
+            // Si alguna clave no trae descripción se deja la clave, para no
+            // dejar el renglón incompleto.
+            const conceptos = g.claves.map((c) => conceptoDe(c) || c);
+            panelRow('Concepto(s)', conceptos.join(' · '));
+          }
           if (idx < bloques.length - 1) y += 6;
         });
       });
