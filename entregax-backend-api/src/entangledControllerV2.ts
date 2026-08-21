@@ -434,6 +434,21 @@ export const createPaymentRequestV2 = async (
     console.warn(`[XPAY][V2] sin quote.monto_mxn_total en el snapshot; total reconstruido = ${totalMxnFactura} (base ${baseMxn} + ${commission.porcentaje}%)`);
   }
 
+  // 🔎 Guarda de consistencia: el % que vamos a registrar y a mandar a ENTANGLED
+  // debe corresponder al total que le cobramos al cliente. Si no cuadra, algo
+  // quedó desincronizado (p. ej. el front cobró un % de asesor que no nos mandó)
+  // y ENTANGLED reconstruiría un importe distinto. Se registra para poder
+  // auditarlo; no se bloquea la operación.
+  const pctCobradoUI = Number(quoteSnap?.porcentaje_compra);
+  if (Number.isFinite(pctCobradoUI) && Math.abs(pctCobradoUI - commission.porcentaje) > 0.001) {
+    console.error(
+      `🚨 [XPAY][V2] comisión inconsistente user=${userId} advisor=${opts?.advisorId ?? '-'}: ` +
+      `la UI cobró ${pctCobradoUI}% pero se registrará ${commission.porcentaje}%. ` +
+      `Total cobrado ${totalMxnFactura} sobre base ${baseMxn}. ` +
+      `La comisión del asesor se calculará con el % registrado.`
+    );
+  }
+
   // 1) Persistencia local (estado pendiente, sin transaccion_id aún)
   const referenciaPago = `XP${String(Math.floor(100000 + Math.random() * 900000)).padStart(6, '0')}`;
   let requestId: number;

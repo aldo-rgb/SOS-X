@@ -971,6 +971,15 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       if (quote?.tipo_cambio) {
         fd.append('tc_cliente_final', String(quote.tipo_cambio));
       }
+      // 🎯 % de comisión al cliente que capturó el asesor. La app lo usaba para
+      // cotizar y COBRAR, pero nunca lo mandaba (la web sí), así que el backend
+      // caía al % configurado: se cobraba 6% y quedaba registrado 5.5%, con lo
+      // que ENTANGLED recibía un % que no correspondía al cobro y la comisión
+      // del asesor se calculaba de menos. El backend valida que no baje de la
+      // venta fija.
+      if (isAdvisorMode && quote?.porcentaje_compra != null) {
+        fd.append('comision_cliente_final_porcentaje', String(quote.porcentaje_compra));
+      }
       fd.append(
         'cliente_final',
         JSON.stringify(
