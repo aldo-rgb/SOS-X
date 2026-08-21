@@ -414,6 +414,26 @@ export const createPaymentRequestV2 = async (
     console.warn(`[ENTANGLED v2] operación creada SIN asesor para user=${userId}: no habrá comisión hasta asignarlo`);
   }
 
+  // 💰 Total EXACTO cobrado al cliente final, en MXN.
+  //
+  // ENTANGLED no lo recibía: la solicitud llegaba solo con monto, tc y % de
+  // comisión, y ellos reconstruían el total. Esa reconstrucción no incluye el
+  // costo de operación, así que cuando lo hay el número no cuadra con la
+  // factura del proveedor y la factura queda sin asignar (se liga a mano).
+  //
+  // El número autoritativo es el que la UI le mostró y cobró al cliente
+  // (quote.monto_mxn_total del snapshot, que web y móvil ya mandan). Si por
+  // alguna razón no viene, lo reconstruimos con la misma fórmula base + comisión.
+  const quoteSnap: any = instructionsSnapshot?.quote || null;
+  const totalDeSnapshot = Number(quoteSnap?.monto_mxn_total);
+  const baseMxn = Number((monto * tcClienteFinal).toFixed(2));
+  const totalMxnFactura = Number.isFinite(totalDeSnapshot) && totalDeSnapshot > 0
+    ? Number(totalDeSnapshot.toFixed(2))
+    : Number((baseMxn * (1 + commission.porcentaje / 100)).toFixed(2));
+  if (!(Number.isFinite(totalDeSnapshot) && totalDeSnapshot > 0)) {
+    console.warn(`[XPAY][V2] sin quote.monto_mxn_total en el snapshot; total reconstruido = ${totalMxnFactura} (base ${baseMxn} + ${commission.porcentaje}%)`);
+  }
+
   // 1) Persistencia local (estado pendiente, sin transaccion_id aún)
   const referenciaPago = `XP${String(Math.floor(100000 + Math.random() * 900000)).padStart(6, '0')}`;
   let requestId: number;
@@ -449,6 +469,7 @@ export const createPaymentRequestV2 = async (
          comision_cobrada_porcentaje, comision_entregax, comision_asesor,
          instructions_snapshot,
          op_beneficiario_nombre,
+         monto_mxn_base, monto_mxn_total,
          estatus_global, estatus_factura, estatus_proveedor
        ) VALUES (
          $1, $2,
@@ -460,6 +481,7 @@ export const createPaymentRequestV2 = async (
          $20, $21, $22,
          $17::jsonb,
          $18,
+         $23, $24,
          'pendiente', $19, 'pendiente'
        ) RETURNING id`,
       [
@@ -485,6 +507,8 @@ export const createPaymentRequestV2 = async (
         proveedorPctEntangled,
         pctEntregaxIns,
         pctAsesorIns,
+        baseMxn,
+        totalMxnFactura,
       ]
     );
     requestId = ins.rows[0].id;
@@ -544,6 +568,10 @@ export const createPaymentRequestV2 = async (
           }
         : { razon_social: clienteFinal.razon_social },
     referencia_xpay: referenciaPago,
+    // Total exacto cobrado al cliente final: es el mismo con el que ENTANGLED
+    // emite su factura. Sin este campo ellos lo reconstruían de monto/tc/% y
+    // el número no siempre cuadraba, dejando la factura sin asignar.
+    total_mxn_factura: totalMxnFactura,
   };
   if (servicio === 'pago_con_factura') {
     payload.conceptos = conceptos as any[];
@@ -1051,9 +1079,12 @@ export async function sendPendingRequestToEntangled(
     ? reqRow.instructions_snapshot as any : null;
   const benefSnap = snap?.beneficiarioSnapshot || null;
   // 🌎 País destino (ver build principal): preferir país del beneficiario, si no
-  //    derivar de la divisa (RMB→China, USD→Estados Unidos).
+  //    derivar de la divisa (RMB→China, MXN→México, USD→Estados Unidos).
+  //    Faltaba el caso MXN: una operación en pesos se mandaba como "Estados
+  //    Unidos", y ENTANGLED rutea la operación por este dato.
+  const divisaReenvio = String(reqRow.op_divisa_destino).toUpperCase();
   const paisDestino = String((benefSnap as any)?.pais || '').trim()
-    || (String(reqRow.op_divisa_destino).toUpperCase() === 'RMB' ? 'China' : 'Estados Unidos');
+    || (divisaReenvio === 'RMB' ? 'China' : divisaReenvio === 'MXN' ? 'México' : 'Estados Unidos');
   const notasObj: any = { proveedor_envio: { pais: paisDestino } };
   if (benefSnap) {
     notasObj.proveedor_envio = {
@@ -1089,6 +1120,18 @@ export async function sendPendingRequestToEntangled(
           }
         : { razon_social: reqRow.cf_razon_social },
     referencia_xpay: reqRow.referencia_pago,
+    // Total cobrado al cliente: el persistido al crear la solicitud. Para las
+    // solicitudes viejas (creadas antes de que se guardara) se recupera del
+    // snapshot de la UI y, en último caso, se reconstruye base + comisión.
+    total_mxn_factura: (() => {
+      const guardado = Number(reqRow.monto_mxn_total);
+      if (Number.isFinite(guardado) && guardado > 0) return Number(guardado.toFixed(2));
+      const delSnap = Number(snap?.quote?.monto_mxn_total);
+      if (Number.isFinite(delSnap) && delSnap > 0) return Number(delSnap.toFixed(2));
+      const base = Number(reqRow.op_monto) * Number(tcClienteFinal || 0);
+      const pct = Number(reqRow.comision_cliente_final_porcentaje || 0);
+      return Number((base * (1 + pct / 100)).toFixed(2));
+    })(),
     notas: JSON.stringify(notasObj),
   };
   if (servicio === 'pago_con_factura') {

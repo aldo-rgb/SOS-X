@@ -90,6 +90,10 @@ export interface EntangledSolicitudPayloadV2 {
   divisa: EntangledDivisa;
   cliente_final: EntangledClienteFinalV2;
   conceptos?: EntangledConceptoV2[] | undefined;
+  // Total exacto en MXN cobrado al cliente final — es el mismo con el que
+  // ENTANGLED emite la factura. Sin él lo reconstruyen de monto/tc/% y cuando
+  // no cae exacto la factura del proveedor queda sin asignar.
+  total_mxn_factura?: number | undefined;
   // Metadatos opcionales sólo informativos para ENTANGLED
   referencia_xpay?: string | undefined;
   notas?: string | undefined;
