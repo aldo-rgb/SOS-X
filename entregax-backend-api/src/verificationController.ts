@@ -270,15 +270,41 @@ export const uploadVerificationDocuments = async (req: Request, res: Response): 
                     fileUrl = `/uploads/users/${userId}/constancia-fiscal/${filename}`;
                 }
 
+                // Fecha de emisión + vigencia (3 meses), con el MISMO extractor que
+                // usa el flujo dedicado de constancias. Sin esto la fila nacía con
+                // valid_until = NULL, y una vigencia nula se evalúa como NO vigente:
+                // el cliente quedaba bloqueado en XPAY web aunque acabara de subir
+                // su constancia por este camino.
+                let issuedAt: Date | null = null;
+                let validUntil: Date | null = null;
+                try {
+                    const { tryExtractIssueDateFromPdf } = await import('./fiscalConstanciaController');
+                    issuedAt = await tryExtractIssueDateFromPdf({
+                        buffer, mimetype: mime, originalname: filename, size: buffer.length,
+                    } as any);
+                    if (issuedAt) {
+                        validUntil = new Date(issuedAt.getTime());
+                        validUntil.setUTCMonth(validUntil.getUTCMonth() + 3);
+                    } else {
+                        console.warn(`[CSF] no se pudo extraer la fecha de emisión del PDF de user=${userId}; queda sin vigencia hasta que la capturen`);
+                    }
+                } catch (e) {
+                    console.warn('[CSF] extracción de fecha falló:', (e as any)?.message);
+                }
+
                 // Guardar en user_saved_documents (para auto-rellenar en facturación)
                 await pool.query(
-                    `INSERT INTO user_saved_documents (user_id, document_type, file_url, original_filename)
-                     VALUES ($1, 'constancia_fiscal', $2, $3)
+                    `INSERT INTO user_saved_documents (user_id, document_type, file_url, original_filename, issued_at, valid_until)
+                     VALUES ($1, 'constancia_fiscal', $2, $3, $4, $5)
                      ON CONFLICT (user_id, document_type) DO UPDATE SET
                        file_url = EXCLUDED.file_url,
                        original_filename = EXCLUDED.original_filename,
+                       -- Solo se pisan las fechas si esta subida SÍ trae una fecha
+                       -- extraída; si no, se conserva la vigencia que ya hubiera.
+                       issued_at = COALESCE(EXCLUDED.issued_at, user_saved_documents.issued_at),
+                       valid_until = COALESCE(EXCLUDED.valid_until, user_saved_documents.valid_until),
                        updated_at = CURRENT_TIMESTAMP`,
-                    [userId, fileUrl, filename]
+                    [userId, fileUrl, filename, issuedAt, validUntil]
                 );
 
                 // Si es asesor, mirror al expediente HR como doc_type='rfc'
