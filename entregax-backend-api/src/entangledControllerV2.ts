@@ -164,6 +164,11 @@ const DEFAULT_CONGELAMIENTO_HORAS = 24;
 
 // Traduce los códigos de error que devuelve ENTANGLED a un mensaje claro en
 // español para el usuario final. Si no hay match, regresa el texto original.
+// Mensaje neutro de cara al cliente/asesor cuando no hay un motivo traducible.
+// Redactado por Aldo: sin nombrar al proveedor ni conceptos internos.
+const MENSAJE_GENERICO_XPAY =
+  'No hay ninguna comercializadora disponible en este momento, habla con tu asesor.';
+
 function friendlyEntangledError(code?: string | null): string {
   const raw = String(code || '').trim();
   if (!raw) return '';
@@ -180,7 +185,14 @@ function friendlyEntangledError(code?: string | null): string {
     orden_vencida: 'La orden venció. Genera una nueva solicitud.',
     orden_cancelada: 'La orden fue cancelada.',
   };
-  return MAP[key] || raw;
+  if (MAP[key]) return MAP[key];
+  // ⚠️ NUNCA devolver el texto crudo del proveedor: son mensajes escritos para
+  // desarrolladores y mencionan detalles internos. Ej. real que le llegaba al
+  // asesor: "Falta el país del banco destino. Mándalo en `pais_destino` (o un
+  // SWIFT del que se pueda sacar). Sin ese dato no se puede saber a qué
+  // proveedor le toca la operación." El crudo se queda en el log.
+  console.warn(`[XPAY] error del proveedor sin traducir (se muestra el genérico): ${raw}`);
+  return MENSAJE_GENERICO_XPAY;
 }
 
 async function getCongelamientoHoras(): Promise<number> {
@@ -1694,7 +1706,14 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
     // para que el frontend muestre el mensaje real al usuario. 5xx → 502 con mensaje genérico.
     const upstream = result.upstream_status;
     if (typeof upstream === 'number' && upstream >= 400 && upstream < 500) {
-      return res.status(upstream).json({ error: result.error, raw: result.raw, upstream_status: upstream });
+      // Se traduce a un mensaje neutro; el crudo queda en error_code/log para
+      // nosotros. Antes se reenviaba tal cual y el asesor leía el texto que
+      // ENTANGLED escribió para desarrolladores.
+      return res.status(upstream).json({
+        error: friendlyEntangledError(result.error) || MENSAJE_GENERICO_XPAY,
+        error_code: result.error || null,
+        upstream_status: upstream,
+      });
     }
     return res.status(502).json({
       error: result.error || 'El servicio de asignación no respondió. Intenta de nuevo en unos segundos.',

@@ -687,7 +687,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         if (!form.uso_cfdi) missing.push('Uso CFDI');
         if (!form.email) missing.push('Email');
         if (missing.length > 0) {
-          showAddConceptoError(`Para asignar empresa con factura, completa primero estos datos fiscales: ${missing.join(', ')}.`);
+          showAddConceptoError(`Para facturar, completa primero estos datos fiscales: ${missing.join(', ')}.`);
           setAddingConcepto(false);
           return;
         }
@@ -2140,9 +2140,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
         // /asignacion se reportaba como "no encontradas en catálogo" y mandaba
         // a buscar el problema donde no estaba (TKT-2026-2245).
         const detalle = claveValidations.find(v => !v.ok && !v.loading && v.error)?.error;
-        return detalle
-          ? `No se pudieron validar las claves ${invalid.join(', ')}: ${detalle}`
-          : `No se pudieron validar las claves SAT: ${invalid.join(', ')}`;
+        return detalle || 'No hay ninguna comercializadora disponible en este momento, habla con tu asesor.';
       }
     }
     return null;
