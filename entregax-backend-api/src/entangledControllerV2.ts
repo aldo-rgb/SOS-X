@@ -184,6 +184,12 @@ function friendlyEntangledError(code?: string | null): string {
       'No hay un proveedor con cuenta bancaria activa para esta operación en este momento.',
     orden_vencida: 'La orden venció. Genera una nueva solicitud.',
     orden_cancelada: 'La orden fue cancelada.',
+    // Textos de cara al cliente/asesor redactados por Aldo. El detalle técnico
+    // (que falta `pais_destino`, que no hay tarifa de operación en RMB) se
+    // queda en el log y en error_code.
+    destino_pais_faltante: 'Falta país destino, habla con tu asesor.',
+    costo_operacion_no_configurado:
+      'No hay TC-RMB disponible, prueba con USD o habla con tu asesor.',
   };
   if (MAP[key]) return MAP[key];
   // ⚠️ NUNCA devolver el texto crudo del proveedor: son mensajes escritos para
