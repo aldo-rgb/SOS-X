@@ -164,6 +164,36 @@ const DEFAULT_CONGELAMIENTO_HORAS = 24;
 
 // Traduce los códigos de error que devuelve ENTANGLED a un mensaje claro en
 // español para el usuario final. Si no hay match, regresa el texto original.
+// País del banco destino, en el orden en que se puede confiar:
+//   1. el que declaró el usuario (selector "País de Destino" o el del beneficiario)
+//   2. el código de país del SWIFT — posiciones 5 y 6, es estándar ISO
+//   3. la divisa, solo como último recurso
+// NUNCA se asume "Estados Unidos" por ser USD: se paga en dólares a China,
+// Hong Kong y muchos otros, y ese país define el ruteo y el carril en ENTANGLED.
+const PAIS_POR_SWIFT: Record<string, string> = {
+  CN: 'China', HK: 'Hong Kong', US: 'Estados Unidos', MX: 'México',
+  GB: 'Reino Unido', SG: 'Singapur', JP: 'Japón', KR: 'Corea del Sur',
+  DE: 'Alemania', ES: 'España', IT: 'Italia', TR: 'Turquía',
+  IN: 'India', VN: 'Vietnam', TW: 'Taiwán', TH: 'Tailandia', ID: 'Indonesia',
+};
+export const resolverPaisDestino = (
+  o: { declarado?: any; swift?: any; divisa?: any }
+): string => {
+  const declarado = String(o.declarado || '').trim();
+  if (declarado) return declarado;
+  // El SWIFT guardado a veces trae espacios (' CHASHKHH'), por eso el trim.
+  const swift = String(o.swift || '').trim().toUpperCase();
+  const cc = swift.length >= 6 ? swift.slice(4, 6) : '';
+  if (PAIS_POR_SWIFT[cc]) {
+    console.warn(`[XPAY] país destino no declarado; deducido del SWIFT ${swift} → ${PAIS_POR_SWIFT[cc]}`);
+    return PAIS_POR_SWIFT[cc] as string;
+  }
+  const divisa = String(o.divisa || '').toUpperCase();
+  const porDivisa = divisa === 'RMB' ? 'China' : divisa === 'MXN' ? 'México' : 'Estados Unidos';
+  console.warn(`[XPAY] país destino no declarado y SWIFT sin país ("${swift}"); derivado de la divisa ${divisa} → ${porDivisa}. Puede rutear mal.`);
+  return porDivisa;
+};
+
 // Mensaje neutro de cara al cliente/asesor cuando no hay un motivo traducible.
 // Redactado por Aldo: sin nombrar al proveedor ni conceptos internos.
 const MENSAJE_GENERICO_XPAY =
@@ -581,6 +611,19 @@ export const createPaymentRequestV2 = async (
     return res.status(500).json({ error: 'No se pudo crear la solicitud local' });
   }
 
+  const benefSnap = instructionsSnapshot?.beneficiarioSnapshot || null;
+  const benefNombre = String(body.beneficiario_nombre || '').trim();
+  // 🌎 País destino. ENTANGLED lo usa para rutear la operación y para
+  //    clasificarla (el carril prioritario China = "híbrida"), así que mandar
+  //    uno equivocado cambia el tratamiento de la operación.
+  //    Antes se derivaba de la divisa y CUALQUIER pago en USD salía como
+  //    "Estados Unidos", aunque fuera a un banco de China.
+  const paisDestino = resolverPaisDestino({
+    declarado: (benefSnap as any)?.pais,
+    swift: (benefSnap as any)?.swift,
+    divisa,
+  });
+
   // 2) Construir payload para ENTANGLED v2 (siempre se envía sin comprobante
   //    primero, para obtener empresas_asignadas + transaccion_id sincrónicamente).
   const payload: EntangledSolicitudPayloadV2 = {
@@ -600,6 +643,9 @@ export const createPaymentRequestV2 = async (
             uso_cfdi: clienteFinal.uso_cfdi,
           }
         : { razon_social: clienteFinal.razon_social },
+    // País del banco destino, en la raíz: es el campo que ENTANGLED usa para
+    // rutear y clasificar. Antes solo iba dentro de notas.proveedor_envio.
+    pais_destino: paisDestino,
     referencia_xpay: referenciaPago,
     // Total exacto cobrado al cliente final: es el mismo con el que ENTANGLED
     // emite su factura. Sin este campo ellos lo reconstruían de monto/tc/% y
@@ -624,15 +670,6 @@ export const createPaymentRequestV2 = async (
   // ENTANGLED necesita su cuenta bancaria; la recibe en notas.proveedor_envio.
   // Antes solo se mandaba en el path legacy (reupload), por eso ENTANGLED se
   // quedaba sin la cuenta del proveedor en el flujo nuevo.
-  const benefSnap = instructionsSnapshot?.beneficiarioSnapshot || null;
-  const benefNombre = String(body.beneficiario_nombre || '').trim();
-  // 🌎 País destino: ENTANGLED lo necesita para saber a qué país va el dinero
-  //    (y detectar China en efectivo). Preferimos el país del beneficiario;
-  //    si no viene, lo derivamos de la divisa (RMB→China, USD→Estados Unidos).
-  const paisDestino = String((benefSnap as any)?.pais || '').trim()
-    || (String(divisa).toUpperCase() === 'RMB' ? 'China'
-        : String(divisa).toUpperCase() === 'MXN' ? 'México'
-        : 'Estados Unidos');
   if (benefSnap || benefNombre) {
     const notasObj: any = {
       proveedor_envio: {
@@ -1119,9 +1156,11 @@ export async function sendPendingRequestToEntangled(
   //    derivar de la divisa (RMB→China, MXN→México, USD→Estados Unidos).
   //    Faltaba el caso MXN: una operación en pesos se mandaba como "Estados
   //    Unidos", y ENTANGLED rutea la operación por este dato.
-  const divisaReenvio = String(reqRow.op_divisa_destino).toUpperCase();
-  const paisDestino = String((benefSnap as any)?.pais || '').trim()
-    || (divisaReenvio === 'RMB' ? 'China' : divisaReenvio === 'MXN' ? 'México' : 'Estados Unidos');
+  const paisDestino = resolverPaisDestino({
+    declarado: (benefSnap as any)?.pais,
+    swift: (benefSnap as any)?.swift,
+    divisa: String(reqRow.op_divisa_destino || ''),
+  });
   const notasObj: any = { proveedor_envio: { pais: paisDestino } };
   if (benefSnap) {
     notasObj.proveedor_envio = {
@@ -1157,6 +1196,7 @@ export async function sendPendingRequestToEntangled(
           }
         : { razon_social: reqRow.cf_razon_social },
     referencia_xpay: reqRow.referencia_pago,
+    pais_destino: paisDestino,
     // Total cobrado al cliente: el persistido al crear la solicitud. Para las
     // solicitudes viejas (creadas antes de que se guardara) se recupera del
     // snapshot de la UI y, en último caso, se reconstruye base + comisión.

@@ -1088,6 +1088,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       fd.append('instructions_snapshot', JSON.stringify({
         beneficiarioSnapshot: {
           nombre:         benefName,
+          // 🌎 País del banco destino. La app NO lo mandaba, así que el backend
+          // lo derivaba de la divisa y toda operación en USD salía como
+          // "Estados Unidos" aunque el asesor hubiera elegido China — y ese
+          // país es el que ENTANGLED usa para rutear y para clasificar la
+          // operación como carril prioritario China (híbrida).
+          pais:           paisDestinoNombre(),
           nombre_chino:   benefNameZh || '',
           cuenta:         benefAccount,
           iban:           benefIban || '',

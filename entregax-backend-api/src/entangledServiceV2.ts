@@ -94,6 +94,10 @@ export interface EntangledSolicitudPayloadV2 {
   // ENTANGLED emite la factura. Sin él lo reconstruyen de monto/tc/% y cuando
   // no cae exacto la factura del proveedor queda sin asignar.
   total_mxn_factura?: number | undefined;
+  // País del banco destino. ENTANGLED lo usa para rutear la operación y para
+  // clasificarla (carril prioritario China = híbrida). Antes solo viajaba
+  // enterrado dentro del JSON de `notas`, donde no lo lee para rutear.
+  pais_destino?: string | undefined;
   // Metadatos opcionales sólo informativos para ENTANGLED
   referencia_xpay?: string | undefined;
   notas?: string | undefined;
