@@ -2221,6 +2221,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       {
         const info = await pool.query(
           `SELECT (p.child_no ILIKE 'AIR%' OR p.tracking_internal ILIKE 'CN-%' OR p.china_receipt_id IS NOT NULL) AS is_air,
+                  UPPER(COALESCE(p.service_type::text, '')) AS service_type,
                   (SELECT zip_code FROM addresses WHERE id = $2) AS zip
              FROM packages p WHERE p.id = $1`, [shipmentId, addressId]);
         const isAir = info.rows[0]?.is_air === true;
@@ -2231,6 +2232,21 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           effCarrier = 'evisa_pre';
           forceEvisaZero = true;
           pqtxPerBox = 0;
+        }
+        // 🛬 Aéreo China / TDI Express se venden como "todo incluido": la última
+        // milla por Paquete Express YA va dentro de la tarifa aérea y no se
+        // cobra aparte. Los tres paneles (cliente web, cliente móvil y el propio
+        // panel del asesor) muestran "✓ INCLUIDO", pero este handler cobraba
+        // igual: cuando el front no mandaba costo, caía al fallback de $400/caja.
+        // Por eso el mismo embarque salía en $0 si lo asignaba el cliente y con
+        // flete si lo asignaba el asesor.
+        const svc = String(info.rows[0]?.service_type || '').toUpperCase();
+        const pqtxIncluido = (svc === 'AIR_CHN_MX' || svc === 'TDI_EXPRESS' || isAir)
+          && String(carrierKey || '').toLowerCase() === 'paquete_express';
+        if (pqtxIncluido) {
+          forceEvisaZero = true;   // fuerza national_shipping_cost = 0
+          pqtxPerBox = 0;
+          console.log(`🛬 [Última milla incluida] ${uid} servicio=${svc || 'AIR'} carrier=paquete_express → sin cobro extra`);
         }
       }
 

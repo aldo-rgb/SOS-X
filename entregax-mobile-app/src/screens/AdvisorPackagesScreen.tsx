@@ -202,6 +202,14 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
 
   // Price estimate & COD documents
   const [instrPriceEstimate, setInstrPriceEstimate] = useState<{ price: number; perBox: number; boxes: number; days: string } | null>(null);
+  // 🛬 Aéreo China / TDI Express son "todo incluido": la última milla por Paquete
+  // Express va dentro de la tarifa aérea y NO se cobra aparte. La app mostraba el
+  // estimado y lo mandaba como costo, así que el mismo embarque salía en $0 si lo
+  // asignaba el cliente y con flete si lo asignaba el asesor.
+  const pqtxIncluidoEnFlete = React.useMemo(() => {
+    const svc = String(instrShipment?.service_type || '').toUpperCase();
+    return (svc === 'AIR_CHN_MX' || svc === 'TDI_EXPRESS') && instrCarrierKey === 'paquete_express';
+  }, [instrShipment?.service_type, instrCarrierKey]);
   const [instrPriceLoading, setInstrPriceLoading] = useState(false);
   const [instrOcurreInfo, setInstrOcurreInfo] = useState<{ usedZip: string; nearestBranch: boolean } | null>(null);
   const [instrIsCollect, setInstrIsCollect] = useState(false);
@@ -535,7 +543,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       return;
     }
     // Paquete Express API: no permitir asignar sin cotización (evita costo $0).
-    if (instrCarrierKey === 'paquete_express' && (instrPriceLoading || !instrPriceEstimate)) {
+    if (instrCarrierKey === 'paquete_express' && !pqtxIncluidoEnFlete && (instrPriceLoading || !instrPriceEstimate)) {
       Alert.alert(
         instrPriceLoading ? 'Calculando cotización' : 'Sin cotización',
         instrPriceLoading
@@ -559,7 +567,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
             formData.append('serviceKey', serviceKey);
           }
           // Paquete Express API: mandar el costo cotizado por caja + zip Ocurre.
-          if (instrCarrierKey === 'paquete_express' && instrPriceEstimate) {
+          if (instrCarrierKey === 'paquete_express' && instrPriceEstimate && !pqtxIncluidoEnFlete) {
             formData.append('nationalShippingCostPerBox', String(instrPriceEstimate.perBox));
             if (instrOcurreInfo?.usedZip) formData.append('nationalDeliveryZip', String(instrOcurreInfo.usedZip));
           }
@@ -580,7 +588,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
           const body: any = { addressId: instrSelectedId };
           if (instrCarrierKey && serviceKey) { body.carrierKey = instrCarrierKey; body.serviceKey = serviceKey; }
           // Paquete Express API: mandar el costo cotizado por caja + zip Ocurre.
-          if (instrCarrierKey === 'paquete_express' && instrPriceEstimate) {
+          if (instrCarrierKey === 'paquete_express' && instrPriceEstimate && !pqtxIncluidoEnFlete) {
             body.nationalShippingCostPerBox = instrPriceEstimate.perBox;
             if (instrOcurreInfo?.usedZip) body.nationalDeliveryZip = instrOcurreInfo.usedZip;
           }
@@ -1288,10 +1296,16 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                           <>
                             <Text style={{ fontSize: 20 }}>💰</Text>
                             <View>
-                              <Text style={{ fontSize: 14, fontWeight: '700', color: '#1D4ED8' }}>
-                                Estimado: ${instrPriceEstimate.price.toFixed(2)} MXN
+                              <Text style={{ fontSize: 14, fontWeight: '700', color: pqtxIncluidoEnFlete ? '#059669' : '#1D4ED8' }}>
+                                {pqtxIncluidoEnFlete
+                                  ? '✓ INCLUIDO en el flete aéreo'
+                                  : `Estimado: $${instrPriceEstimate.price.toFixed(2)} MXN`}
                               </Text>
-                              {instrPriceEstimate.boxes > 1 && (
+                              {pqtxIncluidoEnFlete ? (
+                                <Text style={{ fontSize: 11, color: '#666' }}>
+                                  Sin costo extra (valor ${instrPriceEstimate.price.toFixed(2)} MXN)
+                                </Text>
+                              ) : instrPriceEstimate.boxes > 1 && (
                                 <Text style={{ fontSize: 11, color: '#666' }}>${instrPriceEstimate.perBox.toFixed(2)}/caja × {instrPriceEstimate.boxes} cajas</Text>
                               )}
                               <Text style={{ fontSize: 11, color: '#888' }}>{instrPriceEstimate.days}</Text>
