@@ -898,9 +898,13 @@ export const createPaymentRequestV2 = async (
     if (!u?.phone) {
       console.warn(`[XPAY WA] Usuario ${userId} no tiene teléfono registrado — omitiendo WhatsApp de confirmación`);
     } else {
-      const tc = Number(tcClienteFinal) || 0;
-      const totalMxn = tc > 0
-        ? (monto * tc * (1 + commission.porcentaje / 100)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      // 💵 Total a depositar: se usa el MISMO número que la orden, el PDF y el
+      // que se le manda a ENTANGLED (totalMxnFactura). Antes se recalculaba
+      // aquí como base x (1 + comisión), sin el costo de operación, así que el
+      // WhatsApp cotizaba de menos: XP411078 decía $17,982.59 cuando la orden
+      // decía $18,506.94 — justo los $30 USD del costo de operación.
+      const totalMxn = totalMxnFactura > 0
+        ? totalMxnFactura.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         : '—';
       const cb: any = (empresasFinales[0]?.cuenta_bancaria) || {};
       console.log(`[XPAY WA] Enviando confirmación a ${u.phone} ref=${referenciaPago} banco=${cb.banco || '?'}`);

@@ -1370,21 +1370,39 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         if (typeof v === 'object') return String(v.razon_social || v.nombre || v.empresa || v.titular || v.rfc || '');
         return '';
       };
-      const depositarRows = empresas.length > 0 ? empresas.map((emp) => {
+      // ENTANGLED devuelve una entrada por CLAVE SAT, no por empresa. Si varias
+      // claves caen en la misma comercializadora y cuenta —lo normal— el bloque
+      // se repetía una vez por clave (XP411078 salió 5 veces con la misma
+      // CLABE). Se agrupa por empresa + cuenta y se listan juntas las claves.
+      const gruposDep = new Map<string, { titular: string; banco: string; clabe: string; cuenta: string; sucursal: string; moneda: string; claves: string[] }>();
+      empresas.forEach((emp) => {
         const cb: any = emp.cuenta_bancaria || {};
-        const banco = toStr(cb.banco || cb.bank);
-        const titular = toStr(cb.titular || cb.holder) || toStr(emp.empresa);
-        const cuenta = toStr(cb.cuenta || cb.account || cb.numero_cuenta);
-        const clabe = toStr(cb.clabe || cb.CLABE);
-        const sucursal = toStr(cb.sucursal || cb.branch);
-        const moneda = toStr(cb.moneda || cb.currency);
+        const g = {
+          titular: toStr(cb.titular || cb.holder) || toStr(emp.empresa),
+          banco: toStr(cb.banco || cb.bank),
+          clabe: toStr(cb.clabe || cb.CLABE),
+          cuenta: toStr(cb.cuenta || cb.account || cb.numero_cuenta),
+          sucursal: toStr(cb.sucursal || cb.branch),
+          moneda: toStr(cb.moneda || cb.currency),
+        };
+        const key = `${g.titular}|${g.clabe}|${g.cuenta}`;
+        const prev = gruposDep.get(key);
+        if (prev) {
+          const c = toStr(emp.clave_prodserv);
+          if (c && !prev.claves.includes(c)) prev.claves.push(c);
+        } else {
+          const c = toStr(emp.clave_prodserv);
+          gruposDep.set(key, { ...g, claves: c ? [c] : [] });
+        }
+      });
+      const depositarRows = empresas.length > 0 ? Array.from(gruposDep.values()).map((g) => {
         const rows: string[] = [];
-        if (titular) rows.push(`<tr><td class="lbl">Empresa receptora</td><td><b>${esc(titular)}</b></td></tr>`);
-        if (banco) rows.push(`<tr><td class="lbl">Banco</td><td>${esc(banco)}${moneda ? ` (${esc(moneda)})` : ''}</td></tr>`);
-        if (clabe) rows.push(`<tr><td class="lbl">CLABE</td><td class="mono">${esc(clabe)}</td></tr>`);
-        if (cuenta) rows.push(`<tr><td class="lbl">Cuenta</td><td class="mono">${esc(cuenta)}</td></tr>`);
-        if (sucursal) rows.push(`<tr><td class="lbl">Sucursal</td><td>${esc(sucursal)}</td></tr>`);
-        if (emp.clave_prodserv) rows.push(`<tr><td class="lbl">Clave(s) SAT</td><td class="mono">${esc(emp.clave_prodserv)}</td></tr>`);
+        if (g.titular) rows.push(`<tr><td class="lbl">Empresa receptora</td><td><b>${esc(g.titular)}</b></td></tr>`);
+        if (g.banco) rows.push(`<tr><td class="lbl">Banco</td><td>${esc(g.banco)}${g.moneda ? ` (${esc(g.moneda)})` : ''}</td></tr>`);
+        if (g.clabe) rows.push(`<tr><td class="lbl">CLABE</td><td class="mono">${esc(g.clabe)}</td></tr>`);
+        if (g.cuenta) rows.push(`<tr><td class="lbl">Cuenta</td><td class="mono">${esc(g.cuenta)}</td></tr>`);
+        if (g.sucursal) rows.push(`<tr><td class="lbl">Sucursal</td><td>${esc(g.sucursal)}</td></tr>`);
+        if (g.claves.length > 0) rows.push(`<tr><td class="lbl">Clave(s) SAT</td><td class="mono">${esc(g.claves.join(', '))}</td></tr>`);
         return rows.join('');
       }).join('<tr><td colspan="2" style="height:6px;border:0;"></td></tr>') : sinFacturaCb ? (() => {
         const rows: string[] = [];

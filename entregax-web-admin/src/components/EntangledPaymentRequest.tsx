@@ -1626,26 +1626,46 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     const sinFacturaCb = data.sinFacturaCuenta;
 
     if (empresas.length > 0) {
+      // ENTANGLED devuelve una entrada por CLAVE SAT, no por empresa. Cuando
+      // varias claves caen en la misma comercializadora y la misma cuenta
+      // —que es lo normal— se pintaba el bloque completo una vez por clave:
+      // XP411078 mostró GRUPO DORAGRAPA cinco veces con la misma CLABE.
+      // Se agrupa por empresa + cuenta y se listan juntas todas las claves
+      // (la etiqueta ya decía "Clave(s) SAT" en plural).
+      const grupos = new Map<string, { titular: string; banco: string; clabe: string; cuenta: string; sucursal: string; moneda: string; claves: string[] }>();
+      empresas.forEach((emp) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cb: any = emp.cuenta_bancaria || {};
+        // `emp.empresa` puede venir como objeto { rfc, razon_social }.
+        const empresaName = typeof emp.empresa === 'string' ? emp.empresa : ((emp.empresa as any)?.razon_social || (emp.empresa as any)?.nombre || '');
+        const titularRaw = cb.titular || cb.holder || empresaName;
+        const titular = typeof titularRaw === 'string' ? titularRaw : ((titularRaw as any)?.razon_social || (titularRaw as any)?.nombre || (titularRaw as any)?.rfc || '');
+        const g = {
+          titular: String(titular || ''),
+          banco: String(cb.banco || cb.bank || ''),
+          clabe: String(cb.clabe || cb.CLABE || ''),
+          cuenta: String(cb.cuenta || cb.account || cb.numero_cuenta || ''),
+          sucursal: String(cb.sucursal || cb.branch || ''),
+          moneda: String(cb.moneda || cb.currency || ''),
+        };
+        const key = `${g.titular}|${g.clabe}|${g.cuenta}`;
+        const prev = grupos.get(key);
+        if (prev) {
+          if (emp.clave_prodserv && !prev.claves.includes(String(emp.clave_prodserv))) prev.claves.push(String(emp.clave_prodserv));
+        } else {
+          grupos.set(key, { ...g, claves: emp.clave_prodserv ? [String(emp.clave_prodserv)] : [] });
+        }
+      });
+      const bloques = Array.from(grupos.values());
       renderPanel('Depositar / Transferir a', () => {
-        empresas.forEach((emp, idx) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const cb: any = emp.cuenta_bancaria || {};
-          const banco = cb.banco || cb.bank;
-          // `emp.empresa` puede venir como objeto { rfc, razon_social }.
-          const empresaName = typeof emp.empresa === 'string' ? emp.empresa : ((emp.empresa as any)?.razon_social || (emp.empresa as any)?.nombre || '');
-          const titularRaw = cb.titular || cb.holder || empresaName;
-          const titular = typeof titularRaw === 'string' ? titularRaw : ((titularRaw as any)?.razon_social || (titularRaw as any)?.nombre || (titularRaw as any)?.rfc || '');
-          const cuenta = cb.cuenta || cb.account || cb.numero_cuenta;
-          const clabe = cb.clabe || cb.CLABE;
-          const sucursal = cb.sucursal || cb.branch;
-          const moneda = cb.moneda || cb.currency;
-          if (titular) panelRow('Empresa receptora', String(titular), { emphasize: true });
-          if (banco) panelRow('Banco', `${banco}${moneda ? `  (${moneda})` : ''}`);
-          if (clabe) panelRow('CLABE', String(clabe), { mono: true });
-          if (cuenta) panelRow('Cuenta', String(cuenta), { mono: true });
-          if (sucursal) panelRow('Sucursal', String(sucursal));
-          if (emp.clave_prodserv) panelRow('Clave(s) SAT', String(emp.clave_prodserv), { mono: true });
-          if (idx < empresas.length - 1) y += 6;
+        bloques.forEach((g, idx) => {
+          if (g.titular) panelRow('Empresa receptora', g.titular, { emphasize: true });
+          if (g.banco) panelRow('Banco', `${g.banco}${g.moneda ? `  (${g.moneda})` : ''}`);
+          if (g.clabe) panelRow('CLABE', g.clabe, { mono: true });
+          if (g.cuenta) panelRow('Cuenta', g.cuenta, { mono: true });
+          if (g.sucursal) panelRow('Sucursal', g.sucursal);
+          if (g.claves.length > 0) panelRow('Clave(s) SAT', g.claves.join(', '), { mono: true });
+          if (idx < bloques.length - 1) y += 6;
         });
       });
     } else if (sinFacturaCb && (sinFacturaCb.banco || sinFacturaCb.clabe || sinFacturaCb.cuenta)) {
