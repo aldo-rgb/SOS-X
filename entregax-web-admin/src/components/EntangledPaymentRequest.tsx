@@ -416,10 +416,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
   // 🎯 Override del % de comisión al cliente — SOLO asesores. Vacío = usar el
   //    configurado. No puede ser menor a la venta fija del proveedor.
   const [advisorCommissionPct, setAdvisorCommissionPct] = useState<string>('');
+  // Sin `name` ni `code`: el endpoint público ya no los devuelve — el nombre
+  // del proveedor no debe llegar a pantallas de cliente/asesor.
   type EntProviderPub = {
     id: number;
-    name: string;
-    code: string | null;
     tipo_cambio_usd: number | string;
     tipo_cambio_rmb: number | string;
     porcentaje_compra: number | string;
@@ -463,7 +463,7 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
     instrucciones_pago: unknown;
     referencia_pago?: string;
     quote: { tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null;
-    providerSnapshot?: { name: string; bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }> } | null;
+    providerSnapshot?: { name?: string; bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }> } | null;
     operationSnapshot?: { divisa: string; monto: number; servicio: string; requiere_factura: boolean; rfc?: string; razon_social?: string } | null;
     beneficiarioSnapshot?: { nombre: string; nombre_chino?: string; pais?: string; cuenta?: string; iban?: string; banco?: string; swift?: string; aba?: string } | null;
     empresas_asignadas?: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>;
@@ -1968,11 +1968,10 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
       // Snapshots — se calculan ANTES del POST y se persisten en backend para
       // que la regeneración del PDF de instrucciones quede idéntica al original.
       const provObj = providers.find((p) => p.id === selectedProviderId);
+      // Solo las cuentas bancarias: son las que se imprimen en el PDF. El
+      // nombre del proveedor ya no viaja al front (ver EntProviderPub).
       const providerSnapshot = provObj
-        ? {
-            name: provObj.name,
-            bank_accounts: Array.isArray(provObj.bank_accounts) ? provObj.bank_accounts : [],
-          }
+        ? { bank_accounts: Array.isArray(provObj.bank_accounts) ? provObj.bank_accounts : [] }
         : null;
       const operationSnapshot = {
         divisa: form.divisa_destino,

@@ -1329,7 +1329,12 @@ export const listProviders = async (_req: Request, res: Response): Promise<any> 
 export const listActiveProvidersPublic = async (_req: Request, res: Response): Promise<any> => {
   try {
     const r = await pool.query(
-      `SELECT id, name, code,
+      // ⚠️ NO se exponen `name` ni `code`: este endpoint lo consumen las pantallas
+      // de cliente y asesor, y el nombre del proveedor ("BTX", "TRÉBOL") no debe
+      // salir del lado interno — ni siquiera en la respuesta cruda que se ve en
+      // las herramientas de desarrollador. El panel admin usa
+      // /api/admin/entangled/providers, que sí los devuelve.
+      `SELECT id,
         (tipo_cambio_usd   + COALESCE(override_tipo_cambio_usd, 0))   AS tipo_cambio_usd,
         (tipo_cambio_rmb   + COALESCE(override_tipo_cambio_rmb, 0))   AS tipo_cambio_rmb,
         (porcentaje_compra + COALESCE(override_porcentaje_compra, 0)) AS porcentaje_compra,
@@ -1345,7 +1350,7 @@ export const listActiveProvidersPublic = async (_req: Request, res: Response): P
        FROM entangled_providers WHERE is_active = true
        ORDER BY is_default DESC, sort_order ASC, id ASC`
     );
-    console.log('[ENTANGLED] listActiveProvidersPublic result:', r.rows);
+    console.log(`[ENTANGLED] listActiveProvidersPublic: ${r.rows.length} proveedores activos`);
     return res.json(r.rows);
   } catch (err) {
     console.error('[ENTANGLED] listActiveProvidersPublic:', err);

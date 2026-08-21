@@ -214,8 +214,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [benefAba, setBenefAba] = useState('');
   const [benefAlias, setBenefAlias] = useState('');
 
+  // Sin `name` ni `code`: el endpoint público ya no los devuelve.
   type EntProviderPub = {
-    id: number; name: string; code: string | null;
+    id: number;
     tipo_cambio_usd: number | string; tipo_cambio_rmb: number | string;
     porcentaje_compra: number | string; costo_operacion_usd: number | string;
     venta_fija?: number | string; // % mínimo que un asesor puede cobrar al cliente
