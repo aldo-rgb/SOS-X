@@ -2182,6 +2182,58 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       }
     }
 
+    // 🚚 Tarifa fija por paquete configurada en el catálogo de paqueterías.
+    // "Entregax Local" (entregax_pobox) se dio de alta el 5-ago con $99 por
+    // paquete y gratis desde 3, pero price_per_package / free_from_qty solo se
+    // leían y escribían en el panel de admin: ningún flujo de cobro los
+    // consultaba, así que el envío local NUNCA se cobró en 103 guías.
+    // Lo reportó Jaqueline Minero con la guía US-4157064725 (tarea 317).
+    // Se resuelve leyendo el catálogo, así aplica a cualquier paquetería que
+    // se configure igual sin tocar código.
+    if (carrierKey && !isCollectBool && pqtxPerBox <= 0) {
+      try {
+        const tarifa = await pool.query(
+          `SELECT price_per_package, free_from_qty
+             FROM carrier_service_options
+            WHERE carrier_key = $1 AND is_active = TRUE
+              AND price_per_package IS NOT NULL
+            LIMIT 1`,
+          [carrierKey]
+        );
+        const precioPorPaquete = Number(tarifa.rows[0]?.price_per_package) || 0;
+        if (precioPorPaquete > 0) {
+          // Cuántas cajas trae el embarque: define si aplica el "gratis desde".
+          const kindT = String(uid).substring(0, String(uid).indexOf('-'));
+          const idT = parseInt(String(uid).substring(String(uid).indexOf('-') + 1));
+          let cajas = 1;
+          if (kindT === 'PKG') {
+            const c = await pool.query(
+              `SELECT GREATEST(COALESCE(total_boxes, 1), 1) AS n FROM packages WHERE id = $1`, [idT]);
+            cajas = Number(c.rows[0]?.n) || 1;
+          } else if (kindT === 'DHL') {
+            const c = await pool.query(
+              `SELECT COUNT(*)::int AS n FROM dhl_shipments g
+                WHERE g.id = $1
+                   OR (COALESCE(g.secondary_tracking,'') <> ''
+                       AND g.secondary_tracking = (SELECT secondary_tracking FROM dhl_shipments WHERE id = $1))`,
+              [idT]);
+            cajas = Number(c.rows[0]?.n) || 1;
+          }
+          const gratisDesde = Number(tarifa.rows[0]?.free_from_qty) || 0;
+          const esGratis = gratisDesde > 0 && cajas >= gratisDesde;
+          pqtxPerBox = esGratis ? 0 : precioPorPaquete;
+          console.log(
+            `🚚 [Tarifa por paquete] ${uid} carrier=${carrierKey} cajas=${cajas} ` +
+            `precio=$${precioPorPaquete}/paquete gratisDesde=${gratisDesde || '—'} → ` +
+            (esGratis ? 'GRATIS' : `$${pqtxPerBox}/caja`)
+          );
+        }
+      } catch (e: any) {
+        console.warn(`[Tarifa por paquete] no se pudo resolver para ${carrierKey}:`, e?.message);
+      }
+    }
+
+
     // Parse uid
     const uidStr = String(uid);
     const dashIdx = uidStr.indexOf('-');
