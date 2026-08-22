@@ -11,6 +11,8 @@ import { resolveCreditService, restoreServiceCredit } from './creditRestore';
 import { uploadToS3, getSignedUrlForKey } from './s3Service';
 import { extractAmountFromReceipt, isOcrAvailable } from './ocrService';
 import { normalizeServiceForCredit, generateInvoiceForPoboxPaymentByRef } from './poboxPaymentController';
+// Resolvedor autoritativo del servicio de una orden (ver orderService.ts).
+import { resolveOrderService } from './orderService';
 
 interface AuthRequest extends Request {
   user?: { userId: number; email: string; role?: string; level?: number };
@@ -306,48 +308,46 @@ export async function acreditarSobranteOrden(db: any, orderId: number, adminId?:
   const surplus = +(Number(sumRes.rows[0].total) - Number(order.amount)).toFixed(2);
   if (!(surplus > 0)) return 0;
 
-  const serviceType = order.service_type || 'POBOX_USA';
-
-  // ── REGLA: si el cliente DEBE, el sobrante abona primero a la deuda ──
-  // Un cliente con crédito vivo que paga de más no está generando saldo a
-  // favor: está abonando. Antes se le acreditaba el excedente al monedero
-  // aunque tuviera la línea de crédito usada, lo que le creaba saldo a favor
-  // a alguien que debe. Decisión de Aldo.
-  const CREDITO_POR_SERVICIO: Record<string, string> = {
-    POBOX_USA: 'po_box', usa_pobox: 'po_box', po_box: 'po_box', pobox: 'po_box', usa: 'po_box',
-    AA_DHL: 'dhl_liberacion', dhl: 'dhl_liberacion', mty: 'dhl_liberacion',
-    NATIONAL: 'dhl_liberacion', TERRESTRE_NAL: 'dhl_liberacion',
-    AIR_CHN_MX: 'aereo', china_air: 'aereo', aereo: 'aereo', air: 'aereo', TDI_EXPRESS: 'aereo',
-    SEA_CHN_MX: 'maritimo', china_sea: 'maritimo', maritime: 'maritimo', maritimo: 'maritimo', fcl: 'maritimo',
-  };
-  const deudasRes = await db.query(
-    `SELECT service, COALESCE(used_credit, 0)::numeric AS used_credit
-       FROM user_service_credits
-      WHERE user_id = $1 AND COALESCE(used_credit, 0) > 0`,
-    [order.user_id]
-  );
-  const deudas: Array<{ service: string; used_credit: string }> = deudasRes.rows;
-
-  let servicioDeuda: string | null = null;
-  if (deudas.length > 0) {
-    const esperado = CREDITO_POR_SERVICIO[String(order.service_type || '')] || null;
-    const coincide = esperado ? deudas.find((d) => d.service === esperado) : null;
-    if (coincide) {
-      servicioDeuda = coincide.service;
-    } else if (deudas.length === 1) {
-      servicioDeuda = (deudas[0] as { service: string }).service;
-    } else {
-      // Debe en varios servicios y la orden no dice a cuál pertenece: no se
-      // adivina a qué deuda abonar. Se deja sin acreditar para que lo resuelva
-      // una persona; el sobrante sigue disponible y esto se reintenta.
-      console.error(
-        `🚨 [VOUCHER] Sobrante de $${surplus.toFixed(2)} en la orden ${order.payment_reference} ` +
-        `(user ${order.user_id}) NO acreditado: el cliente debe en ${deudas.length} servicios ` +
-        `(${deudas.map((d) => d.service).join(', ')}) y la orden no indica a cuál corresponde. Requiere decisión humana.`
-      );
-      return 0;
-    }
+  // Servicio REAL de la orden. No se usa order.service_type a secas porque en
+  // las órdenes viejas viene NULL: resolveOrderService lo deduce de la propia
+  // orden, del asesor o del cobro, nunca de packages (ahí los ids colisionan).
+  const servicioOrden = await resolveOrderService(db, {
+    poboxPaymentId: orderId,
+    paymentReference: order.payment_reference,
+  });
+  if (!servicioOrden) {
+    console.error(
+      `🚨 [VOUCHER] Sobrante de $${surplus.toFixed(2)} en la orden ${order.payment_reference} ` +
+      `(user ${order.user_id}) NO acreditado: no se pudo determinar a qué servicio pertenece. Requiere revisión.`
+    );
+    return 0;
   }
+  const serviceType = servicioOrden;
+
+  // ── REGLA: si el cliente DEBE, el sobrante abona a la deuda ──
+  // Y abona a la deuda DEL MISMO SERVICIO por el que se pagó la referencia,
+  // no a cualquiera. Un cliente con crédito vivo que paga de más no genera
+  // saldo a favor: está abonando. Decisión de Aldo.
+  const CREDITO_POR_SERVICIO: Record<string, string> = {
+    POBOX_USA: 'po_box',
+    AA_DHL: 'dhl_liberacion',
+    AIR_CHN_MX: 'aereo',
+    TDI_EXPRESS: 'aereo',
+    SEA_CHN_MX: 'maritimo',
+  };
+  const servicioCredito = CREDITO_POR_SERVICIO[servicioOrden] || null;
+  const deudaRes = servicioCredito
+    ? await db.query(
+        `SELECT COALESCE(used_credit, 0)::numeric AS used_credit
+           FROM user_service_credits
+          WHERE user_id = $1 AND service = $2`,
+        [order.user_id, servicioCredito]
+      )
+    : { rows: [] as any[] };
+  const servicioDeuda = Number(deudaRes.rows[0]?.used_credit || 0) > 0 ? servicioCredito : null;
+  const deudas = servicioDeuda
+    ? [{ service: servicioDeuda, used_credit: String(deudaRes.rows[0].used_credit) }]
+    : [];
 
   let abonadoADeuda = 0;
   if (servicioDeuda) {
