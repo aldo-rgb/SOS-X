@@ -710,7 +710,8 @@ export default function SupportBoardPage() {
     await loadStats();
   };
 
-  // Reportar error (tickets Error Sistema) → crea tarea a Super Admin con los archivos del ticket.
+  // Reportar error → crea tarea a Super Admin con los archivos del ticket.
+  // Disponible en cualquier categoría de ticket.
   const [reporting, setReporting] = useState(false);
   const [reportSnack, setReportSnack] = useState<{ msg: string; sev: 'success' | 'error' } | null>(null);
   const handleReportError = async () => {
@@ -1564,7 +1565,14 @@ export default function SupportBoardPage() {
                     </Button>
                   </Tooltip>
                 )}
-                {selectedTicket.category === 'systemError' && (
+                {/* Disponible en TODAS las categorías. Antes solo aparecía en
+                    "Error de Sistema", así que cuando el asesor levantaba el
+                    ticket en otra categoría —lo normal: un problema de
+                    comisiones lo reporta como "Comisiones/Pagos"— soporte no
+                    tenía forma de escalarlo y terminaba creando la tarea a
+                    mano. Caso: TKT-2026-2271, creado como billing.
+                    El backend nunca validó la categoría. */}
+                {(
                   selectedTicket.error_reported ? (
                     <Button variant="outlined" color="success" startIcon={<ResolvedIcon />} disabled>
                       Reportado
