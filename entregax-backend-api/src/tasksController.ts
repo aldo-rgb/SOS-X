@@ -918,6 +918,40 @@ export const searchTasks = async (req: Request, res: Response): Promise<any> => 
   }
 };
 
+// ─── TAREAS: las que esperan MI confirmación ────────────────
+// Cuando el responsable termina una tarea que YO asigné, no se cierra sola:
+// queda en 'awaiting_confirmation' hasta que la reviso. El aviso in-app que se
+// manda en ese momento se pierde entre decenas de notificaciones de tickets, y
+// una vez marcado como leído ya no vuelve a aparecer aunque la tarea siga
+// parada. Esto devuelve ESTADO, no notificaciones: el indicador vive mientras
+// la tarea siga pendiente y desaparece solo cuando se confirma.
+export const awaitingMyConfirmation = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const uid = authUserId(req);
+    if (!uid) return res.status(401).json({ error: 'No autenticado' });
+    const r = await pool.query(
+      `SELECT t.id, t.title, t.eisenhower, t.board_id,
+              au.full_name AS assignee_name,
+              COALESCE(
+                (SELECT MAX(a.created_at) FROM task_activity a
+                  WHERE a.task_id = t.id AND a.action = 'awaiting_confirmation'),
+                t.updated_at
+              ) AS awaiting_since
+         FROM tasks t
+         LEFT JOIN users au ON au.id = t.assignee_id
+        WHERE t.status = 'awaiting_confirmation'
+          AND t.created_by = $1
+          AND COALESCE(t.assignee_id, 0) <> $1
+        ORDER BY awaiting_since ASC NULLS LAST`,
+      [uid]
+    );
+    res.json({ count: r.rows.length, tasks: r.rows });
+  } catch (e: any) {
+    console.error('[tasks] awaitingMyConfirmation:', e);
+    res.status(500).json({ error: 'Error al obtener tareas por confirmar' });
+  }
+};
+
 // ─── TAREAS: mis tareas (app) ───────────────────────────────
 export const myTasks = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -965,7 +999,13 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
         LEFT JOIN task_columns col ON col.id = t.column_id
         LEFT JOIN users au ON au.id = t.assignee_id
         LEFT JOIN users cu ON cu.id = t.created_by
-       WHERE (t.assignee_id = $1 OR EXISTS (SELECT 1 FROM task_participants tp WHERE tp.task_id = t.id AND tp.user_id = $1))
+       WHERE (t.assignee_id = $1
+              OR EXISTS (SELECT 1 FROM task_participants tp WHERE tp.task_id = t.id AND tp.user_id = $1)
+              -- Quien ASIGNÓ la tarea debe verla cuando el responsable ya
+              -- terminó y falta solo su confirmación, aunque no se haya
+              -- agregado como participante: si no, la tarea queda parada sin
+              -- que aparezca en la lista de nadie.
+              OR (t.created_by = $1 AND t.status = 'awaiting_confirmation'))
          AND ${statusCond}
        ORDER BY (t.status='open') DESC,
                 -- Las tareas con comentarios más recientes (o actividad reciente) suben.

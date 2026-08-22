@@ -942,6 +942,116 @@ export const startChartbackIPromotionCron = () => {
  * sigue desactualizada (>24h sin actualizarse). Incluye dedup por día por si
  * el servidor reinicia el lunes.
  */
+/**
+ * CRON JOB: recordatorio de tareas paradas en "esperando confirmación"
+ *
+ * Cuando el responsable termina una tarea, esta NO se cierra: pasa a
+ * 'awaiting_confirmation' y solo quien la asignó puede darla por buena. El
+ * aviso in-app se manda una sola vez, en el momento; si esa persona no lo ve
+ * (o lo marca como leído sin actuar), la tarea se queda parada sin que nada
+ * vuelva a avisar. Medido sobre las urgentes: el trabajo se entrega en ~8 h,
+ * pero la confirmación tarda ~2.6 días — el 76% del ciclo es esta espera.
+ *
+ * Corre L-V a las 10:30 y 16:00 (MX):
+ *   · avisa a quien asignó la tarea si lleva más de 20 h esperando
+ *   · máximo un recordatorio cada 24 h por tarea (no se vuelve spam)
+ *   · a partir de 3 días también le copia al responsable, para que sepa que su
+ *     entrega está atorada del otro lado
+ */
+export const startAwaitingConfirmationReminderCron = () => {
+  const HORAS_MINIMAS = 20;      // no molestar antes de que pase una jornada
+  const DIAS_PARA_COPIAR = 3;    // a partir de aquí también se entera el responsable
+
+  const correr = async () => {
+    console.log('👀 [CRON] Revisando tareas paradas en espera de confirmación...');
+    try {
+      await pool.query(
+        `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS confirmation_reminder_sent_at TIMESTAMPTZ`
+      ).catch(() => {});
+
+      const r = await pool.query(
+        `SELECT t.id, t.title, t.created_by, t.assignee_id,
+                au.full_name AS assignee_name,
+                COALESCE(
+                  (SELECT MAX(a.created_at) FROM task_activity a
+                    WHERE a.task_id = t.id AND a.action = 'awaiting_confirmation'),
+                  t.updated_at
+                ) AS awaiting_since
+           FROM tasks t
+           LEFT JOIN users au ON au.id = t.assignee_id
+          WHERE t.status = 'awaiting_confirmation'
+            AND t.created_by IS NOT NULL
+            AND COALESCE(t.assignee_id, 0) <> t.created_by
+            AND (t.confirmation_reminder_sent_at IS NULL
+                 OR t.confirmation_reminder_sent_at < NOW() - INTERVAL '24 hours')
+          ORDER BY awaiting_since ASC
+          LIMIT 200`
+      );
+
+      const { sendPushToUsers } = await import('./pushService');
+      let avisados = 0;
+
+      for (const t of r.rows) {
+        const desde = t.awaiting_since ? new Date(t.awaiting_since) : null;
+        if (!desde) continue;
+        const horas = (Date.now() - desde.getTime()) / 3600000;
+        if (horas < HORAS_MINIMAS) continue;
+
+        const dias = Math.floor(horas / 24);
+        const espera = dias >= 1 ? `${dias} día${dias === 1 ? '' : 's'}` : `${Math.round(horas)} horas`;
+        const quien = t.assignee_name || 'El responsable';
+        const titulo = '⏳ Tarea esperando tu confirmación';
+        const msg = `${quien} terminó "${t.title}" hace ${espera} y sigue sin confirmarse. Ábrela para cerrarla o pedir cambios.`;
+        const data = { task_id: t.id, awaiting_confirmation: true, reminder: true };
+
+        // A quien asignó la tarea: le toca confirmar.
+        const destinatarios: number[] = [Number(t.created_by)];
+        // Ya lleva demasiado: el responsable también debe enterarse de que su
+        // entrega está detenida esperando a alguien más.
+        if (horas >= DIAS_PARA_COPIAR * 24 && t.assignee_id) destinatarios.push(Number(t.assignee_id));
+
+        for (const uid of destinatarios) {
+          const esResponsable = uid === Number(t.assignee_id);
+          await pool.query(
+            `INSERT INTO notifications (user_id, type, title, message, icon, action_url, data)
+             VALUES ($1, 'task', $2, $3, 'clock-outline', '/tareas', $4)`,
+            [
+              uid,
+              esResponsable ? '⏳ Tu entrega sigue sin confirmarse' : titulo,
+              esResponsable
+                ? `"${t.title}" lleva ${espera} esperando confirmación de quien la asignó.`
+                : msg,
+              JSON.stringify(data),
+            ]
+          ).catch(() => {});
+        }
+
+        // Push sin tope de horario: el cron ya corre solo en horario laboral,
+        // así que filtrar otra vez por hora solo lo silenciaría de más.
+        await sendPushToUsers(destinatarios, {
+          title: titulo,
+          body: msg,
+          data: { screen: 'MyTasks', task_id: String(t.id), awaiting_confirmation: 'true', reminder: 'true' },
+          notificationType: 'task_completed',
+        }).catch(() => {});
+
+        await pool.query(
+          `UPDATE tasks SET confirmation_reminder_sent_at = NOW() WHERE id = $1`, [t.id]
+        ).catch(() => {});
+        avisados++;
+      }
+
+      console.log(`✅ [CRON] Recordatorios de confirmación enviados: ${avisados} (de ${r.rows.length} candidatas)`);
+    } catch (err: any) {
+      console.error('❌ [CRON] Error en recordatorio de confirmación:', err.message);
+    }
+  };
+
+  cron.schedule('30 10 * * 1-5', correr, { timezone: 'America/Mexico_City' });
+  cron.schedule('0 16 * * 1-5', correr, { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Recordatorio de tareas por confirmar: L-V 10:30 y 16:00 (MX)');
+};
+
 export const startStaleRatesNotifyCron = () => {
   cron.schedule('0 8 * * 1', async () => {
     console.log('💲 [CRON] Revisando tarifas TDI desactualizadas (aviso semanal, lunes)...');
@@ -1553,6 +1663,7 @@ export const initCronJobs = () => {
   startStaleRatesNotifyCron();
   startInstructionReminderCron();
   startPaymentReminderCron();
+  startAwaitingConfirmationReminderCron();
 };
 
 export default initCronJobs;

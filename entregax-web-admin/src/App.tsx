@@ -37,6 +37,7 @@ import {
   InputAdornment,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
+import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import MenuOpenIcon from '@mui/icons-material/MenuOpen';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -321,6 +322,12 @@ function App() {
   const [notifAnchorEl, setNotifAnchorEl] = useState<null | HTMLElement>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Tareas que YO asigné y ya terminó el responsable: esperan MI confirmación.
+  // Es estado, no notificación: no se "marca como leído" ni se archiva, vive
+  // mientras la tarea siga parada. El aviso in-app se perdía entre decenas de
+  // notificaciones de tickets y la tarea se quedaba días sin cerrar.
+  const [porConfirmar, setPorConfirmar] = useState<any[]>([]);
+  const [porConfirmarAnchor, setPorConfirmarAnchor] = useState<null | HTMLElement>(null);
   // Capa A: banner nativo de escritorio por notificaciones nuevas (pestaña abierta).
   const desktopSeenIds = useRef<Set<number>>(new Set());
   const desktopInit = useRef(false);
@@ -421,6 +428,49 @@ function App() {
     const interval = setInterval(loadNotifications, 30000);
     return () => clearInterval(interval);
   }, [isAuthenticated, currentUser]);
+
+  // Tareas por confirmar. Se consulta aparte de las notificaciones porque es
+  // estado vivo de la tarea, no un aviso: si la persona no la confirma, el
+  // indicador sigue ahí mañana.
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser) return;
+    const cargar = async () => {
+      const token = localStorage.getItem('token');
+      try {
+        const res = await fetch(`${API_URL}/tasks/awaiting-confirmation`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setPorConfirmar(Array.isArray(data.tasks) ? data.tasks : []);
+        }
+      } catch { /* si falla, simplemente no se pinta el indicador */ }
+    };
+    cargar();
+    const iv = setInterval(cargar, 60000);
+    return () => clearInterval(iv);
+  }, [isAuthenticated, currentUser]);
+
+  // Abre Mis Tareas y despliega el detalle de una tarea concreta.
+  const abrirTarea = (taskId: number) => {
+    setPorConfirmarAnchor(null);
+    const idx = menuItems.findIndex(i => i.key === 'myTasks');
+    if (idx < 0) return;
+    setSelectedIndex(idx);
+    setSelectedSubIndex(null);
+    localStorage.setItem('pending_open_task_id', String(taskId));
+    window.dispatchEvent(new CustomEvent('open-task-detail', { detail: { taskId: Number(taskId) } }));
+  };
+
+  // "hace 3 días" / "hace 5 h" a partir de cuándo quedó en espera.
+  const esperandoDesde = (iso: string | null): string => {
+    if (!iso) return '';
+    const h = (Date.now() - new Date(iso).getTime()) / 3600000;
+    if (h < 1) return 'hace unos minutos';
+    if (h < 24) return `hace ${Math.round(h)} h`;
+    const d = Math.floor(h / 24);
+    return `hace ${d} día${d === 1 ? '' : 's'}`;
+  };
 
   // Permitir que DashboardClient solicite abrir el perfil (para iniciar verificación)
   useEffect(() => {
@@ -2026,6 +2076,65 @@ function App() {
                   </Box>
                 </MenuItem>
               </Menu>
+
+              {/* Tareas por confirmar — solo aparece si hay algo detenido
+                  esperando a esta persona. A diferencia de la campana, no se
+                  puede marcar como leído: se va cuando la tarea se confirma. */}
+              {porConfirmar.length > 0 && (
+                <>
+                  <Tooltip title={`${porConfirmar.length} tarea(s) terminada(s) esperando tu confirmación`}>
+                    <IconButton
+                      onClick={(e) => setPorConfirmarAnchor(e.currentTarget)}
+                      sx={{
+                        color: '#B45309',
+                        bgcolor: 'rgba(245, 158, 11, 0.12)',
+                        border: '1px solid rgba(245, 158, 11, 0.4)',
+                        borderRadius: 1.5,
+                        '&:hover': { bgcolor: 'rgba(245, 158, 11, 0.22)' },
+                      }}
+                      aria-label="Tareas esperando tu confirmación"
+                    >
+                      <Badge badgeContent={porConfirmar.length} color="warning">
+                        <TaskAltIcon />
+                      </Badge>
+                    </IconButton>
+                  </Tooltip>
+                  <Menu
+                    anchorEl={porConfirmarAnchor}
+                    open={Boolean(porConfirmarAnchor)}
+                    onClose={() => setPorConfirmarAnchor(null)}
+                    anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                    transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                    PaperProps={{ sx: { borderRadius: 2, mt: 1, minWidth: 340, maxWidth: 420 } }}
+                  >
+                    <Box sx={{ px: 2, py: 1.5 }}>
+                      <Typography variant="subtitle2" fontWeight={700}>
+                        Esperan tu confirmación
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        El responsable ya las terminó. Revísalas y ciérralas.
+                      </Typography>
+                    </Box>
+                    <Divider />
+                    {porConfirmar.map((t: any) => (
+                      <MenuItem
+                        key={t.id}
+                        onClick={() => abrirTarea(t.id)}
+                        sx={{ py: 1.25, whiteSpace: 'normal', alignItems: 'flex-start' }}
+                      >
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.3 }}>
+                            {t.eisenhower === 'fuego' ? '🔥 ' : ''}#{t.id} {t.title}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {t.assignee_name || 'El responsable'} la terminó {esperandoDesde(t.awaiting_since)}
+                          </Typography>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Menu>
+                </>
+              )}
 
               {/* Notificaciones */}
               {renderNotificationsUI('text.secondary', 'primary.main')}

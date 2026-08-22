@@ -13865,6 +13865,7 @@ import {
   listTasks as tasksList,
   searchTasks as tasksSearch,
   myTasks as tasksMine,
+  awaitingMyConfirmation as tasksAwaitingMyConfirmation,
   getTask as tasksGet,
   createTask as tasksCreate,
   updateTask as tasksUpdate,
@@ -13920,6 +13921,8 @@ app.delete('/api/tasks/sections/:id', authenticateToken, tasksDeleteSection);
 app.post('/api/tasks/:id/attachments', authenticateToken, advisorProofUpload.single('photo'), tasksAddAttachment);
 app.delete('/api/tasks/attachments/:attId', authenticateToken, tasksDeleteAttachment);
 app.get('/api/tasks/mine', authenticateToken, tasksMine);
+// Tareas que YO asigné y esperan mi confirmación (indicador de estado del panel).
+app.get('/api/tasks/awaiting-confirmation', authenticateToken, tasksAwaitingMyConfirmation);
 app.post('/api/tasks/personal', authenticateToken, tasksCreatePersonal);
 app.get('/api/tasks/assignable-users', authenticateToken, tasksAssignableUsers);
 app.get('/api/tasks/team', authenticateToken, tasksTeam);
