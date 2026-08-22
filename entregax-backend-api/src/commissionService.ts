@@ -66,7 +66,7 @@ function mapServiceType(raw: string | null | undefined, shipmentType: string): s
  */
 export async function generateCommissionsForPackages(
   packageIds: number[],
-  opts?: { creditHold?: boolean }
+  opts?: { creditHold?: boolean; expectedUserId?: number | null }
 ): Promise<void> {
   if (!packageIds || packageIds.length === 0) return;
 
@@ -111,7 +111,7 @@ export async function generateCommissionForShipment(
   shipmentType: 'PKG' | 'MAR' | 'DHL' | 'GEX',
   shipmentId: number,
   overridePaymentAmount?: number,
-  opts?: { creditHold?: boolean }
+  opts?: { creditHold?: boolean; expectedUserId?: number | null }
 ): Promise<boolean> {
   try {
     await ensureCreditHoldSchema();
@@ -137,7 +137,14 @@ export async function generateCommissionForShipment(
           -- NO es señal de pago (una guía sin costear también trae saldo 0), por eso
           -- se exige la bandera afirmativa de pago.
           AND (p.payment_status = 'paid' OR p.client_paid = true)
-      `, [shipmentId]);
+          -- 🔒 El embarque debe ser DEL CLIENTE de la orden. Sin esto, un id que
+          -- existe en packages y en dhl_shipments a la vez resolvía al primero
+          -- que respondiera —normalmente un paquete de OTRO cliente— y el
+          -- asesor de la guía DHL se quedaba sin comisión (TKT-2026-2271,
+          -- caja 501 de Jesús Campos). Medido: de 271 ids colisionados, en
+          -- NINGUNO el mismo cliente es dueño de las dos filas.
+          AND ($2::int IS NULL OR p.user_id = $2::int)
+      `, [shipmentId, opts?.expectedUserId ?? null]);
 
       if (res.rows.length > 0) {
         const r = res.rows[0];
@@ -155,7 +162,8 @@ export async function generateCommissionForShipment(
         FROM maritime_orders mo
         WHERE mo.id = $1
           AND (mo.payment_status = 'paid' OR COALESCE(mo.monto_pagado, 0) > 0)
-      `, [shipmentId]);
+          AND ($2::int IS NULL OR mo.user_id = $2::int)
+      `, [shipmentId, opts?.expectedUserId ?? null]);
 
       if (res.rows.length > 0) {
         const r = res.rows[0];
@@ -173,7 +181,8 @@ export async function generateCommissionForShipment(
         FROM dhl_shipments ds
         WHERE ds.id = $1
           AND (COALESCE(ds.saldo_pendiente, 0) <= 0.01 AND COALESCE(ds.monto_pagado, 0) > 0)
-      `, [shipmentId]);
+          AND ($2::int IS NULL OR ds.user_id = $2::int)
+      `, [shipmentId, opts?.expectedUserId ?? null]);
 
       if (res.rows.length > 0) {
         const r = res.rows[0];

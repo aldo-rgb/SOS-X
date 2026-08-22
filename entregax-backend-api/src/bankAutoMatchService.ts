@@ -342,7 +342,10 @@ const authorizeOneMatch = async (
     if (appliedIds.length > 0) {
       try {
         const { generateCommissionsForPackages } = await import('./commissionService');
-        generateCommissionsForPackages(appliedIds).catch((e: any) =>
+        // expectedUserId: el embarque debe ser del cliente de ESTA orden.
+        // Sin eso, un id que colisiona entre packages y dhl_shipments resolvía
+        // al embarque de otro cliente (ver commissionService).
+        generateCommissionsForPackages(appliedIds, { expectedUserId: order.user_id }).catch((e: any) =>
           console.error('[bank-auto-auth] commissions error:', e?.message)
         );
       } catch (e: any) {

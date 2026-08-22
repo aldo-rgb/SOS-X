@@ -260,7 +260,7 @@ export const handlePayPalWebhook = async (req: Request, res: Response): Promise<
                         // Idempotente: el INSERT de comisiones usa ON CONFLICT DO NOTHING.
                         try {
                             const { generateCommissionsForPackages } = await import('./commissionService');
-                            generateCommissionsForPackages(pkgIds).catch((err: any) =>
+                            generateCommissionsForPackages(pkgIds, { expectedUserId: userId }).catch((err: any) =>
                                 console.error('[paypal webhook] comisiones:', err?.message)
                             );
                         } catch (err: any) {
