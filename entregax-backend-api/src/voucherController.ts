@@ -568,7 +568,11 @@ export const getAdminPendingVouchers = async (req: AuthRequest, res: Response) =
 
     const result = await pool.query(
       `SELECT v.*, 
-              u.name as user_name, u.email as user_email, u.pobox_code,
+              -- Las columnas se llaman full_name y box_id: con u.name / u.pobox_code
+              -- esta consulta tronaba y el endpoint devolvia 500, asi que la cola
+              -- de comprobantes por revisar era INVISIBLE. Ver getAdminOrderVouchers,
+              -- que si usaba los nombres correctos.
+              u.full_name as user_name, u.email as user_email, u.box_id as pobox_code,
               p.payment_reference, p.amount as order_amount, p.currency as order_currency,
               p.voucher_total, p.voucher_count, p.status as order_status
        FROM payment_vouchers v
