@@ -362,7 +362,11 @@ export default function TareasPage() {
           {t.xpay_seguro && <Chip label={XPS[t.xpay_seguro]?.label} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
           {secName && <Chip label={`🗂️ ${secName}`} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#EDE7F6', color: '#5E35B1', fontWeight: 700 }} />}
         </Box>
-        <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: t.status === 'completed' ? 'line-through' : 'none' }}>{t.title}</Typography>
+        <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: t.status === 'completed' ? 'line-through' : 'none' }}>
+          {/* Número de tarea visible para poder referenciarla en tickets y chats. */}
+          <Box component="span" sx={{ color: '#8A8A8A', fontWeight: 800, mr: 0.5, textDecoration: 'none' }}>#{t.id}</Box>
+          {t.title}
+        </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
           {(t.participant_names && t.participant_names.length > 0) ? (
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -985,7 +989,10 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
               <Chip label={EIS[t.eisenhower]?.label} size="small" sx={{ height: 20, bgcolor: EIS[t.eisenhower]?.bg, color: EIS[t.eisenhower]?.color, fontWeight: 700 }} />
               {t.status === 'completed' && <Chip label="✅ Completada" size="small" color="success" />}
             </Box>
-            <Typography fontWeight={800} fontSize={17}>{t.title}</Typography>
+            <Typography fontWeight={800} fontSize={17}>
+              <Box component="span" sx={{ color: '#8A8A8A', mr: 0.6 }}>#{t.id}</Box>
+              {t.title}
+            </Typography>
             <IconButton onClick={onClose} sx={{ position: 'absolute', right: 8, top: 8 }}><CloseIcon /></IconButton>
           </DialogTitle>
           <DialogContent dividers>

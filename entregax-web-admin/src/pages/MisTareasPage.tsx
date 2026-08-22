@@ -563,7 +563,11 @@ export default function MisTareasPage() {
           {t.stalled && <Tooltip title="En curso +3 días sin movimiento (comenta o avanza para reactivar)"><Chip label="🛑 Detenida" size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#3A3A3A', color: '#fff', fontWeight: 700 }} /></Tooltip>}
           {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count} sin leer`} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#E53935', color: '#fff', fontWeight: 700 }} />}
         </Box>
-        <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: done ? 'line-through' : 'none' }}>{t.title}</Typography>
+        <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: done ? 'line-through' : 'none' }}>
+          {/* Número de tarea visible para poder referenciarla en tickets y chats. */}
+          <Box component="span" sx={{ color: '#8A8A8A', fontWeight: 800, mr: 0.5, textDecoration: 'none' }}>#{t.id}</Box>
+          {t.title}
+        </Typography>
         {(boardLabel || colLabel) && (
           <Typography fontSize={11} color="text.secondary" sx={{ mt: 0.25 }}>🗂️ {boardLabel}{colLabel ? ` · ${colLabel}` : ''}</Typography>
         )}
@@ -614,7 +618,11 @@ export default function MisTareasPage() {
         onDragStart={e => { e.dataTransfer.setData('text/plain', String(t.id)); e.dataTransfer.effectAllowed = 'move'; }}
         sx={{ bgcolor: '#fff', borderRadius: 1, px: 0.75, py: 0.5, cursor: 'grab', border: '1px solid #E8DFD3',
           borderLeft: t.overdue ? '3px solid #C0392B' : '1px solid #E8DFD3', '&:hover': { boxShadow: 1 }, '&:active': { cursor: 'grabbing' }, opacity: done ? 0.6 : 1 }}>
-        <Typography fontSize={12} fontWeight={600} sx={{ lineHeight: 1.25, textDecoration: done ? 'line-through' : 'none', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{t.title}</Typography>
+        <Typography fontSize={12} fontWeight={600} sx={{ lineHeight: 1.25, textDecoration: done ? 'line-through' : 'none', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {/* Número de tarea visible para poder referenciarla en tickets y chats. */}
+          <Box component="span" sx={{ color: '#8A8A8A', fontWeight: 800, mr: 0.4, textDecoration: 'none' }}>#{t.id}</Box>
+          {t.title}
+        </Typography>
         {t.status === 'awaiting_confirmation' && <Chip label="⏳ En espera" size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, mr: 0.5, bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         {t.stalled && <Chip label="🛑 Detenida" size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, mr: 0.5, bgcolor: '#3A3A3A', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count}`} size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, bgcolor: '#E53935', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
@@ -1558,7 +1566,10 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               {t.status === 'completed' && <Chip label="✅ Completada" size="small" color="success" />}
               {t.status === 'awaiting_confirmation' && <Chip label="⏳ En espera de confirmación" size="small" sx={{ bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700 }} />}
             </Box>
-            <Typography fontWeight={800} fontSize={17}><LinkifyTickets text={t.title} onNavigate={onClose} /></Typography>
+            <Typography fontWeight={800} fontSize={17}>
+              <Box component="span" sx={{ color: '#8A8A8A', mr: 0.6 }}>#{t.id}</Box>
+              <LinkifyTickets text={t.title} onNavigate={onClose} />
+            </Typography>
             {data.can_edit && !editing && t.status !== 'completed' && (
               <IconButton onClick={openEdit} title="Editar" sx={{ position: 'absolute', right: 44, top: 8, color: '#D6521C' }}><EditIcon /></IconButton>
             )}
