@@ -251,6 +251,22 @@ export const handlePayPalWebhook = async (req: Request, res: Response): Promise<
                             console.warn('[paypal webhook] packages update:', e.message);
                         });
 
+                        // 💰 Comisión del asesor. Este webhook marcaba los paquetes
+                        // como pagados pero NUNCA generaba la comisión: todas las
+                        // demás vías sí la generan (openpay, transferencia, caja
+                        // chica, banco, y hasta el propio callback de PayPal).
+                        // Reportado por el asesor Jesús Campos en TKT-2026-2273,
+                        // guía US-0185033447 (orden PP-5652F622).
+                        // Idempotente: el INSERT de comisiones usa ON CONFLICT DO NOTHING.
+                        try {
+                            const { generateCommissionsForPackages } = await import('./commissionService');
+                            generateCommissionsForPackages(pkgIds).catch((err: any) =>
+                                console.error('[paypal webhook] comisiones:', err?.message)
+                            );
+                        } catch (err: any) {
+                            console.error('[paypal webhook] no se pudo generar comisiones:', err?.message);
+                        }
+
                         // Registrar el ingreso en openpay_webhook_logs para el dashboard.
                         // ON CONFLICT por transaction_id evita duplicados con el callback.
                         try {
