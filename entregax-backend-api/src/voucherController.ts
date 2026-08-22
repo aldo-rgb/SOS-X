@@ -307,20 +307,95 @@ export async function acreditarSobranteOrden(db: any, orderId: number, adminId?:
   if (!(surplus > 0)) return 0;
 
   const serviceType = order.service_type || 'POBOX_USA';
+
+  // ── REGLA: si el cliente DEBE, el sobrante abona primero a la deuda ──
+  // Un cliente con crédito vivo que paga de más no está generando saldo a
+  // favor: está abonando. Antes se le acreditaba el excedente al monedero
+  // aunque tuviera la línea de crédito usada, lo que le creaba saldo a favor
+  // a alguien que debe. Decisión de Aldo.
+  const CREDITO_POR_SERVICIO: Record<string, string> = {
+    POBOX_USA: 'po_box', usa_pobox: 'po_box', po_box: 'po_box', pobox: 'po_box', usa: 'po_box',
+    AA_DHL: 'dhl_liberacion', dhl: 'dhl_liberacion', mty: 'dhl_liberacion',
+    NATIONAL: 'dhl_liberacion', TERRESTRE_NAL: 'dhl_liberacion',
+    AIR_CHN_MX: 'aereo', china_air: 'aereo', aereo: 'aereo', air: 'aereo', TDI_EXPRESS: 'aereo',
+    SEA_CHN_MX: 'maritimo', china_sea: 'maritimo', maritime: 'maritimo', maritimo: 'maritimo', fcl: 'maritimo',
+  };
+  const deudasRes = await db.query(
+    `SELECT service, COALESCE(used_credit, 0)::numeric AS used_credit
+       FROM user_service_credits
+      WHERE user_id = $1 AND COALESCE(used_credit, 0) > 0`,
+    [order.user_id]
+  );
+  const deudas: Array<{ service: string; used_credit: string }> = deudasRes.rows;
+
+  let servicioDeuda: string | null = null;
+  if (deudas.length > 0) {
+    const esperado = CREDITO_POR_SERVICIO[String(order.service_type || '')] || null;
+    const coincide = esperado ? deudas.find((d) => d.service === esperado) : null;
+    if (coincide) {
+      servicioDeuda = coincide.service;
+    } else if (deudas.length === 1) {
+      servicioDeuda = (deudas[0] as { service: string }).service;
+    } else {
+      // Debe en varios servicios y la orden no dice a cuál pertenece: no se
+      // adivina a qué deuda abonar. Se deja sin acreditar para que lo resuelva
+      // una persona; el sobrante sigue disponible y esto se reintenta.
+      console.error(
+        `🚨 [VOUCHER] Sobrante de $${surplus.toFixed(2)} en la orden ${order.payment_reference} ` +
+        `(user ${order.user_id}) NO acreditado: el cliente debe en ${deudas.length} servicios ` +
+        `(${deudas.map((d) => d.service).join(', ')}) y la orden no indica a cuál corresponde. Requiere decisión humana.`
+      );
+      return 0;
+    }
+  }
+
+  let abonadoADeuda = 0;
+  if (servicioDeuda) {
+    const deuda = Number(deudas.find((d) => d.service === servicioDeuda)?.used_credit || 0);
+    abonadoADeuda = Math.min(surplus, deuda);
+    await db.query(
+      `UPDATE user_service_credits
+          SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1), updated_at = NOW()
+        WHERE user_id = $2 AND service = $3`,
+      [abonadoADeuda, order.user_id, servicioDeuda]
+    );
+    await db.query(
+      `UPDATE users SET used_credit = GREATEST(0, COALESCE(used_credit, 0) - $1) WHERE id = $2`,
+      [abonadoADeuda, order.user_id]
+    );
+    console.log(
+      `[VOUCHER] Sobrante abonado a deuda: $${abonadoADeuda.toFixed(2)} al crédito ${servicioDeuda} ` +
+      `de user ${order.user_id} (orden ${order.payment_reference})`
+    );
+  }
+
+  const paraMonedero = +(surplus - abonadoADeuda).toFixed(2);
+  if (!(paraMonedero > 0)) {
+    // Todo el sobrante se fue a la deuda: no hay saldo a favor que crear.
+    await db.query(
+      `UPDATE pobox_payments SET surplus_amount = $1, surplus_credited = TRUE WHERE id = $2`,
+      [surplus, orderId]
+    );
+    return surplus;
+  }
+
   const walletRes = await db.query(
     `INSERT INTO billetera_servicio (user_id, service_type, saldo, currency)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (user_id, service_type) DO UPDATE SET
        saldo = billetera_servicio.saldo + $3, updated_at = NOW()
      RETURNING id`,
-    [order.user_id, serviceType, surplus, order.currency || 'MXN']
+    [order.user_id, serviceType, paraMonedero, order.currency || 'MXN']
   );
   await db.query(
     `INSERT INTO billetera_servicio_transacciones
        (billetera_servicio_id, user_id, service_type, tipo, monto, currency, concepto, payment_order_id, created_by)
      VALUES ($1, $2, $3, 'excedente', $4, $5, $6, $7, $8)`,
-    [walletRes.rows[0].id, order.user_id, serviceType, surplus, order.currency || 'MXN',
-     `Excedente de pago orden ${order.payment_reference}`, orderId, adminId ?? null]
+    [walletRes.rows[0].id, order.user_id, serviceType, paraMonedero, order.currency || 'MXN',
+     abonadoADeuda > 0
+       ? `Excedente de pago orden ${order.payment_reference} (tras abonar $${abonadoADeuda.toFixed(2)} a la deuda)`
+       : `Excedente de pago orden ${order.payment_reference}`,
+     orderId, adminId ?? null]
   );
   await db.query(
     `UPDATE pobox_payments SET surplus_amount = $1, surplus_credited = TRUE WHERE id = $2`,
