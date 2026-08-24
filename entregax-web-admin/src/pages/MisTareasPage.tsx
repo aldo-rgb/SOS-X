@@ -99,6 +99,10 @@ const QUADRANTS: Array<{ key: string; title: string; color: string; bg: string }
 // operación usa de verdad; 'delegar' y 'eliminar' siguen existiendo en EIS y en
 // la matriz para pintar las tareas que ya las tienen, y para editarlas.
 const EIS_ALTA = ['fuego', 'estrella'] as const;
+// Compromiso de atención que se muestra junto a la prioridad AL CREAR, para que
+// quien la captura sepa qué está pidiendo. No se toca EIS: ese label también
+// pinta los chips de las tarjetas y ahí sería ruido.
+const EIS_ALTA_NOTA: Record<string, string> = { fuego: '24 hrs' };
 const fmtDur = (ms: number): string => {
   if (!isFinite(ms) || ms < 0) return '—';
   const min = Math.floor(ms / 60000);
@@ -1103,7 +1107,7 @@ export default function MisTareasPage() {
               <InputLabel shrink>Prioridad (Eisenhower) *</InputLabel>
               <Select label="Prioridad (Eisenhower) *" notched value={form.eisenhower} displayEmpty onChange={e => setForm({ ...form, eisenhower: e.target.value })}>
                 <MenuItem value="" disabled><em>Selecciona la prioridad…</em></MenuItem>
-                {EIS_ALTA.map((k) => <MenuItem key={k} value={k}>{EIS[k].label}</MenuItem>)}
+                {EIS_ALTA.map((k) => <MenuItem key={k} value={k}>{EIS[k].label}{EIS_ALTA_NOTA[k] ? ` (${EIS_ALTA_NOTA[k]})` : ''}</MenuItem>)}
               </Select>
             </FormControl>
             <TextField fullWidth size="small" required type="datetime-local" label="Fecha deseada *" InputLabelProps={{ shrink: true }}

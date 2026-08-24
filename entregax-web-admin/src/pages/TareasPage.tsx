@@ -70,6 +70,9 @@ const QUADRANTS: Array<{ key: string; title: string; color: string; bg: string }
 // usa de verdad; 'delegar' y 'eliminar' siguen en EIS y en la matriz para
 // pintar y editar las tareas que ya las tienen.
 const EIS_ALTA = ['fuego', 'estrella'] as const;
+// Compromiso de atención que se muestra junto a la prioridad AL CREAR. No se
+// toca EIS: ese label también pinta el chip de las tarjetas.
+const EIS_ALTA_NOTA: Record<string, string> = { fuego: '24 hrs' };
 const XPS: Record<string, { label: string; color: string }> = {
   verde:    { label: '🟢 Vendido',   color: '#2E7D46' },
   amarillo: { label: '🟡 Ofrecido',  color: '#B07206' },
@@ -650,7 +653,7 @@ export default function TareasPage() {
             <FormControl fullWidth size="small">
               <InputLabel>Prioridad (Eisenhower) *</InputLabel>
               <Select label="Prioridad (Eisenhower) *" value={form.eisenhower} onChange={e => setForm({ ...form, eisenhower: e.target.value })}>
-                {EIS_ALTA.map((k) => <MenuItem key={k} value={k}>{EIS[k].label}</MenuItem>)}
+                {EIS_ALTA.map((k) => <MenuItem key={k} value={k}>{EIS[k].label}{EIS_ALTA_NOTA[k] ? ` (${EIS_ALTA_NOTA[k]})` : ''}</MenuItem>)}
               </Select>
             </FormControl>
             <FormControl fullWidth size="small">

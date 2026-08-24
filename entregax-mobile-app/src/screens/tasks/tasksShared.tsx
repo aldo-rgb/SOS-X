@@ -243,6 +243,9 @@ export function InvolvedPicker({ users, myId, selected, onChange, fixedLabel = '
 // usa de verdad; 'delegar' y 'eliminar' siguen disponibles al EDITAR y en la
 // matriz, para no romper las tareas que ya las tienen.
 const EIS_ALTA = ['fuego', 'estrella'];
+// Compromiso de atención que se muestra junto a la prioridad AL CREAR. No se
+// toca EIS: su `short` también pinta los chips de las tarjetas.
+const EIS_ALTA_NOTA: Record<string, string> = { fuego: '24 hrs' };
 
 function EisPicker({ value, onChange, soloAlta }: { value: string; onChange: (k: string) => void; soloAlta?: boolean }) {
   const opciones = soloAlta
@@ -255,7 +258,9 @@ function EisPicker({ value, onChange, soloAlta }: { value: string; onChange: (k:
         return (
           <TouchableOpacity key={k} onPress={() => onChange(k)}
             style={[styles.eisChip, { backgroundColor: on ? v.color : v.bg, borderColor: v.color }]}>
-            <Text style={[styles.eisChipTxt, { color: on ? '#fff' : v.color }]}>{v.short}</Text>
+            <Text style={[styles.eisChipTxt, { color: on ? '#fff' : v.color }]}>
+              {v.short}{soloAlta && EIS_ALTA_NOTA[k] ? ` (${EIS_ALTA_NOTA[k]})` : ''}
+            </Text>
           </TouchableOpacity>
         );
       })}
