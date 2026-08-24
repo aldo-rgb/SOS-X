@@ -303,7 +303,7 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
 
   // Roles "track-only" (asesor, sub-asesor, servicio a cliente) no deben ver el costo proveedor
   const _trRole = String(getCurrentUser()?.role || '').toLowerCase();
-  const isTrackOnly = ['advisor', 'sub_advisor', 'customer_service'].includes(_trRole);
+  const isTrackOnly = ['advisor', 'sub_advisor', 'customer_service', 'accountant'].includes(_trRole);
 
   // Costos
   const lastMileCost = m.nationalLabelCost != null ? Number(m.nationalLabelCost) : null;
@@ -1127,7 +1127,7 @@ export default function CajitoFab() {
   // arrancan en modo track.
   const [mode, setMode] = useState<'chat' | 'track'>(() => {
     const u = getCurrentUser();
-    return ['advisor', 'sub_advisor', 'customer_service', 'soporte_tecnico'].includes(String(u?.role || '').toLowerCase()) ? 'track' : 'chat';
+    return ['advisor', 'sub_advisor', 'customer_service', 'soporte_tecnico', 'accountant'].includes(String(u?.role || '').toLowerCase()) ? 'track' : 'chat';
   });
   const [imgError, setImgError] = useState(false);
   // Acceso por CAPACIDAD (cajito.access), no solo por rol: un admin con el permiso
@@ -1181,8 +1181,11 @@ export default function CajitoFab() {
   const isCustomerService = _role === 'customer_service';
   // Soporte técnico: misma versión "Rastrear guía" que servicio a cliente.
   const isSoporteTecnico = _role === 'soporte_tecnico';
+  // Contabilidad: misma versión "Rastrear guía". No ve el Chat IA ni el costo
+  // de proveedor, solo el estatus y el cobro al cliente de una guía.
+  const isAccountant = _role === 'accountant';
   // Roles que solo ven "Rastrear guía" (sin Chat IA) y sin costo proveedor.
-  const isTrackOnly = isAdvisor || isCustomerService || isSoporteTecnico;
+  const isTrackOnly = isAdvisor || isCustomerService || isSoporteTecnico || isAccountant;
 
   useEffect(() => {
     if (open && mode === 'chat' && messages.length === 0) {
