@@ -92,8 +92,13 @@ const QUADRANTS: Array<{ key: string; title: string; color: string; bg: string }
   { key: 'fuego',    title: 'Importante y urgente',       color: '#C0392B', bg: '#FCEDEA' },
   { key: 'estrella', title: 'Importante y no urgente',    color: '#2E7D46', bg: '#ECF6EF' },
   { key: 'delegar',  title: 'Urgente y no importante',    color: '#B07206', bg: '#FAF3E4' },
-  { key: 'eliminar', title: 'No importante y no urgente', color: '#5A6472', bg: '#F1F3F5' },
+  { key: 'eliminar', title: 'No importante y no urgente', color: '#5A6472', bg: '#F1F3F5' },  { key: 'eliminar', title: 'No importante y no urgente', color: '#5A6472', bg: '#F1F3F5' },
 ];
+
+// Prioridades ofrecidas al CREAR una tarea nueva. Se acotan a las dos que la
+// operación usa de verdad; 'delegar' y 'eliminar' siguen existiendo en EIS y en
+// la matriz para pintar las tareas que ya las tienen, y para editarlas.
+const EIS_ALTA = ['fuego', 'estrella'] as const;
 const fmtDur = (ms: number): string => {
   if (!isFinite(ms) || ms < 0) return '—';
   const min = Math.floor(ms / 60000);
@@ -1098,7 +1103,7 @@ export default function MisTareasPage() {
               <InputLabel shrink>Prioridad (Eisenhower) *</InputLabel>
               <Select label="Prioridad (Eisenhower) *" notched value={form.eisenhower} displayEmpty onChange={e => setForm({ ...form, eisenhower: e.target.value })}>
                 <MenuItem value="" disabled><em>Selecciona la prioridad…</em></MenuItem>
-                {Object.entries(EIS).map(([k, v]) => <MenuItem key={k} value={k}>{v.label}</MenuItem>)}
+                {EIS_ALTA.map((k) => <MenuItem key={k} value={k}>{EIS[k].label}</MenuItem>)}
               </Select>
             </FormControl>
             <TextField fullWidth size="small" required type="datetime-local" label="Fecha deseada *" InputLabelProps={{ shrink: true }}

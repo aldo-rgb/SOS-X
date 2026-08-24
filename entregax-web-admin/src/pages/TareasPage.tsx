@@ -63,8 +63,13 @@ const QUADRANTS: Array<{ key: string; title: string; color: string; bg: string }
   { key: 'fuego',    title: 'Importante y urgente',       color: '#C0392B', bg: '#FCEDEA' },
   { key: 'estrella', title: 'Importante y no urgente',    color: '#2E7D46', bg: '#ECF6EF' },
   { key: 'delegar',  title: 'Urgente y no importante',    color: '#B07206', bg: '#FAF3E4' },
-  { key: 'eliminar', title: 'No importante y no urgente', color: '#5A6472', bg: '#F1F3F5' },
+  { key: 'eliminar', title: 'No importante y no urgente', color: '#5A6472', bg: '#F1F3F5' },  { key: 'eliminar', title: 'No importante y no urgente', color: '#5A6472', bg: '#F1F3F5' },
 ];
+
+// Prioridades ofrecidas al CREAR una tarea nueva. Solo las dos que la operación
+// usa de verdad; 'delegar' y 'eliminar' siguen en EIS y en la matriz para
+// pintar y editar las tareas que ya las tienen.
+const EIS_ALTA = ['fuego', 'estrella'] as const;
 const XPS: Record<string, { label: string; color: string }> = {
   verde:    { label: '🟢 Vendido',   color: '#2E7D46' },
   amarillo: { label: '🟡 Ofrecido',  color: '#B07206' },
@@ -645,7 +650,7 @@ export default function TareasPage() {
             <FormControl fullWidth size="small">
               <InputLabel>Prioridad (Eisenhower) *</InputLabel>
               <Select label="Prioridad (Eisenhower) *" value={form.eisenhower} onChange={e => setForm({ ...form, eisenhower: e.target.value })}>
-                {Object.entries(EIS).map(([k, v]) => <MenuItem key={k} value={k}>{v.label}</MenuItem>)}
+                {EIS_ALTA.map((k) => <MenuItem key={k} value={k}>{EIS[k].label}</MenuItem>)}
               </Select>
             </FormControl>
             <FormControl fullWidth size="small">

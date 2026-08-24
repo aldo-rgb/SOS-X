@@ -239,10 +239,18 @@ export function InvolvedPicker({ users, myId, selected, onChange, fixedLabel = '
 }
 
 // ── Selector de prioridad Eisenhower (chips) ──
-function EisPicker({ value, onChange }: { value: string; onChange: (k: string) => void }) {
+// Prioridades ofrecidas al CREAR una tarea nueva. Solo las dos que la operación
+// usa de verdad; 'delegar' y 'eliminar' siguen disponibles al EDITAR y en la
+// matriz, para no romper las tareas que ya las tienen.
+const EIS_ALTA = ['fuego', 'estrella'];
+
+function EisPicker({ value, onChange, soloAlta }: { value: string; onChange: (k: string) => void; soloAlta?: boolean }) {
+  const opciones = soloAlta
+    ? Object.entries(EIS).filter(([k]) => EIS_ALTA.includes(k))
+    : Object.entries(EIS);
   return (
     <View style={styles.eisRow}>
-      {Object.entries(EIS).map(([k, v]) => {
+      {opciones.map(([k, v]) => {
         const on = value === k;
         return (
           <TouchableOpacity key={k} onPress={() => onChange(k)}
@@ -423,7 +431,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
             <Text style={styles.fieldLbl}>Descripción</Text>
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
-            <EisPicker value={eis} onChange={setEis} />
+            <EisPicker value={eis} onChange={setEis} soloAlta />
             <Text style={styles.fieldLbl}>Fecha deseada</Text>
             <View style={styles.eisRow}>
               {DUE_OPTS.map(o => (
