@@ -165,18 +165,28 @@ export const getPaymentOrdersHistory = async (
                  AND apo.service_type_cfg IS NOT NULL
                ORDER BY apo.id DESC LIMIT 1
             )
+            -- Los ids de package_ids COLISIONAN entre las tres tablas: el 325 de
+            -- una orden DHL existe también como maritime_orders y como packages,
+            -- casi siempre de OTRO cliente. Sin exigir el mismo user_id, la
+            -- primera rama que encontraba un id ganaba y el cobro se etiquetaba
+            -- mal: 84 órdenes ($1.4M) salían como Marítimo siendo DHL o PO Box,
+            -- y desaparecían del filtro DHL del panel. Es la misma guarda que ya
+            -- usa dhlGroup.ts para no propagar entre clientes.
             WHEN EXISTS (
               SELECT 1 FROM maritime_orders mo
                WHERE mo.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
+                 AND mo.user_id IS NOT DISTINCT FROM pp.user_id
             ) THEN 'MARITIMO'
             WHEN EXISTS (
               SELECT 1 FROM dhl_shipments ds
                WHERE ds.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
+                 AND ds.user_id IS NOT DISTINCT FROM pp.user_id
             ) THEN 'AA_DHL'
             ELSE (
               SELECT COALESCE(p.service_type, 'POBOX_USA')
                 FROM packages p
                WHERE p.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
+                 AND p.user_id IS NOT DISTINCT FROM pp.user_id
                ORDER BY p.id ASC LIMIT 1
             )
           END AS svc_raw
