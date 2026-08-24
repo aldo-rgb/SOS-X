@@ -1102,7 +1102,13 @@ export const createAdvisorClientAddress = async (req: Request, res: Response): P
         );
         if (clientCheck.rows.length === 0) { res.status(403).json({ error: 'Cliente no encontrado' }); return; }
 
-        const { alias, recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault, phone, reference, receptionHours, notes } = req.body;
+        const { alias, recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault, phone, reference, receptionHours, notes, isOcurre, is_ocurre } = req.body;
+        // Ocurre (recolección en sucursal). El alta del ASESOR no lo aceptaba, así
+        // que toda dirección que él capturaba nacía como entrega a domicilio: al
+        // generar la guía, paqueteExpressController sustituye calle/colonia/ciudad
+        // por las de la sucursal solo cuando is_ocurre es true. Se admiten las dos
+        // formas del campo porque web manda camelCase y la app snake_case.
+        const ocurre = (isOcurre === true || is_ocurre === true);
         if (!street || !city || !state || !zipCode) {
             res.status(400).json({ error: 'Faltan campos requeridos: street, city, state, zipCode' }); return;
         }
@@ -1115,9 +1121,9 @@ export const createAdvisorClientAddress = async (req: Request, res: Response): P
             await pool.query(`UPDATE addresses SET is_default = FALSE WHERE user_id = $1`, [clientId]);
         }
         const result = await pool.query(
-            `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number, interior_number, neighborhood, city, state, zip_code, is_default, phone, reference, reception_hours, created_by_advisor_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
-            [clientId, alias || 'Dirección', recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault || false, phone || null, notes || reference || null, receptionHours || null, advisorId]
+            `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number, interior_number, neighborhood, city, state, zip_code, is_default, phone, reference, reception_hours, created_by_advisor_id, is_ocurre)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
+            [clientId, alias || 'Dirección', recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault || false, phone || null, notes || reference || null, receptionHours || null, advisorId, ocurre]
         );
         res.status(201).json({ message: 'Dirección creada exitosamente', address: result.rows[0] });
     } catch (error: any) {

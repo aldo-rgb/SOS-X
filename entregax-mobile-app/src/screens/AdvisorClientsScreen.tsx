@@ -330,7 +330,7 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
 
   // New address form
   const [showNewAddrForm, setShowNewAddrForm] = useState(false);
-  const emptyNewAddr = { alias: '', recipientName: '', countryCode: '+52', phone: '', zipCode: '', neighborhood: '', city: '', state: '', street: '', exteriorNumber: '', interiorNumber: '', receptionHours: '', notes: '', isDefault: false };
+  const emptyNewAddr = { alias: '', recipientName: '', countryCode: '+52', phone: '', zipCode: '', neighborhood: '', city: '', state: '', street: '', exteriorNumber: '', interiorNumber: '', receptionHours: '', notes: '', isDefault: false, isOcurre: false };
   const [newAddr, setNewAddr] = useState(emptyNewAddr);
   const [newAddrSaving, setNewAddrSaving] = useState(false);
   const [zipLoading, setZipLoading] = useState(false);
@@ -401,6 +401,7 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
           receptionHours: newAddr.receptionHours,
           notes: newAddr.notes,
           isDefault: newAddr.isDefault,
+          isOcurre: newAddr.isOcurre,
         }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Error'); }
@@ -1320,6 +1321,22 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
               <Text style={nf.label}>Notas / Referencia</Text>
               <TextInput style={[nf.input, { height: 80, textAlignVertical: 'top', paddingTop: 10 }]} placeholder="Indicaciones especiales, referencias, etc." multiline value={newAddr.notes} onChangeText={v => setNewAddr(p => ({ ...p, notes: v }))} />
             </View>
+
+            {/* Ocurre: el cliente ya lo tenía en su propia pantalla, pero el alta
+                del asesor no, así que toda dirección capturada por él nacía como
+                entrega a domicilio. No es una etiqueta: al generar la guía de
+                Paquete Express se sustituyen calle, colonia y ciudad por las de la
+                sucursal solo cuando está activo. */}
+            <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, backgroundColor: newAddr.isOcurre ? PURPLE + '15' : '#f5f5f5', borderRadius: 10, marginBottom: 8 }}
+              onPress={() => setNewAddr(p => ({ ...p, isOcurre: !p.isOcurre }))}>
+              <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: PURPLE, backgroundColor: newAddr.isOcurre ? PURPLE : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+                {newAddr.isOcurre && <Ionicons name="checkmark" size={14} color="#fff" />}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, color: '#333', fontWeight: '600' }}>Ocurre (recolección en oficina)</Text>
+                <Text style={{ fontSize: 12, color: '#777', marginTop: 2 }}>Actívalo si el cliente recoge en la oficina/sucursal en vez de entrega a domicilio.</Text>
+              </View>
+            </TouchableOpacity>
 
             {/* Dirección principal toggle */}
             <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, backgroundColor: newAddr.isDefault ? PURPLE + '15' : '#f5f5f5', borderRadius: 10, marginBottom: 8 }}

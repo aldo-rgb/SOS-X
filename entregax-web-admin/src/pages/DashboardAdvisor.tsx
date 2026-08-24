@@ -779,7 +779,7 @@ export default function DashboardAdvisor() {
   const [newAddrOpen, setNewAddrOpen] = useState(false);
   const [newAddrSaving, setNewAddrSaving] = useState(false);
   const [newAddrZipLoading, setNewAddrZipLoading] = useState(false);
-  const EMPTY_ADDR = { alias: '', recipientName: '', street: '', exteriorNumber: '', interiorNumber: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', reference: '', receptionHours: '' };
+  const EMPTY_ADDR = { alias: '', recipientName: '', street: '', exteriorNumber: '', interiorNumber: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', reference: '', receptionHours: '', isOcurre: false };
   const [newAddrForm, setNewAddrForm] = useState(EMPTY_ADDR);
 
   // Team tab
@@ -8042,6 +8042,28 @@ export default function DashboardAdvisor() {
             <TextField label="Teléfono de contacto" size="small" value={newAddrForm.phone} onChange={e => setNewAddrForm(p => ({ ...p, phone: e.target.value }))} />
             <TextField label="Referencias" size="small" value={newAddrForm.reference} onChange={e => setNewAddrForm(p => ({ ...p, reference: e.target.value }))} />
             <TextField label="Horario de entrega" size="small" placeholder="Ej. Lun-Vie 9am-6pm" value={newAddrForm.receptionHours} onChange={e => setNewAddrForm(p => ({ ...p, receptionHours: e.target.value }))} sx={{ gridColumn: '1 / -1' }} />
+            {/* Ocurre: el cliente ya tenía este switch en su propia pantalla, pero
+                el alta del asesor no, así que toda dirección capturada por él
+                nacía como entrega a domicilio. No es una etiqueta: al generar la
+                guía de Paquete Express se sustituyen calle, colonia y ciudad por
+                las de la sucursal solo cuando está activo. */}
+            <FormControlLabel
+              sx={{ gridColumn: '1 / -1', mt: 0.5, alignItems: 'flex-start' }}
+              control={
+                <Switch
+                  checked={!!newAddrForm.isOcurre}
+                  onChange={e => setNewAddrForm(p => ({ ...p, isOcurre: e.target.checked }))}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>Ocurre (recolección en oficina)</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Actívalo si el cliente recoge en la oficina/sucursal en vez de entrega a domicilio.
+                  </Typography>
+                </Box>
+              }
+            />
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 1.5 }}>
