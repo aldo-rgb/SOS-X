@@ -23,6 +23,12 @@ export interface CostBreakdown {
   nationalPerBoxMxn: number;
   boxCount: number;
   isRepack: boolean;
+  /** Liberación DHL: importación (incluye el impuesto). 0 en el resto de servicios. */
+  importMxn: number;
+  /** Liberación DHL: impuesto de importación, ya contenido dentro de importMxn. */
+  importTaxMxn: number;
+  /** 'AA_DHL' | 'POBOX_USA' | … — permite etiquetar el desglose por servicio. */
+  serviceType: string;
 }
 
 const sumChildren = (children: any[] | undefined, picker: (c: any) => number): number => {
@@ -86,12 +92,38 @@ export function getPackageCostBreakdown(pkg: any, opts: { children?: any[] } = {
   }
 
   // 3) GEX
-  let gexMxn = num(pkg?.gex_total_cost ?? pkg?.gexTotalCost ?? pkg?.totalCost);
+  // OJO: aquí NO se puede caer a `totalCost`. Ese campo significa "total a
+  // cobrar al cliente" (venta + GEX + paquetería), no el monto de la póliza —
+  // el backend ya corrigió ese mapeo, el front se había quedado con el viejo.
+  // Con el fallback, una guía DHL (que nunca manda gexTotalCost) veía TODO su
+  // costo de importación contabilizado como GEX: las 574 guías salían con
+  // "Servicio PO Box $0.00 + GEX $4,320.75". PO Box se salvaba de casualidad,
+  // porque su gex_total_cost llega en 0 y no en NULL.
+  let gexMxn = num(pkg?.gex_total_cost ?? pkg?.gexTotalCost);
   if (gexMxn === 0) {
-    gexMxn = sumChildren(children, (c) => num(c.gex_total_cost ?? c.gexTotalCost ?? c.totalCost));
+    gexMxn = sumChildren(children, (c) => num(c.gex_total_cost ?? c.gexTotalCost));
   }
 
-  const totalMxn = poboxServiceMxn + nationalShippingMxn + gexMxn;
+  // 3.b) Liberación DHL: no hay servicio PO Box ni póliza GEX. El cobro es
+  // importación (con su impuesto dentro) + última milla, y el backend ya manda
+  // el total calculado. Sin esta rama, al quitar el fallback a `totalCost` el
+  // panel se quedaba en $0 y escondía el bloque completo.
+  const serviceType = String(pkg?.service_type ?? pkg?.serviceType ?? '');
+  const isDhl = serviceType === 'AA_DHL';
+  let importMxn = 0;
+  const importTaxMxn = num(pkg?.import_tax_mxn ?? pkg?.importTaxMxn);
+  if (isDhl) {
+    const totalDhl = num(pkg?.total_cost_mxn ?? pkg?.totalCost);
+    const nacionalDhl = num(pkg?.national_cost ?? pkg?.nationalCost ?? pkg?.national_cost_mxn);
+    if (nacionalDhl > 0) nationalShippingMxn = nacionalDhl;
+    importMxn = Math.max(0, totalDhl - nationalShippingMxn);
+    poboxServiceMxn = 0;
+    gexMxn = 0;
+  }
+
+  const totalMxn = isDhl
+    ? importMxn + nationalShippingMxn
+    : poboxServiceMxn + nationalShippingMxn + gexMxn;
   const paidMxn = num(pkg?.monto_pagado ?? pkg?.montoPagado);
   const pendingMxn = Math.max(0, totalMxn - paidMxn);
 
@@ -100,6 +132,9 @@ export function getPackageCostBreakdown(pkg: any, opts: { children?: any[] } = {
   const nationalPerBoxMxn = boxCount > 0 ? nationalShippingMxn / boxCount : nationalShippingMxn;
 
   return {
+    importMxn,
+    importTaxMxn,
+    serviceType,
     poboxServiceMxn,
     nationalShippingMxn,
     gexMxn,

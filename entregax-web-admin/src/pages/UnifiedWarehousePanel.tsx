@@ -119,6 +119,9 @@ interface ShipmentMaster {
   missingOnArrival?: boolean;
   isLost?: boolean;
   totalCost?: number | null;
+  /** 'AA_DHL' | 'POBOX_USA' | … — el backend ya lo manda; sirve para no
+   *  rotular como GEX lo que es una liberación DHL. */
+  serviceType?: string | null;
   poboxCostUsd?: number | null;
   nationalLabelCost?: number | null;
   nationalLabelCostPerBox?: number | null;
@@ -1621,13 +1624,20 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                           })()}
                         </Grid>
                       )}
-                      {m.totalCost != null && Number(m.totalCost) > 0 && (
+                      {/* Bloque GEX. Antes se pintaba con solo mirar totalCost > 0, que
+                          significa "total a cobrar al cliente" y NO el monto de la póliza:
+                          una liberación DHL veía su costo de importación rotulado como
+                          "Costo total GEX" y "Póliza GEX (fija)". Ahora se exige que
+                          exista GEX de verdad. */}
+                      {m.serviceType !== 'AA_DHL'
+                        && Number(m.gexTotalCost ?? 0) > 0
+                        && (
                         <Grid size={{ xs: 12, md: 6 }}>
                           <Typography variant="overline" color="text.secondary">
                             Costo total GEX
                           </Typography>
                           <Typography variant="body1" fontWeight="bold">
-                            {fmtMoney(m.totalCost, 'MXN')}
+                            {fmtMoney(m.gexTotalCost, 'MXN')}
                           </Typography>
                           {m.gexFolio && (
                             <Typography variant="caption" color="text.secondary" display="block" sx={{ fontFamily: 'monospace' }}>
@@ -1645,7 +1655,7 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                               : (declaredUsd * tc);
                             const fixedMxn = m.gexFixedCost != null
                               ? Number(m.gexFixedCost)
-                              : Math.max(0, Number(m.totalCost) - insuredMxn);
+                              : Math.max(0, Number(m.gexTotalCost) - insuredMxn);
                             return (
                               <Box sx={{ mt: 0.5, pl: 1, borderLeft: '2px solid', borderColor: 'warning.light' }}>
                                 {declaredUsd > 0 && (
@@ -1689,9 +1699,19 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                                 {fmtMXN(totalMxn)}
                               </Typography>
                               <Typography variant="caption" color="text.secondary" display="block">
-                                Servicio PO Box {fmtMXN(poboxServiceMxn)}
-                                {nationalShippingMxn > 0 ? ` + Paquetería ${fmtMXN(nationalShippingMxn)}` : ''}
-                                {gexMxn > 0 ? ` + GEX ${fmtMXN(gexMxn)}` : ''}
+                                {breakdown.serviceType === 'AA_DHL' ? (
+                                  <>
+                                    Importación {fmtMXN(breakdown.importMxn)}
+                                    {breakdown.importTaxMxn > 0 ? ` (incluye impuesto ${fmtMXN(breakdown.importTaxMxn)})` : ''}
+                                    {nationalShippingMxn > 0 ? ` + Última milla ${fmtMXN(nationalShippingMxn)}` : ''}
+                                  </>
+                                ) : (
+                                  <>
+                                    Servicio PO Box {fmtMXN(poboxServiceMxn)}
+                                    {nationalShippingMxn > 0 ? ` + Paquetería ${fmtMXN(nationalShippingMxn)}` : ''}
+                                    {gexMxn > 0 ? ` + GEX ${fmtMXN(gexMxn)}` : ''}
+                                  </>
+                                )}
                               </Typography>
                             </Grid>
                             {!scannedIsChild && (

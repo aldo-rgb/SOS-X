@@ -1572,11 +1572,31 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
                 if (!recipientNameTrimmed) {
                     return res.status(400).json({ error: '❌ El nombre de quien recibe es obligatorio.' });
                 }
+                // Evidencia de entrega. Antes solo se marcaba el estado y la
+                // firma, la foto, el receptor y las notas se descartaban: el
+                // repartidor las capturaba y morían en el request (34 guías DHL
+                // entregadas sin un solo rastro). Se suben a S3 —no base64— para
+                // no repetir el disco muerto que dejó la migración de fotos.
+                await pool.query(
+                    `ALTER TABLE dhl_shipments
+                       ADD COLUMN IF NOT EXISTS delivery_signature TEXT,
+                       ADD COLUMN IF NOT EXISTS delivery_photo TEXT,
+                       ADD COLUMN IF NOT EXISTS delivery_recipient_name TEXT,
+                       ADD COLUMN IF NOT EXISTS delivery_notes TEXT,
+                       ADD COLUMN IF NOT EXISTS delivered_by INTEGER`
+                ).catch(() => {});
+                const firmaUrl = await persistBase64ToS3(signatureBase64, `dhl/${d.id}/delivery-signature`);
+                const fotoUrl = await persistBase64ToS3(photoBase64, `dhl/${d.id}/delivery-photo`);
                 await pool.query(
                     `UPDATE dhl_shipments
-                        SET status = 'delivered', delivered_at = NOW(), updated_at = NOW()
+                        SET status = 'delivered', delivered_at = NOW(), updated_at = NOW(),
+                            delivery_signature = COALESCE($2, delivery_signature),
+                            delivery_photo = COALESCE($3, delivery_photo),
+                            delivery_recipient_name = COALESCE($4, delivery_recipient_name),
+                            delivery_notes = COALESCE($5, delivery_notes),
+                            delivered_by = COALESCE($6, delivered_by)
                       WHERE id = $1`,
-                    [d.id]
+                    [d.id, firmaUrl || null, fotoUrl || null, recipientNameTrimmed || null, notes || null, driverId]
                 );
                 return res.json({
                     success: true,

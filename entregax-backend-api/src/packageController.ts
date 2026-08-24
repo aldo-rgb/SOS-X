@@ -3518,8 +3518,17 @@ export const getPackageMovementsByTracking = async (req: Request, res: Response)
                 // Fallback DHL: construir historial desde dhl_shipments.
                 const tkUpper = tracking.toUpperCase();
                 const tkCompact = tkUpper.replace(/[^A-Z0-9]/g, '');
+                // Las columnas de evidencia se crean al confirmar la primera
+                // entrega DHL; en un entorno recién montado pueden no existir.
+                const tieneEvidencia = await pool.query(
+                    `SELECT COUNT(*)::int AS n FROM information_schema.columns
+                      WHERE table_name = 'dhl_shipments' AND column_name = 'delivery_signature'`
+                ).then((r) => Number(r.rows[0]?.n) > 0).catch(() => false);
+                const camposEvidencia = tieneEvidencia
+                    ? ', delivery_signature, delivery_photo, delivery_recipient_name, delivery_notes, delivered_by'
+                    : '';
                 const dhl = await pool.query(`
-                    SELECT id, status, created_at, inspected_at, dispatched_at, paid_at, user_id, box_id
+                    SELECT id, status, created_at, inspected_at, dispatched_at, paid_at, delivered_at, user_id, box_id${camposEvidencia}
                     FROM dhl_shipments
                     WHERE UPPER(COALESCE(inbound_tracking,'')) = $1
                        OR UPPER(COALESCE(secondary_tracking,'')) = $1
@@ -3537,6 +3546,34 @@ export const getPackageMovementsByTracking = async (req: Request, res: Response)
                 events.push({ id: 'recv', status: 'received_mty', statusLabel: 'Recibido en Monterrey', createdAt: d.inspected_at || d.created_at });
                 if (d.paid_at) events.push({ id: 'paid', status: 'paid', statusLabel: 'Pagado', createdAt: d.paid_at });
                 if (d.dispatched_at || d.status === 'dispatched') events.push({ id: 'disp', status: 'dispatched', statusLabel: 'Despachado', createdAt: d.dispatched_at || null });
+                // Hito de entrega. Faltaba por completo: el panel pinta la firma
+                // dentro de `status === 'delivered'`, así que aunque la guía
+                // estuviera entregada no salía nada. Las URLs de S3 se firman
+                // aquí (el middleware central solo firma avatares).
+                if (d.delivered_at || d.status === 'delivered') {
+                    const { signS3UrlIfNeeded } = await import('./s3Service');
+                    const [firma, foto] = await Promise.all([
+                        signS3UrlIfNeeded(d.delivery_signature || null, 6 * 3600).catch(() => null),
+                        signS3UrlIfNeeded(d.delivery_photo || null, 6 * 3600).catch(() => null),
+                    ]);
+                    let repartidor: string | null = null;
+                    if (d.delivered_by) {
+                        repartidor = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [d.delivered_by])
+                            .then((r) => r.rows[0]?.full_name || null).catch(() => null);
+                    }
+                    events.push({
+                        id: 'deliv',
+                        status: 'delivered',
+                        statusLabel: 'Entregado',
+                        createdAt: d.delivered_at || null,
+                        deliveredAt: d.delivered_at || null,
+                        deliveryRecipientName: d.delivery_recipient_name || null,
+                        deliverySignature: firma,
+                        deliveryPhoto: foto,
+                        deliveryNotes: d.delivery_notes || null,
+                        driverName: repartidor,
+                    });
+                }
                 events.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
                 return res.json({ success: true, movements: events });
             }
