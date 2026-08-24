@@ -165,6 +165,7 @@ export default function TareasPage() {
   const [crossLoading, setCrossLoading] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '' });
   const [involvedIds, setInvolvedIds] = useState<number[]>([]);
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
@@ -278,6 +279,10 @@ export default function TareasPage() {
 
   const createTask = async () => {
     if (!form.title.trim()) return notify('El título es obligatorio', 'error');
+    // Sin este candado, un doble clic manda dos POST y nacen tareas gemelas
+    // (pasó con las tareas 346 y 347, creadas con 23 ms de diferencia).
+    if (creating) return;
+    setCreating(true);
     try {
       const res = await axios.post(`${API_URL}/tasks`, {
         board_id: board?.id, title: form.title.trim(), description: form.description || null,
@@ -301,6 +306,7 @@ export default function TareasPage() {
       notify('Tarea creada');
       refresh();
     } catch (e: any) { notify(e?.response?.data?.error || 'Error al crear', 'error'); }
+    finally { setCreating(false); }
   };
 
   const createBoard = async () => {
@@ -785,7 +791,7 @@ export default function TareasPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { setCreateOpen(false); setNewPhotos([]); setNewSubtasks([]); setSubInput(''); }}>Cancelar</Button>
-          <Button variant="contained" onClick={createTask} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Crear</Button>
+          <Button variant="contained" onClick={createTask} disabled={creating} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>{creating ? 'Creando…' : 'Crear'}</Button>
         </DialogActions>
       </Dialog>
 

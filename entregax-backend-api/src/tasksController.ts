@@ -1134,14 +1134,57 @@ export const createTask = async (req: Request, res: Response): Promise<any> => {
     // auto-asigna a la sección Algún día del tablero, sin importar lo elegido.
     let sectionId = (!forcedRino && b.section_id) ? parseInt(String(b.section_id)) : null;
     if (eisenhower === 'eliminar') { sectionId = await getOrCreateSomedaySection(boardId); }
-    const r = await pool.query(`
-      INSERT INTO tasks (board_id, column_id, section_id, title, description, assignee_id, due_at, eisenhower,
-                         xpay_seguro, linked_type, linked_id, priority, created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-      [boardId, columnId, sectionId, String(b.title).trim(), b.description || null, b.assignee_id || null,
-       b.due_at || null, eisenhower, XPAY_SEGURO.includes(b.xpay_seguro) ? b.xpay_seguro : null,
-       b.linked_type || null, b.linked_id || null, parseInt(String(b.priority || 0)) || 0, uid]);
-    const task = r.rows[0];
+    // ── Anti-duplicado por doble envío ─────────────────────────────────
+    // El botón "Crear" del panel no se bloqueaba mientras la petición estaba en
+    // vuelo, así que un doble clic mandaba dos POST idénticos y nacían dos
+    // tareas gemelas (las 346 y 347 se crearon con 23 ms de diferencia).
+    //
+    // El candado de asesoría serializa las peticiones que comparten
+    // creador+tablero+título, así que dos llamadas simultáneas no pueden pasar
+    // ambas por el chequeo: la segunda espera, ve la tarea de la primera y la
+    // devuelve en vez de insertar otra. Se libera solo al terminar la
+    // transacción.
+    const tituloLimpio = String(b.title).trim();
+    const db = await pool.connect();
+    let task: any;
+    try {
+      await db.query('BEGIN');
+      await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`,
+        [`task:${uid}:${boardId}:${tituloLimpio.toLowerCase()}`]);
+
+      const gemela = await db.query(
+        `SELECT * FROM tasks
+          WHERE created_by = $1 AND board_id = $2
+            AND LOWER(TRIM(title)) = LOWER($3)
+            AND COALESCE(description, '') = COALESCE($4, '')
+            AND status <> 'cancelled'
+            AND created_at > NOW() - INTERVAL '60 seconds'
+          ORDER BY id ASC LIMIT 1`,
+        [uid, boardId, tituloLimpio.toLowerCase(), b.description || null]
+      );
+      if (gemela.rows.length > 0) {
+        await db.query('COMMIT');
+        console.log(`🚫 [tasks] doble envío descartado: "${tituloLimpio}" ya existe como #${gemela.rows[0].id}`);
+        // 200 con la tarea original: para el frontend el alta fue exitosa y los
+        // adjuntos que suba después van a parar a la tarea buena.
+        return res.json({ task: gemela.rows[0], duplicate: true });
+      }
+
+      const r = await db.query(`
+        INSERT INTO tasks (board_id, column_id, section_id, title, description, assignee_id, due_at, eisenhower,
+                           xpay_seguro, linked_type, linked_id, priority, created_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+        [boardId, columnId, sectionId, tituloLimpio, b.description || null, b.assignee_id || null,
+         b.due_at || null, eisenhower, XPAY_SEGURO.includes(b.xpay_seguro) ? b.xpay_seguro : null,
+         b.linked_type || null, b.linked_id || null, parseInt(String(b.priority || 0)) || 0, uid]);
+      await db.query('COMMIT');
+      task = r.rows[0];
+    } catch (e) {
+      await db.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      db.release();
+    }
     // Subtareas (checklist) opcionales al crear.
     if (Array.isArray(b.subtasks)) {
       for (let k = 0; k < b.subtasks.length; k++) {
@@ -1598,6 +1641,23 @@ export const addTaskAttachment = async (req: Request, res: Response): Promise<an
     const t = await pool.query(`SELECT id FROM tasks WHERE id = $1`, [id]);
     if (t.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
     const orig = String(file.originalname || 'foto').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60);
+    // Mismo archivo, misma tarea, mismo minuto → es el reintento de un doble
+    // envío (el alta sube las fotos una por una después de crear la tarea).
+    // Se devuelve el adjunto que ya existe en vez de duplicar la imagen.
+    const yaEsta = await pool.query(
+      `SELECT id, file_key, file_name, created_at FROM task_attachments
+        WHERE task_id = $1 AND file_name = $2 AND uploaded_by = $3
+          AND created_at > NOW() - INTERVAL '60 seconds'
+        ORDER BY id ASC LIMIT 1`,
+      [id, orig, uid]
+    );
+    if (yaEsta.rows.length > 0) {
+      const a = yaEsta.rows[0];
+      console.log(`🚫 [tasks] adjunto duplicado descartado: "${orig}" ya está en la tarea ${id} como #${a.id}`);
+      let urlPrev: string | null = null;
+      try { urlPrev = await getSignedUrlForKey(a.file_key, 6 * 3600); } catch { /* ignore */ }
+      return res.json({ attachment: { id: a.id, file_name: a.file_name, url: urlPrev, created_at: a.created_at }, duplicate: true });
+    }
     const key = `task-attachments/task-${id}-${Date.now()}-${orig}`;
     await uploadToS3WithSignedUrl(file.buffer, key, file.mimetype || 'image/jpeg', 6 * 3600);
     const r = await pool.query(
