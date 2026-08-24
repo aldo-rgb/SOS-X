@@ -265,6 +265,46 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
       else if (prefix === 'DHL')  dhlIds.push(numId);
     }
 
+    // ── 1a. DHL multicaja: expandir a TODAS las cajas que el panel cotizó ──
+    // El panel agrupa por secondary_tracking y cotiza la GUÍA COMPLETA (SUM
+    // sobre el grupo), pero manda un solo uid por guía: el MIN(id) sin pagar.
+    // Guardar únicamente ese id dejaba a las cajas hermanas con paid_at NULL,
+    // así que reaparecían como pendientes y el asesor las volvía a cobrar.
+    // Le pasó a GIL BROKER (S91): UW-6368A865 cobró 8 guías (12 cajas) por
+    // $42,170.45 y al día siguiente UW-873693D2 volvió a cobrar 4 de esas
+    // cajas por $14,318.60 — TKT-2026-2178.
+    //
+    // Se agregan solo las hermanas SIN PAGAR, que es exactamente lo que el
+    // panel incluyó en el monto: las ya pagadas las cotiza en 0. Los ids
+    // originales se conservan siempre para que el guardo de "ya está pagada"
+    // más abajo siga viéndolos.
+    if (dhlIds.length > 0) {
+      try {
+        const exp = await pool.query(
+          `SELECT DISTINCT s.id
+             FROM dhl_shipments s
+            WHERE s.id = ANY($1::int[])
+               OR (s.paid_at IS NULL
+                   AND EXISTS (SELECT 1 FROM dhl_shipments seed
+                                WHERE seed.id = ANY($1::int[])
+                                  AND COALESCE(seed.secondary_tracking, '') <> ''
+                                  AND seed.secondary_tracking = s.secondary_tracking
+                                  -- hay secondary_tracking repetido entre clientes
+                                  AND seed.user_id IS NOT DISTINCT FROM s.user_id))`,
+          [dhlIds]
+        );
+        const expandidos = exp.rows.map((r: any) => Number(r.id)).filter((n: number) => Number.isFinite(n));
+        const agregadas = expandidos.filter((id: number) => !dhlIds.includes(id));
+        if (agregadas.length > 0) {
+          console.log(`📦 [Orden asesor DHL] multicaja: ${dhlIds.length} guía(s) → ${expandidos.length} cajas (agregadas ${agregadas.join(', ')})`);
+          dhlIds.length = 0;
+          dhlIds.push(...expandidos);
+        }
+      } catch (e: any) {
+        console.error('[Orden asesor DHL] no se pudo expandir el multicaja:', e?.message);
+      }
+    }
+
     // All real numeric IDs for pobox_payments.package_ids
     const allPackageIds = [...pkgIds, ...marIds, ...dhlIds];
     if (allPackageIds.length === 0) return res.status(400).json({ error: 'No se encontraron IDs válidos en las guías seleccionadas' });
