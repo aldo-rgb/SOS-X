@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import {
     Box,
     Typography,
+    Tooltip,
     Paper,
     TextField,
     Stack,
@@ -265,11 +266,17 @@ export default function POBoxInventoryPage({ onBack }: Props) {
         return s;
     }, [packages]);
 
-    // Cuántas cajas/paquetes agrupa cada master (consolidación)
+    // Cuántas CAJAS agrupa cada consolidación.
+    // Antes sumaba 1 por fila, pero la lista solo trae masters y guías sueltas
+    // (las hijas se cargan al desplegar), así que una guía de 5 cajas contaba
+    // como 1: 96 de 146 consolidaciones mostraban un número menor al real,
+    // 1,211 cajas sin contar. Se usa la MISMA regla que el contador de arriba.
     const consolidationCounts = useMemo(() => {
         const m: Record<number, number> = {};
         for (const p of packages) {
-            if (p.consolidationId) m[p.consolidationId] = (m[p.consolidationId] || 0) + 1;
+            if (!p.consolidationId) continue;
+            const boxes = (p.isMaster && p.totalBoxes && p.totalBoxes > 1) ? p.totalBoxes : 1;
+            m[p.consolidationId] = (m[p.consolidationId] || 0) + boxes;
         }
         return m;
     }, [packages]);
@@ -458,12 +465,18 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                                 {p.consolidationId ? (
                                                     <Box>
                                                         <Chip label={`#${p.consolidationId}`} size="small" variant="outlined" sx={{ borderColor: ORANGE, color: ORANGE, fontWeight: 700 }} />
-                                                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.3 }}>
-                                                            {(() => {
-                                                                const n = consolidationCounts[p.consolidationId] || 1;
-                                                                return `${n} ${n === 1 ? 'caja' : 'cajas'}`;
-                                                            })()}
-                                                        </Typography>
+                                                        {/* El total es DE LA CONSOLIDACIÓN, no de esta guía: el mismo
+                                                            número se repite en todas sus filas. Sin decirlo, se lee como
+                                                            si fuera el conteo de la guía (lo reportó Jorge en la tarea 346:
+                                                            US-5061313527 tiene 1 caja y aquí salía "2 cajas"). */}
+                                                        <Tooltip title="Total de cajas de esta consolidación, sumando todas sus guías">
+                                                            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.3 }}>
+                                                                {(() => {
+                                                                    const n = consolidationCounts[p.consolidationId] || 1;
+                                                                    return `${n} ${n === 1 ? 'caja' : 'cajas'} en total`;
+                                                                })()}
+                                                            </Typography>
+                                                        </Tooltip>
                                                     </Box>
                                                 ) : '—'}
                                             </TableCell>
