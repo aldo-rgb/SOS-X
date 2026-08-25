@@ -122,7 +122,12 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
-  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
+  // Varios adjuntos por respuesta. El backend siempre aceptó hasta 10
+  // (.array('images', 10) y recorre todos), pero la app mandaba uno solo:
+  // Jorge Gaona reportó en la tarea 338 que el teléfono no lo dejaba subir
+  // varias fotos a la vez.
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const MAX_ADJUNTOS = 10;
   const scrollRef = useRef<ScrollView>(null);
   // Visor de imagen a pantalla completa + transferencia por departamento
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
@@ -224,7 +229,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     setSelectedTicket(ticket);
     setMessages([]);
     setReplyText('');
-    setAttachedFile(null);
+    setAttachedFiles([]);
     setShowDetail(true);
     setDetailLoading(true);
     try {
@@ -244,24 +249,40 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') { Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.'); return; }
+    const restantes = MAX_ADJUNTOS - attachedFiles.length;
+    if (restantes <= 0) {
+      Alert.alert('Límite alcanzado', `Puedes adjuntar hasta ${MAX_ADJUNTOS} archivos por respuesta.`);
+      return;
+    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.8,
       allowsEditing: false,
+      allowsMultipleSelection: true,
+      selectionLimit: restantes,
     });
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      const name = asset.fileName || `foto_${Date.now()}.jpg`;
-      const mimeType = asset.mimeType || 'image/jpeg';
-      setAttachedFile({ uri: asset.uri, name, type: 'image', mimeType });
+    if (result.canceled || !result.assets?.length) return;
+    const nuevos: AttachedFile[] = result.assets.slice(0, restantes).map((asset, i) => ({
+      uri: asset.uri,
+      name: asset.fileName || `foto_${Date.now()}_${i}.jpg`,
+      type: 'image' as const,
+      mimeType: asset.mimeType || 'image/jpeg',
+    }));
+    setAttachedFiles(prev => [...prev, ...nuevos]);
+    if (result.assets.length > restantes) {
+      Alert.alert('Límite alcanzado', `Solo se agregaron ${restantes}: el máximo es ${MAX_ADJUNTOS} por respuesta.`);
     }
   };
 
   const pickDocument = async () => {
     const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
     if (!result.canceled && result.assets[0]) {
+      if (attachedFiles.length >= MAX_ADJUNTOS) {
+        Alert.alert('Límite alcanzado', `Puedes adjuntar hasta ${MAX_ADJUNTOS} archivos por respuesta.`);
+        return;
+      }
       const asset = result.assets[0];
-      setAttachedFile({ uri: asset.uri, name: asset.name, type: 'pdf', mimeType: 'application/pdf' });
+      setAttachedFiles(prev => [...prev, { uri: asset.uri, name: asset.name, type: 'pdf', mimeType: 'application/pdf' }]);
     }
   };
 
@@ -283,18 +304,15 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   };
 
   const sendReply = async () => {
-    if (!replyText.trim() && !attachedFile) return;
+    if (!replyText.trim() && attachedFiles.length === 0) return;
     if (!selectedTicket) return;
     setSending(true);
     try {
       const formData = new FormData();
       formData.append('message', replyText.trim() || '');
-      if (attachedFile) {
-        formData.append('images', {
-          uri: attachedFile.uri,
-          name: attachedFile.name,
-          type: attachedFile.mimeType,
-        } as any);
+      // Mismo nombre de campo para todos: multer los recibe como arreglo.
+      for (const f of attachedFiles) {
+        formData.append('images', { uri: f.uri, name: f.name, type: f.mimeType } as any);
       }
       const resp = await fetch(`${API_URL}/api/admin/support/ticket/${selectedTicket.id}/reply`, {
         method: 'POST',
@@ -308,15 +326,18 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
       }
       const result = await resp.json().catch(() => ({}));
       // Avisar si se adjuntó archivo pero no llegó al servidor
-      if (attachedFile && (!result.attachments || result.attachments.length === 0)) {
+      const subidos = result.attachments?.length || 0;
+      if (attachedFiles.length > 0 && subidos < attachedFiles.length) {
         Alert.alert(
           'Aviso',
-          'El mensaje fue enviado pero el archivo adjunto no se pudo subir. Intenta adjuntarlo de nuevo.',
+          subidos === 0
+            ? 'El mensaje fue enviado pero los archivos adjuntos no se pudieron subir. Intenta adjuntarlos de nuevo.'
+            : `El mensaje fue enviado pero solo se subieron ${subidos} de ${attachedFiles.length} archivos.`,
           [{ text: 'OK' }]
         );
       }
       setReplyText('');
-      setAttachedFile(null);
+      setAttachedFiles([]);
       await reloadMessages(selectedTicket.id);
     } catch (e) {
       Alert.alert('Error', 'No se pudo enviar el mensaje. Verifica tu conexión.');
@@ -613,20 +634,31 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
             {selectedTicket && !['resolved', 'closed'].includes(selectedTicket.status) && (
               <View style={{ backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', paddingBottom: insets.bottom || 8 }}>
                 {/* Attached file preview */}
-                {attachedFile && (
-                  <View style={styles.attachPreviewRow}>
-                    {attachedFile.type === 'image' ? (
-                      <Image source={{ uri: attachedFile.uri }} style={styles.attachPreviewImg} />
-                    ) : (
-                      <View style={styles.attachPreviewPdf}>
-                        <Ionicons name="document-outline" size={18} color="#E91E63" />
-                        <Text style={styles.attachPreviewPdfText} numberOfLines={1}>{attachedFile.name}</Text>
+                {attachedFiles.length > 0 && (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 8, gap: 8 }}
+                  >
+                    {attachedFiles.map((f, i) => (
+                      <View key={`${f.uri}-${i}`} style={styles.attachPreviewRow}>
+                        {f.type === 'image' ? (
+                          <Image source={{ uri: f.uri }} style={styles.attachPreviewImg} />
+                        ) : (
+                          <View style={styles.attachPreviewPdf}>
+                            <Ionicons name="document-outline" size={18} color="#E91E63" />
+                            <Text style={styles.attachPreviewPdfText} numberOfLines={1}>{f.name}</Text>
+                          </View>
+                        )}
+                        <TouchableOpacity
+                          onPress={() => setAttachedFiles(prev => prev.filter((_, k) => k !== i))}
+                          style={styles.attachRemoveBtn}
+                        >
+                          <Ionicons name="close-circle" size={20} color="#f44336" />
+                        </TouchableOpacity>
                       </View>
-                    )}
-                    <TouchableOpacity onPress={() => setAttachedFile(null)} style={styles.attachRemoveBtn}>
-                      <Ionicons name="close-circle" size={20} color="#f44336" />
-                    </TouchableOpacity>
-                  </View>
+                    ))}
+                  </ScrollView>
                 )}
                 <View style={styles.replyBar}>
                   <TouchableOpacity style={styles.attachBtn} onPress={showAttachMenu}>
@@ -642,9 +674,9 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
                     maxLength={2000}
                   />
                   <TouchableOpacity
-                    style={[styles.sendBtn, (!replyText.trim() && !attachedFile || sending) && { opacity: 0.4 }]}
+                    style={[styles.sendBtn, ((!replyText.trim() && attachedFiles.length === 0) || sending) && { opacity: 0.4 }]}
                     onPress={sendReply}
-                    disabled={(!replyText.trim() && !attachedFile) || sending}
+                    disabled={(!replyText.trim() && attachedFiles.length === 0) || sending}
                   >
                     {sending ? (
                       <ActivityIndicator size="small" color="#fff" />
