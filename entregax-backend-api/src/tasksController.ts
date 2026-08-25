@@ -400,6 +400,11 @@ export const createPersonalTask = async (req: Request, res: Response): Promise<a
       sectionId = sec.rows[0]?.id || null;
     }
     const eisenhower = EISENHOWER.includes(b.eisenhower) ? b.eisenhower : 'estrella';
+    // Fecha deseada obligatoria, igual que en el alta del tablero. Sus dos
+    // consumidores (Mis Tareas en web y CreateTaskModal en la app) ya la exigen
+    // en pantalla; aquí queda la regla de verdad. Las tareas automáticas y las
+    // programadas no pasan por este endpoint.
+    if (!b.due_at) return res.status(400).json({ error: 'La fecha deseada es obligatoria' });
     // Involucrados: el creador SIEMPRE + los seleccionados. Compat: assignee_id único.
     const extra: number[] = Array.isArray(b.involved_ids)
       ? b.involved_ids.map((x: any) => parseInt(String(x))).filter((n: number) => Number.isFinite(n) && n > 0) : [];

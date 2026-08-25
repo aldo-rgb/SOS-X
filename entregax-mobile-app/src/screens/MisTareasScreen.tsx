@@ -108,27 +108,38 @@ export default function MisTareasScreen({ navigation, route }: Props) {
         <TouchableOpacity onPress={() => { setRefreshing(true); load(); }} style={styles.hBtn} hitSlop={10}><Ionicons name="refresh" size={22} color="#fff" /></TouchableOpacity>
       </View>
 
+      {/* La fila era fija y desbordaba el ancho del teléfono: el botón de crear
+          quedaba fuera de pantalla. Ahora los filtros van en un carrusel que se
+          encoge, y "Nueva" queda anclado a la derecha con flexShrink 0, así que
+          siempre se ve sin importar cuántos filtros haya. */}
       <View style={styles.toolbar}>
-        <ViewToggle view={view} onChange={setView} firstLabel="Lista" />
-        {isWorkHours && (
-          <TouchableOpacity onPress={() => setShowPersonal(v => !v)} style={[styles.iconBtnOutline, showPersonal && styles.persBtnOn]}>
-            <Ionicons name="home" size={18} color={showPersonal ? '#fff' : '#B07206'} />
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ alignItems: 'center', gap: 8, paddingRight: 8 }}
+        >
+          <ViewToggle view={view} onChange={setView} firstLabel="Lista" />
+          {isWorkHours && (
+            <TouchableOpacity onPress={() => setShowPersonal(v => !v)} style={[styles.iconBtnOutline, showPersonal && styles.persBtnOn]}>
+              <Ionicons name="home" size={18} color={showPersonal ? '#fff' : '#B07206'} />
+            </TouchableOpacity>
+          )}
+          {/* Global vs solo mis tareas */}
+          <TouchableOpacity onPress={() => setGlobalView(v => !v)} style={[styles.iconBtnOutline, { borderColor: '#5E35B1' }, globalView && { backgroundColor: '#5E35B1' }]} hitSlop={8}>
+            <Ionicons name={globalView ? 'earth' : 'person'} size={18} color={globalView ? '#fff' : '#5E35B1'} />
           </TouchableOpacity>
-        )}
-        {/* Global vs solo mis tareas */}
-        <TouchableOpacity onPress={() => setGlobalView(v => !v)} style={[styles.iconBtnOutline, { borderColor: '#5E35B1' }, globalView && { backgroundColor: '#5E35B1' }]} hitSlop={8}>
-          <Ionicons name={globalView ? 'earth' : 'person'} size={18} color={globalView ? '#fff' : '#5E35B1'} />
-        </TouchableOpacity>
-        {/* Ver completadas (incluye terminadas) */}
-        <TouchableOpacity onPress={() => setShowDone(v => !v)} style={[styles.iconBtnOutline, { borderColor: '#2E7D46' }, showDone && { backgroundColor: '#2E7D46' }]} hitSlop={8}>
-          <Ionicons name="checkmark-done" size={18} color={showDone ? '#fff' : '#2E7D46'} />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }} />
-        <TouchableOpacity style={styles.iconBtnOutline} onPress={() => setSchedOpen(true)} hitSlop={8}>
-          <Ionicons name="calendar-outline" size={20} color="#B07206" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.iconBtnFilled} onPress={() => setCreateOpen(true)} hitSlop={8}>
-          <Ionicons name="add" size={24} color="#fff" />
+          {/* Ver completadas (incluye terminadas) */}
+          <TouchableOpacity onPress={() => setShowDone(v => !v)} style={[styles.iconBtnOutline, { borderColor: '#2E7D46' }, showDone && { backgroundColor: '#2E7D46' }]} hitSlop={8}>
+            <Ionicons name="checkmark-done" size={18} color={showDone ? '#fff' : '#2E7D46'} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtnOutline} onPress={() => setSchedOpen(true)} hitSlop={8}>
+            <Ionicons name="calendar-outline" size={20} color="#B07206" />
+          </TouchableOpacity>
+        </ScrollView>
+        <TouchableOpacity style={styles.newTaskBtn} onPress={() => setCreateOpen(true)} hitSlop={8}>
+          <Ionicons name="add" size={20} color="#fff" />
+          <Text style={styles.newTaskTxt}>Nueva</Text>
         </TouchableOpacity>
       </View>
 
@@ -294,8 +305,11 @@ const styles = StyleSheet.create({
   persBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#B07206', marginLeft: 8 },
   persBtnOn: { backgroundColor: '#B07206' },
   persBtnTxt: { color: '#B07206', fontWeight: '800', fontSize: 12.5 },
-  iconBtnOutline: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#B07206', alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
-  iconBtnFilled: { width: 40, height: 40, borderRadius: 20, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
+  iconBtnOutline: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#B07206', alignItems: 'center', justifyContent: 'center' },
+  iconBtnFilled: { width: 40, height: 40, borderRadius: 20, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center' },
+  // flexShrink 0: es la acción principal, nunca debe encogerse ni salirse.
+  newTaskBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: ORANGE, flexShrink: 0 },
+  newTaskTxt: { color: '#fff', fontWeight: '800', fontSize: 13.5 },
   catBar: { paddingBottom: 8, backgroundColor: BG },
   catChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff', maxWidth: 180 },
   searchWrap: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#DDD' },
