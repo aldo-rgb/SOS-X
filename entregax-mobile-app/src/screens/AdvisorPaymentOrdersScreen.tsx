@@ -7,6 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { API_URL } from '../services/api';
@@ -474,7 +475,29 @@ export default function AdvisorPaymentOrdersScreen({ navigation, route }: any) {
       }
       const html = buildPdfHtml(order, items, costBreakdown, destino);
       const { uri } = await Print.printToFileAsync({ html, base64: false });
-      await Sharing.shareAsync(uri, {
+
+      // printToFileAsync deja el PDF con un nombre aleatorio del temporal
+      // (.../Print/a1b2c3-....pdf) y shareAsync comparte ESE archivo: el
+      // dialogTitle es solo el título del diálogo, no el nombre. Así que el
+      // asesor recibía un archivo imposible de rastrear. Se copia a un nombre
+      // con el folio antes de compartir (tarea 293).
+      const folio = String(order.payment_reference || order.folio || `orden-${order.id}`)
+        .replace(/[^A-Za-z0-9_-]/g, '');
+      let paraCompartir = uri;
+      try {
+        const destinoUri = `${FileSystem.cacheDirectory}${folio}.pdf`;
+        // Si ya existe de una descarga anterior hay que borrarlo: copyAsync no
+        // sobrescribe y dejaría el archivo viejo con datos desactualizados.
+        await FileSystem.deleteAsync(destinoUri, { idempotent: true });
+        await FileSystem.copyAsync({ from: uri, to: destinoUri });
+        paraCompartir = destinoUri;
+      } catch (e) {
+        // Si el copiado falla se comparte el temporal: mejor un nombre feo que
+        // no poder compartir.
+        console.warn('[PDF] no se pudo renombrar:', e);
+      }
+
+      await Sharing.shareAsync(paraCompartir, {
         mimeType: 'application/pdf',
         dialogTitle: `Orden ${order.payment_reference || order.folio}`,
         UTI: 'com.adobe.pdf',

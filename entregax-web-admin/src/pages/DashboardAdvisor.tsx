@@ -3902,11 +3902,19 @@ export default function DashboardAdvisor() {
                 const downloadPDF = async () => {
                   const { doc, html } = await buildOrderPdfDoc();
                   if (doc) {
-                    doc.save(`orden-${op.payment_reference || op.id}.pdf`);
+                    // El folio a secas: es lo que se usa para mandar y
+                    // rastrear el documento (tarea 293).
+                    doc.save(`${op.payment_reference || `orden-${op.id}`}.pdf`);
                   } else {
-                    // Fallback: abrir en ventana nueva para imprimir/guardar.
+                    // Fallback: abrir en ventana nueva para imprimir/guardar. Se
+                    // le inyecta el <title> porque de ahí sale el nombre por
+                    // defecto del navegador al guardar como PDF (tarea 293).
                     const w = window.open('', '_blank');
-                    if (w) { w.document.write(html); w.document.close(); }
+                    if (w) {
+                      const ref = op.payment_reference || op.folio || `orden-${op.id}`;
+                      w.document.write(html.replace('<head>', `<head><title>${ref}</title>`));
+                      w.document.close();
+                    }
                   }
                 };
 
