@@ -1492,16 +1492,28 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
 }
 
 // ── Toggle de vista (Lista/Columnas ↔ Matriz) ──
-export function ViewToggle({ view, onChange, firstLabel }: { view: 'list' | 'matrix'; onChange: (v: 'list' | 'matrix') => void; firstLabel: string }) {
+// iconOnly: en Mis Tareas la barra lleva además cuatro filtros y el botón de
+// crear, y con las etiquetas "Lista"/"Matriz" no cabía todo. En Tareas se
+// conservan porque ahí el primer botón dice "Columnas", que no se adivina por
+// el ícono.
+export function ViewToggle({ view, onChange, firstLabel, iconOnly }: { view: 'list' | 'matrix'; onChange: (v: 'list' | 'matrix') => void; firstLabel: string; iconOnly?: boolean }) {
   return (
     <View style={styles.toggle}>
-      <TouchableOpacity onPress={() => onChange('list')} style={[styles.toggleBtn, view === 'list' && styles.toggleBtnActive]}>
-        <Ionicons name="list" size={16} color={view === 'list' ? ORANGE : '#777'} />
-        <Text style={[styles.toggleTxt, view === 'list' && { color: ORANGE }]}>{firstLabel}</Text>
+      <TouchableOpacity
+        onPress={() => onChange('list')}
+        accessibilityLabel={firstLabel}
+        style={[styles.toggleBtn, iconOnly && styles.toggleBtnIcon, view === 'list' && styles.toggleBtnActive]}
+      >
+        <Ionicons name="list" size={iconOnly ? 20 : 16} color={view === 'list' ? ORANGE : '#777'} />
+        {!iconOnly && <Text style={[styles.toggleTxt, view === 'list' && { color: ORANGE }]}>{firstLabel}</Text>}
       </TouchableOpacity>
-      <TouchableOpacity onPress={() => onChange('matrix')} style={[styles.toggleBtn, view === 'matrix' && styles.toggleBtnActive]}>
-        <Ionicons name="grid" size={16} color={view === 'matrix' ? ORANGE : '#777'} />
-        <Text style={[styles.toggleTxt, view === 'matrix' && { color: ORANGE }]}>Matriz</Text>
+      <TouchableOpacity
+        onPress={() => onChange('matrix')}
+        accessibilityLabel="Matriz"
+        style={[styles.toggleBtn, iconOnly && styles.toggleBtnIcon, view === 'matrix' && styles.toggleBtnActive]}
+      >
+        <Ionicons name="grid" size={iconOnly ? 20 : 16} color={view === 'matrix' ? ORANGE : '#777'} />
+        {!iconOnly && <Text style={[styles.toggleTxt, view === 'matrix' && { color: ORANGE }]}>Matriz</Text>}
       </TouchableOpacity>
     </View>
   );
@@ -1664,6 +1676,7 @@ export const styles = StyleSheet.create({
 
   toggle: { flexDirection: 'row', backgroundColor: '#EFEFEF', borderRadius: 10, padding: 3, alignSelf: 'flex-start' },
   toggleBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  toggleBtnIcon: { paddingHorizontal: 10, paddingVertical: 7 },
   toggleBtnActive: { backgroundColor: '#fff' },
   toggleTxt: { fontSize: 13, fontWeight: '700', color: '#777' },
 

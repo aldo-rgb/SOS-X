@@ -119,7 +119,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
           style={{ flex: 1 }}
           contentContainerStyle={{ alignItems: 'center', gap: 8, paddingRight: 8 }}
         >
-          <ViewToggle view={view} onChange={setView} firstLabel="Lista" />
+          <ViewToggle view={view} onChange={setView} firstLabel="Lista" iconOnly />
           {isWorkHours && (
             <TouchableOpacity onPress={() => setShowPersonal(v => !v)} style={[styles.iconBtnOutline, showPersonal && styles.persBtnOn]}>
               <Ionicons name="home" size={18} color={showPersonal ? '#fff' : '#B07206'} />
