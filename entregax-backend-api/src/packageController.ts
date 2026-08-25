@@ -3181,7 +3181,12 @@ const buildPackageMovementsResponse = async (pkg: any) => {
             package_id: pkg.id,
             tracking: pkg.tracking_internal || pkg.tracking_provider,
             status: pkg.status,
-            notes: 'Gu\u00eda registrada en sistema',
+            // Si la guía sigue sin dueño, el historial lo dice desde el primer
+            // evento: así se ve desde cuándo lleva sin identificar. Cuando se
+            // asigne, updatePackageClient agrega el evento con su fecha y hora.
+            notes: (!pkg.user_id && !pkg.box_id)
+                ? 'Gu\u00eda registrada en sistema \u00b7 sin cliente identificado'
+                : 'Gu\u00eda registrada en sistema',
             created_at: initialAt,
             created_by: null,
             created_by_name: null,
@@ -6140,12 +6145,40 @@ export const updatePackageClient = async (req: Request, res: Response): Promise<
     try {
         const { id } = req.params;
         const { boxId } = req.body;
+        const actorId = (req as any).user?.userId || null;
+
+        // Deja el movimiento en el historial de la guía. Antes la asignación era
+        // un UPDATE pelón: el tracking mostraba "Guía registrada en sistema" y
+        // nada más, sin rastro de cuándo dejó de estar sin identificar ni quién
+        // la asignó (tarea 340). El timeline lee package_history, así que con
+        // registrar aquí el evento ya aparece solo.
+        const registrarEnHistorial = async (nota: string): Promise<void> => {
+            try {
+                const est = await pool.query(`SELECT status FROM packages WHERE id = $1`, [id]);
+                await pool.query(
+                    `INSERT INTO package_history (package_id, status, notes, created_by, created_at)
+                     VALUES ($1, $2, $3, $4, NOW())`,
+                    [id, est.rows[0]?.status || null, nota, actorId]
+                );
+            } catch (e: any) {
+                console.warn('[packages] no se pudo registrar la asignación en el historial:', e?.message);
+            }
+        };
+
+        // Con qué cliente estaba antes, para saber si venía sin identificar.
+        const previo = await pool.query(
+            `SELECT user_id, box_id FROM packages WHERE id = $1`, [id]
+        );
+        const veniaSinCliente = !previo.rows[0]?.user_id && !previo.rows[0]?.box_id;
 
         if (!boxId || !boxId.trim()) {
             // Desasignar cliente
             await pool.query(
                 `UPDATE packages SET user_id = NULL, box_id = NULL, updated_at = NOW() WHERE id = $1`,
                 [id]
+            );
+            await registrarEnHistorial(
+                `Guía desasignada${previo.rows[0]?.box_id ? ` de ${previo.rows[0].box_id}` : ''}: queda sin cliente identificado`
             );
             return res.json({ success: true, client: null, message: 'Cliente desasignado' });
         }
@@ -6163,6 +6196,9 @@ export const updatePackageClient = async (req: Request, res: Response): Promise<
             await pool.query(
                 `UPDATE packages SET user_id = $1, box_id = $2, updated_at = NOW() WHERE id = $3`,
                 [user.id, user.box_id, id]
+            );
+            await registrarEnHistorial(
+                `${veniaSinCliente ? 'Guía identificada y asignada' : 'Cliente reasignado'}: ${user.full_name} (${user.box_id})`
             );
             return res.json({
                 success: true,
@@ -6182,6 +6218,9 @@ export const updatePackageClient = async (req: Request, res: Response): Promise<
             await pool.query(
                 `UPDATE packages SET user_id = NULL, box_id = $1, updated_at = NOW() WHERE id = $2`,
                 [legacy.box_id, id]
+            );
+            await registrarEnHistorial(
+                `${veniaSinCliente ? 'Guía identificada y asignada' : 'Cliente reasignado'}: ${legacy.full_name} (${legacy.box_id}) · cliente legacy`
             );
             return res.json({
                 success: true,
