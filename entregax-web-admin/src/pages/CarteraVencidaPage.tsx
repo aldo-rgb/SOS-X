@@ -61,6 +61,11 @@ import api from '../services/api';
 import DhlImportTaxPage from './DhlImportTaxPage';
 import QuejasPanel from './QuejasPanel';
 import CastigoPanel from './CastigoPanel';
+// Se reutiliza el mismo panel del módulo XPay en vez de duplicarlo: es
+// autocontenido (trae sus datos y guarda contra los endpoints de admin), así
+// que capturar el override desde aquí o desde allá deja el mismo registro.
+import EntangledUserServicePricingCard from '../components/EntangledUserServicePricingCard';
+import PercentIcon from '@mui/icons-material/Percent';
 import CargosExtraPanel from './CargosExtraPanel';
 import PaidIcon from '@mui/icons-material/Paid';
 
@@ -166,6 +171,16 @@ const ESTATUS_LABELS: Record<string, { label: string; color: 'default' | 'warnin
 
 export default function CarteraVencidaPage() {
   const [tab, setTab] = useState(0);
+
+  // Los porcentajes de XPay son de dirección para arriba (los endpoints exigen
+  // ese nivel). Se oculta la pestaña a quien no puede usarla, en vez de dejar
+  // que la abra y se tope con un 403.
+  const puedeVerPorcentajesXpay = (() => {
+    try {
+      const rol = String(JSON.parse(localStorage.getItem('user') || '{}').role || '').toLowerCase();
+      return ['director', 'admin', 'super_admin'].includes(rol);
+    } catch { return false; }
+  })();
   const [loading, setLoading] = useState(false);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [guias, setGuias] = useState<CarteraItem[]>([]);
@@ -620,6 +635,7 @@ export default function CarteraVencidaPage() {
           <Tab icon={<ReportProblemIcon />} label="Quejas" />
           <Tab icon={<GavelIcon />} label="Castigo" />
           <Tab icon={<AccountBalanceWalletIcon />} label="Saldo a Favor" sx={{ color: 'success.main', '&:hover': { color: 'success.dark' } }} />
+          {puedeVerPorcentajesXpay && <Tab icon={<PercentIcon />} label="Porcentaje XPAY" />}
         </Tabs>
       </Paper>
 
@@ -1407,6 +1423,12 @@ export default function CarteraVencidaPage() {
       {tab === 6 && (<Box sx={{ mt: 1 }}><CargosExtraPanel /></Box>)}
       {tab === 7 && (<Box sx={{ mt: 1 }}><QuejasPanel /></Box>)}
       {tab === 8 && (<Box sx={{ mt: 1 }}><CastigoPanel /></Box>)}
+      {/* Índice 10: el 9 es "Saldo a Favor", que abre un diálogo y no una pestaña. */}
+      {tab === 10 && puedeVerPorcentajesXpay && (
+        <Box sx={{ mt: 1 }}>
+          <EntangledUserServicePricingCard />
+        </Box>
+      )}
 
       {/* Dialog de confirmación: Revertir instrucciones */}
       <Dialog open={!!revertConfirmPkg} onClose={() => setRevertConfirmPkg(null)} maxWidth="sm" fullWidth>

@@ -48,6 +48,7 @@ export default function EntangledUserServicePricingCard() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ severity: 'success' | 'error' | 'info'; msg: string } | null>(null);
+  const [sinPermiso, setSinPermiso] = useState(false);
 
   // form
   const [userQuery, setUserQuery] = useState('');
@@ -63,7 +64,13 @@ export default function EntangledUserServicePricingCard() {
       setLoading(true);
       const r = await axios.get(`${API_URL}/api/admin/entangled/user-service-pricing`, { headers });
       setRows(Array.isArray(r.data) ? r.data : []);
-    } catch {
+      setSinPermiso(false);
+    } catch (err: unknown) {
+      // El catch era mudo: a quien no tiene permiso le salía la tabla vacía, que
+      // se lee como "no hay overrides" en vez de "no puedes verlos". Se
+      // distingue el 403 del resto para poder decir cuál de las dos es.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      setSinPermiso(status === 403 || status === 401);
       setRows([]);
     } finally {
       setLoading(false);
@@ -145,6 +152,11 @@ export default function EntangledUserServicePricingCard() {
           (reemplaza el % global). Ejemplo: si pones 6%, a ese cliente se le cobra 6%.
         </Typography>
 
+        {sinPermiso && (
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            Tu rol no tiene permiso para ver ni cambiar los porcentajes de XPay. Solo dirección y arriba.
+          </Alert>
+        )}
         {feedback && (
           <Alert severity={feedback.severity} onClose={() => setFeedback(null)} sx={{ mt: 2 }}>
             {feedback.msg}
