@@ -2861,6 +2861,19 @@ export const listClaveSatHistory = async (req: Request, res: Response): Promise<
 // y el cliente les da seguimiento desde su Xpay.
 // ===========================================================================
 
+// Solo estos roles pueden usar las rutas de "asesor" de XPay.
+//
+// Hacía falta: las rutas solo pedían estar autenticado, y advisorOwnsClient
+// acepta `referred_by_id`. Como los clientes pueden referir a otros clientes,
+// un CLIENTE quedaba habilitado sobre sus referidos — y por esa vía sí podía
+// fijar el % de comisión de la operación, que es justo lo que no debe poder
+// tocar. Hoy hay 1 cliente con referidos, así que no se explotó, pero la
+// puerta estaba abierta.
+const ROLES_ASESOR_XPAY = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider', 'admin', 'super_admin', 'director'];
+
+const esAsesorXpay = (req: Request): boolean =>
+  ROLES_ASESOR_XPAY.includes(String((req as any).user?.role || '').toLowerCase());
+
 // Valida que un cliente pertenezca al asesor (advisor_id o referred_by_id).
 const advisorOwnsClient = async (advisorId: number, clientId: number): Promise<boolean> => {
   const r = await pool.query(
@@ -2875,6 +2888,7 @@ const advisorOwnsClient = async (advisorId: number, clientId: number): Promise<b
 export const getAdvisorXpayClients = async (req: Request, res: Response): Promise<any> => {
   const advisorId = getAuthUserId(req);
   if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+  if (!esAsesorXpay(req)) return res.status(403).json({ error: 'Solo asesores' });
   try {
     const search = String((req.query.search || '')).trim();
     const params: any[] = [advisorId];
@@ -2902,6 +2916,8 @@ export const getAdvisorXpayClients = async (req: Request, res: Response): Promis
 export const createAdvisorXpayRequest = async (req: Request, res: Response): Promise<any> => {
   const advisorId = getAuthUserId(req);
   if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+  // Esta ruta permite fijar el % de comisión al cliente: se cierra a asesores.
+  if (!esAsesorXpay(req)) return res.status(403).json({ error: 'Solo asesores pueden crear operaciones a nombre de un cliente' });
   const clientId = Number((req.body || {}).client_id);
   if (!Number.isFinite(clientId) || clientId <= 0) {
     return res.status(400).json({ error: 'client_id es requerido' });
@@ -2920,6 +2936,7 @@ export const createAdvisorXpayRequest = async (req: Request, res: Response): Pro
 export const getAdvisorXpayRequests = async (req: Request, res: Response): Promise<any> => {
   const advisorId = getAuthUserId(req);
   if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+  if (!esAsesorXpay(req)) return res.status(403).json({ error: 'Solo asesores' });
   try {
     let params: any[];
     let where: string;
@@ -2977,6 +2994,7 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
 export const deleteAdvisorXpayRequest = async (req: Request, res: Response): Promise<any> => {
   const advisorId = getAuthUserId(req);
   if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+  if (!esAsesorXpay(req)) return res.status(403).json({ error: 'Solo asesores' });
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   try {
