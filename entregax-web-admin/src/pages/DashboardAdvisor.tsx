@@ -4050,8 +4050,19 @@ export default function DashboardAdvisor() {
                               </IconButton>
                             </Tooltip>
                           )}
-                          <Tooltip title="Subir comprobante de pago">
-                            <IconButton size="small" sx={{ color: '#0288d1' }} onClick={() => openProofModal(op)}>
+                          {/* En una orden parcial el tooltip dice cuánto falta, para
+                              que el asesor sepa qué monto pedirle al cliente sin
+                              tener que abrir la orden. */}
+                          <Tooltip title={
+                            op.status === 'vouchers_partial' && Number(op.saldo_pendiente) > 0
+                              ? `Subir comprobante · faltan $${Number(op.saldo_pendiente).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : 'Subir comprobante de pago'
+                          }>
+                            <IconButton
+                              size="small"
+                              sx={{ color: op.status === 'vouchers_partial' ? '#C62828' : '#0288d1' }}
+                              onClick={() => openProofModal(op)}
+                            >
                               <AttachFileIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>

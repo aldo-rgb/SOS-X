@@ -5010,8 +5010,12 @@ export default function DashboardClient() {
                             onClick={() => downloadPaymentOrderPdf(order)}
                           ><DownloadIcon fontSize="small" /></IconButton>
                         </Tooltip>
-                        {paymentOrderTab === 'active' && isUnsettledCredit && (
-                          <Tooltip title="Subir comprobante de pago" arrow>
+                        {/* El botón solo salía en órdenes a crédito, así que una
+                            orden por transferencia con pago parcial no tenía cómo
+                            subir el segundo comprobante: había que entrar a
+                            "Pagar" y buscarlo dentro del diálogo. */}
+                        {paymentOrderTab === 'active' && (isUnsettledCredit || order.status === 'vouchers_partial') && (
+                          <Tooltip title={order.status === 'vouchers_partial' ? 'Subir comprobante del saldo pendiente' : 'Subir comprobante de pago'} arrow>
                             <IconButton
                               size="small"
                               sx={{ color: '#6A1B9A', '&:hover': { bgcolor: 'rgba(106,27,154,0.08)' } }}
@@ -5028,7 +5032,11 @@ export default function DashboardClient() {
                                 setPaymentInstructionsDialog({
                                   open: true,
                                   reference: order.payment_reference,
-                                  amount: Number(order.amount),
+                                  // Si ya abonó, se pide lo que FALTA. Antes mostraba
+                                  // el total y el cliente creía que le cobraban de nuevo.
+                                  amount: order.status === 'vouchers_partial' && Number(order.saldo_pendiente) > 0
+                                    ? Number(order.saldo_pendiente)
+                                    : Number(order.amount),
                                   currency: order.currency || 'MXN',
                                   expiresAt: '',
                                   bankInfo: order.bank_info || { banco: '', clabe: '', cuenta: '', beneficiario: '', concepto: order.payment_reference },
@@ -15222,8 +15230,8 @@ export default function DashboardClient() {
                           </TableCell>
                           <TableCell align="center" onClick={(e: any) => e.stopPropagation()}>
                               <Box sx={{ display: 'flex', gap: 0.25, justifyContent: 'center' }}>
-                                {paymentOrderTab === 'active' && isUnsettledCredit && (
-                                  <Tooltip title="Subir comprobante de pago" arrow>
+                                {paymentOrderTab === 'active' && (isUnsettledCredit || order.status === 'vouchers_partial') && (
+                                  <Tooltip title={order.status === 'vouchers_partial' ? 'Subir comprobante del saldo pendiente' : 'Subir comprobante de pago'} arrow>
                                     <IconButton
                                       size="small"
                                       sx={{ color: '#6A1B9A', '&:hover': { bgcolor: 'rgba(106,27,154,0.08)' } }}
@@ -15240,7 +15248,11 @@ export default function DashboardClient() {
                                         setPaymentInstructionsDialog({
                                           open: true,
                                           reference: order.payment_reference,
-                                          amount: Number(order.amount),
+                                          // Si ya abonó, se pide lo que FALTA. Antes mostraba
+                                  // el total y el cliente creía que le cobraban de nuevo.
+                                  amount: order.status === 'vouchers_partial' && Number(order.saldo_pendiente) > 0
+                                    ? Number(order.saldo_pendiente)
+                                    : Number(order.amount),
                                           currency: order.currency || 'MXN',
                                           expiresAt: '',
                                           bankInfo: order.bank_info || { banco: '', clabe: '', cuenta: '', beneficiario: '', concepto: order.payment_reference },
