@@ -6077,8 +6077,18 @@ export default function DashboardAdvisor() {
                     })}
                   </Box>
                 </DialogContent>
-                {selectedAdvisorTicket.status !== 'resolved' && selectedAdvisorTicket.status !== 'closed' && (
+                {/* La caja de respuesta ya NO se esconde en los tickets
+                    resueltos. Escondida, el asesor no podia reabrir uno cerrado
+                    aunque el cliente siguiera con el problema: tenia que
+                    levantar otro ticket. El backend reabre solo al recibir un
+                    mensaje (tarea 297), asi que basta con dejar escribir y
+                    avisar de lo que va a pasar. */}
                   <Box sx={{ p: 2, pt: 0 }}>
+                    {(selectedAdvisorTicket.status === 'resolved' || selectedAdvisorTicket.status === 'closed') && (
+                      <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>
+                        Este ticket esta resuelto. Si escribes aqui se reabrira y volvera a la cola del equipo.
+                      </Alert>
+                    )}
                     {ticketReplyFiles.length > 0 && (
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
                         {ticketReplyFiles.map((f, i) => (
@@ -6138,7 +6148,6 @@ export default function DashboardAdvisor() {
                       </IconButton>
                     </Box>
                   </Box>
-                )}
               </>
             )}
           </Dialog>
@@ -8202,8 +8211,14 @@ export default function DashboardAdvisor() {
                 })}
               </Box>
             </DialogContent>
-            {selectedAdvisorTicket.status !== 'resolved' && selectedAdvisorTicket.status !== 'closed' && (
+            {/* Igual que arriba: se deja escribir en los resueltos para poder
+                reabrirlos, con el aviso de que eso hara. */}
               <Box sx={{ p: 2, pt: 0 }}>
+                {(selectedAdvisorTicket.status === 'resolved' || selectedAdvisorTicket.status === 'closed') && (
+                  <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>
+                    Este ticket esta resuelto. Si escribes aqui se reabrira y volvera a la cola del equipo.
+                  </Alert>
+                )}
                 {ticketReplyFiles.length > 0 && (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
                     {ticketReplyFiles.map((f, i) => (
@@ -8251,7 +8266,6 @@ export default function DashboardAdvisor() {
                   </IconButton>
                 </Box>
               </Box>
-            )}
           </>
         )}
       </Dialog>
