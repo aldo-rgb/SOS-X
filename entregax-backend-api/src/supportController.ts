@@ -831,18 +831,41 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
 
     // C. VERIFICAR ESTADO DEL TICKET
     const ticketCheck = await pool.query(
-      'SELECT status, ticket_folio FROM support_tickets WHERE id = $1',
+      `SELECT status, ticket_folio, ticket_status, archived_at, resolved_by_ai
+         FROM support_tickets WHERE id = $1`,
       [currentTicketId]
     );
 
-    // Si estaba resuelto (Cajito ya lo había cerrado) y el cliente escribe de
-    // nuevo → que Cajito lo SIGA atendiendo en modo IA (NO escalar a humano).
-    // Solo se escala cuando el cliente lo confirme (más abajo). Se reabre en IA.
-    if (ticketCheck.rows[0].status === 'resolved') {
-      await pool.query(
-        "UPDATE support_tickets SET status = 'open_ai', ticket_status = 'en_progreso', resolved_at = NULL, updated_at = NOW() WHERE id = $1",
-        [currentTicketId]
+    // Ticket concluido + mensaje nuevo → se reabre solo (tarea 297). A DÓNDE
+    // vuelve lo decide quien lo cerró, no un valor fijo:
+    //  · lo cerró Cajito  → sigue en IA, como estaba pensado desde el inicio.
+    //  · lo cerró una persona → vuelve a HUMANO y se avisa al departamento.
+    // Antes siempre caía en 'open_ai', y como solo 24 de 1,222 tickets los
+    // cierra la IA, en la práctica el 98% de las reaperturas se las quedaba
+    // Cajito: contestaba, volvía a cerrar y el equipo nunca veía el mensaje.
+    const estabaConcluido =
+      ticketCheck.rows[0].status === 'resolved' ||
+      ticketCheck.rows[0].ticket_status === 'finalizado' ||
+      ticketCheck.rows[0].archived_at != null;
+    if (estabaConcluido) {
+      const cerroLaIA = ticketCheck.rows[0].resolved_by_ai === true;
+      const reabierto = await reabrirTicketPorMensaje(
+        Number(currentTicketId),
+        cerroLaIA ? 'open_ai' : 'escalated_human'
       );
+      if (reabierto && !cerroLaIA) {
+        notifyTicketDepartment(Number(currentTicketId), reabierto.department_id, 'reopen').catch(() => {});
+        await avisarAgenteTicketReabierto(Number(currentTicketId), reabierto.ticket_folio, message);
+        // Se corta aquí: el ticket ya es de una persona, Cajito no debe
+        // responder encima ni volver a cerrarlo.
+        return res.json({
+          status: 'waiting_agent',
+          ticketId: currentTicketId,
+          ticketFolio: reabierto.ticket_folio,
+          reopened: true,
+          message: 'Tu mensaje fue enviado. Reabrimos tu ticket y un agente te responderá.',
+        });
+      }
     }
 
     // Si ya está asignado a humano, no interviene la IA
@@ -1257,7 +1280,8 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
     const userRole = (req as any).user?.role || '';
     const isAdvisor = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider', 'sub_asesor'].includes(userRole);
     const ticketCheck = await pool.query(
-      `SELECT id, status, user_id, assigned_to, assigned_agent_id
+      `SELECT id, status, user_id, assigned_to, assigned_agent_id,
+              ticket_status, archived_at
        FROM support_tickets
        WHERE id = $1
          AND (user_id = $2 ${isAdvisor ? 'OR assigned_to = $2 OR assigned_agent_id = $2' : ''})`,
@@ -1301,15 +1325,30 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
       [id, senderType, userId, (message || '').trim(), attachmentsJson]
     );
 
-    // Si el ticket estaba resuelto/cerrado, reabrirlo automáticamente
+    // Ticket concluido + mensaje nuevo → reabrir (tarea 297). El UPDATE de
+    // abajo solo movía `status`: dejaba ticket_status en 'finalizado' —de ahí
+    // sale el color de la tarjeta— y el archivado puesto, así que el ticket
+    // volvía a la columna correcta pero se seguía viendo cerrado.
     const ticket = ticketCheck.rows[0];
-    const reopened = ticket.status === 'resolved' || ticket.status === 'closed';
+    const veniaConcluido =
+      ticket.status === 'resolved' ||
+      ticket.ticket_status === 'finalizado' ||
+      ticket.archived_at != null;
 
-    // Actualizar estado del ticket a escalated_human (reabrir si estaba resuelto)
-    await pool.query(
-      `UPDATE support_tickets SET status = 'escalated_human', updated_at = NOW() WHERE id = $1`,
-      [id]
-    );
+    let reopened = false;
+    if (veniaConcluido) {
+      const info = await reabrirTicketPorMensaje(Number(id), 'escalated_human');
+      reopened = !!info;
+      if (info) {
+        notifyTicketDepartment(Number(id), info.department_id, 'reopen').catch(() => {});
+        await avisarAgenteTicketReabierto(Number(id), info.ticket_folio, message);
+      }
+    } else {
+      await pool.query(
+        `UPDATE support_tickets SET status = 'escalated_human', updated_at = NOW() WHERE id = $1`,
+        [id]
+      );
+    }
 
     // 🔔 Notificar al agente asignado si la conversación lleva >30 min pausada
     try {
@@ -1570,7 +1609,12 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
        SET assigned_agent_id = $1,
            status = $2,
            updated_at = NOW(),
-           ticket_status = CASE WHEN ticket_status = 'nuevo' OR ticket_status IS NULL THEN 'en_progreso' ELSE ticket_status END,
+           -- 'finalizado' también se levanta: si un agente escribe en un ticket
+           -- ya cerrado, el ticket vuelve a estar vivo y la tarjeta no puede
+           -- seguir pintándose de finalizado (tarea 297).
+           ticket_status = CASE WHEN ticket_status IN ('nuevo', 'finalizado') OR ticket_status IS NULL THEN 'en_progreso' ELSE ticket_status END,
+           resolved_at = CASE WHEN status = 'resolved' THEN NULL ELSE resolved_at END,
+           archived_at = NULL,
            first_response_at = CASE WHEN first_response_at IS NULL THEN NOW() ELSE first_response_at END
        WHERE id = $3`,
       [agentId, newStatus, id]
@@ -1945,7 +1989,93 @@ export const getSupportAgents = async (req: Request, res: Response): Promise<any
 // en horario laboral 10:10am–6pm). Cubre creación y transferencia/escalamiento:
 //  Atención a Cliente/Cotizaciones → servicio a cliente · Soporte Técnico → soporte
 //  Contabilidad → contador · Dirección → admin/super/director · CEDIS → operaciones sucursal.
-export async function notifyTicketDepartment(ticketId: number, departmentId: number | null, event: 'new' | 'transfer' = 'transfer') {
+/**
+ * Avisa al agente que ya traía el ticket que se lo reabrieron (tarea 297).
+ * Va aparte de notifyTicketDepartment: el departamento entero se entera de que
+ * hay un ticket reabierto, pero quien lo venía atendiendo merece el aviso
+ * directo. Sin ventana de 30 min como en las respuestas normales — una
+ * reapertura siempre se avisa, porque justo el problema era no enterarse.
+ */
+export async function avisarAgenteTicketReabierto(
+  ticketId: number,
+  folio: string,
+  mensaje?: string
+): Promise<void> {
+  try {
+    const r = await pool.query(
+      `SELECT COALESCE(assigned_agent_id, assigned_to) AS agente
+         FROM support_tickets WHERE id = $1`,
+      [ticketId]
+    );
+    const agente = r.rows[0]?.agente ? Number(r.rows[0].agente) : null;
+    if (!agente) return;
+    const preview = String(mensaje || '').trim().slice(0, 100) || 'Mensaje nuevo';
+    const { createCustomNotification } = await import('./notificationController');
+    await createCustomNotification(
+      agente,
+      `🔄 Ticket reabierto ${folio}`,
+      preview,
+      'ticket_reopened',
+      'headset',
+      { ticket_id: String(ticketId), ticket_folio: folio },
+      '/support'
+    );
+    sendPushToUsers([agente], {
+      title: `🔄 Ticket reabierto ${folio}`,
+      body: preview,
+      data: { type: 'support_ticket_reopened', ticket_id: String(ticketId), ticket_folio: folio },
+      notificationType: 'ticket_client_reply',
+    }).catch((e: any) => console.error('Push error (reapertura):', e));
+  } catch (e) {
+    console.error('[SUPPORT] avisarAgenteTicketReabierto:', e);
+  }
+}
+
+/**
+ * Reabre un ticket ya concluido cuando entra un mensaje nuevo (tarea 297).
+ *
+ * El reabrir ya movía `status`, pero dejaba `ticket_status` en 'finalizado' y
+ * eso es justo lo que pinta la tarjeta del tablero (SupportBoardPage
+ * getTicketVisual): el ticket volvía a la columna correcta pero se seguía
+ * viendo cerrado, así que el equipo no se enteraba del mensaje nuevo. Tampoco
+ * se limpiaba `archived_at` — y 1,194 de los 1,234 tickets archivados están
+ * resueltos, o sea que archivar es la limpieza normal del tablero: sin esto el
+ * mensaje caía en un ticket invisible.
+ *
+ * Espeja exactamente el reset del botón "Reactivar" (reopenTicket) para que
+ * reabrir a mano y reabrir por mensaje dejen el ticket idéntico.
+ *
+ * Devuelve el ticket solo si DE VERDAD reabrió (el WHERE filtra), para no
+ * notificar en cada mensaje de un ticket que ya estaba abierto.
+ */
+export async function reabrirTicketPorMensaje(
+  ticketId: number,
+  nuevoStatus: 'escalated_human' | 'open_ai'
+): Promise<{ ticket_folio: string; department_id: number | null } | null> {
+  try {
+    const r = await pool.query(
+      `UPDATE support_tickets
+          SET status = $2,
+              resolved_at = NULL,
+              resolution_time_minutes = NULL,
+              ticket_status = 'en_progreso',
+              archived_at = NULL,
+              updated_at = NOW()
+        WHERE id = $1
+          AND (status = 'resolved'
+               OR ticket_status = 'finalizado'
+               OR archived_at IS NOT NULL)
+        RETURNING ticket_folio, department_id`,
+      [ticketId, nuevoStatus]
+    );
+    return r.rows[0] || null;
+  } catch (e) {
+    console.error('[SUPPORT] reabrirTicketPorMensaje:', e);
+    return null;
+  }
+}
+
+export async function notifyTicketDepartment(ticketId: number, departmentId: number | null, event: 'new' | 'transfer' | 'reopen' = 'transfer') {
   try {
     if (!departmentId) return;
     const dRes = await pool.query(`SELECT name FROM support_departments WHERE id = $1`, [departmentId]);
@@ -1982,7 +2112,10 @@ export async function notifyTicketDepartment(ticketId: number, departmentId: num
     }
     if (userIds.length === 0) return;
 
-    const title = event === 'new' ? `🎫 Nuevo ticket · ${deptName}` : `🎫 Ticket → ${deptName}`;
+    const title =
+      event === 'new' ? `🎫 Nuevo ticket · ${deptName}`
+      : event === 'reopen' ? `🔄 Ticket reabierto · ${deptName}`
+      : `🎫 Ticket → ${deptName}`;
     const body = `${folio}${subject ? ' · ' + subject : ''}`;
 
     // In-app SIEMPRE (para que lo vean al abrir la app).
@@ -2108,7 +2241,10 @@ export const transferTicket = async (req: Request, res: Response): Promise<any> 
     if (department_id) { updates.push(`department_id = $${idx++}`); params.push(department_id); }
     if (assigned_to) { updates.push(`assigned_to = $${idx++}`, `assigned_agent_id = $${idx++}`); params.push(assigned_to, assigned_to); }
     updates.push(`status = $${idx++}`); params.push('escalated_human');
-    updates.push(`ticket_status = CASE WHEN ticket_status = 'nuevo' OR ticket_status IS NULL THEN 'en_progreso' ELSE ticket_status END`);
+    // Igual que en agentReply: transferir un ticket cerrado lo revive, así que
+    // 'finalizado' también se levanta (tarea 297).
+    updates.push(`ticket_status = CASE WHEN ticket_status IN ('nuevo', 'finalizado') OR ticket_status IS NULL THEN 'en_progreso' ELSE ticket_status END`);
+    updates.push(`resolved_at = CASE WHEN status = 'resolved' THEN NULL ELSE resolved_at END`);
     params.push(id);
 
     await pool.query(
