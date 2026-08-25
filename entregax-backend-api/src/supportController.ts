@@ -1138,7 +1138,10 @@ export const ticketRecienteDelCliente = async (
          FROM support_tickets
         WHERE user_id = $1 AND id <> $2
           AND archived_at IS NULL
-          AND status NOT IN ('resolved', 'closed')
+          -- Solo 'resolved' cierra un ticket. 'closed' NO existe en el enum y
+          -- hacía que la consulta reventara: el catch devolvía null y el aviso
+          -- de duplicado no salía nunca.
+          AND status <> 'resolved'
           AND created_at >= NOW() - INTERVAL '24 hours'
         ORDER BY created_at DESC LIMIT 1`,
       [clienteId, excluirTicketId]);

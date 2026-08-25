@@ -183,6 +183,10 @@ export default function DashboardBranchManager() {
   const [newTicketFiles, setNewTicketFiles] = useState<File[]>([]);
   const [newTicketSubmitting, setNewTicketSubmitting] = useState(false);
   const [newTicketSuccessFolio, setNewTicketSuccessFolio] = useState('');
+  // Aviso del backend cuando ese cliente ya tiene otro ticket abierto de las
+  // últimas 24 h. No bloquea: el ticket ya se creó y pueden ser asuntos
+  // distintos, pero quien lo levantó debe verlo.
+  const [newTicketDupWarning, setNewTicketDupWarning] = useState('');
 
   const OPS_TICKET_CATEGORIES = [
     { key: 'systemError',       label: 'Error del Sistema' },
@@ -208,6 +212,7 @@ export default function DashboardBranchManager() {
       });
       const res = await api.post('/support/message', form, { headers: { 'Content-Type': 'multipart/form-data' } });
       setNewTicketSuccessFolio(res.data?.ticketFolio || res.data?.folio || '');
+      setNewTicketDupWarning(res.data?.duplicate_warning || '');
       setNewTicketCategory('systemError');
       setNewTicketDescription('');
       setNewTicketFiles([]);
@@ -1770,9 +1775,14 @@ export default function DashboardBranchManager() {
         </DialogTitle>
         <DialogContent dividers>
           {newTicketSuccessFolio ? (
-            <Alert severity="success" sx={{ my: 1 }}>
-              Ticket <strong>{newTicketSuccessFolio}</strong> creado. Un agente te atenderá pronto.
-            </Alert>
+            <>
+              <Alert severity="success" sx={{ my: 1 }}>
+                Ticket <strong>{newTicketSuccessFolio}</strong> creado. Un agente te atenderá pronto.
+              </Alert>
+              {newTicketDupWarning && (
+                <Alert severity="warning" sx={{ mb: 1 }}>{newTicketDupWarning}</Alert>
+              )}
+            </>
           ) : (
             <>
               <Alert severity="info" sx={{ mb: 2, py: 0.5 }}>
@@ -1857,7 +1867,7 @@ export default function DashboardBranchManager() {
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
           {newTicketSuccessFolio ? (
-            <Button variant="contained" onClick={() => setCreateTicketOpen(false)} sx={{ bgcolor: '#F05A28' }}>
+            <Button variant="contained" onClick={() => { setCreateTicketOpen(false); setNewTicketDupWarning(''); }} sx={{ bgcolor: '#F05A28' }}>
               Cerrar
             </Button>
           ) : (

@@ -3350,6 +3350,18 @@ export default function DashboardClient() {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       const ticketFolio = response.data?.ticketFolio || '';
+      // Si el backend detectó otro ticket abierto de este cliente en las
+      // últimas 24 h, se muestra el aviso en vez del mensaje simple: el ticket
+      // ya se creó, pero conviene que lo sepa antes de duplicar el asunto.
+      const avisoDup = response.data?.duplicate_warning || '';
+      if (avisoDup) {
+        setSnackbar({
+          open: true,
+          message: `Ticket ${ticketFolio} creado. ⚠️ ${avisoDup}`,
+          severity: 'warning',
+        });
+        return;
+      }
       setSnackbar({ 
         open: true, 
         message: `✅ Ticket ${ticketFolio} creado. Un agente te atenderá pronto.`, 

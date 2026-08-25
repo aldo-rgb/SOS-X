@@ -353,9 +353,15 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
       if (res.ok && (data.status === 'escalated' || data.ticketFolio)) {
         setTicketModalOpen(false);
         resetTicketForm();
+        // El backend avisa si este cliente ya tiene otro ticket abierto de las
+        // últimas 24 h. Es un aviso, no un bloqueo: el ticket YA se creó y
+        // pueden ser asuntos distintos.
+        const aviso = data.duplicate_warning
+          ? `\n\n⚠️ ${data.duplicate_warning}`
+          : '';
         Alert.alert(
           t('helpCenter.ticketCreated'),
-          t('helpCenter.ticketCreatedMsg', { folio: data.ticketFolio || '' }),
+          `${t('helpCenter.ticketCreatedMsg', { folio: data.ticketFolio || '' })}${aviso}`,
           [{ text: t('common.ok'), onPress: () => navigation.goBack() }]
         );
       } else if (!res.ok) {
