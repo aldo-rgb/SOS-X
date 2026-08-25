@@ -267,10 +267,31 @@ export const calculatePOBoxCost = async (
                 } else {
                     // Por unidad (m³)
                     boxVentaUsd = cbmParaTarifa * parseFloat(tarifaAplicada.costo);
-                    // Protección: no cobrar menos que el nivel anterior
+
+                    // Protección: no cobrar menos que el nivel anterior.
+                    //
+                    // El piso es lo MÁXIMO que ese nivel llegaría a cobrar, no su
+                    // `costo` a secas: en un nivel 'por_unidad' ese número es un
+                    // precio POR m³, no un total, y usarlo como piso dispara el
+                    // cobro. Le pasó a S2730, que tiene el N3 personalizado en
+                    // $650/m³: una caja de 0.1525 m³ debía costar 0.1525 × $750
+                    // = $114.37 y se le cobraron $650 —$11,147.50 MXN—, casi seis
+                    // veces de más (TKT-2026-2347). Solo se salvó porque ninguna
+                    // de las tres guías afectadas se había pagado.
                     const nivelAnterior = tarifas.find((t: any) => t.nivel === tarifaAplicada.nivel - 1);
-                    if (nivelAnterior && boxVentaUsd < parseFloat(nivelAnterior.costo)) {
-                        boxVentaUsd = parseFloat(nivelAnterior.costo);
+                    if (nivelAnterior) {
+                        const pisoAnterior = nivelAnterior.tipo_cobro === 'fijo'
+                            ? parseFloat(nivelAnterior.costo)
+                            : (nivelAnterior.cbm_max
+                                ? parseFloat(nivelAnterior.cbm_max) * parseFloat(nivelAnterior.costo)
+                                : parseFloat(nivelAnterior.costo));
+                        if (boxVentaUsd < pisoAnterior) {
+                            boxVentaUsd = pisoAnterior;
+                            console.warn(
+                                `[calculatePOBoxCost] Caja de CBM ${cbmParaTarifa.toFixed(5)} (N${tarifaAplicada.nivel}) ` +
+                                `sube al piso del nivel anterior: $${pisoAnterior.toFixed(2)} USD.`
+                            );
+                        }
                     }
                 }
             } else {
