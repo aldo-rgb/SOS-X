@@ -78,7 +78,12 @@ const EIS_ALTA_NOTA: Record<string, string> = { fuego: '24 hrs' };
 // deseada se van al fondo — no pueden "estar por vencer" — y entre ellas se
 // respeta el orden que llega del servidor. Antes no había orden alguno: se
 // pintaban como venían de la API.
-const porVencer = (a: { due_at?: string }, b: { due_at?: string }): number => {
+const porVencer = (a: { due_at?: string; status?: string }, b: { due_at?: string; status?: string }): number => {
+  // Las que están EN ESPERA de confirmación se van al fondo: ya se trabajaron y
+  // no compiten con lo que falta por hacer. Dentro de cada grupo manda la fecha.
+  const ea = a.status === 'awaiting_confirmation' ? 1 : 0;
+  const eb = b.status === 'awaiting_confirmation' ? 1 : 0;
+  if (ea !== eb) return ea - eb;
   const va = a.due_at ? new Date(a.due_at).getTime() : Number.POSITIVE_INFINITY;
   const vb = b.due_at ? new Date(b.due_at).getTime() : Number.POSITIVE_INFINITY;
   return va === vb ? 0 : va - vb;
