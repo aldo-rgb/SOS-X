@@ -281,6 +281,20 @@ async function autoMatchTransaction(
       );
       return true;
     }
+
+    // 🔒 Mismo candado que en Syncfy: si el cliente escribió una referencia y
+    // esa orden ya no admite pago, NO se cae al emparejamiento por monto —
+    // ahí es donde el depósito acababa pagando la orden de otro cliente.
+    // Este camino hoy no se usa (belvo_transactions está vacía), pero se deja
+    // cerrado para que no reviva el mismo error si se activa.
+    const existe = await pool.query(
+      `SELECT 1 FROM pobox_payments WHERE payment_reference = $1`,
+      [extractedRef]
+    );
+    if (existe.rows.length > 0) {
+      console.warn(`[belvo] tx#${txId} nombra ${extractedRef}, que ya no admite pago. Sin conciliar.`);
+      return false;
+    }
   }
 
   // Strategy 2: Match by exact amount + recent pending payment (within 48h)

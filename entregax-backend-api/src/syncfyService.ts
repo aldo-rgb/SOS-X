@@ -443,11 +443,13 @@ async function autoMatchTransaction(
 ): Promise<boolean> {
   let extractedRef: string | null = null;
   const searchText = `${description} ${reference}`;
-  // Referencias RO-/PP-/EP-/GL- + 8 hex, tolerando separador faltante o espacio
-  // en el concepto bancario (ej. "RO 2476D963", "RO65202C21", "RO94575AD9").
-  // Antes solo se reconocían EP-/GL-/tr_, por eso las órdenes RO-/PP- solo se
-  // matcheaban por monto y muchas quedaban sin conciliar.
-  const prefixed = searchText.match(/(RO|PP|EP|GL)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/);
+  // Referencias + 8 hex, tolerando separador faltante o espacio en el concepto
+  // bancario (ej. "RO 2476D963", "RO65202C21", "UW6289E4E8").
+  // UW y US se agregaron después: sin ellos, 39 abonos que traían su referencia
+  // escrita en el concepto caían al emparejamiento por monto y podían acabar
+  // pagando la orden de otro cliente (tx#187822 decía UW6289E4E8 y se aplicó a
+  // UW-0475EBFC).
+  const prefixed = searchText.match(/(RO|PP|EP|GL|UW|US)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/);
   if (prefixed && prefixed[1] && prefixed[2]) {
     extractedRef = `${prefixed[1].toUpperCase()}-${prefixed[2].toUpperCase()}`;
   } else {
@@ -457,16 +459,36 @@ async function autoMatchTransaction(
 
   if (extractedRef) {
     const pobox = await pool.query(
-      `SELECT id FROM pobox_payments WHERE payment_reference = $1 AND status IN ('pending','pending_payment','vouchers_submitted','vouchers_partial')`,
+      `SELECT id, status FROM pobox_payments WHERE payment_reference = $1`,
       [extractedRef]
     );
-    if (pobox.rows.length > 0) {
+    const CONCILIABLE = ['pending', 'pending_payment', 'vouchers_submitted', 'vouchers_partial'];
+    const orden = pobox.rows[0];
+
+    if (orden && CONCILIABLE.includes(String(orden.status))) {
       await pool.query(
         `UPDATE syncfy_transactions SET match_status='matched', matched_payment_id=$1, matched_at=NOW() WHERE id=$2`,
-        [pobox.rows[0].id, txId]
+        [orden.id, txId]
       );
       return true;
     }
+
+    // 🔒 El cliente ESCRIBIÓ una referencia en su transferencia. Si esa orden
+    // existe pero ya no admite pago (pagada o cancelada), antes se caía al
+    // emparejamiento por monto y el depósito acababa en una orden distinta —
+    // varias veces la de OTRO cliente, porque el monto coincidía. Adivinar es
+    // peor que no casar: se deja sin conciliar para que lo vea una persona.
+    if (orden) {
+      console.warn(
+        `[syncfy] tx#${txId} nombra ${extractedRef} pero esa orden está '${orden.status}'. ` +
+        `No se empareja por monto para no pagarle a otra orden; queda para revisión manual.`
+      );
+      return false;
+    }
+    // Si la referencia no corresponde a ninguna orden (ej. una US- de otro
+    // sistema), tampoco se adivina por monto.
+    console.warn(`[syncfy] tx#${txId} nombra ${extractedRef}, que no existe como orden. Queda sin conciliar.`);
+    return false;
   }
 
   const amountMatch = await pool.query(`
