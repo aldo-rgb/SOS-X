@@ -869,6 +869,19 @@ function App() {
         return;
       }
 
+      // Mis Tareas no vive bajo Herramientas, así que tiene que resolverse
+      // ANTES del guard de abajo. Estaba después y por eso el widget "Tareas
+      // pendientes" no hacía nada para los asesores: su menú solo trae
+      // Dashboard, panelsIndex daba -1 y el handler se salía antes de llegar
+      // aquí. Le pasaba a cualquier rol sin Herramientas — incluidos los que la
+      // pierden por quedarse sin submenús con permiso.
+      if (action === 'mytasks') {
+        const mtIdx = menuItems.findIndex((item) => item.key === 'myTasks');
+        if (mtIdx >= 0) { setSelectedIndex(mtIdx); setSelectedSubIndex(null); }
+        return;
+      }
+
+      // De aquí para abajo, todas las acciones navegan dentro de Herramientas.
       const panelsIndex = menuItems.findIndex((item) => item.key === 'panels');
       if (panelsIndex < 0) return;
 
@@ -992,12 +1005,6 @@ function App() {
             detail: { service: 'china_air', module: 'air_management', airFilter: 'no_awb' },
           }));
         }, 120);
-        return;
-      }
-
-      if (action === 'mytasks') {
-        const mtIdx = menuItems.findIndex((item) => item.key === 'myTasks');
-        if (mtIdx >= 0) { setSelectedIndex(mtIdx); setSelectedSubIndex(null); }
         return;
       }
 
