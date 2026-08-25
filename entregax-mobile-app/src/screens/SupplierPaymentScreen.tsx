@@ -1271,9 +1271,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     setDownloadingDoc({ id: requestId, tipo });
     try {
       const url = `${API_URL}/api/entangled/payment-requests/${requestId}/documento/${tipo}`;
-      const ext = tipo === 'factura_xml' ? 'xml' : 'pdf';
-      const dest = `${FileSystem.cacheDirectory}XP${requestId}_${tipo}.${ext}`;
-      const dl = await FileSystem.downloadAsync(url, dest, {
+      // Se baja SIN extensión y se renombra según lo que diga el servidor. Antes
+      // todo lo que no fuera XML se guardaba como .pdf y se compartía con UTI de
+      // PDF, pero el comprobante del proveedor suele ser una FOTO (png/jpg): el
+      // sistema intentaba abrir una imagen como PDF y salía "archivo dañado".
+      const tmp = `${FileSystem.cacheDirectory}XP${requestId}_${tipo}.bin`;
+      const dl = await FileSystem.downloadAsync(url, tmp, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (dl.status < 200 || dl.status >= 300) {
@@ -1286,12 +1289,39 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         Alert.alert('Error', errMsg);
         return;
       }
+
+      // El proxy reenvía el Content-Type real del documento remoto.
+      const headers: Record<string, string> = (dl.headers || {}) as any;
+      const ctRaw = String(headers['content-type'] || headers['Content-Type'] || '').toLowerCase();
+      const ct = ctRaw.split(';')[0].trim();
+      const PORTIPO: Record<string, { ext: string; uti: string }> = {
+        'application/pdf': { ext: 'pdf', uti: 'com.adobe.pdf' },
+        'image/png': { ext: 'png', uti: 'public.png' },
+        'image/jpeg': { ext: 'jpg', uti: 'public.jpeg' },
+        'image/jpg': { ext: 'jpg', uti: 'public.jpeg' },
+        'image/webp': { ext: 'webp', uti: 'public.webp' },
+        'image/heic': { ext: 'heic', uti: 'public.heic' },
+        'application/xml': { ext: 'xml', uti: 'public.xml' },
+        'text/xml': { ext: 'xml', uti: 'public.xml' },
+      };
+      const meta = PORTIPO[ct]
+        || (tipo === 'factura_xml'
+              ? { ext: 'xml', uti: 'public.xml' }
+              : { ext: 'pdf', uti: 'com.adobe.pdf' });
+      const mimeType = PORTIPO[ct] ? ct : (meta.ext === 'xml' ? 'application/xml' : 'application/pdf');
+
+      const dest = `${FileSystem.cacheDirectory}XP${requestId}_${tipo}.${meta.ext}`;
+      try {
+        await FileSystem.deleteAsync(dest, { idempotent: true });
+        await FileSystem.moveAsync({ from: dl.uri, to: dest });
+      } catch { /* si no se puede renombrar, se comparte el temporal */ }
+      const finalUri = (await FileSystem.getInfoAsync(dest)).exists ? dest : dl.uri;
+
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        const mimeType = tipo === 'factura_xml' ? 'application/xml' : 'application/pdf';
-        await Sharing.shareAsync(dl.uri, { mimeType, dialogTitle: `XP${requestId}-${tipo}`, UTI: tipo === 'factura_xml' ? 'public.xml' : 'com.adobe.pdf' });
+        await Sharing.shareAsync(finalUri, { mimeType, dialogTitle: `XP${requestId}-${tipo}`, UTI: meta.uti });
       } else {
-        Alert.alert('Documento descargado', `Archivo guardado en: ${dl.uri}`);
+        Alert.alert('Documento descargado', `Archivo guardado en: ${finalUri}`);
       }
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'No se pudo descargar el documento');
