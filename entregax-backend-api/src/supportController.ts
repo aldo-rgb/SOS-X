@@ -2087,14 +2087,28 @@ export async function notifyTicketDepartment(ticketId: number, departmentId: num
 
     let userIds: number[] = [];
     if (deptName.startsWith('CEDIS')) {
-      const code = deptName === 'CEDIS MTY' ? 'MTY' : deptName === 'CEDIS CDMX' ? 'CDMX' : deptName === 'CEDIS USA' ? 'TX' : null;
-      if (code) {
+      // CEDIS USA buscaba el código 'TX', que NO existe en branches: la bodega
+      // de Estados Unidos es 'HGO' (Mostrador Hidalgo TX). Resultado: los 47
+      // tickets mandados a CEDIS USA no avisaron a NADIE. Se aceptan los dos
+      // códigos por si algún día se da de alta uno con 'TX'.
+      const codes = deptName === 'CEDIS MTY' ? ['MTY']
+        : deptName === 'CEDIS CDMX' ? ['CDMX']
+        : deptName === 'CEDIS USA' ? ['HGO', 'TX']
+        : null;
+      if (codes) {
+        // counter_staff entra a la lista: en Hidalgo es quien mueve la carga y
+        // quedaba fuera del filtro, así que el ticket no le llegaba a la única
+        // persona que podía atenderlo.
         const r = await pool.query(
           `SELECT u.id FROM users u JOIN branches b ON b.id = u.branch_id
-           WHERE u.role IN ('operaciones','Operaciones','branch_manager') AND b.code = $1 AND COALESCE(u.is_active, true) = true`,
-          [code]
+           WHERE u.role IN ('operaciones','Operaciones','branch_manager','counter_staff','warehouse_ops')
+             AND b.code = ANY($1) AND COALESCE(u.is_active, true) = true`,
+          [codes]
         );
         userIds = r.rows.map((x: any) => Number(x.id));
+        if (userIds.length === 0) {
+          console.warn(`[SUPPORT] ${deptName} no tiene personal activo: el ticket ${folio} no avisa a nadie.`);
+        }
       }
     } else {
       const ROLE_MAP: Record<string, string[]> = {

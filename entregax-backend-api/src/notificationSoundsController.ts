@@ -15,6 +15,7 @@ import { uploadToS3, getSignedUrlForKey, isS3Configured } from './s3Service';
 export const NOTIFICATION_TYPES: Array<{ key: string; label: string; description: string; group: string }> = [
   { key: 'package_received',   label: '📦 Paquete recibido',            description: 'Al recibir un paquete del cliente (PO Box, China aéreo, DHL, TDI, Marítimo).', group: 'Operación' },
   { key: 'package_unassigned', label: '📦 Guía sin identificar',        description: 'Guía recibida sin cliente asignado.', group: 'Operación' },
+  { key: 'package_client_assigned', label: '📦 Guía ya identificada',   description: 'Una guía que estaba sin suite ya tiene cliente: avisa a la bodega de USA para que la embarque.', group: 'Operación' },
   { key: 'package_delivered',  label: '🎉 Paquete entregado',           description: 'Cuando el repartidor confirma la entrega.', group: 'Operación' },
   { key: 'repack_request',     label: '📦 Solicitud de reempaque',      description: 'El cliente pide reempaque/consolidación (avisa a bodega Hidalgo).', group: 'Operación' },
   { key: 'warehouse_reception',label: '📦 Recepción en bodega China',    description: 'La carga del cliente (Marítimo/LOG) es recibida en bodega China.', group: 'Operación' },

@@ -6141,6 +6141,81 @@ export const getPackageLabels = getShipmentLabels;
 // ============================================
 // ENDPOINT: ACTUALIZAR CLIENTE DE UN PAQUETE
 // ============================================
+/**
+ * Avisa a la bodega de USA que una guía que estaba sin cliente ya tiene dueño
+ * y se puede embarcar (tarea 365).
+ *
+ * El problema que resuelve: la guía llega sin suite, se queda esperando, y
+ * cuando alguien por fin le asigna el cliente nadie en USA se entera. La guía
+ * se queda ahí días hasta que el cliente o su asesor levantan un ticket
+ * preguntando por ella. Caso del reporte: US-9967607149 (S3442), asignada el
+ * 22-ago y todavía sin embarcar.
+ *
+ * Solo se dispara cuando la guía SIGUE en la bodega de USA. Avisar de una que
+ * ya se embarcó o se entregó sería ruido, y el ruido es lo que hace que se
+ * dejen de leer las notificaciones importantes.
+ */
+const EN_BODEGA_USA = ['received', 'ready_pickup', 'returned_to_warehouse'];
+
+async function avisarCedisUsaGuiaIdentificada(
+  packageId: number | string,
+  cliente: { nombre: string; boxId: string },
+  actorId: number | null
+): Promise<void> {
+  try {
+    const pkg = (await pool.query(
+      `SELECT tracking_internal, international_tracking, status, weight_lb, carrier
+         FROM packages WHERE id = $1`,
+      [packageId]
+    )).rows[0];
+    if (!pkg) return;
+    if (!EN_BODEGA_USA.includes(String(pkg.status))) return;
+
+    // Personal de la bodega de Hidalgo TX. Se incluye counter_staff a propósito:
+    // en esa sucursal es quien mueve la carga, y el filtro por rol de las
+    // notificaciones de departamento lo dejaba fuera.
+    const destinatarios = (await pool.query(
+      `SELECT u.id
+         FROM users u
+         JOIN branches b ON b.id = u.branch_id
+        WHERE b.code IN ('HGO', 'TX')
+          AND u.role IN ('operaciones', 'Operaciones', 'branch_manager', 'counter_staff', 'warehouse_ops')
+          AND COALESCE(u.is_active, TRUE) = TRUE`
+    )).rows.map((r: any) => Number(r.id));
+    if (destinatarios.length === 0) {
+      console.warn('[packages] guía identificada pero no hay personal activo en la bodega de USA a quien avisar');
+      return;
+    }
+
+    const guia = pkg.tracking_internal || pkg.international_tracking || `#${packageId}`;
+    const title = '📦 Guía ya tiene cliente · lista para embarcar';
+    const body = `${guia} → ${cliente.boxId} ${cliente.nombre}`;
+    const data = {
+      screen: 'PackageDetail',
+      tracking: guia,
+      package_id: String(packageId),
+      box_id: cliente.boxId,
+    };
+
+    const { createCustomNotification } = await import('./notificationController');
+    for (const uid of destinatarios) {
+      // Se salta a quien hizo la asignación: ya lo sabe.
+      if (actorId && uid === actorId) continue;
+      await createCustomNotification(uid, title, body, 'package', 'inventory', data);
+    }
+
+    const { sendPushToUsers } = await import('./pushService');
+    await sendPushToUsers(
+      destinatarios.filter(uid => !actorId || uid !== actorId),
+      { title, body, data, notificationType: 'package_client_assigned' }
+    );
+    console.log(`[packages] ${guia} identificada como ${cliente.boxId}: avisado a ${destinatarios.length} en bodega USA`);
+  } catch (e: any) {
+    // Nunca debe tumbar la asignación: el aviso es un extra, no el trabajo.
+    console.error('[packages] avisarCedisUsaGuiaIdentificada:', e?.message);
+  }
+}
+
 export const updatePackageClient = async (req: Request, res: Response): Promise<any> => {
     try {
         const { id } = req.params;
@@ -6200,6 +6275,10 @@ export const updatePackageClient = async (req: Request, res: Response): Promise<
             await registrarEnHistorial(
                 `${veniaSinCliente ? 'Guía identificada y asignada' : 'Cliente reasignado'}: ${user.full_name} (${user.box_id})`
             );
+            if (veniaSinCliente) {
+                avisarCedisUsaGuiaIdentificada(String(id), { nombre: user.full_name, boxId: user.box_id }, actorId)
+                    .catch(() => {});
+            }
             return res.json({
                 success: true,
                 client: { id: user.id, name: user.full_name, email: user.email, boxId: user.box_id },
@@ -6222,6 +6301,10 @@ export const updatePackageClient = async (req: Request, res: Response): Promise<
             await registrarEnHistorial(
                 `${veniaSinCliente ? 'Guía identificada y asignada' : 'Cliente reasignado'}: ${legacy.full_name} (${legacy.box_id}) · cliente legacy`
             );
+            if (veniaSinCliente) {
+                avisarCedisUsaGuiaIdentificada(String(id), { nombre: legacy.full_name, boxId: legacy.box_id }, actorId)
+                    .catch(() => {});
+            }
             return res.json({
                 success: true,
                 client: { id: null, name: legacy.full_name, email: '', boxId: legacy.box_id },
