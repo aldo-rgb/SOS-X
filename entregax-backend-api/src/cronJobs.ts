@@ -1155,10 +1155,14 @@ export const startCalendarReminderCron = () => {
         `ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP`
       ).catch(() => {});
 
-      // Ventana amplia (50–70 min) para que un cron atrasado no se salte el
-      // evento; reminder_sent_at garantiza que se avise una sola vez.
+      // Dos reglas según el tipo de evento:
+      //   · con hora  → 1 h antes. Ventana amplia (50–70 min) para que un cron
+      //                 atrasado no se salte el evento.
+      //   · todo el día → a las 9:00 AM hora de México del mismo día; "1 hora
+      //                 antes" no significa nada cuando no hay hora de inicio.
+      // reminder_sent_at garantiza que se avise una sola vez en ambos casos.
       const r = await pool.query(`
-        SELECT e.id, e.title, e.location, e.all_day, e.created_by,
+        SELECT e.id, e.title, e.location, COALESCE(e.all_day, FALSE) AS all_day, e.created_by,
                -- La hora se formatea AQUÍ, no en JS: el driver devuelve el
                -- timestamp naive como hora local de la máquina y toISOString()
                -- lo desfasaba 6 horas (la junta de las 12:00 salía como 18:00).
@@ -1166,8 +1170,20 @@ export const startCalendarReminderCron = () => {
                        'HH12:MI AM') AS hora_mx
           FROM calendar_events e
          WHERE e.reminder_sent_at IS NULL
-           AND e.start_at BETWEEN (NOW()::timestamp + interval '50 minutes')
-                              AND (NOW()::timestamp + interval '70 minutes')
+           AND (
+             (COALESCE(e.all_day, FALSE) = FALSE
+              AND e.start_at BETWEEN (NOW()::timestamp + interval '50 minutes')
+                                 AND (NOW()::timestamp + interval '70 minutes'))
+             OR
+             (COALESCE(e.all_day, FALSE) = TRUE
+              -- Un evento de TODO EL DÍA es una fecha, no un instante: se
+              -- compara tal cual está guardada. Convertirla por zona horaria la
+              -- corre un día (00:00 UTC del 25 cae el 24 en México) y el aviso
+              -- saldría la víspera.
+              AND e.start_at::date = (NOW() AT TIME ZONE 'America/Monterrey')::date
+              AND (NOW() AT TIME ZONE 'America/Monterrey')::time >= TIME '09:00'
+              AND (NOW() AT TIME ZONE 'America/Monterrey')::time <  TIME '09:30')
+           )
          ORDER BY e.start_at
          LIMIT 50
       `);
@@ -1189,8 +1205,12 @@ export const startCalendarReminderCron = () => {
         if (destinos.length === 0) continue;
 
         const horaMx = String(ev.hora_mx || '').trim();
-        const titulo = '⏰ Tu evento empieza en 1 hora';
-        const cuerpo = `${ev.title} · ${horaMx}${ev.location ? ` · ${ev.location}` : ''}`;
+        const titulo = ev.all_day
+          ? '📅 Tienes un evento hoy'
+          : '⏰ Tu evento empieza en 1 hora';
+        const cuerpo = ev.all_day
+          ? `${ev.title}${ev.location ? ` · ${ev.location}` : ''}`
+          : `${ev.title} · ${horaMx}${ev.location ? ` · ${ev.location}` : ''}`;
 
         for (const uid of destinos) {
           await createCustomNotification(uid, titulo, cuerpo, 'info', 'calendar',
@@ -1214,7 +1234,7 @@ export const startCalendarReminderCron = () => {
       console.error('❌ [CRON] Error en recordatorio de calendario:', err.message);
     }
   }, { timezone: 'America/Mexico_City' });
-  console.log('📅 [CRON] Recordatorio de eventos del calendario: cada 5 min, avisa 1 h antes');
+  console.log('📅 [CRON] Recordatorio de calendario: cada 5 min · con hora → 1 h antes · todo el día → 9:00 AM MX');
 };
 
 export const startStaleRatesNotifyCron = () => {
