@@ -203,7 +203,7 @@ export type RootStackParamList = {
   POBoxExit: { user: any; token: string };
   POBoxCollect: { user: any; token: string };
   POBoxQuote: { user: any; token: string };
-  QuoteHub: { user: any; token: string };
+  QuoteHub: { user: any; token: string; preselectedService?: string };
   POBoxRepack: { user: any; token: string };
   POBoxInventory: { user: any; token: string };
   POBoxHub: { user: any; token: string };

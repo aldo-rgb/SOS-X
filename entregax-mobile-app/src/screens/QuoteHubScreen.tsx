@@ -95,7 +95,12 @@ const formatUsd = (n: number | string | undefined | null): string => {
 };
 
 export default function QuoteHubScreen({ navigation, route }: Props) {
-  const { user, token } = route.params;
+  // preselectedService: permite abrir el cotizador ya parado en un servicio,
+  // p.ej. desde los banners del home ("Cotizar Ruta Exprés" → aéreo,
+  // "Ahorra 70%" → marítimo). Si no viene, arranca en la lista como siempre.
+  const { user, token, preselectedService } = route.params as {
+    user: any; token: string; preselectedService?: string;
+  };
   const { t, i18n } = useTranslation();
   const uiLang = i18n.language as 'es' | 'en' | 'zh';
   const L = (es: string, en: string, zh: string) => uiLang === 'zh' ? zh : uiLang === 'en' ? en : es;
@@ -109,7 +114,11 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
   ];
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState<0 | 1 | 2>(0);
-  const [service, setService] = useState<ServiceKey | null>(null);
+  const [service, setService] = useState<ServiceKey | null>(
+    (preselectedService && SERVICES.some(s => s.key === preselectedService))
+      ? (preselectedService as ServiceKey)
+      : null
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any | null>(null);

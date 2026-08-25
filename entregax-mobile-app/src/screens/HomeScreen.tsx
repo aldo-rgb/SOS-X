@@ -2945,6 +2945,22 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       );
                     } else if (screenName === 'RequestAdvisor') {
                       navigation.navigate('RequestAdvisor', { user, token });
+                    } else if (screenName.startsWith('QuoteHub')) {
+                      // 'navigate:QuoteHub' abre el cotizador en la lista;
+                      // 'navigate:QuoteHub:maritime' lo abre ya parado en ese
+                      // servicio (las claves son las de SERVICES en QuoteHub).
+                      const svc = screenName.split(':')[1] || undefined;
+                      (navigation as any).navigate('QuoteHub', { user, token, preselectedService: svc });
+                    } else {
+                      // Cualquier otra pantalla declarada en el slide. Antes el
+                      // handler solo conocía GEXPromo y RequestAdvisor, así que
+                      // los banners con cta_action 'navigate:ServicesGuide' no
+                      // hacían absolutamente nada al tocarlos.
+                      try {
+                        (navigation as any).navigate(screenName, { user, token });
+                      } catch {
+                        // pantalla inexistente: no romper el home
+                      }
                     }
                   } else if (action.startsWith('modal:')) {
                     const modalType = action.replace('modal:', '');
