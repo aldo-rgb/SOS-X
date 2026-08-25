@@ -15475,7 +15475,10 @@ app.post('/api/admin/system/notif-pago-toggle', authenticateToken, requireRole('
 });
 
 // GET/POST correos a notificar cuando una operación X-Pay híbrida entra en "solicitada".
-app.get('/api/admin/xpay/notify-emails', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response): Promise<any> => {
+// Correos que reciben el aviso de operación híbrida "solicitada". Administración
+// y dirección también los configuran: son quienes autorizan el pago a
+// proveedores, y dejarlo solo en super_admin obligaba a pedírselo a Aldo.
+app.get('/api/admin/xpay/notify-emails', authenticateToken, requireRole('super_admin', 'admin', 'director'), async (_req: Request, res: Response): Promise<any> => {
   try {
     const r = await pool.query(`SELECT config_value FROM system_configurations WHERE config_key = 'xpay_solicitada_notify_emails' AND is_active = TRUE`);
     const emails: string[] = Array.isArray(r.rows[0]?.config_value?.emails) ? r.rows[0].config_value.emails : [];
@@ -15485,7 +15488,7 @@ app.get('/api/admin/xpay/notify-emails', authenticateToken, requireRole('super_a
   }
 });
 
-app.post('/api/admin/xpay/notify-emails', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response): Promise<any> => {
+app.post('/api/admin/xpay/notify-emails', authenticateToken, requireRole('super_admin', 'admin', 'director'), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const raw = Array.isArray(req.body?.emails) ? req.body.emails : [];
     // Validar/normalizar: correos válidos, únicos, sin espacios.
