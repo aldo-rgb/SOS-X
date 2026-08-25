@@ -193,30 +193,39 @@ function buildFacturamaCfdiPayload(emitter: FacturamaEmitter, p: FacturapiLikePa
     // (TaxZipCode) sea IGUAL al Lugar de Expedición del emisor, con régimen fiscal
     // 616 (Sin obligaciones fiscales) y uso S01 (Sin efectos fiscales). Si se manda
     // el CP/régimen/uso del cliente, Facturama rechaza con "ExpeditionPlace ...".
-    const rfcReceptor = String(p.customer.tax_id || '').toUpperCase();
+    const rfcReceptor = String(p.customer.tax_id || '').trim().toUpperCase();
     const esRfcGenerico = rfcReceptor === 'XAXX010101000' || rfcReceptor === 'XEXX010101000';
     const receiverZip    = esRfcGenerico ? emitter.zip_code : (p.customer.address?.zip || emitter.zip_code);
     const receiverRegime = esRfcGenerico ? '616' : p.customer.tax_system;
     const receiverUse    = esRfcGenerico ? 'S01' : (p.use || 'G03');
 
+    // El RFC viaja tal cual al CFDI y Facturama enruta al CSD por él. Un RFC con
+    // un espacio de sobra no corresponde a ningún sello: Facturama contesta 200
+    // y devuelve el comprobante SIN timbrar, o sea sin UUID. Le pasó a Bombas
+    // Altona, que tenía guardado 'BAL221021F44 ' y nunca pudo emitir una sola
+    // factura. Se normaliza aquí para que ningún dato sucio en la base vuelva a
+    // tumbar el timbrado.
+    const rfcEmisor = String(emitter.rfc || '').trim().toUpperCase();
+    const rfcCliente = String(p.customer.tax_id || '').trim().toUpperCase();
+
     return {
         // Issuer (multiemisor): Facturama enruta al CSD del RFC indicado.
         Issuer: {
-            Rfc: emitter.rfc,
-            Name: emitter.business_name,
-            FiscalRegime: emitter.fiscal_regime
+            Rfc: rfcEmisor,
+            Name: String(emitter.business_name || '').trim(),
+            FiscalRegime: String(emitter.fiscal_regime || '').trim()
         },
         Receiver: {
-            Rfc: p.customer.tax_id,
+            Rfc: rfcCliente,
             // XAXX010101000 exige razón social exacta "PÚBLICO EN GENERAL".
-            Name: rfcReceptor === 'XAXX010101000' ? 'PÚBLICO EN GENERAL' : p.customer.legal_name,
+            Name: rfcReceptor === 'XAXX010101000' ? 'PÚBLICO EN GENERAL' : String(p.customer.legal_name || '').trim(),
             CfdiUse: receiverUse,
             FiscalRegime: receiverRegime,
             TaxZipCode: receiverZip
         },
         CfdiType: p.type || 'I',
         NameId: '1',
-        ExpeditionPlace: emitter.zip_code,
+        ExpeditionPlace: String(emitter.zip_code || '').trim(),
         PaymentForm: p.payment_form || '99',
         PaymentMethod: p.payment_method || 'PUE',
         Currency: p.currency || 'MXN',
@@ -292,6 +301,26 @@ export class FacturamaClient {
                 return rr;
             };
 
+            // Se valida ANTES de mandar. Facturama enruta al CSD por el RFC del
+            // emisor: si el RFC no tiene forma de RFC no encuentra sello, y en
+            // vez de rechazar contesta 200 con el comprobante SIN timbrar. El
+            // error que llega al usuario es "respondió ok pero sin UUID", que no
+            // dice nada. Mejor frenar aquí con el motivo real.
+            const FORMATO_RFC = /^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/;
+            if (!FORMATO_RFC.test(String(body.Issuer?.Rfc || ''))) {
+                throw new FacturamaError(
+                    `El RFC del emisor "${this.emitter.rfc}" no tiene un formato válido, así que Facturama no puede ` +
+                    `encontrar su sello y devuelve el CFDI sin timbrar. Corrígelo en Empresas → Datos fiscales.`,
+                    { status: 400, details: { rfc: this.emitter.rfc } }
+                );
+            }
+            if (!FORMATO_RFC.test(String(body.Receiver?.Rfc || ''))) {
+                throw new FacturamaError(
+                    `El RFC del cliente "${payload.customer.tax_id}" no tiene un formato válido de RFC.`,
+                    { status: 400, details: { rfc: payload.customer.tax_id } }
+                );
+            }
+
             console.log('[Facturama] body enviado:', JSON.stringify(body));
             let r = await postWith(body);
 
@@ -315,7 +344,9 @@ export class FacturamaClient {
             // Si no tenemos ni Id ni UUID consideramos la operación fallida y
             // evitamos persistir una factura "fantasma" con totales en 0.
             if (!id && !uuid) {
-                throw new FacturamaError('Facturama respondió OK pero sin Id ni UUID — el CFDI no fue timbrado.', {
+                throw new FacturamaError(
+                    `Facturama respondió OK pero sin Id ni UUID: el CFDI no se timbró. Suele ser que el sello (CSD) ` +
+                    `del RFC ${this.emitter.rfc} no está cargado o está vencido en Facturama.`, {
                     status: r.status,
                     details: d,
                 });
