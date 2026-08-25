@@ -11709,25 +11709,16 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
               `Autorizado por ${adminName} desde estado de cuenta bancario`]);
         }
 
-        // 5. Credit surplus to wallet if any
+        // 5. Acreditar el excedente.
+        //
+        // Igual que en el auto-match del cron: acreditaba SIEMPRE a POBOX_USA
+        // aunque la orden fuera DHL, aérea o marítima, y se saltaba la regla de
+        // abonar primero a la deuda del cliente. Ahora pasa por
+        // acreditarSobranteOrden, que resuelve el servicio real y aplica las
+        // dos reglas en orden.
         if (surplus > 0) {
-          const serviceType = 'POBOX_USA';
-          const walletRes = await client.query(`
-            INSERT INTO billetera_servicio (user_id, service_type, saldo, currency)
-            VALUES ($1, $2, $3, 'MXN')
-            ON CONFLICT (user_id, service_type) DO UPDATE SET saldo = billetera_servicio.saldo + $3, updated_at = NOW()
-            RETURNING *
-          `, [order.user_id, serviceType, surplus]);
-
-          await client.query(`
-            INSERT INTO billetera_servicio_transacciones
-            (billetera_servicio_id, user_id, service_type, tipo, monto, currency, concepto, payment_order_id, created_by)
-            VALUES ($1, $2, $3, 'excedente', $4, 'MXN', $5, $6, $7)
-          `, [walletRes.rows[0].id, order.user_id, serviceType, surplus,
-              `Excedente autorizado de orden ${m.ref} (banco: $${bankTotal.toFixed(2)}, orden: $${orderAmount.toFixed(2)})`,
-              order.id, adminId]);
-
-          await client.query(`UPDATE pobox_payments SET surplus_credited = TRUE WHERE id = $1`, [order.id]);
+          const { acreditarSobranteOrden } = await import('./voucherController');
+          await acreditarSobranteOrden(client, order.id, adminId || null, surplus);
         }
 
         // 6. Update openpay_webhook_logs if exists

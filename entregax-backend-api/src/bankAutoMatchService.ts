@@ -339,28 +339,18 @@ const authorizeOneMatch = async (
       );
     }
 
-    // 5) Acreditar excedente a wallet del cliente
+    // 5) Acreditar excedente al cliente.
+    //
+    // Este bloque acreditaba SIEMPRE a POBOX_USA, sin importar el servicio de
+    // la orden: por eso hay excedentes de órdenes DHL guardados en la billetera
+    // de PO Box. Y se saltaba la regla de abonar primero a la deuda del cliente.
+    // Ahora usa acreditarSobranteOrden, el mismo camino que la aprobación
+    // manual de comprobantes: resuelve el servicio real con resolveOrderService,
+    // abona a la deuda de ESE servicio si la hay, y solo el resto va a la
+    // billetera del servicio correcto.
     if (surplus > 0) {
-      const serviceType = 'POBOX_USA';
-      const walletRes = await client.query(
-        `INSERT INTO billetera_servicio (user_id, service_type, saldo, currency)
-         VALUES ($1, $2, $3, 'MXN')
-         ON CONFLICT (user_id, service_type) DO UPDATE
-           SET saldo = billetera_servicio.saldo + $3, updated_at = NOW()
-         RETURNING *`,
-        [order.user_id, serviceType, surplus]
-      );
-
-      await client.query(
-        `INSERT INTO billetera_servicio_transacciones
-           (billetera_servicio_id, user_id, service_type, tipo, monto, currency, concepto, payment_order_id, created_by)
-         VALUES ($1, $2, $3, 'excedente', $4, 'MXN', $5, $6, $7)`,
-        [walletRes.rows[0].id, order.user_id, serviceType, surplus,
-         `Excedente AUTO de orden ${ref} (banco: $${bankTotal.toFixed(2)}, orden: $${orderAmount.toFixed(2)})`,
-         order.id, adminId]
-      );
-
-      await client.query(`UPDATE pobox_payments SET surplus_credited = TRUE WHERE id = $1`, [order.id]);
+      const { acreditarSobranteOrden } = await import('./voucherController');
+      await acreditarSobranteOrden(client, order.id, adminId || null, surplus);
     }
 
     // 6) Actualizar openpay_webhook_logs si existe

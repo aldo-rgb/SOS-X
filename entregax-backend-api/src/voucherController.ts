@@ -288,7 +288,19 @@ export const confirmVoucherAmount = async (req: AuthRequest, res: Response) => {
  *
  * Devuelve el monto acreditado (0 si no había sobrante o ya estaba acreditado).
  */
-export async function acreditarSobranteOrden(db: any, orderId: number, adminId?: number | null): Promise<number> {
+/**
+ * @param sobranteExplicito Sobrante ya calculado por quien llama. Lo usan las
+ *   rutas de conciliación bancaria, donde el excedente sale de lo que entró al
+ *   banco y no de los comprobantes: esas órdenes pueden autorizarse sin ningún
+ *   comprobante subido, y midiendo contra payment_vouchers daría cero y no se
+ *   acreditaría nada.
+ */
+export async function acreditarSobranteOrden(
+  db: any,
+  orderId: number,
+  adminId?: number | null,
+  sobranteExplicito?: number
+): Promise<number> {
   const oRes = await db.query(
     `SELECT id, user_id, amount, currency, service_type, payment_reference,
             COALESCE(surplus_credited, false) AS surplus_credited
@@ -305,7 +317,9 @@ export async function acreditarSobranteOrden(db: any, orderId: number, adminId?:
        FROM payment_vouchers WHERE payment_order_id = $1 AND status <> 'rejected'`,
     [orderId]
   );
-  const surplus = +(Number(sumRes.rows[0].total) - Number(order.amount)).toFixed(2);
+  const surplus = sobranteExplicito != null
+    ? +Number(sobranteExplicito).toFixed(2)
+    : +(Number(sumRes.rows[0].total) - Number(order.amount)).toFixed(2);
   if (!(surplus > 0)) return 0;
 
   // Servicio REAL de la orden. No se usa order.service_type a secas porque en
@@ -1174,7 +1188,14 @@ export const rejectVoucher = async (req: AuthRequest, res: Response) => {
     );
     const order = orderRes.rows[0];
     if (order.surplus_credited && Number(order.surplus_amount) > 0) {
-      const serviceType = order.service_type || 'POBOX_USA';
+      // El servicio se resuelve igual que al acreditar. Antes caía a
+      // 'POBOX_USA' cuando la orden traía service_type nulo —lo normal en las
+      // órdenes viejas—, así que podía descontar de una billetera distinta a la
+      // que recibió el excedente y dejar saldo fantasma en la otra.
+      const serviceType = (await resolveOrderService(dbClient, {
+        poboxPaymentId: order.id,
+        paymentReference: order.payment_reference,
+      })) || order.service_type || 'POBOX_USA';
       // Debit from wallet
       await dbClient.query(
         `UPDATE billetera_servicio SET saldo = GREATEST(0, saldo - $1), updated_at = NOW()
