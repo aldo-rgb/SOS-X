@@ -397,9 +397,11 @@ export async function processTransactions(
       try {
         await pool.query(`
           INSERT INTO bank_statement_entries
-            (empresa_id, banco, fecha, concepto, referencia, cargo, abono, saldo, entry_hash, source)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'syncfy')
-          ON CONFLICT (empresa_id, entry_hash) DO NOTHING
+            (empresa_id, banco, fecha, concepto, referencia, cargo, abono, saldo, entry_hash, source,
+             syncfy_transaction_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'syncfy', $10)
+          ON CONFLICT (empresa_id, entry_hash)
+            DO UPDATE SET syncfy_transaction_id = COALESCE(bank_statement_entries.syncfy_transaction_id, EXCLUDED.syncfy_transaction_id)
         `, [
           emitterId,
           bankCodeFromName(tx.site?.name || ''),
@@ -410,6 +412,10 @@ export async function processTransactions(
           type === 'INFLOW'  ? amount : null,
           tx.balance ?? null,
           entryHash,
+          // Puente hacia el ledger de conciliación: el auto-match trabaja sobre
+          // syncfy_transactions y sin esto no hay cómo llegar a la fila del
+          // estado de cuenta para marcar el abono como ocupado.
+          localTxId,
         ]);
       } catch (e: any) {
         // bank_statement_entries puede no tener todas las columnas; log y sigue

@@ -868,17 +868,98 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    const result = await pool.query(
-      `UPDATE payment_vouchers 
-       SET status = 'approved', reviewed_by = $1, reviewed_at = NOW()
-       WHERE id = $2 AND status = 'pending_review'
-       RETURNING *`,
-      [adminId, id]
-    );
+    // 🔒 LIGAR EL COMPROBANTE AL MOVIMIENTO BANCARIO
+    //
+    // Aprobar un comprobante solo miraba la imagen. Un cliente que deposita sin
+    // referencia podía mandar el MISMO comprobante en dos órdenes distintas y
+    // las dos se aprobaban, porque nada registraba que ese depósito ya se había
+    // ocupado. Ahora hay que decir cuál abono del estado de cuenta lo respalda,
+    // y el ledger impide gastarlo dos veces.
+    //
+    // Solo el super admin puede aprobar sin ligarlo (queda anotado en el
+    // comprobante), para no dejar trabada la operación cuando el movimiento
+    // todavía no aparece en el estado de cuenta.
+    const rolAdmin = String((req.user as any)?.role || '').toLowerCase();
+    const esSuperAdmin = rolAdmin === 'super_admin';
+    const bankEntryId = Number(req.body?.bank_entry_id) || null;
+    const sinLigar = req.body?.aprobar_sin_ligar === true || req.body?.aprobar_sin_ligar === 'true';
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Comprobante no encontrado o ya revisado' });
+    if (!bankEntryId && !(esSuperAdmin && sinLigar)) {
+      return res.status(409).json({
+        error: 'Falta ligar el movimiento bancario',
+        message: esSuperAdmin
+          ? 'Elige el abono del estado de cuenta que respalda este comprobante, o marca "aprobar sin ligar" para autorizarlo bajo tu responsabilidad.'
+          : 'Elige el abono del estado de cuenta que respalda este comprobante. Si el depósito todavía no aparece en el estado de cuenta, solo un super admin puede aprobarlo sin ligarlo.',
+        requires_bank_entry: true,
+        puede_saltarse: esSuperAdmin,
+      });
     }
+
+    const client = await pool.connect();
+    let result: any;
+    try {
+      await client.query('BEGIN');
+
+      result = await client.query(
+        `UPDATE payment_vouchers
+         SET status = 'approved', reviewed_by = $1, reviewed_at = NOW()
+         WHERE id = $2 AND status = 'pending_review'
+         RETURNING *`,
+        [adminId, id]
+      );
+
+      if (result.rows.length === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(404).json({ error: 'Comprobante no encontrado o ya revisado' });
+      }
+
+      if (bankEntryId) {
+        const { ensureLedgerSchema, aplicarAbono, AbonoAgotadoError } = await import('./bankEntryLedger');
+        await ensureLedgerSchema();
+        const v = result.rows[0];
+        const adminNombre = (req.user as any)?.full_name || (req.user as any)?.email || 'Admin';
+        try {
+          await aplicarAbono(client, {
+            bankEntryId,
+            montoAplicado: Number(v.declared_amount) || 0,
+            origen: 'comprobante_manual',
+            paymentOrderId: v.payment_order_id,
+            paymentReference: dup?.payment_reference || null,
+            voucherId: Number(id),
+            aplicadoPor: adminId ?? null,
+            aplicadoPorNombre: adminNombre,
+          });
+        } catch (e: any) {
+          await client.query('ROLLBACK');
+          client.release();
+          const agotado = e instanceof AbonoAgotadoError;
+          return res.status(409).json({
+            error: agotado ? 'Ese depósito ya fue usado' : 'No se pudo ligar el movimiento bancario',
+            message: e?.message || 'El abono seleccionado no puede respaldar este comprobante.',
+            abono_agotado: agotado,
+          });
+        }
+      } else {
+        // Sin respaldo bancario: se deja escrito quién lo autorizó así.
+        const adminNombre = (req.user as any)?.full_name || (req.user as any)?.email || 'Admin';
+        await client.query(
+          `UPDATE payment_vouchers
+              SET rejection_reason = COALESCE(rejection_reason, '') ||
+                  '⚠️ Aprobado SIN ligar movimiento bancario (override de super admin: ' || $2 || ')'
+            WHERE id = $1`,
+          [id, adminNombre]
+        );
+      }
+
+      await client.query('COMMIT');
+    } catch (e: any) {
+      await client.query('ROLLBACK');
+      client.release();
+      console.error('[VOUCHER] approve:', e);
+      return res.status(500).json({ error: 'Error aprobando comprobante', detail: e?.message });
+    }
+    client.release();
 
     // Check if ALL vouchers for this order are approved
     const voucher = result.rows[0];
@@ -1118,6 +1199,19 @@ export const rejectVoucher = async (req: AuthRequest, res: Response) => {
         `UPDATE pobox_payments SET surplus_credited = FALSE, surplus_amount = 0, status = 'vouchers_submitted' WHERE id = $1`,
         [voucher.payment_order_id]
       );
+    }
+
+    // Rechazar un comprobante libera el abono que lo respaldaba: ese depósito
+    // vuelve a quedar disponible en el estado de cuenta. Sin esto el dinero
+    // real quedaría ocupado por un pago que se deshizo.
+    try {
+      const { revertirPorVoucher } = await import('./bankEntryLedger');
+      const liberados = await revertirPorVoucher(
+        dbClient, Number(id), `Comprobante rechazado por ${adminId ?? 'admin'}`, adminId ?? null
+      );
+      if (liberados) console.log(`[VOUCHER] rechazo ${id}: ${liberados} abono(s) liberados`);
+    } catch (e: any) {
+      console.error('[VOUCHER] liberar abono al rechazar:', e?.message);
     }
 
     // Check if order should go back to pending

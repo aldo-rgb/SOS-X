@@ -9663,6 +9663,67 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
         try {
           await client.query('BEGIN');
 
+          // 0. 🔒 Si esta confirmación va a aprobar comprobantes del cliente,
+          //    hay que decir qué abono del estado de cuenta los respalda. Es el
+          //    caso del cliente que deposita sin referencia: sin esto podía
+          //    mandar el MISMO comprobante en dos órdenes y las dos se
+          //    confirmaban, porque nada registraba que el depósito ya se ocupó.
+          //    NO aplica al efectivo ni a la tarjeta de mostrador: ahí no hay
+          //    comprobante que ligar.
+          const compPend = await client.query(
+            `SELECT COUNT(*)::int AS n, COALESCE(SUM(declared_amount), 0) AS monto
+               FROM payment_vouchers
+              WHERE payment_order_id = $1 AND status IN ('pending_review', 'pending_confirm')`,
+            [poboxPay.id]
+          );
+          const hayComprobantes = Number(compPend.rows[0]?.n || 0) > 0;
+          if (hayComprobantes) {
+            const rolConfirma = String((req.user as any)?.role || '').toLowerCase();
+            const puedeSaltarse = rolConfirma === 'super_admin'
+              && (req.body?.confirmar_sin_ligar === true || req.body?.confirmar_sin_ligar === 'true');
+            const entryIdConf = Number(req.body?.bank_entry_id) || null;
+
+            if (!entryIdConf && !puedeSaltarse) {
+              await client.query('ROLLBACK');
+              client.release();
+              return res.status(409).json({
+                error: 'falta_movimiento_bancario',
+                message: `Esta orden se está pagando con ${compPend.rows[0].n} comprobante(s) del cliente. ` +
+                  `Elige el abono del estado de cuenta que los respalda — es lo que impide que un mismo depósito pague dos órdenes.` +
+                  (rolConfirma === 'super_admin'
+                    ? ' Si el depósito todavía no aparece en el estado de cuenta, puedes confirmar sin ligarlo bajo tu responsabilidad.'
+                    : ' Si el depósito todavía no aparece, solo un super admin puede confirmar sin ligarlo.'),
+                requires_bank_entry: true,
+                puede_saltarse: rolConfirma === 'super_admin',
+                referencia: refStr,
+              });
+            }
+
+            if (entryIdConf) {
+              try {
+                const { ensureLedgerSchema, aplicarAbono } = await import('./bankEntryLedger');
+                await ensureLedgerSchema();
+                await aplicarAbono(client, {
+                  bankEntryId: entryIdConf,
+                  montoAplicado: Number(compPend.rows[0].monto) || montoPago,
+                  origen: 'comprobante_manual',
+                  paymentOrderId: poboxPay.id,
+                  paymentReference: refStr,
+                  aplicadoPor: adminId ?? null,
+                  aplicadoPorNombre: adminName,
+                });
+              } catch (e: any) {
+                await client.query('ROLLBACK');
+                client.release();
+                return res.status(409).json({
+                  error: 'abono_ya_usado',
+                  message: e?.message || 'El abono seleccionado ya se aplicó a otra orden.',
+                  referencia: refStr,
+                });
+              }
+            }
+          }
+
           // 1. Marcar pobox_payment como pagado
           await client.query(`
             UPDATE pobox_payments SET
@@ -10864,11 +10925,20 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
       LIMIT 60
     `, [boxRegex, monto, refToken, fecha]);
 
+    // Estado de conciliación de cada candidato: quien aprueba tiene que ver de
+    // un vistazo qué abonos siguen libres y cuáles ya se gastaron en otra orden.
+    const { estadoDeEntries } = await import('./bankEntryLedger');
+    const estadosBanco = await estadoDeEntries(result.rows.map((r: any) => Number(r.id)));
+
     const entries = result.rows.map((r: any) => {
       const iso = r.fecha ? new Date(r.fecha).toISOString().substring(0, 10) : null;
       const [yyyy, mm, dd] = (iso || '--').split('-');
+      const st = estadosBanco[Number(r.id)];
       return {
         id: r.id,
+        conciliacion: st
+          ? { estado: st.estado, aplicado: st.aplicado, disponible: st.disponible, ordenes: st.ordenes }
+          : { estado: 'libre', aplicado: 0, disponible: Number(r.abono) || 0, ordenes: [] },
         fecha: iso ? `${dd}-${mm}-${yyyy}` : '',
         concepto: r.concepto,
         referencia: r.referencia,
@@ -11015,7 +11085,23 @@ app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevelOrR
       ORDER BY fecha DESC, seq DESC, id DESC
     `, [empresa_id]);
 
-    res.json({ success: true, entries: result.rows, count: result.rows.length });
+    // Estado de conciliación de cada abono: cuánto se aplicó ya y a qué órdenes.
+    // Con esto el estado de cuenta puede pintar libre / parcial / usado en vez
+    // de mostrar todos los movimientos iguales, que era como un mismo depósito
+    // podía respaldar dos órdenes sin que nadie lo notara.
+    const { estadoDeEntries } = await import('./bankEntryLedger');
+    const estados = await estadoDeEntries(result.rows.map((r: any) => Number(r.id)));
+    const entries = result.rows.map((r: any) => {
+      const st = estados[Number(r.id)];
+      return {
+        ...r,
+        conciliacion: st
+          ? { estado: st.estado, aplicado: st.aplicado, disponible: st.disponible, ordenes: st.ordenes }
+          : { estado: 'libre', aplicado: 0, disponible: Number(r.abono) || 0, ordenes: [] },
+      };
+    });
+
+    res.json({ success: true, entries, count: entries.length });
   } catch (error: any) {
     console.error('Error fetching bank entries:', error);
     res.status(500).json({ error: 'Error obteniendo movimientos', details: error.message });
@@ -11413,12 +11499,24 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
   try {
     const adminId = (req.user as any)?.userId || (req.user as any)?.id;
     const adminName = (req.user as any)?.full_name || req.user?.email || 'Admin';
-    const { matches } = req.body;
-    // matches = [{ ref, amount, total_bank_abonos, user_id, status, ... }]
+    const adminRole = String((req.user as any)?.role || '').toLowerCase();
+    const esSuperAdmin = adminRole === 'super_admin';
+    const { matches, override_sin_ligar } = req.body;
+    // matches = [{ ref, amount, total_bank_abonos, user_id, status, bank_entries[], ... }]
 
     if (!matches || !Array.isArray(matches) || matches.length === 0) {
       return res.status(400).json({ error: 'No hay pagos para autorizar' });
     }
+
+    const {
+      ensureLedgerSchema, aplicarAbono, AbonoAgotadoError,
+    } = await import('./bankEntryLedger');
+    await ensureLedgerSchema();
+
+    // Autorizar sin ligar el movimiento bancario deja el abono sin marcar y es
+    // justo el hueco por donde un mismo depósito respalda dos órdenes. Solo el
+    // super_admin puede saltárselo, y queda anotado en la orden.
+    const permiteSinLigar = esSuperAdmin && override_sin_ligar === true;
 
     const results: any[] = [];
     const errors: any[] = [];
@@ -11455,6 +11553,73 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
         const bankTotal = m.total_bank_abonos || 0;
         const surplus = Math.max(0, bankTotal - orderAmount);
 
+        // 0. Ocupar los abonos que respaldan esta orden ANTES de marcarla
+        //    pagada: si alguno ya se gastó en otra orden, se aborta y la orden
+        //    no se toca. Va dentro de la misma transacción para que un fallo
+        //    posterior libere el abono.
+        // El id llega como `id` cuando los movimientos se cargaron de la base y
+        // como `db_id` cuando se acaban de pegar y guardar; se aceptan los dos.
+        const entryIds: number[] = Array.isArray(m.bank_entries)
+          ? Array.from(new Set(
+              m.bank_entries
+                .filter((e: any) => e && (e.id != null || e.db_id != null) && Number(e.abono) > 0)
+                .map((e: any) => Number(e.id ?? e.db_id))
+                .filter((n: number) => Number.isFinite(n))
+            )) as number[]
+          : [];
+
+        if (entryIds.length === 0 && !permiteSinLigar) {
+          errors.push({
+            ref: m.ref,
+            error: esSuperAdmin
+              ? 'No se identificó el movimiento bancario. Puedes autorizarlo marcando "autorizar sin ligar movimiento".'
+              : 'No se identificó el movimiento bancario que respalda este pago. Solo un super admin puede autorizar sin ligarlo.',
+            requiere_override: true,
+          });
+          await client.query('ROLLBACK');
+          client.release();
+          continue;
+        }
+
+        try {
+          // El abono se reparte en orden hasta cubrir lo que vale la orden: un
+          // depósito grande puede cubrir varias guías y aquí solo se ocupa la
+          // parte que le toca a ésta, dejando el resto libre para las demás.
+          let porCubrir = orderAmount;
+          for (const entryId of entryIds) {
+            if (porCubrir <= 0.01) break;
+            const { saldoDisponible } = await import('./bankEntryLedger');
+            const saldo = await saldoDisponible(client, entryId, true);
+            if (!saldo || saldo.disponible <= 0.01) continue;
+            const aplicar = Math.min(porCubrir, saldo.disponible);
+            await aplicarAbono(client, {
+              bankEntryId: entryId,
+              montoAplicado: aplicar,
+              origen: 'estado_cuenta',
+              paymentOrderId: order.id,
+              paymentReference: m.ref,
+              aplicadoPor: adminId,
+              aplicadoPorNombre: adminName,
+            });
+            porCubrir -= aplicar;
+          }
+          if (porCubrir > 0.01 && !permiteSinLigar) {
+            throw new Error(
+              `Los movimientos seleccionados solo cubren $${(orderAmount - porCubrir).toFixed(2)} de los $${orderAmount.toFixed(2)} de la orden; el resto ya se aplicó a otras órdenes.`
+            );
+          }
+        } catch (e: any) {
+          const agotado = e instanceof AbonoAgotadoError;
+          errors.push({
+            ref: m.ref,
+            error: e?.message || 'No se pudo aplicar el abono bancario',
+            abono_agotado: agotado,
+          });
+          await client.query('ROLLBACK');
+          client.release();
+          continue;
+        }
+
         // 1. Mark order as paid with surplus info
         await client.query(`
           UPDATE pobox_payments SET
@@ -11463,7 +11628,13 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
             surplus_amount = $2,
             confirmation_notes = $3
           WHERE id = $1
-        `, [order.id, surplus, `Autorizado desde estado de cuenta bancario por ${adminName}. Banco: $${bankTotal.toFixed(2)}, Orden: $${orderAmount.toFixed(2)}`]);
+        `, [order.id, surplus,
+            `Autorizado desde estado de cuenta bancario por ${adminName}. Banco: $${bankTotal.toFixed(2)}, Orden: $${orderAmount.toFixed(2)}` +
+            (entryIds.length === 0
+              // Queda escrito en la orden: sin esta nota no habría forma de
+              // saber después que este pago se autorizó sin respaldo bancario.
+              ? ` · ⚠️ AUTORIZADO SIN LIGAR MOVIMIENTO BANCARIO (override de super admin: ${adminName})`
+              : ` · Movimiento(s) bancario(s) #${entryIds.join(', #')}`)]);
 
         // Mismo aviso que en la aprobación manual: WhatsApp + push al cliente y
         // push al asesor. Esta ruta marcaba la orden pagada en silencio, así que

@@ -118,6 +118,42 @@ const authorizeOneMatch = async (
       };
     }
 
+    // 0) Ocupar el abono en el ledger antes de marcar nada. Si ese depósito ya
+    //    respaldó otra orden, esta no se autoriza: es el mismo candado que en
+    //    la autorización manual, para que el cron no sea la puerta de atrás.
+    //    Se resuelve la fila del estado de cuenta desde la transacción Syncfy;
+    //    si no se puede identificar con certeza, mejor no auto-autorizar y que
+    //    pase por Cobranza que aplicar contra el movimiento equivocado.
+    let bankEntryId: number | null = null;
+    try {
+      const { ensureLedgerSchema, entryDeSyncfyTx, aplicarAbono } = await import('./bankEntryLedger');
+      await ensureLedgerSchema();
+      bankEntryId = await entryDeSyncfyTx(syncfyTxId);
+      if (!bankEntryId) {
+        await client.query('ROLLBACK');
+        console.warn(`[bankAutoMatch] Orden ${ref} NO auto-autorizada: no se identificó su movimiento en el estado de cuenta.`);
+        return {
+          ref, status: 'error', amount: orderAmount, bank_total: bankTotal,
+          error: 'No se pudo identificar el movimiento bancario en el estado de cuenta. Requiere autorización manual.',
+        };
+      }
+      await aplicarAbono(client, {
+        bankEntryId,
+        montoAplicado: Math.min(orderAmount, bankTotal),
+        origen: 'auto_syncfy',
+        paymentOrderId: order.id,
+        paymentReference: ref,
+        aplicadoPorNombre: adminName,
+      });
+    } catch (e: any) {
+      await client.query('ROLLBACK');
+      console.warn(`[bankAutoMatch] Orden ${ref} NO auto-autorizada: ${e?.message}`);
+      return {
+        ref, status: 'error', amount: orderAmount, bank_total: bankTotal,
+        error: e?.message || 'El abono bancario ya se aplicó a otra orden.',
+      };
+    }
+
     // 1) Marcar la orden como pagada
     await client.query(
       `UPDATE pobox_payments SET
@@ -126,7 +162,8 @@ const authorizeOneMatch = async (
          surplus_amount = $2,
          confirmation_notes = $3
        WHERE id = $1`,
-      [order.id, surplus, `Autorizado AUTO desde estado de cuenta bancario por ${adminName}. Banco: $${bankTotal.toFixed(2)}, Orden: $${orderAmount.toFixed(2)}`]
+      [order.id, surplus,
+       `Autorizado AUTO desde estado de cuenta bancario por ${adminName}. Banco: $${bankTotal.toFixed(2)}, Orden: $${orderAmount.toFixed(2)} · Movimiento bancario #${bankEntryId}`]
     );
 
     // 2) Aplicar el pago a las guías del SERVICIO correcto. Los ids de package_ids

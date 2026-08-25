@@ -29,6 +29,9 @@ import {
   Select,
   MenuItem,
   FormControl,
+  FormControlLabel,
+  Checkbox,
+  LinearProgress,
   InputLabel,
   Alert,
   Tabs,
@@ -257,7 +260,14 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   // Estado de Cuenta
   const [estadoCuentaRaw, setEstadoCuentaRaw] = useState('');
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  interface ConciliacionRow {
+    estado: 'libre' | 'parcial' | 'usado';
+    aplicado: number;
+    disponible: number;
+    ordenes: { referencia: string | null; monto: number; origen: string; fecha: string | null }[];
+  }
   interface EstadoCuentaRow {
+    id?: number;
     fecha: string;
     concepto: string;
     referencia: string;
@@ -265,6 +275,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     abono: number | null;
     saldo: number;
     seq?: number;
+    // Solo viene en los movimientos guardados; los recién pegados del banco
+    // todavía no existen en la base y por eso no tienen conciliación.
+    conciliacion?: ConciliacionRow;
   }
   const [estadoCuentaRows, setEstadoCuentaRows] = useState<EstadoCuentaRow[]>([]);
   const [estadoCuentaBanco] = useState('bbva');
@@ -274,6 +287,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const [refMatchModal, setRefMatchModal] = useState<{ open: boolean; loading: boolean; matches: any[]; wrongAccount: any[]; unmatched: any[]; summary: any } | null>(null);
   const [amountMatchModal, setAmountMatchModal] = useState<{ open: boolean; loading: boolean; matches: any[]; ambiguous: any[]; unmatched: any[]; summary: any } | null>(null);
   const [confirmAuthorize, setConfirmAuthorize] = useState<{ open: boolean; toAuthorize: any[]; totalSurplus: number } | null>(null);
+  // Autorizar sin ligar el movimiento bancario deja el abono sin marcar y abre
+  // la puerta a que ese mismo depósito respalde otra orden. Solo super admin.
+  const [overrideSinLigar, setOverrideSinLigar] = useState(false);
   const [_loadingSavedEntries, setLoadingSavedEntries] = useState(false);
   const [_savedEntriesCount, setSavedEntriesCount] = useState<number | null>(null);
   const [belvoSyncing, setBelvoSyncing] = useState(false);
@@ -472,6 +488,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
             fechaStr = `${dd}-${mm}-${yyyy}`;
           }
           return {
+            id: e.id,
             fecha: fechaStr,
             concepto: e.concepto,
             referencia: e.referencia,
@@ -479,6 +496,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
             abono: e.abono ? parseFloat(e.abono) : null,
             saldo: e.saldo ? parseFloat(e.saldo) : 0,
             seq: e.seq ?? 0,
+            conciliacion: e.conciliacion,
           };
         });
 
@@ -798,13 +816,26 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     if (!confirmAuthorize?.toAuthorize?.length) return;
     const toAuthorize = confirmAuthorize.toAuthorize;
     setConfirmAuthorize(null);
+    // Se guarda antes de limpiar el estado, para no depender de cuándo React
+    // aplica el setState.
+    const usoOverride = overrideSinLigar;
+    setOverrideSinLigar(false);
     setRefMatchModal(prev => prev ? { ...prev, loading: true } : prev);
     try {
-      const res = await api.post('/admin/finance/authorize-bank-payments', { matches: toAuthorize });
-      const { summary, results } = res.data;
+      const res = await api.post('/admin/finance/authorize-bank-payments', {
+        matches: toAuthorize,
+        override_sin_ligar: usoOverride,
+      });
+      const { summary, results, errors } = res.data;
       let msg = `✅ ${summary.authorized} pago(s) autorizado(s)`;
       if (summary.already_paid > 0) msg += `, ${summary.already_paid} ya pagado(s)`;
       if (summary.errors > 0) msg += `, ${summary.errors} error(es)`;
+      // Los bloqueos por abono ya usado son el caso que importa: hay que decir
+      // cuál y por qué, no esconderlos tras un contador de errores.
+      const bloqueados = (errors || []).filter((e: any) => e.abono_agotado || e.requiere_override);
+      if (bloqueados.length) {
+        msg += ` · 🔒 ${bloqueados.length} bloqueado(s): ${bloqueados.slice(0, 2).map((e: any) => `${e.ref} — ${e.error}`).join(' | ')}`;
+      }
       const totalSurplus = results.filter((r: any) => r.surplus > 0).reduce((s: number, r: any) => s + r.surplus, 0);
       if (totalSurplus > 0) msg += `. Excedente acreditado: $${totalSurplus.toFixed(2)}`;
       setSnackbar({ open: true, message: msg, severity: summary.errors > 0 ? 'warning' : 'success' });
@@ -946,7 +977,12 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   }, [foundPayment]);
 
   // Confirmar pago en efectivo
-  const handleConfirmPayment = async () => {
+  //
+  // `bankEntryId` solo se manda cuando la orden se está pagando con
+  // comprobantes del cliente: el backend lo exige para que un mismo depósito no
+  // pueda respaldar dos órdenes. En efectivo no hay nada que ligar y el flujo
+  // sigue siendo de un solo clic.
+  const handleConfirmPayment = async (bankEntryId?: number, sinLigar?: boolean) => {
     // Puede venir de la tabla (estructura plana) o de búsqueda (estructura anidada)
     const referencia = foundPayment?.payment?.referencia || foundPayment?.referencia;
     if (!referencia) return;
@@ -956,7 +992,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       const response = await api.post('/admin/finance/confirm-payment', {
         referencia: referencia,
         metodo_confirmacion: 'efectivo',
-        notas: 'Confirmado desde dashboard'
+        notas: 'Confirmado desde dashboard',
+        ...(bankEntryId ? { bank_entry_id: bankEntryId } : {}),
+        ...(sinLigar ? { confirmar_sin_ligar: true } : {}),
       }, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -972,13 +1010,40 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
         fetchPendingPayments();
       }
     } catch (error: any) {
-      setSnackbar({ 
-        open: true, 
-        message: error.response?.data?.error || 'Error al confirmar pago', 
-        severity: 'error' 
+      const d = error.response?.data;
+      // El backend pide ligar el abono que respalda los comprobantes. En vez de
+      // mostrar un error seco, se abre el selector con los candidatos.
+      if (d?.error === 'falta_movimiento_bancario') {
+        setConfirmingPayment(false);
+        abrirSelectorBanco(referencia, d.message || '', !!d.puede_saltarse);
+        return;
+      }
+      setSnackbar({
+        open: true,
+        message: d?.message || d?.error || 'Error al confirmar pago',
+        // Que reutilizaran un depósito no es un error cualquiera: se muestra
+        // con su explicación completa y sin auto-ocultarse en un parpadeo.
+        severity: d?.error === 'abono_ya_usado' ? 'warning' : 'error',
       });
     } finally {
       setConfirmingPayment(false);
+    }
+  };
+
+  // Selector del abono bancario que respalda los comprobantes de una orden.
+  const [selectorBanco, setSelectorBanco] = useState<{
+    open: boolean; referencia: string; motivo: string; puedeSaltarse: boolean;
+    loading: boolean; entries: any[]; seleccion: number | null;
+  } | null>(null);
+
+  const abrirSelectorBanco = async (referencia: string, motivo: string, puedeSaltarse: boolean) => {
+    setSelectorBanco({ open: true, referencia, motivo, puedeSaltarse, loading: true, entries: [], seleccion: null });
+    try {
+      const r = await api.get(`/admin/finance/payment-bank-matches/${encodeURIComponent(referencia)}`);
+      const entries = (r.data?.entries || []).filter((e: any) => e.abono);
+      setSelectorBanco(prev => prev ? { ...prev, loading: false, entries } : prev);
+    } catch {
+      setSelectorBanco(prev => prev ? { ...prev, loading: false, entries: [] } : prev);
     }
   };
 
@@ -2199,6 +2264,30 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                   </Grid>
                 </Grid>
 
+                {/* Leyenda + cuánto del dinero que entró ya está conciliado.
+                    Sin esto los colores no se entienden y no hay forma de ver
+                    de un golpe cuánto abono sigue sin aplicarse a una orden. */}
+                {(() => {
+                  const conCon = rowsFiltradas.filter(r => r.conciliacion);
+                  if (!conCon.length) return null;
+                  const usados = conCon.filter(r => r.conciliacion!.estado === 'usado').length;
+                  const parciales = conCon.filter(r => r.conciliacion!.estado === 'parcial').length;
+                  const aplicado = conCon.reduce((s2, r) => s2 + (r.conciliacion!.aplicado || 0), 0);
+                  const libre = conCon.reduce((s2, r) => s2 + (r.conciliacion!.disponible || 0), 0);
+                  return (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.5, mb: 2, px: 0.5 }}>
+                      <Chip size="small" label={`Conciliado ${formatCurrency(aplicado)}`}
+                            sx={{ bgcolor: '#EEEEEE', color: '#616161', fontWeight: 700 }} />
+                      <Chip size="small" label={`Sin aplicar ${formatCurrency(libre)}`}
+                            sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700 }} />
+                      <Typography variant="caption" color="text.secondary">
+                        · {usados} movimiento(s) ya usados{parciales > 0 ? `, ${parciales} usados a medias` : ''}
+                        · el borde gris marca los abonos que ya respaldan una orden y el ámbar los que quedaron a medias
+                      </Typography>
+                    </Box>
+                  );
+                })()}
+
                 <TableContainer>
                   <Table size="small">
                     <TableHead>
@@ -2212,13 +2301,54 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {rowsPagina.map((row, idx) => (
-                        <TableRow key={idx} hover sx={{ bgcolor: row.abono ? 'rgba(39,174,96,0.04)' : row.cargo ? 'rgba(231,76,60,0.04)' : 'inherit' }}>
+                      {rowsPagina.map((row, idx) => {
+                        // Un abono ya conciliado se ve distinto de uno libre: sin
+                        // esto todos los movimientos se veían iguales y el mismo
+                        // depósito podía respaldar dos órdenes sin que nadie lo
+                        // notara. Gris = agotado, ámbar = usado a medias.
+                        const conc = row.conciliacion;
+                        const usado = conc?.estado === 'usado';
+                        const parcial = conc?.estado === 'parcial';
+                        const bgFila = usado
+                          ? 'rgba(120,120,120,0.10)'
+                          : parcial
+                            ? 'rgba(245,166,35,0.10)'
+                            : row.abono ? 'rgba(39,174,96,0.04)' : row.cargo ? 'rgba(231,76,60,0.04)' : 'inherit';
+                        return (
+                        <TableRow key={row.id ?? idx} hover sx={{
+                          bgcolor: bgFila,
+                          borderLeft: usado ? '3px solid #9E9E9E' : parcial ? '3px solid #F5A623' : '3px solid transparent',
+                        }}>
                           <TableCell>
                             <Typography variant="body2" fontFamily="monospace">{row.fecha}</Typography>
                           </TableCell>
                           <TableCell>
-                            <Typography variant="body2" fontWeight="500">{row.concepto}</Typography>
+                            <Typography variant="body2" fontWeight="500" sx={{ color: usado ? 'text.secondary' : 'inherit' }}>
+                              {row.concepto}
+                            </Typography>
+                            {conc && conc.estado !== 'libre' && (
+                              <Tooltip
+                                title={
+                                  conc.ordenes.length
+                                    ? conc.ordenes.map(o => `${o.referencia || 'sin folio'} · $${Number(o.monto).toFixed(2)} · ${o.fecha || ''}`).join('\n')
+                                    : 'Aplicado'
+                                }
+                              >
+                                <Chip
+                                  size="small"
+                                  label={
+                                    usado
+                                      ? `Conciliado${conc.ordenes[0]?.referencia ? ` · ${conc.ordenes[0].referencia}` : ''}${conc.ordenes.length > 1 ? ` +${conc.ordenes.length - 1}` : ''}`
+                                      : `Parcial · quedan ${formatCurrency(conc.disponible)}`
+                                  }
+                                  sx={{
+                                    mt: 0.5, height: 20, fontSize: '0.65rem', fontWeight: 700,
+                                    bgcolor: usado ? '#EEEEEE' : '#FFF3E0',
+                                    color: usado ? '#616161' : '#E65100',
+                                  }}
+                                />
+                              </Tooltip>
+                            )}
                           </TableCell>
                           <TableCell>
                             <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
@@ -2243,7 +2373,8 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                             <Typography variant="body2" fontWeight="bold">{formatCurrency(row.saldo)}</Typography>
                           </TableCell>
                         </TableRow>
-                      ))}
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -2698,6 +2829,97 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       </Dialog>
 
       {/* Dialog confirmar autorización de pagos bancarios */}
+      {/* Selector del abono bancario que respalda los comprobantes del cliente.
+          Solo aparece cuando el backend lo exige — en efectivo nunca se ve. */}
+      <Dialog
+        open={!!selectorBanco?.open}
+        onClose={() => setSelectorBanco(null)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ bgcolor: '#1565C0', color: 'white' }}>
+          Liga el movimiento bancario · {selectorBanco?.referencia}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>{selectorBanco?.motivo}</Alert>
+          {selectorBanco?.loading && <LinearProgress />}
+          {!selectorBanco?.loading && selectorBanco?.entries.length === 0 && (
+            <Alert severity="warning">
+              No se encontraron abonos parecidos en el estado de cuenta cerca de la fecha de esta orden.
+            </Alert>
+          )}
+          <Box sx={{ maxHeight: 380, overflowY: 'auto' }}>
+            {selectorBanco?.entries.map((e: any) => {
+              const usado = e.conciliacion?.estado === 'usado';
+              const parcial = e.conciliacion?.estado === 'parcial';
+              const elegido = selectorBanco.seleccion === e.id;
+              return (
+                <Paper
+                  key={e.id}
+                  onClick={() => { if (!usado) setSelectorBanco(prev => prev ? { ...prev, seleccion: e.id } : prev); }}
+                  sx={{
+                    p: 1.5, mb: 1, borderRadius: 2,
+                    // Un abono agotado no se puede elegir: ya respalda otra orden.
+                    cursor: usado ? 'not-allowed' : 'pointer',
+                    opacity: usado ? 0.55 : 1,
+                    border: elegido ? '2px solid #1565C0' : '1px solid #e0e0e0',
+                    bgcolor: usado ? '#F5F5F5' : parcial ? '#FFF8E1' : e.match ? '#F1F8E9' : 'white',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={700}>{e.fecha} · {e.banco || ''}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {e.concepto}
+                      </Typography>
+                      {usado && (
+                        <Typography variant="caption" color="error.main" fontWeight={700}>
+                          Ya usado en {e.conciliacion.ordenes.map((o: any) => o.referencia || 'otra orden').join(', ')}
+                        </Typography>
+                      )}
+                      {parcial && (
+                        <Typography variant="caption" sx={{ color: '#E65100', fontWeight: 700 }}>
+                          Quedan {formatCurrency(e.conciliacion.disponible)} sin aplicar
+                        </Typography>
+                      )}
+                    </Box>
+                    <Box sx={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <Typography variant="body2" fontWeight={700} color="success.main">
+                        +{formatCurrency(e.abono)}
+                      </Typography>
+                      {e.match_monto && <Chip size="small" label="monto exacto" sx={{ height: 18, fontSize: '0.6rem', mt: 0.5 }} />}
+                    </Box>
+                  </Box>
+                </Paper>
+              );
+            })}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+          <Button onClick={() => setSelectorBanco(null)} color="inherit" variant="outlined">Cancelar</Button>
+          {selectorBanco?.puedeSaltarse && (
+            <Button
+              color="warning"
+              onClick={() => { const r = selectorBanco; setSelectorBanco(null); if (r) handleConfirmPayment(undefined, true); }}
+            >
+              Confirmar sin ligar
+            </Button>
+          )}
+          <Button
+            variant="contained"
+            disabled={!selectorBanco?.seleccion}
+            onClick={() => {
+              const sel = selectorBanco?.seleccion || undefined;
+              setSelectorBanco(null);
+              if (sel) handleConfirmPayment(sel);
+            }}
+          >
+            Ligar y confirmar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog
         open={!!confirmAuthorize?.open}
         onClose={() => setConfirmAuthorize(null)}
@@ -2718,6 +2940,41 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
               💰 Se acreditará <strong>${confirmAuthorize!.totalSurplus.toFixed(2)} MXN</strong> como saldo a favor a los clientes correspondientes.
             </Alert>
           )}
+          {/* Órdenes que no traen movimiento bancario identificado: sin ligarlo,
+              el abono queda sin marcar y podría respaldar otra orden después. */}
+          {(() => {
+            const sinLigar = (confirmAuthorize?.toAuthorize || []).filter(
+              (m: any) => !Array.isArray(m.bank_entries) || m.bank_entries.every((e: any) => e?.id == null && e?.db_id == null)
+            );
+            if (!sinLigar.length) return null;
+            return (
+              <Alert severity="warning" sx={{ mt: 1 }}>
+                <strong>{sinLigar.length} orden(es) sin movimiento bancario identificado.</strong> No se pueden autorizar
+                sin ligar el abono que las respalda — es lo que impide que un mismo depósito pague dos órdenes.
+                {isSuperAdmin ? (
+                  <FormControlLabel
+                    sx={{ display: 'block', mt: 1 }}
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={overrideSinLigar}
+                        onChange={(ev) => setOverrideSinLigar(ev.target.checked)}
+                      />
+                    }
+                    label={
+                      <Typography variant="caption">
+                        Autorizarlas de todos modos bajo mi responsabilidad (queda anotado en la orden)
+                      </Typography>
+                    }
+                  />
+                ) : (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                    Solo un super admin puede autorizarlas sin ligar el movimiento.
+                  </Typography>
+                )}
+              </Alert>
+            );
+          })()}
           {/* Detail per order */}
           <Box sx={{ mt: 2 }}>
             {confirmAuthorize?.toAuthorize?.map((m: any, i: number) => (
@@ -2737,7 +2994,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
-          <Button onClick={() => setConfirmAuthorize(null)} variant="outlined" color="inherit">
+          <Button onClick={() => { setConfirmAuthorize(null); setOverrideSinLigar(false); }} variant="outlined" color="inherit">
             Cancelar
           </Button>
           <Button
@@ -2923,7 +3180,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
           <Button
             variant="contained"
             color="success"
-            onClick={handleConfirmPayment}
+            onClick={() => handleConfirmPayment()}
             disabled={confirmingPayment || (foundPayment?.puede_confirmar === false)}
             startIcon={<CheckCircle />}
           >
