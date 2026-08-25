@@ -9681,9 +9681,16 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
             const rolConfirma = String((req.user as any)?.role || '').toLowerCase();
             const puedeSaltarse = rolConfirma === 'super_admin'
               && (req.body?.confirmar_sin_ligar === true || req.body?.confirmar_sin_ligar === 'true');
-            const entryIdConf = Number(req.body?.bank_entry_id) || null;
+            // Una orden se paga con frecuencia en varios depósitos, así que se
+            // reciben todos los movimientos que la respaldan. `bank_entry_id`
+            // en singular se sigue aceptando por compatibilidad.
+            const entryIdsConf: number[] = Array.from(new Set(
+              (Array.isArray(req.body?.bank_entry_ids) ? req.body.bank_entry_ids : [req.body?.bank_entry_id])
+                .map((x: any) => Number(x))
+                .filter((n: number) => Number.isFinite(n) && n > 0)
+            ));
 
-            if (!entryIdConf && !puedeSaltarse) {
+            if (entryIdsConf.length === 0 && !puedeSaltarse) {
               await client.query('ROLLBACK');
               client.release();
               return res.status(409).json({
@@ -9699,25 +9706,41 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
               });
             }
 
-            if (entryIdConf) {
+            if (entryIdsConf.length > 0) {
               try {
-                const { ensureLedgerSchema, aplicarAbono } = await import('./bankEntryLedger');
+                const { ensureLedgerSchema, aplicarAbonos } = await import('./bankEntryLedger');
                 await ensureLedgerSchema();
-                await aplicarAbono(client, {
-                  bankEntryId: entryIdConf,
-                  montoAplicado: Number(compPend.rows[0].monto) || montoPago,
+                const aCubrir = Number(compPend.rows[0].monto) || montoPago;
+                const rep = await aplicarAbonos(client, entryIdsConf, aCubrir, {
                   origen: 'comprobante_manual',
                   paymentOrderId: poboxPay.id,
                   paymentReference: refStr,
                   aplicadoPor: adminId ?? null,
                   aplicadoPorNombre: adminName,
                 });
+                // Si lo seleccionado no alcanza a cubrir los comprobantes, o
+                // faltó marcar un depósito o el cliente pagó de menos. En
+                // cualquiera de los dos casos quien concilia tiene que verlo,
+                // no descubrirlo después en el saldo.
+                if (rep.faltante > 0.01 && !puedeSaltarse) {
+                  await client.query('ROLLBACK');
+                  client.release();
+                  return res.status(409).json({
+                    error: 'movimientos_insuficientes',
+                    message: `Los ${entryIdsConf.length} movimiento(s) seleccionados cubren $${rep.aplicado.toFixed(2)} ` +
+                      `de los $${aCubrir.toFixed(2)} en comprobantes. Faltan $${rep.faltante.toFixed(2)}: ` +
+                      `selecciona el otro depósito, o si el cliente pagó de menos confírmalo como pago parcial.`,
+                    faltante: rep.faltante,
+                    aplicado: rep.aplicado,
+                    referencia: refStr,
+                  });
+                }
               } catch (e: any) {
                 await client.query('ROLLBACK');
                 client.release();
                 return res.status(409).json({
                   error: 'abono_ya_usado',
-                  message: e?.message || 'El abono seleccionado ya se aplicó a otra orden.',
+                  message: e?.message || 'Alguno de los abonos seleccionados ya se aplicó a otra orden.',
                   referencia: refStr,
                 });
               }
@@ -11509,7 +11532,7 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
     }
 
     const {
-      ensureLedgerSchema, aplicarAbono, AbonoAgotadoError,
+      ensureLedgerSchema, aplicarAbonos, AbonoAgotadoError,
     } = await import('./bankEntryLedger');
     await ensureLedgerSchema();
 
@@ -11582,30 +11605,19 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
         }
 
         try {
-          // El abono se reparte en orden hasta cubrir lo que vale la orden: un
-          // depósito grande puede cubrir varias guías y aquí solo se ocupa la
-          // parte que le toca a ésta, dejando el resto libre para las demás.
-          let porCubrir = orderAmount;
-          for (const entryId of entryIds) {
-            if (porCubrir <= 0.01) break;
-            const { saldoDisponible } = await import('./bankEntryLedger');
-            const saldo = await saldoDisponible(client, entryId, true);
-            if (!saldo || saldo.disponible <= 0.01) continue;
-            const aplicar = Math.min(porCubrir, saldo.disponible);
-            await aplicarAbono(client, {
-              bankEntryId: entryId,
-              montoAplicado: aplicar,
-              origen: 'estado_cuenta',
-              paymentOrderId: order.id,
-              paymentReference: m.ref,
-              aplicadoPor: adminId,
-              aplicadoPorNombre: adminName,
-            });
-            porCubrir -= aplicar;
-          }
-          if (porCubrir > 0.01 && !permiteSinLigar) {
+          // Se reparte entre los movimientos detectados hasta cubrir la orden:
+          // un depósito grande puede cubrir varias guías y aquí solo se ocupa
+          // la parte que le toca, dejando el resto libre para las demás.
+          const rep = await aplicarAbonos(client, entryIds, orderAmount, {
+            origen: 'estado_cuenta',
+            paymentOrderId: order.id,
+            paymentReference: m.ref,
+            aplicadoPor: adminId,
+            aplicadoPorNombre: adminName,
+          });
+          if (rep.faltante > 0.01 && !permiteSinLigar) {
             throw new Error(
-              `Los movimientos seleccionados solo cubren $${(orderAmount - porCubrir).toFixed(2)} de los $${orderAmount.toFixed(2)} de la orden; el resto ya se aplicó a otras órdenes.`
+              `Los movimientos detectados solo cubren $${rep.aplicado.toFixed(2)} de los $${orderAmount.toFixed(2)} de la orden; el resto ya se aplicó a otras órdenes.`
             );
           }
         } catch (e: any) {

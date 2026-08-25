@@ -982,7 +982,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   // comprobantes del cliente: el backend lo exige para que un mismo depósito no
   // pueda respaldar dos órdenes. En efectivo no hay nada que ligar y el flujo
   // sigue siendo de un solo clic.
-  const handleConfirmPayment = async (bankEntryId?: number, sinLigar?: boolean) => {
+  const handleConfirmPayment = async (bankEntryIds?: number[], sinLigar?: boolean) => {
     // Puede venir de la tabla (estructura plana) o de búsqueda (estructura anidada)
     const referencia = foundPayment?.payment?.referencia || foundPayment?.referencia;
     if (!referencia) return;
@@ -993,7 +993,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
         referencia: referencia,
         metodo_confirmacion: 'efectivo',
         notas: 'Confirmado desde dashboard',
-        ...(bankEntryId ? { bank_entry_id: bankEntryId } : {}),
+        ...(bankEntryIds && bankEntryIds.length ? { bank_entry_ids: bankEntryIds } : {}),
         ...(sinLigar ? { confirmar_sin_ligar: true } : {}),
       }, {
         headers: { Authorization: `Bearer ${token}` },
@@ -1013,9 +1013,11 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       const d = error.response?.data;
       // El backend pide ligar el abono que respalda los comprobantes. En vez de
       // mostrar un error seco, se abre el selector con los candidatos.
-      if (d?.error === 'falta_movimiento_bancario') {
+      if (d?.error === 'falta_movimiento_bancario' || d?.error === 'movimientos_insuficientes') {
         setConfirmingPayment(false);
-        abrirSelectorBanco(referencia, d.message || '', !!d.puede_saltarse);
+        // Si faltó marcar un depósito se vuelve a abrir el selector con el
+        // motivo: es más útil que un error que obliga a empezar de cero.
+        abrirSelectorBanco(referencia, d.message || '', !!d.puede_saltarse || isSuperAdmin);
         return;
       }
       setSnackbar({
@@ -1033,15 +1035,19 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   // Selector del abono bancario que respalda los comprobantes de una orden.
   const [selectorBanco, setSelectorBanco] = useState<{
     open: boolean; referencia: string; motivo: string; puedeSaltarse: boolean;
-    loading: boolean; entries: any[]; seleccion: number | null;
+    loading: boolean; entries: any[];
+    // Varios: una orden se paga con frecuencia en más de un depósito.
+    seleccion: number[];
+    // Lo que hay que cubrir entre los movimientos elegidos.
+    requerido: number;
   } | null>(null);
 
   const abrirSelectorBanco = async (referencia: string, motivo: string, puedeSaltarse: boolean) => {
-    setSelectorBanco({ open: true, referencia, motivo, puedeSaltarse, loading: true, entries: [], seleccion: null });
+    setSelectorBanco({ open: true, referencia, motivo, puedeSaltarse, loading: true, entries: [], seleccion: [], requerido: 0 });
     try {
       const r = await api.get(`/admin/finance/payment-bank-matches/${encodeURIComponent(referencia)}`);
       const entries = (r.data?.entries || []).filter((e: any) => e.abono);
-      setSelectorBanco(prev => prev ? { ...prev, loading: false, entries } : prev);
+      setSelectorBanco(prev => prev ? { ...prev, loading: false, entries, requerido: Number(r.data?.monto) || 0 } : prev);
     } catch {
       setSelectorBanco(prev => prev ? { ...prev, loading: false, entries: [] } : prev);
     }
@@ -2853,11 +2859,19 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
             {selectorBanco?.entries.map((e: any) => {
               const usado = e.conciliacion?.estado === 'usado';
               const parcial = e.conciliacion?.estado === 'parcial';
-              const elegido = selectorBanco.seleccion === e.id;
+              const elegido = selectorBanco.seleccion.includes(e.id);
               return (
                 <Paper
                   key={e.id}
-                  onClick={() => { if (!usado) setSelectorBanco(prev => prev ? { ...prev, seleccion: e.id } : prev); }}
+                  onClick={() => {
+                    if (usado) return;
+                    setSelectorBanco(prev => prev ? {
+                      ...prev,
+                      seleccion: prev.seleccion.includes(e.id)
+                        ? prev.seleccion.filter(x => x !== e.id)
+                        : [...prev.seleccion, e.id],
+                    } : prev);
+                  }}
                   sx={{
                     p: 1.5, mb: 1, borderRadius: 2,
                     // Un abono agotado no se puede elegir: ya respalda otra orden.
@@ -2868,6 +2882,8 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                   }}
                 >
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                    <Box sx={{ display: 'flex', gap: 1, minWidth: 0 }}>
+                      <Checkbox size="small" checked={elegido} disabled={usado} sx={{ p: 0, mt: 0.25 }} />
                     <Box sx={{ minWidth: 0 }}>
                       <Typography variant="body2" fontWeight={700}>{e.fecha} · {e.banco || ''}</Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -2884,6 +2900,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                         </Typography>
                       )}
                     </Box>
+                    </Box>
                     <Box sx={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <Typography variant="body2" fontWeight={700} color="success.main">
                         +{formatCurrency(e.abono)}
@@ -2896,23 +2913,40 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
             })}
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1, flexWrap: 'wrap' }}>
+          {/* Cuánto suma lo seleccionado contra lo que vale la orden: sin esto
+              no hay forma de saber si ya se marcaron todos los depósitos. */}
+          {(() => {
+            if (!selectorBanco) return null;
+            const suma = selectorBanco.entries
+              .filter((e: any) => selectorBanco.seleccion.includes(e.id))
+              .reduce((s2: number, e: any) => s2 + Number(e.conciliacion?.disponible ?? e.abono ?? 0), 0);
+            const req = selectorBanco.requerido;
+            const cubre = req <= 0 || suma >= req - 0.01;
+            return (
+              <Typography variant="body2" sx={{ mr: 'auto', fontWeight: 700, color: cubre ? 'success.main' : 'warning.main' }}>
+                {selectorBanco.seleccion.length} seleccionado(s) · {formatCurrency(suma)}
+                {req > 0 && ` de ${formatCurrency(req)}`}
+                {req > 0 && !cubre && ` · faltan ${formatCurrency(req - suma)}`}
+              </Typography>
+            );
+          })()}
           <Button onClick={() => setSelectorBanco(null)} color="inherit" variant="outlined">Cancelar</Button>
           {selectorBanco?.puedeSaltarse && (
             <Button
               color="warning"
-              onClick={() => { const r = selectorBanco; setSelectorBanco(null); if (r) handleConfirmPayment(undefined, true); }}
+              onClick={() => { setSelectorBanco(null); handleConfirmPayment(undefined, true); }}
             >
               Confirmar sin ligar
             </Button>
           )}
           <Button
             variant="contained"
-            disabled={!selectorBanco?.seleccion}
+            disabled={!selectorBanco?.seleccion.length}
             onClick={() => {
-              const sel = selectorBanco?.seleccion || undefined;
+              const sel = selectorBanco?.seleccion || [];
               setSelectorBanco(null);
-              if (sel) handleConfirmPayment(sel);
+              if (sel.length) handleConfirmPayment(sel);
             }}
           >
             Ligar y confirmar

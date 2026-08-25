@@ -202,6 +202,55 @@ export async function aplicarAbono(
 }
 
 /**
+ * Reparte un monto entre varios movimientos, en el orden dado.
+ *
+ * Una orden se paga con frecuencia en varios depósitos (10 de 396 órdenes hoy:
+ * PP-97684054 son 2,463.24 + 3,600.00). Con un solo movimiento el candado
+ * rechazaba esos pagos legítimos, porque intentaba aplicar el total a un abono
+ * que solo cubría una parte.
+ *
+ * De cada movimiento toma lo que le quede libre, nunca más, y sigue con el
+ * siguiente. Si al final falta por cubrir, lo dice: `faltante` es lo que no
+ * alcanzó, para que quien concilia sepa si le falta seleccionar un depósito o
+ * si de verdad el cliente pagó de menos.
+ */
+export async function aplicarAbonos(
+  client: PoolClient,
+  bankEntryIds: number[],
+  montoTotal: number,
+  datos: {
+    origen: OrigenAplicacion;
+    paymentOrderId?: number | null;
+    paymentReference?: string | null;
+    voucherId?: number | null;
+    aplicadoPor?: number | null;
+    aplicadoPorNombre?: string | null;
+    nota?: string | null;
+  }
+): Promise<{ aplicado: number; faltante: number; detalle: { entry_id: number; monto: number }[] }> {
+  const detalle: { entry_id: number; monto: number }[] = [];
+  let porCubrir = cents(montoTotal);
+
+  for (const entryId of bankEntryIds) {
+    if (porCubrir <= 0.01) break;
+    const saldo = await saldoDisponible(client, entryId, true);
+    if (!saldo) throw new Error(`El movimiento bancario #${entryId} no existe.`);
+    if (saldo.abono <= 0) throw new Error('Uno de los movimientos seleccionados es un cargo, no un abono.');
+    // Un movimiento ya agotado que el usuario eligió a propósito sí se reclama:
+    // callarlo dejaría que confirmara creyendo que ese depósito respalda el
+    // pago cuando en realidad ya se lo llevó otra orden.
+    if (saldo.disponible <= 0.01) throw new AbonoAgotadoError(saldo, porCubrir);
+
+    const aplicar = cents(Math.min(porCubrir, saldo.disponible));
+    await aplicarAbono(client, { ...datos, bankEntryId: entryId, montoAplicado: aplicar });
+    detalle.push({ entry_id: entryId, monto: aplicar });
+    porCubrir = cents(porCubrir - aplicar);
+  }
+
+  return { aplicado: cents(montoTotal - porCubrir), faltante: Math.max(0, porCubrir), detalle };
+}
+
+/**
  * Libera los abonos de una orden al revertirla, para que el dinero vuelva a
  * quedar disponible. Sin esto, revertir un pago dejaría el abono ocupado para
  * siempre y el dinero real quedaría inutilizable.
