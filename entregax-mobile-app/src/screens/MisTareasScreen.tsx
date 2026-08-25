@@ -137,9 +137,8 @@ export default function MisTareasScreen({ navigation, route }: Props) {
             <Ionicons name="calendar-outline" size={20} color="#B07206" />
           </TouchableOpacity>
         </ScrollView>
-        <TouchableOpacity style={styles.newTaskBtn} onPress={() => setCreateOpen(true)} hitSlop={8}>
-          <Ionicons name="add" size={20} color="#fff" />
-          <Text style={styles.newTaskTxt}>Nueva</Text>
+        <TouchableOpacity style={styles.newTaskBtn} onPress={() => setCreateOpen(true)} hitSlop={8} accessibilityLabel="Nueva tarea">
+          <Ionicons name="add" size={26} color="#fff" />
         </TouchableOpacity>
       </View>
 
@@ -307,9 +306,9 @@ const styles = StyleSheet.create({
   persBtnTxt: { color: '#B07206', fontWeight: '800', fontSize: 12.5 },
   iconBtnOutline: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#B07206', alignItems: 'center', justifyContent: 'center' },
   iconBtnFilled: { width: 40, height: 40, borderRadius: 20, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center' },
-  // flexShrink 0: es la acción principal, nunca debe encogerse ni salirse.
-  newTaskBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: ORANGE, flexShrink: 0 },
-  newTaskTxt: { color: '#fff', fontWeight: '800', fontSize: 13.5 },
+  // Redondo y compacto: con la etiqueta "Nueva" se comía el ancho y tapaba los
+  // filtros. flexShrink 0 para que nunca se encoja ni se salga de pantalla.
+  newTaskBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: ORANGE, flexShrink: 0, marginLeft: 4 },
   catBar: { paddingBottom: 8, backgroundColor: BG },
   catChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff', maxWidth: 180 },
   searchWrap: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#DDD' },

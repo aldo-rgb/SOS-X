@@ -941,17 +941,149 @@ export const getMyTickets = async (req: Request, res: Response): Promise<any> =>
  * GET /api/support/ticket/:id/messages
  * Obtener mensajes de un ticket (cliente)
  */
+// ────────────────────────────────────────────────────────────────────────────
+// Edición, borrado y confirmación de lectura de mensajes de ticket (tarea 261)
+//
+// ticket_messages no tenía dónde guardar nada de esto. Las columnas se crean a
+// demanda, como el resto del esquema de soporte.
+//   · edited_at   → se muestra "editado" en vez de la hora original
+//   · deleted_at  → BORRADO SUAVE: el texto se sustituye por "mensaje
+//                   eliminado" y el hilo conserva el hueco. En una conversación
+//                   con un cliente, un mensaje que desaparece sin rastro se
+//                   presta a discusiones sobre qué se dijo.
+//   · read_at     → cuándo lo leyó la CONTRAPARTE (una palomita si no, dos si sí)
+// ────────────────────────────────────────────────────────────────────────────
+let msgSchemaReady = false;
+const ensureTicketMessageSchema = async (): Promise<void> => {
+  if (msgSchemaReady) return;
+  try {
+    await pool.query(`ALTER TABLE ticket_messages
+      ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS deleted_by INTEGER,
+      ADD COLUMN IF NOT EXISTS read_at TIMESTAMP`);
+    msgSchemaReady = true;
+  } catch (e: any) {
+    console.warn('[support] ensureTicketMessageSchema:', e?.message);
+  }
+};
+
+export const TEXTO_MENSAJE_ELIMINADO = 'Mensaje eliminado';
+
+/** ¿Quién escribió el mensaje: el cliente o alguien del equipo? */
+const esLadoCliente = (senderType?: string): boolean => String(senderType || '') === 'client';
+
+/**
+ * PATCH /api/support/ticket/:id/messages/:msgId
+ * Editar el propio mensaje. Misma regla que los comentarios de tarea: solo el
+ * autor. Un mensaje ya borrado no se puede editar.
+ */
+export const editTicketMessage = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureTicketMessageSchema();
+    const uid = (req as any).user?.userId;
+    const msgId = parseInt(String(req.params.msgId));
+    const ticketId = parseInt(String(req.params.id));
+    const texto = String(req.body?.message || '').trim();
+    if (!texto) return res.status(400).json({ error: 'El mensaje no puede quedar vacío' });
+
+    const cur = await pool.query(
+      `SELECT sender_id, deleted_at FROM ticket_messages WHERE id = $1 AND ticket_id = $2`,
+      [msgId, ticketId]
+    );
+    if (cur.rows.length === 0) return res.status(404).json({ error: 'Mensaje no encontrado' });
+    if (cur.rows[0].deleted_at) return res.status(400).json({ error: 'No se puede editar un mensaje eliminado' });
+    if (Number(cur.rows[0].sender_id) !== Number(uid)) {
+      return res.status(403).json({ error: 'Solo quien lo escribió puede editar el mensaje' });
+    }
+
+    const r = await pool.query(
+      `UPDATE ticket_messages SET message = $1, edited_at = NOW() WHERE id = $2
+       RETURNING id, message, edited_at, created_at`,
+      [texto, msgId]
+    );
+    res.json({ success: true, message: r.rows[0] });
+  } catch (e: any) {
+    console.error('[support] editTicketMessage:', e);
+    res.status(500).json({ error: 'Error al editar el mensaje' });
+  }
+};
+
+/**
+ * DELETE /api/support/ticket/:id/messages/:msgId
+ * Borrado SUAVE: conserva la fila y marca deleted_at. Solo el autor.
+ */
+export const deleteTicketMessage = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureTicketMessageSchema();
+    const uid = (req as any).user?.userId;
+    const msgId = parseInt(String(req.params.msgId));
+    const ticketId = parseInt(String(req.params.id));
+
+    const cur = await pool.query(
+      `SELECT sender_id, deleted_at FROM ticket_messages WHERE id = $1 AND ticket_id = $2`,
+      [msgId, ticketId]
+    );
+    if (cur.rows.length === 0) return res.status(404).json({ error: 'Mensaje no encontrado' });
+    if (cur.rows[0].deleted_at) return res.json({ success: true, already: true });
+    if (Number(cur.rows[0].sender_id) !== Number(uid)) {
+      return res.status(403).json({ error: 'Solo quien lo escribió puede eliminar el mensaje' });
+    }
+
+    await pool.query(
+      `UPDATE ticket_messages SET deleted_at = NOW(), deleted_by = $2 WHERE id = $1`,
+      [msgId, uid]
+    );
+    res.json({ success: true });
+  } catch (e: any) {
+    console.error('[support] deleteTicketMessage:', e);
+    res.status(500).json({ error: 'Error al eliminar el mensaje' });
+  }
+};
+
+/**
+ * Marca como leídos los mensajes de la CONTRAPARTE al abrir el ticket.
+ * Si lo abre el cliente, se marcan los del agente, y al revés. Nunca marca los
+ * propios: la segunda palomita significa "el otro ya lo vio".
+ */
+export const marcarMensajesLeidos = async (ticketId: number, ladoCliente: boolean): Promise<void> => {
+  try {
+    await ensureTicketMessageSchema();
+    await pool.query(
+      `UPDATE ticket_messages
+          SET read_at = NOW()
+        WHERE ticket_id = $1
+          AND read_at IS NULL
+          AND deleted_at IS NULL
+          AND COALESCE(is_internal, FALSE) = FALSE
+          AND (sender_type = 'client') IS DISTINCT FROM $2`,
+      [ticketId, ladoCliente]
+    );
+  } catch (e: any) {
+    console.warn('[support] marcarMensajesLeidos:', e?.message);
+  }
+};
+
 export const getTicketMessages = async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
-    // Vista cliente: solo mensajes NO internos
+    await ensureTicketMessageSchema();
+    // Abre el cliente: los mensajes del equipo pasan a leídos (dos palomitas).
+    await marcarMensajesLeidos(Number(id), true);
+    // Vista cliente: solo mensajes NO internos. Un mensaje borrado conserva su
+    // lugar en el hilo con el texto sustituido, no desaparece.
     const result = await pool.query(
-      `SELECT id, sender_type, message, attachment_url, attachments, created_at, FALSE as is_internal
+      `SELECT id, sender_type,
+              CASE WHEN deleted_at IS NOT NULL THEN $2::text ELSE message END AS message,
+              CASE WHEN deleted_at IS NOT NULL THEN NULL ELSE attachment_url END AS attachment_url,
+              CASE WHEN deleted_at IS NOT NULL THEN NULL ELSE attachments END AS attachments,
+              created_at, FALSE as is_internal,
+              edited_at, deleted_at, read_at
        FROM ticket_messages
        WHERE ticket_id = $1
          AND COALESCE(is_internal, FALSE) = FALSE
        ORDER BY created_at ASC`,
-      [id]
+      [id, TEXTO_MENSAJE_ELIMINADO]
     );
 
     const rows = await Promise.all(result.rows.map(signRowAttachments));
@@ -969,15 +1101,23 @@ export const getTicketMessages = async (req: Request, res: Response): Promise<an
 export const getAdminTicketMessages = async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
+    await ensureTicketMessageSchema();
+    // Abre el equipo: los mensajes del cliente pasan a leídos.
+    await marcarMensajesLeidos(Number(id), false);
     const result = await pool.query(
-      `SELECT tm.id, tm.sender_type, tm.message, tm.attachment_url, tm.attachments, tm.created_at,
+      `SELECT tm.id, tm.sender_type,
+              CASE WHEN tm.deleted_at IS NOT NULL THEN $2::text ELSE tm.message END AS message,
+              CASE WHEN tm.deleted_at IS NOT NULL THEN NULL ELSE tm.attachment_url END AS attachment_url,
+              CASE WHEN tm.deleted_at IS NOT NULL THEN NULL ELSE tm.attachments END AS attachments,
+              tm.created_at,
               COALESCE(tm.is_internal, FALSE) as is_internal,
+              tm.sender_id, tm.edited_at, tm.deleted_at, tm.read_at,
               u.full_name as sender_name
        FROM ticket_messages tm
        LEFT JOIN users u ON u.id = tm.sender_id
        WHERE tm.ticket_id = $1
        ORDER BY tm.created_at ASC`,
-      [id]
+      [id, TEXTO_MENSAJE_ELIMINADO]
     );
     const rows = await Promise.all(result.rows.map(signRowAttachments));
     res.json(rows);

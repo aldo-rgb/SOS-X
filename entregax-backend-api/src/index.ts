@@ -725,6 +725,8 @@ import {
   handleSupportMessage,
   getMyTickets,
   getTicketMessages,
+  editTicketMessage,
+  deleteTicketMessage,
   clientReplyTicket,
   getAdminTickets,
   getSupportStats,
@@ -7822,6 +7824,10 @@ app.get('/api/support/tickets', authenticateToken, getMyTickets);
 
 // Cliente: Ver mensajes de un ticket
 app.get('/api/support/ticket/:id/messages', authenticateToken, getTicketMessages);
+// Editar / eliminar el propio mensaje de un ticket (tarea 261). El borrado es
+// SUAVE: la fila se conserva y el hilo muestra "Mensaje eliminado".
+app.patch('/api/support/ticket/:id/messages/:msgId', authenticateToken, editTicketMessage);
+app.delete('/api/support/ticket/:id/messages/:msgId', authenticateToken, deleteTicketMessage);
 app.get('/api/admin/support/ticket/:id/messages', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), getAdminTicketMessages);
 
 // Cliente: Responder a su ticket
