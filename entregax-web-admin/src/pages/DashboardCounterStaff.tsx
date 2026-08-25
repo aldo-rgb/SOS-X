@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect } from 'react';
+import { limpiarEscaneo } from '../utils/scanInput';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -817,7 +818,7 @@ export default function DashboardCounterStaff() {
                   fullWidth
                   label="Escanear guía"
                   value={scanTrackingInput}
-                  onChange={(e) => setScanTrackingInput(e.target.value.toUpperCase())}
+                  onChange={(e) => setScanTrackingInput(limpiarEscaneo(e.target.value).toUpperCase())}
                   placeholder="Escanear o escribir número de guía..."
                   autoFocus
                   InputProps={{

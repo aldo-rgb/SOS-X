@@ -6,6 +6,7 @@
 // ============================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { limpiarEscaneo } from '../utils/scanInput';
 import {
     Alert,
     Box,
@@ -195,7 +196,7 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
                                 fullWidth
                                 placeholder="Buscar por guía, casillero o cliente…"
                                 value={search}
-                                onChange={e => setSearch(e.target.value)}
+                                onChange={e => setSearch(limpiarEscaneo(e.target.value))}
                                 InputProps={{
                                     startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
                                 }}
@@ -430,7 +431,7 @@ export default function AssignClientPage({ onBack }: Props) {
                     fullWidth
                     placeholder="Buscar por tracking, descripción, casillero…"
                     value={search}
-                    onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+                    onChange={(e) => { setSearch(limpiarEscaneo(e.target.value)); setPage(0); }}
                     InputProps={{
                         startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>,
                     }}
@@ -601,7 +602,7 @@ export default function AssignClientPage({ onBack }: Props) {
                         size="small"
                         label="Buscar cliente (nombre, email o casillero)"
                         value={clientQuery}
-                        onChange={(e) => setClientQuery(e.target.value)}
+                        onChange={(e) => setClientQuery(limpiarEscaneo(e.target.value))}
                         placeholder="Ej: S2, juan@example.com, Juan Segura"
                         InputProps={{
                             startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>,

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { limpiarEscaneo } from '../utils/scanInput';
 import { useScaleReader } from '../hooks/useScaleReader';
 import MultiBoxScanDialog from '../components/MultiBoxScanDialog';
 import { useTranslation } from 'react-i18next';
@@ -1759,7 +1760,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       {/* Search */}
       <Paper sx={{ p: 2, mb: 3 }}>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <TextField placeholder={t('common.search') + '...'} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+          <TextField placeholder={t('common.search') + '...'} value={searchTerm} onChange={(e) => setSearchTerm(limpiarEscaneo(e.target.value))}
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
             sx={{ flexGrow: 1, minWidth: 280 }} />
           <TextField
