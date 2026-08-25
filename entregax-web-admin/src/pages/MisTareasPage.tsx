@@ -993,8 +993,16 @@ export default function MisTareasPage() {
               if (t.status === 'awaiting_confirmation') return iAssigned ? 1 : 3;
               return 2;
             };
+            // Orden principal: lo que vence primero va arriba. Las que no tienen
+            // fecha se van al fondo (no pueden "estar por vencer"). El rank de
+            // arriba queda como desempate entre las que comparten fecha.
+            const vence = (t: Task) => (t.due_at ? new Date(t.due_at).getTime() : Number.POSITIVE_INFINITY);
             const qt = visibleTasks.filter(t => t.eisenhower === q.key)
-              .sort((a, b) => rank(a) - rank(b));
+              .sort((a, b) => {
+                const va = vence(a), vb = vence(b);
+                if (va !== vb) return va - vb;
+                return rank(a) - rank(b);
+              });
             const over = dragOverKey === q.key;
             return (
               <Box key={q.key}

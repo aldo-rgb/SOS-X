@@ -1527,7 +1527,18 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
     if (t.status === 'awaiting_confirmation') return iAssigned ? 1 : 3;
     return 2;
   };
-  const cells = QUADRANTS.map(q => ({ q, qt: base.filter(t => t.eisenhower === q.key).sort((a, b) => rank(a) - rank(b)) }));
+  // Orden principal: lo que vence primero va arriba. Las que no tienen fecha se
+  // van al fondo (no pueden "estar por vencer"). El rank de arriba queda como
+  // desempate entre las que comparten fecha.
+  const vence = (t: TaskT) => (t.due_at ? new Date(t.due_at).getTime() : Number.POSITIVE_INFINITY);
+  const cells = QUADRANTS.map(q => ({
+    q,
+    qt: base.filter(t => t.eisenhower === q.key).sort((a, b) => {
+      const va = vence(a), vb = vence(b);
+      if (va !== vb) return va - vb;
+      return rank(a) - rank(b);
+    }),
+  }));
   // Tarea seleccionada para mover (mantén presionada una tarjeta).
   const [moveFor, setMoveFor] = useState<TaskT | null>(null);
   const renderCell = ({ q, qt }: { q: typeof QUADRANTS[number]; qt: TaskT[] }) => (

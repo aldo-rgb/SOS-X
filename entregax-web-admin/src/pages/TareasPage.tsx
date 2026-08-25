@@ -73,6 +73,16 @@ const EIS_ALTA = ['fuego', 'estrella'] as const;
 // Compromiso de atención que se muestra junto a la prioridad AL CREAR. No se
 // toca EIS: ese label también pinta el chip de las tarjetas.
 const EIS_ALTA_NOTA: Record<string, string> = { fuego: '24 hrs' };
+
+// Orden de las tarjetas: lo que vence primero va arriba. Las tareas sin fecha
+// deseada se van al fondo — no pueden "estar por vencer" — y entre ellas se
+// respeta el orden que llega del servidor. Antes no había orden alguno: se
+// pintaban como venían de la API.
+const porVencer = (a: { due_at?: string }, b: { due_at?: string }): number => {
+  const va = a.due_at ? new Date(a.due_at).getTime() : Number.POSITIVE_INFINITY;
+  const vb = b.due_at ? new Date(b.due_at).getTime() : Number.POSITIVE_INFINITY;
+  return va === vb ? 0 : va - vb;
+};
 const XPS: Record<string, { label: string; color: string }> = {
   verde:    { label: '🟢 Vendido',   color: '#2E7D46' },
   amarillo: { label: '🟡 Ofrecido',  color: '#B07206' },
@@ -600,7 +610,7 @@ export default function TareasPage() {
         // ── Vista MATRIZ EISENHOWER (2×2) — muestra TODAS las tareas ──
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
           {QUADRANTS.map((q) => {
-            const qTasks = filteredTasks.filter(t => t.eisenhower === q.key);
+            const qTasks = filteredTasks.filter(t => t.eisenhower === q.key).sort(porVencer);
             return (
               <Box key={q.key} sx={{ bgcolor: q.bg, borderRadius: 2, p: 1.25, borderTop: `3px solid ${q.color}`, minHeight: 160 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -625,7 +635,7 @@ export default function TareasPage() {
                 // no tiene esa sección, somedayId es null y compararlo contra un
                 // section_id null escondería TODAS las tareas sin sub-sección.
                 activeSection === null ? (somedayId === null || t.section_id !== somedayId) : t.section_id === activeSection
-              ));
+              )).sort(porVencer);
               return (
                 <Box key={col.id} sx={{ width: 268, flex: 'none', bgcolor: '#F4EEE6', borderRadius: 2, p: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 0.5, py: 0.5, borderTop: `3px solid ${col.color}`, borderRadius: '3px 3px 0 0' }}>
