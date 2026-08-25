@@ -85,6 +85,13 @@ const EMPLOYEE_ROLES = [
   { value: 'monitoreo', label: 'Monitoreo', color: 'default' as const, superAdminOnly: false },
   { value: 'abogado', label: 'Abogado', color: 'secondary' as const, superAdminOnly: false },
   { value: 'accountant', label: 'Contador', color: 'default' as const, superAdminOnly: false },
+  // Asesor y sub-asesor faltaban en la lista, así que no se podía asignar el
+  // puesto desde aquí aunque el sistema sí reconoce esos roles en todos lados.
+  // OJO con sub-asesor: la comisión se parte 50/50 con su líder, y el líder
+  // sale de users.advisor_id / referred_by_id — hay que asignarlo aparte o se
+  // queda con el 100%.
+  { value: 'advisor', label: 'Asesor', color: 'primary' as const, superAdminOnly: false },
+  { value: 'sub_advisor', label: 'Sub-Asesor', color: 'primary' as const, superAdminOnly: false },
   { value: 'director', label: 'Director', color: 'secondary' as const, superAdminOnly: true },
 ];
 
