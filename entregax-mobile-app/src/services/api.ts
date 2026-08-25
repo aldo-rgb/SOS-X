@@ -8,6 +8,12 @@ const PROD_API_URL = 'https://api.entregax.app';
 // para que el backend en :3001 sea accesible desde el dispositivo
 // sin tener que actualizar la IP manualmente cada vez que cambias de red.
 function resolveDevApiUrl(): string {
+  // Override manual para apuntar el simulador/dispositivo a otro backend sin
+  // tocar código ni levantar el local. Expo inlinea las EXPO_PUBLIC_* en el
+  // bundle, así que basta con arrancar así:
+  //   EXPO_PUBLIC_API_URL=https://api.entregax.app npx expo start --ios
+  const override = process.env.EXPO_PUBLIC_API_URL;
+  if (override && override.trim()) return override.trim().replace(/\/+$/, '');
   try {
     const hostUri =
       (Constants.expoConfig as any)?.hostUri ||
