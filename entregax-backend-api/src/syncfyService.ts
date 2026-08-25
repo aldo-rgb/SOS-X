@@ -449,7 +449,13 @@ async function autoMatchTransaction(
   // escrita en el concepto caían al emparejamiento por monto y podían acabar
   // pagando la orden de otro cliente (tx#187822 decía UW6289E4E8 y se aplicó a
   // UW-0475EBFC).
-  const prefixed = searchText.match(/(RO|PP|EP|GL|UW|US)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/);
+  // El flag `i` importa: los clientes escriben la referencia como se les da la
+  // gana y el banco la copia tal cual. "...0725747582pp 57475823" es un pago
+  // real de PP-57475823 que el regex, al ser sensible a mayúsculas, no
+  // reconocía. Son 11 abonos así: 3 nunca se conciliaron —incluido el de
+  // TKT-2026-2321— y los otros 8 se casaron por MONTO, que es justo el camino
+  // que acaba aplicando el depósito a la orden de otro cliente.
+  const prefixed = searchText.match(/(RO|PP|EP|GL|UW|US)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/i);
   if (prefixed && prefixed[1] && prefixed[2]) {
     extractedRef = `${prefixed[1].toUpperCase()}-${prefixed[2].toUpperCase()}`;
   } else {
