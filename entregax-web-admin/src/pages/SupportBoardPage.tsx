@@ -479,6 +479,9 @@ export default function SupportBoardPage() {
       let url = `${API_URL}/admin/support/tickets?limit=200`;
       if (deptFilter !== 'all') url += `&department_id=${deptFilter}`;
       if (creatorFilter !== 'all') url += `&creator_type=${creatorFilter}`;
+      // La búsqueda se resuelve en el servidor: mira dentro del cuerpo y de los
+      // mensajes del hilo, que aquí ni siquiera están cargados.
+      if (searchQuery.trim()) url += `&search=${encodeURIComponent(searchQuery.trim())}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) { setTickets([]); return []; }
       const data = await res.json();
@@ -486,18 +489,20 @@ export default function SupportBoardPage() {
       setTickets(list);
       return list;
     } catch { setTickets([]); return []; }
-  }, [token, deptFilter, creatorFilter]);
+  }, [token, deptFilter, creatorFilter, searchQuery]);
 
   const loadArchivedTickets = useCallback(async () => {
     try {
       let url = `${API_URL}/admin/support/tickets?archived=true&limit=2000`;
+      // Los archivados también se buscan en el servidor, con el mismo alcance.
+      if (searchQuery.trim()) url += `&search=${encodeURIComponent(searchQuery.trim())}`;
       if (deptFilter !== 'all') url += `&department_id=${deptFilter}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return;
       const data = await res.json();
       setArchivedTickets(Array.isArray(data) ? data : []);
     } catch { /* ignore */ }
-  }, [token, deptFilter]);
+  }, [token, deptFilter, searchQuery]);
 
   const handleArchiveTicket = async (ticketId: number, unarchive = false) => {
     await fetch(`${API_URL}/admin/support/ticket/${ticketId}/archive`, {
@@ -828,16 +833,10 @@ export default function SupportBoardPage() {
     });
 
   const getTicketsByStatus = (status: string) => {
-    let filtered = tickets.filter((t) => t.status === status);
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (t) =>
-          t.ticket_folio.toLowerCase().includes(q) ||
-          t.full_name?.toLowerCase().includes(q) ||
-          t.subject?.toLowerCase().includes(q)
-      );
-    }
+    // Sin filtro local por texto: el backend ya devolvió solo lo que coincide,
+    // y volver a filtrar aquí descartaría los tickets cuya coincidencia está en
+    // el cuerpo o en un mensaje — que es justo lo que no se carga en la lista.
+    const filtered = tickets.filter((t) => t.status === status);
     return sortWithOverdueFirst(filtered);
   };
 
@@ -1037,15 +1036,9 @@ export default function SupportBoardPage() {
         {deptFilter === 'all' ? (
           // Vista por departamento: una columna por cada departamento visible
           departments.filter(d => canSeeDept(d.name)).map((dept) => {
-            const applySearch = (list: SupportTicket[]) => {
-              if (!searchQuery) return list;
-              const q = searchQuery.toLowerCase();
-              return list.filter(t =>
-                t.ticket_folio.toLowerCase().includes(q) ||
-                t.full_name?.toLowerCase().includes(q) ||
-                t.subject?.toLowerCase().includes(q)
-              );
-            };
+            // El backend ya devolvió solo lo que coincide (busca en cuerpo y
+            // mensajes); refiltrar aquí perdería esos resultados.
+            const applySearch = (list: SupportTicket[]) => list;
             const col = sortWithOverdueFirst(applySearch(tickets.filter(t => t.department_id === dept.id)));
             // El badge ⚠️ cuenta solo los que tienen MÁS DE 3 DÍAS SIN RESOLVER.
             const urgent = col.filter(isOverdue).length;

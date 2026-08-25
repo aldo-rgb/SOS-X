@@ -1279,7 +1279,7 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS ticket_status VARCHAR(20) DEFAULT 'nuevo'`);
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS first_response_at TIMESTAMP`);
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolution_time_minutes INTEGER`);
-    const { status, limit = 100, department_id, creator_type, archived } = req.query;
+    const { status, limit = 100, department_id, creator_type, archived, search } = req.query;
 
     const conditions: string[] = [];
     const params: any[] = [];
@@ -1295,6 +1295,28 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
     if (status) { conditions.push(`t.status = $${idx++}`); params.push(status); }
     if (department_id) { conditions.push(`t.department_id = $${idx++}`); params.push(department_id); }
     if (creator_type) { conditions.push(`t.creator_type = $${idx++}`); params.push(creator_type); }
+
+    // Búsqueda DENTRO del ticket. Antes el filtro vivía en el frontend y solo
+    // miraba folio, nombre del cliente y subject — y el subject viene truncado
+    // ("Número de cliente: s..."), así que buscar "s2742" no encontraba nada
+    // aunque el dato estuviera en el cuerpo. Ahora se busca también en el body
+    // y en TODOS los mensajes del hilo, más el casillero del cliente.
+    const termino = String(search || '').trim();
+    if (termino) {
+      const like = `%${termino}%`;
+      conditions.push(`(
+        t.ticket_folio ILIKE $${idx}
+        OR t.subject ILIKE $${idx}
+        OR COALESCE(t.body, '') ILIKE $${idx}
+        OR COALESCE(t.tracking_number, '') ILIKE $${idx}
+        OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = t.user_id
+                     AND (cu.full_name ILIKE $${idx} OR COALESCE(cu.box_id,'') ILIKE $${idx}))
+        OR EXISTS (SELECT 1 FROM ticket_messages tm WHERE tm.ticket_id = t.id
+                     AND tm.message ILIKE $${idx})
+      )`);
+      params.push(like);
+      idx++;
+    }
 
     const where = `WHERE ${conditions.join(' AND ')}`;
 
@@ -1318,7 +1340,10 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
           WHEN 'waiting_client' THEN 3
           ELSE 4
         END,
-        t.updated_at DESC
+        -- Orden ESTABLE por fecha de alta. Antes era updated_at DESC, así que
+        -- abrir o responder un ticket lo brincaba al principio de la columna y
+        -- el siguiente que ibas a atender ya no estaba donde lo dejaste.
+        t.created_at DESC, t.id DESC
       LIMIT $${idx}`;
     params.push(limit);
 
