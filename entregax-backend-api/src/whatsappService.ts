@@ -617,11 +617,14 @@ export const sendPagoConfirmado = async (
 /**
  * Aviso de PAGO PARCIAL al cliente: cuánto falta y cómo cubrirlo.
  * Parámetros: {{1}} nombre, {{2}} referencia, {{3}} abonado, {{4}} total,
- *             {{5}} faltante.
+ *             {{5}} faltante, {{6}} CLABE, {{7}} beneficiario.
+ * La referencia va también en el cuerpo porque es lo que el cliente debe poner
+ * como concepto del depósito; sin ella el pago llega sin poder identificarse.
  */
 export const sendPagoParcial = async (
     phone: string, nombre: string, referencia: string,
-    abonado: string, total: string, faltante: string
+    abonado: string, total: string, faltante: string,
+    clabe = '', beneficiario = ''
 ): Promise<void> => {
     const templateName = process.env.WHATSAPP_PAGO_PARCIAL_TEMPLATE || 'pago_parcial';
     const lang = process.env.WHATSAPP_PAGO_PARCIAL_LANG || 'es_MX';
@@ -629,7 +632,7 @@ export const sendPagoParcial = async (
     try {
         await sendTemplate({
             to: phone, template: templateName, languageCode: lang,
-            parameters: [firstName, referencia, abonado, total, faltante],
+            parameters: [firstName, referencia, abonado, total, faltante, clabe, beneficiario],
         });
     } catch (e) {
         console.error('[WHATSAPP] pago_parcial falló:', (e as Error).message);

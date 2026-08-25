@@ -757,9 +757,39 @@ const avisarPagoConfirmado = async (
       `$${Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const ref = o.payment_reference;
 
+    // Datos para depositar. No viven en la orden (bank_clabe viene NULL): salen
+    // de la empresa emisora del servicio, igual que en el panel del asesor. Sin
+    // esto el cliente sabía cuánto debe pero no a dónde mandarlo.
+    let banco: { clabe?: string; nombre?: string; beneficiario?: string } = {};
+    try {
+      const svc = await resolveOrderService(pool, {
+        poboxPaymentId: orderId,
+        paymentReference: ref,
+      });
+      const b = await pool.query(
+        `SELECT fe.bank_clabe, fe.bank_name, fe.business_name
+           FROM service_company_config scc
+           JOIN fiscal_emitters fe ON fe.id = scc.emitter_id
+          WHERE scc.service_type = $1 AND scc.is_active = TRUE
+          LIMIT 1`,
+        [svc || 'POBOX_USA']
+      );
+      if (b.rows[0]) {
+        banco = {
+          clabe: b.rows[0].bank_clabe || undefined,
+          nombre: b.rows[0].bank_name || undefined,
+          beneficiario: b.rows[0].business_name || undefined,
+        };
+      }
+    } catch { /* si no se resuelve, el aviso sale sin los datos bancarios */ }
+
+    const instruccionDeposito = banco.clabe
+      ? ` Deposita a ${banco.beneficiario || ''} · CLABE ${banco.clabe}${banco.nombre ? ` (${banco.nombre})` : ''} y usa la referencia ${ref}.`
+      : ` Usa la referencia ${ref} al hacer el depósito.`;
+
     const tituloCliente = opts.parcial ? '⚠️ Tu pago quedó incompleto' : '✅ Pago confirmado';
     const textoCliente = opts.parcial
-      ? `Recibimos ${money(opts.abonado)} de ${money(opts.total)} en la orden ${ref}. Faltan ${money(opts.faltante)} para liberar tu mercancía: súbelos como un nuevo comprobante en la MISMA orden.`
+      ? `Recibimos ${money(opts.abonado)} de ${money(opts.total)} en la orden ${ref}. Faltan ${money(opts.faltante)} para liberar tu mercancía.${instruccionDeposito} Sube el comprobante en la MISMA orden ${ref}, no generes una nueva.`
       : `Tu pago de ${money(opts.total)} en la orden ${ref} quedó confirmado.`;
 
     const { createCustomNotification } = require('./notificationController');
@@ -795,7 +825,11 @@ const avisarPagoConfirmado = async (
     const wa = await telefonoParaWhatsApp(Number(o.user_id));
     if (wa) {
       if (opts.parcial) {
-        await sendPagoParcial(wa.phone, wa.nombre, ref, money(opts.abonado), money(opts.total), money(opts.faltante));
+        await sendPagoParcial(
+          wa.phone, wa.nombre, ref,
+          money(opts.abonado), money(opts.total), money(opts.faltante),
+          banco.clabe || '', banco.beneficiario || ''
+        );
       } else {
         await sendPagoConfirmado(wa.phone, wa.nombre, ref, money(opts.total));
       }
