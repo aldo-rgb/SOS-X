@@ -516,6 +516,8 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   const [desc, setDesc] = useState('');
   const [eis, setEis] = useState('estrella');
   const [dayOpt, setDayOpt] = useState('tomorrow');
+  // Día del mes elegido (1..31). null = usar los atajos de arriba.
+  const [diaMes, setDiaMes] = useState<number | null>(null);
   const [hour, setHour] = useState(9);
   const [recurrence, setRecurrence] = useState('none');
   const [ordinal, setOrdinal] = useState(1);   // 1..4 o -1 (último)
@@ -530,7 +532,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
     .then(r => r.json()).then(d => setSchedules(d.schedules || [])).catch(() => {});
   useEffect(() => {
     if (!visible) return;
-    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setCatSection(null);
+    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setDiaMes(null); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setCatSection(null);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => { setUsers(d.users || []); setFrequent(d.frequent || []); }).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H }).then(r => r.json()).then(d => {
       setCategories((d.categories || []).filter((c: any) => c.board_key !== 'personales'));
@@ -548,6 +550,18 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
 
   const firstRunStamp = (): string => {
     const d = new Date();
+    if (diaMes) {
+      // Día del mes elegido. Si ya pasó en el mes en curso, se va al siguiente.
+      d.setHours(hour, 0, 0, 0);
+      const ultimoDia = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      d.setDate(Math.min(diaMes, ultimoDia));
+      if (d.getTime() <= Date.now()) {
+        d.setMonth(d.getMonth() + 1);
+        const ultimoSig = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        d.setDate(Math.min(diaMes, ultimoSig));
+      }
+      return toStamp(d);
+    }
     if (dayOpt === 'today') { /* hoy */ }
     else if (dayOpt === 'tomorrow') d.setDate(d.getDate() + 1);
     else if (dayOpt === 'd3') d.setDate(d.getDate() + 3);
@@ -563,7 +577,17 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
     try {
       const involvedIds = myId ? [myId, ...involved] : involved;
       const body: any = { title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: involvedIds, assignee_id: assignee || myId || null, recurrence, board_id: catId, section_id: catSection };
-      if (recurrence === 'monthly_weekday') { body.recur_ordinal = ordinal; body.recur_weekday = weekday; body.hour = hour; body.minute = 0; }
+      if (recurrence === 'monthly_weekday') {
+        // La ocurrencia sale de la fecha de primera ejecución: si cae en el 3er
+        // lunes, se repite cada 3er lunes. Así el usuario solo elige el día de
+        // la semana y la fecha, sin llenar ordinal ni hora por separado.
+        const base = new Date(firstRunStamp());
+        const dm = base.getDate();
+        body.recur_ordinal = dm > 28 ? -1 : Math.ceil(dm / 7);
+        body.recur_weekday = weekday;
+        body.hour = base.getHours();
+        body.minute = base.getMinutes();
+      }
       else { body.first_run_at = firstRunStamp(); }
       const r = await fetch(`${API_URL}/api/tasks/schedules`, {
         method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
@@ -581,9 +605,11 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
 
   const DAY_OPTS = [{ k: 'today', l: 'Hoy' }, { k: 'tomorrow', l: 'Mañana' }, { k: 'd3', l: '+3 días' }, { k: 'week', l: 'Próx. semana' }];
   const HOURS = [9, 12, 15, 18];
-  const RECUR = [{ k: 'none', l: 'Una vez' }, { k: 'daily', l: 'Diaria' }, { k: 'weekly', l: 'Semanal' }, { k: 'monthly', l: 'Mensual' }, { k: 'monthly_weekday', l: 'Día de semana' }];
-  const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual', monthly_weekday: 'Mensual (día de semana)' };
-  const ORDINALS = [{ v: 1, l: '1er' }, { v: 2, l: '2do' }, { v: 3, l: '3er' }, { v: 4, l: '4to' }, { v: -1, l: 'Último' }];
+  const RECUR = [{ k: 'none', l: 'Una vez' }, { k: 'daily', l: 'Diaria' }, { k: 'weekly', l: 'Semanal' }, { k: 'monthly', l: 'Mensual' }, { k: 'yearly', l: 'Anual' }, { k: 'monthly_weekday', l: 'Día de semana' }];
+  const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual', yearly: 'Anual', monthly_weekday: 'Mensual (día de semana)' };
+  // Los 31 días del mes. Antes solo se podía elegir Hoy / Mañana / +3 / Próx.
+  // semana, así que no había forma de programar "el 15 de cada mes".
+  const DIAS_MES = Array.from({ length: 31 }, (_, i) => i + 1);
   const WEEKDAYS = [{ v: 1, l: 'Lun' }, { v: 2, l: 'Mar' }, { v: 3, l: 'Mié' }, { v: 4, l: 'Jue' }, { v: 5, l: 'Vie' }, { v: 6, l: 'Sáb' }, { v: 0, l: 'Dom' }];
   const WD_FULL = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const ORD_FULL: Record<number, string> = { 1: 'Primer', 2: 'Segundo', 3: 'Tercer', 4: 'Cuarto', [-1]: 'Último' };
@@ -653,16 +679,11 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
               ))}
             </View>
 
-            {recurrence === 'monthly_weekday' ? (
+            {/* "Día de semana" ya solo pide el día: la ocurrencia (1er, 2do…) y la
+                hora se deducen de la fecha de primera ejecución que se elige
+                abajo, así no hay que llenar lo mismo dos veces. */}
+            {recurrence === 'monthly_weekday' && (
               <>
-                <Text style={styles.fieldLbl}>Ocurrencia</Text>
-                <View style={styles.eisRow}>
-                  {ORDINALS.map(o => (
-                    <TouchableOpacity key={o.v} onPress={() => setOrdinal(o.v)} style={[styles.dateChip, ordinal === o.v && styles.dateChipOn]}>
-                      <Text style={[styles.dateChipTxt, ordinal === o.v && { color: '#fff' }]}>{o.l}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
                 <Text style={styles.fieldLbl}>Día de la semana</Text>
                 <View style={styles.eisRow}>
                   {WEEKDAYS.map(o => (
@@ -671,34 +692,42 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
                     </TouchableOpacity>
                   ))}
                 </View>
-                <Text style={styles.fieldLbl}>Hora</Text>
-                <View style={styles.eisRow}>
-                  {HOURS.map(h => (
-                    <TouchableOpacity key={h} onPress={() => setHour(h)} style={[styles.dateChip, hour === h && styles.dateChipOn]}>
-                      <Text style={[styles.dateChipTxt, hour === h && { color: '#fff' }]}>{String(h).padStart(2, '0')}:00</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            ) : (
-              <>
-                <Text style={styles.fieldLbl}>Primera ejecución</Text>
-                <View style={styles.eisRow}>
-                  {DAY_OPTS.map(o => (
-                    <TouchableOpacity key={o.k} onPress={() => setDayOpt(o.k)} style={[styles.dateChip, dayOpt === o.k && styles.dateChipOn]}>
-                      <Text style={[styles.dateChipTxt, dayOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                <View style={[styles.eisRow, { marginTop: 6 }]}>
-                  {HOURS.map(h => (
-                    <TouchableOpacity key={h} onPress={() => setHour(h)} style={[styles.dateChip, hour === h && styles.dateChipOn]}>
-                      <Text style={[styles.dateChipTxt, hour === h && { color: '#fff' }]}>{String(h).padStart(2, '0')}:00</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
               </>
             )}
+
+            <Text style={styles.fieldLbl}>Primera ejecución</Text>
+            <View style={styles.eisRow}>
+              {DAY_OPTS.map(o => (
+                <TouchableOpacity key={o.k} onPress={() => { setDayOpt(o.k); setDiaMes(null); }}
+                  style={[styles.dateChip, !diaMes && dayOpt === o.k && styles.dateChipOn]}>
+                  <Text style={[styles.dateChipTxt, !diaMes && dayOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Día exacto del mes. Si el elegido ya pasó, la primera ejecución se
+                va al mes siguiente; y en meses cortos se ajusta al último día
+                (elegir 31 en febrero cae en el 28 o 29). */}
+            <Text style={[styles.fieldLbl, { marginTop: 10 }]}>
+              O elige el día del mes{diaMes ? ` · día ${diaMes}` : ''}
+            </Text>
+            <View style={styles.eisRow}>
+              {DIAS_MES.map(d => (
+                <TouchableOpacity key={d} onPress={() => setDiaMes(diaMes === d ? null : d)}
+                  style={[styles.dayCell, diaMes === d && styles.dateChipOn]}>
+                  <Text style={[styles.dayCellTxt, diaMes === d && { color: '#fff' }]}>{d}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={[styles.fieldLbl, { marginTop: 10 }]}>Hora</Text>
+            <View style={styles.eisRow}>
+              {HOURS.map(h => (
+                <TouchableOpacity key={h} onPress={() => setHour(h)} style={[styles.dateChip, hour === h && styles.dateChipOn]}>
+                  <Text style={[styles.dateChipTxt, hour === h && { color: '#fff' }]}>{String(h).padStart(2, '0')}:00</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             {!advisorMode && (<>
             <Text style={styles.fieldLbl}>Involucrados</Text>
             <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} frequent={frequent} />
@@ -1677,6 +1706,9 @@ export const styles = StyleSheet.create({
   toggle: { flexDirection: 'row', backgroundColor: '#EFEFEF', borderRadius: 10, padding: 3, alignSelf: 'flex-start' },
   toggleBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   toggleBtnIcon: { paddingHorizontal: 10, paddingVertical: 7 },
+  // Cuadrícula compacta de los 31 días del mes.
+  dayCell: { width: 40, height: 36, borderRadius: 9, backgroundColor: '#EFEFEF', alignItems: 'center', justifyContent: 'center' },
+  dayCellTxt: { fontSize: 13.5, fontWeight: '700', color: '#555' },
   toggleBtnActive: { backgroundColor: '#fff' },
   toggleTxt: { fontSize: 13, fontWeight: '700', color: '#777' },
 

@@ -42,7 +42,7 @@ const IS_ASESOR = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(
 // muestra como "Sistemas".
 const displayTaskName = (name?: string | null): string => (String(name || '').trim() === 'Aldo Campos' ? 'Sistemas' : String(name || ''));
 
-const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual', monthly_weekday: 'Mensual (día de semana)' };
+const RECUR_LABEL: Record<string, string> = { none: 'Una vez', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual', monthly_weekday: 'Mensual (día de semana)', yearly: 'Anual' };
 const ORDINAL_LABEL: Record<number, string> = { 1: 'Primer', 2: 'Segundo', 3: 'Tercer', 4: 'Cuarto', [-1]: 'Último' };
 const WEEKDAY_LABEL = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const schedLabel = (s: any): string => s.recurrence === 'monthly_weekday' && s.recur_ordinal != null
@@ -519,11 +519,20 @@ export default function MisTareasPage() {
   const createSchedule = async () => {
     if (!schedForm.title.trim()) return notify('El título es obligatorio', 'error');
     const isWeekday = schedForm.recurrence === 'monthly_weekday';
-    if (!isWeekday && !schedForm.first_run_at) return notify('Elige la fecha y hora de la primera tarea', 'error');
+    // La fecha es obligatoria SIEMPRE: de ella salen la hora y, en "día de la
+    // semana", la ocurrencia dentro del mes.
+    if (!schedForm.first_run_at) return notify('Elige la fecha y hora de la primera tarea', 'error');
     const schedOthers = schedInvolved.filter(id => id && id !== MY_ID);
     if (schedOthers.length > 0 && !schedAssignee) return notify('Selecciona quién será el responsable', 'error');
     try {
-      const [hh, mm] = String(schedForm.time || '09:00').split(':');
+      // De la fecha elegida se derivan hora y ocurrencia: si eliges el 3er lunes,
+      // la programación queda "cada 3er lunes del mes". Así el usuario solo pica
+      // una fecha en vez de llenar ordinal + día + hora por separado.
+      const fecha = new Date(schedForm.first_run_at);
+      const hh = fecha.getHours(), mm = fecha.getMinutes();
+      const diaMes = fecha.getDate();
+      const ordinalCalculado = diaMes > 28 ? -1 : Math.ceil(diaMes / 7); // >28 → "último"
+      const weekdayCalculado = fecha.getDay();
       await axios.post(`${API_URL}/tasks/schedules`, {
         title: schedForm.title.trim(), description: schedForm.description || null,
         eisenhower: schedForm.eisenhower, involved_ids: schedInvolved, board_id: schedForm.board_id || null, section_id: schedForm.section_id || null,
@@ -532,7 +541,11 @@ export default function MisTareasPage() {
         // picker (si estoy solo, el backend me deja a mí como responsable).
         ...(schedOthers.length > 0 && schedAssignee ? { assignee_id: schedAssignee } : {}),
         ...(isWeekday
-          ? { recur_ordinal: schedForm.recur_ordinal, recur_weekday: schedForm.recur_weekday, hour: parseInt(hh), minute: parseInt(mm || '0') }
+          ? {
+              recur_ordinal: ordinalCalculado,
+              recur_weekday: schedForm.recur_weekday ?? weekdayCalculado,
+              hour: hh, minute: mm,
+            }
           : { first_run_at: schedForm.first_run_at }),
       }, H());
       setSchedForm({ ...emptySched });
@@ -1277,34 +1290,25 @@ export default function MisTareasPage() {
                 <MenuItem value="weekly">Semanal</MenuItem>
                 <MenuItem value="monthly">Mensual (mismo día)</MenuItem>
                 <MenuItem value="monthly_weekday">Mensual (día de la semana)</MenuItem>
+                <MenuItem value="yearly">Anual</MenuItem>
               </Select>
             </FormControl>
           </Box>
           {schedForm.recurrence === 'monthly_weekday' ? (
             <Box sx={{ display: 'flex', gap: 1.5, mt: 1.5 }}>
               <FormControl fullWidth size="small">
-                <InputLabel>Ocurrencia</InputLabel>
-                <Select label="Ocurrencia" value={schedForm.recur_ordinal} onChange={e => setSchedForm({ ...schedForm, recur_ordinal: e.target.value })}>
-                  <MenuItem value={1}>Primer</MenuItem>
-                  <MenuItem value={2}>Segundo</MenuItem>
-                  <MenuItem value={3}>Tercer</MenuItem>
-                  <MenuItem value={4}>Cuarto</MenuItem>
-                  <MenuItem value={-1}>Último</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControl fullWidth size="small">
                 <InputLabel>Día</InputLabel>
                 <Select label="Día" value={schedForm.recur_weekday} onChange={e => setSchedForm({ ...schedForm, recur_weekday: e.target.value })}>
                   {['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map((d, i) => <MenuItem key={i} value={i}>{d}</MenuItem>)}
                 </Select>
               </FormControl>
-              <TextField size="small" type="time" label="Hora" InputLabelProps={{ shrink: true }} sx={{ width: 130 }}
-                value={schedForm.time} onChange={e => setSchedForm({ ...schedForm, time: e.target.value })} />
             </Box>
-          ) : (
-            <TextField fullWidth size="small" type="datetime-local" label="Primera ejecución" InputLabelProps={{ shrink: true }} sx={{ mt: 1.5 }}
-              value={schedForm.first_run_at} onChange={e => setSchedForm({ ...schedForm, first_run_at: e.target.value })} />
-          )}
+          ) : null}
+          {/* La fecha manda: de ella salen la hora y, en "día de la semana", la
+              ocurrencia (si eliges el 3er lunes, se repite cada 3er lunes). */}
+          <TextField fullWidth size="small" type="datetime-local" label="Primera ejecución *" InputLabelProps={{ shrink: true }} sx={{ mt: 1.5 }}
+            error={!schedForm.first_run_at}
+            value={schedForm.first_run_at} onChange={e => setSchedForm({ ...schedForm, first_run_at: e.target.value })} />
           <InvolvedPicker users={users} involvedIds={schedInvolved} setInvolvedIds={setSchedInvolved} frequent={frequent} />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             Busca y agrega a varias personas (agrupadas por tipo). Tú siempre quedas incluido.

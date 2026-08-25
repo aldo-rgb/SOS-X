@@ -568,6 +568,7 @@ export async function runDueTaskSchedules(): Promise<void> {
       } else {
         const step = sch.recurrence === 'daily' ? `interval '1 day'`
           : sch.recurrence === 'weekly' ? `interval '7 days'`
+          : sch.recurrence === 'yearly' ? `interval '1 year'`
           : `interval '1 month'`;
         // Avanza next_run_at hasta quedar en el futuro (evita ráfagas si el cron se atrasó).
         await pool.query(
@@ -592,7 +593,7 @@ export const createSchedule = async (req: Request, res: Response): Promise<any> 
     const b = req.body || {};
     if (!String(b.title || '').trim()) return res.status(400).json({ error: 'El título es obligatorio' });
     await ensureScheduleAssignee();
-    const rec = ['none', 'daily', 'weekly', 'monthly', 'monthly_weekday'].includes(b.recurrence) ? b.recurrence : 'none';
+    const rec = ['none', 'daily', 'weekly', 'monthly', 'monthly_weekday', 'yearly'].includes(b.recurrence) ? b.recurrence : 'none';
     const eis = EISENHOWER.includes(b.eisenhower) ? b.eisenhower : 'estrella';
     const involved: number[] = Array.isArray(b.involved_ids) ? b.involved_ids.map((x: any) => parseInt(String(x))).filter(Boolean) : [];
     // Responsable de las tareas que genere la programación. Si no viene, el
