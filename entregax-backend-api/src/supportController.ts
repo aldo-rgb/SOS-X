@@ -749,6 +749,12 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       // 🔔 Notificar al departamento del ticket nuevo (in-app siempre; push solo horario laboral).
       notifyTicketDepartment(Number(currentTicketId), departmentId, 'new').catch(() => {});
 
+      // 🔔 Y al ASESOR del cliente, que antes no se enteraba por ningún lado.
+      if (userId) {
+        avisarAsesorTicketNuevo(Number(currentTicketId), ticketFolio, Number(userId), subject || message)
+          .catch(() => {});
+      }
+
       // 🔔 Notificación in-app al cliente confirmando la apertura del ticket
       if (userId) {
         try {
@@ -785,12 +791,27 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
           [currentTicketId, message, imageUrls.length > 0 ? JSON.stringify(imageUrls) : null]
         );
 
+        // Al asesor de este cliente: hasta ahora no se enteraba de nada.
+        if (userId) {
+          avisarAsesorTicketNuevo(Number(currentTicketId), ticketFolio, Number(userId), subject || message)
+            .catch(() => {});
+        }
+        const duplicado = userId
+          ? await ticketRecienteDelCliente(Number(userId), Number(currentTicketId))
+          : null;
+
         return res.json({
           status: 'escalated',
           ticketId: currentTicketId,
           ticketFolio: ticketFolio,
           message: '✅ Ticket creado. Un agente humano te atenderá pronto.',
-          imagesUploaded: imageUrls.length
+          imagesUploaded: imageUrls.length,
+          // Aviso, no bloqueo: dos tickets seguidos del mismo cliente pueden ser
+          // asuntos distintos, pero quien lo levanta debe verlo antes de duplicar.
+          duplicate_warning: duplicado
+            ? `Este cliente ya tiene el ticket ${duplicado.folio} abierto desde hace ${duplicado.horas} h. Revísalo antes de duplicar.`
+            : undefined,
+          existing_ticket_folio: duplicado?.folio,
         });
       }
       // Nuevo ticket sin escalateDirectly: insertar mensaje con attachments aquí
@@ -1062,6 +1083,67 @@ export const marcarMensajesLeidos = async (ticketId: number, ladoCliente: boolea
   } catch (e: any) {
     console.warn('[support] marcarMensajesLeidos:', e?.message);
   }
+};
+
+/**
+ * Avisos al abrir un ticket (tarea 339, pedida por Juan Segura).
+ *
+ * 1) AL ASESOR del cliente: hoy no se enteraba de nada. En 60 días se abrieron
+ *    106 tickets de clientes y 105 eran de clientes CON asesor asignado —
+ *    ninguno de esos asesores supo. Podía verlos en su panel, pero tenía que ir
+ *    a buscarlos.
+ * 2) DUPLICADOS: si ese mismo cliente ya tiene otro ticket abierto de las
+ *    últimas 24 h, se devuelve el folio para que quien lo levanta lo vea. NO se
+ *    bloquea: dos tickets seguidos pueden ser asuntos distintos.
+ */
+export const avisarAsesorTicketNuevo = async (
+  ticketId: number, ticketFolio: string, clienteId: number, asunto: string
+): Promise<void> => {
+  try {
+    const r = await pool.query(
+      `SELECT u.full_name, u.box_id, COALESCE(u.advisor_id, u.referred_by_id) AS asesor_id
+         FROM users u WHERE u.id = $1`, [clienteId]);
+    const c = r.rows[0];
+    if (!c?.asesor_id) return;
+
+    const resumen = String(asunto || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+    const titulo = '🎫 Tu cliente abrió un ticket';
+    const cuerpo = `${c.box_id || ''} ${c.full_name}: ${ticketFolio}${resumen ? ` · ${resumen}` : ''}`;
+
+    const { createCustomNotification } = await import('./notificationController');
+    await createCustomNotification(
+      Number(c.asesor_id), titulo, cuerpo, 'info', 'headset',
+      { ticket_id: String(ticketId), ticket_folio: ticketFolio }, `/support/ticket/${ticketId}`
+    ).catch(() => {});
+
+    const { sendPushToUsers } = await import('./pushService');
+    await sendPushToUsers([Number(c.asesor_id)], {
+      title: titulo, body: cuerpo,
+      data: { screen: 'AdvisorClientTickets', ticket_id: String(ticketId) },
+      notificationType: 'ticket_created',
+    }).catch(() => {});
+  } catch (e: any) {
+    console.warn('[support] aviso al asesor del ticket nuevo:', e?.message);
+  }
+};
+
+/** Otro ticket abierto del MISMO cliente en las últimas 24 h, si lo hay. */
+export const ticketRecienteDelCliente = async (
+  clienteId: number, excluirTicketId: number
+): Promise<{ folio: string; horas: number } | null> => {
+  try {
+    const r = await pool.query(
+      `SELECT ticket_folio,
+              ROUND(EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600)::int AS horas
+         FROM support_tickets
+        WHERE user_id = $1 AND id <> $2
+          AND archived_at IS NULL
+          AND status NOT IN ('resolved', 'closed')
+          AND created_at >= NOW() - INTERVAL '24 hours'
+        ORDER BY created_at DESC LIMIT 1`,
+      [clienteId, excluirTicketId]);
+    return r.rows[0] ? { folio: r.rows[0].ticket_folio, horas: Number(r.rows[0].horas) } : null;
+  } catch { return null; }
 };
 
 export const getTicketMessages = async (req: Request, res: Response): Promise<any> => {
