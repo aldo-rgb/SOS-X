@@ -59,6 +59,8 @@ import {
   Unarchive as UnarchiveIcon,
   Lock as LockIcon,
   OpenInFull as OpenInFullIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import PackageDetailDialog from './PackageDetailDialog';
 
@@ -131,6 +133,10 @@ interface TicketMessage {
   attachments?: string[] | string | null;
   created_at: string;
   is_internal?: boolean;
+  sender_id?: number;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+  read_at?: string | null;
 }
 
 interface SupportStats {
@@ -384,7 +390,42 @@ export default function SupportBoardPage() {
   const currentUserRole: string = (() => {
     try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; }
   })();
+  const currentUserId: number = (() => {
+    try { const u = JSON.parse(localStorage.getItem('user') || '{}'); return Number(u.id || u.userId || 0); } catch { return 0; }
+  })();
   const defaultDeptSet = useRef(false);
+
+  // ── Editar / eliminar el propio mensaje (tarea 261) ──
+  const [editandoMsg, setEditandoMsg] = useState<number | null>(null);
+  const [textoEdit, setTextoEdit] = useState('');
+  const guardarEdicionMsg = async (msgId: number) => {
+    if (!selectedTicket || !textoEdit.trim()) return;
+    try {
+      const r = await fetch(`${API_URL}/support/ticket/${selectedTicket.id}/messages/${msgId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: textoEdit.trim() }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || 'Error'); }
+      setEditandoMsg(null); setTextoEdit('');
+      await loadMessages(selectedTicket.id);
+    } catch (e: any) {
+      alert(e?.message || 'No se pudo editar el mensaje');
+    }
+  };
+  const eliminarMsg = async (msgId: number) => {
+    if (!selectedTicket) return;
+    if (!window.confirm('¿Eliminar este mensaje? Quedará como "Mensaje eliminado" en la conversación.')) return;
+    try {
+      const r = await fetch(`${API_URL}/support/ticket/${selectedTicket.id}/messages/${msgId}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || 'Error'); }
+      await loadMessages(selectedTicket.id);
+    } catch (e: any) {
+      alert(e?.message || 'No se pudo eliminar el mensaje');
+    }
+  };
 
   // Para usuarios operaciones: detectar su sucursal CEDIS desde el perfil
   const currentUserCedisDept: string = (() => {
@@ -1344,18 +1385,56 @@ export default function SupportBoardPage() {
                         <Typography variant="caption" color="text.secondary">
                           {msg.sender_type === 'client' ? 'Cliente' : msg.sender_type === 'ai' ? 'IA' : (msg.sender_name || 'Agente')} ·{' '}
                           {new Date(msg.created_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          {msg.edited_at && !msg.deleted_at && ' · editado'}
                         </Typography>
+                        {/* Editar / eliminar: solo el autor y solo si no está borrado (tarea 261). */}
+                        {!msg.deleted_at && currentUserId > 0 && Number(msg.sender_id) === currentUserId && (
+                          <Box sx={{ display: 'flex', gap: 0.25, ml: 'auto' }}>
+                            <IconButton size="small" title="Editar mensaje"
+                              onClick={() => { setEditandoMsg(msg.id); setTextoEdit(msg.message || ''); }}>
+                              <EditIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                            <IconButton size="small" title="Eliminar mensaje" onClick={() => eliminarMsg(msg.id)}>
+                              <DeleteIcon sx={{ fontSize: 14, color: '#d32f2f' }} />
+                            </IconButton>
+                          </Box>
+                        )}
                         {msg.is_internal && (
                           <Chip label="🔒 Interno" size="small" sx={{ fontSize: 10, height: 18, bgcolor: '#FFF8E1', color: '#F57F17', border: '1px solid #F9A825' }} />
                         )}
                       </Box>
                       {/* Texto: limpiar markdown viejo de imágenes y mostrar original o traducción */}
-                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                        {renderMessageText((showTranslated[msg.id] && translations[msg.id]
-                          ? translations[msg.id]
-                          : msg.message
-                        ).replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim())}
-                      </Typography>
+                      {editandoMsg === msg.id ? (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                          <TextField size="small" fullWidth multiline autoFocus value={textoEdit}
+                            onChange={e => setTextoEdit(e.target.value)} />
+                          <Box sx={{ display: 'flex', gap: 0.75, justifyContent: 'flex-end' }}>
+                            <Button size="small" onClick={() => { setEditandoMsg(null); setTextoEdit(''); }}>Cancelar</Button>
+                            <Button size="small" variant="contained" disabled={!textoEdit.trim()}
+                              onClick={() => guardarEdicionMsg(msg.id)}>Guardar</Button>
+                          </Box>
+                        </Box>
+                      ) : msg.deleted_at ? (
+                        <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.disabled' }}>
+                          🚫 {msg.message}
+                        </Typography>
+                      ) : (
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                          {renderMessageText((showTranslated[msg.id] && translations[msg.id]
+                            ? translations[msg.id]
+                            : msg.message
+                          ).replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim())}
+                        </Typography>
+                      )}
+                      {/* Confirmación de lectura: solo en lo que NOSOTROS mandamos.
+                          Una palomita = enviado; dos = el cliente ya lo abrió. */}
+                      {msg.sender_type !== 'client' && !msg.is_internal && !msg.deleted_at && (
+                        <Typography variant="caption" sx={{ display: 'block', textAlign: 'right', mt: 0.4, color: msg.read_at ? '#1976d2' : 'text.disabled' }}>
+                          {msg.read_at
+                            ? `✓✓ Leído ${new Date(msg.read_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                            : '✓ Enviado'}
+                        </Typography>
+                      )}
                       {showTranslated[msg.id] && translations[msg.id] && (
                         <Typography variant="caption" sx={{ color: '#9C27B0', fontStyle: 'italic', display: 'block', mt: 0.3 }}>
                           🌐 Traducido al español · <span style={{ textDecoration: 'underline', cursor: 'pointer' }} onClick={() => setShowTranslated(prev => ({ ...prev, [msg.id]: false }))}>ver original</span>

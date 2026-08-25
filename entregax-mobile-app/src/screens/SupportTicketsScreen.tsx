@@ -51,6 +51,10 @@ interface TicketMessage {
   is_internal?: boolean;
   created_at: string;
   sender_name?: string;
+  sender_id?: number;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+  read_at?: string | null;
 }
 
 interface AttachedFile {
@@ -244,6 +248,51 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
       setDetailLoading(false);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 300);
     }
+  };
+
+  // ── Editar / eliminar el propio mensaje (tarea 261) ──
+  const miUserId = Number((user as any)?.id || (user as any)?.userId || 0);
+  const editarMensaje = (msg: TicketMessage) => {
+    Alert.prompt?.(
+      'Editar mensaje', 'Corrige el texto:',
+      async (texto?: string) => {
+        const t = String(texto || '').trim();
+        if (!t || !selectedTicket) return;
+        try {
+          const r = await fetch(`${API_URL}/api/support/ticket/${selectedTicket.id}/messages/${msg.id}`, {
+            method: 'PATCH',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: t }),
+          });
+          if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || 'Error'); }
+          await reloadMessages(selectedTicket.id);
+        } catch (e: any) { Alert.alert('No se pudo editar', e?.message || ''); }
+      },
+      'plain-text', msg.message || ''
+    );
+  };
+  const eliminarMensaje = (msg: TicketMessage) => {
+    if (!selectedTicket) return;
+    Alert.alert('Eliminar mensaje', 'Quedará como "Mensaje eliminado" en la conversación.', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Eliminar', style: 'destructive', onPress: async () => {
+        try {
+          const r = await fetch(`${API_URL}/api/support/ticket/${selectedTicket.id}/messages/${msg.id}`, {
+            method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || 'Error'); }
+          await reloadMessages(selectedTicket.id);
+        } catch (e: any) { Alert.alert('No se pudo eliminar', e?.message || ''); }
+      } },
+    ]);
+  };
+  const menuMensaje = (msg: TicketMessage) => {
+    if (msg.deleted_at || !miUserId || Number(msg.sender_id) !== miUserId) return;
+    Alert.alert('Mensaje', undefined, [
+      { text: 'Editar', onPress: () => editarMensaje(msg) },
+      { text: 'Eliminar', style: 'destructive', onPress: () => eliminarMensaje(msg) },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
   };
 
   const pickImage = async () => {
@@ -459,7 +508,8 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
 
     return (
       <View key={msg.id} style={[styles.msgRow, isAgent ? styles.msgRowAdmin : styles.msgRowClient]}>
-        <View style={[
+        {/* Mantén presionado tu propio mensaje para editarlo o eliminarlo (tarea 261). */}
+        <TouchableOpacity activeOpacity={0.9} onLongPress={() => menuMensaje(msg)} delayLongPress={350} style={[
           styles.msgBubble,
           { backgroundColor: bubbleBg },
           isInternal && styles.bubbleInternal,
@@ -474,8 +524,8 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
               </View>
             )}
           </View>
-          <Text style={[styles.msgText, { color: textColor }]}>
-            {msg.message?.replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
+          <Text style={[styles.msgText, { color: textColor }, !!msg.deleted_at && { fontStyle: 'italic', opacity: 0.7 }]}>
+            {msg.deleted_at ? `🚫 ${msg.message}` : msg.message?.replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
           </Text>
           {attachUrls.map((url, i) => {
             const isPdf = url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('pdf');
@@ -496,8 +546,16 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
           })}
           <Text style={[styles.msgTime, { color: isInternal ? '#F57F1799' : isAgent ? '#ffffff88' : '#00000066' }]}>
             {new Date(msg.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+            {msg.edited_at && !msg.deleted_at ? ' · editado' : ''}
+            {/* Palomitas solo en lo que mandamos nosotros: una = enviado,
+                dos = el cliente ya abrió el ticket. */}
+            {isAgent && !isInternal && !msg.deleted_at
+              ? (msg.read_at
+                  ? `  ✓✓ ${new Date(msg.read_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`
+                  : '  ✓')
+              : ''}
           </Text>
-        </View>
+        </TouchableOpacity>
       </View>
     );
   };

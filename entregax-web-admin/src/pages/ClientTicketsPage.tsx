@@ -48,6 +48,9 @@ interface TicketMessage {
   message: string;
   attachment_url?: string;
   created_at: string;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+  read_at?: string | null;
 }
 
 const statusConfig: Record<string, { label: string; color: 'warning' | 'info' | 'success' | 'error' | 'default'; icon: React.ReactNode }> = {
@@ -405,11 +408,19 @@ export default function ClientTicketsPage({ onBack, onCreateTicket }: ClientTick
                             boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                           }}
                         >
-                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
-                            {msg.message}
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.5, ...(msg.deleted_at ? { fontStyle: 'italic', opacity: 0.75 } : {}) }}>
+                            {msg.deleted_at ? `🚫 ${msg.message}` : msg.message}
                           </Typography>
                           <Typography variant="caption" sx={{ opacity: 0.6, display: 'block', mt: 0.5, textAlign: 'right' }}>
                             {new Date(msg.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                            {msg.edited_at && !msg.deleted_at ? ' · editado' : ''}
+                            {/* Palomitas solo en lo que manda el cliente: una =
+                                enviado, dos = soporte ya abrió el ticket. */}
+                            {isUser && !msg.deleted_at
+                              ? (msg.read_at
+                                  ? `  ✓✓ ${new Date(msg.read_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`
+                                  : '  ✓')
+                              : ''}
                           </Typography>
                         </Box>
                       </Box>

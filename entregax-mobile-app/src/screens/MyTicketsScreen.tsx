@@ -30,6 +30,9 @@ interface TicketMessage {
   message: string;
   attachment_url: string | null;
   created_at: string;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+  read_at?: string | null;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: string; bg: string }> = {
@@ -423,13 +426,21 @@ export default function MyTicketsScreen({ navigation, route }: any) {
                     const isClient = msg.sender_type === 'client';
                     return (
                       <View key={msg.id} style={[styles.bubble, isClient ? styles.bubbleClient : styles.bubbleAgent]}>
-                        <Text style={[styles.bubbleText, isClient ? styles.bubbleTextClient : styles.bubbleTextAgent]}>
-                          {msg.message}
+                        <Text style={[styles.bubbleText, isClient ? styles.bubbleTextClient : styles.bubbleTextAgent, !!msg.deleted_at && { fontStyle: 'italic', opacity: 0.7 }]}>
+                          {msg.deleted_at ? `🚫 ${msg.message}` : msg.message}
                         </Text>
                         <Text style={[styles.bubbleTime, { textAlign: isClient ? 'right' : 'left' }]}>
                           {new Date(msg.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                           {' · '}
                           {new Date(msg.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+                          {msg.edited_at && !msg.deleted_at ? ' · editado' : ''}
+                          {/* Palomitas solo en lo que manda el cliente: una =
+                              enviado, dos = soporte ya abrió el ticket. */}
+                          {isClient && !msg.deleted_at
+                            ? (msg.read_at
+                                ? `  ✓✓ ${new Date(msg.read_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`
+                                : '  ✓')
+                            : ''}
                         </Text>
                       </View>
                     );
