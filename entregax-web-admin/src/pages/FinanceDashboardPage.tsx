@@ -260,8 +260,20 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   // Estado de Cuenta
   const [estadoCuentaRaw, setEstadoCuentaRaw] = useState('');
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  // Azul = lo casó el cron del banco. Morado = lo ligó una persona. Rojo = un
+  // super admin lo autorizó sin respaldo bancario, que es lo que hay que poder
+  // auditar después.
+  const CONCILIACION_VISUAL: Record<string, { borde: string; fondo: string; chipBg: string; chipColor: string; etiqueta: string }> = {
+    auto:      { borde: '#1565C0', fondo: 'rgba(21,101,192,0.08)',  chipBg: '#E3F2FD', chipColor: '#0D47A1', etiqueta: 'Auto' },
+    manual:    { borde: '#6A1B9A', fondo: 'rgba(106,27,154,0.08)',  chipBg: '#F3E5F5', chipColor: '#4A148C', etiqueta: 'Manual' },
+    mixto:     { borde: '#00838F', fondo: 'rgba(0,131,143,0.08)',   chipBg: '#E0F7FA', chipColor: '#006064', etiqueta: 'Auto+Manual' },
+    sin_ligar: { borde: '#C62828', fondo: 'rgba(198,40,40,0.08)',   chipBg: '#FFEBEE', chipColor: '#B71C1C', etiqueta: 'Sin respaldo' },
+    ninguno:   { borde: 'transparent', fondo: 'inherit',            chipBg: '#EEEEEE', chipColor: '#616161', etiqueta: 'Conciliado' },
+  };
+
   interface ConciliacionRow {
     estado: 'libre' | 'parcial' | 'usado';
+    modo: 'auto' | 'manual' | 'sin_ligar' | 'mixto' | null;
     aplicado: number;
     disponible: number;
     ordenes: { referencia: string | null; monto: number; origen: string; fecha: string | null }[];
@@ -2287,9 +2299,19 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                       <Chip size="small" label={`Sin aplicar ${formatCurrency(libre)}`}
                             sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700 }} />
                       <Typography variant="caption" color="text.secondary">
-                        · {usados} movimiento(s) ya usados{parciales > 0 ? `, ${parciales} usados a medias` : ''}
-                        · el borde gris marca los abonos que ya respaldan una orden y el ámbar los que quedaron a medias
+                        · {usados} ya usados{parciales > 0 ? `, ${parciales} a medias` : ''} ·
                       </Typography>
+                      {/* Qué significa cada color, para no tener que adivinarlo. */}
+                      {(['auto', 'manual', 'mixto', 'sin_ligar'] as const).map(k => {
+                        const n = conCon.filter(r => r.conciliacion!.modo === k).length;
+                        if (!n) return null;
+                        const V = CONCILIACION_VISUAL[k];
+                        return (
+                          <Chip key={k} size="small" label={`${V.etiqueta} ${n}`}
+                                sx={{ bgcolor: V.chipBg, color: V.chipColor, fontWeight: 700,
+                                      borderLeft: `4px solid ${V.borde}` }} />
+                        );
+                      })}
                     </Box>
                   );
                 })()}
@@ -2314,16 +2336,17 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                         // notara. Gris = agotado, ámbar = usado a medias.
                         const conc = row.conciliacion;
                         const usado = conc?.estado === 'usado';
-                        const parcial = conc?.estado === 'parcial';
-                        const bgFila = usado
-                          ? 'rgba(120,120,120,0.10)'
-                          : parcial
-                            ? 'rgba(245,166,35,0.10)'
-                            : row.abono ? 'rgba(39,174,96,0.04)' : row.cargo ? 'rgba(231,76,60,0.04)' : 'inherit';
+                        // El color dice QUIÉN lo concilió; el chip dice en qué
+                        // estado quedó. Separarlos deja ver de un vistazo qué
+                        // casó el banco solo y qué tocó una persona.
+                        const V = CONCILIACION_VISUAL[conc?.modo || 'ninguno'] || CONCILIACION_VISUAL.ninguno;
+                        const bgFila = conc && conc.estado !== 'libre'
+                          ? V.fondo
+                          : row.abono ? 'rgba(39,174,96,0.04)' : row.cargo ? 'rgba(231,76,60,0.04)' : 'inherit';
                         return (
                         <TableRow key={row.id ?? idx} hover sx={{
                           bgcolor: bgFila,
-                          borderLeft: usado ? '3px solid #9E9E9E' : parcial ? '3px solid #F5A623' : '3px solid transparent',
+                          borderLeft: conc && conc.estado !== 'libre' ? `4px solid ${V.borde}` : '4px solid transparent',
                         }}>
                           <TableCell>
                             <Typography variant="body2" fontFamily="monospace">{row.fecha}</Typography>
@@ -2343,14 +2366,15 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                                 <Chip
                                   size="small"
                                   label={
-                                    usado
-                                      ? `Conciliado${conc.ordenes[0]?.referencia ? ` · ${conc.ordenes[0].referencia}` : ''}${conc.ordenes.length > 1 ? ` +${conc.ordenes.length - 1}` : ''}`
-                                      : `Parcial · quedan ${formatCurrency(conc.disponible)}`
+                                    `${V.etiqueta}${
+                                      usado
+                                        ? conc.ordenes[0]?.referencia ? ` · ${conc.ordenes[0].referencia}` : ''
+                                        : ` · parcial, quedan ${formatCurrency(conc.disponible)}`
+                                    }${usado && conc.ordenes.length > 1 ? ` +${conc.ordenes.length - 1}` : ''}`
                                   }
                                   sx={{
                                     mt: 0.5, height: 20, fontSize: '0.65rem', fontWeight: 700,
-                                    bgcolor: usado ? '#EEEEEE' : '#FFF3E0',
-                                    color: usado ? '#616161' : '#E65100',
+                                    bgcolor: V.chipBg, color: V.chipColor,
                                   }}
                                 />
                               </Tooltip>

@@ -10960,8 +10960,8 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
       return {
         id: r.id,
         conciliacion: st
-          ? { estado: st.estado, aplicado: st.aplicado, disponible: st.disponible, ordenes: st.ordenes }
-          : { estado: 'libre', aplicado: 0, disponible: Number(r.abono) || 0, ordenes: [] },
+          ? { estado: st.estado, modo: st.modo, aplicado: st.aplicado, disponible: st.disponible, ordenes: st.ordenes }
+          : { estado: 'libre', modo: null, aplicado: 0, disponible: Number(r.abono) || 0, ordenes: [] },
         fecha: iso ? `${dd}-${mm}-${yyyy}` : '',
         concepto: r.concepto,
         referencia: r.referencia,
@@ -11119,8 +11119,8 @@ app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevelOrR
       return {
         ...r,
         conciliacion: st
-          ? { estado: st.estado, aplicado: st.aplicado, disponible: st.disponible, ordenes: st.ordenes }
-          : { estado: 'libre', aplicado: 0, disponible: Number(r.abono) || 0, ordenes: [] },
+          ? { estado: st.estado, modo: st.modo, aplicado: st.aplicado, disponible: st.disponible, ordenes: st.ordenes }
+          : { estado: 'libre', modo: null, aplicado: 0, disponible: Number(r.abono) || 0, ordenes: [] },
       };
     });
 

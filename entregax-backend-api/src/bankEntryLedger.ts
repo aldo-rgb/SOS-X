@@ -298,6 +298,11 @@ export type EstadoEntry = {
   aplicado: number;
   disponible: number;
   estado: 'libre' | 'parcial' | 'usado';
+  // Quién lo concilió, para distinguirlo a simple vista en el estado de
+  // cuenta: 'auto' lo casó el cron del banco, 'manual' lo ligó una persona y
+  // 'sin_ligar' es una orden que un super admin autorizó sin respaldo. Un
+  // movimiento repartido entre los dos modos queda como 'mixto'.
+  modo: 'auto' | 'manual' | 'sin_ligar' | 'mixto' | null;
   ordenes: { referencia: string | null; monto: number; origen: string; fecha: string | null }[];
 };
 
@@ -351,11 +356,25 @@ export async function estadoDeEntries(
       disponible,
       // Un centavo de holgura: un abono aplicado al 99.99% está usado, no parcial.
       estado: aplicado <= 0 ? 'libre' : disponible <= 0.01 ? 'usado' : 'parcial',
+      modo: modoDeOrigenes(Array.isArray(row.ordenes) ? row.ordenes : []),
       ordenes: Array.isArray(row.ordenes) ? row.ordenes : [],
     };
   }
   return out;
 }
+
+/** Resume los orígenes de un movimiento en un solo modo para pintarlo. */
+const modoDeOrigenes = (
+  ordenes: { origen?: string }[]
+): 'auto' | 'manual' | 'sin_ligar' | 'mixto' | null => {
+  if (!ordenes.length) return null;
+  const set = new Set(ordenes.map(o => String(o.origen || '')));
+  if (set.has('override_admin')) return 'sin_ligar';
+  const auto = set.has('auto_syncfy');
+  const manual = set.has('estado_cuenta') || set.has('comprobante_manual');
+  if (auto && manual) return 'mixto';
+  return auto ? 'auto' : manual ? 'manual' : null;
+};
 
 /**
  * Traduce una transacción de Syncfy a su fila del estado de cuenta.
