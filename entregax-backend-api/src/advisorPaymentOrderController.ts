@@ -198,6 +198,13 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         (SELECT xml_url FROM facturas_emitidas WHERE uuid_sat = pp.factura_uuid LIMIT 1) AS factura_xml,
         pp.payment_method,
         COALESCE(pp.credit_settled, false) AS credit_settled,
+        -- Debe existir también aquí: las dos ramas del UNION tienen que tener
+        -- las mismas columnas. Al agregarla solo en la primera, el endpoint
+        -- entero respondía 500 y el asesor veía la lista VACÍA.
+        GREATEST(0, pp.amount
+            - COALESCE(pp.voucher_total, 0)
+            - COALESCE(pp.wallet_applied, 0)
+            - COALESCE(pp.credit_applied, 0)) AS saldo_pendiente,
         pp.created_at
       FROM pobox_payments pp
       JOIN users u ON u.id = pp.user_id
