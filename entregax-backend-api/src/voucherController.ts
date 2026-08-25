@@ -740,7 +740,7 @@ export const getAdminOrderVouchers = async (req: AuthRequest, res: Response) => 
  *
  * Nada de esto bloquea la aprobación: si un envío falla se registra y sigue.
  */
-const avisarPagoConfirmado = async (
+export const avisarPagoConfirmado = async (
   orderId: number,
   opts: { parcial: boolean; total: number; abonado: number; faltante: number }
 ): Promise<void> => {

@@ -1456,7 +1456,7 @@ import {
 } from './poboxConsolidationController';
 import {
   uploadVoucher, confirmVoucherAmount, completeVoucherPayment,
-  getOrderVouchers, deleteVoucher,
+  getOrderVouchers, deleteVoucher, avisarPagoConfirmado,
   getAdminPendingVouchers, getAdminOrderVouchers, approveVoucher, rejectVoucher,
   getVoucherStats, getServiceWalletBalances
 } from './voucherController';
@@ -11464,6 +11464,13 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
             confirmation_notes = $3
           WHERE id = $1
         `, [order.id, surplus, `Autorizado desde estado de cuenta bancario por ${adminName}. Banco: $${bankTotal.toFixed(2)}, Orden: $${orderAmount.toFixed(2)}`]);
+
+        // Mismo aviso que en la aprobación manual: WhatsApp + push al cliente y
+        // push al asesor. Esta ruta marcaba la orden pagada en silencio, así que
+        // el cliente solo se enteraba entrando al panel.
+        avisarPagoConfirmado(order.id, {
+          parcial: false, total: orderAmount, abonado: bankTotal, faltante: 0,
+        }).catch((e: any) => console.error('[BANK-AUTH] aviso de pago:', e?.message));
 
         // 2. Mark packages as paid
         let packageIds: number[] = [];
