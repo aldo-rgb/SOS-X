@@ -1134,6 +1134,89 @@ export const startPagoParcialReminderCron = () => {
   console.log('📅 [CRON] Aviso de pagos parciales: L-V 11:00 (MX)');
 };
 
+/**
+ * CRON JOB: recordatorio de eventos del calendario
+ *
+ * Los eventos solo avisaban AL CREARSE, y con una notificación in-app que ni
+ * siquiera le llegaba al creador. Nada recordaba la junta el día que tocaba:
+ * quien no entrara al sistema ese día dependía de acordarse.
+ *
+ * Corre cada 5 minutos y avisa 1 HORA antes de empezar.
+ *
+ * Ojo con la hora: calendar_events.start_at es TIMESTAMP sin zona y guarda
+ * UTC (la junta de las 12:00 en México está grabada como 18:00). El servidor
+ * corre en Etc/UTC, así que NOW()::timestamp ya está en el mismo marco y la
+ * comparación es directa — convertir aquí desfasaría el aviso 6 horas.
+ */
+export const startCalendarReminderCron = () => {
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      await pool.query(
+        `ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP`
+      ).catch(() => {});
+
+      // Ventana amplia (50–70 min) para que un cron atrasado no se salte el
+      // evento; reminder_sent_at garantiza que se avise una sola vez.
+      const r = await pool.query(`
+        SELECT e.id, e.title, e.location, e.all_day, e.created_by,
+               -- La hora se formatea AQUÍ, no en JS: el driver devuelve el
+               -- timestamp naive como hora local de la máquina y toISOString()
+               -- lo desfasaba 6 horas (la junta de las 12:00 salía como 18:00).
+               to_char(e.start_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey',
+                       'HH12:MI AM') AS hora_mx
+          FROM calendar_events e
+         WHERE e.reminder_sent_at IS NULL
+           AND e.start_at BETWEEN (NOW()::timestamp + interval '50 minutes')
+                              AND (NOW()::timestamp + interval '70 minutes')
+         ORDER BY e.start_at
+         LIMIT 50
+      `);
+      if (r.rows.length === 0) return;
+
+      const { sendPushToUsers } = await import('./pushService');
+      const { createCustomNotification } = require('./notificationController');
+      let avisados = 0;
+
+      for (const ev of r.rows) {
+        // Participantes + el creador: a él tampoco le avisaba nadie.
+        const pr = await pool.query(
+          `SELECT user_id FROM calendar_event_participants WHERE event_id = $1
+           UNION
+           SELECT created_by FROM calendar_events WHERE id = $1 AND created_by IS NOT NULL`,
+          [ev.id]
+        );
+        const destinos = pr.rows.map((x: any) => Number(x.user_id)).filter(Boolean);
+        if (destinos.length === 0) continue;
+
+        const horaMx = String(ev.hora_mx || '').trim();
+        const titulo = '⏰ Tu evento empieza en 1 hora';
+        const cuerpo = `${ev.title} · ${horaMx}${ev.location ? ` · ${ev.location}` : ''}`;
+
+        for (const uid of destinos) {
+          await createCustomNotification(uid, titulo, cuerpo, 'info', 'calendar',
+            { event_id: ev.id }, '/calendario').catch(() => {});
+        }
+        await sendPushToUsers(destinos, {
+          title: titulo,
+          body: cuerpo,
+          data: { screen: 'Calendar', event_id: String(ev.id) },
+          notificationType: 'calendar_reminder',
+        }).catch(() => {});
+
+        await pool.query(
+          `UPDATE calendar_events SET reminder_sent_at = NOW() WHERE id = $1`, [ev.id]
+        ).catch(() => {});
+        avisados++;
+      }
+
+      if (avisados) console.log(`⏰ [CRON] Recordatorio de calendario enviado para ${avisados} evento(s)`);
+    } catch (err: any) {
+      console.error('❌ [CRON] Error en recordatorio de calendario:', err.message);
+    }
+  }, { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Recordatorio de eventos del calendario: cada 5 min, avisa 1 h antes');
+};
+
 export const startStaleRatesNotifyCron = () => {
   cron.schedule('0 8 * * 1', async () => {
     console.log('💲 [CRON] Revisando tarifas TDI desactualizadas (aviso semanal, lunes)...');
@@ -1747,6 +1830,7 @@ export const initCronJobs = () => {
   startPaymentReminderCron();
   startAwaitingConfirmationReminderCron();
   startPagoParcialReminderCron();
+  startCalendarReminderCron();
 };
 
 export default initCronJobs;
