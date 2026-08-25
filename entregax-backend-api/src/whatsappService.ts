@@ -608,6 +608,11 @@ export const sendPagoConfirmado = async (
         await sendTemplate({
             to: phone, template: templateName, languageCode: lang,
             parameters: [firstName, referencia, monto],
+            // Sufijo del botón de URL: la plantilla apunta a
+            // https://entregax.app/orden/{{1}} y la app está declarada como
+            // App Link / Universal Link de ese dominio, así que el toque abre
+            // la app y no el navegador.
+            urlButtonParam: referencia,
         });
     } catch (e) {
         console.error('[WHATSAPP] pago_confirmado falló:', (e as Error).message);
@@ -633,6 +638,7 @@ export const sendPagoParcial = async (
         await sendTemplate({
             to: phone, template: templateName, languageCode: lang,
             parameters: [firstName, referencia, abonado, total, faltante, clabe, beneficiario],
+            urlButtonParam: referencia,
         });
     } catch (e) {
         console.error('[WHATSAPP] pago_parcial falló:', (e as Error).message);

@@ -374,50 +374,6 @@ const authorizeOneMatch = async (
 };
 
 /**
- * Notifica al cliente dueño de la orden y al asesor asignado.
- */
-const notifyClientAndAdvisorOfPayment = async (
-  userId: number,
-  ref: string,
-  amount: number,
-  packagesCount: number
-) => {
-  const fmt = `$${amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
-  const data = { ref, amount, packages_count: packagesCount, source: 'bank_auto_auth' };
-
-  // Cliente
-  try {
-    await createNotification(
-      userId,
-      'PAYMENT_RECEIVED',
-      `Detectamos tu pago de ${fmt} (ref ${ref}) en el estado de cuenta bancario y marcamos tu orden como pagada.`,
-      data
-    );
-  } catch (e: any) {
-    console.warn(`[bank-auto-auth] notif cliente ${userId} fallo:`, e?.message);
-  }
-
-  // Asesor / referrer (si existe)
-  try {
-    const r = await pool.query(
-      `SELECT COALESCE(advisor_id, referred_by_id) AS adv FROM users WHERE id = $1`,
-      [userId]
-    );
-    const adv = r.rows[0]?.adv ? Number(r.rows[0].adv) : null;
-    if (adv && adv !== userId) {
-      await createNotification(
-        adv,
-        'PAYMENT_RECEIVED',
-        `Pago recibido de un cliente: ${fmt} (ref ${ref}). Orden auto-autorizada desde el banco.`,
-        data
-      );
-    }
-  } catch (e: any) {
-    console.warn(`[bank-auto-auth] notif asesor del cliente ${userId} fallo:`, e?.message);
-  }
-};
-
-/**
  * Mapea el emisor fiscal (razón social) al SERVICIO cuyos pagos concilia esa
  * cuenta bancaria. Así la notificación dice el servicio (PO Box, DHL/TDI…) en
  * vez del nombre de la empresa, que no le dice nada a operaciones.
@@ -430,67 +386,6 @@ const serviceLabelForEmitter = (businessName: string): string | null => {
   return null;
 };
 
-/**
- * Notifica a todos los asesores, sub-asesores, directores, admins y super_admin
- * que el estado de cuenta se actualizó.
- */
-const notifyStatementSynced = async (emitterId: number, summary: {
-  newTransactions: number;
-  matchedTransactions: number;
-  authorized: number;
-  alreadyPaid: number;
-}) => {
-  try {
-    // Conciliación bancaria = cuentas MX (RODADA/URBAN, BBVA México). NO aplica a
-    // mostradores en USA (Hidalgo TX, code HGO): sus usuarios no deben recibir
-    // estas notificaciones de pagos.
-    const recipients = await pool.query(
-      // Resumen de COBRANZA/finanzas (link a /admin/dashboard-cobranza): va a
-      // asesores (ven sus cobros) y a finanzas/dirección. NO a operaciones
-      // (branch_manager/CEDIS): a ellos no les corresponde este aviso de pagos.
-      `SELECT u.id FROM users u
-         LEFT JOIN branches b ON b.id = u.branch_id
-        WHERE u.role IN ('advisor','sub_advisor','director','admin','super_admin','accountant')
-          AND COALESCE(u.is_active, true) = true
-          AND UPPER(COALESCE(b.code, '')) <> 'HGO'`
-    );
-    const emitter = await pool.query(
-      `SELECT business_name, bank_name FROM fiscal_emitters WHERE id = $1`,
-      [emitterId]
-    ).catch(() => ({ rows: [] as any[] }));
-    const empresa = emitter.rows[0]?.business_name || `Emisor #${emitterId}`;
-    const shortName = String(empresa).trim().split(/\s+/)[0] || empresa;
-
-    // Traducir la razón social (emisor) al SERVICIO que cobra, para que
-    // operaciones vea el servicio y no el nombre de la empresa (RODADA/URBAN).
-    const serviceLabel = serviceLabelForEmitter(empresa);
-    const title = serviceLabel
-      ? `Pagos de ${serviceLabel} actualizados`
-      : `Cuenta ${shortName} sincronizada.`;
-    const message = `${summary.newTransactions} movimientos, ${summary.matchedTransactions} coincidencias, ${summary.authorized} pago(s) auto-autorizado(s).`;
-    const data = { emitter_id: emitterId, ...summary, source: 'syncfy_auto_sync' };
-
-    for (const r of recipients.rows) {
-      try {
-        await createCustomNotification(Number(r.id), title, message, 'info', 'bell', data, '/admin/dashboard-cobranza');
-      } catch (e: any) {
-        // continuar con los demás
-        console.warn(`[bank-auto-auth] notif estado de cuenta user ${r.id} fallo:`, e?.message);
-      }
-    }
-    // Push (móvil/desktop) además del bell — respeta tono/on-off/roles del panel.
-    try {
-      const { sendPushToUsers } = await import('./pushService');
-      await sendPushToUsers(recipients.rows.map((r: any) => Number(r.id)), {
-        title, body: message, data: { screen: 'Home', route: '/admin/dashboard-cobranza' },
-        notificationType: 'statement_synced',
-      });
-    } catch (e: any) { console.warn('[bank-auto-auth] push estado de cuenta fallo:', e?.message); }
-    console.log(`📬 [Auto-AUTH] Notificación 'estado de cuenta' enviada a ${recipients.rowCount} usuarios`);
-  } catch (e: any) {
-    console.warn('[bank-auto-auth] notifyStatementSynced fallo:', e?.message);
-  }
-};
 
 /**
  * Función principal — la llama el cron tras `syncEmitter()` exitoso.
@@ -542,12 +437,17 @@ export const autoAuthorizeAndNotifyAfterSync = async (
       authorized++;
       // Notificar cliente + asesor
       if (row.user_id) {
-        await notifyClientAndAdvisorOfPayment(
-          Number(row.user_id),
-          result.ref || String(row.payment_reference || ''),
-          Number(result.amount) || Number(row.order_amount) || 0,
-          Number(result.packages_count) || 0
-        );
+        // Mismo aviso que la aprobación manual y la autorización desde el panel:
+        // WhatsApp + push al cliente y push al asesor. Antes esta ruta solo
+        // dejaba una notificación in-app, así que un pago conciliado de
+        // madrugada no le llegaba a nadie hasta que entraran al sistema.
+        const { avisarPagoConfirmado } = await import('./voucherController');
+        await avisarPagoConfirmado(Number(row.pp_id), {
+          parcial: false,
+          total: Number(result.amount) || Number(row.order_amount) || 0,
+          abonado: Number(row.bank_amount) || 0,
+          faltante: 0,
+        }).catch((e: any) => console.warn('[bank-auto-auth] aviso de pago:', e?.message));
       }
     } else if (result.status === 'already_paid') {
       already_paid++;
@@ -556,14 +456,10 @@ export const autoAuthorizeAndNotifyAfterSync = async (
     }
   }
 
-  // Notificación masiva siempre que el cron corra (aunque no haya nuevas
-  // autorizaciones — confirma que la sync se ejecutó).
-  await notifyStatementSynced(emitterId, {
-    newTransactions: syncSummary.new_count,
-    matchedTransactions: syncSummary.matched_count,
-    authorized,
-    alreadyPaid: already_paid,
-  });
+  // Ya no se manda el resumen "Pagos de X actualizados" a asesores y finanzas:
+  // era ruido en cada corrida del cron, incluso cuando no autorizaba nada
+  // ("0 coincidencias, 0 pagos"). Ahora cada pago conciliado avisa por sí solo
+  // a su cliente y a su asesor, que es lo que de verdad importa.
 
   return { authorized, already_paid, errors };
 };
