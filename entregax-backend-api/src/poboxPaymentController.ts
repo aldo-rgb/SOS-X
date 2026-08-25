@@ -1741,7 +1741,17 @@ export const getPoboxPendingPayments = async (req: Request, res: Response): Prom
                 p.payment_reference,
                 p.status,
                 p.created_at,
-                p.expires_at
+                p.expires_at,
+                -- Lo abonado y lo que falta. Sin esto el panel del cliente
+                -- pintaba una orden a medias como "Procesando", igual que una
+                -- ya cubierta: el cliente creía que había pagado todo.
+                COALESCE(p.voucher_total, 0) AS voucher_total,
+                COALESCE(p.wallet_applied, 0) AS wallet_applied,
+                COALESCE(p.credit_applied, 0) AS credit_applied,
+                GREATEST(0, p.amount
+                    - COALESCE(p.voucher_total, 0)
+                    - COALESCE(p.wallet_applied, 0)
+                    - COALESCE(p.credit_applied, 0)) AS saldo_pendiente
             FROM pobox_payments p
             LEFT JOIN users u ON p.user_id = u.id
             ${whereClause}

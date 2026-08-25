@@ -4960,6 +4960,13 @@ export default function DashboardClient() {
                   pending: { color: '#E65100', label: '⏳ Pendiente' },
                 };
                 let st = statusMap[order.status] || statusMap.pending_payment;
+                // Pago parcial: se dice CUÁNTO falta, no solo que está incompleto.
+                if (order.status === 'vouchers_partial') {
+                  const falta = Number(order.saldo_pendiente ?? 0);
+                  if (falta > 0) {
+                    st = { ...st, label: `⚠️ Faltan $${falta.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` };
+                  }
+                }
                 const isCreditPay = String(order.payment_method || '').toLowerCase() === 'credit';
                 const isUnsettledCredit = isCreditPay && !order.credit_settled;
                 const isSettledCredit = isCreditPay && !!order.credit_settled;

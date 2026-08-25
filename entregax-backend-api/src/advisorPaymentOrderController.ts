@@ -115,12 +115,19 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         (SELECT xml_url FROM facturas_emitidas WHERE uuid_sat = pp.factura_uuid LIMIT 1) AS factura_xml,
         pp.payment_method,
         COALESCE(pp.credit_settled, false) AS credit_settled,
+        -- Cuánto falta por cobrar. El asesor veía "Parcial" sin monto y tenía
+        -- que abrir la orden y sacar la resta a mano.
+        COALESCE(pp.saldo_pendiente, 0) AS saldo_pendiente,
         apo.created_at
       FROM advisor_payment_orders apo
       LEFT JOIN LATERAL (
         SELECT p2.status, p2.payment_reference, p2.paid_at,
                p2.facturada, p2.requiere_factura, p2.factura_uuid,
                p2.payment_method, p2.credit_settled,
+               GREATEST(0, p2.amount
+                   - COALESCE(p2.voucher_total, 0)
+                   - COALESCE(p2.wallet_applied, 0)
+                   - COALESCE(p2.credit_applied, 0)) AS saldo_pendiente,
                fe.bank_clabe, fe.bank_name, fe.business_name AS beneficiario
         FROM pobox_payments p2
         -- Servicio autoritativo de la orden: service_type_cfg y, para órdenes

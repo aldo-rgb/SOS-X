@@ -3860,7 +3860,18 @@ export default function DashboardAdvisor() {
                 const guideList = trackings.length > 0 ? trackings : uids;
                 const rowKey = `${op.created_by}-${op.id}`;
                 const isExpanded = expandedOrderIds.has(rowKey);
-                const st = STATUS_OP[op.status] ?? { label: op.status, color: 'default' as const };
+                let st = STATUS_OP[op.status] ?? { label: op.status, color: 'default' as const };
+                // Pago parcial: el asesor necesita el MONTO que falta para poder
+                // cobrarlo. Antes solo decía "Parcial" y había que abrir la orden.
+                if (op.status === 'vouchers_partial') {
+                  const falta = Number(op.saldo_pendiente ?? 0);
+                  st = {
+                    label: falta > 0
+                      ? `Faltan $${falta.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : 'Parcial',
+                    color: 'error' as const,
+                  };
+                }
                 const isClientCreated = op.created_by === 'client';
                 const isPending = op.status === 'pendiente' || op.status === 'pending' || op.status === 'pending_payment';
                 const ref = op.payment_reference || `#${op.id}`;

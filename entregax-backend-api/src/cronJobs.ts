@@ -1052,6 +1052,88 @@ export const startAwaitingConfirmationReminderCron = () => {
   console.log('📅 [CRON] Recordatorio de tareas por confirmar: L-V 10:30 y 16:00 (MX)');
 };
 
+/**
+ * CRON JOB: órdenes con pago PARCIAL sin completar
+ *
+ * Una orden a la que el cliente abonó de menos se queda en 'vouchers_partial'
+ * en silencio: las guías no se liberan, pero nada le avisa a nadie. Solo se ve
+ * si alguien entra al panel. Hoy hay 6 órdenes así por $162,781.50.
+ *
+ * Corre L-V a las 11:00 (MX):
+ *   · avisa al ASESOR del cliente cuánto falta por cobrar
+ *   · avisa al CLIENTE que su pago quedó incompleto
+ *   · máximo un aviso cada 48 h por orden, para no volverse ruido
+ */
+export const startPagoParcialReminderCron = () => {
+  cron.schedule('0 11 * * 1-5', async () => {
+    console.log('💸 [CRON] Revisando órdenes con pago parcial...');
+    try {
+      await pool.query(
+        `ALTER TABLE pobox_payments ADD COLUMN IF NOT EXISTS parcial_aviso_at TIMESTAMPTZ`
+      ).catch(() => {});
+
+      const r = await pool.query(`
+        SELECT pp.id, pp.payment_reference, pp.amount::numeric AS total,
+               GREATEST(0, pp.amount
+                   - COALESCE(pp.voucher_total, 0)
+                   - COALESCE(pp.wallet_applied, 0)
+                   - COALESCE(pp.credit_applied, 0))::numeric AS falta,
+               pp.user_id, u.full_name AS cliente, u.box_id,
+               COALESCE(u.advisor_id, u.referred_by_id) AS asesor_id
+          FROM pobox_payments pp
+          JOIN users u ON u.id = pp.user_id
+         WHERE pp.status = 'vouchers_partial'
+           AND (pp.parcial_aviso_at IS NULL OR pp.parcial_aviso_at < NOW() - INTERVAL '48 hours')
+         ORDER BY 3 DESC
+         LIMIT 100
+      `);
+
+      let avisados = 0;
+      for (const o of r.rows) {
+        const falta = Number(o.falta);
+        if (!(falta > 0)) continue;
+        const montoTxt = `$${falta.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+        // Al asesor: es quien cobra.
+        if (o.asesor_id) {
+          await pool.query(
+            `INSERT INTO notifications (user_id, type, title, message, icon, action_url, data)
+             VALUES ($1, 'payment', $2, $3, 'alert-circle', '/dashboard', $4)`,
+            [
+              o.asesor_id,
+              '💸 Pago incompleto de tu cliente',
+              `${o.box_id} ${o.cliente}: la orden ${o.payment_reference} sigue incompleta. Faltan ${montoTxt} y la mercancía no se libera hasta cubrirla.`,
+              JSON.stringify({ payment_reference: o.payment_reference, remaining: falta }),
+            ]
+          ).catch(() => {});
+        }
+
+        // Al cliente: que sepa que no terminó.
+        await pool.query(
+          `INSERT INTO notifications (user_id, type, title, message, icon, action_url, data)
+           VALUES ($1, 'payment', $2, $3, 'alert-circle', '/dashboard', $4)`,
+          [
+            o.user_id,
+            '⚠️ Tu pago quedó incompleto',
+            `A la orden ${o.payment_reference} le faltan ${montoTxt}. Sube el comprobante del resto para que liberemos tu mercancía.`,
+            JSON.stringify({ payment_reference: o.payment_reference, remaining: falta }),
+          ]
+        ).catch(() => {});
+
+        await pool.query(
+          `UPDATE pobox_payments SET parcial_aviso_at = NOW() WHERE id = $1`, [o.id]
+        ).catch(() => {});
+        avisados++;
+      }
+
+      console.log(`✅ [CRON] Avisos de pago parcial enviados: ${avisados} (de ${r.rows.length} órdenes)`);
+    } catch (err: any) {
+      console.error('❌ [CRON] Error en aviso de pago parcial:', err.message);
+    }
+  }, { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Aviso de pagos parciales: L-V 11:00 (MX)');
+};
+
 export const startStaleRatesNotifyCron = () => {
   cron.schedule('0 8 * * 1', async () => {
     console.log('💲 [CRON] Revisando tarifas TDI desactualizadas (aviso semanal, lunes)...');
@@ -1664,6 +1746,7 @@ export const initCronJobs = () => {
   startInstructionReminderCron();
   startPaymentReminderCron();
   startAwaitingConfirmationReminderCron();
+  startPagoParcialReminderCron();
 };
 
 export default initCronJobs;
