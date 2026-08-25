@@ -594,6 +594,65 @@ export const sendInstructionReminderAdvisor = async (
  *   Botón URL dinámico "Pagar embarque" → https://entregax.app/pagar/{{1}} (=tracking)
  *   (Etapa 1: abre la app en la guía. El auto-pago llega en la siguiente etapa.)
  */
+/**
+ * Confirmación de pago al CLIENTE.
+ * Parámetros de la plantilla: {{1}} nombre, {{2}} referencia, {{3}} monto.
+ */
+export const sendPagoConfirmado = async (
+    phone: string, nombre: string, referencia: string, monto: string
+): Promise<void> => {
+    const templateName = process.env.WHATSAPP_PAGO_CONFIRMADO_TEMPLATE || 'pago_confirmado';
+    const lang = process.env.WHATSAPP_PAGO_CONFIRMADO_LANG || 'es_MX';
+    const firstName = nombre.split(' ')[0] ?? nombre;
+    try {
+        await sendTemplate({
+            to: phone, template: templateName, languageCode: lang,
+            parameters: [firstName, referencia, monto],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] pago_confirmado falló:', (e as Error).message);
+    }
+};
+
+/**
+ * Aviso de PAGO PARCIAL al cliente: cuánto falta y cómo cubrirlo.
+ * Parámetros: {{1}} nombre, {{2}} referencia, {{3}} abonado, {{4}} total,
+ *             {{5}} faltante.
+ */
+export const sendPagoParcial = async (
+    phone: string, nombre: string, referencia: string,
+    abonado: string, total: string, faltante: string
+): Promise<void> => {
+    const templateName = process.env.WHATSAPP_PAGO_PARCIAL_TEMPLATE || 'pago_parcial';
+    const lang = process.env.WHATSAPP_PAGO_PARCIAL_LANG || 'es_MX';
+    const firstName = nombre.split(' ')[0] ?? nombre;
+    try {
+        await sendTemplate({
+            to: phone, template: templateName, languageCode: lang,
+            parameters: [firstName, referencia, abonado, total, faltante],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] pago_parcial falló:', (e as Error).message);
+    }
+};
+
+/**
+ * ¿Este usuario acepta WhatsApp y tiene teléfono verificado? Misma regla que
+ * el resto de los avisos, para no mandarle a quien lo desactivó.
+ */
+export const telefonoParaWhatsApp = async (userId: number): Promise<{ phone: string; nombre: string } | null> => {
+    try {
+        const r = await pool.query(
+            `SELECT full_name, phone, notif_whatsapp, phone_verified, whatsapp_verified
+               FROM users WHERE id = $1`, [userId]);
+        const u = r.rows[0];
+        if (!u?.phone) return null;
+        const quiere = u.notif_whatsapp !== false && (u.phone_verified === true || u.whatsapp_verified === true);
+        if (!quiere) return null;
+        return { phone: u.phone, nombre: u.full_name || 'Cliente' };
+    } catch { return null; }
+};
+
 export const sendPaymentReminder = async (
     phone: string, nombre: string, tracking: string
 ): Promise<void> => {

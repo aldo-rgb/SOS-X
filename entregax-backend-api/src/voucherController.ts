@@ -730,6 +730,81 @@ export const getAdminOrderVouchers = async (req: AuthRequest, res: Response) => 
  * POST /api/admin/voucher/approve/:id
  * Admin approves a voucher after bank conciliation
  */
+/**
+ * Avisos al confirmar un pago. Antes no salía nada: el cliente se enteraba
+ * entrando al panel, y el asesor ni eso.
+ *
+ * · Pago cubierto  → WhatsApp + push al cliente, push al asesor
+ * · Pago parcial   → push a los dos, y WhatsApp al cliente con el faltante y
+ *                    cómo cubrirlo
+ *
+ * Nada de esto bloquea la aprobación: si un envío falla se registra y sigue.
+ */
+const avisarPagoConfirmado = async (
+  orderId: number,
+  opts: { parcial: boolean; total: number; abonado: number; faltante: number }
+): Promise<void> => {
+  try {
+    const r = await pool.query(
+      `SELECT pp.payment_reference, pp.user_id, u.full_name, u.box_id,
+              COALESCE(u.advisor_id, u.referred_by_id) AS asesor_id
+         FROM pobox_payments pp JOIN users u ON u.id = pp.user_id
+        WHERE pp.id = $1`, [orderId]);
+    const o = r.rows[0];
+    if (!o) return;
+
+    const money = (v: number) =>
+      `$${Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const ref = o.payment_reference;
+
+    const tituloCliente = opts.parcial ? '⚠️ Tu pago quedó incompleto' : '✅ Pago confirmado';
+    const textoCliente = opts.parcial
+      ? `Recibimos ${money(opts.abonado)} de ${money(opts.total)} en la orden ${ref}. Faltan ${money(opts.faltante)} para liberar tu mercancía: súbelos como un nuevo comprobante en la MISMA orden.`
+      : `Tu pago de ${money(opts.total)} en la orden ${ref} quedó confirmado.`;
+
+    const { createCustomNotification } = require('./notificationController');
+    const { sendPushToUsers } = await import('./pushService');
+
+    // Cliente: in-app + push
+    await createCustomNotification(o.user_id, tituloCliente, textoCliente, opts.parcial ? 'warning' : 'success',
+      'cash', { payment_reference: ref, remaining: opts.faltante }, '/dashboard').catch(() => {});
+
+    // Asesor: solo push/in-app, sin WhatsApp
+    if (o.asesor_id) {
+      await createCustomNotification(
+        o.asesor_id,
+        opts.parcial ? '⚠️ Pago parcial de tu cliente' : '✅ Pago confirmado de tu cliente',
+        opts.parcial
+          ? `${o.box_id} ${o.full_name}: la orden ${ref} quedó incompleta. Faltan ${money(opts.faltante)}.`
+          : `${o.box_id} ${o.full_name} liquidó la orden ${ref} por ${money(opts.total)}.`,
+        opts.parcial ? 'warning' : 'success', 'cash',
+        { payment_reference: ref, remaining: opts.faltante }, '/dashboard'
+      ).catch(() => {});
+    }
+
+    const destinos = [Number(o.user_id), ...(o.asesor_id ? [Number(o.asesor_id)] : [])];
+    await sendPushToUsers(destinos, {
+      title: tituloCliente,
+      body: textoCliente,
+      data: { screen: 'Payments', payment_reference: String(ref), remaining: String(opts.faltante) },
+      notificationType: 'payment',
+    }).catch(() => {});
+
+    // WhatsApp SOLO al cliente.
+    const { sendPagoConfirmado, sendPagoParcial, telefonoParaWhatsApp } = await import('./whatsappService');
+    const wa = await telefonoParaWhatsApp(Number(o.user_id));
+    if (wa) {
+      if (opts.parcial) {
+        await sendPagoParcial(wa.phone, wa.nombre, ref, money(opts.abonado), money(opts.total), money(opts.faltante));
+      } else {
+        await sendPagoConfirmado(wa.phone, wa.nombre, ref, money(opts.total));
+      }
+    }
+  } catch (e: any) {
+    console.error('[VOUCHER] no se pudieron enviar los avisos de pago:', e?.message);
+  }
+};
+
 export const approveVoucher = async (req: AuthRequest, res: Response) => {
   try {
     const adminId = req.user?.userId;
@@ -806,6 +881,9 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
         `[VOUCHER] Orden ${voucher.payment_order_id}: comprobantes aprobados por $${totalAprobado.toFixed(2)} ` +
         `de $${totalOrden.toFixed(2)} — PAGO PARCIAL, la orden NO se marca pagada. Faltan $${faltante.toFixed(2)}.`
       );
+      await avisarPagoConfirmado(voucher.payment_order_id, {
+        parcial: true, total: totalOrden, abonado: totalAprobado, faltante,
+      });
       return res.json({
         success: true,
         voucher_id: voucher.id,
@@ -914,6 +992,13 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
       generateInvoiceForPoboxPaymentByRef(String(o.payment_reference || '')).catch((e: any) =>
         console.error('[approveVoucher] factura:', e?.message || e)
       );
+    }
+
+    // Pago cubierto: WhatsApp + push al cliente, push al asesor.
+    if (allApproved) {
+      await avisarPagoConfirmado(voucher.payment_order_id, {
+        parcial: false, total: totalOrden, abonado: totalAprobado, faltante: 0,
+      });
     }
 
     return res.json({
