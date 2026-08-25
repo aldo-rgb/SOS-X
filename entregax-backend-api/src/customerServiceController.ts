@@ -1563,7 +1563,7 @@ export const getResumenFinancieroGuia = async (req: Request, res: Response) => {
     // Intentar por source_type directo
     const queries: { type: string; query: string }[] = [
       { type: 'package', query: `SELECT id, tracking_internal as tracking_number, service_type as servicio, description, assigned_cost_mxn as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, payment_status, user_id, weight, dimensions, has_gex, gex_folio, destination_address, destination_city, destination_contact, status, created_at, received_at, air_sale_price, air_price_per_kg, air_tariff_type, pobox_venta_usd, single_cbm as cbm, declared_value FROM packages WHERE tracking_internal = $1` },
-      { type: 'dhl', query: `SELECT id, inbound_tracking as tracking_number, 'DHL_MTY' as servicio, description, COALESCE(total_cost_mxn, import_cost_mxn, ROUND(import_cost_usd * COALESCE(exchange_rate, 1), 2)) as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, CASE WHEN paid_at IS NOT NULL THEN 'paid' ELSE 'pending' END as payment_status, user_id, weight_kg as weight, product_type, import_cost_usd, import_cost_mxn, exchange_rate, national_cost_mxn, status, created_at, inspected_at as received_at, has_gex, gex_folio, delivery_address_id FROM dhl_shipments WHERE inbound_tracking = $1 OR secondary_tracking = $1` },
+      { type: 'dhl', query: `SELECT id, inbound_tracking as tracking_number, 'DHL_MTY' as servicio, description, COALESCE(NULLIF(import_cost_mxn, 0), ROUND(import_cost_usd * COALESCE(exchange_rate, 1), 2), total_cost_mxn) as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, CASE WHEN paid_at IS NOT NULL THEN 'paid' ELSE 'pending' END as payment_status, user_id, weight_kg as weight, product_type, import_cost_usd, import_cost_mxn, exchange_rate, national_cost_mxn, status, created_at, inspected_at as received_at, has_gex, gex_folio, delivery_address_id FROM dhl_shipments WHERE inbound_tracking = $1 OR secondary_tracking = $1` },
       { type: 'china_receipt', query: `SELECT id, fno as tracking_number, 'AIR_CHN' as servicio, shipping_mark as description, assigned_cost_mxn as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, CASE WHEN paid_at IS NOT NULL THEN 'paid' ELSE payment_status END as payment_status, user_id, total_weight as weight, total_cbm as cbm, status, created_at, has_gex, gex_folio, delivery_address_id, delivery_instructions FROM china_receipts WHERE fno = $1` },
       { type: 'maritime_order', query: `SELECT id, ordersn as tracking_number, 'MAR_CHN' as servicio, shipping_mark as description, assigned_cost_mxn as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, CASE WHEN paid_at IS NOT NULL THEN 'paid' ELSE payment_status END as payment_status, user_id, weight, volume as cbm, merchandise_type, assigned_cost_usd, status, created_at, has_gex, gex_folio, delivery_address_id, delivery_instructions FROM maritime_orders WHERE ordersn = $1` },
       { type: 'maritime', query: `SELECT id, log_number as tracking_number, 'MARITIMO' as servicio, 'Embarque Marítimo' as description, assigned_cost_mxn as costo_base, saldo_pendiente, COALESCE(monto_pagado, 0) as monto_pagado, payment_status, user_id, weight_kg as weight, volume_cbm as cbm, status, created_at, has_gex, gex_folio FROM maritime_shipments WHERE log_number = $1` },
@@ -1699,6 +1699,14 @@ export const getResumenFinancieroGuia = async (req: Request, res: Response) => {
       }, 0);
 
     const montoPagado = parseFloat(guia.monto_pagado || 0);
+    // El envío nacional se suma aparte, así que costo_base tiene que ser SOLO
+    // la parte de importación. Antes salía de total_cost_mxn, y esa columna
+    // significa dos cosas distintas según cómo se creó la guía: en 216 filas
+    // vale lo mismo que import_cost_mxn (no trae el nacional) y en 72 vale
+    // import + nacional. Cuando caía en el segundo caso, el nacional se sumaba
+    // dos veces — es lo que reportó TKT-2026-2342 (guía 1268342213: la orden
+    // salió en $5,316 en vez de $4,779). Ahora se parte de import_cost_mxn,
+    // que siempre es la importación con su impuesto y nunca el flete nacional.
     const nationalCost = parseFloat(guia.national_cost_mxn || 0);
     const totalGastos = costoBase + nationalCost + cargos;
     const saldoPendiente = parseFloat(guia.saldo_pendiente || 0) || (totalGastos - descuentos - montoPagado);

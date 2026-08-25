@@ -7319,11 +7319,21 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
           } else {
             // Try dhl_shipments (1 paquete = costo por caja × 1)
             const dhlCost = +(carrierCostPerBox * 1).toFixed(2);
+            // total_cost_mxn se recalcula junto con el costo nacional. Era el
+            // único de los cinco caminos que escriben national_cost_mxn que no
+            // lo hacía, y por eso la columna acabó significando dos cosas: en
+            // 216 guías quedó valiendo lo mismo que import_cost_mxn (sin el
+            // flete) y en 72 sí lo incluía. La cotización sumaba el nacional
+            // sobre un total que ya lo traía y cobraba doble (TKT-2026-2342).
             const dhlResult = await client.query(`
               UPDATE dhl_shipments
               SET delivery_address_id = $1,
                   national_carrier = $2,
                   national_cost_mxn = $3,
+                  total_cost_mxn = ROUND(
+                    COALESCE(import_cost_usd, 0)::numeric * COALESCE(exchange_rate, 0)::numeric
+                    + COALESCE(import_tax_mxn, 0)::numeric
+                    + $3::numeric, 2),
                   updated_at = CURRENT_TIMESTAMP
               WHERE id = $4 AND user_id = $5
               RETURNING id
