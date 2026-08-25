@@ -174,7 +174,10 @@ export default function TareasPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '' });
+  // eisenhower arranca VACÍO a propósito: venía preseleccionado en 'estrella' y
+  // la tarea nacía con una prioridad que nadie eligió. Ahora hay que elegirla,
+  // igual que en Mis Tareas.
+  const [form, setForm] = useState<any>({ title: '', description: '', eisenhower: '', assignee_id: '', due_at: '', column_id: '' });
   const [involvedIds, setInvolvedIds] = useState<number[]>([]);
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [newSubtasks, setNewSubtasks] = useState<string[]>([]); // checklist al crear
@@ -287,6 +290,8 @@ export default function TareasPage() {
 
   const createTask = async () => {
     if (!form.title.trim()) return notify('El título es obligatorio', 'error');
+    if (!form.eisenhower) return notify('Selecciona la prioridad', 'error');
+    if (!form.due_at) return notify('Indica la fecha deseada', 'error');
     // Sin este candado, un doble clic manda dos POST y nacen tareas gemelas
     // (pasó con las tareas 346 y 347, creadas con 23 ms de diferencia).
     if (creating) return;
@@ -309,7 +314,7 @@ export default function TareasPage() {
         }
       }
       setCreateOpen(false);
-      setForm({ title: '', description: '', eisenhower: 'estrella', assignee_id: '', due_at: '', column_id: '', section_id: '' });
+      setForm({ title: '', description: '', eisenhower: '', assignee_id: '', due_at: '', column_id: '', section_id: '' });
       setInvolvedIds([]); setNewPhotos([]); setNewSubtasks([]); setSubInput('');
       notify('Tarea creada');
       refresh();
@@ -650,9 +655,10 @@ export default function TareasPage() {
           <TextField fullWidth label="Descripción" margin="dense" multiline rows={2}
             value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
           <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Prioridad (Eisenhower) *</InputLabel>
-              <Select label="Prioridad (Eisenhower) *" value={form.eisenhower} onChange={e => setForm({ ...form, eisenhower: e.target.value })}>
+            <FormControl fullWidth size="small" required error={!form.eisenhower}>
+              <InputLabel shrink>Prioridad (Eisenhower) *</InputLabel>
+              <Select label="Prioridad (Eisenhower) *" notched displayEmpty value={form.eisenhower} onChange={e => setForm({ ...form, eisenhower: e.target.value })}>
+                <MenuItem value="" disabled><em>Selecciona la prioridad…</em></MenuItem>
                 {EIS_ALTA.map((k) => <MenuItem key={k} value={k}>{EIS[k].label}{EIS_ALTA_NOTA[k] ? ` (${EIS_ALTA_NOTA[k]})` : ''}</MenuItem>)}
               </Select>
             </FormControl>
@@ -706,7 +712,8 @@ export default function TareasPage() {
                 })()}
               </Select>
             </FormControl>
-            <TextField fullWidth size="small" type="datetime-local" label="Fecha deseada" InputLabelProps={{ shrink: true }}
+            <TextField fullWidth size="small" required type="datetime-local" label="Fecha deseada *" InputLabelProps={{ shrink: true }}
+              error={!form.due_at}
               value={form.due_at} onChange={e => setForm({ ...form, due_at: e.target.value })} />
           </Box>
           {/* Involucrados (otros responsables) — buscador agrupado por tipo + chips
@@ -799,7 +806,7 @@ export default function TareasPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { setCreateOpen(false); setNewPhotos([]); setNewSubtasks([]); setSubInput(''); }}>Cancelar</Button>
-          <Button variant="contained" onClick={createTask} disabled={creating} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>{creating ? 'Creando…' : 'Crear'}</Button>
+          <Button variant="contained" onClick={createTask} disabled={creating || !form.title.trim() || !form.eisenhower || !form.due_at} sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>{creating ? 'Creando…' : 'Crear'}</Button>
         </DialogActions>
       </Dialog>
 

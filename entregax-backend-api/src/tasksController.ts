@@ -1112,6 +1112,11 @@ export const createTask = async (req: Request, res: Response): Promise<any> => {
     if (!String(b.title || '').trim()) return res.status(400).json({ error: 'El título es obligatorio (usa un verbo de acción)' });
     const eisenhower = EISENHOWER.includes(b.eisenhower) ? b.eisenhower : null;
     if (!eisenhower) return res.status(400).json({ error: 'La categoría (Matriz de Prioridad) es obligatoria' });
+    // Fecha deseada obligatoria: sin ella la tarea no tiene contra qué medirse ni
+    // aparece como vencida. Este endpoint lo consume solo el alta del tablero
+    // (TareasPage); las tareas automáticas de tickets entran por
+    // createAssignedTaskInternal, que inserta directo y no pasa por aquí.
+    if (!b.due_at) return res.status(400).json({ error: 'La fecha deseada es obligatoria' });
     // 🔗 Grupo Rino: si el responsable o algún involucrado es un usuario externo,
     // la tarea SIEMPRE se crea en el tablero "Grupo Rino" (ignora el tablero elegido).
     let forcedRino = false;
