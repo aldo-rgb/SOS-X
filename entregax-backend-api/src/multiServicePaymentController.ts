@@ -849,6 +849,13 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
     const userId = req.user?.userId;
     const { packageIds, paymentMethod, total, currency, company, returnUrl, cancelUrl, invoiceRequired, invoiceData, paymentOrderId, paymentReference } = req.body;
 
+    // 🔒 Servicio apagado en Ajustes del Sistema: no se cobra.
+    if (Array.isArray(packageIds) && packageIds.length) {
+      const svc = await getServiceTypeFromPackages(packageIds);
+      const { bloqueadoPorServicio } = await import('./servicioHabilitado');
+      if (await bloqueadoPorServicio(res, svc, 'pago PayPal')) return;
+    }
+
     console.log('📦 Creating PayPal payment:', {
       userId,
       packageIds,
@@ -1056,6 +1063,13 @@ export const createBranchPayment = async (req: AuthRequest, res: Response): Prom
   try {
     const userId = req.user?.userId;
     const { packageIds, paymentMethod, total, currency, company, invoiceRequired, invoiceData } = req.body;
+
+    // 🔒 Servicio apagado en Ajustes del Sistema: no se genera la referencia.
+    if (Array.isArray(packageIds) && packageIds.length) {
+      const svc = await getServiceTypeFromPackages(packageIds);
+      const { bloqueadoPorServicio } = await import('./servicioHabilitado');
+      if (await bloqueadoPorServicio(res, svc, 'pago en sucursal')) return;
+    }
 
     console.log('📦 Creating branch payment reference:', {
       userId,

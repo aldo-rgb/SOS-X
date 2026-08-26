@@ -463,6 +463,12 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
       return res.status(500).json({ error: `No hay cuenta bancaria configurada para el servicio ${serviceTypeForConfig}. Configura la empresa emisora en Comisiones → Servicios antes de crear órdenes de pago.` });
     }
 
+    // 🔒 Servicio apagado en Ajustes del Sistema: no se genera la orden.
+    // El panel del asesor no pasa por el botón "Pagar" del cliente, que era lo
+    // único que el toggle apagaba, así que este camino quedaba abierto.
+    const { bloqueadoPorServicio } = await import('./servicioHabilitado');
+    if (await bloqueadoPorServicio(res, serviceTypeForConfig, `orden de asesor ${aid}`)) return;
+
     // ── 4. Generate payment reference ────────────────────────────────────
     const words = (companyInfo.company_name || 'EX').trim().split(/\s+/)
       .filter((w: string) => !['sa','de','cv','s.a.','c.v.'].includes(w.toLowerCase()));
