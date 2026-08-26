@@ -3,6 +3,8 @@
  *
  *   https://entregax.app/instrucciones/<TRN>  → abrir app en Home filtrado al paquete
  *                                                (botón "generar/asignar instrucciones").
+ *   https://entregax.app/tarea/<ID>           → abrir Mis Tareas con esa tarea abierta
+ *                                                (botón del WhatsApp de tarea asignada).
  *   https://entregax.app/pagar/<TRN>          → abrir app en la guía lista para pagar
  *                                                (botón "pagar embarque"). Etapa 1: solo
  *                                                abre la app en la guía; el auto-pago llega después.
@@ -14,7 +16,7 @@
  *   - App ya abierta en Home (warm): el evento 'url' llama directo al listener.
  */
 
-export type DeepLinkAction = 'instrucciones' | 'pagar' | 'xpay' | 'cotizar';
+export type DeepLinkAction = 'instrucciones' | 'pagar' | 'xpay' | 'cotizar' | 'tarea';
 export interface DeepLinkTarget { action: DeepLinkAction; trn: string; }
 
 // Extrae { action, trn } de una URL de EntregaX. Devuelve null si no aplica.
@@ -26,6 +28,10 @@ export function parseDeepLink(url: string | null | undefined): DeepLinkTarget | 
     if (/(?:^|\/|:\/\/)cotizar(?:[/?#]|$)/i.test(s)) return { action: 'cotizar', trn: '' };
     // /xpay no lleva TRN: abre X-Pay (o Home si el cliente no tiene asesor).
     if (/(?:^|\/|:\/\/)xpay(?:[/?#]|$)/i.test(s)) return { action: 'xpay', trn: '' };
+    // /tarea/<id> → Mis Tareas con esa tarea abierta. Va ANTES que las demás
+    // porque su id es numérico y no debe confundirse con un tracking.
+    const mt = s.match(/tarea\/(\d+)/i);
+    if (mt && mt[1]) return { action: 'tarea', trn: mt[1] };
     const mp = s.match(/pagar\/([^/?#]+)/i);
     if (mp && mp[1]) { const trn = decodeURIComponent(mp[1]).trim(); return trn ? { action: 'pagar', trn } : null; }
     const mi = s.match(/instrucciones\/([^/?#]+)/i);

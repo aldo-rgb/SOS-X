@@ -182,6 +182,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       // /cotizar → abre directo la sección Cotizar (QuoteHub).
       if (target.action === 'cotizar') { navigation.navigate('QuoteHub' as any, { user, token }); return; }
       if (target.action === 'xpay') { setPendingXpay(true); return; }
+      // /tarea/<id> → Mis Tareas con esa tarea abierta. MyTasks ya sabe abrirla
+      // sola con openTaskId, asi que basta con navegar.
+      if (target.action === 'tarea') {
+        navigation.navigate('MyTasks' as any, { user, token, openTaskId: Number(target.trn) });
+        return;
+      }
       if (!target?.trn) return;
       setServiceFilter(null);
       setInstructionFilter(null);

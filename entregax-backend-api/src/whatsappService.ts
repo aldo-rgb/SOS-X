@@ -340,6 +340,10 @@ export const sendVerificationCodeWhatsapp = async (params: {
  *   {{3}} quién se la asignó
  *   {{4}} fecha deseada (o "sin fecha")
  *
+ * Lleva un botón de URL dinámica: https://entregax.app/tarea/{{1}} — el
+ * parámetro es el id de la tarea. Al tocarlo abre la app en Mis Tareas con esa
+ * tarea abierta (deep link 'tarea', ver mobile/src/deepLink.ts).
+ *
  * NO se manda a todos: solo a quien esté marcado en Tareas → Avisos por
  * WhatsApp. Es un canal intrusivo y el equipo ya recibe push y aviso in-app.
  */
@@ -348,7 +352,8 @@ export const sendTareaAsignada = async (
     nombreResponsable: string,
     titulo: string,
     asignadaPor: string,
-    fechaDeseada: string
+    fechaDeseada: string,
+    tareaId?: number | string
 ): Promise<void> => {
     const templateName = process.env.WHATSAPP_TAREA_TEMPLATE || 'tarea_asignada';
     try {
@@ -363,6 +368,10 @@ export const sendTareaAsignada = async (
                 (asignadaPor || '').split(' ')[0] || asignadaPor || 'EntregaX',
                 fechaDeseada || 'sin fecha',
             ],
+            // Botón dinámico → https://entregax.app/tarea/<id>. En la plantilla
+            // la URL se registra como https://entregax.app/tarea/{{1}} y aquí se
+            // manda solo el id. Abre la app en Mis Tareas con la tarea abierta.
+            ...(tareaId ? { urlButtonParam: String(tareaId) } : {}),
         });
     } catch (e) {
         console.error('[WHATSAPP] Error enviando aviso de tarea asignada:', e);

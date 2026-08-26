@@ -1122,7 +1122,8 @@ async function avisarWhatsAppResponsable(
   assigneeId: number | null | undefined,
   creadorId: number | null | undefined,
   titulo: string,
-  dueAt?: string | null
+  dueAt?: string | null,
+  tareaId?: number
 ): Promise<void> {
   try {
     if (!assigneeId) return;
@@ -1153,7 +1154,7 @@ async function avisarWhatsAppResponsable(
       : 'sin fecha';
 
     const { sendTareaAsignada } = await import('./whatsappService');
-    await sendTareaAsignada(u.phone, u.full_name, titulo, u.creador || 'EntregaX', fecha);
+    await sendTareaAsignada(u.phone, u.full_name, titulo, u.creador || 'EntregaX', fecha, tareaId);
     console.log(`[tareas] WhatsApp de tarea enviado a ${u.full_name}`);
   } catch (e: any) {
     console.error('[tareas] avisarWhatsAppResponsable:', e?.message);
@@ -1277,7 +1278,7 @@ export const createTask = async (req: Request, res: Response): Promise<any> => {
     await logActivity(task.id, uid, 'created', { title: task.title });
     if (task.assignee_id) {
       await notify(task.assignee_id, '📋 Nueva tarea asignada', task.title, { task_id: task.id });
-      avisarWhatsAppResponsable(task.assignee_id, uid, task.title, task.due_at).catch(() => {});
+      avisarWhatsAppResponsable(task.assignee_id, uid, task.title, task.due_at, task.id).catch(() => {});
     }
     for (const p of extra) if (Number(p) !== Number(uid) && Number(p) !== Number(task.assignee_id)) await notify(p, '📋 Te involucraron en una tarea', task.title, { task_id: task.id });
     emitTaskEventIfExternal('task.created', Number(task.id), uid).catch(() => {});
