@@ -32,6 +32,7 @@ import GridViewIcon from '@mui/icons-material/GridView';
 import GroupsIcon from '@mui/icons-material/Groups';
 import TeamTasksView from '../components/TeamTasksView';
 import SearchIcon from '@mui/icons-material/Search';
+import ComentarioAdjunto from '../components/ComentarioAdjunto';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -1514,6 +1515,7 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
               <Box key={c.id} sx={{ mb: 1 }}>
                 <Typography variant="caption" color="text.secondary"><b>{c.author_name || '—'}</b> · {new Date(c.created_at).toLocaleString('es-MX')}</Typography>
                 <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{c.body}</Typography>
+                {!!c.attachment_url && <ComentarioAdjunto url={c.attachment_url} />}
               </Box>
             ))}
             <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>

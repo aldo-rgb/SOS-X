@@ -59,8 +59,24 @@ export async function ingestExternalAttachment(
     const ok = permitidos.some(h => host === h || host.endsWith('.' + h));
     if (!ok) { console.warn(`[sync] adjunto rechazado, host no permitido: ${host} (permitidos: ${permitidos.join(', ') || 'ninguno'})`); return null; }
 
-    const resp = await fetch(url, { headers: { 'X-EntregaX-Key': OUTBOUND_API_KEY() } });
-    if (!resp.ok) { console.warn(`[sync] adjunto no se pudo bajar: HTTP ${resp.status} ${url}`); return null; }
+    // Su endpoint de archivos pide autenticación y no acordamos cómo mandarla,
+    // así que se prueban las formas usuales con la misma llave compartida hasta
+    // que una conteste 200. Si ninguna entra, se registra el código real para
+    // poder decirles qué esperábamos.
+    const llave = OUTBOUND_API_KEY();
+    const intentos: Array<[string, Record<string, string>]> = [
+      ['X-EntregaX-Key', { 'X-EntregaX-Key': llave }],
+      ['Authorization Bearer', { Authorization: `Bearer ${llave}` }],
+      ['X-Api-Key', { 'X-Api-Key': llave }],
+      ['sin auth', {}],
+    ];
+    let resp: Response | null = null;
+    for (const [comoSeLlama, headers] of intentos) {
+      const r = await fetch(url, { headers }).catch(() => null);
+      if (r?.ok) { console.log(`[sync] adjunto bajado con ${comoSeLlama}`); resp = r; break; }
+      console.warn(`[sync] adjunto rechazado con ${comoSeLlama}: HTTP ${r?.status ?? 'sin respuesta'}`);
+    }
+    if (!resp) { console.warn(`[sync] adjunto no se pudo bajar: ${url}`); return null; }
     const buf = Buffer.from(await resp.arrayBuffer());
     if (!buf.length || buf.length > MAX_ADJUNTO_BYTES) {
       console.warn(`[sync] adjunto descartado por tamaño: ${buf.length} bytes`); return null;

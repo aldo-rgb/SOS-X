@@ -1465,6 +1465,21 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                       ) : (
                         <Text style={[styles.msgText, mine && { color: '#0B3D1E' }]}>{c.body}</Text>
                       )}
+                      {/* Un comentario puede traer archivo (asi llegan los de
+                          Grupo Rino). Sin esto decia "Adjunto un archivo" y no
+                          habia archivo por ningun lado. */}
+                      {!!c.attachment_url && (
+                        /\.(jpe?g|png|gif|webp|bmp)(\?|$)/i.test(String(c.attachment_url)) ? (
+                          <TouchableOpacity onPress={() => Linking.openURL(String(c.attachment_url))} style={{ marginTop: 6 }}>
+                            <Image source={{ uri: String(c.attachment_url) }} style={{ width: 160, height: 160, borderRadius: 8, backgroundColor: '#EEE' }} resizeMode="cover" />
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity onPress={() => Linking.openURL(String(c.attachment_url))} style={{ marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <Ionicons name="attach" size={13} color="#5F6368" />
+                            <Text style={{ fontSize: 11.5, color: '#3C4043', fontWeight: '700' }}>Abrir archivo adjunto</Text>
+                          </TouchableOpacity>
+                        )
+                      )}
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 12, marginTop: 2 }}>
                         {mine && editingCommentId !== c.id && (
                           <>

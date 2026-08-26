@@ -30,6 +30,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import CheckIcon from '@mui/icons-material/Check';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import SearchIcon from '@mui/icons-material/Search';
+import ComentarioAdjunto from '../components/ComentarioAdjunto';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('token') || '';
@@ -1868,6 +1869,10 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                           {c.body}
                         </Typography>
                       )}
+                      {/* Un comentario puede traer archivo (los de Grupo Rino
+                          llegan asi). Sin esto el comentario decia "Adjunto un
+                          archivo" y no habia archivo por ningun lado. */}
+                      {!!c.attachment_url && <ComentarioAdjunto url={c.attachment_url} />}
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5, mt: 0.25 }}>
                         {mine && editingCommentId !== c.id && (
                           <>
