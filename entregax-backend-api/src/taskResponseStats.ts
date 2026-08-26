@@ -123,21 +123,29 @@ export async function calcularPromediosRespuesta(): Promise<{
     jornada: string;
   };
 }> {
+  // Las PERSONALES quedan fuera: son la lista de pendientes de cada quien, no
+  // trabajo asignado por alguien más, así que no dicen nada del tiempo de
+  // respuesta del equipo y ensucian el promedio. Son 48 de 372 (12.9%). Es el
+  // mismo criterio que ya usa la vista de Equipo en tasksController.
   const tareas = (await pool.query(`
     SELECT t.id, t.assignee_id, t.eisenhower, t.status, t.created_at, t.completed_at,
            u.full_name, u.role
       FROM tasks t
       JOIN users u ON u.id = t.assignee_id
-     WHERE t.status <> 'cancelled'`)).rows;
+      LEFT JOIN task_boards b ON b.id = t.board_id
+     WHERE t.status <> 'cancelled'
+       AND COALESCE(b.board_key, '') <> 'personales'`)).rows;
 
   // Momento en que la tarea quedó RESUELTA por su responsable, y momento en que
   // quien la asignó la confirmó. `assigned` sirve para reiniciar el reloj si la
   // tarea cambió de responsable después de creada.
-  const eventos = (await pool.query(`
+  const idsEnJuego = tareas.map((t: any) => Number(t.id));
+  const eventos = idsEnJuego.length === 0 ? [] : (await pool.query(`
     SELECT task_id, action, MIN(created_at) AS primera, MAX(created_at) AS ultima
       FROM task_activity
      WHERE action IN ('awaiting_confirmation', 'confirmed', 'completed', 'assigned')
-     GROUP BY task_id, action`)).rows;
+       AND task_id = ANY($1::int[])
+     GROUP BY task_id, action`, [idsEnJuego])).rows;
 
   const porTarea = new Map<number, Record<string, { primera: Date; ultima: Date }>>();
   for (const e of eventos) {
@@ -227,7 +235,7 @@ export async function calcularPromediosRespuesta(): Promise<{
     global: {
       por_cuadrante: Object.fromEntries(CUADRANTES.map((c) => [c, prom(globalCuad[c] || [])])) as any,
       confirmacion: prom(globalConf),
-      jornada: 'Lunes a viernes, 10:10–18:00 (Monterrey). No cuentan fines de semana ni horas fuera de jornada.',
+      jornada: 'Lunes a viernes, 10:10–18:00 (Monterrey). No cuentan fines de semana ni horas fuera de jornada. Las tareas personales quedan fuera del cálculo.',
     },
   };
 }
