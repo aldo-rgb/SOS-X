@@ -94,9 +94,18 @@ export async function ingestExternalAttachment(
     if (!buf.length || buf.length > MAX_ADJUNTO_BYTES) {
       console.warn(`[sync] adjunto descartado por tamaño: ${buf.length} bytes`); return null;
     }
-    const limpio = String(fileName || 'archivo').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60);
-    const key = `task-attachments/task-${taskId}-${Date.now()}-${limpio}`;
     const tipo = resp.headers.get('content-type') || 'application/octet-stream';
+    // Sus enlaces no traen nombre de archivo, así que el adjunto se llamaba
+    // "imagen" a secas. La extensión sale del content-type para que al
+    // descargarlo el sistema sepa abrirlo.
+    const EXT: Record<string, string> = {
+      'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
+      'image/heic': '.heic', 'image/heif': '.heif', 'application/pdf': '.pdf',
+    };
+    const ext = EXT[tipo.split(';')[0]!.trim().toLowerCase()] || '';
+    let limpio = String(fileName || 'archivo').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60);
+    if (ext && !limpio.toLowerCase().endsWith(ext)) limpio += ext;
+    const key = `task-attachments/task-${taskId}-${Date.now()}-${limpio}`;
     await uploadToS3WithSignedUrl(buf, key, tipo, 6 * 3600);
     const r = await pool.query(
       `INSERT INTO task_attachments (task_id, file_key, file_name, uploaded_by) VALUES ($1,$2,$3,$4) RETURNING id`,
