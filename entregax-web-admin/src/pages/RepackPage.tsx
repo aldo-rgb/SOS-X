@@ -102,6 +102,36 @@ const WIZARD_STEPS = ['Escanear Guías Contenidas', 'Tomar Foto', 'Confirmar e I
 // mientras que en BD se guarda con guion (US-3985802484).
 const normTracking = (s: string) => (s || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 
+
+// Cuánto lleva esperando un reempaque desde que el cliente lo pidió.
+// Después de 3 horas se pinta en rojo: es el umbral que pidió CEDIS para saber
+// cuáles ya se atrasaron (tarea 308).
+const HORAS_ALERTA = 3;
+
+const esperaDesde = (creado?: string): { texto: string; horas: number } => {
+  if (!creado) return { texto: '—', horas: 0 };
+  const t = new Date(creado).getTime();
+  if (Number.isNaN(t)) return { texto: '—', horas: 0 };
+  const min = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  const horas = min / 60;
+  if (min < 60) return { texto: `${min} min`, horas };
+  const dias = Math.floor(min / 1440);
+  const h = Math.floor((min % 1440) / 60);
+  // Pasado un día, los minutos ya no dicen nada útil.
+  if (dias > 0) return { texto: `${dias}d ${h}h`, horas };
+  return { texto: `${Math.floor(min / 60)}h ${min % 60}m`, horas };
+};
+
+const fechaHoraMx = (iso?: string): string => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('es-MX', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+};
+
 export default function RepackPage() {
   const { i18n } = useTranslation();
   const [instructions, setInstructions] = useState<RepackInstruction[]>([]);
@@ -113,6 +143,15 @@ export default function RepackPage() {
   const [masterPackage, setMasterPackage] = useState<RepackInstruction | null>(null);
   const [scanInput, setScanInput] = useState('');
   const [scannedPackages, setScannedPackages] = useState<ScannedPackage[]>([]);
+  // El contador de espera se refresca solo cada minuto. Sin esto habria que
+  // recargar la pagina para ver si una guia ya cruzo las 3 horas, que es
+  // justo lo que el panel debe avisar sin que nadie lo pida (tarea 308).
+  const [, setTicMinuto] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTicMinuto((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const [repackPhoto, setRepackPhoto] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const scanInputRef = useRef<HTMLInputElement>(null);
@@ -918,6 +957,8 @@ export default function RepackPage() {
               <TableRow sx={{ bgcolor: '#1a1a2e' }}>
                 <TableCell sx={{ color: 'white', fontWeight: 600 }}>GUÍA REEMPAQUE</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 600 }}>CLIENTE</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 600 }}>SOLICITADO</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 600 }}>ESPERANDO</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 600 }}>GUÍAS CONTENIDAS</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 600 }}>DIMENSIONES</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 600 }}>PESO</TableCell>
@@ -925,8 +966,15 @@ export default function RepackPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {instructions.map((inst) => (
-                <TableRow key={inst.id} hover>
+              {/* Los que llevan más tiempo esperando van arriba: de nada sirve
+                  medir el atraso si el más atrasado queda al fondo. */}
+              {[...instructions]
+                .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime())
+                .map((inst) => {
+                const espera = esperaDesde(inst.created_at);
+                const tarde = espera.horas > HORAS_ALERTA;
+                return (
+                <TableRow key={inst.id} hover sx={tarde ? { bgcolor: 'rgba(211,47,47,0.06)' } : undefined}>
                   <TableCell>
                     <Typography fontWeight={600} color="secondary">
                       {inst.tracking_internal}
@@ -940,6 +988,22 @@ export default function RepackPage() {
                       label={inst.box_id} 
                       size="small" 
                       sx={{ fontWeight: 600, bgcolor: '#f5f5f5' }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {fechaHoraMx(inst.created_at)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={espera.texto}
+                      sx={{
+                        fontWeight: 700,
+                        bgcolor: tarde ? '#D32F2F' : '#E8F5E9',
+                        color: tarde ? 'white' : '#2E7D32',
+                      }}
                     />
                   </TableCell>
                   <TableCell>
@@ -980,11 +1044,12 @@ export default function RepackPage() {
                     />
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
 
               {instructions.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
+                  <TableCell colSpan={8} align="center" sx={{ py: 8 }}>
                     <AllInboxIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
                     <Typography color="text.secondary">
                       {i18n.language === 'es' 
