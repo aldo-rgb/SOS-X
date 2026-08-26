@@ -744,6 +744,7 @@ export default function TareasPage() {
               <>
                 <Alert severity="info" sx={{ mb: 2 }}>
                   {promedios.global.jornada} El reloj arranca cuando la tarea <b>se asigna</b>, aunque nunca se haya puesto en proceso.
+                  {' '}<b>Por confirmar</b> son las que esa persona tiene que confirmar porque ella las asignó, no las que ella resolvió.
                 </Alert>
 
                 <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
@@ -762,7 +763,7 @@ export default function TareasPage() {
                 <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
                   Promedio por cuadrante · {GRUPOS.find(g => g[0] === promediosGrupo)?.[1]}
                   <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                    {cuentaGrupo('activas')} activas · {cuentaGrupo('en_espera')} en espera · {cuentaGrupo('terminadas')} terminadas
+                    {cuentaGrupo('activas')} activas · {cuentaGrupo('en_espera')} esperando SU confirmación · {cuentaGrupo('terminadas')} terminadas
                   </Typography>
                 </Typography>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(5, 1fr)' }, gap: 1.5, mb: 3 }}>
@@ -777,7 +778,7 @@ export default function TareasPage() {
                     );
                   })}
                   <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: '#FFF8F0' }}>
-                    <Typography variant="caption" color="text.secondary">⏳ Tardan en confirmar</Typography>
+                    <Typography variant="caption" color="text.secondary">⏳ Tardan en confirmar lo que les resolvieron</Typography>
                     <Typography variant="h6" fontWeight={800}>{promedioGrupo((p: any) => p.promedio_confirmacion).texto}</Typography>
                     <Typography variant="caption" color="text.secondary">{promedioGrupo((p: any) => p.promedio_confirmacion).muestras} tareas</Typography>
                   </Paper>
@@ -792,7 +793,7 @@ export default function TareasPage() {
                       <Box component="tr">
                         <Box component="th">Persona</Box>
                         <Box component="th" sx={{ textAlign: 'center !important' }}>Activas</Box>
-                        <Box component="th" sx={{ textAlign: 'center !important' }}>En espera</Box>
+                        <Box component="th" sx={{ textAlign: 'center !important' }}>Por confirmar</Box>
                         <Box component="th" sx={{ textAlign: 'center !important' }}>Terminadas</Box>
                         {CUAD.map(([k, lbl]) => (
                           <Box component="th" key={k} sx={{ textAlign: 'center !important' }}>{lbl.split(' ')[0]}</Box>

@@ -138,10 +138,13 @@ export async function calcularPromediosRespuesta(): Promise<{
   // respuesta del equipo y ensucian el promedio. Son 48 de 372 (12.9%). Es el
   // mismo criterio que ya usa la vista de Equipo en tasksController.
   const tareas = (await pool.query(`
-    SELECT t.id, t.assignee_id, t.eisenhower, t.status, t.created_at, t.completed_at,
-           u.full_name, u.role
+    SELECT t.id, t.assignee_id, t.created_by, t.eisenhower, t.status,
+           t.created_at, t.completed_at,
+           u.full_name, u.role,
+           uc.full_name AS creador_nombre, uc.role AS creador_rol
       FROM tasks t
       JOIN users u ON u.id = t.assignee_id
+      LEFT JOIN users uc ON uc.id = t.created_by
       LEFT JOIN task_boards b ON b.id = t.board_id
      WHERE t.status <> 'cancelled'
        AND COALESCE(b.board_key, '') <> 'personales'`)).rows;
@@ -170,12 +173,11 @@ export async function calcularPromediosRespuesta(): Promise<{
   const globalCuad: Record<string, number[]> = { fuego: [], estrella: [], delegar: [], eliminar: [] };
   const globalConf: number[] = [];
 
-  for (const t of tareas) {
-    const uid = Number(t.assignee_id);
+  const fila = (uid: number, nombre: string, rol: string) => {
     if (!acum.has(uid)) {
       acum.set(uid, {
-        user_id: uid, nombre: t.full_name || `#${uid}`, rol: t.role || '',
-        grupo: grupoDeRol(t.role),
+        user_id: uid, nombre: nombre || `#${uid}`, rol: rol || '',
+        grupo: grupoDeRol(rol),
         total: 0, activas: 0, en_espera: 0, terminadas: 0,
         por_cuadrante: { fuego: 0, estrella: 0, delegar: 0, eliminar: 0 },
         promedio_por_cuadrante: {} as any,
@@ -185,15 +187,30 @@ export async function calcularPromediosRespuesta(): Promise<{
         _conf: [],
       });
     }
-    const f = acum.get(uid)!;
+    return acum.get(uid)!;
+  };
+
+  for (const t of tareas) {
+    const uid = Number(t.assignee_id);
+    const f = fila(uid, t.full_name, t.role);
     f.total++;
 
     const cuad = (CUADRANTES.includes(t.eisenhower) ? t.eisenhower : 'eliminar') as Cuadrante;
     f.por_cuadrante[cuad]++;
 
-    if (t.status === 'completed') f.terminadas++;
-    else if (t.status === 'awaiting_confirmation') f.en_espera++;
-    else f.activas++;
+    // OJO con "en espera": la tarea ya la resolvio el responsable y esta parada
+    // esperando que quien la asigno la confirme. Contarla como pendiente del
+    // responsable lo culpa de un tiempo que no depende de el. Se atribuye a
+    // quien tiene que hacer la accion: el creador.
+    if (t.status === 'completed') {
+      f.terminadas++;
+    } else if (t.status === 'awaiting_confirmation') {
+      f.terminadas++;  // para el responsable, su parte ya esta hecha
+      const cid = t.created_by != null ? Number(t.created_by) : null;
+      if (cid) fila(cid, t.creador_nombre, t.creador_rol).en_espera++;
+    } else {
+      f.activas++;
+    }
 
     const ev = porTarea.get(Number(t.id)) || {};
     // El reloj arranca al ASIGNAR: si hubo reasignación, desde la última.
@@ -208,14 +225,14 @@ export async function calcularPromediosRespuesta(): Promise<{
       globalCuad[cuad]!.push(m);
     }
 
-    // Confirmación: de "resuelta" a "confirmada". Es tiempo de quien asignó, no
-    // del responsable, pero se muestra en su fila porque es SU tarea la que
-    // quedó esperando.
+    // Confirmación: de "resuelta" a "confirmada". Es tiempo de QUIEN CONFIRMA,
+    // o sea del creador —lo hace en 53 de 60 casos—, así que va en su fila.
     const marcada = ev['awaiting_confirmation']?.ultima;
     const confirmada = ev['confirmed']?.ultima ?? ev['completed']?.ultima;
     if (marcada && confirmada && confirmada > marcada) {
       const m = minutosHabiles(marcada, confirmada);
-      f._conf.push(m);
+      const cid = t.created_by != null ? Number(t.created_by) : null;
+      if (cid) fila(cid, t.creador_nombre, t.creador_rol)._conf.push(m);
       globalConf.push(m);
     }
   }
