@@ -517,6 +517,12 @@ async function createTaskFromSchedule(sch: any): Promise<number | null> {
     for (const p of participants) await pool.query(`INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [taskId, p]);
     if (taskId) {
       await logActivity(taskId, creator, 'created', { title: sch.title, scheduled: true });
+      // El checklist de la programación se siembra en CADA tarea generada: si no,
+      // la recurrente nacía vacía y había que capturar los pasos a mano cada vez.
+      const pasos = Array.isArray(sch.subtasks)
+        ? sch.subtasks.map((x: any) => String(x?.body ?? x ?? '').trim()).filter(Boolean)
+        : [];
+      if (pasos.length) await seedChecklist(taskId, pasos);
       for (const p of participants) if (Number(p) !== Number(creator)) await notify(p, '📅 Tarea programada asignada', sch.title, { task_id: taskId });
       emitTaskEventIfExternal('task.created', Number(taskId), creator).catch(() => {});
     }
@@ -552,6 +558,7 @@ function nextMonthlyWeekday(ordinal: number, weekday: number, hour: number, minu
 export async function runDueTaskSchedules(): Promise<void> {
   try {
     await ensureScheduleAssignee();
+    await ensureScheduleChecklist();
     const due = await pool.query(`SELECT * FROM task_schedules WHERE active = TRUE AND next_run_at <= NOW() ORDER BY next_run_at LIMIT 200`);
     for (const sch of due.rows) {
       const taskId = await createTaskFromSchedule(sch);
@@ -586,8 +593,20 @@ export async function runDueTaskSchedules(): Promise<void> {
   } catch (e: any) { console.warn('[tasks] runDueTaskSchedules:', e?.message); }
 }
 
+/**
+ * Checklist de una programación.
+ *
+ * task_schedules no guardaba subtareas, así que una tarea recurrente nacía
+ * siempre con el checklist vacío y había que capturarlo a mano cada vez que se
+ * generaba. Se guarda como JSONB y se siembra en cada ejecución.
+ */
+async function ensureScheduleChecklist(): Promise<void> {
+  await pool.query(`ALTER TABLE task_schedules ADD COLUMN IF NOT EXISTS subtasks JSONB DEFAULT '[]'::jsonb`).catch(() => {});
+}
+
 export const createSchedule = async (req: Request, res: Response): Promise<any> => {
   try {
+    await ensureScheduleChecklist();
     const uid = authUserId(req);
     if (!uid || authRole(req) === 'client') return res.status(403).json({ error: 'No disponible' });
     const b = req.body || {};
@@ -634,9 +653,14 @@ export const createSchedule = async (req: Request, res: Response): Promise<any> 
       sectionId = sec.rows[0]?.id || null;
     }
     const r = await pool.query(
-      `INSERT INTO task_schedules (title, description, eisenhower, created_by, involved_ids, next_run_at, recurrence, recur_ordinal, recur_weekday, board_id, section_id, assignee_id)
-       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-      [String(b.title).trim(), b.description || null, eis, uid, JSON.stringify(involved), firstRun, rec, ordinal, weekday, boardId, sectionId, assigneeId]);
+      `INSERT INTO task_schedules (title, description, eisenhower, created_by, involved_ids, next_run_at, recurrence, recur_ordinal, recur_weekday, board_id, section_id, assignee_id, subtasks)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13::jsonb) RETURNING *`,
+      [String(b.title).trim(), b.description || null, eis, uid, JSON.stringify(involved), firstRun, rec, ordinal, weekday, boardId, sectionId, assigneeId,
+       JSON.stringify(
+         (Array.isArray(b.subtasks) ? b.subtasks : [])
+           .map((x: any) => String(x?.body ?? x ?? '').trim())
+           .filter(Boolean)
+       )]);
     res.json({ schedule: r.rows[0] });
   } catch (e: any) {
     console.error('[tasks] createSchedule:', e); res.status(500).json({ error: 'Error al programar la tarea' });

@@ -279,6 +279,14 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   const [catSection, setCatSection] = useState<number | null>(null);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
+  const [checklist, setChecklist] = useState<string[]>([]);
+  const [chkInput, setChkInput] = useState('');
+  const agregarChk = () => {
+    const v = chkInput.trim();
+    if (!v) return;
+    setChecklist((prev) => [...prev, v]);
+    setChkInput('');
+  };
   const [eis, setEis] = useState(''); // en blanco: obligatorio elegir
   const [dueOpt, setDueOpt] = useState<string>(''); // en blanco: fecha obligatoria
   const [involved, setInvolved] = useState<number[]>([]);
@@ -363,7 +371,11 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
     try {
       const r = await fetch(`${API_URL}/api/tasks/personal`, {
         method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, assignee_id: assignee || myId || null, due_at: dueStamp(), board_id: catId ?? null, section_id: catSection }),
+        body: JSON.stringify({ title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: myId ? [myId, ...involved] : involved, assignee_id: assignee || myId || null, due_at: dueStamp(), board_id: catId ?? null, section_id: catSection,
+          // El backend ya aceptaba subtasks al crear; solo la app no las mandaba.
+          // Solo se manda si hay pasos: si va vacio, el backend deja de sembrar
+          // el checklist del Filtro de Cierre en Flujo de Ventas.
+          ...(checklist.length ? { subtasks: checklist.map((b) => ({ body: b })) } : {}) }),
       });
       if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo crear', e.error || ''); setBusy(false); return; }
       const d = await r.json();
@@ -445,6 +457,25 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
                 </TouchableOpacity>
               ))}
             </View>
+            {/* Checklist opcional. El backend ya la aceptaba al crear; la app
+                simplemente no la ofrecia, asi que habia que crear la tarea,
+                abrirla y agregar los pasos uno por uno. */}
+            <Text style={styles.fieldLbl}>Checklist (opcional)</Text>
+            {checklist.map((b, i) => (
+              <View key={`${b}-${i}`} style={styles.subRow}>
+                <Ionicons name="square-outline" size={20} color="#999" />
+                <Text style={styles.subTxt}>{b}</Text>
+                <TouchableOpacity hitSlop={8} onPress={() => setChecklist((prev) => prev.filter((_, k) => k !== i))}>
+                  <Ionicons name="trash-outline" size={16} color="#BBB" />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <View style={styles.addSubRow}>
+              <TextInput style={styles.input} placeholder="Agregar paso…" value={chkInput}
+                onChangeText={setChkInput} onSubmitEditing={agregarChk} returnKeyType="done"
+                placeholderTextColor="#999" />
+              <TouchableOpacity style={styles.addBtn} onPress={agregarChk}><Text style={styles.addBtnTxt}>Agregar</Text></TouchableOpacity>
+            </View>
             {!advisorMode && (<>
             <Text style={styles.fieldLbl}>Involucrados</Text>
             <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} frequent={frequent} />
@@ -514,6 +545,14 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   const [schedules, setSchedules] = useState<any[]>([]);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
+  const [checklist, setChecklist] = useState<string[]>([]);
+  const [chkInput, setChkInput] = useState('');
+  const agregarChk = () => {
+    const v = chkInput.trim();
+    if (!v) return;
+    setChecklist((prev) => [...prev, v]);
+    setChkInput('');
+  };
   const [eis, setEis] = useState('estrella');
   const [dayOpt, setDayOpt] = useState('tomorrow');
   // Día del mes elegido (1..31). null = usar los atajos de arriba.
@@ -577,6 +616,9 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
     try {
       const involvedIds = myId ? [myId, ...involved] : involved;
       const body: any = { title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: involvedIds, assignee_id: assignee || myId || null, recurrence, board_id: catId, section_id: catSection };
+      // El checklist se guarda en la programacion y se siembra en CADA tarea que
+      // genere, para no recapturar los mismos pasos en cada repeticion.
+      if (checklist.length) body.subtasks = checklist.map((b) => ({ body: b }));
       if (recurrence === 'monthly_weekday') {
         // La ocurrencia sale de la fecha de primera ejecución: si cae en el 3er
         // lunes, se repite cada 3er lunes. Así el usuario solo elige el día de
@@ -594,7 +636,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
         body: JSON.stringify(body),
       });
       if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo programar', e.error || ''); setBusy(false); return; }
-      setTitle(''); setDesc(''); setInvolved([]); setAssignee(0); setAssigneeTouched(false);
+      setTitle(''); setDesc(''); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setChecklist([]); setChkInput('');
       loadSchedules(); onCreated();
       Alert.alert('Programada', 'La tarea se creará automáticamente en la fecha elegida.');
     } catch { Alert.alert('Error', 'No se pudo programar'); } finally { setBusy(false); }
@@ -629,6 +671,25 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
             <Text style={styles.helpTxt}>La tarea se creará automáticamente en la fecha y hora elegidas. Si es recurrente, se regenera en cada ciclo.</Text>
             <Text style={styles.fieldLbl}>Título</Text>
             <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
+            {/* Checklist opcional. El backend ya la aceptaba al crear; la app
+                simplemente no la ofrecia, asi que habia que crear la tarea,
+                abrirla y agregar los pasos uno por uno. */}
+            <Text style={styles.fieldLbl}>Checklist (opcional)</Text>
+            {checklist.map((b, i) => (
+              <View key={`${b}-${i}`} style={styles.subRow}>
+                <Ionicons name="square-outline" size={20} color="#999" />
+                <Text style={styles.subTxt}>{b}</Text>
+                <TouchableOpacity hitSlop={8} onPress={() => setChecklist((prev) => prev.filter((_, k) => k !== i))}>
+                  <Ionicons name="trash-outline" size={16} color="#BBB" />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <View style={styles.addSubRow}>
+              <TextInput style={styles.input} placeholder="Agregar paso…" value={chkInput}
+                onChangeText={setChkInput} onSubmitEditing={agregarChk} returnKeyType="done"
+                placeholderTextColor="#999" />
+              <TouchableOpacity style={styles.addBtn} onPress={agregarChk}><Text style={styles.addBtnTxt}>Agregar</Text></TouchableOpacity>
+            </View>
             {!advisorMode && (<>
             <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
             <View style={styles.eisRow}>
@@ -939,6 +1000,11 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const subs = data?.subtasks || [];
   const atts = data?.attachments || [];
   const pending = subs.filter((s: any) => !s.done).length;
+  // Quien puede tocar el checklist: gerencia, el responsable o quien la asigno.
+  // NO se reutiliza canManage porque esa bandera tambien decide quien confirma.
+  const puedeEditarChecklist = !!canManage || (
+    myId != null && !!t && (Number(t.assignee_id) === Number(myId) || Number(t.created_by) === Number(myId))
+  );
   const tt = t ? taskTime(t) : null;
 
   const put = async (url: string, body: any) => fetch(url, { method: 'PUT', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -1298,7 +1364,14 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 </View>
               )}
 
-              {/* Checklist */}
+              {/* Checklist.
+                  Se puede editar aunque no seas gerencia: quien la va a ejecutar
+                  o quien la asigno son los que saben en que pasos se parte. En
+                  Mis Tareas el modal recibe canManage=false, asi que sin esto la
+                  caja de "Nueva subtarea" no aparecia nunca y el checklist se
+                  quedaba vacio para siempre.
+                  Se calcula aparte de canManage a proposito: esa bandera tambien
+                  decide quien puede CONFIRMAR una tarea, y eso no debe abrirse. */}
               <Text style={styles.sectionTitle}>Checklist {subs.length > 0 && `(${subs.length - pending}/${subs.length})`}</Text>
               {subs.length === 0 ? <Text style={styles.metaMuted}>Sin subtareas.</Text> :
                 subs.map((s: any) => (
@@ -1307,12 +1380,12 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                       <Ionicons name={s.done ? 'checkbox' : 'square-outline'} size={22} color={s.done ? '#2E7D46' : '#999'} />
                     </TouchableOpacity>
                     <Text style={[styles.subTxt, s.done && { textDecorationLine: 'line-through', color: '#999' }]}>{s.body}{s.requires_photo ? ' 📷' : ''}</Text>
-                    {canManage && t.status !== 'completed' && (
+                    {puedeEditarChecklist && t.status !== 'completed' && (
                       <TouchableOpacity onPress={() => deleteSub(s.id)} hitSlop={8}><Ionicons name="trash-outline" size={16} color="#BBB" /></TouchableOpacity>
                     )}
                   </View>
                 ))}
-              {canManage && t.status !== 'completed' && (
+              {puedeEditarChecklist && t.status !== 'completed' && (
                 <View style={styles.addSubRow}>
                   <TextInput style={styles.input} placeholder="Nueva subtarea…" value={newSub} onChangeText={setNewSub} placeholderTextColor="#999" />
                   <TouchableOpacity style={styles.addBtn} onPress={addSub}><Text style={styles.addBtnTxt}>Agregar</Text></TouchableOpacity>
