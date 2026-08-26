@@ -1879,7 +1879,18 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
         notified.add(m);
       }
     }
-    emitTaskEventIfExternal('task.comment_added', taskId, uid).catch(() => {});
+    // El comentario viaja DENTRO del evento: antes se mandaba solo la foto de la
+    // tarea y del otro lado no llegaba el texto.
+    emitTaskEventIfExternal('task.comment_added', taskId, uid, {
+      comment: {
+        id: r.rows[0].id,
+        body: r.rows[0].body,
+        author_id: uid,
+        author_name: author,
+        attachment_url: r.rows[0].attachment_url || null,
+        created_at: r.rows[0].created_at,
+      },
+    }).catch(() => {});
     res.json({ comment: r.rows[0], reopened: reopenedFromAwaiting });
   } catch (e: any) {
     console.error('[tasks] addComment:', e); res.status(500).json({ error: 'Error al comentar' });

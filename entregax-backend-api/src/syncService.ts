@@ -123,7 +123,16 @@ export const isPeerConfigured = () => !!PEER_URL() && !!SHARED_SECRET();
 // ---- Cola de salida -----------------------------------------------------------
 // Encola un evento sólo si la tarea involucra a un usuario de Grupo Rino
 // (responsable o participante). Devuelve true si se encoló.
-export async function emitTaskEventIfExternal(event: string, taskId: number, actorId: number | null): Promise<boolean> {
+/**
+ * Emite un evento de tarea hacia Grupo Rino.
+ *
+ * `extra` se mezcla con el sobre `data`. Sin él, un `task.comment_added` viajaba
+ * SOLO con la foto de la tarea: el evento llegaba (HTTP 200) pero sin texto,
+ * autor ni fecha, así que del otro lado no había nada que mostrar y el
+ * comentario parecía perdido. El contrato de vuelta es `data.comment` — el
+ * mismo campo que leemos nosotros en el webhook entrante.
+ */
+export async function emitTaskEventIfExternal(event: string, taskId: number, actorId: number | null, extra?: Record<string, any>): Promise<boolean> {
   try {
     await ensureSyncSchema();
     const t = (await pool.query(
@@ -165,7 +174,20 @@ export async function emitTaskEventIfExternal(event: string, taskId: number, act
         })),
       },
       actor_id: actorId,
+      actor_external_id: null as string | null,
+      actor_name: null as string | null,
+      ...(extra || {}),
     };
+    // Nombre (y external_id si el actor fuera de ellos) para que puedan atribuir
+    // el evento a una persona y no a un número que no conocen.
+    if (actorId) {
+      const a = (await pool.query(
+        `SELECT full_name, external_id, source_app FROM users WHERE id = $1`, [actorId])).rows[0];
+      if (a) {
+        data.actor_name = a.full_name || null;
+        data.actor_external_id = a.source_app === EXTERNAL_APP ? a.external_id : null;
+      }
+    }
     await enqueueOutbound(event, data);
     return true;
   } catch (e: any) {
