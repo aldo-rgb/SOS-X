@@ -14193,6 +14193,17 @@ app.delete('/api/tasks/sections/:id', authenticateToken, tasksDeleteSection);
 app.post('/api/tasks/:id/attachments', authenticateToken, advisorProofUpload.single('photo'), tasksAddAttachment);
 app.delete('/api/tasks/attachments/:attId', authenticateToken, tasksDeleteAttachment);
 app.get('/api/tasks/mine', authenticateToken, tasksMine);
+// 📊 Promedios de respuesta por persona y cuadrante (solo horario laboral).
+// Es informacion de desempeño del equipo: se limita a mandos.
+app.get('/api/tasks/response-stats', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (_req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { calcularPromediosRespuesta } = await import('./taskResponseStats');
+    return res.json({ success: true, ...(await calcularPromediosRespuesta()) });
+  } catch (e: any) {
+    console.error('[tasks/response-stats]', e);
+    return res.status(500).json({ error: 'Error calculando promedios', detail: e?.message });
+  }
+});
 // Tareas que YO asigné y esperan mi confirmación (indicador de estado del panel).
 app.get('/api/tasks/awaiting-confirmation', authenticateToken, tasksAwaitingMyConfirmation);
 app.post('/api/tasks/personal', authenticateToken, tasksCreatePersonal);

@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
-  Box, Typography, Button, IconButton, Chip, Dialog, DialogTitle, DialogContent,
+  Box, Typography, Button, IconButton, Chip, Paper, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
   Avatar, Divider, Checkbox, Tooltip, Snackbar, Alert, LinearProgress, Tabs, Tab, Autocomplete,
   InputAdornment,
@@ -16,6 +16,7 @@ import {
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import TimerIcon from '@mui/icons-material/Timer';
 import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -303,6 +304,25 @@ export default function TareasPage() {
 
   const refresh = () => { if (activeId) loadTasks(activeId); };
 
+  // ── Promedios de respuesta ────────────────────────────────────────────────
+  // El calculo vive en el backend porque medir SOLO horario laboral (L-V,
+  // 10:10-18:00 Monterrey) requiere recorrer dia por dia; hacerlo en el navegador
+  // dependeria de la zona horaria de la maquina de quien mira el reporte.
+  const [promedios, setPromedios] = useState<any | null>(null);
+  const [promediosOpen, setPromediosOpen] = useState(false);
+  const [promediosLoading, setPromediosLoading] = useState(false);
+  const abrirPromedios = async () => {
+    setPromediosOpen(true);
+    if (promedios) return;              // ya cargado, no se vuelve a pedir
+    setPromediosLoading(true);
+    try {
+      const r = await axios.get(`${API_URL}/tasks/response-stats`, H());
+      setPromedios(r.data);
+    } catch (e: any) {
+      setPromedios({ error: e?.response?.data?.error || 'No se pudieron calcular los promedios' });
+    } finally { setPromediosLoading(false); }
+  };
+
   const createTask = async () => {
     if (!form.title.trim()) return notify('El título es obligatorio', 'error');
     if (!form.eisenhower) return notify('Selecciona la prioridad', 'error');
@@ -453,6 +473,8 @@ export default function TareasPage() {
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setForm((f: any) => ({ ...f, section_id: activeSection || '', column_id: board?.columns?.[0]?.id || '' })); setNewPhotos([]); setCreateOpen(true); }} disabled={!board}
             sx={{ bgcolor: '#D6521C', '&:hover': { bgcolor: '#B23F12' } }}>Nueva tarea</Button>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={refresh}>Actualizar</Button>
+          <Button variant="outlined" startIcon={<TimerIcon />} onClick={abrirPromedios}
+            sx={{ color: '#1565C0', borderColor: '#1565C0' }}>Promedios de respuesta</Button>
         </Box>
       </Box>
 
@@ -661,6 +683,110 @@ export default function TareasPage() {
       )}
 
       {/* Crear tarea */}
+      {/* Promedios de respuesta ─ solo horario laboral, contado desde que se
+          asigna la tarea (no desde que alguien le da "iniciar"). */}
+      <Dialog open={promediosOpen} onClose={() => setPromediosOpen(false)} maxWidth="lg" fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ bgcolor: '#1565C0', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <TimerIcon /> Promedios de respuesta
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {promediosLoading && <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>}
+          {!promediosLoading && promedios?.error && <Alert severity="error">{promedios.error}</Alert>}
+          {!promediosLoading && promedios?.personas && (() => {
+            const CUAD: Array<[string, string]> = [
+              ['fuego', '🔥 Urgente e importante'],
+              ['estrella', '⭐ Importante, no urgente'],
+              ['delegar', '👥 Urgente, no importante'],
+              ['eliminar', '🗑️ Ni urgente ni importante'],
+            ];
+            return (
+              <>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  {promedios.global.jornada} El reloj arranca cuando la tarea <b>se asigna</b>, aunque nunca se haya puesto en proceso.
+                </Alert>
+
+                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>Promedio del equipo por cuadrante</Typography>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(5, 1fr)' }, gap: 1.5, mb: 3 }}>
+                  {CUAD.map(([k, lbl]) => {
+                    const v = promedios.global.por_cuadrante[k];
+                    return (
+                      <Paper key={k} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                        <Typography variant="caption" color="text.secondary">{lbl}</Typography>
+                        <Typography variant="h6" fontWeight={800}>{v?.texto ?? '—'}</Typography>
+                        <Typography variant="caption" color="text.secondary">{v?.muestras ?? 0} tareas</Typography>
+                      </Paper>
+                    );
+                  })}
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: '#FFF8F0' }}>
+                    <Typography variant="caption" color="text.secondary">⏳ Tardan en confirmar</Typography>
+                    <Typography variant="h6" fontWeight={800}>{promedios.global.confirmacion?.texto ?? '—'}</Typography>
+                    <Typography variant="caption" color="text.secondary">{promedios.global.confirmacion?.muestras ?? 0} tareas</Typography>
+                  </Paper>
+                </Box>
+
+                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>Por persona</Typography>
+                <Box sx={{ overflowX: 'auto' }}>
+                  <Box component="table" sx={{ width: '100%', minWidth: 900, borderCollapse: 'collapse',
+                    '& th, & td': { textAlign: 'left', py: 0.7, px: 1, borderBottom: '1px solid', borderColor: 'divider', fontSize: '0.8rem', whiteSpace: 'nowrap' },
+                    '& th': { color: 'text.secondary', fontWeight: 800, textTransform: 'uppercase', fontSize: '0.65rem', bgcolor: '#FAFAFA' } }}>
+                    <Box component="thead">
+                      <Box component="tr">
+                        <Box component="th">Persona</Box>
+                        <Box component="th" sx={{ textAlign: 'center !important' }}>Activas</Box>
+                        <Box component="th" sx={{ textAlign: 'center !important' }}>En espera</Box>
+                        <Box component="th" sx={{ textAlign: 'center !important' }}>Terminadas</Box>
+                        {CUAD.map(([k, lbl]) => (
+                          <Box component="th" key={k} sx={{ textAlign: 'center !important' }}>{lbl.split(' ')[0]}</Box>
+                        ))}
+                        <Box component="th">Promedio</Box>
+                        <Box component="th">Confirmar</Box>
+                      </Box>
+                    </Box>
+                    <Box component="tbody">
+                      {promedios.personas.map((p: any) => (
+                        <Box component="tr" key={p.user_id} sx={{ '&:hover': { bgcolor: '#FAFAFA' } }}>
+                          <Box component="td">
+                            <b>{p.nombre}</b>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{p.rol}</Typography>
+                          </Box>
+                          <Box component="td" sx={{ textAlign: 'center !important' }}>{p.activas || '—'}</Box>
+                          <Box component="td" sx={{ textAlign: 'center !important', color: p.en_espera > 0 ? '#B07206' : 'inherit', fontWeight: p.en_espera > 0 ? 800 : 400 }}>{p.en_espera || '—'}</Box>
+                          <Box component="td" sx={{ textAlign: 'center !important' }}>{p.terminadas || '—'}</Box>
+                          {CUAD.map(([k]) => {
+                            const n = p.por_cuadrante?.[k] || 0;
+                            const prom = p.promedio_por_cuadrante?.[k];
+                            return (
+                              <Box component="td" key={k} sx={{ textAlign: 'center !important' }}>
+                                {n ? (
+                                  <>
+                                    <b>{n}</b>
+                                    {/* Debajo del conteo, cuanto tarda en ESE cuadrante */}
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                      {prom?.muestras ? prom.texto : '—'}
+                                    </Typography>
+                                  </>
+                                ) : '—'}
+                              </Box>
+                            );
+                          })}
+                          <Box component="td"><b>{p.promedio_general?.texto ?? '—'}</b></Box>
+                          <Box component="td">{p.promedio_confirmacion?.texto ?? '—'}</Box>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+                </Box>
+              </>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => { setPromedios(null); abrirPromedios(); }} startIcon={<RefreshIcon />}>Recalcular</Button>
+          <Button variant="contained" onClick={() => setPromediosOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>Nueva tarea{board ? ` · ${board.name}` : ''}</DialogTitle>
         <DialogContent>
