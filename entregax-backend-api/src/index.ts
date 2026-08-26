@@ -11197,7 +11197,11 @@ app.delete('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel
 // GUARDAR MOVIMIENTOS DE ESTADO DE CUENTA BANCARIO
 // Persiste las líneas parseadas, deduplica por hash, devuelve solo las nuevas
 // ============================================
-app.post('/api/admin/finance/save-bank-entries', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
+// El ciclo completo de conciliación —subir el estado de cuenta, cruzarlo y
+// autorizar— se abre al CONTADOR además de dirección. Era el trabajo diario de
+// contabilidad y solo tenía permiso de LEER el estado de cuenta, no de conciliar
+// con él (tarea 374). Autorizado por Aldo.
+app.post('/api/admin/finance/save-bank-entries', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const adminId = (req.user as any)?.userId || (req.user as any)?.id;
     const { entries, empresa_id, service_type, banco } = req.body;
@@ -11279,7 +11283,7 @@ function parseDateDDMMYYYY(dateStr: string): string {
   return dateStr;
 }
 
-app.post('/api/admin/finance/match-references', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
+app.post('/api/admin/finance/match-references', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { references, empresa_id } = req.body;
     // references = [{ ref: 'EP-0108FC08', entries: [{ fecha, concepto, referencia, cargo, abono, saldo }] }]
@@ -11404,7 +11408,7 @@ app.post('/api/admin/finance/match-references', authenticateToken, requireMinLev
 //                        (riesgo de duplicado). Requiere revisión manual.
 //   - unmatched (gris):  ningún orden tiene ese monto.
 // ============================================
-app.post('/api/admin/finance/match-by-amount', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
+app.post('/api/admin/finance/match-by-amount', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { entries, service_type } = req.body;
     // entries = [{ fecha, concepto, referencia, cargo, abono, saldo, seq }]
@@ -11555,7 +11559,7 @@ app.post('/api/admin/finance/match-by-amount', authenticateToken, requireMinLeve
 // AUTORIZAR PAGOS DESDE ESTADO DE CUENTA BANCARIO
 // Marca órdenes como pagadas y acredita excedente como saldo a favor
 // ============================================
-app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
+app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const adminId = (req.user as any)?.userId || (req.user as any)?.id;
     const adminName = (req.user as any)?.full_name || req.user?.email || 'Admin';
