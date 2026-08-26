@@ -9,6 +9,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { uploadToS3WithSignedUrl, getSignedUrlForKey, signS3UrlIfNeeded } from './s3Service';
 import { emitTaskEventIfExternal, ingestExternalAttachment } from './syncService';
+import { normalizarImagen } from './imagenNormalizar';
 
 const authUserId = (req: Request): number | null => {
   const u = (req as any).user;
@@ -1732,7 +1733,10 @@ export const addTaskAttachment = async (req: Request, res: Response): Promise<an
     if (!file || !file.buffer) return res.status(400).json({ error: 'Falta el archivo' });
     const t = await pool.query(`SELECT id FROM tasks WHERE id = $1`, [id]);
     if (t.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
-    const orig = String(file.originalname || 'foto').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60);
+    // Las fotos de iPhone llegan en .heic y ningún navegador las pinta: se
+    // convierten a JPEG antes de guardarlas.
+    const norm = await normalizarImagen(file.buffer, String(file.originalname || 'foto'), file.mimetype);
+    const orig = norm.fileName.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60);
     // Mismo archivo, misma tarea, mismo minuto → es el reintento de un doble
     // envío (el alta sube las fotos una por una después de crear la tarea).
     // Se devuelve el adjunto que ya existe en vez de duplicar la imagen.
@@ -1751,7 +1755,7 @@ export const addTaskAttachment = async (req: Request, res: Response): Promise<an
       return res.json({ attachment: { id: a.id, file_name: a.file_name, url: urlPrev, created_at: a.created_at }, duplicate: true });
     }
     const key = `task-attachments/task-${id}-${Date.now()}-${orig}`;
-    await uploadToS3WithSignedUrl(file.buffer, key, file.mimetype || 'image/jpeg', 6 * 3600);
+    await uploadToS3WithSignedUrl(norm.buffer, key, norm.contentType || 'image/jpeg', 6 * 3600);
     const r = await pool.query(
       `INSERT INTO task_attachments (task_id, file_key, file_name, uploaded_by) VALUES ($1,$2,$3,$4) RETURNING id, created_at`,
       [id, key, orig, uid]);
