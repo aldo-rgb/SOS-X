@@ -3915,12 +3915,20 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             const carriersRes = await pool.query(
                 `SELECT carrier_key, price_label, allows_collect FROM carrier_service_options WHERE is_active = TRUE`
             );
+            // El TC de PO Box, para las etiquetas que vienen en dólares.
+            let tcPobox = 0;
+            try {
+                const tcRes = await pool.query(
+                    "SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE LIMIT 1"
+                );
+                tcPobox = parseFloat(tcRes.rows[0]?.tipo_cambio_final) || 0;
+            } catch { /* sin TC, precioPaqueteriaAMxn avisa y no convierte */ }
+
             for (const c of carriersRes.rows) {
                 const key = String(c.carrier_key || '').toLowerCase();
                 if (!key) continue;
                 if (c.allows_collect) { carrierPriceMap[key] = 0; continue; }
-                const num = parseFloat(String(c.price_label || '').replace(/[^0-9.]/g, ''));
-                carrierPriceMap[key] = isNaN(num) ? 0 : num;
+                carrierPriceMap[key] = precioPaqueteriaAMxn(c.price_label, tcPobox);
             }
         } catch (e) { /* ignore — sin mapa, se usa national_shipping_cost tal cual */ }
 
@@ -6339,6 +6347,41 @@ export const updatePackageClient = async (req: Request, res: Response): Promise<
         res.status(500).json({ error: 'Error al actualizar cliente' });
     }
 };
+
+/**
+ * Convierte el `price_label` del catálogo de paqueterías a MXN.
+ *
+ * El texto lo captura una persona y no tiene formato fijo: "$400", "$99",
+ * "GRATIS", "Por cobrar", "$3 USD por caja". Antes se hacía
+ * `parseFloat(label.replace(/[^0-9.]/g, ''))`, que tiene dos problemas:
+ *
+ *  1. Ignora la moneda. "Pick Up Hidalgo TX" cuesta "$3 USD por caja" y se
+ *     cobraban 3 PESOS: $48.69 de menos por caja al TC de la guía
+ *     (TKT/tarea 291).
+ *  2. Pega todos los dígitos del texto. Un "$400 MXN 2 días" se convertiría en
+ *     4002. Hoy ninguna etiqueta tiene esa forma, pero basta con que alguien la
+ *     escriba así para cobrar de más sin que nada avise.
+ *
+ * Ahora toma el PRIMER número del texto y, si menciona dólares, lo convierte
+ * con el tipo de cambio que se le pide.
+ */
+export function precioPaqueteriaAMxn(priceLabel: string | null | undefined, tipoCambio: number): number {
+    const texto = String(priceLabel || '');
+    // Se quitan las comas de millares ANTES de buscar el número: sin esto
+    // "$1,200 pesos" daría 1 en vez de 1200.
+    const limpio = texto.replace(/(\d),(?=\d{3}\b)/g, '$1');
+    const m = limpio.match(/(\d+(?:\.\d+)?)/);   // solo el primer número
+    if (!m || !m[1]) return 0;
+    const monto = parseFloat(m[1]);
+    if (!Number.isFinite(monto)) return 0;
+    const enUsd = /\b(usd|dls|d[oó]lar)/i.test(texto);
+    if (!enUsd) return monto;
+    if (!(tipoCambio > 0)) {
+        console.warn(`[precioPaqueteria] "${texto}" está en USD pero no hay tipo de cambio; se deja en ${monto} sin convertir.`);
+        return monto;
+    }
+    return Math.round(monto * tipoCambio * 100) / 100;
+}
 
 // ============================================
 // ENDPOINT: SOLICITAR REEMPAQUE
