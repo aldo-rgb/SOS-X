@@ -375,9 +375,16 @@ const attachmentViewHref = (u: string): string => {
 
 // TDI Aéreo / TDI Express: la paquetería nacional (última milla, Paquete Express)
 // YA viene incluida en el flete ("TODO INCLUIDO"). No se cobra aparte ni se suma.
+// Servicios donde el monto que manda el backend YA trae la paqueteria nacional.
+// Sumarsela otra vez la cobra doble. DHL entra aqui: su `monto` es
+// total_cost_mxn, que es importacion + impuesto + nacional -- el backend lo
+// advierte en el propio query ("'monto' YA lo incluye, es solo para el
+// desglose"). Sin AA_DHL en la lista, cada orden DHL con paqueteria salia con
+// el envio nacional cobrado dos veces (ticket TKT-2026-2365: $5,850.85 en vez
+// de $5,313.85, guia 8304131872).
 const paqIncluidaEnFlete = (st?: string): boolean =>
-  /air_chn|tdi_express|tdi_aereo/i.test(String(st || '')) ||
-  ['AIR_CHN_MX', 'TDI_EXPRESS'].includes(String(st || '').toUpperCase());
+  /air_chn|tdi_express|tdi_aereo|aa_dhl/i.test(String(st || '')) ||
+  ['AIR_CHN_MX', 'TDI_EXPRESS', 'AA_DHL'].includes(String(st || '').toUpperCase());
 
 // ─── Component ───
 
