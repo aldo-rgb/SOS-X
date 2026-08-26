@@ -865,7 +865,11 @@ export function TaskCard({ task, onPress, showBoard }: { task: TaskT; onPress: (
           <View style={styles.unreadChip}><Ionicons name="chatbubble-ellipses" size={11} color="#fff" /><Text style={styles.unreadTxt}>{task.unread_count} sin leer</Text></View>
         )}
       </View>
-      <Text style={[styles.cardTitle, done && { textDecorationLine: 'line-through', color: '#999' }]} numberOfLines={2}>{task.title}</Text>
+      {/* El numero de tarea es como se refieren a ella entre ellos ("la 387"),
+          asi que va junto al titulo igual que en la web. */}
+      <Text style={[styles.cardTitle, done && { textDecorationLine: 'line-through', color: '#999' }]} numberOfLines={2}>
+        <Text style={styles.cardFolio}>#{task.id} </Text>{task.title}
+      </Text>
       {showBoard && (task.board_name || task.column_name) && (
         <Text style={styles.cardBoard} numberOfLines={1}>🗂️ {task.board_name}{task.column_name ? ` · ${task.column_name}` : ''}</Text>
       )}
@@ -1197,7 +1201,9 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
       <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalCard}>
           <View style={styles.modalHead}>
-            <Text style={styles.modalTitle} numberOfLines={1}>{t?.title || 'Tarea'}</Text>
+            <Text style={styles.modalTitle} numberOfLines={1}>
+              {!!taskId && <Text style={styles.cardFolio}>#{taskId} </Text>}{t?.title || 'Tarea'}
+            </Text>
             {data?.can_edit && !editing && t && t.status !== 'completed' && (
               <TouchableOpacity onPress={beginEdit} hitSlop={10} style={{ marginRight: 12 }}>
                 <Ionicons name="create-outline" size={22} color={ORANGE} />
@@ -1672,7 +1678,9 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
             <TouchableOpacity key={t.id} onPress={() => onOpen(t.id)}
               onLongPress={onMove ? () => setMoveFor(t) : undefined} delayLongPress={250}
               style={[styles.mxCard, t.overdue && styles.cardOverdue, done && { opacity: 0.6 }]}>
-              <Text style={[styles.mxCardTitle, done && { textDecorationLine: 'line-through', color: '#999' }]} numberOfLines={3}>{t.title}</Text>
+              <Text style={[styles.mxCardTitle, done && { textDecorationLine: 'line-through', color: '#999' }]} numberOfLines={3}>
+                <Text style={styles.mxCardFolio}>#{t.id} </Text>{t.title}
+              </Text>
               {t.status === 'awaiting_confirmation' && <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#B07206', marginTop: 2 }}>⏳ En espera</Text>}
               {(t.unread_count || 0) > 0 && (
                 <View style={styles.mxUnread}><Ionicons name="chatbubble-ellipses" size={9} color="#fff" /><Text style={styles.mxUnreadTxt}>{t.unread_count}</Text></View>
@@ -1721,6 +1729,7 @@ export const styles = StyleSheet.create({
   chip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   chipTxt: { fontSize: 11, fontWeight: '700' },
   cardTitle: { fontSize: 14, fontWeight: '700', color: '#222', lineHeight: 18 },
+  cardFolio: { color: '#8A8A8A', fontWeight: '800' },
   cardBoard: { fontSize: 11, color: '#777', marginTop: 3 },
   cardFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   avatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center' },
@@ -1832,6 +1841,7 @@ export const styles = StyleSheet.create({
   mxEmpty: { fontSize: 11, color: '#AAA', textAlign: 'center', paddingVertical: 6 },
   mxCard: { backgroundColor: '#fff', borderRadius: 7, paddingHorizontal: 6, paddingVertical: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: '#E2E2E2' },
   mxCardTitle: { fontSize: 11.5, fontWeight: '600', color: '#222', lineHeight: 14 },
+  mxCardFolio: { color: '#8A8A8A', fontWeight: '800' },
   mxCardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   mxCardBoard: { fontSize: 9.5, color: '#888', flexShrink: 1 },
   mxCardMetaTxt: { fontSize: 9.5, color: '#888' },

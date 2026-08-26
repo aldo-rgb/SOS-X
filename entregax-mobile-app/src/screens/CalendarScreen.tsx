@@ -163,7 +163,9 @@ export default function CalendarScreen({ navigation, route }: any) {
                       <TouchableOpacity key={`t${t.id}`} style={[styles.row, { borderLeftColor: EIS_COLOR[t.eisenhower] || '#888' }]} onPress={() => { setDayOpen(null); setViewTask(t); }}>
                         <Ionicons name="checkbox-outline" size={16} color={EIS_COLOR[t.eisenhower] || '#888'} />
                         <View style={{ flex: 1 }}>
-                          <Text style={[styles.rowTitle, t.status === 'completed' && { textDecorationLine: 'line-through', color: '#999' }]}>{t.title}</Text>
+                          <Text style={[styles.rowTitle, t.status === 'completed' && { textDecorationLine: 'line-through', color: '#999' }]}>
+                            <Text style={styles.folio}>#{t.id} </Text>{t.title}
+                          </Text>
                           <Text style={styles.rowSub}>{hhmm(t.date)} · {t.board_name || 'Tarea'}</Text>
                         </View>
                       </TouchableOpacity>
@@ -195,7 +197,7 @@ export default function CalendarScreen({ navigation, route }: any) {
                   <Text style={[styles.badge, { backgroundColor: (EIS_COLOR[viewTask.eisenhower] || '#888') + '22', color: EIS_COLOR[viewTask.eisenhower] }]}>{EIS_LABEL[viewTask.eisenhower] || viewTask.eisenhower}</Text>
                   <TouchableOpacity onPress={() => setViewTask(null)}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
                 </View>
-                <Text style={styles.evTitle}>{viewTask.title}</Text>
+                <Text style={styles.evTitle}><Text style={styles.folio}>#{viewTask.id} </Text>{viewTask.title}</Text>
                 <Text style={styles.rowSub}>📅 {viewTask.is_commitment ? 'Objetivo' : 'Fecha deseada'}: {fmtDate(viewTask.date)}</Text>
                 {!!viewTask.board_name && <Text style={styles.rowSub}>📋 {viewTask.board_name}</Text>}
                 {!!viewTask.assignee_name && <Text style={styles.rowSub}>👤 Responsable: {viewTask.assignee_name}</Text>}
@@ -330,6 +332,7 @@ const styles = StyleSheet.create({
   muted: { color: '#999', fontStyle: 'italic', textAlign: 'center', paddingVertical: 20 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, borderLeftWidth: 4, backgroundColor: '#FAFAFA', borderRadius: 8, padding: 10, marginBottom: 8 },
   rowTitle: { fontSize: 14, fontWeight: '700', color: '#222' },
+  folio: { color: '#8A8A8A', fontWeight: '800' },
   rowSub: { fontSize: 12, color: '#777', marginTop: 2 },
   newBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: ORANGE, borderRadius: 10, paddingVertical: 12, marginTop: 10 },
   newBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 15 },
