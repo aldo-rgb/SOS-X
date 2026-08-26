@@ -76,6 +76,9 @@ export async function ingestExternalAttachment(
       const r = await fetch(url, { headers }).catch(() => null);
       bitacora.push(`${comoSeLlama}=${r?.status ?? 'sin respuesta'}`);
       if (r?.ok) { console.log(`[sync] adjunto bajado con ${comoSeLlama}`); resp = r; break; }
+      // Si no fue 401/403, la llave sí entró y el problema es otro (su 404, por
+      // ejemplo): probar las demás formas de auth solo sería ruido en su server.
+      if (r && r.status !== 401 && r.status !== 403) break;
     }
     if (!resp) {
       console.warn(`[sync] adjunto no se pudo bajar: ${url} · ${bitacora.join(' ')}`);
@@ -123,7 +126,7 @@ export async function reintentarAdjuntosPendientes(): Promise<{ intentados: numb
          FROM task_comments c
         WHERE c.attachment_url LIKE 'http%'
           AND c.attachment_url NOT LIKE '%amazonaws.com%'
-          AND c.created_at > NOW() - INTERVAL '30 days'
+          AND c.created_at > NOW() - INTERVAL '7 days'
         ORDER BY c.id DESC LIMIT 20`)).rows;
     for (const c of pend) {
       intentados++;

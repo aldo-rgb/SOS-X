@@ -14321,7 +14321,7 @@ ensureSyncSchema().catch((e: any) => console.error('[sync] ensureSchema:', e?.me
 setInterval(() => { dispatchOutbox().catch(() => {}); }, 60 * 1000); // despacho cada 1 min
 // Reintento de adjuntos externos que no se pudieron bajar (ver
 // reintentarAdjuntosPendientes): se recuperan solos cuando acomoden su auth.
-setInterval(() => { reintentarAdjuntosPendientes().catch(() => {}); }, 10 * 60 * 1000);
+setInterval(() => { reintentarAdjuntosPendientes().catch(() => {}); }, 30 * 60 * 1000);
 setTimeout(() => { reintentarAdjuntosPendientes().catch(() => {}); }, 30 * 1000);
 app.delete('/api/tasks/:id', authenticateToken, tasksDelete);
 app.post('/api/tasks/:id/subtasks', authenticateToken, tasksAddSubtask);
