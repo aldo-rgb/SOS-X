@@ -1468,8 +1468,10 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                       {/* Un comentario puede traer archivo (asi llegan los de
                           Grupo Rino). Sin esto decia "Adjunto un archivo" y no
                           habia archivo por ningun lado. */}
+                      {/* Se intenta como imagen salvo que la extension diga que
+                          no lo es: sus enlaces no traen extension. */}
                       {!!c.attachment_url && (
-                        /\.(jpe?g|png|gif|webp|bmp)(\?|$)/i.test(String(c.attachment_url)) ? (
+                        !/\.(pdf|docx?|xlsx?|pptx?|zip|rar|csv|txt)(\?|$)/i.test(String(c.attachment_url)) ? (
                           <TouchableOpacity onPress={() => Linking.openURL(String(c.attachment_url))} style={{ marginTop: 6 }}>
                             <Image source={{ uri: String(c.attachment_url) }} style={{ width: 160, height: 160, borderRadius: 8, backgroundColor: '#EEE' }} resizeMode="cover" />
                           </TouchableOpacity>

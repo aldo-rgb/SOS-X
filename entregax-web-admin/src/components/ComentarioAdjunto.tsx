@@ -12,9 +12,12 @@ import AttachFileIcon from '@mui/icons-material/AttachFile';
  */
 export default function ComentarioAdjunto({ url }: { url: string }) {
   const [fallo, setFallo] = useState(false);
-  const esImagen = /\.(jpe?g|png|gif|webp|bmp)(\?|$)/i.test(url);
+  // Se intenta como imagen SIEMPRE, salvo que la extensión diga que no lo es.
+  // Sus enlaces no traen extensión (/api/sync/adjuntos/<uuid>), así que juzgar
+  // por el nombre dejaba las fotos como un botón gris en vez de miniatura.
+  const noEsImagen = /\.(pdf|docx?|xlsx?|pptx?|zip|rar|csv|txt)(\?|$)/i.test(url);
 
-  if (esImagen && !fallo) {
+  if (!noEsImagen && !fallo) {
     return (
       <Box sx={{ mt: 0.75 }}>
         <a href={url} target="_blank" rel="noopener noreferrer">

@@ -1092,9 +1092,23 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
          FROM task_subtasks s LEFT JOIN users u ON u.id = s.done_by
          LEFT JOIN users au ON au.id = s.assignee_id
         WHERE s.task_id = $1 ORDER BY s.sort_order, s.id`, [id]);
-    const comments = await pool.query(
+    const commentRows = await pool.query(
       `SELECT c.*, u.full_name AS author_name FROM task_comments c
          LEFT JOIN users u ON u.id = c.author_id WHERE c.task_id = $1 ORDER BY c.created_at ASC`, [id]);
+    // El archivo de un comentario se guarda como key de S3 (bucket privado), así
+    // que hay que firmarlo para poder mostrar la miniatura. Si es una URL
+    // externa —de Grupo Rino, por ejemplo— se deja tal cual.
+    const comments = {
+      rows: await Promise.all(commentRows.rows.map(async (c: any) => {
+        if (!c.attachment_url) return c;
+        try {
+          const firmada = /^https?:\/\//i.test(String(c.attachment_url))
+            ? await signS3UrlIfNeeded(c.attachment_url, 6 * 3600)
+            : await getSignedUrlForKey(c.attachment_url, 6 * 3600);
+          return { ...c, attachment_url: firmada || c.attachment_url };
+        } catch { return c; }
+      })),
+    };
     const activity = await pool.query(
       `SELECT a.*, u.full_name AS actor_name FROM task_activity a
          LEFT JOIN users u ON u.id = a.actor_id WHERE a.task_id = $1 ORDER BY a.created_at DESC LIMIT 50`, [id]);

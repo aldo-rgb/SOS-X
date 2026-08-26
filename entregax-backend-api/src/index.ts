@@ -14165,7 +14165,7 @@ import {
   syncHealth as syncHealthCheck,
   verifyAuth as syncVerifyAuth,
 } from './syncController';
-import { ensureSyncSchema, dispatchOutbox, logSyncAttempt } from './syncService';
+import { ensureSyncSchema, dispatchOutbox, logSyncAttempt, reintentarAdjuntosPendientes } from './syncService';
 import {
   uploadBrandAsset,
   activateBrandAsset,
@@ -14319,6 +14319,10 @@ app.post(['/api/sync/*splat', '/api/webhooks/*splat'], async (req: Request, res:
 });
 ensureSyncSchema().catch((e: any) => console.error('[sync] ensureSchema:', e?.message));
 setInterval(() => { dispatchOutbox().catch(() => {}); }, 60 * 1000); // despacho cada 1 min
+// Reintento de adjuntos externos que no se pudieron bajar (ver
+// reintentarAdjuntosPendientes): se recuperan solos cuando acomoden su auth.
+setInterval(() => { reintentarAdjuntosPendientes().catch(() => {}); }, 10 * 60 * 1000);
+setTimeout(() => { reintentarAdjuntosPendientes().catch(() => {}); }, 30 * 1000);
 app.delete('/api/tasks/:id', authenticateToken, tasksDelete);
 app.post('/api/tasks/:id/subtasks', authenticateToken, tasksAddSubtask);
 app.put('/api/tasks/subtasks/:subId', authenticateToken, tasksToggleSubtask);

@@ -71,12 +71,22 @@ export async function ingestExternalAttachment(
       ['sin auth', {}],
     ];
     let resp: Response | null = null;
+    const bitacora: string[] = [];
     for (const [comoSeLlama, headers] of intentos) {
       const r = await fetch(url, { headers }).catch(() => null);
+      bitacora.push(`${comoSeLlama}=${r?.status ?? 'sin respuesta'}`);
       if (r?.ok) { console.log(`[sync] adjunto bajado con ${comoSeLlama}`); resp = r; break; }
-      console.warn(`[sync] adjunto rechazado con ${comoSeLlama}: HTTP ${r?.status ?? 'sin respuesta'}`);
     }
-    if (!resp) { console.warn(`[sync] adjunto no se pudo bajar: ${url}`); return null; }
+    if (!resp) {
+      console.warn(`[sync] adjunto no se pudo bajar: ${url} · ${bitacora.join(' ')}`);
+      // Queda en la bitácora de sync porque los logs de Railway no siempre están
+      // a la mano y sin esto no hay forma de saber QUÉ contestó su servidor.
+      await logSyncAttempt({
+        endpoint: 'descarga-adjunto', diag: 'ok',
+        rawBody: Buffer.from(JSON.stringify({ url, intentos: bitacora })),
+      }).catch(() => {});
+      return null;
+    }
     const buf = Buffer.from(await resp.arrayBuffer());
     if (!buf.length || buf.length > MAX_ADJUNTO_BYTES) {
       console.warn(`[sync] adjunto descartado por tamaño: ${buf.length} bytes`); return null;
@@ -94,6 +104,41 @@ export async function ingestExternalAttachment(
     console.warn('[sync] ingestExternalAttachment:', e?.message);
     return null;
   }
+}
+
+/**
+ * Reintenta bajar los archivos que quedaron como enlace externo.
+ *
+ * Cuando su servidor rechaza la descarga, el comentario conserva la URL y aquí
+ * se vuelve a intentar cada tanto: el día que acomoden la autenticación, las
+ * fotos viejas se convierten solas en adjuntos normales sin que nadie reenvíe
+ * nada. Al lograrlo, el comentario apunta a la copia nuestra (una key de S3),
+ * que sí se puede mostrar en miniatura.
+ */
+export async function reintentarAdjuntosPendientes(): Promise<{ intentados: number; recuperados: number }> {
+  let intentados = 0, recuperados = 0;
+  try {
+    const pend = (await pool.query(
+      `SELECT c.id, c.task_id, c.author_id, c.attachment_url
+         FROM task_comments c
+        WHERE c.attachment_url LIKE 'http%'
+          AND c.attachment_url NOT LIKE '%amazonaws.com%'
+          AND c.created_at > NOW() - INTERVAL '30 days'
+        ORDER BY c.id DESC LIMIT 20`)).rows;
+    for (const c of pend) {
+      intentados++;
+      const nombre = decodeURIComponent(String(c.attachment_url).split('/').pop()?.split('?')[0] || 'archivo');
+      const g = await ingestExternalAttachment(c.task_id, c.attachment_url, nombre, c.author_id);
+      if (!g) continue;
+      const key = (await pool.query(`SELECT file_key FROM task_attachments WHERE id = $1`, [g.id])).rows[0]?.file_key;
+      if (key) await pool.query(`UPDATE task_comments SET attachment_url = $2 WHERE id = $1`, [c.id, key]);
+      recuperados++;
+    }
+    if (recuperados) console.log(`[sync] adjuntos recuperados: ${recuperados}/${intentados}`);
+  } catch (e: any) {
+    console.warn('[sync] reintentarAdjuntosPendientes:', e?.message);
+  }
+  return { intentados, recuperados };
 }
 
 /**
