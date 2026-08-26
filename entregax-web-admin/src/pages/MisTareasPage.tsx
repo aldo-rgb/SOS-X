@@ -1138,7 +1138,8 @@ export default function MisTareasPage() {
                 🕒 {eventDetail.all_day ? 'Todo el día' : `${new Date(eventDetail.start_at).toLocaleString('es-MX')}${eventDetail.end_at ? ' – ' + new Date(eventDetail.end_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : ''}`}
               </Typography>
               {eventDetail.location && <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>📍 {eventDetail.location}</Typography>}
-              {eventDetail.description && <Typography variant="body2" sx={{ mt: 1 }}>{eventDetail.description}</Typography>}
+              {/* Mismo caso que la descripcion de una tarea: se respeta como se escribio. */}
+              {eventDetail.description && <Typography variant="body2" sx={{ mt: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{eventDetail.description}</Typography>}
             </DialogContent>
             <DialogActions><Button onClick={() => setEventDetail(null)}>Cerrar</Button></DialogActions>
           </>

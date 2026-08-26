@@ -1222,7 +1222,19 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
           <DialogContent dividers>
             {!editing ? (
               <>
-                {t.description && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{t.description}</Typography>}
+                {/* pre-wrap respeta los saltos de linea y los espacios con que se
+                    escribio la descripcion. Sin esto, un brief largo con escenas y
+                    vinetas se aplastaba en un solo parrafo corrido e ilegible.
+                    En Mis Tareas ya estaba bien; aqui faltaba. */}
+                {t.description && (
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mb: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+                  >
+                    {t.description}
+                  </Typography>
+                )}
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1 }}>
                   <Typography variant="body2"><b>Responsable:</b> {t.assignee_name || '—'}</Typography>
                   {t.due_at && <Typography variant="body2" color={t.overdue ? 'error.main' : 'inherit'}><b>Fecha deseada:</b> {new Date(t.due_at).toLocaleString('es-MX')}</Typography>}
@@ -1411,7 +1423,7 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
             {(data.comments || []).map((c: any) => (
               <Box key={c.id} sx={{ mb: 1 }}>
                 <Typography variant="caption" color="text.secondary"><b>{c.author_name || '—'}</b> · {new Date(c.created_at).toLocaleString('es-MX')}</Typography>
-                <Typography variant="body2">{c.body}</Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{c.body}</Typography>
               </Box>
             ))}
             <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>

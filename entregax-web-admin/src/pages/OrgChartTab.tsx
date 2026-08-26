@@ -685,7 +685,7 @@ function TasksDialog({ node, onClose, onCountChanged, notify }: {
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                     <Box sx={{ flex: 1 }}>
                       <Typography sx={{ fontWeight: 700, fontSize: 14.5 }}>{task.title}</Typography>
-                      {task.description && <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12.5, mt: 0.2 }}>{task.description}</Typography>}
+                      {task.description && <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12.5, mt: 0.2, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{task.description}</Typography>}
                     </Box>
                     <Tooltip title="Editar"><IconButton size="small" onClick={() => setEditing(task)}><EditIcon fontSize="small" /></IconButton></Tooltip>
                     <Tooltip title="Eliminar"><IconButton size="small" color="error" onClick={() => delTask(task.id)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
