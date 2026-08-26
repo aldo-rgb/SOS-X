@@ -9,7 +9,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { pool } from './db';
 import {
-  ensureSyncSchema, verifyInboundApiKey, EXTERNAL_APP, isPeerConfigured,
+  ensureSyncSchema, verifyInboundApiKey, EXTERNAL_APP, isPeerConfigured, hostsDeArchivosPermitidos,
   diagnoseAuth, type AuthDiag, logSyncAttempt,
 } from './syncService';
 import { applyInboundTaskEvent } from './tasksController';
@@ -243,7 +243,13 @@ export const syncHealth = async (_req: Request, res: Response): Promise<any> => 
     const pending = outbox.find((r: any) => r.status === 'pending')?.n || 0;
     const failed = outbox.find((r: any) => r.status === 'failed')?.n || 0;
     const sent = outbox.find((r: any) => r.status === 'sent')?.n || 0;
-    res.json({ peer_configured: isPeerConfigured(), external_users: users, outbox: { pending, failed, sent } });
+    res.json({
+      peer_configured: isPeerConfigured(), external_users: users, outbox: { pending, failed, sent },
+      // De qué hosts aceptamos bajar sus adjuntos. Si el de sus archivos no está
+      // aquí, la imagen no se baja y solo queda el enlace: se agrega con
+      // GRUPO_RINO_FILES_HOSTS.
+      hosts_archivos: hostsDeArchivosPermitidos(),
+    });
   } catch (e: any) {
     console.error('[sync] health:', e); res.status(500).json({ error: 'Error' });
   }

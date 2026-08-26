@@ -13,7 +13,7 @@
 // ============================================================
 import crypto from 'crypto';
 import { pool } from './db';
-import { getSignedUrlForKey } from './s3Service';
+import { getSignedUrlForKey, uploadToS3WithSignedUrl } from './s3Service';
 
 export const SYNC_SOURCE = 'entregax-core';
 export const EXTERNAL_APP = 'grupo_rino';
@@ -24,6 +24,61 @@ const INBOUND_API_KEY = () => process.env.GRUPO_RINO_API_KEY || '';
 const OUTBOUND_API_KEY = () => process.env.GRUPO_RINO_OUTBOUND_KEY || process.env.GRUPO_RINO_API_KEY || '';
 // Base pública de nuestra API, para armar las URLs de descarga de adjuntos.
 const SELF_URL = () => (process.env.PUBLIC_API_URL || 'https://api.entregax.app').replace(/\/+$/, '');
+
+/**
+ * Trae a nuestro S3 un archivo que Grupo Rino subió de su lado.
+ *
+ * Guardar solo el enlace no sirve: sus archivos viven en su almacenamiento y el
+ * enlace caduca o pide su sesión, así que la imagen se vería rota justo cuando
+ * alguien la necesita. Se descarga y queda como adjunto normal de la tarea,
+ * igual que si la hubiéramos subido nosotros.
+ *
+ * Solo se baja de hosts conocidos (el de su webhook, más GRUPO_RINO_FILES_HOSTS
+ * si hay que agregar otro): un servidor que descarga cualquier URL que le
+ * manden es un agujero, aunque venga firmada.
+ */
+const HOSTS_PERMITIDOS = (): string[] => {
+  const extra = String(process.env.GRUPO_RINO_FILES_HOSTS || '').split(',').map(h => h.trim()).filter(Boolean);
+  const peer = (() => { try { return new URL(PEER_URL()).hostname; } catch { return ''; } })();
+  return [...extra, ...(peer ? [peer] : [])].map(h => h.toLowerCase());
+};
+
+const MAX_ADJUNTO_BYTES = 25 * 1024 * 1024;
+
+/** Para diagnóstico: de qué hosts aceptamos bajar archivos. */
+export const hostsDeArchivosPermitidos = (): string[] => HOSTS_PERMITIDOS();
+
+export async function ingestExternalAttachment(
+  taskId: number, url: string, fileName: string, uploaderId: number | null
+): Promise<{ id: number } | null> {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') { console.warn('[sync] adjunto rechazado, no es https:', url); return null; }
+    const permitidos = HOSTS_PERMITIDOS();
+    const host = u.hostname.toLowerCase();
+    const ok = permitidos.some(h => host === h || host.endsWith('.' + h));
+    if (!ok) { console.warn(`[sync] adjunto rechazado, host no permitido: ${host} (permitidos: ${permitidos.join(', ') || 'ninguno'})`); return null; }
+
+    const resp = await fetch(url, { headers: { 'X-EntregaX-Key': OUTBOUND_API_KEY() } });
+    if (!resp.ok) { console.warn(`[sync] adjunto no se pudo bajar: HTTP ${resp.status} ${url}`); return null; }
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (!buf.length || buf.length > MAX_ADJUNTO_BYTES) {
+      console.warn(`[sync] adjunto descartado por tamaño: ${buf.length} bytes`); return null;
+    }
+    const limpio = String(fileName || 'archivo').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60);
+    const key = `task-attachments/task-${taskId}-${Date.now()}-${limpio}`;
+    const tipo = resp.headers.get('content-type') || 'application/octet-stream';
+    await uploadToS3WithSignedUrl(buf, key, tipo, 6 * 3600);
+    const r = await pool.query(
+      `INSERT INTO task_attachments (task_id, file_key, file_name, uploaded_by) VALUES ($1,$2,$3,$4) RETURNING id`,
+      [taskId, key, limpio, uploaderId]);
+    console.log(`[sync] adjunto externo guardado: tarea ${taskId} · ${limpio} · ${buf.length} bytes`);
+    return { id: r.rows[0].id };
+  } catch (e: any) {
+    console.warn('[sync] ingestExternalAttachment:', e?.message);
+    return null;
+  }
+}
 
 /**
  * Adjuntos de una tarea, listos para mandarse afuera.

@@ -8,7 +8,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { uploadToS3WithSignedUrl, getSignedUrlForKey, signS3UrlIfNeeded } from './s3Service';
-import { emitTaskEventIfExternal } from './syncService';
+import { emitTaskEventIfExternal, ingestExternalAttachment } from './syncService';
 
 const authUserId = (req: Request): number | null => {
   const u = (req as any).user;
@@ -2003,24 +2003,36 @@ export async function applyInboundTaskEvent(opts: {
       await logActivity(taskId, actorId, 'reopened', { via: 'sync' });
       break;
     }
-    // Adjunto que ellos suben: no bajamos el archivo, se registra en el hilo
-    // con el enlace que mandan para que no se pierda.
+    // Adjunto que ellos suben: se descarga a nuestro S3 y queda como adjunto
+    // normal de la tarea. Si no se puede bajar (host no permitido, enlace
+    // caído), al menos queda el enlace en el hilo en vez de perderse.
     case 'task.attachment_added': {
       const a = opts.body || {};
       const nombre = String(a.file_name || 'archivo').trim();
       const enlace = String(a.download_url || a.url || '').trim();
       if (!enlace) return { ok: false, error: 'Falta la URL del adjunto' };
+      const guardado = await ingestExternalAttachment(taskId, enlace, nombre, actorId);
       await pool.query(
         `INSERT INTO task_comments (task_id, author_id, body, mentions, attachment_url)
-         VALUES ($1,$2,$3,'[]'::jsonb,$4)`, [taskId, actorId, `📎 ${nombre}`, enlace]);
-      await logActivity(taskId, actorId, 'attachment_added', { file_name: nombre, via: 'sync' });
+         VALUES ($1,$2,$3,'[]'::jsonb,$4)`,
+        [taskId, actorId, `📎 ${nombre}`, guardado ? null : enlace]);
+      await logActivity(taskId, actorId, 'attachment_added', { file_name: nombre, via: 'sync', descargado: !!guardado });
       break;
     }
     case 'task.comment_added': {
       const body = String(opts.body?.body || '').trim();
-      if (!body) return { ok: false, error: 'Comentario vacío' };
+      const adjunto = String(opts.body?.attachment_url || opts.body?.image_url || '').trim();
+      if (!body && !adjunto) return { ok: false, error: 'Comentario vacío' };
+      // Si el comentario trae imagen, se baja igual que un adjunto suelto: antes
+      // se ignoraba el campo y la foto se quedaba de su lado.
+      let urlComentario: string | null = null;
+      if (adjunto) {
+        const g = await ingestExternalAttachment(taskId, adjunto, String(opts.body?.file_name || 'imagen'), actorId);
+        if (!g) urlComentario = adjunto;
+      }
       await pool.query(
-        `INSERT INTO task_comments (task_id, author_id, body, mentions) VALUES ($1,$2,$3,'[]'::jsonb)`, [taskId, actorId, body]);
+        `INSERT INTO task_comments (task_id, author_id, body, mentions, attachment_url) VALUES ($1,$2,$3,'[]'::jsonb,$4)`,
+        [taskId, actorId, body || '📎 imagen', urlComentario]);
       await logActivity(taskId, actorId, 'comment', { via: 'sync' });
       if (String(task.status) === 'awaiting_confirmation') {
         const fc = await firstColId();
