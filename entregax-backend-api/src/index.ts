@@ -10660,7 +10660,25 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
     // Servicio real desde openpay_webhook_logs (la tabla pobox_payments no lo
     // guarda). Aplica el mismo filtro de servicio que la fuente #1, para no
     // mostrar órdenes de otro servicio (p.ej. PO Box en el filtro Aéreo China).
-    let whereClause2 = "WHERE pp.status = 'vouchers_submitted' AND pp.payment_method IN ('cash', 'credit')";
+    // Lo que califica es que el cliente YA subió su comprobante, no con qué
+    // método se generó la orden.
+    //
+    // Antes pedía payment_method IN ('cash','credit'), y eso escondía las
+    // órdenes que se crearon eligiendo PayPal o transferencia y terminaron
+    // pagándose por depósito — que son muchas: casi la mitad de los checkouts
+    // de PayPal se abandonan y el cliente transfiere (113 capturados vs 86
+    // abandonados). PP-57475823 quedó invisible por eso y nadie la cobró en 5
+    // días (TKT-2026-2321).
+    //
+    // También se incluye 'vouchers_partial': ese estado significa que lo
+    // depositado no alcanza a cubrir la orden, o sea que hace falta actuar, no
+    // que se pueda ignorar. Entre ambos casos quedaban ocultas 9 órdenes por
+    // $487,420.45.
+    //
+    // No hay riesgo de traer pagos ya resueltos: una orden liquidada en línea
+    // queda en 'paid'/'completed', nunca en 'vouchers_*'. Y el merge de abajo
+    // deduplica por referencia contra la fuente de webhooks.
+    let whereClause2 = "WHERE pp.status IN ('vouchers_submitted', 'vouchers_partial')";
     const params2: any[] = [];
     if (serviceList) {
       params2.push(serviceList);
