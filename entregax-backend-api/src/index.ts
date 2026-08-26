@@ -9290,6 +9290,59 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevelOrRole
 // Para cuando el cliente llega con su referencia
 // Permitir acceso a mostrador (counter_staff) para Caja PO Box
 // ============================================
+// Resuelve los package_ids de una orden contra la tabla que le corresponde.
+//
+// package_ids guarda ids CRUDOS y los mismos numeros existen en packages, en
+// dhl_shipments y en maritime_orders. Buscarlos siempre en `packages` —que es
+// lo que hacia este buscador— devuelve guias de otro servicio: la orden DHL
+// UW-00132821 mostraba el paquete aereo AIR2619965nzoDN-023, que esta marcado
+// como pagado, y por eso una referencia pendiente se veia "ya pagada". De sus 6
+// ids, UW-7565609B tiene 5 que existen en las dos tablas (tarea 377).
+//
+// El servicio se resuelve con resolveOrderService, que NUNCA lo deduce de
+// packages justamente por esta colision.
+const guiasDeOrden = async (
+  poboxPaymentId: number | null,
+  paymentReference: string | null,
+  packageIds: number[]
+): Promise<any[]> => {
+  const ids = (packageIds || []).map(Number).filter((n) => Number.isFinite(n));
+  if (ids.length === 0) return [];
+  try {
+    const { resolveOrderService, classifyOrderIds } = await import('./orderService');
+    const svc = await resolveOrderService(pool, {
+      poboxPaymentId: poboxPaymentId ?? undefined,
+      paymentReference: paymentReference ?? undefined,
+    } as any);
+    const { pkgIds, dhlIds, marIds } = classifyOrderIds(svc as any, ids);
+    const out: any[] = [];
+    if (pkgIds.length) {
+      const r = await pool.query(
+        `SELECT id, tracking_internal, description, assigned_cost_mxn FROM packages WHERE id = ANY($1)`, [pkgIds]);
+      out.push(...r.rows);
+    }
+    if (dhlIds.length) {
+      const r = await pool.query(
+        `SELECT id, COALESCE(secondary_tracking, inbound_tracking) AS tracking_internal,
+                description, total_cost_mxn AS assigned_cost_mxn
+           FROM dhl_shipments WHERE id = ANY($1)`, [dhlIds]);
+      out.push(...r.rows);
+    }
+    if (marIds.length) {
+      const r = await pool.query(
+        `SELECT id, ordersn AS tracking_internal, shipping_mark AS description,
+                assigned_cost_mxn FROM maritime_orders WHERE id = ANY($1)`, [marIds]);
+      out.push(...r.rows);
+    }
+    return out;
+  } catch (e: any) {
+    // Sin servicio resuelto es preferible no mostrar guias que mostrar las de
+    // otro cliente: eso es lo que hacia creer que la referencia ya estaba pagada.
+    console.warn('[search-payment] no se pudo resolver el servicio de la orden:', e?.message);
+    return [];
+  }
+};
+
 // Estados en los que una orden TODAVIA se puede cobrar. Es la misma lista que
 // usan el matcher bancario y confirm-payment; el buscador de Cobranza pedia
 // 'pending_payment' a secas, así que el botón "Confirmar Pago Recibido" salía
@@ -9416,8 +9469,7 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevelO
           try { rpIds = typeof rp.package_ids === 'string' ? JSON.parse(rp.package_ids) : (rp.package_ids || []); } catch { /* ignore */ }
           let rpGuias: any[] = [];
           if (rpIds.length > 0) {
-            const g = await pool.query(`SELECT id, tracking_internal, description, assigned_cost_mxn FROM packages WHERE id = ANY($1)`, [rpIds]);
-            rpGuias = g.rows;
+            rpGuias = await guiasDeOrden(rp.id ?? null, rp.referencia ?? null, rpIds);
           }
           return res.json({
             success: true,
@@ -9486,11 +9538,7 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevelO
 
       let guias: any[] = [];
       if (packageIds.length > 0) {
-        const guiasRes = await pool.query(
-          `SELECT id, tracking_internal, description, assigned_cost_mxn FROM packages WHERE id = ANY($1)`,
-          [packageIds]
-        );
-        guias = guiasRes.rows;
+        guias = await guiasDeOrden(payment.id ?? null, payment.payment_reference ?? payment.referencia ?? null, packageIds);
       }
 
       return res.json({
@@ -9529,11 +9577,7 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevelO
     } catch (e) {}
 
     if (packageIds.length > 0) {
-      const guiasRes = await pool.query(
-        `SELECT id, tracking_internal, description, assigned_cost_mxn FROM packages WHERE id = ANY($1)`,
-        [packageIds]
-      );
-      guias = guiasRes.rows;
+      guias = await guiasDeOrden(null, payment.referencia ?? payment.transaction_id ?? null, packageIds);
     }
 
     // Cruzar con la orden real: si pobox_payments está cancelada/expirada, NO se
