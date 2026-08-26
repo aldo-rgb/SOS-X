@@ -36,6 +36,20 @@ const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/
 const getToken = () => localStorage.getItem('token') || '';
 const H = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
 
+// Formato de duración en JORNADAS laborales (470 min = 10:10–18:00), igual que
+// el backend. Se repite aquí porque al filtrar por grupo el promedio se
+// recalcula en el navegador y hay que volver a darle formato.
+const MIN_JORNADA = 470;
+const fmtHabil = (min: number): string => {
+  if (!(min > 0)) return '—';
+  if (min < 60) return `${Math.round(min)} min`;
+  const jornadas = Math.floor(min / MIN_JORNADA);
+  const resto = min - jornadas * MIN_JORNADA;
+  const h = Math.floor(resto / 60);
+  if (jornadas > 0) return `${jornadas}d ${h}h`;
+  return `${h}h ${Math.round(resto % 60)}m`;
+};
+
 // Icono por tablero según su nombre (para distinguirlos de un vistazo).
 const boardIcon = (name?: string, type?: string): string => {
   if (type === 'operativo') return '🎯';
@@ -311,6 +325,9 @@ export default function TareasPage() {
   const [promedios, setPromedios] = useState<any | null>(null);
   const [promediosOpen, setPromediosOpen] = useState(false);
   const [promediosLoading, setPromediosLoading] = useState(false);
+  // Asesores vs equipo interno. Su trabajo no es comparable —unos atienden
+  // clientes, otros resuelven sistemas— asi que un solo promedio no dice nada.
+  const [promediosGrupo, setPromediosGrupo] = useState<'todos' | 'asesores' | 'interno'>('todos');
   const abrirPromedios = async () => {
     setPromediosOpen(true);
     if (promedios) return;              // ya cargado, no se vuelve a pedir
@@ -700,16 +717,57 @@ export default function TareasPage() {
               ['delegar', '👥 Urgente, no importante'],
               ['eliminar', '🗑️ Ni urgente ni importante'],
             ];
+            const personas = promedios.personas.filter((p: any) =>
+              promediosGrupo === 'todos' || p.grupo === promediosGrupo);
+
+            // El promedio del grupo se recalcula ponderando por cuantas tareas
+            // midio cada quien. Promediar los promedios daria el mismo peso a
+            // alguien con 60 tareas que a alguien con 1.
+            const promedioGrupo = (getter: (p: any) => any) => {
+              let suma = 0, n = 0;
+              personas.forEach((p: any) => {
+                const v = getter(p);
+                if (v?.muestras > 0) { suma += v.minutos * v.muestras; n += v.muestras; }
+              });
+              if (!n) return { texto: '—', muestras: 0 };
+              return { texto: fmtHabil(suma / n), muestras: n };
+            };
+            const cuentaGrupo = (campo: string) =>
+              personas.reduce((s: number, p: any) => s + (p[campo] || 0), 0);
+
+            const GRUPOS: Array<['todos' | 'asesores' | 'interno', string]> = [
+              ['todos', `Todos (${promedios.personas.length})`],
+              ['asesores', `Asesores (${promedios.personas.filter((p: any) => p.grupo === 'asesores').length})`],
+              ['interno', `Equipo interno (${promedios.personas.filter((p: any) => p.grupo === 'interno').length})`],
+            ];
             return (
               <>
                 <Alert severity="info" sx={{ mb: 2 }}>
                   {promedios.global.jornada} El reloj arranca cuando la tarea <b>se asigna</b>, aunque nunca se haya puesto en proceso.
                 </Alert>
 
-                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>Promedio del equipo por cuadrante</Typography>
+                <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                  {GRUPOS.map(([k, lbl]) => (
+                    <Button key={k} size="small"
+                      variant={promediosGrupo === k ? 'contained' : 'outlined'}
+                      onClick={() => setPromediosGrupo(k)}
+                      sx={promediosGrupo === k
+                        ? { bgcolor: '#1565C0', '&:hover': { bgcolor: '#0D47A1' } }
+                        : { color: '#1565C0', borderColor: '#1565C0' }}>
+                      {lbl}
+                    </Button>
+                  ))}
+                </Box>
+
+                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
+                  Promedio por cuadrante · {GRUPOS.find(g => g[0] === promediosGrupo)?.[1]}
+                  <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                    {cuentaGrupo('activas')} activas · {cuentaGrupo('en_espera')} en espera · {cuentaGrupo('terminadas')} terminadas
+                  </Typography>
+                </Typography>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(5, 1fr)' }, gap: 1.5, mb: 3 }}>
                   {CUAD.map(([k, lbl]) => {
-                    const v = promedios.global.por_cuadrante[k];
+                    const v = promedioGrupo((p: any) => p.promedio_por_cuadrante?.[k]);
                     return (
                       <Paper key={k} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
                         <Typography variant="caption" color="text.secondary">{lbl}</Typography>
@@ -720,8 +778,8 @@ export default function TareasPage() {
                   })}
                   <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: '#FFF8F0' }}>
                     <Typography variant="caption" color="text.secondary">⏳ Tardan en confirmar</Typography>
-                    <Typography variant="h6" fontWeight={800}>{promedios.global.confirmacion?.texto ?? '—'}</Typography>
-                    <Typography variant="caption" color="text.secondary">{promedios.global.confirmacion?.muestras ?? 0} tareas</Typography>
+                    <Typography variant="h6" fontWeight={800}>{promedioGrupo((p: any) => p.promedio_confirmacion).texto}</Typography>
+                    <Typography variant="caption" color="text.secondary">{promedioGrupo((p: any) => p.promedio_confirmacion).muestras} tareas</Typography>
                   </Paper>
                 </Box>
 
@@ -744,11 +802,14 @@ export default function TareasPage() {
                       </Box>
                     </Box>
                     <Box component="tbody">
-                      {promedios.personas.map((p: any) => (
+                      {personas.map((p: any) => (
                         <Box component="tr" key={p.user_id} sx={{ '&:hover': { bgcolor: '#FAFAFA' } }}>
                           <Box component="td">
                             <b>{p.nombre}</b>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{p.rol}</Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                              {p.rol}
+                              {p.grupo === 'asesores' && <Chip label="asesor" size="small" sx={{ ml: 0.5, height: 15, fontSize: 9, bgcolor: '#E3F0FB', color: '#1565C0' }} />}
+                            </Typography>
                           </Box>
                           <Box component="td" sx={{ textAlign: 'center !important' }}>{p.activas || '—'}</Box>
                           <Box component="td" sx={{ textAlign: 'center !important', color: p.en_espera > 0 ? '#B07206' : 'inherit', fontWeight: p.en_espera > 0 ? 800 : 400 }}>{p.en_espera || '—'}</Box>

@@ -94,10 +94,20 @@ export const formatoHabil = (min: number): string => {
 const CUADRANTES = ['fuego', 'estrella', 'delegar', 'eliminar'] as const;
 type Cuadrante = typeof CUADRANTES[number];
 
+/**
+ * Los asesores se miden aparte del equipo interno: su trabajo es atender
+ * clientes y sus tiempos no son comparables con los de sistemas o contabilidad.
+ * Mezclarlos en un solo promedio no dice nada de ninguno de los dos.
+ */
+const ROLES_ASESOR = ['advisor', 'sub_advisor', 'asesor', 'sub_asesor', 'asesor_lider'];
+export const grupoDeRol = (rol?: string | null): 'asesores' | 'interno' =>
+  ROLES_ASESOR.includes(String(rol || '').toLowerCase()) ? 'asesores' : 'interno';
+
 export type FilaPersona = {
   user_id: number;
   nombre: string;
   rol: string;
+  grupo: 'asesores' | 'interno';
   total: number;
   activas: number;
   en_espera: number;
@@ -165,6 +175,7 @@ export async function calcularPromediosRespuesta(): Promise<{
     if (!acum.has(uid)) {
       acum.set(uid, {
         user_id: uid, nombre: t.full_name || `#${uid}`, rol: t.role || '',
+        grupo: grupoDeRol(t.role),
         total: 0, activas: 0, en_espera: 0, terminadas: 0,
         por_cuadrante: { fuego: 0, estrella: 0, delegar: 0, eliminar: 0 },
         promedio_por_cuadrante: {} as any,
