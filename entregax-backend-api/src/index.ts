@@ -699,6 +699,8 @@ import {
   getSequenceNextSend,
   getSequenceScheduleConfig,
   saveSequenceScheduleConfig,
+  setSequencePaused,
+  isSequencePaused,
   getAutoEnrollConfig,
   setAutoEnrollConfig,
 } from './waSequenceController';
@@ -7740,6 +7742,11 @@ app.post('/api/admin/crm/sequences/unenroll', authenticateToken, requireMinLevel
 app.get('/api/admin/crm/sequence/next-send', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSequenceNextSend);
 app.get('/api/admin/crm/sequence/schedule', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSequenceScheduleConfig);
 app.post('/api/admin/crm/sequence/schedule', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveSequenceScheduleConfig);
+// Pausa de emergencia del funnel (no desarma la campaña; ver isSequencePaused).
+app.post('/api/admin/crm/sequence/pause', authenticateToken, requireMinLevel(ROLES.DIRECTOR), setSequencePaused);
+app.get('/api/admin/crm/sequence/pause', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (_req, res) => {
+  res.json({ paused: await isSequencePaused() });
+});
 // Toggle de auto-inscripción de prospectos externos (Lun/Mar/Mié 8am, hasta 500).
 app.get('/api/admin/crm/auto-enroll', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAutoEnrollConfig);
 app.post('/api/admin/crm/auto-enroll', authenticateToken, requireMinLevel(ROLES.DIRECTOR), setAutoEnrollConfig);

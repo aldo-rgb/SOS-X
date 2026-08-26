@@ -549,8 +549,48 @@ export const hasDueSequenceBacklog = async (): Promise<boolean> => {
   );
   return !!r.rows[0]?.has;
 };
+/**
+ * PAUSA DE LA SECUENCIA
+ *
+ * Distinta de `wa_sequences.active = FALSE`: apagar la secuencia hace que el
+ * drenado marque como "completed" a todos los inscritos pendientes, o sea que
+ * pierden los mensajes 2 y 3 para siempre. La pausa solo detiene el envío; los
+ * inscritos se quedan donde están y al reanudar siguen su camino.
+ *
+ * Existe por el aviso de spam de Meta (26-ago-2026): el número es el mismo que
+ * manda las notificaciones de operación, así que hay que poder frenar el
+ * marketing en segundos sin desarmar la campaña.
+ */
+export const isSequencePaused = async (): Promise<boolean> => {
+  try {
+    const r = await pool.query(
+      `SELECT config_value FROM system_configurations WHERE config_key = 'wa_sequence_paused' LIMIT 1`);
+    return r.rows[0]?.config_value?.paused === true;
+  } catch { return false; }
+};
+
+export const setSequencePaused = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const paused = (req.body || {}).paused === true;
+    const motivo = String((req.body || {}).reason || '').slice(0, 200) || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, is_active)
+       VALUES ('wa_sequence_paused', $1::jsonb, TRUE)
+       ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value, is_active = TRUE`,
+      [JSON.stringify({ paused, reason: motivo, at: new Date().toISOString() })]);
+    console.log(`[SEQ] secuencia ${paused ? 'PAUSADA' : 'reanudada'}${motivo ? ` · ${motivo}` : ''}`);
+    res.json({ ok: true, paused });
+  } catch (e: any) {
+    console.error('[SEQ] setSequencePaused:', e); res.status(500).json({ error: 'No se pudo cambiar la pausa' });
+  }
+};
+
 export const processDueSequenceSteps = async (): Promise<{ sent: number; advanced: number; processed: number }> => {
   await ensureSequenceSchema();
+  if (await isSequencePaused()) {
+    console.log('[SEQ] en pausa; no se envía nada (los inscritos conservan su lugar).');
+    return { sent: 0, advanced: 0, processed: 0 };
+  }
   let sent = 0, advanced = 0;
   // Respetar el tope diario: reservamos capacidad del tier de WhatsApp para las
   // notificaciones operativas. Si ya llegamos al tope, no mandamos nada más hoy.
