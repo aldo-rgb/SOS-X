@@ -293,10 +293,35 @@ export class FacturamaClient {
             ];
             const postWith = async (b: any) => {
                 let rr: { status: number; data: any } = { status: 0, data: null };
+                let credencialesRechazadas = false;
+                const rutasVacias: string[] = [];
                 for (const path of VERSIONED_PATHS) {
                     rr = await this.http.post(path, b);
-                    if (rr.status >= 200 && rr.status < 300) return rr;
-                    if (![401, 403, 404].includes(rr.status)) return rr;
+                    // 401/403 = las credenciales de ESTE emisor no sirven para esa
+                    // versión de la API. Se anota y se sigue probando, pero al
+                    // final se reporta: antes se perdía y el error terminaba
+                    // culpando al sello.
+                    if (rr.status === 401 || rr.status === 403) { credencialesRechazadas = true; continue; }
+                    if (rr.status >= 200 && rr.status < 300) {
+                        // /api-lite/2/cfdis contesta 200 con cuerpo VACÍO pase lo
+                        // que pase —hasta con un payload vacío— así que un 200 sin
+                        // contenido no es un timbrado, es un endpoint que miente.
+                        const d: any = rr.data;
+                        const vacio = d == null
+                            || (typeof d === 'string' && !d.trim())
+                            || (typeof d === 'object' && Object.keys(d).length === 0);
+                        if (vacio) { rutasVacias.push(path); continue; }
+                        return rr;
+                    }
+                    if (rr.status !== 404) return rr;
+                }
+                if (credencialesRechazadas) {
+                    throw new FacturamaError(
+                        `Facturama está rechazando las credenciales del emisor ${this.emitter.rfc} ` +
+                        `(usuario "${this.emitter.facturama_username || 's/n'}"). Revísalas en Empresas → Facturama: ` +
+                        `mientras no sean válidas, ningún CFDI de este emisor se puede timbrar.`,
+                        { status: 401, details: { rutas_vacias: rutasVacias } }
+                    );
                 }
                 return rr;
             };
@@ -345,8 +370,9 @@ export class FacturamaClient {
             // evitamos persistir una factura "fantasma" con totales en 0.
             if (!id && !uuid) {
                 throw new FacturamaError(
-                    `Facturama respondió OK pero sin Id ni UUID: el CFDI no se timbró. Suele ser que el sello (CSD) ` +
-                    `del RFC ${this.emitter.rfc} no está cargado o está vencido en Facturama.`, {
+                    `Facturama respondió OK pero sin Id ni UUID: el CFDI no se timbró. Puede ser que el sello (CSD) ` +
+                    `del RFC ${this.emitter.rfc} no esté cargado o esté vencido, o que las credenciales de este ` +
+                    `emisor no sirvan y la petición haya caído en un endpoint que contesta vacío.`, {
                     status: r.status,
                     details: d,
                 });
