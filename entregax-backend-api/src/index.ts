@@ -5684,12 +5684,16 @@ app.get('/api/payment/voucher/:orderId', authenticateToken, getOrderVouchers);
 app.delete('/api/payment/voucher/:voucherId', authenticateToken, deleteVoucher);
 app.get('/api/payment/wallet/service', authenticateToken, getServiceWalletBalances);
 // Admin voucher conciliation
-app.get('/api/admin/vouchers/pending', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAdminPendingVouchers);
+// El contador (nivel 55) queda por DEBAJO de counter_staff (60), así que
+// requireMinLevel lo dejaba fuera de revisar comprobantes — aunque sí puede
+// confirmar pagos y ver el estado de cuenta, que exigen más. Revisar
+// comprobantes es justamente su trabajo (tarea 374, Leonardo Reyna).
+app.get('/api/admin/vouchers/pending', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getAdminPendingVouchers);
 // Contador (accountant) necesita ver el comprobante del cliente para timbrar el CFDI.
 app.get('/api/admin/vouchers/order/:orderId', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), getAdminOrderVouchers);
-app.get('/api/admin/vouchers/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getVoucherStats);
-app.post('/api/admin/voucher/approve/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), approveVoucher);
-app.post('/api/admin/voucher/reject/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), rejectVoucher);
+app.get('/api/admin/vouchers/stats', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), getVoucherStats);
+app.post('/api/admin/voucher/approve/:id', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), approveVoucher);
+app.post('/api/admin/voucher/reject/:id', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), rejectVoucher);
 
 // --- RUTAS DE VERIFICACIÓN KYC ---
 app.post('/api/verify/documents', authenticateToken, verifyLimiter, uploadVerificationDocuments);
@@ -10965,7 +10969,13 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
       FROM bank_statement_entries b
       LEFT JOIN fiscal_emitters fe ON fe.id = b.empresa_id
       WHERE b.abono IS NOT NULL
-        AND b.fecha BETWEEN ($4::date - INTERVAL '2 days') AND ($4::date + INTERVAL '3 days')
+        -- Ventana medida sobre las conciliaciones reales: de 279, el depósito
+        -- llega hasta 15 días DESPUÉS de crearse la orden. Con la ventana vieja
+        -- (-2/+3) se quedaban fuera 24 pagos —el 8.6%— y el selector los
+        -- mostraba como si no existieran (tarea 374). Ampliarla casi no mete
+        -- ruido: el promedio de candidatos pasa de 0.3 a 0.7 por orden, y el
+        -- ORDER BY de abajo ya empuja arriba los que de verdad coinciden.
+        AND b.fecha BETWEEN ($4::date - INTERVAL '5 days') AND ($4::date + INTERVAL '30 days')
       ORDER BY (
                ($1::text IS NOT NULL AND (b.referencia ~* $1 OR b.concepto ~* $1))
                OR (b.abono IS NOT NULL AND ABS(CAST(b.abono AS numeric) - $2::numeric) <= 1)
