@@ -873,6 +873,7 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
         SELECT ds.id, ds.inbound_tracking AS tracking, ds.secondary_tracking,
                ds.description, ds.weight_kg AS weight,
                ds.total_cost_mxn, ds.saldo_pendiente, ds.monto_pagado,
+               ds.import_cost_usd, ds.exchange_rate, ds.import_tax_mxn, ds.national_cost_mxn,
                COALESCE(ds.national_carrier, a.carrier_config->>'dhl') AS national_carrier
         FROM dhl_shipments ds
         LEFT JOIN addresses a ON a.id = ds.delivery_address_id
@@ -888,6 +889,13 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           tipo: carrierLabel(d.national_carrier),
           national_carrier: d.national_carrier || null,
           venta_mxn: parseFloat(d.total_cost_mxn) || parseFloat(d.saldo_pendiente) || 0,
+          // Desglose de la guía: sin esto la cotización enseñaba un monto y un
+          // total distintos sin explicar de dónde salía la diferencia
+          // (TKT-2026-2365).
+          import_cost_usd: parseFloat(d.import_cost_usd) || 0,
+          exchange_rate: parseFloat(d.exchange_rate) || 0,
+          import_tax_mxn: parseFloat(d.import_tax_mxn) || 0,
+          national_cost_mxn: parseFloat(d.national_cost_mxn) || 0,
           children: [],
         });
       }
@@ -903,6 +911,10 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
     const cost_breakdown = {
       pobox: 0, paqueteria: 0, gex: 0, extra: 0,
       paqueteria_collect: false, paqueteria_carrier: '' as string,
+      // DHL se desglosa aparte: su cobro es importación + impuesto de aduana +
+      // última milla, no servicio PO Box.
+      dhl_importacion: 0, dhl_impuesto: 0, dhl_paqueteria: 0,
+      dhl_total_guias: 0, dhl_ajuste: 0, dhl_tc: 0,
     };
     try {
       if (pkgIds.length > 0) {
@@ -938,6 +950,23 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
             cost_breakdown.extra += (c.tipo === 'descuento' ? -1 : 1) * (Number(c.monto) || 0);
           }
         }
+      }
+      // Guías DHL de la orden: se suman sus tres componentes por separado.
+      const dhlItems = items.filter((it: any) => it.service_type === 'AA_DHL');
+      if (dhlItems.length > 0) {
+        for (const it of dhlItems) {
+          cost_breakdown.dhl_importacion += (Number(it.import_cost_usd) || 0) * (Number(it.exchange_rate) || 0);
+          cost_breakdown.dhl_impuesto   += Number(it.import_tax_mxn) || 0;
+          cost_breakdown.dhl_paqueteria += Number(it.national_cost_mxn) || 0;
+          cost_breakdown.dhl_total_guias += Number(it.venta_mxn) || 0;
+          if (!cost_breakdown.dhl_tc) cost_breakdown.dhl_tc = Number(it.exchange_rate) || 0;
+        }
+        const redondear = (n: number) => Math.round(n * 100) / 100;
+        cost_breakdown.dhl_importacion = redondear(cost_breakdown.dhl_importacion);
+        // Diferencia entre lo que suman las guías y lo que se está cobrando:
+        // un descuento pactado, un ajuste manual. Se imprime en vez de dejar
+        // que el cliente adivine por qué el total no cuadra con el renglón.
+        cost_breakdown.dhl_ajuste = redondear((Number(order.total_mxn) || 0) - cost_breakdown.dhl_total_guias);
       }
       cost_breakdown.pobox = (Number(order.total_mxn) || 0)
         - cost_breakdown.paqueteria - cost_breakdown.gex - cost_breakdown.extra;

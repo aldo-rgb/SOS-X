@@ -250,6 +250,29 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     }
   };
 
+  // Llegada desde una tarea: "TKT-2026-2365" en el texto abre el ticket aqui.
+  // Se busca por folio en vez de depender de la lista del departamento, que
+  // puede no incluirlo.
+  const folioPedido = (route.params as any)?.openFolio as string | undefined;
+  const [folioAbierto, setFolioAbierto] = useState<string | null>(null);
+  useEffect(() => {
+    if (!folioPedido || folioAbierto === folioPedido) return;
+    setFolioAbierto(folioPedido);
+    (async () => {
+      try {
+        const res = await api.get(`/api/admin/support/tickets?search=${encodeURIComponent(folioPedido)}&limit=5`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const lista: Ticket[] = Array.isArray(res.data) ? res.data : (res.data.tickets || []);
+        const t = lista.find(x => String(x.ticket_folio) === folioPedido) || lista[0];
+        if (t) openDetail(t);
+        else Alert.alert('No encontrado', `No se encontró el ticket ${folioPedido}.`);
+      } catch {
+        Alert.alert('Error', 'No se pudo abrir el ticket.');
+      }
+    })();
+  }, [folioPedido, folioAbierto, token]);
+
   // ── Editar / eliminar el propio mensaje (tarea 261) ──
   const miUserId = Number((user as any)?.id || (user as any)?.userId || 0);
   const editarMensaje = (msg: TicketMessage) => {

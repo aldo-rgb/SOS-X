@@ -8,6 +8,7 @@ import {
   ActivityIndicator, TextInput, Image, Platform, Linking, KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { setStringAsync as copyToClipboard } from 'expo-clipboard';
@@ -895,6 +896,34 @@ export function TaskCard({ task, onPress, showBoard }: { task: TaskT; onPress: (
   );
 }
 
+/**
+ * Texto de tarea con el folio del ticket como enlace.
+ *
+ * Las tareas que nacen de un ticket traen "TKT-2026-2365" en el texto y para
+ * abrirlo habia que copiarlo y buscarlo a mano. Aqui el folio se vuelve
+ * tocable y lleva directo al ticket.
+ */
+const RE_TKT_SPLIT = /(TKT-\d{4}-\d+)/g;   // con g: parte el texto
+const RE_TKT_ES = /^TKT-\d{4}-\d+$/;       // sin g: prueba cada pedazo
+function TextoConTicket({ texto, style }: { texto: string; style?: any }) {
+  const navigation = useNavigation<any>();
+  const partes = String(texto).split(RE_TKT_SPLIT);
+  if (partes.length === 1) return <Text style={style} selectable>{texto}</Text>;
+  return (
+    <Text style={style} selectable>
+      {partes.map((p, i) => (
+        RE_TKT_ES.test(p) ? (
+          <Text
+            key={i}
+            style={{ color: ORANGE, fontWeight: '800', textDecorationLine: 'underline' }}
+            onPress={() => navigation.navigate('SupportTickets', { openFolio: p })}
+          >{p}</Text>
+        ) : <Text key={i}>{p}</Text>
+      ))}
+    </Text>
+  );
+}
+
 // ── Modal de detalle de tarea ──
 export function TaskDetailModal({ visible, taskId, token, canManage, columns, onClose, onChanged, myId }: {
   visible: boolean; taskId: number | null; token: string; canManage?: boolean; myId?: number;
@@ -1280,7 +1309,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
               </View>
               {!!t.description && (
                 <View>
-                  <Text style={styles.desc} selectable>{t.description}</Text>
+                  <TextoConTicket texto={String(t.description)} style={styles.desc} />
                   <TouchableOpacity
                     style={styles.copyBtn}
                     onPress={async () => { try { await copyToClipboard(String(t.description || '')); Alert.alert('Copiado', 'La descripción se copió al portapapeles.'); } catch { /* */ } }}
