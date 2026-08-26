@@ -330,6 +330,45 @@ export const sendVerificationCodeWhatsapp = async (params: {
  * Requiere plantilla "ticket_recibido" aprobada en Meta Business (UTILITY, es_MX).
  * Variables: {{1}} = nombre, {{2}} = folio del ticket.
  */
+/**
+ * Aviso al RESPONSABLE de que le asignaron una tarea.
+ *
+ * Requiere la plantilla "tarea_asignada" aprobada en Meta Business
+ * (categoría UTILITY, es_MX). Variables:
+ *   {{1}} nombre del responsable
+ *   {{2}} título de la tarea
+ *   {{3}} quién se la asignó
+ *   {{4}} fecha deseada (o "sin fecha")
+ *
+ * NO se manda a todos: solo a quien esté marcado en Tareas → Avisos por
+ * WhatsApp. Es un canal intrusivo y el equipo ya recibe push y aviso in-app.
+ */
+export const sendTareaAsignada = async (
+    phone: string,
+    nombreResponsable: string,
+    titulo: string,
+    asignadaPor: string,
+    fechaDeseada: string
+): Promise<void> => {
+    const templateName = process.env.WHATSAPP_TAREA_TEMPLATE || 'tarea_asignada';
+    try {
+        await sendTemplate({
+            to: phone,
+            template: templateName,
+            languageCode: 'es_MX',
+            parameters: [
+                (nombreResponsable || '').split(' ')[0] || nombreResponsable || 'Hola',
+                // WhatsApp rechaza saltos de línea y tabs dentro de una variable.
+                String(titulo || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+                (asignadaPor || '').split(' ')[0] || asignadaPor || 'EntregaX',
+                fechaDeseada || 'sin fecha',
+            ],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] Error enviando aviso de tarea asignada:', e);
+    }
+};
+
 export const sendTicketConfirmation = async (phone: string, nombre: string, ticketFolio: string): Promise<void> => {
     const templateName = process.env.WHATSAPP_TICKET_TEMPLATE || 'ticket_recibido';
     try {

@@ -1108,6 +1108,58 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
 };
 
 // ─── TAREAS: crear ──────────────────────────────────────────
+/**
+ * Avisa por WhatsApp al RESPONSABLE de una tarea recién asignada.
+ *
+ * Solo al responsable —no a los involucrados— y solo si está marcado en
+ * Tareas → Avisos por WhatsApp. La columna arranca en FALSE a propósito: es un
+ * canal intrusivo, el equipo ya recibe push y aviso in-app, y quien lo quiera
+ * se prende uno por uno.
+ *
+ * Nunca tumba la creación de la tarea: si falla, se anota y ya.
+ */
+async function avisarWhatsAppResponsable(
+  assigneeId: number | null | undefined,
+  creadorId: number | null | undefined,
+  titulo: string,
+  dueAt?: string | null
+): Promise<void> {
+  try {
+    if (!assigneeId) return;
+    // Asignarse una tarea a uno mismo no amerita un WhatsApp.
+    if (creadorId && Number(assigneeId) === Number(creadorId)) return;
+
+    await pool.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_tarea_whatsapp BOOLEAN DEFAULT FALSE`
+    ).catch(() => {});
+
+    const r = await pool.query(
+      `SELECT u.full_name, u.phone, COALESCE(u.notif_tarea_whatsapp, FALSE) AS activo,
+              (SELECT full_name FROM users WHERE id = $2) AS creador
+         FROM users u WHERE u.id = $1`,
+      [assigneeId, creadorId ?? null]
+    );
+    const u = r.rows[0];
+    if (!u?.activo) return;
+    if (!u.phone) {
+      console.warn(`[tareas] ${u.full_name} tiene el aviso por WhatsApp prendido pero no tiene teléfono.`);
+      return;
+    }
+
+    const fecha = dueAt
+      ? new Date(dueAt).toLocaleDateString('es-MX', {
+          timeZone: 'America/Monterrey', day: '2-digit', month: 'long', year: 'numeric',
+        })
+      : 'sin fecha';
+
+    const { sendTareaAsignada } = await import('./whatsappService');
+    await sendTareaAsignada(u.phone, u.full_name, titulo, u.creador || 'EntregaX', fecha);
+    console.log(`[tareas] WhatsApp de tarea enviado a ${u.full_name}`);
+  } catch (e: any) {
+    console.error('[tareas] avisarWhatsAppResponsable:', e?.message);
+  }
+}
+
 export const createTask = async (req: Request, res: Response): Promise<any> => {
   try {
     const uid = authUserId(req);
@@ -1223,7 +1275,10 @@ export const createTask = async (req: Request, res: Response): Promise<any> => {
       await pool.query(`INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [task.id, p]);
     }
     await logActivity(task.id, uid, 'created', { title: task.title });
-    if (task.assignee_id) await notify(task.assignee_id, '📋 Nueva tarea asignada', task.title, { task_id: task.id });
+    if (task.assignee_id) {
+      await notify(task.assignee_id, '📋 Nueva tarea asignada', task.title, { task_id: task.id });
+      avisarWhatsAppResponsable(task.assignee_id, uid, task.title, task.due_at).catch(() => {});
+    }
     for (const p of extra) if (Number(p) !== Number(uid) && Number(p) !== Number(task.assignee_id)) await notify(p, '📋 Te involucraron en una tarea', task.title, { task_id: task.id });
     emitTaskEventIfExternal('task.created', Number(task.id), uid).catch(() => {});
     res.json({ task });

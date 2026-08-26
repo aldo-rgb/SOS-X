@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
-  Box, Typography, Button, IconButton, Chip, Paper, Dialog, DialogTitle, DialogContent,
+  Box, Typography, Button, IconButton, Chip, Paper, Switch, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, Select, FormControl, InputLabel, CircularProgress,
   Avatar, Divider, Checkbox, Tooltip, Snackbar, Alert, LinearProgress, Tabs, Tab, Autocomplete,
   InputAdornment,
@@ -17,6 +17,7 @@ import AttachFileIcon from '@mui/icons-material/AttachFile';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import TimerIcon from '@mui/icons-material/Timer';
+import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -328,6 +329,36 @@ export default function TareasPage() {
   // Asesores vs equipo interno. Su trabajo no es comparable —unos atienden
   // clientes, otros resuelven sistemas— asi que un solo promedio no dice nada.
   const [promediosGrupo, setPromediosGrupo] = useState<'todos' | 'asesores' | 'interno'>('todos');
+
+  // ── Avisos de tarea por WhatsApp ─────────────────────────────────────────
+  const [waOpen, setWaOpen] = useState(false);
+  const [waUsers, setWaUsers] = useState<any[] | null>(null);
+  const [waLoading, setWaLoading] = useState(false);
+  const [waMsg, setWaMsg] = useState<{ sev: 'success' | 'error' | 'info'; txt: string } | null>(null);
+  const [waBuscar, setWaBuscar] = useState('');
+
+  const cargarWaPrefs = async () => {
+    setWaLoading(true);
+    try {
+      const r = await axios.get(`${API_URL}/tasks/whatsapp-prefs`, H());
+      setWaUsers(r.data?.usuarios || []);
+    } catch (e: any) {
+      setWaMsg({ sev: 'error', txt: e?.response?.data?.error || 'No se pudo cargar la lista' });
+    } finally { setWaLoading(false); }
+  };
+  const abrirWaPrefs = () => { setWaOpen(true); setWaMsg(null); if (!waUsers) cargarWaPrefs(); };
+
+  const cambiarWaPref = async (u: any, activo: boolean) => {
+    // Optimista: se pinta al instante y se revierte si el servidor lo rechaza.
+    setWaUsers(prev => (prev || []).map(x => x.id === u.id ? { ...x, notif_tarea_whatsapp: activo } : x));
+    try {
+      await axios.put(`${API_URL}/tasks/whatsapp-prefs/${u.id}`, { activo }, H());
+      setWaMsg({ sev: 'success', txt: `${u.full_name}: avisos por WhatsApp ${activo ? 'activados' : 'desactivados'}.` });
+    } catch (e: any) {
+      setWaUsers(prev => (prev || []).map(x => x.id === u.id ? { ...x, notif_tarea_whatsapp: !activo } : x));
+      setWaMsg({ sev: 'error', txt: e?.response?.data?.message || e?.response?.data?.error || 'No se pudo guardar' });
+    }
+  };
   const abrirPromedios = async () => {
     setPromediosOpen(true);
     if (promedios) return;              // ya cargado, no se vuelve a pedir
@@ -492,6 +523,8 @@ export default function TareasPage() {
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={refresh}>Actualizar</Button>
           <Button variant="outlined" startIcon={<TimerIcon />} onClick={abrirPromedios}
             sx={{ color: '#1565C0', borderColor: '#1565C0' }}>Promedios de respuesta</Button>
+          <Button variant="outlined" startIcon={<WhatsAppIcon />} onClick={abrirWaPrefs}
+            sx={{ color: '#25D366', borderColor: '#25D366' }}>Avisos por WhatsApp</Button>
         </Box>
       </Box>
 
@@ -700,6 +733,63 @@ export default function TareasPage() {
       )}
 
       {/* Crear tarea */}
+      {/* A quien SI le llega el WhatsApp cuando le asignan una tarea.
+          Arranca apagado para todos: es intrusivo y ya hay push e in-app. */}
+      <Dialog open={waOpen} onClose={() => setWaOpen(false)} maxWidth="sm" fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ bgcolor: '#25D366', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WhatsAppIcon /> Avisos de tarea por WhatsApp
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Se manda <b>solo a quien queda como responsable</b> de la tarea, y solo a los que enciendas aquí.
+            Los involucrados no reciben WhatsApp. Asignarte una tarea a ti mismo tampoco lo dispara.
+          </Alert>
+          {waMsg && <Alert severity={waMsg.sev} onClose={() => setWaMsg(null)} sx={{ mb: 2 }}>{waMsg.txt}</Alert>}
+
+          <TextField size="small" fullWidth placeholder="Buscar persona..." value={waBuscar}
+            onChange={(e) => setWaBuscar(e.target.value)} sx={{ mb: 1.5 }} />
+
+          {waLoading && <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress /></Box>}
+          {!waLoading && waUsers && (
+            <Box sx={{ maxHeight: 420, overflowY: 'auto' }}>
+              {waUsers
+                .filter((u: any) => !waBuscar.trim() ||
+                  String(u.full_name || '').toLowerCase().includes(waBuscar.toLowerCase()) ||
+                  String(u.role || '').toLowerCase().includes(waBuscar.toLowerCase()))
+                .map((u: any) => (
+                  <Box key={u.id} sx={{
+                    display: 'flex', alignItems: 'center', gap: 1, py: 0.9,
+                    borderBottom: '1px solid', borderColor: 'divider',
+                  }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={600}>{u.full_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {u.role}
+                        {u.tareas > 0 && ` · ${u.tareas} tareas`}
+                        {!u.phone && <b style={{ color: '#C62828' }}> · sin teléfono</b>}
+                      </Typography>
+                    </Box>
+                    <Switch
+                      checked={!!u.notif_tarea_whatsapp}
+                      disabled={!u.phone && !u.notif_tarea_whatsapp}
+                      onChange={(ev: React.ChangeEvent<HTMLInputElement>) => cambiarWaPref(u, ev.target.checked)}
+                      sx={{ '& .Mui-checked': { color: '#25D366' }, '& .Mui-checked + .MuiSwitch-track': { bgcolor: '#25D366 !important' } }}
+                    />
+                  </Box>
+                ))}
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+                Encendidos: {waUsers.filter((u: any) => u.notif_tarea_whatsapp).length} de {waUsers.length}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={cargarWaPrefs} startIcon={<RefreshIcon />}>Actualizar</Button>
+          <Button variant="contained" onClick={() => setWaOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Promedios de respuesta ─ solo horario laboral, contado desde que se
           asigna la tarea (no desde que alguien le da "iniciar"). */}
       <Dialog open={promediosOpen} onClose={() => setPromediosOpen(false)} maxWidth="lg" fullWidth

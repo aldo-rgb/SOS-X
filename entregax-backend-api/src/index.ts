@@ -14195,6 +14195,53 @@ app.delete('/api/tasks/attachments/:attId', authenticateToken, tasksDeleteAttach
 app.get('/api/tasks/mine', authenticateToken, tasksMine);
 // 📊 Promedios de respuesta por persona y cuadrante (solo horario laboral).
 // Es informacion de desempeño del equipo: se limita a mandos.
+// ── Avisos de tarea por WhatsApp: a quién SÍ y a quién no ──────────────────
+// La preferencia vive por usuario y arranca apagada. Es un canal intrusivo y el
+// equipo ya recibe push e in-app; se prende uno por uno desde Tareas.
+app.get('/api/tasks/whatsapp-prefs', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (_req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_tarea_whatsapp BOOLEAN DEFAULT FALSE`).catch(() => {});
+    const r = await pool.query(`
+      SELECT u.id, u.full_name, u.role, u.phone,
+             COALESCE(u.notif_tarea_whatsapp, FALSE) AS notif_tarea_whatsapp,
+             (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id = u.id AND t.status <> 'cancelled')::int AS tareas
+        FROM users u
+       WHERE COALESCE(u.is_active, TRUE) = TRUE
+         AND LOWER(COALESCE(u.role,'')) NOT IN ('client', 'cliente')
+       ORDER BY COALESCE(u.notif_tarea_whatsapp, FALSE) DESC, u.full_name`);
+    return res.json({ success: true, usuarios: r.rows });
+  } catch (e: any) {
+    console.error('[tasks/whatsapp-prefs]', e);
+    return res.status(500).json({ error: 'Error obteniendo la configuración', detail: e?.message });
+  }
+});
+
+app.put('/api/tasks/whatsapp-prefs/:userId', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_tarea_whatsapp BOOLEAN DEFAULT FALSE`).catch(() => {});
+    const userId = parseInt(String(req.params.userId), 10);
+    if (!userId) return res.status(400).json({ error: 'Usuario inválido' });
+    const activo = req.body?.activo === true || req.body?.activo === 'true';
+
+    // Prenderlo sin teléfono no sirve de nada: se avisa en vez de fingir que quedó.
+    const u = (await pool.query(`SELECT full_name, phone FROM users WHERE id = $1`, [userId])).rows[0];
+    if (!u) return res.status(404).json({ error: 'Usuario no encontrado' });
+    if (activo && !u.phone) {
+      return res.status(400).json({
+        error: 'sin_telefono',
+        message: `${u.full_name} no tiene teléfono registrado, así que no le puede llegar el WhatsApp. Cárgaselo en Usuarios primero.`,
+      });
+    }
+
+    await pool.query(`UPDATE users SET notif_tarea_whatsapp = $2 WHERE id = $1`, [userId, activo]);
+    console.log(`[tareas] avisos por WhatsApp ${activo ? 'ACTIVADOS' : 'desactivados'} para ${u.full_name} por ${req.user?.email}`);
+    return res.json({ success: true, user_id: userId, activo });
+  } catch (e: any) {
+    console.error('[tasks/whatsapp-prefs PUT]', e);
+    return res.status(500).json({ error: 'Error guardando la configuración', detail: e?.message });
+  }
+});
+
 app.get('/api/tasks/response-stats', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (_req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { calcularPromediosRespuesta } = await import('./taskResponseStats');
