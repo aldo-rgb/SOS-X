@@ -341,6 +341,10 @@ export default function MisTareasPage() {
   const [view, setView] = useState<'list' | 'matrix' | 'team'>('list');
   // Vista de equipo: TODAS las tareas (grid compacto con avance/status/involucrados).
   const [teamTasks, setTeamTasks] = useState<Task[]>([]);
+  // Filtro por estado en la vista de equipo. Los contadores ya estaban ahi pero
+  // eran solo informativos: se ve "Detenidas: 2" y no habia forma de ver cuales.
+  // null = sin filtro; volver a hacer click en el mismo chip lo quita.
+  const [teamEstado, setTeamEstado] = useState<string | null>(null);
   const [teamShowDone, setTeamShowDone] = useState(false);
   const [teamLoading, setTeamLoading] = useState(false);
   // Vista global (todas en las que estoy involucrado) vs solo mis tareas
@@ -945,32 +949,76 @@ export default function MisTareasPage() {
             detenida: teamFiltered.filter(t => taskState(t).key === 'detenida').length,
             terminada: teamFiltered.filter(t => taskState(t).key === 'terminada').length,
           };
-          const chips: Array<[string, number, string, string]> = [
-            ['🆕 Nuevas', counts.nueva, '#EEEEEE', '#555'],
-            ['⚙️ En proceso', counts.proceso, '#E3F0FB', '#1565C0'],
-            ['⏳ En espera', counts.espera, '#FBE9D0', '#B07206'],
-            ['🛑 Detenidas', counts.detenida, '#3A3A3A', '#fff'],
-            ['✅ Terminadas', counts.terminada, '#E6F4EA', '#1E7D34'],
+          // [clave, etiqueta, conteo, fondo, color]. La clave es la misma que
+          // devuelve taskState, para que el filtro no dependa del texto.
+          const chips: Array<[string, string, number, string, string]> = [
+            ['nueva',     '🆕 Nuevas',      counts.nueva,     '#EEEEEE', '#555'],
+            ['proceso',   '⚙️ En proceso',  counts.proceso,   '#E3F0FB', '#1565C0'],
+            ['espera',    '⏳ En espera',   counts.espera,    '#FBE9D0', '#B07206'],
+            ['detenida',  '🛑 Detenidas',   counts.detenida,  '#3A3A3A', '#fff'],
+            ['terminada', '✅ Terminadas',  counts.terminada, '#E6F4EA', '#1E7D34'],
           ];
+          // Lo que se pinta: si hay un estado elegido, solo ese.
+          const teamVisible = teamEstado
+            ? teamFiltered.filter(t => taskState(t).key === teamEstado)
+            : teamFiltered;
           return (
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 2 }}>
-                {chips.map(([lbl, n, bg, col]) => (
-                  <Chip key={lbl} label={`${lbl}: ${n}`} size="small" sx={{ bgcolor: bg, color: col, fontWeight: 800 }} />
-                ))}
+                {chips.map(([key, lbl, n, bg, col]) => {
+                  const activo = teamEstado === key;
+                  return (
+                    <Chip
+                      key={key}
+                      label={`${lbl}: ${n}`}
+                      size="small"
+                      onClick={() => {
+                        // Las terminadas no vienen del backend si el boton de
+                        // abajo esta apagado, asi que ese chip marcaria 0 y al
+                        // filtrarlo no saldria nada. Se prenden solas.
+                        if (key === 'terminada' && !activo && !teamShowDone) setTeamShowDone(true);
+                        setTeamEstado(activo ? null : key);
+                      }}
+                      sx={{
+                        bgcolor: bg, color: col, fontWeight: 800, cursor: 'pointer',
+                        // El elegido se marca con borde y sombra; los demas se
+                        // atenuan para que se vea cual esta mandando.
+                        border: activo ? `2px solid ${col === '#fff' ? '#fff' : col}` : '2px solid transparent',
+                        boxShadow: activo ? '0 0 0 2px rgba(0,0,0,0.12)' : 'none',
+                        opacity: teamEstado && !activo ? 0.5 : 1,
+                        '&:hover': { bgcolor: bg, opacity: 1 },
+                      }}
+                    />
+                  );
+                })}
+                {teamEstado && (
+                  <Chip
+                    label="Quitar filtro ✕"
+                    size="small"
+                    onClick={() => setTeamEstado(null)}
+                    sx={{ bgcolor: '#fff', border: '1px dashed #999', color: '#555', fontWeight: 700, cursor: 'pointer' }}
+                  />
+                )}
                 <Box sx={{ flex: 1 }} />
                 <Button size="small" variant={teamShowDone ? 'contained' : 'outlined'} onClick={() => setTeamShowDone(v => !v)}
                   sx={teamShowDone ? { bgcolor: '#2E7D46', '&:hover': { bgcolor: '#256b3b' } } : { color: '#2E7D46', borderColor: '#2E7D46' }}>
-                  {teamShowDone ? 'Ocultando terminadas ✓' : 'Mostrar terminadas'}
+                  {/* Estaba al reves: con teamShowDone=true las terminadas SI
+                      se muestran, y el boton decia "Ocultando terminadas". */}
+                  {teamShowDone ? 'Mostrando terminadas ✓' : 'Mostrar terminadas'}
                 </Button>
               </Box>
               {teamLoading ? (
                 <Box sx={{ textAlign: 'center', mt: 6 }}><CircularProgress /></Box>
-              ) : teamFiltered.length === 0 ? (
-                <Alert severity="info">No hay tareas del equipo que mostrar{catFilter !== 'all' || searchText ? ' con este filtro' : ''}.</Alert>
+              ) : teamVisible.length === 0 ? (
+                <Alert severity="info">
+                  No hay tareas del equipo que mostrar
+                  {teamEstado
+                    ? ` en "${chips.find(c => c[0] === teamEstado)?.[1] ?? teamEstado}"`
+                    : (catFilter !== 'all' || searchText ? ' con este filtro' : '')}.
+                </Alert>
               ) : (
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr', xl: '1fr 1fr 1fr 1fr' }, gap: 0.6 }}>
-                  {teamFiltered.map(renderTeamCard)}
+                  {teamVisible.map(renderTeamCard)}
                 </Box>
               )}
             </Box>
