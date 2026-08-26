@@ -13,6 +13,7 @@ import {
   diagnoseAuth, type AuthDiag, logSyncAttempt,
 } from './syncService';
 import { applyInboundTaskEvent } from './tasksController';
+import { getSignedUrlForKey } from './s3Service';
 
 const clientIp = (req: Request): string =>
   (String(req.header('x-forwarded-for') || (req.socket && (req.socket as any).remoteAddress) || '').split(',')[0] || '').trim();
@@ -114,6 +115,42 @@ export const upsertExternalUsers = async (req: Request, res: Response): Promise<
   }
 };
 
+/**
+ * GET /api/sync/attachments/:id — descarga de un adjunto de tarea.
+ *
+ * Las imágenes están en S3 con llave privada, así que en el evento va este
+ * enlace estable en vez de una URL firmada que caduca. Autentica solo con la
+ * API key (un GET no tiene cuerpo que firmar) y responde con un redirect a una
+ * URL firmada recién generada. Solo entrega adjuntos de tareas donde Grupo Rino
+ * es parte: el resto no es suyo.
+ */
+export const attachmentDownload = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const key = req.header('X-EntregaX-Key') || String(req.query.key || '') || undefined;
+    if (!verifyInboundApiKey(key)) {
+      return res.status(401).json({ error: 'API key inválida o ausente.', reason: 'no_key' });
+    }
+    const attId = parseInt(String(req.params.id));
+    if (!attId) return res.status(400).json({ error: 'Adjunto inválido' });
+    const a = (await pool.query(
+      `SELECT at.file_key, at.file_name, at.task_id FROM task_attachments at WHERE at.id = $1`, [attId])).rows[0];
+    if (!a) return res.status(404).json({ error: 'Adjunto no encontrado' });
+    const suyo = (await pool.query(
+      `SELECT 1 FROM task_participants tp JOIN users u ON u.id = tp.user_id
+        WHERE tp.task_id = $1 AND u.source_app = $2
+        UNION
+        SELECT 1 FROM tasks t JOIN users u ON u.id = t.assignee_id
+        WHERE t.id = $1 AND u.source_app = $2
+        LIMIT 1`, [a.task_id, EXTERNAL_APP])).rows[0];
+    if (!suyo) return res.status(403).json({ error: 'Esa tarea no involucra a Grupo Rino' });
+    const url = await getSignedUrlForKey(a.file_key, 3600);
+    return res.redirect(302, url);
+  } catch (e: any) {
+    console.error('[sync] attachmentDownload:', e);
+    res.status(500).json({ error: 'Error al entregar el adjunto' });
+  }
+};
+
 // POST /api/webhooks/entregax  (+ alias /api/sync/webhook, /api/sync/comments,
 // /api/sync/tasks/comments — Grupo Rino los probó y daban 404)
 // Body: { event, occurred_at, source_app, data:{ task:{ id/external_id, ... }, actor_external_id?, comment? } }
@@ -169,7 +206,8 @@ export const inboundWebhook = async (req: Request, res: Response): Promise<any> 
 
     if (event.startsWith('task.')) {
       const r = await applyInboundTaskEvent({
-        taskId: localTaskId, event, actorId: actorLocalId, body: data.comment || data,
+        taskId: localTaskId, event, actorId: actorLocalId,
+        body: (event === 'task.attachment_added' ? data.attachment : data.comment) || data,
       });
       if (!r.ok) return res.status(422).json({ error: r.error || 'No se pudo aplicar' });
       if (autorDesconocido) {

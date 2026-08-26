@@ -1758,6 +1758,10 @@ export const addTaskAttachment = async (req: Request, res: Response): Promise<an
     let url: string | null = null;
     try { url = await getSignedUrlForKey(key, 6 * 3600); } catch { /* ignore */ }
     await logActivity(id, uid, 'attachment_added', { file_name: orig });
+    // Grupo Rino no se enteraba de las imágenes: no había evento al subirlas.
+    emitTaskEventIfExternal('task.attachment_added', id, uid, {
+      attachment: { id: r.rows[0].id, file_name: orig, created_at: r.rows[0].created_at },
+    }).catch(() => {});
     res.json({ attachment: { id: r.rows[0].id, file_name: orig, url, created_at: r.rows[0].created_at } });
   } catch (e: any) {
     console.error('[tasks] addTaskAttachment:', e); res.status(500).json({ error: 'Error al subir el archivo' });
@@ -1997,6 +2001,19 @@ export async function applyInboundTaskEvent(opts: {
       await pool.query(
         `UPDATE tasks SET status='open', started_at=NULL, completed_at=NULL, commitment_date=NULL, ${fc ? `column_id=${Number(fc)},` : ''} updated_at=NOW() WHERE id=$1`, [taskId]);
       await logActivity(taskId, actorId, 'reopened', { via: 'sync' });
+      break;
+    }
+    // Adjunto que ellos suben: no bajamos el archivo, se registra en el hilo
+    // con el enlace que mandan para que no se pierda.
+    case 'task.attachment_added': {
+      const a = opts.body || {};
+      const nombre = String(a.file_name || 'archivo').trim();
+      const enlace = String(a.download_url || a.url || '').trim();
+      if (!enlace) return { ok: false, error: 'Falta la URL del adjunto' };
+      await pool.query(
+        `INSERT INTO task_comments (task_id, author_id, body, mentions, attachment_url)
+         VALUES ($1,$2,$3,'[]'::jsonb,$4)`, [taskId, actorId, `📎 ${nombre}`, enlace]);
+      await logActivity(taskId, actorId, 'attachment_added', { file_name: nombre, via: 'sync' });
       break;
     }
     case 'task.comment_added': {

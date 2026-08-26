@@ -13,6 +13,7 @@
 // ============================================================
 import crypto from 'crypto';
 import { pool } from './db';
+import { getSignedUrlForKey } from './s3Service';
 
 export const SYNC_SOURCE = 'entregax-core';
 export const EXTERNAL_APP = 'grupo_rino';
@@ -21,6 +22,36 @@ const PEER_URL = () => process.env.GRUPO_RINO_PEER_URL || '';
 const SHARED_SECRET = () => process.env.GRUPO_RINO_SHARED_SECRET || '';
 const INBOUND_API_KEY = () => process.env.GRUPO_RINO_API_KEY || '';
 const OUTBOUND_API_KEY = () => process.env.GRUPO_RINO_OUTBOUND_KEY || process.env.GRUPO_RINO_API_KEY || '';
+// Base pública de nuestra API, para armar las URLs de descarga de adjuntos.
+const SELF_URL = () => (process.env.PUBLIC_API_URL || 'https://api.entregax.app').replace(/\/+$/, '');
+
+/**
+ * Adjuntos de una tarea, listos para mandarse afuera.
+ *
+ * Las imágenes viven en S3 con una llave privada: Grupo Rino no puede leerlas
+ * directo. Van dos formas de bajarlas:
+ *   - `url`: firmada, caduca (7 días es el máximo que permite S3). Sirve para
+ *     descargarla en el momento en que llega el evento.
+ *   - `download_url`: nuestro endpoint estable. Nunca caduca, pide la API key
+ *     y firma una URL nueva al vuelo. Es la que deben guardar.
+ */
+export async function attachmentsForTask(taskId: number): Promise<any[]> {
+  try {
+    const rows = (await pool.query(
+      `SELECT id, file_key, file_name, created_at FROM task_attachments
+        WHERE task_id = $1 ORDER BY id`, [taskId])).rows;
+    return await Promise.all(rows.map(async (a: any) => ({
+      id: a.id,
+      file_name: a.file_name,
+      created_at: a.created_at,
+      download_url: `${SELF_URL()}/api/sync/attachments/${a.id}`,
+      url: await getSignedUrlForKey(a.file_key, 7 * 24 * 3600).catch(() => null),
+    })));
+  } catch (e: any) {
+    console.warn('[sync] attachmentsForTask:', e?.message);
+    return [];
+  }
+}
 
 let _ready = false;
 export async function ensureSyncSchema(): Promise<void> {
@@ -172,6 +203,9 @@ export async function emitTaskEventIfExternal(event: string, taskId: number, act
         participants: participants.map((p: any) => ({
           user_id: p.id, external_id: p.source_app === EXTERNAL_APP ? p.external_id : null,
         })),
+        // Los adjuntos viajan en TODOS los eventos, no solo al subirlos: si se
+        // pierden uno, el siguiente evento de la tarea trae la lista completa.
+        attachments: await attachmentsForTask(taskId),
       },
       actor_id: actorId,
       actor_external_id: null as string | null,

@@ -14154,6 +14154,7 @@ import {
 import {
   upsertExternalUsers as syncUpsertExternalUsers,
   inboundWebhook as syncInboundWebhook,
+  attachmentDownload as syncAttachmentDownload,
   syncHealth as syncHealthCheck,
   verifyAuth as syncVerifyAuth,
 } from './syncController';
@@ -14288,6 +14289,8 @@ app.post('/api/sync/events', syncInboundWebhook);
 app.post('/api/sync/comments', syncInboundWebhook);
 app.post('/api/sync/tasks/comments', syncInboundWebhook);
 app.post('/api/webhooks/grupo-rino', syncInboundWebhook);
+// Descarga de adjuntos para Grupo Rino (las imágenes viven en S3 privado).
+app.get('/api/sync/attachments/:id', syncAttachmentDownload);
 app.post('/api/sync/verify', syncVerifyAuth);
 app.get('/api/sync/health', authenticateToken, syncHealthCheck);
 ensureSyncSchema().catch((e: any) => console.error('[sync] ensureSchema:', e?.message));
