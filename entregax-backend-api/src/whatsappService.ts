@@ -336,9 +336,13 @@ export const sendVerificationCodeWhatsapp = async (params: {
  * Requiere la plantilla "tarea_asignada" aprobada en Meta Business
  * (categoría UTILITY, es_MX). Variables:
  *   {{1}} nombre del responsable
- *   {{2}} título de la tarea
- *   {{3}} quién se la asignó
- *   {{4}} fecha deseada (o "sin fecha")
+ *   {{2}} prioridad Eisenhower ("🔥 Urgente e importante")
+ *   {{3}} título de la tarea
+ *   {{4}} quién se la asignó
+ *   {{5}} fecha deseada (o "sin fecha")
+ *
+ * La prioridad va ANTES del título a propósito: es lo que define si se atiende
+ * hoy o esta semana, y en una notificación se lee de arriba hacia abajo.
  *
  * Lleva un botón de URL dinámica: https://entregax.app/tarea/{{1}} — el
  * parámetro es el id de la tarea. Al tocarlo abre la app en Mis Tareas con esa
@@ -347,13 +351,22 @@ export const sendVerificationCodeWhatsapp = async (params: {
  * NO se manda a todos: solo a quien esté marcado en Tareas → Avisos por
  * WhatsApp. Es un canal intrusivo y el equipo ya recibe push y aviso in-app.
  */
+/** Cuadrante de la matriz, tal como debe leerse en el mensaje. */
+const ETIQUETA_EISENHOWER: Record<string, string> = {
+    fuego: '🔥 Urgente e importante',
+    estrella: '⭐ Importante, no urgente',
+    delegar: '👥 Urgente, no importante',
+    eliminar: '🗑️ Ni urgente ni importante',
+};
+
 export const sendTareaAsignada = async (
     phone: string,
     nombreResponsable: string,
     titulo: string,
     asignadaPor: string,
     fechaDeseada: string,
-    tareaId?: number | string
+    tareaId?: number | string,
+    eisenhower?: string | null
 ): Promise<void> => {
     const templateName = process.env.WHATSAPP_TAREA_TEMPLATE || 'tarea_asignada';
     try {
@@ -363,6 +376,9 @@ export const sendTareaAsignada = async (
             languageCode: 'es_MX',
             parameters: [
                 (nombreResponsable || '').split(' ')[0] || nombreResponsable || 'Hola',
+                // Si la tarea se creó sin cuadrante, se dice así en vez de dejar
+                // la variable vacía: Meta rechaza el envío con parámetros vacíos.
+                ETIQUETA_EISENHOWER[String(eisenhower || '')] || 'Sin prioridad asignada',
                 // WhatsApp rechaza saltos de línea y tabs dentro de una variable.
                 String(titulo || '').replace(/\s+/g, ' ').trim().slice(0, 120),
                 (asignadaPor || '').split(' ')[0] || asignadaPor || 'EntregaX',
