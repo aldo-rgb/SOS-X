@@ -14165,7 +14165,7 @@ import {
   syncHealth as syncHealthCheck,
   verifyAuth as syncVerifyAuth,
 } from './syncController';
-import { ensureSyncSchema, dispatchOutbox } from './syncService';
+import { ensureSyncSchema, dispatchOutbox, logSyncAttempt } from './syncService';
 import {
   uploadBrandAsset,
   activateBrandAsset,
@@ -14300,6 +14300,23 @@ app.post('/api/webhooks/grupo-rino', syncInboundWebhook);
 app.get('/api/sync/attachments/:id', syncAttachmentDownload);
 app.post('/api/sync/verify', syncVerifyAuth);
 app.get('/api/sync/health', authenticateToken, syncHealthCheck);
+// Cualquier otro POST bajo /api/sync o /api/webhooks queda registrado antes de
+// contestar 404. Sin esto, cuando ellos le pegan a una ruta equivocada no queda
+// rastro de nada y no hay forma de saber si intentaron o no.
+app.post(['/api/sync/*splat', '/api/webhooks/*splat'], async (req: Request, res: Response) => {
+  try {
+    await logSyncAttempt({
+      endpoint: `404 ${req.path}`, remoteIp: (req.headers['x-forwarded-for'] as string) || req.ip,
+      key: req.header('X-EntregaX-Key') || undefined, sig: req.header('X-Signature') || undefined,
+      diag: 'ok', rawBody: (req as any).rawBody,
+    });
+  } catch { /* el log no debe tumbar la respuesta */ }
+  console.warn(`[sync] ruta inexistente: POST ${req.path}`);
+  res.status(404).json({
+    error: 'Endpoint no encontrado',
+    hint: 'Eventos de tarea (comentarios, adjuntos): POST /api/webhooks/entregax · Alta de usuarios: POST /api/sync/users/upsert',
+  });
+});
 ensureSyncSchema().catch((e: any) => console.error('[sync] ensureSchema:', e?.message));
 setInterval(() => { dispatchOutbox().catch(() => {}); }, 60 * 1000); // despacho cada 1 min
 app.delete('/api/tasks/:id', authenticateToken, tasksDelete);
