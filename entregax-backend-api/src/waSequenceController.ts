@@ -246,7 +246,9 @@ export const saveSequenceScheduleConfig = async (req: Request, res: Response): P
 // hace MÁS de AUTO_ENROLL_MIN_AGE_DAYS días (los muy recientes se dejan para
 // después). Si no se completa el lote, en la siguiente corrida sube los que
 // sigan pendientes cumpliendo el mismo requisito (se ordena por antigüedad).
-export const AUTO_ENROLL_BATCH = 500;
+// Inscribir más de lo que se puede enviar en un día solo acumula cola: el lote
+// se alinea con el tope diario de envíos.
+export const AUTO_ENROLL_BATCH = 100;
 export const AUTO_ENROLL_MIN_AGE_DAYS = 2;
 export const AUTO_ENROLL_DAYS = [1, 2, 3];   // Lun, Mar, Mié (0=Dom … 6=Sáb)
 export const AUTO_ENROLL_HOUR = 8;           // 8:00 a.m. Monterrey
@@ -378,6 +380,7 @@ export const runAutoEnrollExternalProspects = async (opts?: { force?: boolean })
 export const getSequenceNextSend = async (_req: Request, res: Response): Promise<any> => {
   try {
     await ensureSequenceSchema();
+    const topeDiario = await getSequenceDailyLimit();
     const sch = await getSequenceSchedule();
     const next = computeNextSendUtc(sch);
     let dueCount = 0;
@@ -440,8 +443,9 @@ export const getSequenceNextSend = async (_req: Request, res: Response): Promise
         drain_activo: drainActivo,
         por_paso: qPorPaso.rows,
         // Tope diario (reserva para notificaciones de operación)
-        tope_diario: SEQUENCE_DAILY_LIMIT,
-        restante_hoy: Math.max(0, SEQUENCE_DAILY_LIMIT - (st.enviados_hoy || 0)),
+        tope_diario: topeDiario,
+        restante_hoy: Math.max(0, topeDiario - (st.enviados_hoy || 0)),
+        pausada: await isSequencePaused(),
       },
     });
   } catch (error: any) {
@@ -519,13 +523,31 @@ async function sendStep(enr: any, step: any): Promise<boolean> {
 }
 
 // Procesa las inscripciones cuyo próximo envío ya venció (llamado por el cron).
-export const SEQUENCE_BATCH_LIMIT = 200;
-// Tope diario de envíos de la secuencia (marketing). El tier de WhatsApp es de
-// conversaciones iniciadas por la empresa en 24h (hoy: 10,000) y esa MISMA bolsa
-// la usan las notificaciones operativas (paquete recibido/en tránsito/entregado,
-// confirmaciones X-Pay, etc.). Reservamos 3,000 para operación → la secuencia
-// nunca manda más de 7,000/día; lo que sobre espera al día siguiente.
-export const SEQUENCE_DAILY_LIMIT = 7000;
+// La tanda nunca puede rebasar el tope diario, así que se queda por debajo de él.
+export const SEQUENCE_BATCH_LIMIT = 50;
+/**
+ * Tope diario de envíos de la secuencia (marketing).
+ *
+ * Antes eran 7,000: el tier de WhatsApp da 10,000 conversaciones iniciadas por
+ * la empresa en 24h y esa MISMA bolsa la usan las notificaciones operativas, así
+ * que se reservaban 3,000 para operación.
+ *
+ * El 26-ago-2026 Meta marcó la cuenta por spam. El límite dejó de ser cuánto
+ * aguanta el tier y pasó a ser cuánto tolera la reputación del número: 100
+ * prospectos al día. Si Meta lo restringe se caen también los avisos de paquete,
+ * X-Pay y tareas, que van por el mismo número.
+ *
+ * Se puede ajustar sin desplegar con la llave `wa_sequence_daily_limit`.
+ */
+export const SEQUENCE_DAILY_LIMIT_DEFAULT = 100;
+export const getSequenceDailyLimit = async (): Promise<number> => {
+  try {
+    const r = await pool.query(
+      `SELECT config_value FROM system_configurations WHERE config_key = 'wa_sequence_daily_limit' LIMIT 1`);
+    const n = Number(r.rows[0]?.config_value?.limit);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : SEQUENCE_DAILY_LIMIT_DEFAULT;
+  } catch { return SEQUENCE_DAILY_LIMIT_DEFAULT; }
+};
 // Envíos de la secuencia realizados HOY (fecha Monterrey). Sirve para respetar el
 // tope diario y para el widget de estado de la cola.
 export const countSequenceSentToday = async (): Promise<number> => {
@@ -595,9 +617,10 @@ export const processDueSequenceSteps = async (): Promise<{ sent: number; advance
   // Respetar el tope diario: reservamos capacidad del tier de WhatsApp para las
   // notificaciones operativas. Si ya llegamos al tope, no mandamos nada más hoy.
   const sentToday = await countSequenceSentToday();
-  const remainingToday = SEQUENCE_DAILY_LIMIT - sentToday;
+  const topeDiario = await getSequenceDailyLimit();
+  const remainingToday = topeDiario - sentToday;
   if (remainingToday <= 0) {
-    console.log(`[SEQ] Tope diario alcanzado (${sentToday}/${SEQUENCE_DAILY_LIMIT}); se reserva capacidad para notificaciones de operación. Reanuda mañana.`);
+    console.log(`[SEQ] Tope diario alcanzado (${sentToday}/${topeDiario}); se reserva capacidad para notificaciones de operación. Reanuda mañana.`);
     return { sent: 0, advanced: 0, processed: 0 };
   }
   // El lote no puede exceder ni el tamaño de tanda ni lo que queda del tope diario.

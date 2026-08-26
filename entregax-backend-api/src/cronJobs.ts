@@ -1318,7 +1318,7 @@ let seqDrainInProgress = false;
 // Getter para el widget de estado de la cola: indica si hay un drenado
 // corriendo en este proceso ahora mismo (in-memory; se reinicia con el deploy).
 export const isSequenceDrainInProgress = (): boolean => seqDrainInProgress;
-// Vacía la cola en tandas de SEQUENCE_BATCH_LIMIT (200): procesa un lote y, si
+// Vacía la cola en tandas de SEQUENCE_BATCH_LIMIT (50): procesa un lote y, si
 // quedó lleno (hay backlog), agenda el siguiente lote 20 min después. Repite
 // hasta que un lote salga incompleto (cola vacía). Evita saturar WhatsApp con
 // miles de envíos de golpe pero termina de mandarlos el mismo día.
