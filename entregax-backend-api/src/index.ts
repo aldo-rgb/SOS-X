@@ -9286,6 +9286,15 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevelOrRole
 // Para cuando el cliente llega con su referencia
 // Permitir acceso a mostrador (counter_staff) para Caja PO Box
 // ============================================
+// Estados en los que una orden TODAVIA se puede cobrar. Es la misma lista que
+// usan el matcher bancario y confirm-payment; el buscador de Cobranza pedia
+// 'pending_payment' a secas, así que el botón "Confirmar Pago Recibido" salía
+// gris justo en las órdenes que YA traen el comprobante del cliente
+// —vouchers_submitted y vouchers_partial—, que son las que más se necesita
+// confirmar. Eran 18 órdenes por $702,973.24 sin forma de cobrarse desde el
+// panel (TKT-2026-2321).
+const ESTADOS_CONFIRMABLES = ['pending', 'pending_payment', 'vouchers_submitted', 'vouchers_partial'];
+
 app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevelOrRoles(ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT), async (req: Request, res: Response): Promise<any> => {
   try {
     const { ref } = req.query;
@@ -9413,7 +9422,7 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevelO
             payment: { id: rp.id, referencia: rp.referencia, monto: parseFloat(rp.monto) || 0, status: rp.status, expires_at: rp.expires_at, created_at: rp.created_at },
             cliente: { id: rp.user_id, nombre: rp.cliente_nombre, email: rp.cliente_email, telefono: rp.cliente_telefono },
             guias: rpGuias,
-            puede_confirmar: rp.status === 'pending_payment'
+            puede_confirmar: ESTADOS_CONFIRMABLES.includes(String(rp.status))
           });
         }
 
@@ -9499,7 +9508,7 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevelO
           telefono: payment.cliente_telefono
         },
         guias: guias,
-        puede_confirmar: payment.status === 'pending_payment'
+        puede_confirmar: ESTADOS_CONFIRMABLES.includes(String(payment.status))
       });
     }
 
@@ -9555,7 +9564,7 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevelO
         telefono: payment.cliente_telefono
       },
       guias: guias,
-      puede_confirmar: !ordenCancelada && payment.status === 'pending_payment'
+      puede_confirmar: !ordenCancelada && ESTADOS_CONFIRMABLES.includes(String(payment.status))
     });
 
   } catch (error: any) {
