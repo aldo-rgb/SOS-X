@@ -60,7 +60,16 @@ export const upsertExternalUsers = async (req: Request, res: Response): Promise<
     if (!verifyRequest(req, res)) return;
     const body = (req as any).rawBody ? JSON.parse((req as any).rawBody.toString('utf8')) : (req.body || {});
     const list: any[] = Array.isArray(body.users) ? body.users : (body.user ? [body.user] : []);
-    if (list.length === 0) return res.status(400).json({ error: 'Falta el arreglo users' });
+    if (list.length === 0) {
+      // Grupo Rino intentó mandar comentarios por aquí. El error decía solo
+      // "Falta el arreglo users" y no llevaba a ningún lado; ahora apunta a la
+      // ruta correcta.
+      const pista = (req.body || {}).event || ((req as any).rawBody?.toString('utf8') || '').includes('"event"');
+      return res.status(400).json({
+        error: 'Falta el arreglo users',
+        ...(pista ? { hint: 'Este endpoint solo da de alta usuarios. Los eventos de tarea y los comentarios van a POST /api/webhooks/entregax' } : {}),
+      });
+    }
 
     const results: Array<{ external_id: string; local_id: number; action: string }> = [];
     for (const u of list) {
@@ -105,7 +114,8 @@ export const upsertExternalUsers = async (req: Request, res: Response): Promise<
   }
 };
 
-// POST /api/webhooks/entregax
+// POST /api/webhooks/entregax  (+ alias /api/sync/webhook, /api/sync/comments,
+// /api/sync/tasks/comments — Grupo Rino los probó y daban 404)
 // Body: { event, occurred_at, source_app, data:{ task:{ id/external_id, ... }, actor_external_id?, comment? } }
 // Idempotencia por X-Event-Id (sync_inbox). Aplica el cambio en nuestra tarea
 // SIN re-emitir (evita bucle). El actor se mapea por external_id → id local.
@@ -114,11 +124,16 @@ export const inboundWebhook = async (req: Request, res: Response): Promise<any> 
     await ensureSyncSchema();
     const key0 = req.header('X-EntregaX-Key') || undefined;
     const sig0 = req.header('X-Signature') || undefined;
-    await logSyncAttempt({ endpoint: 'webhooks/entregax', remoteIp: clientIp(req), key: key0, sig: sig0,
+    await logSyncAttempt({ endpoint: req.path, remoteIp: clientIp(req), key: key0, sig: sig0,
       diag: diagnoseAuth(key0, (req as any).rawBody, sig0), rawBody: (req as any).rawBody });
     if (!verifyRequest(req, res)) return;
-    const eventId = req.header('X-Event-Id') || req.header('x-event-id') || '';
-    if (!eventId) return res.status(400).json({ error: 'Falta X-Event-Id' });
+    // Idempotencia: preferimos el id que mande el emisor. Si no manda ninguno,
+    // se deriva del cuerpo crudo, así un reintento del MISMO evento sigue
+    // deduplicándose en vez de rebotar con 400 y perderse.
+    const rawForId = (req as any).rawBody ? (req as any).rawBody.toString('utf8') : JSON.stringify(req.body || {});
+    const eventId = req.header('X-Event-Id') || req.header('x-event-id')
+      || (req.body || {}).event_id
+      || 'body:' + crypto.createHash('sha256').update(rawForId, 'utf8').digest('hex');
 
     // Idempotencia: si ya lo procesamos, ok inmediato.
     const dup = await pool.query(`SELECT 1 FROM sync_inbox WHERE event_id=$1`, [eventId]);
@@ -132,13 +147,24 @@ export const inboundWebhook = async (req: Request, res: Response): Promise<any> 
     const localTaskId = Number(task.external_id ?? task.local_id ?? task.id);
     if (!localTaskId) return res.status(400).json({ error: 'Falta el id de la tarea' });
 
-    // Mapear el actor externo → usuario local.
+    // Mapear el actor externo → usuario local. El autor de un comentario viene
+    // dentro de `comment` (así lo mandamos nosotros), no siempre a nivel `data`:
+    // se revisan ambos lugares antes de darlo por desconocido.
     let actorLocalId: number | null = null;
-    const actorExternal = data.actor_external_id ?? data.actor_id ?? task.assignee_external_id;
+    const comentario = data.comment || {};
+    const actorExternal = data.actor_external_id ?? data.actor_id
+      ?? comentario.author_external_id ?? comentario.author_id
+      ?? task.assignee_external_id;
     if (actorExternal != null) {
       const a = await pool.query(
         `SELECT id FROM users WHERE source_app=$1 AND external_id=$2 LIMIT 1`, [EXTERNAL_APP, String(actorExternal)]);
       actorLocalId = a.rows[0]?.id || null;
+    }
+    // Autor desconocido: el comentario se guarda igual (perderlo sería peor),
+    // pero se avisa en la respuesta para que puedan corregir el external_id.
+    const autorDesconocido = actorExternal != null && !actorLocalId;
+    if (autorDesconocido) {
+      console.warn(`[sync] autor externo no reconocido: ${actorExternal} (${comentario.author_name || 's/n'})`);
     }
 
     if (event.startsWith('task.')) {
@@ -146,6 +172,16 @@ export const inboundWebhook = async (req: Request, res: Response): Promise<any> 
         taskId: localTaskId, event, actorId: actorLocalId, body: data.comment || data,
       });
       if (!r.ok) return res.status(422).json({ error: r.error || 'No se pudo aplicar' });
+      if (autorDesconocido) {
+        await pool.query(
+          `INSERT INTO sync_inbox (event_id, event) VALUES ($1,$2) ON CONFLICT (event_id) DO NOTHING`, [eventId, event]);
+        return res.json({
+          ok: true,
+          warning: 'unknown_author',
+          detail: `No reconocemos el external_id "${actorExternal}". El comentario se guardó sin autor. ` +
+                  `Manda ese usuario por /api/sync/users/upsert para que quede atribuido.`,
+        });
+      }
     } else {
       // Eventos de calendario u otros: por ahora sólo se registran.
       console.log('[sync] evento no manejado:', event);

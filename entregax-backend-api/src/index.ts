@@ -14280,6 +14280,14 @@ runDueTaskSchedules();
 app.post('/api/sync/users/upsert', syncUpsertExternalUsers);
 app.post('/api/sync/users', syncUpsertExternalUsers); // alias por compatibilidad
 app.post('/api/webhooks/entregax', syncInboundWebhook);
+// Alias del mismo receptor: son las rutas que Grupo Rino probó primero y que
+// les daban 404. Mismo handler, misma firma HMAC, mismo cuerpo.
+app.post('/api/sync/webhook', syncInboundWebhook);
+app.post('/api/sync/webhooks', syncInboundWebhook);
+app.post('/api/sync/events', syncInboundWebhook);
+app.post('/api/sync/comments', syncInboundWebhook);
+app.post('/api/sync/tasks/comments', syncInboundWebhook);
+app.post('/api/webhooks/grupo-rino', syncInboundWebhook);
 app.post('/api/sync/verify', syncVerifyAuth);
 app.get('/api/sync/health', authenticateToken, syncHealthCheck);
 ensureSyncSchema().catch((e: any) => console.error('[sync] ensureSchema:', e?.message));
