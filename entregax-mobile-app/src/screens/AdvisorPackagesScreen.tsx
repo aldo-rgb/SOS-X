@@ -377,16 +377,25 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     setInstrPriceEstimate(null);
     setInstrOcurreInfo(null);
     try {
-      const boxes = bulkCount && bulkCount > 1
+      const enLote = !!(bulkCount && bulkCount > 1);
+      const boxes = enLote
         ? bulkCount
         : (shipment.is_master && shipment.children_count > 0) ? shipment.children_count : 1;
+      // El peso que va a la cotizacion es POR CAJA. En un master, shipment.weight
+      // es el peso de TODAS las cajas juntas: mandarlo tal cual cotizaba cada
+      // caja con el peso del embarque completo. Guia US-5541367408 (4 cajas,
+      // 86 kg) salio en $4,428 cuando lo correcto eran $1,696 (ticket
+      // TKT-2026-2375). En lote, cada envio ya trae su propio peso.
+      const pesoPorCaja = (!enLote && boxes > 1)
+        ? Math.max(0.5, (Number(shipment.weight) || 1) / boxes)
+        : (Number(shipment.weight) || 1);
       const res = await fetch(`${API_URL}/api/shipping/pqtx-quote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           destZipCode: zipCode,
           packageCount: boxes,
-          weight: shipment.weight || 1,
+          weight: pesoPorCaja,
           length: shipment.length_cm || 30,
           width: shipment.width_cm || 30,
           height: shipment.height_cm || 30,
