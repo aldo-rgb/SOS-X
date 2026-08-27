@@ -359,7 +359,21 @@ export default function SupportBoardPage() {
   const [transferDept, setTransferDept] = useState<number | ''>('');
   const [transferNote, setTransferNote] = useState('');
   const [transferring, setTransferring] = useState(false);
+  // Lo que se escribe y lo que se busca son dos cosas distintas: antes cada
+  // letra disparaba la recarga completa del tablero (tickets + stats +
+  // departamentos + 2,000 archivados) y ademas ponia la pantalla en "cargando",
+  // asi que el campo se sentia trabado. Ahora se espera a que dejes de teclear.
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const q = searchInput.trim();
+      // Una sola letra hace que el servidor recorra el cuerpo y TODOS los
+      // mensajes de cada ticket para no filtrar nada util.
+      setSearchQuery(q.length >= 2 ? q : '');
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [deptFilter, setDeptFilter] = useState<number | 'all'>('all');
   const [creatorFilter, setCreatorFilter] = useState<'all' | 'client' | 'employee'>('all');
   const [packageDetailTracking, setPackageDetailTracking] = useState<string | null>(null);
@@ -544,16 +558,39 @@ export default function SupportBoardPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Refs para que el intervalo y la carga inicial usen SIEMPRE la version mas
+  // reciente sin volverse dependencias del efecto (que era lo que reventaba el
+  // buscador: cambiar el texto recreaba las funciones y relanzaba todo).
+  const loadTicketsRef = useRef(loadTickets);
+  const loadStatsRef = useRef(loadStats);
+  const loadArchivedRef = useRef(loadArchivedTickets);
+  useEffect(() => {
+    loadTicketsRef.current = loadTickets;
+    loadStatsRef.current = loadStats;
+    loadArchivedRef.current = loadArchivedTickets;
+  });
+
+  // Arranque: una sola vez.
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      await Promise.all([loadTickets(), loadStats(), loadDepartments(), loadArchivedTickets()]);
+      await Promise.all([loadTicketsRef.current(), loadStatsRef.current(), loadDepartments(), loadArchivedRef.current()]);
       setLoading(false);
     };
     init();
-    const interval = setInterval(() => { loadTickets(); loadStats(); }, 30000);
+    const interval = setInterval(() => { loadTicketsRef.current(); loadStatsRef.current(); }, 30000);
     return () => clearInterval(interval);
-  }, [loadTickets, loadStats, loadDepartments, loadArchivedTickets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cambiar filtros o buscar solo recarga la LISTA, sin pantalla de carga y sin
+  // volver a pedir stats, departamentos ni archivados.
+  const primeraCarga = useRef(true);
+  useEffect(() => {
+    if (primeraCarga.current) { primeraCarga.current = false; return; }
+    loadTickets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deptFilter, creatorFilter, searchQuery]);
 
   // Seleccionar departamento por defecto según rol
   useEffect(() => {
@@ -930,8 +967,8 @@ export default function SupportBoardPage() {
           <TextField
             size="small"
             placeholder="Buscar folio, cliente..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
             sx={{ width: 220 }}
           />
