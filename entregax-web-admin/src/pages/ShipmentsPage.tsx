@@ -466,12 +466,20 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     // Permitir buscar por consolidación con "#56" o "56" en el buscador general
     const numeric = search.replace(/[^0-9]/g, '');
     if (numeric && String(pkg.consolidationId || '') === numeric) return true;
+    // El escáner lee el código sin guiones ("US6840374637") y la guía se guarda
+    // con guión ("US-6840374637"): comparadas tal cual nunca coincidían y el
+    // buscador salía vacío justo cuando se usa el escáner. Los trackings se
+    // comparan sin nada que no sea letra o número, en los dos lados.
+    const soloAlnum = (v: any) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const busquedaAlnum = soloAlnum(search);
+    const coincideTracking = (v: any) =>
+      !!busquedaAlnum && soloAlnum(v).includes(busquedaAlnum);
     return (
-      (pkg.tracking || '').toLowerCase().includes(search) ||
+      coincideTracking(pkg.tracking) ||
+      coincideTracking(pkg.trackingProvider) ||
       (pkg.description || '').toLowerCase().includes(search) ||
       (pkg.client?.name || '').toLowerCase().includes(search) ||
-      (pkg.client?.boxId || '').toLowerCase().includes(search) ||
-      (pkg.trackingProvider && pkg.trackingProvider.toLowerCase().includes(search))
+      (pkg.client?.boxId || '').toLowerCase().includes(search)
     );
   });
 
