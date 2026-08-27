@@ -141,7 +141,12 @@ export default function AdvisorCommissionsLedgerPage() {
   useEffect(() => {
     api.get('/admin/advisors', { params: { only_active_with_clients: 'true' } })
       .then(res => setAdvisorsList(Array.isArray(res.data) ? res.data : []))
-      .catch(() => setAdvisorsList([]));
+      // Sin este log, un 403 dejaba el filtro con puras "Todos" y sin rastro:
+      // parecía que no había asesores, no que faltara permiso.
+      .catch(err => {
+        console.error('[comisiones] no se pudo cargar la lista de asesores:', err?.response?.status || err?.message);
+        setAdvisorsList([]);
+      });
   }, []);
 
   // ─── Actions ───

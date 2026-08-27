@@ -5899,7 +5899,12 @@ app.get('/api/admin/logistics-services', authenticateToken, requireMinLevel(ROLE
 app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateLogisticsService);
 
 // --- RUTAS DE ASESORES (Gestión de Jerarquía) ---
-app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.ADMIN), getAdvisors);
+// Leer la lista de asesores baja a DIRECTOR. Estaba en ADMIN (95) y director
+// vale 90, así que un director recibía 403 y el filtro "Asesor" del ledger de
+// comisiones —una pantalla que su propio menú le ofrece— se quedaba con puras
+// "Todos". Quedaba además al revés: crear un asesor ya requería solo DIRECTOR,
+// o sea que podía darlos de alta pero no verlos.
+app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAdvisors);
 // ─── Metas de asesores ───
 app.get('/api/admin/metas', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasGet);
 app.get('/api/admin/altas-por-asesor', authenticateToken, requireRole('super_admin', 'admin', 'director'), metasAltasPorAsesor);
