@@ -77,7 +77,10 @@ export const cajaHidalgo = async (req: Request, res: Response): Promise<any> => 
         wallet_id: w.id,
         sucursal: w.sucursal,
         codigo: w.code,
-        saldo_mxn: Number(w.balance_mxn) || 0,
+        // Hidalgo TX opera en DÓLARES: la columna se llama balance_mxn por
+        // herencia, pero la moneda real es la de la sucursal.
+        saldo: Number(w.balance_mxn) || 0,
+        moneda: w.currency || 'MXN',
       },
       hoy: {
         MXN: porMoneda.MXN || { ingresos: 0, egresos: 0, movimientos: 0 },
@@ -88,7 +91,10 @@ export const cajaHidalgo = async (req: Request, res: Response): Promise<any> => 
         tipo: m.movement_type,
         categoria: m.category,
         monto: Number(m.amount_mxn) || 0,
-        moneda: m.currency || 'MXN',
+        // Los movimientos viejos quedaron con el default 'MXN' aunque la caja
+        // sea de dólares; se muestra la moneda de la caja para no leer 60
+        // dólares de gasolina como 60 pesos.
+        moneda: w.currency || m.currency || 'MXN',
         concepto: m.concept,
         estado: m.status,
         registrado_por: m.registrado_por,
@@ -128,9 +134,12 @@ export async function registrarCobroEnCajaHidalgo(opts: {
       VALUES ($1, 'income', 'cobro_mostrador', $2, $3, $4, 'approved', $5, $6, NOW())
       RETURNING id`,
       [w.id, monto, moneda, opts.concepto, w.branch_id, opts.creadoPor ?? null]);
-    // El saldo de la billetera se lleva en pesos; un cobro en dólares suma a la
-    // caja de dólares y no debe alterar el saldo en pesos.
-    if (moneda === 'MXN') {
+    // El saldo de la billetera está en la moneda de la sucursal — Hidalgo TX
+    // opera en DÓLARES. Solo se suma cuando el efectivo entró en esa misma
+    // moneda; un cobro en la otra queda registrado como movimiento pero no
+    // altera un saldo que está en otra divisa.
+    const monedaCaja = String(w.currency || 'MXN').toUpperCase();
+    if (moneda === monedaCaja) {
       await pool.query(
         `UPDATE petty_cash_wallets SET balance_mxn = COALESCE(balance_mxn,0) + $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
         [w.id, monto]);

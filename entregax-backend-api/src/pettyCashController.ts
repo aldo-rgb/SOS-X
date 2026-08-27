@@ -928,6 +928,13 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
     return res.status(400).json({ error: 'El usuario no tiene una sucursal asignada' });
   }
   const walletId = await ensureBranchWallet(branchId);
+  // La moneda del gasto es la de la SUCURSAL. Sin esto se guardaba el default
+  // 'MXN' aunque la caja fuera de dólares: los 44 gastos de Mostrador Hidalgo TX
+  // —que se fondea en USD— quedaron etiquetados como pesos, y en pantalla un
+  // gasto de gasolina de 60 dólares se leía como 60 pesos.
+  const monedaSucursal = (await pool.query(
+    `SELECT COALESCE(currency, 'MXN') AS currency FROM petty_cash_wallets WHERE id = $1`, [walletId]
+  )).rows[0]?.currency || 'MXN';
 
   const userRole = String(ur.rows[0]?.role || '').toLowerCase();
   const autoApprove = BRANCH_EXPENSE_AUTO_APPROVE_ROLES.has(userRole);
@@ -952,8 +959,8 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
         evidence_url, xml_url,
         gps_lat, gps_lng, gps_accuracy_m, vehicle_id,
         branch_id, created_by,
-        reviewed_by, reviewed_at, route_block_id, pieces
-      ) VALUES ($1, 'expense', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        reviewed_by, reviewed_at, route_block_id, pieces, currency
+      ) VALUES ($1, 'expense', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING id, created_at
     `, [
       walletId, category, amount, autoApprove ? 'approved' : 'pending', concept || null,
@@ -965,7 +972,7 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
       branchId, userId,
       autoApprove ? userId : null,
       autoApprove ? new Date() : null,
-      blockId, piecesNum,
+      blockId, piecesNum, monedaSucursal,
     ]);
 
     if (autoApprove) {

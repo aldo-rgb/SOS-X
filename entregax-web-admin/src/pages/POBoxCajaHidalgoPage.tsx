@@ -65,6 +65,14 @@ export default function POBoxCajaHidalgoPage() {
   const caja = data?.caja || {};
   const hoy = data?.hoy || { MXN: {}, USD: {} };
   const movs: Movimiento[] = data?.movimientos || [];
+  const moneda = caja.moneda || 'MXN';
+  // Los totales del día se agregan sobre la moneda de la caja: los movimientos
+  // viejos traen el default 'MXN' aunque el dinero sea en dólares.
+  const totalHoy = {
+    ingresos: (hoy.MXN?.ingresos || 0) + (hoy.USD?.ingresos || 0),
+    egresos: (hoy.MXN?.egresos || 0) + (hoy.USD?.egresos || 0),
+    movimientos: (hoy.MXN?.movimientos || 0) + (hoy.USD?.movimientos || 0),
+  };
 
   const Tarjeta = ({ titulo, valor, color }: { titulo: string; valor: string; color: string }) => (
     <Paper sx={{ p: 2, bgcolor: color, color: '#fff', flex: '1 1 200px', minWidth: 180 }}>
@@ -89,10 +97,11 @@ export default function POBoxCajaHidalgoPage() {
       </Box>
 
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
-        <Tarjeta titulo="Saldo en caja" valor={money(caja.saldo_mxn)} color="#F05A28" />
-        <Tarjeta titulo="Ingresos hoy (MXN)" valor={money(hoy.MXN?.ingresos || 0)} color="#2E7D46" />
-        <Tarjeta titulo="Egresos hoy (MXN)" valor={money(hoy.MXN?.egresos || 0)} color="#C62828" />
-        <Tarjeta titulo="Ingresos hoy (USD)" valor={money(hoy.USD?.ingresos || 0, 'USD')} color="#1565C0" />
+        {/* La moneda es la de la sucursal: Hidalgo TX opera en dólares. */}
+        <Tarjeta titulo={`Saldo en caja (${moneda})`} valor={money(caja.saldo, moneda)} color="#F05A28" />
+        <Tarjeta titulo={`Ingresos hoy (${moneda})`} valor={money(totalHoy.ingresos, moneda)} color="#2E7D46" />
+        <Tarjeta titulo={`Egresos hoy (${moneda})`} valor={money(totalHoy.egresos, moneda)} color="#C62828" />
+        <Tarjeta titulo="Movimientos hoy" valor={String(totalHoy.movimientos)} color="#1565C0" />
       </Box>
 
       <Paper variant="outlined">
