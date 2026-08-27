@@ -5756,6 +5756,10 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
             SELECT 
                 p.id,
                 p.tracking_internal,
+                -- Guía larga de Aéreo China ("AIR2618019APiJB-003"). El código
+                -- corto CN-... es interno; la guía que el cliente reconoce, la
+                -- que trae la etiqueta y la que ve en el rastreo, es esta.
+                p.child_no,
                 p.tracking_provider,
                 p.international_tracking,
                 p.description,

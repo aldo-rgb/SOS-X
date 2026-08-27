@@ -66,6 +66,7 @@ interface PackageDetails {
   tracking_internal: string;
   tracking_provider?: string;
   international_tracking?: string;
+  child_no?: string | null;
   dhl_awb?: string;
   description?: string;
   weight?: number;
@@ -574,7 +575,15 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             <View style={styles.titleRow}>
               <View style={styles.titleInfo}>
                 <View style={styles.trackingRowDetail}>
-                  <Text style={styles.trackingNumber}>{details.tracking_internal}</Text>
+                  {/* Aéreo China: se muestra la guía larga (child_no
+                      "AIR2618019APiJB-003"). El "CN-..." es un código interno
+                      que el cliente no reconoce: no viene en su etiqueta ni en
+                      el rastreo. */}
+                  <Text style={styles.trackingNumber}>
+                    {(details.child_no && /^AIR/i.test(String(details.child_no)))
+                      ? details.child_no
+                      : details.tracking_internal}
+                  </Text>
                   {/* Badge de Multi-Guía */}
                   {isMultiPackage && (
                     <View style={styles.multiPackageBadge}>

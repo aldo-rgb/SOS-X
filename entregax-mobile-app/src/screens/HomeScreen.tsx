@@ -96,6 +96,17 @@ type HomeScreenProps = {
   route: RouteProp<RootStackParamList, 'Home'>;
 };
 
+/**
+ * Guía que el cliente reconoce. En Aéreo China el paquete se guarda con un
+ * código interno corto ("CN-HtoZ-002") y con la guía larga ("AIR2618975KHtoZ-002",
+ * en child_no). La larga es la que trae la etiqueta y la que sale en el rastreo;
+ * la corta no le dice nada a quien recibe.
+ */
+const guiaVisible = (p: any): string =>
+  (p?.child_no && /^AIR/i.test(String(p.child_no)))
+    ? String(p.child_no)
+    : String(p?.tracking_internal || '');
+
 export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const { t, i18n } = useTranslation();
   const uiLang = i18n.language as 'es' | 'en' | 'zh';
@@ -1250,9 +1261,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       </TouchableOpacity>
                     </View>
                     <View style={styles.trackingRow}>
-                      <Text style={styles.trackingNumber}>TRN: {item.tracking_internal}</Text>
+                      <Text style={styles.trackingNumber}>TRN: {guiaVisible(item)}</Text>
                       {item.tracking_internal ? (
-                        <TouchableOpacity onPress={() => Clipboard.setString(String(item.tracking_internal))} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                        <TouchableOpacity onPress={() => Clipboard.setString(guiaVisible(item))} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                           <Ionicons name="copy-outline" size={13} color="#E87722" />
                         </TouchableOpacity>
                       ) : null}
@@ -2052,7 +2063,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         activeOpacity={0.7}
                       >
                         <Text style={styles.historyTrackingText}>
-                          {item.tracking_internal || item.tracking_provider || 'Sin tracking'}
+                          {guiaVisible(item) || item.tracking_provider || 'Sin tracking'}
                         </Text>
                         <Ionicons name="copy-outline" size={13} color="#E87722" style={{ marginLeft: 5 }} />
                       </TouchableOpacity>
