@@ -33,12 +33,13 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
         COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
       FROM caja_chica_transacciones
       WHERE COALESCE(currency, 'USD') = 'USD'
-        -- El efectivo cobrado en ventanilla ('cobro_mostrador') SÍ cuenta: está
-        -- en el cajón y tiene que salir en el corte. Lo que se excluye es el
-        -- pago que ya entró por banco ('cobro_guias'), que nunca pasó por caja.
-        AND (categoria = 'cobro_mostrador'
-             OR ((categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
-                 AND COALESCE(categoria, '') <> 'cobro_guias'))
+        -- Los cobros de guías NO cuentan en esta caja: el pago conciliado por
+        -- banco ('cobro_guias') nunca pasó por un cajón, y el efectivo de
+        -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
+        -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
+        -- también sería registrar el mismo billete dos veces.
+        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador')
+        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
 
     const saldoUSD = parseFloat(saldoUSDResult.rows[0].total_ingresos) - parseFloat(saldoUSDResult.rows[0].total_egresos);
@@ -50,12 +51,13 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
         COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
       FROM caja_chica_transacciones
       WHERE currency = 'MXN'
-        -- El efectivo cobrado en ventanilla ('cobro_mostrador') SÍ cuenta: está
-        -- en el cajón y tiene que salir en el corte. Lo que se excluye es el
-        -- pago que ya entró por banco ('cobro_guias'), que nunca pasó por caja.
-        AND (categoria = 'cobro_mostrador'
-             OR ((categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
-                 AND COALESCE(categoria, '') <> 'cobro_guias'))
+        -- Los cobros de guías NO cuentan en esta caja: el pago conciliado por
+        -- banco ('cobro_guias') nunca pasó por un cajón, y el efectivo de
+        -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
+        -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
+        -- también sería registrar el mismo billete dos veces.
+        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador')
+        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
     
     const saldoMXN = parseFloat(saldoMXNResult.rows[0].total_ingresos) - parseFloat(saldoMXNResult.rows[0].total_egresos);
@@ -69,12 +71,13 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
       FROM caja_chica_transacciones
       WHERE DATE(created_at) = CURRENT_DATE
         AND COALESCE(currency, 'USD') = 'USD'
-        -- El efectivo cobrado en ventanilla ('cobro_mostrador') SÍ cuenta: está
-        -- en el cajón y tiene que salir en el corte. Lo que se excluye es el
-        -- pago que ya entró por banco ('cobro_guias'), que nunca pasó por caja.
-        AND (categoria = 'cobro_mostrador'
-             OR ((categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
-                 AND COALESCE(categoria, '') <> 'cobro_guias'))
+        -- Los cobros de guías NO cuentan en esta caja: el pago conciliado por
+        -- banco ('cobro_guias') nunca pasó por un cajón, y el efectivo de
+        -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
+        -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
+        -- también sería registrar el mismo billete dos veces.
+        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador')
+        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
     
     // Transacciones del día por moneda (MXN) - excluyendo PO Box y cobro_guias
@@ -86,12 +89,13 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
       FROM caja_chica_transacciones
       WHERE DATE(created_at) = CURRENT_DATE
         AND currency = 'MXN'
-        -- El efectivo cobrado en ventanilla ('cobro_mostrador') SÍ cuenta: está
-        -- en el cajón y tiene que salir en el corte. Lo que se excluye es el
-        -- pago que ya entró por banco ('cobro_guias'), que nunca pasó por caja.
-        AND (categoria = 'cobro_mostrador'
-             OR ((categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
-                 AND COALESCE(categoria, '') <> 'cobro_guias'))
+        -- Los cobros de guías NO cuentan en esta caja: el pago conciliado por
+        -- banco ('cobro_guias') nunca pasó por un cajón, y el efectivo de
+        -- ventanilla ('cobro_mostrador') vive en la caja chica de su sucursal
+        -- —Mostrador Hidalgo TX—, que es de donde sale su corte. Contarlo aquí
+        -- también sería registrar el mismo billete dos veces.
+        AND COALESCE(categoria, '') NOT IN ('cobro_guias', 'cobro_mostrador')
+        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
     
     // Último corte por moneda

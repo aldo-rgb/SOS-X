@@ -128,10 +128,13 @@ export async function registrarCobroEnCajaHidalgo(opts: {
       return null;
     }
     const moneda = String(opts.moneda || 'MXN').toUpperCase() === 'USD' ? 'USD' : 'MXN';
+    // 'fund' es el tipo de entrada de dinero que acepta la tabla; 'income' no
+    // existe en el check y hacía fallar el registro en silencio. La categoría
+    // 'cobro_mostrador' distingue el cobro a un cliente de un fondeo real.
     const r = await pool.query(`
       INSERT INTO petty_cash_movements
         (wallet_id, movement_type, category, amount_mxn, currency, concept, status, branch_id, created_by, reviewed_at)
-      VALUES ($1, 'income', 'cobro_mostrador', $2, $3, $4, 'approved', $5, $6, NOW())
+      VALUES ($1, 'fund', 'cobro_mostrador', $2, $3, $4, 'approved', $5, $6, NOW())
       RETURNING id`,
       [w.id, monto, moneda, opts.concepto, w.branch_id, opts.creadoPor ?? null]);
     // El saldo de la billetera está en la moneda de la sucursal — Hidalgo TX
