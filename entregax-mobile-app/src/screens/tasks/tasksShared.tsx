@@ -831,7 +831,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
             {/* Todo el "cuándo" en una sola sección plegable: repetición,
                 primera ejecución, día, mes y hora. Abiertos a la vez eran una
                 pared de ~50 botones y había que adivinar dónde estaba cada cosa. */}
-            <Plegable titulo="Cuándo" resumen={resumenCuando()} abiertoInicial>
+            <Plegable titulo="Cuándo" resumen={resumenCuando()}>
               <Text style={styles.fieldLbl}>Repetir</Text>
               <View style={styles.eisRow}>
                 {RECUR.map(o => (
