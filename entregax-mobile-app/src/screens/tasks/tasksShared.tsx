@@ -6,9 +6,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Modal, Alert,
   ActivityIndicator, TextInput, Image, Platform, Linking, KeyboardAvoidingView, Keyboard,
+  Animated, PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { setStringAsync as copyToClipboard } from 'expo-clipboard';
@@ -1943,8 +1945,117 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
   }));
   // Tarea seleccionada para mover (mantén presionada una tarjeta).
   const [moveFor, setMoveFor] = useState<TaskT | null>(null);
+
+  // ── Arrastrar entre cuadrantes ──────────────────────────────────────────
+  // Lo mismo que en la web, adaptado al dedo. El arrastre NO puede arrancar al
+  // primer movimiento porque pelearía con el scroll de cada cuadrante: arranca
+  // con una pulsación sostenida (~260 ms), que además es el gesto que la app ya
+  // usaba para mover. Mientras arrastras, una copia de la tarjeta sigue al dedo
+  // y el cuadrante debajo se resalta. Si sueltas fuera de los cuatro, se abre la
+  // hoja de "Mover a…" de siempre: la función nunca se pierde.
+  const raiz = React.useRef<View>(null);
+  const origen = React.useRef({ x: 0, y: 0 });
+  const cajas = React.useRef<Record<string, { x: number; y: number; w: number; h: number }>>({});
+  const cajaRefs = React.useRef<Record<string, View | null>>({});
+  const tareasRef = React.useRef<Record<number, TaskT>>({});
+  tareasRef.current = Object.fromEntries(base.map(t => [t.id, t]));
+
+  const [arrastrando, setArrastrando] = useState<TaskT | null>(null);
+  const [destino, setDestino] = useState<string | null>(null);
+  const pos = React.useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const activoRef = React.useRef<number | null>(null);
+  const timerRef = React.useRef<any>(null);
+  const inicioRef = React.useRef({ x: 0, y: 0 });
+
+  // Se remiden al terminar cada layout: el teclado, el filtro de tablero o un
+  // cambio de orientación mueven los cuadrantes y las cajas quedarían viejas.
+  const medir = useCallback(() => {
+    raiz.current?.measureInWindow((x, y) => { origen.current = { x, y }; });
+    for (const k of Object.keys(cajaRefs.current)) {
+      cajaRefs.current[k]?.measureInWindow((x, y, w, h) => { cajas.current[k] = { x, y, w, h }; });
+    }
+  }, []);
+
+  const cuadranteEn = (x: number, y: number): string | null => {
+    for (const [k, r] of Object.entries(cajas.current)) {
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return k;
+    }
+    return null;
+  };
+
+  const moverFantasma = (px: number, py: number) =>
+    pos.setValue({ x: px - origen.current.x - 62, y: py - origen.current.y - 16 });
+
+  const limpiarArrastre = () => {
+    activoRef.current = null;
+    setArrastrando(null);
+    setDestino(null);
+  };
+
+  const soltar = (px: number, py: number) => {
+    const t = activoRef.current != null ? tareasRef.current[activoRef.current] : null;
+    const q = cuadranteEn(px, py);
+    limpiarArrastre();
+    if (!t) return;
+    if (!q) { setMoveFor(t); return; }            // fuera del tablero: la hoja de siempre
+    if (q !== t.eisenhower && onMove) onMove(t.id, q);
+  };
+
+  const panCache = React.useRef<Record<number, any>>({});
+  const panDe = (id: number) => {
+    if (panCache.current[id]) return panCache.current[id];
+    const pr = PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      // Mientras no haya arrastre, el scroll del cuadrante manda.
+      onPanResponderTerminationRequest: () => activoRef.current !== id,
+      onShouldBlockNativeResponder: () => activoRef.current === id,
+      onPanResponderGrant: e => {
+        inicioRef.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
+        clearTimeout(timerRef.current);
+        if (!onMove) return;
+        timerRef.current = setTimeout(() => {
+          const t = tareasRef.current[id];
+          if (!t) return;
+          medir();
+          activoRef.current = id;
+          moverFantasma(inicioRef.current.x, inicioRef.current.y);
+          setArrastrando(t);
+          setDestino(t.eisenhower);
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+        }, 260);
+      },
+      onPanResponderMove: (e, g) => {
+        if (activoRef.current !== id) {
+          // Se movió antes de que el arrastre arrancara: era un scroll.
+          if (Math.abs(g.dx) > 8 || Math.abs(g.dy) > 8) clearTimeout(timerRef.current);
+          return;
+        }
+        const { pageX, pageY } = e.nativeEvent;
+        moverFantasma(pageX, pageY);
+        const q = cuadranteEn(pageX, pageY);
+        setDestino(prev => (prev === q ? prev : q));
+      },
+      onPanResponderRelease: (e, g) => {
+        clearTimeout(timerRef.current);
+        if (activoRef.current === id) { soltar(e.nativeEvent.pageX, e.nativeEvent.pageY); return; }
+        // Toque corto = abrir. El umbral evita abrir una tarea al scrollear.
+        if (Math.abs(g.dx) < 8 && Math.abs(g.dy) < 8) onOpen(id);
+      },
+      onPanResponderTerminate: () => {
+        clearTimeout(timerRef.current);
+        if (activoRef.current === id) limpiarArrastre();
+      },
+    });
+    panCache.current[id] = pr;
+    return pr;
+  };
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
   const renderCell = ({ q, qt }: { q: typeof QUADRANTS[number]; qt: TaskT[] }) => (
-    <View key={q.key} style={[styles.mxCell, { backgroundColor: q.bg, borderTopColor: q.color }]}>
+    <View key={q.key} ref={r => { cajaRefs.current[q.key] = r; }} onLayout={medir}
+      style={[styles.mxCell, { backgroundColor: q.bg, borderTopColor: q.color },
+              !!arrastrando && destino === q.key && arrastrando.eisenhower !== q.key
+                && { borderWidth: 2, borderColor: q.color }]}>
       <View style={styles.mxHead}>
         <Text style={[styles.mxTitle, { color: q.color }]} numberOfLines={2}>{q.title}</Text>
         <View style={styles.mxCount}><Text style={styles.mxCountTxt}>{qt.length}</Text></View>
@@ -1953,9 +2064,9 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
         {qt.length === 0 ? <Text style={styles.mxEmpty}>—</Text> : qt.map(t => {
           const done = t.status === 'completed';
           return (
-            <TouchableOpacity key={t.id} onPress={() => onOpen(t.id)}
-              onLongPress={onMove ? () => setMoveFor(t) : undefined} delayLongPress={250}
-              style={[styles.mxCard, t.overdue && styles.cardOverdue, done && { opacity: 0.6 }]}>
+            <View key={t.id} {...panDe(t.id).panHandlers}
+              style={[styles.mxCard, t.overdue && styles.cardOverdue, done && { opacity: 0.6 },
+                      arrastrando?.id === t.id && styles.mxCardArrastrada]}>
               <Text style={[styles.mxCardTitle, done && { textDecorationLine: 'line-through', color: '#999' }]} numberOfLines={3}>
                 <Text style={styles.mxCardFolio}>#{t.id} </Text>{t.title}
               </Text>
@@ -1969,7 +2080,7 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
                 {(t.subtasks_total || 0) > 0 && <Text style={[styles.mxCardMetaTxt, t.subtasks_done === t.subtasks_total && { color: '#2E7D46' }]}>☑{t.subtasks_done}/{t.subtasks_total}</Text>}
                 {!!t.due_at && <Text style={[styles.mxCardMetaTxt, t.overdue && { color: '#C0392B' }]}>{new Date(t.due_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}</Text>}
               </View>
-            </TouchableOpacity>
+            </View>
           );
         })}
       </ScrollView>
@@ -1977,9 +2088,19 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
   );
   // 2×2 que llena la pantalla: dos filas flex:1, cada una con dos cuadrantes flex:1.
   return (
-    <View style={{ flex: 1, gap: 6 }}>
+    <View ref={raiz} onLayout={medir} style={{ flex: 1, gap: 6 }}>
       <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>{cells.slice(0, 2).map(renderCell)}</View>
       <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>{cells.slice(2, 4).map(renderCell)}</View>
+      {/* Copia de la tarjeta pegada al dedo. pointerEvents none para no robarle
+          los toques al tablero que está debajo. */}
+      {!!arrastrando && (
+        <Animated.View pointerEvents="none"
+          style={[styles.mxFantasma, { transform: pos.getTranslateTransform() }]}>
+          <Text style={styles.mxCardTitle} numberOfLines={2}>
+            <Text style={styles.mxCardFolio}>#{arrastrando.id} </Text>{arrastrando.title}
+          </Text>
+        </Animated.View>
+      )}
       {/* Mover de cuadrante: mantén presionada una tarjeta → elige destino. */}
       <Modal visible={!!moveFor} transparent animationType="fade" onRequestClose={() => setMoveFor(null)}>
         <TouchableOpacity style={styles.mvBackdrop} activeOpacity={1} onPress={() => setMoveFor(null)}>
@@ -2116,6 +2237,12 @@ export const styles = StyleSheet.create({
   countPill: { backgroundColor: 'rgba(0,0,0,0.08)', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 1 },
   countTxt: { fontSize: 12, fontWeight: '700', color: '#444' },
   // Matriz Eisenhower 2×2 compacta (los 4 cuadrantes en una pantalla).
+  mxCardArrastrada: { opacity: 0.3, borderStyle: 'dashed', borderWidth: 1, borderColor: '#9AA0A6' },
+  mxFantasma: {
+    position: 'absolute', top: 0, left: 0, width: 128, padding: 7, borderRadius: 7,
+    backgroundColor: '#fff', borderWidth: 1.5, borderColor: ORANGE, zIndex: 50,
+    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 8,
+  },
   mxCell: { flex: 1, borderRadius: 10, borderTopWidth: 3, padding: 6, overflow: 'hidden' },
   mxHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginBottom: 4 },
   mxTitle: { flex: 1, fontSize: 11, fontWeight: '800', lineHeight: 13 },
