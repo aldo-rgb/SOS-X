@@ -1517,7 +1517,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     if (!comment.trim() || sendingComment) return;
     const activeMentions = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
     setSendingComment(true);
-    try { const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions }); const d = await r.json().catch(() => ({})); setComment(''); setMentions([]); setMentionQuery(null); setDirty(true); reload(true); onChanged(); if (d?.reopened) Alert.alert('💬 Comentario agregado', 'La tarea volvió a pendientes (se reanuda el conteo de tiempo).'); }
+    try { const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions }); const d = await r.json().catch(() => ({})); setComment(''); setMentions([]); setMentionQuery(null); setDirty(true); reload(true); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */ }
     catch { /* */ }
     finally { setSendingComment(false); }
   };
@@ -1976,6 +1976,21 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                   <TouchableOpacity style={[styles.completeBtn, { backgroundColor: canConfirm ? '#2E7D46' : '#B07206' }, dis && { backgroundColor: '#B7C3BB' }]} onPress={() => complete(false)} disabled={dis}>
                     {busy ? <ActivityIndicator color="#fff" /> : <><Ionicons name="checkmark-done" size={18} color="#fff" /><Text style={styles.completeTxt}>{pending > 0 ? `Completa el checklist (${pending})` : (canConfirm ? 'Confirmar y cerrar' : 'Completar (en espera)')}</Text></>}
                   </TouchableOpacity>
+                  {/* Devolver: antes esto se lograba comentando, y por eso un
+                      "Enterada" le regresaba la tarea al responsable. Ahora
+                      regresar es una decisión con su propio botón. */}
+                  {canConfirm && (
+                    <TouchableOpacity
+                      style={{ marginTop: 8, alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, borderColor: '#B07206', flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                      onPress={() => Alert.alert('Devolver la tarea',
+                        '¿No quedó? Vuelve a pendientes del responsable y se reanuda el conteo de tiempo.',
+                        [{ text: 'Cancelar', style: 'cancel' }, { text: 'Devolver', style: 'destructive', onPress: reopen }])}
+                      disabled={busy}
+                    >
+                      <Ionicons name="arrow-undo" size={15} color="#B07206" />
+                      <Text style={{ color: '#B07206', fontWeight: '700', fontSize: 12.5 }}>Devolver a pendientes</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               );
             }

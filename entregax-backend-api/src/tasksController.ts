@@ -1714,11 +1714,26 @@ export const reopenTask = async (req: Request, res: Response): Promise<any> => {
     if (!mgr && Number(task.assignee_id) !== Number(uid) && !isParticipant) {
       return res.status(403).json({ error: 'Solo un involucrado o gerencia puede reabrir la tarea' });
     }
-    if (task.status !== 'completed') return res.json({ success: true, already_open: true });
+    // 'awaiting_confirmation' también se puede devolver: es el caso de "esto no
+    // quedó, regrésala". Antes la única forma de sacarla de ahí era comentar,
+    // que era justo lo que la reabría de más.
+    const devolviendo = task.status === 'awaiting_confirmation';
+    if (task.status !== 'completed' && !devolviendo) return res.json({ success: true, already_open: true });
     // Mover a la primera columna NO terminal del tablero y limpiar el cierre.
     const openCol = (await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 AND COALESCE(is_done,false)=false ORDER BY sort_order LIMIT 1`, [task.board_id])).rows[0]?.id || null;
     const colSet = openCol ? `column_id=${Number(openCol)},` : '';
-    await pool.query(`UPDATE tasks SET status='open', completed_at=NULL, ${colSet} updated_at=NOW() WHERE id=$1`, [id]);
+    // Al devolver se reanuda el conteo: la tarea vuelve a estar por empezar.
+    const resetTiempo = devolviendo ? 'started_at=NULL, commitment_date=NULL,' : '';
+    await pool.query(`UPDATE tasks SET status='open', completed_at=NULL, ${resetTiempo} ${colSet} updated_at=NOW() WHERE id=$1`, [id]);
+    if (devolviendo) {
+      // Al responsable sí hay que avisarle: para él la tarea ya estaba cerrada.
+      const a = Number(task.assignee_id);
+      if (a && a !== Number(uid)) {
+        const quien = (await pool.query(`SELECT full_name FROM users WHERE id=$1`, [uid])).rows[0]?.full_name || 'El solicitante';
+        await notify(a, '↩️ Te regresaron una tarea',
+          `${quien} devolvió "${task.title}" a pendientes.`, { task_id: id }, 'task');
+      }
+    }
     await logActivity(id, uid, 'reopened', {});
     emitTaskEventIfExternal('task.reopened', id, uid).catch(() => {});
     res.json({ success: true });
@@ -1943,19 +1958,16 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
       `INSERT INTO task_comments (task_id, author_id, body, mentions, attachment_url) VALUES ($1,$2,$3,$4::jsonb,$5) RETURNING *`,
       [taskId, uid, String(b.body).trim(), JSON.stringify(mentions), b.attachment_url || null]);
     await logActivity(taskId, uid, 'comment', {});
-    // Si la tarea estaba EN ESPERA de confirmación, un comentario la regresa a
-    // PENDIENTES (Nueva): se reanuda el conteo de tiempo y quien la asignó ya no
-    // la confirma hasta que se vuelva a terminar.
-    let reopenedFromAwaiting = false;
-    if (String(t.rows[0].status) === 'awaiting_confirmation') {
-      const firstCol = (await pool.query(`SELECT id FROM task_columns WHERE board_id=$1 ORDER BY sort_order LIMIT 1`, [t.rows[0].board_id])).rows[0]?.id || null;
-      await pool.query(
-        `UPDATE tasks SET status='open', started_at=NULL, commitment_date=NULL, ${firstCol ? `column_id=${Number(firstCol)},` : ''} updated_at=NOW() WHERE id=$1`,
-        [taskId]
-      );
-      await logActivity(taskId, uid, 'reopened', { reason: 'comment' });
-      reopenedFromAwaiting = true;
-    }
+    // Comentar NO reabre la tarea.
+    //
+    // Antes, cualquier comentario sobre una tarea EN ESPERA la regresaba a
+    // pendientes. En la práctica la mayoría de los comentarios en ese punto son
+    // acuses —"Enterada", "ok", "lo reviso"— y cada uno le devolvía al
+    // responsable una tarea que ya había terminado y que no pedía nada de él.
+    // Reabrir es una decisión, no un efecto secundario de hablar: quien tiene
+    // que confirmar la devuelve con el botón, y mientras tanto el comentario se
+    // ve igual por el contador de no leídos.
+    const reopenedFromAwaiting = false;
     // Notificar SOLO a los mencionados con @ (push en horario laboral + in-app siempre).
     // Los demás involucrados se enteran por el badge de "comentarios sin leer".
     const author = (await pool.query(`SELECT full_name FROM users WHERE id = $1`, [uid])).rows[0]?.full_name || 'Alguien';

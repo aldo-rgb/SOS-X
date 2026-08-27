@@ -15,6 +15,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import ReplayIcon from '@mui/icons-material/Replay';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -1564,7 +1565,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const addComment = async () => {
     if (!comment.trim() || sendingComment) return;
     setSendingComment(true);
-    try { const res = await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim() }, H()); setComment(''); reload(); onChanged(); if (res.data?.reopened) notify('💬 Comentario agregado · la tarea volvió a pendientes', 'success'); }
+    try { await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim() }, H()); setComment(''); reload(); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */ }
     catch { notify('Error al comentar', 'error'); }
     finally { setSendingComment(false); }
   };
@@ -1987,6 +1988,16 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                       onClick={() => complete(false)} disabled={busy || pending > 0}>
                       {pending > 0 ? `Completa el checklist (${pending})` : (canConfirm ? 'Confirmar y cerrar' : 'Completar (en espera)')}
                     </Button>
+                    {/* Devolver: antes esto se lograba comentando, y por eso un
+                        "Enterada" le regresaba la tarea al responsable. Ahora
+                        regresar es una decisión con su propio botón. */}
+                    {canConfirm && (
+                      <Button variant="outlined" startIcon={<ReplayIcon />} disabled={busy}
+                        onClick={() => { if (window.confirm('¿No quedó? La tarea vuelve a pendientes del responsable y se reanuda el conteo de tiempo.')) reopen(); }}
+                        sx={{ borderColor: '#B07206', color: '#B07206' }}>
+                        Devolver a pendientes
+                      </Button>
+                    )}
                   </Box>
                 );
               }
