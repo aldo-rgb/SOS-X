@@ -125,6 +125,19 @@ export function getPackageCostBreakdown(pkg: any, opts: { children?: any[] } = {
     extraChargesMxn = sumChildren(children, (c) => num(c.extra_charges_total));
   }
 
+  // Pick-up en mostrador: el paquete no viaja a Mexico, asi que NO se cobra el
+  // servicio PO Box ni la ultima milla normal --solo la maniobra de $3 USD por
+  // caja, que es lo que quedo en el costo asignado. Sin esto una guia marcada
+  // como pick-up seguia cotizando el flete completo (tarea 291).
+  const esPickup = String(pkg?.status ?? '') === 'ready_pickup'
+    || /pick\s*_?up/i.test(String(pkg?.national_carrier ?? pkg?.carrier ?? ''));
+  if (esPickup) {
+    const maniobra = num(pkg?.assigned_cost_mxn) || nationalShippingMxn;
+    poboxServiceMxn = 0;
+    gexMxn = 0;
+    nationalShippingMxn = maniobra;
+  }
+
   const totalMxn = poboxServiceMxn + nationalShippingMxn + gexMxn + extraChargesMxn;
   const paidMxn = num(pkg?.monto_pagado);
   const pendingMxn = Math.max(0, totalMxn - paidMxn);

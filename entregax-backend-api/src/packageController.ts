@@ -2523,6 +2523,14 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         const gex = parseFloat(pkg.gex_total_cost) || 0;
                         const envio = parseFloat(pkg.national_shipping_cost) || 0;
                         const assigned = parseFloat(pkg.assigned_cost_mxn) || 0;
+                        // Pick-up en mostrador: el cliente NO paga el flete a México
+                        // porque el paquete nunca viaja. Se cobra solo la maniobra
+                        // ($3 USD por caja), que es justo lo que quedó guardado.
+                        // Sin esto, el "Total a cobrar" seguía mostrando la venta
+                        // PO Box completa: $9,149.58 contra $51.45 reales.
+                        const esPickup = String(pkg.status || '') === 'ready_pickup'
+                            || /pick\s*_?up/i.test(String(pkg.national_carrier || pkg.carrier || ''));
+                        if (esPickup) return assigned > 0 ? assigned : (envio > 0 ? envio : null);
                         // Aéreo China / TDI: el precio de venta vive en air_sale_price y está
                         // en USD (kg × tarifa USD). Si YA está costeada, assigned_cost_mxn trae
                         // el MXN correcto; si NO, se estima con el TC aéreo (air_sale_price × TC).

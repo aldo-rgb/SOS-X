@@ -121,6 +121,20 @@ export function getPackageCostBreakdown(pkg: any, opts: { children?: any[] } = {
     gexMxn = 0;
   }
 
+  // 3.c) Pick-up en mostrador: el paquete no viaja a México, así que NO se
+  // cobra el servicio PO Box ni la última milla normal — solo la maniobra de
+  // $3 USD por caja, que es lo que el backend dejó en el costo asignado. Sin
+  // esta rama, una guía marcada como pick-up seguía cotizando el flete
+  // completo: $9,149.58 en vez de $51.45 (tarea 291).
+  const esPickup = String(pkg?.status ?? '') === 'ready_pickup'
+    || /pick\s*_?up/i.test(String(pkg?.national_carrier ?? pkg?.nationalCarrier ?? pkg?.carrier ?? ''));
+  if (esPickup && !isDhl) {
+    const maniobra = num(pkg?.assigned_cost_mxn ?? pkg?.assignedCostMxn) || nationalShippingMxn;
+    poboxServiceMxn = 0;
+    gexMxn = 0;
+    nationalShippingMxn = maniobra;
+  }
+
   const totalMxn = isDhl
     ? importMxn + nationalShippingMxn
     : poboxServiceMxn + nationalShippingMxn + gexMxn;
