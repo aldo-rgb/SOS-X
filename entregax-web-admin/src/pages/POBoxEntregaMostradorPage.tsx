@@ -96,8 +96,18 @@ export default function POBoxEntregaMostradorPage() {
           notas: `Cobro en mostrador · entrega de ${sel.tracking}`,
         });
       }
-      // 2) Y con el saldo en cero se registra la entrega.
-      await api.post(`/pobox/entrega-mostrador/${sel.id}`, { recibe: recibe.trim(), notas });
+      // 2) Y con el saldo en cero se registra la entrega. Si hubo efectivo, se
+      //    manda para que entre a la caja chica de Hidalgo (de ahi sale el corte).
+      await api.post(`/pobox/entrega-mostrador/${sel.id}`, {
+        recibe: recibe.trim(),
+        notas,
+        ...(sel.saldo > 0.01
+          ? {
+              cobrado_monto: moneda === 'MXN' ? sel.saldo : Number((sel.saldo / tc).toFixed(2)),
+              cobrado_moneda: moneda,
+            }
+          : {}),
+      });
       setAviso({ txt: `${sel.tracking} entregada a ${recibe.trim()}`, sev: 'success' });
       setSel(null);
       cargar(busqueda);

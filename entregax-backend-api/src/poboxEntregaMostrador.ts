@@ -154,6 +154,20 @@ export const entregarEnMostrador = async (req: Request, res: Response): Promise<
     await client.query('COMMIT');
 
     console.log(`📦 [Entrega mostrador] ${p.tracking_internal} (${p.box_id}) entregada a ${quienRecibe} por usuario ${uid}`);
+
+    // El efectivo cobrado en la ventanilla entra a la caja de la sucursal, que
+    // es de donde sale el corte de Hidalgo.
+    const cobrado = Math.round((Number(req.body?.cobrado_monto) || 0) * 100) / 100;
+    if (cobrado > 0) {
+      const { registrarCobroEnCajaHidalgo } = await import('./poboxCajaHidalgo');
+      await registrarCobroEnCajaHidalgo({
+        monto: cobrado,
+        moneda: String(req.body?.cobrado_moneda || 'MXN'),
+        concepto: `Cobro en mostrador · ${p.tracking_internal} · ${p.box_id} ${p.cliente}`,
+        referencia: p.payment_reference || null,
+        creadoPor: uid,
+      });
+    }
     res.json({
       ok: true,
       tracking: p.tracking_internal,

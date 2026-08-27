@@ -91,8 +91,8 @@ import axios from 'axios';
 // Importar los componentes de cada sección
 import ShipmentsPage from './ShipmentsPage';
 import OutboundControlPage from './OutboundControlPage';
-import POBoxCajaPage from './POBoxCajaPage';
 import POBoxEntregaMostradorPage from './POBoxEntregaMostradorPage';
+import POBoxCajaHidalgoPage from './POBoxCajaHidalgoPage';
 import POBoxQuoterPage from './POBoxQuoterPage';
 import RepackPage from './RepackPage';
 import POBoxInventoryPage from './POBoxInventoryPage';
@@ -1431,8 +1431,9 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 // Cobrar y Entregar en Mostrador - cierra el pick-up de Hidalgo
                 return <POBoxEntregaMostradorPage />;
             case 'collect':
-                // Cobrar - Panel de caja con búsqueda por referencia
-                return <POBoxCajaPage />;
+                // Control de Caja Chica - la billetera de la sucursal Hidalgo TX,
+                // no la caja general de la empresa.
+                return <POBoxCajaHidalgoPage />;
             case 'quote':
                 // Cotizar - Cotizador especializado para PO Box
                 return <POBoxQuoterPage />;

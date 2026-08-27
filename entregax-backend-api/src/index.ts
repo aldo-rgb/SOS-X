@@ -4850,6 +4850,9 @@ app.get('/api/packages/repack-instructions', authenticateToken, requireMinLevel(
 // nombre de quien la recibió. El cobro en efectivo lo sigue haciendo
 // /api/admin/finance/confirm-payment, que ya deja el movimiento en caja.
 app.get('/api/pobox/entrega-mostrador', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), poboxListarPendientesMostrador);
+// Caja chica de la sucursal Hidalgo TX: es la que corresponde a esta operación,
+// no la caja general de la empresa.
+app.get('/api/pobox/caja-hidalgo', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), poboxCajaHidalgo);
 app.post('/api/pobox/entrega-mostrador/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), poboxEntregarEnMostrador);
 
 // Bulk assign delivery with document uploads (client-facing)
@@ -14259,6 +14262,7 @@ import {
 } from './syncController';
 import { ensureSyncSchema, dispatchOutbox, logSyncAttempt, reintentarAdjuntosPendientes } from './syncService';
 import { listarPendientesMostrador as poboxListarPendientesMostrador, entregarEnMostrador as poboxEntregarEnMostrador } from './poboxEntregaMostrador';
+import { cajaHidalgo as poboxCajaHidalgo } from './poboxCajaHidalgo';
 import {
   uploadBrandAsset,
   activateBrandAsset,
