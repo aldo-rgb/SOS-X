@@ -410,7 +410,10 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
             <Text style={styles.fieldLbl}>Título</Text>
             <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
             {!advisorMode && (<>
-            <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
+            <Plegable
+              titulo="Categoría (flujo)"
+              resumen={catId === null ? 'Personal' : (categories.find(c => c.id === catId)?.name || 'Sin elegir')}
+            >
             <View style={styles.eisRow}>
               <TouchableOpacity onPress={() => setCatId(null)} style={[styles.dateChip, catId === null && styles.dateChipOn]}>
                 <Text style={[styles.dateChipTxt, catId === null && { color: '#fff' }]}>Personal</Text>
@@ -446,12 +449,13 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
                 </>
               ) : null;
             })()}
+            </Plegable>
             </>)}
             <Text style={styles.fieldLbl}>Descripción</Text>
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
             <EisPicker value={eis} onChange={setEis} soloAlta />
-            <Text style={styles.fieldLbl}>Fecha deseada</Text>
+            <Plegable titulo="Fecha deseada" resumen={DUE_OPTS.find(o => o.k === dueOpt)?.l || ''}>
             <View style={styles.eisRow}>
               {DUE_OPTS.map(o => (
                 <TouchableOpacity key={o.k} onPress={() => setDueOpt(o.k)} style={[styles.dateChip, dueOpt === o.k && styles.dateChipOn]}>
@@ -459,6 +463,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
                 </TouchableOpacity>
               ))}
             </View>
+            </Plegable>
             {/* Checklist opcional. El backend ya la aceptaba al crear; la app
                 simplemente no la ofrecia, asi que habia que crear la tarea,
                 abrirla y agregar los pasos uno por uno. */}
@@ -479,8 +484,12 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
               <TouchableOpacity style={styles.addBtn} onPress={agregarChk}><Text style={styles.addBtnTxt}>Agregar</Text></TouchableOpacity>
             </View>
             {!advisorMode && (<>
-            <Text style={styles.fieldLbl}>Involucrados</Text>
+            <Plegable
+              titulo="Involucrados"
+              resumen={involved.length === 0 ? 'Solo tú' : `Tú y ${involved.length} más`}
+            >
             <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} frequent={frequent} />
+            </Plegable>
             <Text style={styles.helpTxt}>Tú siempre quedas incluido. Agrega a quien deba participar.</Text>
 
             <Text style={styles.fieldLbl}>Responsable <Text style={{ color: '#C0392B' }}>*</Text></Text>
@@ -726,6 +735,14 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   // semana, así que no había forma de programar "el 15 de cada mes".
   const DIAS_MES = Array.from({ length: 31 }, (_, i) => i + 1);
   const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  /** Resumen legible de la programación, para el encabezado plegado. */
+  const resumenCuando = (): string => {
+    const rep = RECUR.find(r => r.k === recurrence)?.l || '';
+    const cuando = diaMes
+      ? `día ${diaMes}${mesElegido != null ? ` de ${MESES[mesElegido]}` : ''}`
+      : (DAY_OPTS.find(d => d.k === dayOpt)?.l || '');
+    return `${rep} · ${cuando} · ${String(hour).padStart(2, '0')}:00`;
+  };
   const WEEKDAYS = [{ v: 1, l: 'Lun' }, { v: 2, l: 'Mar' }, { v: 3, l: 'Mié' }, { v: 4, l: 'Jue' }, { v: 5, l: 'Vie' }, { v: 6, l: 'Sáb' }, { v: 0, l: 'Dom' }];
   const WD_FULL = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const ORD_FULL: Record<number, string> = { 1: 'Primer', 2: 'Segundo', 3: 'Tercer', 4: 'Cuarto', [-1]: 'Último' };
@@ -765,7 +782,10 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
               <TouchableOpacity style={styles.addBtn} onPress={agregarChk}><Text style={styles.addBtnTxt}>Agregar</Text></TouchableOpacity>
             </View>
             {!advisorMode && (<>
-            <Text style={styles.fieldLbl}>Categoría (flujo)</Text>
+            <Plegable
+              titulo="Categoría (flujo)"
+              resumen={catId === null ? 'Personal' : (categories.find(c => c.id === catId)?.name || 'Sin elegir')}
+            >
             <View style={styles.eisRow}>
               <TouchableOpacity onPress={() => { setCatId(null); setCatSection(null); }} style={[styles.dateChip, !catId && styles.dateChipOn]}>
                 <Text style={[styles.dateChipTxt, !catId && { color: '#fff' }]}>Personal</Text>
@@ -800,91 +820,101 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
                 </>
               ) : null;
             })()}
+            </Plegable>
             </>)}
             <Text style={styles.fieldLbl}>Descripción</Text>
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
             <EisPicker value={eis} onChange={setEis} />
-            <Text style={styles.fieldLbl}>Repetir</Text>
-            <View style={styles.eisRow}>
-              {RECUR.map(o => (
-                <TouchableOpacity key={o.k} onPress={() => setRecurrence(o.k)} style={[styles.dateChip, recurrence === o.k && styles.dateChipOn]}>
-                  <Text style={[styles.dateChipTxt, recurrence === o.k && { color: '#fff' }]}>{o.l}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {/* Todo el "cuándo" en una sola sección plegable: repetición,
+                primera ejecución, día, mes y hora. Abiertos a la vez eran una
+                pared de ~50 botones y había que adivinar dónde estaba cada cosa. */}
+            <Plegable titulo="Cuándo" resumen={resumenCuando()} abiertoInicial>
+              <Text style={styles.fieldLbl}>Repetir</Text>
+              <View style={styles.eisRow}>
+                {RECUR.map(o => (
+                  <TouchableOpacity key={o.k} onPress={() => setRecurrence(o.k)} style={[styles.dateChip, recurrence === o.k && styles.dateChipOn]}>
+                    <Text style={[styles.dateChipTxt, recurrence === o.k && { color: '#fff' }]}>{o.l}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-            {/* "Día de semana" ya solo pide el día: la ocurrencia (1er, 2do…) y la
-                hora se deducen de la fecha de primera ejecución que se elige
-                abajo, así no hay que llenar lo mismo dos veces. */}
-            {recurrence === 'monthly_weekday' && (
-              <>
-                <Text style={styles.fieldLbl}>Día de la semana</Text>
-                <View style={styles.eisRow}>
-                  {WEEKDAYS.map(o => (
-                    <TouchableOpacity key={o.v} onPress={() => setWeekday(o.v)} style={[styles.dateChip, weekday === o.v && styles.dateChipOn]}>
-                      <Text style={[styles.dateChipTxt, weekday === o.v && { color: '#fff' }]}>{o.l}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
+              {/* "Día de semana" ya solo pide el día: la ocurrencia (1er, 2do…) y la
+                  hora se deducen de la fecha de primera ejecución que se elige
+                  abajo, así no hay que llenar lo mismo dos veces. */}
+              {recurrence === 'monthly_weekday' && (
+                <>
+                  <Text style={styles.fieldLbl}>Día de la semana</Text>
+                  <View style={styles.eisRow}>
+                    {WEEKDAYS.map(o => (
+                      <TouchableOpacity key={o.v} onPress={() => setWeekday(o.v)} style={[styles.dateChip, weekday === o.v && styles.dateChipOn]}>
+                        <Text style={[styles.dateChipTxt, weekday === o.v && { color: '#fff' }]}>{o.l}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
 
-            <Text style={styles.fieldLbl}>Primera ejecución</Text>
-            <View style={styles.eisRow}>
-              {DAY_OPTS.map(o => (
-                <TouchableOpacity key={o.k} onPress={() => { setDayOpt(o.k); setDiaMes(null); setFechaTocada(true); }}
-                  style={[styles.dateChip, !diaMes && dayOpt === o.k && styles.dateChipOn]}>
-                  <Text style={[styles.dateChipTxt, !diaMes && dayOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+              <Text style={styles.fieldLbl}>Primera ejecución</Text>
+              <View style={styles.eisRow}>
+                {DAY_OPTS.map(o => (
+                  <TouchableOpacity key={o.k} onPress={() => { setDayOpt(o.k); setDiaMes(null); setFechaTocada(true); }}
+                    style={[styles.dateChip, !diaMes && dayOpt === o.k && styles.dateChipOn]}>
+                    <Text style={[styles.dateChipTxt, !diaMes && dayOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-            {/* Día exacto del mes. Si el elegido ya pasó, la primera ejecución se
-                va al mes siguiente; y en meses cortos se ajusta al último día
-                (elegir 31 en febrero cae en el 28 o 29). */}
-            <Text style={[styles.fieldLbl, { marginTop: 10 }]}>
-              O elige el día del mes{diaMes ? ` · día ${diaMes}` : ''}
-            </Text>
-            <View style={styles.eisRow}>
-              {DIAS_MES.map(d => (
-                <TouchableOpacity key={d} onPress={() => { setDiaMes(diaMes === d ? null : d); setFechaTocada(true); }}
-                  style={[styles.dayCell, diaMes === d && styles.dateChipOn]}>
-                  <Text style={[styles.dayCellTxt, diaMes === d && { color: '#fff' }]}>{d}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+              {/* Día exacto del mes. Si el elegido ya pasó, la primera ejecución se
+                  va al mes siguiente; y en meses cortos se ajusta al último día
+                  (elegir 31 en febrero cae en el 28 o 29). */}
+              <Text style={[styles.fieldLbl, { marginTop: 10 }]}>
+                O elige el día del mes{diaMes ? ` · día ${diaMes}` : ''}
+              </Text>
+              <View style={styles.eisRow}>
+                {DIAS_MES.map(d => (
+                  <TouchableOpacity key={d} onPress={() => { setDiaMes(diaMes === d ? null : d); setFechaTocada(true); }}
+                    style={[styles.dayCell, diaMes === d && styles.dateChipOn]}>
+                    <Text style={[styles.dayCellTxt, diaMes === d && { color: '#fff' }]}>{d}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-            {/* Mes de la primera ejecución. Solo aparece cuando ya se eligió un
-                día: sirve para fechas fijas del año ("1 de enero"), que antes
-                no se podían programar. */}
-            {!!diaMes && (
-              <>
-                <Text style={[styles.fieldLbl, { marginTop: 10 }]}>
-                  Mes{mesElegido != null ? ` · ${MESES[mesElegido]}` : ' · el más próximo'}
-                </Text>
-                <View style={styles.eisRow}>
-                  {MESES.map((m, i) => (
-                    <TouchableOpacity key={m} onPress={() => { setMesElegido(mesElegido === i ? null : i); setFechaTocada(true); }}
-                      style={[styles.dateChip, mesElegido === i && styles.dateChipOn]}>
-                      <Text style={[styles.dateChipTxt, mesElegido === i && { color: '#fff' }]}>{m}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
+              {/* Mes de la primera ejecución. Solo aparece cuando ya se eligió un
+                  día: sirve para fechas fijas del año ("1 de enero"), que antes
+                  no se podían programar. */}
+              {!!diaMes && (
+                <>
+                  <Text style={[styles.fieldLbl, { marginTop: 10 }]}>
+                    Mes{mesElegido != null ? ` · ${MESES[mesElegido]}` : ' · el más próximo'}
+                  </Text>
+                  <View style={styles.eisRow}>
+                    {MESES.map((m, i) => (
+                      <TouchableOpacity key={m} onPress={() => { setMesElegido(mesElegido === i ? null : i); setFechaTocada(true); }}
+                        style={[styles.dateChip, mesElegido === i && styles.dateChipOn]}>
+                        <Text style={[styles.dateChipTxt, mesElegido === i && { color: '#fff' }]}>{m}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
 
-            <Text style={[styles.fieldLbl, { marginTop: 10 }]}>Hora</Text>
-            <View style={styles.eisRow}>
-              {HOURS.map(h => (
-                <TouchableOpacity key={h} onPress={() => { setHour(h); setFechaTocada(true); }} style={[styles.dateChip, hour === h && styles.dateChipOn]}>
-                  <Text style={[styles.dateChipTxt, hour === h && { color: '#fff' }]}>{String(h).padStart(2, '0')}:00</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+              <Text style={[styles.fieldLbl, { marginTop: 10 }]}>Hora</Text>
+              <View style={styles.eisRow}>
+                {HOURS.map(h => (
+                  <TouchableOpacity key={h} onPress={() => { setHour(h); setFechaTocada(true); }} style={[styles.dateChip, hour === h && styles.dateChipOn]}>
+                    <Text style={[styles.dateChipTxt, hour === h && { color: '#fff' }]}>{String(h).padStart(2, '0')}:00</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </Plegable>
             {!advisorMode && (<>
-            <Text style={styles.fieldLbl}>Involucrados</Text>
+            <Plegable
+              titulo="Involucrados"
+              resumen={involved.length === 0 ? 'Solo tú' : `Tú y ${involved.length} más`}
+            >
             <InvolvedPicker users={users} myId={myId} selected={involved} onChange={setInvolved} frequent={frequent} />
+            </Plegable>
             <Text style={styles.helpTxt}>Tú siempre quedas incluido. Agrega a quien deba participar.</Text>
 
             <Text style={styles.fieldLbl}>Responsable <Text style={{ color: '#C0392B' }}>*</Text></Text>
@@ -978,6 +1008,38 @@ export function esPendienteDeMi(t: any, myId?: number | null): boolean {
 /** ¿Soy yo quien tiene que confirmarla? (para rotular la etiqueta) */
 export const esperaMiConfirmacion = (t: any, myId?: number | null): boolean =>
   !!myId && t?.status === 'awaiting_confirmation' && Number(t.created_by) === Number(myId);
+
+/**
+ * Sección plegable para los formularios de tarea.
+ *
+ * Los selectores estaban todos abiertos a la vez —categorías, involucrados,
+ * días del mes, meses, horas— y el formulario se convertía en una pared de
+ * botones donde había que hacer scroll a ciegas. Cada sección se colapsa y
+ * muestra en el encabezado lo que ya está elegido, así se ve el estado
+ * completo sin abrir nada.
+ */
+export function Plegable({
+  titulo, resumen, children, abiertoInicial = false, requerido = false,
+}: {
+  titulo: string; resumen?: string; children: React.ReactNode;
+  abiertoInicial?: boolean; requerido?: boolean;
+}) {
+  const [abierto, setAbierto] = useState(abiertoInicial);
+  return (
+    <View style={styles.plegable}>
+      <TouchableOpacity style={styles.plegableCab} onPress={() => setAbierto(v => !v)} activeOpacity={0.7}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.plegableTitulo}>
+            {titulo}{requerido ? <Text style={{ color: '#C0392B' }}> *</Text> : null}
+          </Text>
+          {!!resumen && <Text style={styles.plegableResumen} numberOfLines={1}>{resumen}</Text>}
+        </View>
+        <Ionicons name={abierto ? 'chevron-up' : 'chevron-down'} size={18} color="#9AA0A6" />
+      </TouchableOpacity>
+      {abierto && <View style={styles.plegableCuerpo}>{children}</View>}
+    </View>
+  );
+}
 
 // ── Tarjeta de tarea ──
 export function TaskCard({ task, onPress, showBoard, myId }: { task: TaskT; onPress: () => void; showBoard?: boolean; myId?: number | null }) {
@@ -1944,6 +2006,11 @@ export const styles = StyleSheet.create({
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 5 },
   chip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   chipTxt: { fontSize: 11, fontWeight: '700' },
+  plegable: { borderWidth: 1, borderColor: '#ECECEC', borderRadius: 10, marginTop: 10, overflow: 'hidden', backgroundColor: '#FFF' },
+  plegableCab: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 11, gap: 8 },
+  plegableTitulo: { fontSize: 13, fontWeight: '800', color: '#222' },
+  plegableResumen: { fontSize: 11.5, color: '#6B7280', marginTop: 1 },
+  plegableCuerpo: { paddingHorizontal: 12, paddingBottom: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#EEE' },
   cardTitle: { fontSize: 14, fontWeight: '700', color: '#222', lineHeight: 18 },
   cardFolio: { color: '#8A8A8A', fontWeight: '800' },
   cardBoard: { fontSize: 11, color: '#777', marginTop: 3 },
