@@ -261,6 +261,9 @@ const RE_PAGO = /\b(pag(?:o|os|ar|are|aran|ando)|depos(?:ito|itos|itar)|abon(?:o
  */
 export function prioridadProgramada(titulo: string): string {
   const t = String(titulo || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  // "Error en pago con tarjeta" habla de un pago pero no es ir a pagar: es un
+  // bug. Sin este filtro, cualquier falla del cobro entraba como urgente.
+  if (/^(error|problema|falla|bug)\b/.test(t)) return 'estrella';
   return RE_PAGO.test(t) ? 'fuego' : 'estrella';
 }
 
