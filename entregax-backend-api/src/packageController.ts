@@ -5167,7 +5167,8 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                     
                     // Obtener datos actuales del paquete para recalcular
                     const pkgData = await pool.query(`
-                        SELECT total_boxes, pobox_venta_usd, gex_total_cost, national_shipping_cost
+                        SELECT total_boxes, pobox_venta_usd, gex_total_cost, national_shipping_cost,
+                               COALESCE(monto_pagado, 0) AS monto_pagado
                         FROM packages WHERE id = $1
                     `, [packageId]);
                     
@@ -5180,6 +5181,12 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                     
                     // El costo total es SOLO el cargo de pickup
                     const newTotalMxn = pickupFeeMxn;
+                    // Si venía de una entrega a domicilio YA pagada, el cambio a
+                    // pick-up baja el total: se descuenta lo pagado en vez de
+                    // volver a cobrarle la maniobra. Si pagó de más, el saldo
+                    // queda en cero y la diferencia se revisa aparte.
+                    const yaPagadoPickup = parseFloat(pkg?.monto_pagado) || 0;
+                    const saldoPickup = Math.max(0, Math.round((newTotalMxn - yaPagadoPickup) * 100) / 100);
                     
                     console.log(`📦 [Pick Up] Recalculando costos para paquete ${packageId}:`);
                     console.log(`   Pick Up Fee: ${totalBoxes} cajas × $3 USD × TC $${tc} = $${pickupFeeMxn.toFixed(2)} MXN`);
@@ -5190,19 +5197,22 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                         UPDATE packages 
                         SET status = 'ready_pickup',
                             carrier = 'Pick Up Hidalgo TX',
+                            national_carrier = 'pickup_hidalgo',
                             national_shipping_cost = $1,
                             assigned_cost_mxn = $2,
-                            saldo_pendiente = $2,
+                            saldo_pendiente = $5,
+                            client_paid = ($5 <= 0.01),
                             notes = COALESCE($3, notes),
                             needs_instructions = false,
                             updated_at = CURRENT_TIMESTAMP
                         WHERE id = $4${ownerCondition}
                         RETURNING id, tracking_internal
-                    `, [pickupFeeMxn, newTotalMxn, deliveryInstructions, packageId]);
+                    `, [pickupFeeMxn, newTotalMxn, deliveryInstructions, packageId, saldoPickup]);
                 } else {
                     // Entrega a domicilio - verificar si viene de Pick Up para recalcular costos
                     const currentPkg = await pool.query(
-                        'SELECT status, pobox_venta_usd, gex_total_cost FROM packages WHERE id = $1',
+                        `SELECT status, pobox_venta_usd, gex_total_cost, COALESCE(monto_pagado, 0) AS monto_pagado
+                           FROM packages WHERE id = $1`,
                         [packageId]
                     );
                     const wasPickup = currentPkg.rows[0]?.status === 'ready_pickup';
@@ -5214,6 +5224,13 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                         const poboxMxn = poboxVentaUsd * tc;
                         const shippingCostMxn = parseFloat(carrierCost) || 0;
                         const newTotalMxn = poboxMxn + gexCost + shippingCostMxn;
+                        // Lo que YA pagó por la maniobra de pick-up se le abona al
+                        // nuevo total; antes el saldo se reescribía con el total
+                        // completo y el cliente terminaba debiendo dos veces esos
+                        // $51.45. Y client_paid se quedaba en true, así que la guía
+                        // se veía pagada debiendo miles.
+                        const yaPagado = parseFloat(currentPkg.rows[0]?.monto_pagado) || 0;
+                        const nuevoSaldo = Math.max(0, Math.round((newTotalMxn - yaPagado) * 100) / 100);
                         
                         console.log(`📦 [Cambio de Pick Up] Recalculando costos para paquete ${packageId}:`);
                         console.log(`   PO Box: $${poboxVentaUsd} USD = $${poboxMxn.toFixed(2)} MXN`);
@@ -5228,13 +5245,14 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                                 carrier = $2,
                                 national_shipping_cost = $3,
                                 assigned_cost_mxn = $4,
-                                saldo_pendiente = $4,
+                                saldo_pendiente = $7,
+                                client_paid = ($7 <= 0.01),
                                 notes = COALESCE($5, notes),
                                 needs_instructions = false,
                                 updated_at = CURRENT_TIMESTAMP
                             WHERE id = $6${ownerCondition}
                             RETURNING id, tracking_internal
-                        `, [deliveryAddressId, carrierName || carrier, shippingCostMxn, newTotalMxn, deliveryInstructions, packageId]);
+                        `, [deliveryAddressId, carrierName || carrier, shippingCostMxn, newTotalMxn, deliveryInstructions, packageId, nuevoSaldo]);
                     } else {
                         // Asignación normal de dirección - guardar también carrier y costo de envío
                         let shippingCostMxn = parseFloat(carrierCost) || 0;
