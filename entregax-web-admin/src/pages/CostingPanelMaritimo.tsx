@@ -1160,7 +1160,15 @@ export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { 
             // Construir descripción completa de otros gastos
             const descriptions: string[] = [];
             if (costs.other_description && (parseFloat(String(costs.other_amount)) || 0) > 0) {
-                descriptions.push(`${costs.other_description}: $${formatCurrency(costs.other_amount || 0)}`);
+                // Si la descripción YA venía con su importe pegado (porque se
+                // guardó antes en el formato consolidado), no se le vuelve a
+                // pegar: así fue como quedaron textos tipo
+                // "RESTO IANDE: $221,781.08: $225,008.08", que ya no cuadran
+                // con el total y hacen imposible reconstruir las partidas.
+                const yaTraeImporte = /:\s*\$\s*[\d,]+(\.\d{1,2})?\s*$/.test(String(costs.other_description));
+                descriptions.push(yaTraeImporte
+                    ? String(costs.other_description)
+                    : `${costs.other_description}: $${formatCurrency(costs.other_amount || 0)}`);
             }
             extraCosts.forEach(e => {
                 if (e.amount > 0) {
