@@ -1732,6 +1732,42 @@ export const resolveTicket = async (req: Request, res: Response): Promise<any> =
       } catch (e: any) {
         console.error('[support] Auto-cerrar tarea vinculada al ticket', folio, e?.message);
       }
+
+      // 🔗 Tarea de retraso "Retraso {folio}".
+      //
+      // Esta NO se cierra sola: pasa a ESPERANDO CONFIRMACIÓN. Que soporte
+      // marque el ticket como resuelto no significa que el retraso quedó
+      // atendido; el administrador que la tiene a su nombre es quien cierra.
+      // Antes se quedaba abierta para siempre aunque el ticket ya estuviera
+      // resuelto, y por eso se acumulaban.
+      try {
+        const r = await pool.query(
+          `UPDATE tasks
+              SET status = 'awaiting_confirmation', updated_at = NOW()
+            WHERE title = $1
+              AND status NOT IN ('completed', 'cancelled', 'awaiting_confirmation')
+            RETURNING id, assignee_id`,
+          [`Retraso ${folio}`]
+        );
+        for (const t of r.rows) {
+          await pool.query(
+            `INSERT INTO task_activity (task_id, actor_id, action, meta)
+             VALUES ($1, $2, 'awaiting_confirmation', $3::jsonb)`,
+            [t.id, (req as any).user?.userId || null, JSON.stringify({ reason: 'ticket_resuelto', folio })]
+          ).catch(() => {});
+          if (t.assignee_id) {
+            const { createCustomNotification } = await import('./notificationController');
+            await createCustomNotification(
+              Number(t.assignee_id),
+              '⏳ Retraso resuelto · confirma el cierre',
+              `El ticket ${folio} quedó resuelto. Revisa la tarea y ciérrala si procede.`,
+              'task', 'clock-outline', { task_id: t.id }, '/tareas'
+            ).catch(() => {});
+          }
+        }
+      } catch (e: any) {
+        console.error('[support] Pasar a confirmación la tarea de retraso', folio, e?.message);
+      }
     }
 
     res.json({ success: true, message: 'Ticket resuelto' });
