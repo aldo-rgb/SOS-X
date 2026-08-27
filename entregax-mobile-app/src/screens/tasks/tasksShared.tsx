@@ -566,6 +566,10 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   // único comportamiento posible: no había forma de programar "1 de enero"
   // porque el selector solo elegía el día y el mes siempre era el actual.
   const [mesElegido, setMesElegido] = useState<number | null>(null);
+  // Las parrillas de día y mes se pliegan solas al elegir: 31 + 12 botones
+  // abiertos tapaban el resto del formulario. Se reabren tocando el renglón.
+  const [abrirDia, setAbrirDia] = useState(false);
+  const [abrirMes, setAbrirMes] = useState(false);
   const scrollProgRef = React.useRef<ScrollView>(null);
   const [checklist, setChecklist] = useState<string[]>([]);
   const [chkInput, setChkInput] = useState('');
@@ -857,48 +861,76 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
                 </>
               )}
 
+              {/* Atajos de primera ejecución. Desaparecen cuando ya se fijó un día
+                  del mes: son la otra forma de decidir lo mismo. */}
+              {!diaMes && (<>
               <Text style={styles.fieldLbl}>Primera ejecución</Text>
               <View style={styles.eisRow}>
                 {DAY_OPTS.map(o => (
                   <TouchableOpacity key={o.k} onPress={() => { setDayOpt(o.k); setDiaMes(null); setFechaTocada(true); }}
-                    style={[styles.dateChip, !diaMes && dayOpt === o.k && styles.dateChipOn]}>
-                    <Text style={[styles.dateChipTxt, !diaMes && dayOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
+                    style={[styles.dateChip, dayOpt === o.k && styles.dateChipOn]}>
+                    <Text style={[styles.dateChipTxt, dayOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
+              </>)}
 
               {/* Día exacto del mes. Si el elegido ya pasó, la primera ejecución se
                   va al mes siguiente; y en meses cortos se ajusta al último día
                   (elegir 31 en febrero cae en el 28 o 29). */}
-              <Text style={[styles.fieldLbl, { marginTop: 10 }]}>
-                O elige el día del mes{diaMes ? ` · día ${diaMes}` : ''}
-              </Text>
-              <View style={styles.eisRow}>
-                {DIAS_MES.map(d => (
-                  <TouchableOpacity key={d} onPress={() => { setDiaMes(diaMes === d ? null : d); setFechaTocada(true); }}
-                    style={[styles.dayCell, diaMes === d && styles.dateChipOn]}>
-                    <Text style={[styles.dayCellTxt, diaMes === d && { color: '#fff' }]}>{d}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {!diaMes || abrirDia ? (
+                <>
+                  <Text style={[styles.fieldLbl, { marginTop: 10 }]}>
+                    {diaMes ? 'Día del mes' : 'O elige el día del mes'}
+                  </Text>
+                  <View style={styles.eisRow}>
+                    {DIAS_MES.map(d => (
+                      <TouchableOpacity key={d}
+                        onPress={() => {
+                          const nuevo = diaMes === d ? null : d;
+                          setDiaMes(nuevo);
+                          setFechaTocada(true);
+                          setAbrirDia(false);
+                          // Al soltar el día ya no hay mes que elegir.
+                          if (!nuevo) { setMesElegido(null); setAbrirMes(false); }
+                        }}
+                        style={[styles.dayCell, diaMes === d && styles.dateChipOn]}>
+                        <Text style={[styles.dayCellTxt, diaMes === d && { color: '#fff' }]}>{d}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              ) : (
+                <FilaElegida etiqueta="Día del mes" valor={`día ${diaMes}`} onPress={() => setAbrirDia(true)} />
+              )}
 
               {/* Mes de la primera ejecución. Solo aparece cuando ya se eligió un
                   día: sirve para fechas fijas del año ("1 de enero"), que antes
                   no se podían programar. */}
               {!!diaMes && (
+                mesElegido == null || abrirMes ? (
                 <>
                   <Text style={[styles.fieldLbl, { marginTop: 10 }]}>
                     Mes{mesElegido != null ? ` · ${MESES[mesElegido]}` : ' · el más próximo'}
                   </Text>
                   <View style={styles.eisRow}>
                     {MESES.map((m, i) => (
-                      <TouchableOpacity key={m} onPress={() => { setMesElegido(mesElegido === i ? null : i); setFechaTocada(true); }}
+                      <TouchableOpacity key={m}
+                        onPress={() => {
+                          const nuevo = mesElegido === i ? null : i;
+                          setMesElegido(nuevo);
+                          setFechaTocada(true);
+                          setAbrirMes(false);
+                        }}
                         style={[styles.dateChip, mesElegido === i && styles.dateChipOn]}>
                         <Text style={[styles.dateChipTxt, mesElegido === i && { color: '#fff' }]}>{m}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
                 </>
+                ) : (
+                  <FilaElegida etiqueta="Mes" valor={MESES[mesElegido]} onPress={() => setAbrirMes(true)} />
+                )
               )}
 
               <Text style={[styles.fieldLbl, { marginTop: 10 }]}>Hora</Text>
@@ -1020,6 +1052,21 @@ export const esperaMiConfirmacion = (t: any, myId?: number | null): boolean =>
  * muestra en el encabezado lo que ya está elegido, así se ve el estado
  * completo sin abrir nada.
  */
+/**
+ * Renglón compacto que sustituye a una parrilla ya resuelta: muestra lo elegido
+ * y se vuelve a abrir al tocarlo. Sin esto, elegir "día 4 de enero" dejaba 43
+ * botones en pantalla que ya no servían para nada.
+ */
+export function FilaElegida({ etiqueta, valor, onPress }: { etiqueta: string; valor: string; onPress: () => void }) {
+  return (
+    <TouchableOpacity onPress={onPress} style={styles.filaElegida} activeOpacity={0.7}>
+      <Text style={styles.filaElegidaLbl}>{etiqueta}</Text>
+      <Text style={styles.filaElegidaVal}>{valor}</Text>
+      <Ionicons name="chevron-down" size={15} color="#9AA0A6" />
+    </TouchableOpacity>
+  );
+}
+
 export function Plegable({
   titulo, resumen, children, abiertoInicial = false, requerido = false,
 }: {
@@ -2127,6 +2174,13 @@ export const styles = StyleSheet.create({
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 5 },
   chip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   chipTxt: { fontSize: 11, fontWeight: '700' },
+  filaElegida: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10,
+    paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10,
+    backgroundColor: '#FFF3EC', borderWidth: 1, borderColor: '#F0B79A',
+  },
+  filaElegidaLbl: { fontSize: 12.5, fontWeight: '700', color: '#8A5B45' },
+  filaElegidaVal: { flex: 1, fontSize: 13.5, fontWeight: '800', color: ORANGE },
   plegable: { borderWidth: 1, borderColor: '#ECECEC', borderRadius: 10, marginTop: 10, overflow: 'hidden', backgroundColor: '#FFF' },
   plegableCab: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 11, gap: 8 },
   plegableTitulo: { fontSize: 13, fontWeight: '800', color: '#222' },
