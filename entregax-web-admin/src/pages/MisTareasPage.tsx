@@ -1055,20 +1055,20 @@ export default function MisTareasPage() {
               if (t.status === 'awaiting_confirmation') return iAssigned ? 1 : 3;
               return 2;
             };
-            // Orden del cuadrante, en tres niveles:
-            //   1. Lo que sigue en tu cancha arriba; lo que está EN ESPERA de que
-            //      otro confirme se va al fondo — ya lo trabajaste, no compite
-            //      por tu atención con lo que falta por hacer.
+            // Orden del cuadrante:
+            //   1. Lo que ESPERA ALGO DE TI: comentarios sin leer primero, luego
+            //      las que están en espera de que TÚ confirmes. Antes esto era el
+            //      último criterio y la fecha de vencimiento lo tapaba: un
+            //      comentario nuevo podía quedar hasta el fondo del cuadrante.
             //   2. Dentro de cada grupo, lo que vence primero.
             //   3. Las que no tienen fecha, al final de su grupo.
-            const enEspera = (t: Task) => (t.status === 'awaiting_confirmation' ? 1 : 0);
+            // Las que están en espera de que confirme ALGUIEN MÁS siguen hasta
+            // abajo (rank 3): ya las trabajaste, no compiten por tu atención.
             const vence = (t: Task) => (t.due_at ? new Date(t.due_at).getTime() : Number.POSITIVE_INFINITY);
             const qt = visibleTasks.filter(t => t.eisenhower === q.key)
               .sort((a, b) => {
-                if (enEspera(a) !== enEspera(b)) return enEspera(a) - enEspera(b);
-                const va = vence(a), vb = vence(b);
-                if (va !== vb) return va - vb;
-                return rank(a) - rank(b);
+                if (rank(a) !== rank(b)) return rank(a) - rank(b);
+                return vence(a) - vence(b);
               });
             const over = dragOverKey === q.key;
             return (
@@ -1093,15 +1093,27 @@ export default function MisTareasPage() {
         // Lista por estado en 4 columnas, cada una con su propio orden.
         (() => {
           const ms = (s?: string) => (s ? new Date(s).getTime() : 0);
+          // Dentro de cada columna, lo que espera algo de ti sube: primero los
+          // comentarios sin leer, luego las que TÚ debes confirmar.
+          const pendienteDeTi = (t: Task) => {
+            if ((t.unread_count || 0) > 0) return 0;
+            if (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === MY_ID) return 1;
+            return 2;
+          };
+          const conPendientesArriba = (orden: (a: Task, b: Task) => number) => (a: Task, b: Task) => {
+            const pa = pendienteDeTi(a), pb = pendienteDeTi(b);
+            if (pa !== pb) return pa - pb;
+            return orden(a, b);
+          };
           // Nueva: abierta y sin iniciar → la más nueva arriba.
           const nueva = visibleTasks.filter(t => t.status === 'open' && !t.started_at)
-            .sort((a, b) => ms(b.created_at) - ms(a.created_at));
+            .sort(conPendientesArriba((a, b) => ms(b.created_at) - ms(a.created_at)));
           // En proceso: abierta e iniciada → la más VIEJA puesta en proceso arriba.
           const proceso = visibleTasks.filter(t => t.status === 'open' && !!t.started_at)
-            .sort((a, b) => ms(a.started_at) - ms(b.started_at));
+            .sort(conPendientesArriba((a, b) => ms(a.started_at) - ms(b.started_at)));
           // En espera: la más RECIENTE puesta en espera va abajo (vieja arriba).
           const espera = visibleTasks.filter(t => t.status === 'awaiting_confirmation')
-            .sort((a, b) => ms(a.updated_at) - ms(b.updated_at));
+            .sort(conPendientesArriba((a, b) => ms(a.updated_at) - ms(b.updated_at)));
           // Terminadas: en orden de terminadas (más reciente arriba).
           const terminadas = visibleTasks.filter(t => t.status === 'completed')
             .sort((a, b) => ms(b.completed_at) - ms(a.completed_at));
