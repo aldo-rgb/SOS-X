@@ -311,7 +311,10 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   // de venta junto a un total a cobrar de $51.45. Lo único real es la última
   // milla. Si más adelante cambian la instrucción a envío, las cifras vuelven
   // solas porque el dato sigue guardado.
-  const esPickup = /pick[\s_-]*up/.test(carrierNorm);
+  // Se miran los dos campos porque el mismo pick up se guarda distinto en cada
+  // uno: national_carrier = "pickup_hidalgo", carrier = "Pick Up Hidalgo TX".
+  const esPickup = /pick[\s_-]*up/.test(carrierNorm)
+    || /pick[\s_-]*up/.test(String((m as any).carrier || '').toLowerCase());
 
   // Costos
   const lastMileCost = m.nationalLabelCost != null ? Number(m.nationalLabelCost) : null;
