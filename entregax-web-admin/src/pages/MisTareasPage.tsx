@@ -20,6 +20,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import SendIcon from '@mui/icons-material/Send';
+import AlternateEmailIcon from '@mui/icons-material/AlternateEmail';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import GridViewIcon from '@mui/icons-material/GridView';
@@ -219,7 +220,7 @@ interface Task {
   started_at?: string; updated_at?: string;
   due_at?: string; created_at?: string; completed_at?: string; assignee_name?: string; assignee_id?: number; board_id?: number;
   board_name?: string; board_key?: string; column_name?: string; subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
-  participants_count?: number; participant_names?: string[] | null; unread_count?: number;
+  participants_count?: number; participant_names?: string[] | null; unread_count?: number; mention_count?: number;
   assignee_photo?: string | null; participant_avatars?: Array<{ name: string; photo?: string | null }> | null;
   created_by?: number; created_by_name?: string;
   stalled?: boolean;
@@ -599,7 +600,13 @@ export default function MisTareasPage() {
           {done && <Chip label="✅ Completada" size="small" color="success" sx={{ height: 20, fontSize: 11 }} />}
           {t.status === 'awaiting_confirmation' && <Chip label={etiquetaEspera(t)} size="small" sx={{ height: 20, fontSize: 11, bgcolor: esperaMiConfirmacion(t) ? '#FDE7C7' : '#FBE9D0', color: esperaMiConfirmacion(t) ? '#8A4B00' : '#B07206', fontWeight: 700 }} />}
           {t.stalled && <Tooltip title="En curso +3 días sin movimiento (comenta o avanza para reactivar)"><Chip label="🛑 Detenida" size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#3A3A3A', color: '#fff', fontWeight: 700 }} /></Tooltip>}
-          {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count} sin leer`} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#E53935', color: '#fff', fontWeight: 700 }} />}
+          {/* Que te mencionen no es lo mismo que estar de copia: la mención
+              lleva tu nombre y un aro que la separa del globo normal. */}
+          {(t.mention_count || 0) > 0
+            ? <Chip label={`@ ${t.mention_count} te mencionaron`} size="small"
+                sx={{ height: 20, fontSize: 11, bgcolor: '#5E35B1', color: '#fff', fontWeight: 800,
+                      boxShadow: '0 0 0 2px rgba(94,53,177,0.28)' }} />
+            : (t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count} sin leer`} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#E53935', color: '#fff', fontWeight: 700 }} />}
         </Box>
         <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: done ? 'line-through' : 'none' }}>
           {/* Número de tarea visible para poder referenciarla en tickets y chats. */}
@@ -663,7 +670,9 @@ export default function MisTareasPage() {
         </Typography>
         {t.status === 'awaiting_confirmation' && <Chip label={etiquetaEspera(t)} size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, mr: 0.5, bgcolor: esperaMiConfirmacion(t) ? '#FDE7C7' : '#FBE9D0', color: esperaMiConfirmacion(t) ? '#8A4B00' : '#B07206', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         {t.stalled && <Chip label="🛑 Detenida" size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, mr: 0.5, bgcolor: '#3A3A3A', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
-        {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count}`} size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, bgcolor: '#E53935', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
+        {(t.mention_count || 0) > 0
+          ? <Chip label={`@${t.mention_count}`} size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, bgcolor: '#5E35B1', color: '#fff', fontWeight: 800, boxShadow: '0 0 0 2px rgba(94,53,177,0.30)', '& .MuiChip-label': { px: 0.6 } }} />
+          : (t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count}`} size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, bgcolor: '#E53935', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         {mShown.length > 0 && (
           <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.4 }}>
             {mShown.map((p, i) => (
@@ -1455,6 +1464,11 @@ export default function MisTareasPage() {
 function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const [data, setData] = useState<any>(null);
   const [comment, setComment] = useState('');
+  // Menciones: la app ya tenía selector, la web no. Aquí se escribía "@Neida"
+  // como texto plano y el comentario se mandaba SIN mentions, así que a Neida
+  // nunca le llegaba nada: parecía que la habías avisado y no.
+  const [mentions, setMentions] = useState<{ id: number; name: string }[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [newSub, setNewSub] = useState('');
   const [busy, setBusy] = useState(false);
   // Bandera específica del envío de comentario: deshabilita el botón y muestra spinner
@@ -1565,7 +1579,10 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const addComment = async () => {
     if (!comment.trim() || sendingComment) return;
     setSendingComment(true);
-    try { await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim() }, H()); setComment(''); reload(); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */ }
+    // Solo van las menciones que siguen escritas: si borras el "@Nombre" del
+    // texto, no se le avisa a esa persona.
+    const activeMentions = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
+    try { await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim(), mentions: activeMentions }, H()); setComment(''); setMentions([]); setMentionQuery(null); reload(); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */ }
     catch { notify('Error al comentar', 'error'); }
     finally { setSendingComment(false); }
   };
@@ -1914,16 +1931,52 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 );
               })}
             </Box>
+            {/* Selector de @menciones: los involucrados de la tarea. */}
+            {mentionQuery !== null && (() => {
+              const q = mentionQuery.toLowerCase();
+              const opts = ((data?.participants || []) as any[])
+                .filter(p => Number(p.id) !== MY_ID && String(p.full_name || '').toLowerCase().includes(q))
+                .slice(0, 6);
+              if (opts.length === 0) return null;
+              return (
+                <Paper variant="outlined" sx={{ mt: 1, borderColor: '#D1C4E9', overflow: 'hidden' }}>
+                  {opts.map((p: any) => (
+                    <Box key={p.id}
+                      onClick={() => {
+                        // Se sustituye el "@loQueIbaEscribiendo" por el nombre completo.
+                        setComment(prev => prev.replace(/@[^@\s]*$/, `@${p.full_name} `));
+                        setMentions(prev => prev.some(x => x.id === Number(p.id)) ? prev : [...prev, { id: Number(p.id), name: p.full_name }]);
+                        setMentionQuery(null);
+                      }}
+                      sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1, cursor: 'pointer',
+                            '&:hover': { bgcolor: 'rgba(94,53,177,0.08)' } }}>
+                      <AlternateEmailIcon sx={{ fontSize: 15, color: '#5E35B1' }} />
+                      <Typography variant="body2" fontWeight={600}>{p.full_name}</Typography>
+                    </Box>
+                  ))}
+                </Paper>
+              );
+            })()}
             <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
               <TextField
                 fullWidth
                 size="small"
                 multiline
                 maxRows={6}
-                placeholder={sendingComment ? 'Enviando comentario…' : 'Deja un comentario…  (Shift+Enter = salto de línea)'}
+                placeholder={sendingComment ? 'Enviando comentario…' : 'Deja un comentario…  (@ para mencionar · Shift+Enter = salto de línea)'}
                 value={comment}
-                onChange={e => setComment(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sendingComment) addComment(); } }}
+                onChange={e => {
+                  const v = e.target.value;
+                  setComment(v);
+                  // Se abre el selector mientras se escribe después de una @ y
+                  // se cierra en cuanto hay un espacio o se borra la arroba.
+                  const m = /@([^@\s]*)$/.exec(v);
+                  setMentionQuery(m ? m[1] : null);
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Escape') { setMentionQuery(null); return; }
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sendingComment) addComment(); }
+                }}
                 disabled={sendingComment}
               />
               <IconButton color="primary" onClick={addComment} disabled={sendingComment || !comment.trim()}>

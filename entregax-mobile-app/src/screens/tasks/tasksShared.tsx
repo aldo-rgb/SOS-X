@@ -1038,7 +1038,7 @@ export interface TaskT {
   due_at?: string; eisenhower: string; status: string; created_at?: string; completed_at?: string;
   started_at?: string; updated_at?: string;
   subtasks_total?: number; subtasks_done?: number; overdue?: boolean;
-  board_name?: string; board_key?: string; column_name?: string; participants_count?: number; unread_count?: number;
+  board_name?: string; board_key?: string; column_name?: string; participants_count?: number; unread_count?: number; mention_count?: number;
 }
 
 /**
@@ -1215,7 +1215,10 @@ export function TaskCard({ task, onPress, showBoard, myId }: { task: TaskT; onPr
             ? <View style={[styles.chip, { backgroundColor: '#FDE7C7' }]}><Text style={[styles.chipTxt, { color: '#8A4B00' }]}>⏳ Esperando tu confirmación</Text></View>
             : <View style={[styles.chip, { backgroundColor: '#FBE9D0' }]}><Text style={[styles.chipTxt, { color: '#B07206' }]}>⏳ En espera</Text></View>
         )}
-        {(task.unread_count || 0) > 0 && (
+        {/* Que te mencionen no es lo mismo que estar de copia. */}
+        {(task.mention_count || 0) > 0 ? (
+          <View style={[styles.unreadChip, styles.mencionChip]}><Ionicons name="at" size={11} color="#fff" /><Text style={styles.unreadTxt}>{task.mention_count} te mencionaron</Text></View>
+        ) : (task.unread_count || 0) > 0 && (
           <View style={styles.unreadChip}><Ionicons name="chatbubble-ellipses" size={11} color="#fff" /><Text style={styles.unreadTxt}>{task.unread_count} sin leer</Text></View>
         )}
       </View>
@@ -2241,7 +2244,9 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
                 <Text style={styles.mxCardFolio}>#{t.id} </Text>{t.title}
               </Text>
               {t.status === 'awaiting_confirmation' && <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#B07206', marginTop: 2 }}>⏳ En espera</Text>}
-              {(t.unread_count || 0) > 0 && (
+              {(t.mention_count || 0) > 0 ? (
+                <View style={[styles.mxUnread, styles.mencionChip]}><Ionicons name="at" size={9} color="#fff" /><Text style={styles.mxUnreadTxt}>{t.mention_count}</Text></View>
+              ) : (t.unread_count || 0) > 0 && (
                 <View style={styles.mxUnread}><Ionicons name="chatbubble-ellipses" size={9} color="#fff" /><Text style={styles.mxUnreadTxt}>{t.unread_count}</Text></View>
               )}
               <View style={styles.mxCardMeta}>
@@ -2428,6 +2433,8 @@ export const styles = StyleSheet.create({
   countPill: { backgroundColor: 'rgba(0,0,0,0.08)', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 1 },
   countTxt: { fontSize: 12, fontWeight: '700', color: '#444' },
   // Matriz Eisenhower 2×2 compacta (los 4 cuadrantes en una pantalla).
+  // Morado y con aro: separa "te mencionaron" de "hay comentarios nuevos".
+  mencionChip: { backgroundColor: '#5E35B1', borderWidth: 1.5, borderColor: '#C9B6EE' },
   mxCardArrastrada: { opacity: 0.3, borderStyle: 'dashed', borderWidth: 1, borderColor: '#9AA0A6' },
   mxFantasma: {
     position: 'absolute', top: 0, left: 0, width: 128, padding: 7, borderRadius: 7,

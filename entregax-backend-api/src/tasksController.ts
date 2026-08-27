@@ -1065,6 +1065,13 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
              (SELECT COUNT(*) FROM task_comments cc
                 WHERE cc.task_id = t.id AND cc.author_id <> $1
                   AND cc.created_at > COALESCE((SELECT last_read_at FROM task_reads tr WHERE tr.task_id = t.id AND tr.user_id = $1), TIMESTAMPTZ '1970-01-01'))::int AS unread_count,
+             -- De esos, cuántos te mencionan con @. Un comentario donde te
+             -- nombran no pesa lo mismo que uno donde solo estabas de copia,
+             -- y hasta ahora los dos se veían con el mismo globito.
+             (SELECT COUNT(*) FROM task_comments cc
+                WHERE cc.task_id = t.id AND cc.author_id <> $1
+                  AND cc.mentions @> to_jsonb($1::int)
+                  AND cc.created_at > COALESCE((SELECT last_read_at FROM task_reads tr WHERE tr.task_id = t.id AND tr.user_id = $1), TIMESTAMPTZ '1970-01-01'))::int AS mention_count,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id)::int AS subtasks_total,
              (SELECT COUNT(*) FROM task_subtasks s WHERE s.task_id = t.id AND s.done)::int AS subtasks_done,
              (SELECT COUNT(*) FROM task_participants tp WHERE tp.task_id = t.id)::int AS participants_count,
