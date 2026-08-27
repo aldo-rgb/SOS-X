@@ -2639,6 +2639,22 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                 if (!extTracking) {
                     return res.status(400).json({ error: '❌ Escanea la guía de la paquetería' });
                 }
+                // Red de seguridad del servidor: el código que se escanea en la
+                // fase 2 tiene que ser del courier, no una guía nuestra. Los 33
+                // cruces del 27-ago quedaron con la guía DHL de OTRO envío en el
+                // campo del courier; con esta validación ninguno se habría
+                // escrito. Va aquí y no solo en la app porque el equipo puede
+                // traer una versión vieja.
+                const esGuiaNuestra = await pool.query(
+                    `SELECT 1 FROM dhl_shipments
+                      WHERE (UPPER(COALESCE(secondary_tracking,'')) = UPPER($1)
+                             OR UPPER(COALESCE(inbound_tracking,'')) = UPPER($1))
+                      LIMIT 1`, [extTracking]);
+                if (esGuiaNuestra.rows.length > 0) {
+                    return res.status(400).json({
+                        error: `⚠️ ${extTracking} es una guía nuestra, no la del courier. Escanea la etiqueta de la paquetería.`
+                    });
+                }
                 // Rechazar si esa guía de courier ya está en OTRO envío (mal escaneo).
                 const dup = await pool.query(
                     `SELECT id, COALESCE(secondary_tracking, inbound_tracking) AS tracking
