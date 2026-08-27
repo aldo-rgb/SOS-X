@@ -305,20 +305,31 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
   const _trRole = String(getCurrentUser()?.role || '').toLowerCase();
   const isTrackOnly = ['advisor', 'sub_advisor', 'customer_service', 'accountant'].includes(_trRole);
 
+  // Pick up: el cliente recoge la caja en el mostrador y NUNCA viaja a
+  // Monterrey. El flete PO Box —lo que cobra el proveedor y su contraparte de
+  // venta— no existe en esta guía; mostrarlo hacía leer $5,150 de costo y $528
+  // de venta junto a un total a cobrar de $51.45. Lo único real es la última
+  // milla. Si más adelante cambian la instrucción a envío, las cifras vuelven
+  // solas porque el dato sigue guardado.
+  const esPickup = /pick[\s_-]*up/.test(carrierNorm);
+
   // Costos
   const lastMileCost = m.nationalLabelCost != null ? Number(m.nationalLabelCost) : null;
-  const providerCostMxn = isTrackOnly ? null : (m.poboxProviderCostMxn ?? m.poboxServiceCost ?? null);
-  const providerCostUsd = isTrackOnly ? null : (m.poboxProviderCostUsd ?? m.poboxCostUsd ?? null);
+  const providerCostMxn = (isTrackOnly || esPickup) ? null : (m.poboxProviderCostMxn ?? m.poboxServiceCost ?? null);
+  const providerCostUsd = (isTrackOnly || esPickup) ? null : (m.poboxProviderCostUsd ?? m.poboxCostUsd ?? null);
   // Venta al cliente en USD: PO Box usa poboxVentaUsd; Aéreo/TDI usa air_sale_price.
   const airSaleUsd = (m as any).airSalePriceUsd != null ? Number((m as any).airSalePriceUsd) : null;
-  const ventaUsd = (m.poboxVentaUsd != null && Number(m.poboxVentaUsd) > 0)
-    ? Number(m.poboxVentaUsd)
-    : (airSaleUsd && airSaleUsd > 0 ? airSaleUsd : null);
+  const ventaUsd = esPickup
+    ? null   // es el precio del flete que no se hizo
+    : (m.poboxVentaUsd != null && Number(m.poboxVentaUsd) > 0)
+      ? Number(m.poboxVentaUsd)
+      : (airSaleUsd && airSaleUsd > 0 ? airSaleUsd : null);
   const totalCost = m.totalCost != null ? Number(m.totalCost) : null;
   const importTax = (m as any).importTaxMxn != null ? Number((m as any).importTaxMxn) : null;
   const nationalCostMxn = (m as any).nationalCost != null ? Number((m as any).nationalCost) : null;
   const importCostUsd = (m as any).importCostUsd != null ? Number((m as any).importCostUsd) : null;
-  const dhlExchangeRate = (m as any).exchangeRate != null ? Number((m as any).exchangeRate) : null;
+  // El TC solo sirve para convertir el flete; sin flete no tiene qué convertir.
+  const dhlExchangeRate = (!esPickup && (m as any).exchangeRate != null) ? Number((m as any).exchangeRate) : null;
   const ajustes: Array<{ tipo: string; monto: number; concepto?: string | null }> =
     Array.isArray((m as any).ajustes) ? (m as any).ajustes : [];
   const montoPagado = m.montoPagado ?? m.monto_pagado ?? null;
