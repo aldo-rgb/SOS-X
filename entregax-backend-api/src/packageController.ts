@@ -1839,13 +1839,25 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     totalCost: b.total_cost_mxn != null ? Number(b.total_cost_mxn) : null,
                     importTaxMxn: b.import_tax_mxn != null ? Number(b.import_tax_mxn) : null,
                 })) : [];
-                dhlTotalCost = boxes.reduce((s, b) => s + (Number(b.total_cost_mxn) || 0), 0);
-                // Incluir costo de la paquetería nacional (Paquete Express / etc.).
-                // Se cobra a nivel master DHL (no por caja hija), así que se toma
-                // del fallbackRow.national_cost_mxn — sin él, el "Total a cobrar"
-                // no reflejaba el envío nacional (bug visible en Cajito).
+                // Cobro real = importación (import_cost_mxn, que YA trae el
+                // impuesto) + paquetería nacional. No se parte de
+                // total_cost_mxn porque esa columna es ambigua: en 216 guías no
+                // incluye la paquetería y en 86 sí, según si pasó por el cruce
+                // de la nota de impuestos. Antes se sumaba la paquetería a
+                // ciegas y en las 86 quedaba cobrada dos veces: Cajito decía
+                // $5,850.85 donde eran $5,313.85 (TKT-2026-2365).
+                const importeDeCaja = (b: any): number => {
+                    const imp = Number(b.import_cost_mxn) || 0;
+                    if (imp > 0) return imp;
+                    const usdTc = (Number(b.import_cost_usd) || 0) * (Number(b.exchange_rate) || 0);
+                    if (usdTc > 0) return usdTc + (Number(b.import_tax_mxn) || 0);
+                    return Number(b.total_cost_mxn) || 0;
+                };
+                dhlTotalCost = boxes.reduce((s, b) => s + importeDeCaja(b), 0);
+                // La paquetería se cobra a nivel guía (no por caja).
                 const nationalCostForTotal = Number(fallbackRow.national_cost_mxn) || 0;
                 if (nationalCostForTotal > 0) dhlTotalCost = (dhlTotalCost || 0) + nationalCostForTotal;
+                dhlTotalCost = Math.round((dhlTotalCost || 0) * 100) / 100;
                 dhlTaxTotal = boxes.reduce((s, b) => s + (Number(b.import_tax_mxn) || 0), 0);
                 dhlMontoPagado = boxes.reduce((s, b) => s + (Number(b.monto_pagado) || 0), 0);
                 dhlSaldoPendiente = boxes.reduce((s, b) => s + (Number(b.saldo_pendiente) || 0), 0);

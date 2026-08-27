@@ -3942,8 +3942,15 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
             ELSE ds.status
           END as status_label,
           'CEDIS MTY' as fecha_estimada,
-          COALESCE(ds.total_cost_mxn, ds.saldo_pendiente,
-            NULLIF(COALESCE(ds.import_cost_mxn,0) + COALESCE(ds.import_tax_mxn,0) + COALESCE(ds.national_cost_mxn,0), 0), 0)
+          -- Cobro real de una guia DHL = importacion (que ya trae el impuesto)
+          -- + paqueteria nacional. NO se usa total_cost_mxn: esa columna es
+          -- ambigua, en 216 guias no incluye la paqueteria y en 86 si, segun si
+          -- paso por el cruce de la nota de impuestos. De ahi salia el
+          -- "$5,850.85" de Cajito contra los $5,313.85 reales (TKT-2026-2365).
+          ROUND(COALESCE(NULLIF(ds.import_cost_mxn,0),
+                     NULLIF(COALESCE(ds.import_cost_usd,0) * COALESCE(ds.exchange_rate,0), 0) + COALESCE(ds.import_tax_mxn,0),
+                     ds.total_cost_mxn, ds.saldo_pendiente, 0)::numeric
+                 + COALESCE(ds.national_cost_mxn,0)::numeric, 2)
             + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END
             as monto,
           CASE WHEN ds.paid_at IS NOT NULL THEN true ELSE false END as client_paid,
@@ -3962,8 +3969,10 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           END as dimensions,
           ds.product_type,
           GREATEST(0,
-            COALESCE(ds.total_cost_mxn, ds.saldo_pendiente,
-              NULLIF(COALESCE(ds.import_cost_mxn,0) + COALESCE(ds.import_tax_mxn,0) + COALESCE(ds.national_cost_mxn,0), 0), 0)
+            ROUND(COALESCE(NULLIF(ds.import_cost_mxn,0),
+                     NULLIF(COALESCE(ds.import_cost_usd,0) * COALESCE(ds.exchange_rate,0), 0) + COALESCE(ds.import_tax_mxn,0),
+                     ds.total_cost_mxn, ds.saldo_pendiente, 0)::numeric
+                 + COALESCE(ds.national_cost_mxn,0)::numeric, 2)
             + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END
             - COALESCE(ds.monto_pagado, 0)
           ) as saldo_pendiente,
@@ -3986,8 +3995,10 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           COALESCE(ds.import_tax_mxn, 0) as import_tax_mxn,
           ds.exchange_rate,
           NULL::numeric as gex_total_cost,
-          COALESCE(ds.total_cost_mxn, ds.saldo_pendiente,
-            NULLIF(COALESCE(ds.import_cost_mxn,0) + COALESCE(ds.import_tax_mxn,0) + COALESCE(ds.national_cost_mxn,0), 0), 0)
+          ROUND(COALESCE(NULLIF(ds.import_cost_mxn,0),
+                     NULLIF(COALESCE(ds.import_cost_usd,0) * COALESCE(ds.exchange_rate,0), 0) + COALESCE(ds.import_tax_mxn,0),
+                     ds.total_cost_mxn, ds.saldo_pendiente, 0)::numeric
+                 + COALESCE(ds.national_cost_mxn,0)::numeric, 2)
             + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END
             as assigned_cost_mxn
         FROM dhl_shipments ds

@@ -874,6 +874,7 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
                ds.description, ds.weight_kg AS weight,
                ds.total_cost_mxn, ds.saldo_pendiente, ds.monto_pagado,
                ds.import_cost_usd, ds.exchange_rate, ds.import_tax_mxn, ds.national_cost_mxn,
+               ds.import_cost_mxn,
                COALESCE(ds.national_carrier, a.carrier_config->>'dhl') AS national_carrier
         FROM dhl_shipments ds
         LEFT JOIN addresses a ON a.id = ds.delivery_address_id
@@ -888,7 +889,14 @@ export const getAdvisorPaymentOrderDetail = async (req: Request, res: Response):
           // Paquetería nacional real (Paquete Express, etc.), no el fijo "DHL".
           tipo: carrierLabel(d.national_carrier),
           national_carrier: d.national_carrier || null,
-          venta_mxn: parseFloat(d.total_cost_mxn) || parseFloat(d.saldo_pendiente) || 0,
+          // Importación (ya trae el impuesto) + paquetería. total_cost_mxn no
+          // sirve como cobro: en unas guías incluye la paquetería y en otras no.
+          venta_mxn: (() => {
+            const imp = parseFloat(d.import_cost_mxn) || 0;
+            const usdTc = (parseFloat(d.import_cost_usd) || 0) * (parseFloat(d.exchange_rate) || 0);
+            const base = imp > 0 ? imp : (usdTc > 0 ? usdTc + (parseFloat(d.import_tax_mxn) || 0) : (parseFloat(d.total_cost_mxn) || parseFloat(d.saldo_pendiente) || 0));
+            return Math.round((base + (parseFloat(d.national_cost_mxn) || 0)) * 100) / 100;
+          })(),
           // Desglose de la guía: sin esto la cotización enseñaba un monto y un
           // total distintos sin explicar de dónde salía la diferencia
           // (TKT-2026-2365).
