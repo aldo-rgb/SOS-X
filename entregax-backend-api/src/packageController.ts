@@ -1813,6 +1813,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             let dhlChildren: any[] = [];
             let dhlTotalCost: number | null = null;
             let dhlTaxTotal: number | null = null;
+            let dhlAjustes: Array<{ tipo: string; monto: number; concepto: string | null; fecha: any }> = [];
+            let dhlAjustesNeto = 0;
             let dhlMontoPagado: number | null = null;
             let dhlSaldoPendiente: number | null = null;
             let dhlImportUsd: number | null = null;
@@ -1865,6 +1867,32 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 dhlExchangeRate = Number(boxes.find((b: any) => b.exchange_rate != null)?.exchange_rate) || null;
             }
 
+            // Descuentos y cargos extra de la guía. Sin esto el desglose sumaba
+            // $5,313.85 y el saldo decía $4,248.75 sin explicar la diferencia:
+            // el descuento existía en guias_ajustes_financieros pero no se
+            // mostraba en ningún lado (TKT-2026-2365).
+            try {
+                const trks = [fallbackRow.tracking_number, (fallbackRow as any).secondary_tracking, (fallbackRow as any).inbound_tracking]
+                    .filter(Boolean).map((x: any) => String(x));
+                if (fallbackKind === 'dhl' && trks.length > 0) {
+                    const aj = await pool.query(
+                        `SELECT tipo, monto, concepto, fecha_registro
+                           FROM guias_ajustes_financieros
+                          WHERE activo = true AND guia_tracking = ANY($1::text[])
+                          ORDER BY id`, [trks]);
+                    dhlAjustes = aj.rows.map((r: any) => ({
+                        tipo: r.tipo,
+                        monto: Number(r.monto) || 0,
+                        concepto: r.concepto || null,
+                        fecha: r.fecha_registro || null,
+                    }));
+                    dhlAjustesNeto = Math.round(dhlAjustes.reduce(
+                        (s: number, r: any) => s + (r.tipo === 'descuento' ? -1 : 1) * r.monto, 0) * 100) / 100;
+                }
+            } catch (e: any) {
+                console.warn('[track] ajustes DHL:', e?.message);
+            }
+
             res.json({
                 success: true,
                 shipment: {
@@ -1914,6 +1942,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         clientPaidAt: (fallbackKind === 'dhl' ? fallbackRow.paid_at : null) || null,
                         serviceType: fallbackKind === 'dhl' ? 'AA_DHL' : (fallbackKind === 'national' ? 'NACIONAL' : 'SEA_CHN_MX'),
                         totalCost: fallbackKind === 'dhl' ? dhlTotalCost : null,
+                        ajustes: fallbackKind === 'dhl' ? dhlAjustes : null,
+                        ajustesNeto: fallbackKind === 'dhl' ? dhlAjustesNeto : null,
                         importTaxMxn: fallbackKind === 'dhl' ? dhlTaxTotal : null,
                         importCostUsd: fallbackKind === 'dhl' ? dhlImportUsd : null,
                         exchangeRate: fallbackKind === 'dhl' ? dhlExchangeRate : null,
