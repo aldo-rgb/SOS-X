@@ -43,6 +43,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import ArchiveIcon from '@mui/icons-material/Archive';
+import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import PeopleIcon from '@mui/icons-material/People';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
@@ -1456,6 +1457,17 @@ function App() {
                     {tiempoRelativo}
                   </Typography>
                 </Box>
+                {!isVerificationNotif && !notif.is_read && (
+                  <Tooltip title="Marcar como leída">
+                    <IconButton
+                      size="small"
+                      onClick={(e) => { e.stopPropagation(); markNotificationAsRead(notif.id); }}
+                      sx={{ ml: 0.5, color: '#F05A28', '&:hover': { bgcolor: 'rgba(240,90,40,0.12)' } }}
+                    >
+                      <CheckIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
                 {!isVerificationNotif && (
                   <Tooltip title="Archivar">
                     <IconButton
@@ -1583,6 +1595,20 @@ function App() {
                       {notif.action_url && <span style={{ marginLeft: 8, color: '#888' }}>· Click para abrir</span>}
                     </Typography>
                   </Box>
+                  {/* Palomita: acusa de leída y la deja en la lista. Sin esto,
+                      la única forma de quitar el resaltado era archivarla
+                      —perderla de vista— o barrer todas de un golpe. */}
+                  {!isVirtual && !notif.is_read && (
+                    <Tooltip title="Marcar como leída">
+                      <IconButton
+                        size="small"
+                        onClick={(e) => { e.stopPropagation(); markNotificationAsRead(notif.id); }}
+                        sx={{ color: '#F05A28', '&:hover': { bgcolor: 'rgba(240,90,40,0.12)' } }}
+                      >
+                        <CheckIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                   {!isVirtual && (
                     <Tooltip title="Archivar">
                       <IconButton
