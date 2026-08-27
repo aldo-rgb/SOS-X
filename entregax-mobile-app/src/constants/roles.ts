@@ -10,6 +10,9 @@ export const EMPLOYEE_ROLES = [
   // ellos.
   'soporte_tecnico',
   'branch_manager',
+  // Contabilidad tambien tenia modulo propio en el panel de empleado (Control
+  // de Gastos) sin poder llegar a el, y es de los que mas usan Mis Tareas.
+  'accountant',
   'director',
   'admin',
   'super_admin',
