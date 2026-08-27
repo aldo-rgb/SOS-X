@@ -220,6 +220,21 @@ export async function ensureSyncSchema(): Promise<void> {
        body_size   INTEGER,
        body_preview TEXT,
        created_at  TIMESTAMPTZ DEFAULT NOW())`);
+  // Tareas que YA se compartieron con Grupo Rino alguna vez.
+  //
+  // Antes el envío se decidía preguntando "¿hay alguien de Rino en la tarea
+  // AHORA?". Con eso, una tarea que se reasigna a alguien de EntregaX deja de
+  // emitir eventos y se congela para siempre del lado de ellos: la 255
+  // ("FALLA DE IMPRESORAS HP") se completó aquí el 24-ago y allá seguía abierta
+  // porque el último evento que les llegó fue del 12-ago. Una vez compartida,
+  // la tarea sigue reportando hasta que muere; si no, mentimos por omisión.
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS sync_shared_tasks (
+       task_id    INTEGER PRIMARY KEY,
+       shared_at  TIMESTAMPTZ DEFAULT NOW(),
+       deleted_at TIMESTAMPTZ,
+       title      TEXT)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_sync_shared_deleted ON sync_shared_tasks(deleted_at)`);
   _ready = true;
 }
 
@@ -305,14 +320,23 @@ export async function emitTaskEventIfExternal(event: string, taskId: number, act
         WHERE t.id = $1`, [taskId])).rows[0];
     if (!t) return false;
     // ¿Hay algún stakeholder de Grupo Rino? (responsable o participante)
+    // Se emite si hay alguien de Rino en la tarea AHORA, o si la tarea ya se
+    // compartió antes. Lo segundo es lo que evita que una reasignación hacia
+    // adentro la deje congelada del otro lado.
     const ext = (await pool.query(
       `SELECT 1
          FROM task_participants tp JOIN users u ON u.id = tp.user_id
         WHERE tp.task_id = $1 AND u.source_app = $2
         UNION
         SELECT 1 FROM users u WHERE u.id = $3 AND u.source_app = $2
+        UNION
+        SELECT 1 FROM sync_shared_tasks WHERE task_id = $1
         LIMIT 1`, [taskId, EXTERNAL_APP, t.assignee_id])).rows[0];
     if (!ext) return false;
+    await pool.query(
+      `INSERT INTO sync_shared_tasks (task_id, title) VALUES ($1, $2)
+       ON CONFLICT (task_id) DO UPDATE SET title = EXCLUDED.title`,
+      [taskId, t.title]).catch(() => {});
 
     const participants = (await pool.query(
       `SELECT u.id, u.external_id, u.source_app FROM task_participants tp
@@ -355,6 +379,127 @@ export async function emitTaskEventIfExternal(event: string, taskId: number, act
   } catch (e: any) {
     console.error('[sync] emitTaskEventIfExternal:', e?.message || e);
     return false;
+  }
+}
+
+/**
+ * Avisa que una tarea dejó de existir. Se llama ANTES del DELETE, porque
+ * después ya no hay de dónde sacar el título.
+ *
+ * Sin esto, una tarea borrada aquí y una que nadie ha tocado se ven idénticas
+ * desde Grupo Rino: la persona la sigue viendo asignada, la sigue contando como
+ * pendiente y puede llegar a hacerla.
+ */
+export async function emitTaskDeleted(taskId: number, actorId: number | null): Promise<boolean> {
+  try {
+    await ensureSyncSchema();
+    const compartida = (await pool.query(
+      `SELECT 1 FROM sync_shared_tasks WHERE task_id = $1`, [taskId])).rows[0];
+    // Si nunca se compartió, Grupo Rino no sabe que existe: no hay nada que avisar.
+    if (!compartida) return false;
+    const t = (await pool.query(`SELECT title FROM tasks WHERE id = $1`, [taskId])).rows[0];
+    await pool.query(
+      `UPDATE sync_shared_tasks SET deleted_at = NOW(), title = COALESCE($2, title) WHERE task_id = $1`,
+      [taskId, t?.title || null]);
+    await enqueueOutbound('task.deleted', {
+      task: { id: taskId, external_id: taskId, title: t?.title || null, status: 'deleted' },
+      actor_id: actorId,
+    });
+    return true;
+  } catch (e: any) {
+    console.error('[sync] emitTaskDeleted:', e?.message || e);
+    return false;
+  }
+}
+
+/**
+ * GET /api/sync/tasks?updated_since=ISO
+ *
+ * Reconciliación: el estado actual de todas las tareas compartidas, incluidas
+ * las borradas —con `deleted: true`—. Los webhooks se pueden perder; esto deja
+ * que el otro lado cuadre solo sin depender de que cada aviso haya llegado.
+ * Si las borradas simplemente desaparecieran de la lista, no habría forma de
+ * distinguir "borrada" de "no cambió".
+ */
+export async function syncListTasks(req: any, res: any): Promise<any> {
+  try {
+    // Un GET no lleva cuerpo, así que no hay firma HMAC que verificar: la
+    // autorización es la API key, en X-EntregaX-Key o como Bearer.
+    const key = req.header('X-EntregaX-Key')
+      || String(req.header('Authorization') || '').replace(/^Bearer\s+/i, '').trim()
+      || undefined;
+    if (!verifyInboundApiKey(key)) {
+      await logSyncAttempt({
+        endpoint: 'GET /api/sync/tasks', remoteIp: req.ip, key,
+        diag: key ? 'key_mismatch' : 'no_key',
+      });
+      return res.status(401).json({ error: 'No autorizado' });
+    }
+    await ensureSyncSchema();
+    const desde = String(req.query.updated_since || '').trim();
+    const params: any[] = [];
+    let filtro = '';
+    if (desde) {
+      const d = new Date(desde);
+      if (isNaN(d.getTime())) return res.status(400).json({ error: 'updated_since inválido (usa ISO 8601)' });
+      params.push(d.toISOString());
+      filtro = `AND COALESCE(t.updated_at, t.created_at, s.deleted_at, s.shared_at) >= $1::timestamptz`;
+    }
+    const r = await pool.query(`
+      SELECT s.task_id, s.deleted_at, s.title AS titulo_ultimo,
+             t.id, t.title, t.description, t.status, t.eisenhower, t.due_at,
+             t.commitment_date, t.started_at, t.completed_at, t.created_at, t.updated_at,
+             t.assignee_id, t.created_by, b.board_key,
+             au.external_id AS assignee_external_id, au.source_app AS assignee_source
+        FROM sync_shared_tasks s
+        LEFT JOIN tasks t ON t.id = s.task_id
+        LEFT JOIN task_boards b ON b.id = t.board_id
+        LEFT JOIN users au ON au.id = t.assignee_id
+       WHERE TRUE ${filtro}
+       ORDER BY COALESCE(t.updated_at, s.deleted_at, s.shared_at) DESC
+       LIMIT 500`, params);
+
+    const tasks = await Promise.all(r.rows.map(async (t: any) => {
+      // La tarea ya no está en `tasks`: se borró. Se responde la lápida, que es
+      // justo el caso que los webhooks perdidos dejaban invisible.
+      const borrada = !!t.deleted_at || !t.id;
+      if (borrada) {
+        return {
+          id: t.task_id, external_id: t.task_id,
+          title: t.titulo_ultimo || null,
+          status: 'deleted', deleted: true, deleted_at: t.deleted_at,
+        };
+      }
+      const participants = (await pool.query(
+        `SELECT u.id, u.external_id, u.source_app FROM task_participants tp
+           JOIN users u ON u.id = tp.user_id WHERE tp.task_id = $1`, [t.id])).rows;
+      return {
+        id: t.id, external_id: t.id, deleted: false,
+        title: t.title, description: t.description, status: t.status,
+        eisenhower: t.eisenhower, board_key: t.board_key,
+        assignee_id: t.assignee_id,
+        assignee_external_id: t.assignee_source === EXTERNAL_APP ? t.assignee_external_id : null,
+        created_by: t.created_by,
+        due_at: t.due_at, commitment_date: t.commitment_date,
+        started_at: t.started_at, completed_at: t.completed_at,
+        created_at: t.created_at, updated_at: t.updated_at,
+        participants: participants.map((p: any) => ({
+          user_id: p.id, external_id: p.source_app === EXTERNAL_APP ? p.external_id : null,
+        })),
+        attachments: await attachmentsForTask(t.id),
+      };
+    }));
+
+    res.json({
+      source_app: SYNC_SOURCE,
+      updated_since: desde || null,
+      generated_at: new Date().toISOString(),
+      count: tasks.length,
+      tasks,
+    });
+  } catch (e: any) {
+    console.error('[sync] syncListTasks:', e?.message || e);
+    res.status(500).json({ error: 'No se pudo listar las tareas' });
   }
 }
 

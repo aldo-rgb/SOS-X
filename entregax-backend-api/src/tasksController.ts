@@ -8,7 +8,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { uploadToS3WithSignedUrl, getSignedUrlForKey, signS3UrlIfNeeded } from './s3Service';
-import { emitTaskEventIfExternal, ingestExternalAttachment } from './syncService';
+import { emitTaskEventIfExternal, emitTaskDeleted, ingestExternalAttachment } from './syncService';
 import { normalizarImagen } from './imagenNormalizar';
 
 const authUserId = (req: Request): number | null => {
@@ -1793,6 +1793,10 @@ export const deleteTask = async (req: Request, res: Response): Promise<any> => {
     const cur = await pool.query(`SELECT board_id FROM tasks WHERE id = $1`, [id]);
     if (cur.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
     if (!(await canManageBoard(req, cur.rows[0].board_id))) return res.status(403).json({ error: 'Sin permiso' });
+    // El aviso se encola ANTES del DELETE: después ya no hay de dónde sacar el
+    // título, y sin aviso la tarea se queda abierta y asignada para siempre del
+    // lado de Grupo Rino.
+    await emitTaskDeleted(id, (req as any).user?.userId || null).catch(() => {});
     await pool.query(`DELETE FROM tasks WHERE id = $1`, [id]);
     res.json({ success: true });
   } catch (e: any) {

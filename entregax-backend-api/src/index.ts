@@ -14261,7 +14261,7 @@ import {
   syncHealth as syncHealthCheck,
   verifyAuth as syncVerifyAuth,
 } from './syncController';
-import { ensureSyncSchema, dispatchOutbox, logSyncAttempt, reintentarAdjuntosPendientes } from './syncService';
+import { ensureSyncSchema, dispatchOutbox, logSyncAttempt, reintentarAdjuntosPendientes, syncListTasks } from './syncService';
 import { listarPendientesMostrador as poboxListarPendientesMostrador, entregarEnMostrador as poboxEntregarEnMostrador } from './poboxEntregaMostrador';
 import { cajaHidalgo as poboxCajaHidalgo } from './poboxCajaHidalgo';
 import {
@@ -14396,6 +14396,10 @@ app.post('/api/sync/comments', syncInboundWebhook);
 app.post('/api/sync/tasks/comments', syncInboundWebhook);
 app.post('/api/webhooks/grupo-rino', syncInboundWebhook);
 // Descarga de adjuntos para Grupo Rino (las imágenes viven en S3 privado).
+// Reconciliación: estado actual de todas las tareas compartidas, con las
+// borradas marcadas. Para que Grupo Rino cuadre solo sin depender de que cada
+// webhook haya llegado.
+app.get('/api/sync/tasks', syncListTasks);
 app.get('/api/sync/attachments/:id', syncAttachmentDownload);
 app.post('/api/sync/verify', syncVerifyAuth);
 app.get('/api/sync/health', authenticateToken, syncHealthCheck);
