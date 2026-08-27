@@ -27,6 +27,105 @@ interface AuthRequest extends Request {
  * Upload a payment receipt image/PDF with OCR amount extraction
  * Body (multipart): file, payment_order_id, service_type, payment_reference
  */
+/**
+ * SALIDA PARA UN COMPROBANTE QUE LLEGA A UNA ORDEN YA PAGADA
+ *
+ * Pasa seguido (18 casos hasta ahora): el cliente transfiere y sube el
+ * comprobante contra una referencia que ya se cobró — a veces porque se
+ * equivocó de orden, a veces porque pagó de más. Antes recibía "Esta orden ya
+ * fue pagada" y ahí terminaba: el dinero ya salió de su cuenta y no hay a dónde
+ * mandarlo, así que el comprobante se perdía o alguien lo forzaba a mano.
+ *
+ * Ahora el comprobante SIEMPRE se guarda:
+ *   · Si el cliente tiene otras órdenes pendientes, se las devolvemos en la
+ *     respuesta para que elija a cuál aplicarlo.
+ *   · Y en cualquier caso queda una solicitud de saldo a favor con el archivo
+ *     adjunto, para que finanzas lo apruebe y el dinero regrese al cliente como
+ *     saldo. La tabla y el flujo de aprobación ya existen.
+ */
+async function rutaParaPagoSobrante(
+  req: AuthRequest, res: Response,
+  opts: { userId: number; order: any; file: any; service_type: string }
+): Promise<any> {
+  const { userId, order, file, service_type } = opts;
+  const ref = order.payment_reference || `orden ${order.id}`;
+  try {
+    const cliente = (await pool.query(
+      `SELECT full_name, box_id FROM users WHERE id = $1`, [userId])).rows[0] || {};
+
+    // Otras órdenes suyas que sí esperan pago.
+    const pendientes = (await pool.query(
+      `SELECT pp.payment_reference, pp.amount, pp.currency, pp.created_at
+         FROM pobox_payments pp
+        WHERE pp.user_id = $1 AND pp.id <> $2
+          AND pp.status IN ('pending', 'pending_payment', 'vouchers_partial')
+          AND pp.paid_at IS NULL
+        ORDER BY pp.created_at DESC LIMIT 10`, [userId, order.id])).rows;
+
+    // El archivo se guarda pase lo que pase: es la prueba del depósito.
+    let proofUrl: string | null = null;
+    let proofKey: string | null = null;
+    try {
+      const ext = (String(file.originalname || '').split('.').pop() || 'jpg').toLowerCase();
+      proofKey = `cs/saldo-a-favor/${userId}_${Date.now()}.${ext}`;
+      proofUrl = await uploadToS3(file.buffer, proofKey, file.mimetype || 'application/octet-stream');
+    } catch (e: any) {
+      console.warn('[VOUCHER] no se pudo guardar el comprobante sobrante:', e?.message);
+    }
+
+    // Una sola solicitud por orden: si el cliente reintenta, no se duplica.
+    const motivo = `Comprobante subido a la orden ${ref}, que ya estaba pagada. Revisar si corresponde a otra orden o si es saldo a favor.`;
+    const yaHay = await pool.query(
+      `SELECT id FROM saldo_a_favor_pendientes
+        WHERE cliente_id = $1 AND estado = 'pendiente' AND motivo LIKE $2 LIMIT 1`,
+      [userId, `%${ref}%`]);
+    let solicitudId: number | null = yaHay.rows[0]?.id || null;
+    if (!solicitudId) {
+      const ins = await pool.query(
+        `INSERT INTO saldo_a_favor_pendientes
+           (cliente_id, cliente_nombre, monto, moneda, motivo, proof_file_url, proof_file_key, solicitado_por, solicitado_nombre)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+        [userId, cliente.full_name || null, 0, order.currency || 'MXN', motivo,
+         proofUrl, proofKey, userId, cliente.full_name || null]);
+      solicitudId = ins.rows[0]?.id || null;
+      console.log(`[VOUCHER] ${ref} ya pagada · comprobante de ${cliente.box_id || userId} guardado como solicitud de saldo a favor #${solicitudId}`);
+    }
+
+    // Avisar a quien puede resolverlo.
+    try {
+      const { createCustomNotification } = await import('./notificationController');
+      const admins = await pool.query(
+        `SELECT id FROM users WHERE role IN ('super_admin','admin','director','accountant') AND COALESCE(is_active,true) = true`);
+      for (const a of admins.rows) {
+        await createCustomNotification(
+          Number(a.id),
+          '💸 Comprobante sobre una orden ya pagada',
+          `${cliente.box_id || ''} ${cliente.full_name || ''} subió un comprobante a ${ref}, que ya estaba cobrada. Revísalo para aplicarlo a otra orden o dejarlo como saldo a favor.`,
+          'payment', 'cash', { saldo_favor_id: solicitudId, payment_reference: ref }, '/cobranza');
+      }
+    } catch (e: any) { console.warn('[VOUCHER] aviso sobrante:', e?.message); }
+
+    return res.status(409).json({
+      error: 'orden_ya_pagada',
+      message: pendientes.length > 0
+        ? `La orden ${ref} ya está pagada, así que tu comprobante NO se perdió: lo guardamos y nuestro equipo lo revisará. Si el depósito era para otra de tus órdenes pendientes, elígela y vuelve a subirlo ahí.`
+        : `La orden ${ref} ya está pagada. Guardamos tu comprobante y nuestro equipo lo revisará para abonarlo a tu saldo a favor.`,
+      comprobante_guardado: true,
+      solicitud_saldo_id: solicitudId,
+      ordenes_pendientes: pendientes.map((p: any) => ({
+        payment_reference: p.payment_reference,
+        amount: Number(p.amount),
+        currency: p.currency || 'MXN',
+        created_at: p.created_at,
+      })),
+      service_type,
+    });
+  } catch (e: any) {
+    console.error('[VOUCHER] rutaParaPagoSobrante:', e);
+    return res.status(400).json({ error: 'Esta orden ya fue pagada' });
+  }
+}
+
 export const uploadVoucher = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
@@ -42,9 +141,13 @@ export const uploadVoucher = async (req: AuthRequest, res: Response) => {
 
     // Validate the payment order belongs to the user and is still pending
     const orderCheck = await pool.query(
-      `SELECT id, user_id, amount, currency, status, voucher_total, payment_reference,
-              payment_method, COALESCE(credit_settled, false) AS credit_settled
-       FROM pobox_payments WHERE id = $1`,
+      `SELECT pp.id, pp.user_id, pp.amount, pp.currency, pp.status, pp.voucher_total, pp.payment_reference,
+              pp.payment_method, COALESCE(pp.credit_settled, false) AS credit_settled,
+              pp.paid_at,
+              EXISTS (SELECT 1 FROM openpay_webhook_logs o
+                       WHERE o.transaction_id = pp.payment_reference
+                         AND o.estatus_procesamiento = 'procesado') AS confirmada_en_sucursal
+       FROM pobox_payments pp WHERE pp.id = $1`,
       [payment_order_id]
     );
     if (orderCheck.rows.length === 0) {
@@ -59,8 +162,20 @@ export const uploadVoucher = async (req: AuthRequest, res: Response) => {
     // para que sigan el mismo pipeline (subir → confirmar → conciliar en Cobranza).
     const isUnsettledCredit = String(order.payment_method || '').toLowerCase() === 'credit'
       && order.credit_settled !== true;
-    if (order.status === 'completed' && !isUnsettledCredit) {
-      return res.status(400).json({ error: 'Esta orden ya fue pagada' });
+    // "Ya se pagó" no vive en un solo campo: al confirmar en sucursal se pone
+    // paid_at y el log pasa a 'procesado', pero el status se queda en
+    // 'vouchers_submitted'. Mirando solo el status se colaron 18 comprobantes
+    // contra órdenes ya cobradas, que además ensuciaban la lista por aprobar.
+    // Excepción: 'vouchers_partial' significa que lo depositado NO alcanza a
+    // cubrir la orden, aunque ya se haya confirmado un primer abono. Ahí el
+    // cliente TIENE que poder subir el comprobante que completa el pago.
+    const cubiertaPorCompleto = order.status !== 'vouchers_partial';
+    const yaPagada = order.status === 'completed'
+      || (cubiertaPorCompleto && (!!order.paid_at || order.confirmada_en_sucursal === true));
+    if (yaPagada && !isUnsettledCredit) {
+      // No se rechaza a secas: el cliente ya transfirió y quedarse con un error
+      // seco lo deja sin a dónde. Se le da salida al dinero.
+      return await rutaParaPagoSobrante(req, res, { userId, order, file, service_type });
     }
     if (isUnsettledCredit && order.status === 'completed') {
       await pool.query(
