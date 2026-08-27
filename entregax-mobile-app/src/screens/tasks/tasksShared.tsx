@@ -548,6 +548,9 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   const [schedules, setSchedules] = useState<any[]>([]);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
+  // Programación que se está editando (null = alta nueva).
+  const [editandoId, setEditandoId] = useState<number | null>(null);
+  const [fechaTocada, setFechaTocada] = useState(false);
   const [checklist, setChecklist] = useState<string[]>([]);
   const [chkInput, setChkInput] = useState('');
   const agregarChk = () => {
@@ -633,19 +636,60 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
         body.hour = base.getHours();
         body.minute = base.getMinutes();
       }
-      else { body.first_run_at = firstRunStamp(); }
-      const r = await fetch(`${API_URL}/api/tasks/schedules`, {
-        method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); Alert.alert('No se pudo programar', e.error || ''); setBusy(false); return; }
-      setTitle(''); setDesc(''); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setChecklist([]); setChkInput('');
+      // Al editar, la proxima corrida solo se mueve si el usuario tocó la fecha:
+      // cambiar el titulo no debe reprogramar algo que ya estaba por dispararse.
+      else if (editandoId == null || fechaTocada) { body.first_run_at = firstRunStamp(); }
+
+      const editando = editandoId != null;
+      const r = await fetch(
+        editando ? `${API_URL}/api/tasks/schedules/${editandoId}` : `${API_URL}/api/tasks/schedules`,
+        {
+          method: editando ? 'PUT' : 'POST',
+          headers: { ...H, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        Alert.alert(editando ? 'No se pudo guardar' : 'No se pudo programar', e.error || '');
+        setBusy(false); return;
+      }
+      limpiarEdicion();
       loadSchedules(); onCreated();
-      Alert.alert('Programada', 'La tarea se creará automáticamente en la fecha elegida.');
+      Alert.alert(
+        editando ? 'Guardada' : 'Programada',
+        editando ? 'La programación quedó actualizada.' : 'La tarea se creará automáticamente en la fecha elegida.');
     } catch { Alert.alert('Error', 'No se pudo programar'); } finally { setBusy(false); }
   };
   const del = async (id: number) => {
-    try { await fetch(`${API_URL}/api/tasks/schedules/${id}`, { method: 'DELETE', headers: H }); loadSchedules(); } catch { /* */ }
+    try {
+      await fetch(`${API_URL}/api/tasks/schedules/${id}`, { method: 'DELETE', headers: H });
+      if (editandoId === id) limpiarEdicion();
+      loadSchedules();
+    } catch { /* */ }
+  };
+
+  /** Deja el formulario listo para un alta nueva. */
+  const limpiarEdicion = () => {
+    setEditandoId(null); setFechaTocada(false);
+    setTitle(''); setDesc(''); setInvolved([]); setAssignee(0); setAssigneeTouched(false);
+    setChecklist([]); setChkInput(''); setRecurrence('none');
+  };
+
+  /** Carga una programación existente en el formulario para editarla. */
+  const editar = (s: any) => {
+    setEditandoId(Number(s.id));
+    setFechaTocada(false);
+    setTitle(String(s.title || ''));
+    setDesc(String(s.description || ''));
+    setEis(String(s.eisenhower || 'estrella'));
+    setRecurrence(String(s.recurrence || 'none'));
+    setAssignee(Number(s.assignee_id) || 0);
+    setAssigneeTouched(true);
+    setCatId(s.board_id ?? null);
+    setCatSection(s.section_id ?? null);
+    const inv = Array.isArray(s.involved_ids) ? s.involved_ids.map((x: any) => Number(x)).filter((x: number) => x && x !== myId) : [];
+    setInvolved(inv);
+    setChecklist(Array.isArray(s.subtasks) ? s.subtasks.map((x: any) => String(x?.body ?? x ?? '')).filter(Boolean) : []);
   };
 
   const DAY_OPTS = [{ k: 'today', l: 'Hoy' }, { k: 'tomorrow', l: 'Mañana' }, { k: 'd3', l: '+3 días' }, { k: 'week', l: 'Próx. semana' }];
@@ -762,7 +806,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
             <Text style={styles.fieldLbl}>Primera ejecución</Text>
             <View style={styles.eisRow}>
               {DAY_OPTS.map(o => (
-                <TouchableOpacity key={o.k} onPress={() => { setDayOpt(o.k); setDiaMes(null); }}
+                <TouchableOpacity key={o.k} onPress={() => { setDayOpt(o.k); setDiaMes(null); setFechaTocada(true); }}
                   style={[styles.dateChip, !diaMes && dayOpt === o.k && styles.dateChipOn]}>
                   <Text style={[styles.dateChipTxt, !diaMes && dayOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
                 </TouchableOpacity>
@@ -777,7 +821,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
             </Text>
             <View style={styles.eisRow}>
               {DIAS_MES.map(d => (
-                <TouchableOpacity key={d} onPress={() => setDiaMes(diaMes === d ? null : d)}
+                <TouchableOpacity key={d} onPress={() => { setDiaMes(diaMes === d ? null : d); setFechaTocada(true); }}
                   style={[styles.dayCell, diaMes === d && styles.dateChipOn]}>
                   <Text style={[styles.dayCellTxt, diaMes === d && { color: '#fff' }]}>{d}</Text>
                 </TouchableOpacity>
@@ -787,7 +831,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
             <Text style={[styles.fieldLbl, { marginTop: 10 }]}>Hora</Text>
             <View style={styles.eisRow}>
               {HOURS.map(h => (
-                <TouchableOpacity key={h} onPress={() => setHour(h)} style={[styles.dateChip, hour === h && styles.dateChipOn]}>
+                <TouchableOpacity key={h} onPress={() => { setHour(h); setFechaTocada(true); }} style={[styles.dateChip, hour === h && styles.dateChipOn]}>
                   <Text style={[styles.dateChipTxt, hour === h && { color: '#fff' }]}>{String(h).padStart(2, '0')}:00</Text>
                 </TouchableOpacity>
               ))}
@@ -816,6 +860,11 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
             {schedules.length > 0 && (
               <View style={{ marginTop: 18 }}>
                 <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Programaciones activas</Text>
+                {editandoId != null && (
+                  <Text style={{ fontSize: 11.5, color: '#B07206', fontWeight: '700', marginBottom: 6 }}>
+                    Editando una programación · los cambios se guardan con el botón de abajo
+                  </Text>
+                )}
                 {schedules.map(s => (
                   <View key={s.id} style={styles.schedRow}>
                     <View style={{ flex: 1 }}>
@@ -825,6 +874,9 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
                         {s.assignee_name ? ` · ${Number(s.assignee_id) === Number(myId) ? 'Yo' : s.assignee_name}` : ''}
                       </Text>
                     </View>
+                    <TouchableOpacity onPress={() => editar(s)} hitSlop={8} style={{ marginRight: 14 }}>
+                      <Ionicons name="create-outline" size={18} color={ORANGE} />
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={() => del(s.id)} hitSlop={8}><Ionicons name="trash-outline" size={18} color="#BBB" /></TouchableOpacity>
                   </View>
                 ))}
@@ -832,8 +884,18 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
             )}
           </ScrollView>
           <View style={styles.modalFoot}>
+            {editandoId != null && (
+              <TouchableOpacity onPress={limpiarEdicion} style={{ paddingVertical: 8, alignItems: 'center' }}>
+                <Text style={{ color: '#9AA0A6', fontWeight: '700', fontSize: 12.5 }}>Cancelar edición</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={[styles.completeBtn, { backgroundColor: '#B07206' }]} onPress={submit} disabled={busy}>
-              {busy ? <ActivityIndicator color="#fff" /> : <><Ionicons name="calendar" size={18} color="#fff" /><Text style={styles.completeTxt}>Programar</Text></>}
+              {busy ? <ActivityIndicator color="#fff" /> : (
+                <>
+                  <Ionicons name={editandoId != null ? 'save' : 'calendar'} size={18} color="#fff" />
+                  <Text style={styles.completeTxt}>{editandoId != null ? 'Guardar cambios' : 'Programar'}</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
         </View>

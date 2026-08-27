@@ -14225,6 +14225,7 @@ import {
   startTask as tasksStart,
   createSchedule as tasksCreateSchedule,
   listSchedules as tasksListSchedules,
+  updateSchedule as tasksUpdateSchedule,
   deleteSchedule as tasksDeleteSchedule,
   runDueTaskSchedules,
   // (sync se importa aparte, más abajo)
@@ -14374,6 +14375,7 @@ app.post('/api/tasks/:id/complete', authenticateToken, tasksComplete);
 app.post('/api/tasks/:id/reopen', authenticateToken, tasksReopen);
 app.post('/api/tasks/:id/start', authenticateToken, tasksStart);
 app.post('/api/tasks/schedules', authenticateToken, tasksCreateSchedule);
+app.put('/api/tasks/schedules/:id', authenticateToken, tasksUpdateSchedule);
 app.delete('/api/tasks/schedules/:id', authenticateToken, tasksDeleteSchedule);
 // Cron: materializa tareas programadas/recurrentes cada 10 min.
 setInterval(() => { runDueTaskSchedules(); }, 10 * 60 * 1000);

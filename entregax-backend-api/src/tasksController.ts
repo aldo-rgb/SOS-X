@@ -684,6 +684,68 @@ export const listSchedules = async (req: Request, res: Response): Promise<any> =
   }
 };
 
+/**
+ * PUT /api/tasks/schedules/:id
+ *
+ * Editar una programación. Antes solo se podía crear o borrar: cambiar la hora,
+ * el responsable o el título obligaba a borrar y volver a capturar todo, y con
+ * eso se perdía el historial de la programación.
+ *
+ * Solo se tocan los campos que vengan en el cuerpo; lo demás queda igual.
+ */
+export const updateSchedule = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureScheduleChecklist();
+    const uid = authUserId(req);
+    const id = parseInt(String(req.params.id));
+    if (!id) return res.status(400).json({ error: 'Programación inválida' });
+    const b = req.body || {};
+
+    const actual = (await pool.query(`SELECT * FROM task_schedules WHERE id = $1`, [id])).rows[0];
+    if (!actual) return res.status(404).json({ error: 'Programación no encontrada' });
+    if (Number(actual.created_by) !== Number(uid) && !isManager(req)) {
+      return res.status(403).json({ error: 'Solo quien la creó (o un gerente) puede editarla' });
+    }
+
+    const campos: string[] = [];
+    const vals: any[] = [];
+    const set = (col: string, val: any) => { vals.push(val); campos.push(`${col} = $${vals.length}`); };
+
+    if (typeof b.title === 'string' && b.title.trim()) set('title', b.title.trim());
+    if ('description' in b) set('description', b.description || null);
+    if (EISENHOWER.includes(b.eisenhower)) set('eisenhower', b.eisenhower);
+    if (Array.isArray(b.involved_ids)) {
+      set('involved_ids', JSON.stringify(b.involved_ids.map((x: any) => parseInt(String(x))).filter(Boolean)));
+      campos[campos.length - 1] = `involved_ids = $${vals.length}::jsonb`;
+    }
+    if ('assignee_id' in b) set('assignee_id', parseInt(String(b.assignee_id)) || null);
+    if ('board_id' in b) set('board_id', b.board_id ? parseInt(String(b.board_id)) : null);
+    if ('section_id' in b) set('section_id', b.section_id ? parseInt(String(b.section_id)) : null);
+    if (['none', 'daily', 'weekly', 'monthly', 'monthly_weekday', 'yearly'].includes(b.recurrence)) {
+      set('recurrence', b.recurrence);
+    }
+    if ('recur_ordinal' in b) set('recur_ordinal', b.recur_ordinal != null ? parseInt(String(b.recur_ordinal)) : null);
+    if ('recur_weekday' in b) set('recur_weekday', b.recur_weekday != null ? parseInt(String(b.recur_weekday)) : null);
+    // La próxima corrida se mueve solo si la mandan: cambiar el título no debe
+    // reprogramar una tarea que ya estaba por dispararse.
+    if (b.next_run_at) set('next_run_at', b.next_run_at);
+    if (Array.isArray(b.subtasks)) {
+      vals.push(JSON.stringify(b.subtasks.map((x: any) => String(x?.body ?? x ?? '').trim()).filter(Boolean)));
+      campos.push(`subtasks = $${vals.length}::jsonb`);
+    }
+    if ('active' in b) set('active', b.active !== false);
+
+    if (campos.length === 0) return res.json({ schedule: actual, sin_cambios: true });
+
+    vals.push(id);
+    const r = await pool.query(
+      `UPDATE task_schedules SET ${campos.join(', ')} WHERE id = $${vals.length} RETURNING *`, vals);
+    res.json({ schedule: r.rows[0] });
+  } catch (e: any) {
+    console.error('[tasks] updateSchedule:', e); res.status(500).json({ error: 'Error al editar la programación' });
+  }
+};
+
 export const deleteSchedule = async (req: Request, res: Response): Promise<any> => {
   try {
     const uid = authUserId(req);
