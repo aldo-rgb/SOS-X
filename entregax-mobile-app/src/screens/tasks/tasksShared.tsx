@@ -551,6 +551,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   // Programación que se está editando (null = alta nueva).
   const [editandoId, setEditandoId] = useState<number | null>(null);
   const [fechaTocada, setFechaTocada] = useState(false);
+  const scrollProgRef = React.useRef<ScrollView>(null);
   const [checklist, setChecklist] = useState<string[]>([]);
   const [chkInput, setChkInput] = useState('');
   const agregarChk = () => {
@@ -677,6 +678,9 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
 
   /** Carga una programación existente en el formulario para editarla. */
   const editar = (s: any) => {
+    // La lista vive hasta abajo: sin subir la pantalla, tocar el lápiz parecía
+    // no hacer nada porque el formulario queda fuera de vista.
+    scrollProgRef.current?.scrollTo({ y: 0, animated: true });
     setEditandoId(Number(s.id));
     setFechaTocada(false);
     setTitle(String(s.title || ''));
@@ -714,7 +718,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
             <Text style={styles.modalTitle}>📅 Programar tarea</Text>
             <TouchableOpacity onPress={onClose} hitSlop={10}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+          <ScrollView ref={scrollProgRef} contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
             <Text style={styles.helpTxt}>La tarea se creará automáticamente en la fecha y hora elegidas. Si es recurrente, se regenera en cada ciclo.</Text>
             <Text style={styles.fieldLbl}>Título</Text>
             <TextInput style={styles.input} placeholder="Usa un verbo de acción…" value={title} onChangeText={setTitle} placeholderTextColor="#999" />
