@@ -27,6 +27,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { API_URL } from '../services/api';
 import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
+import { iconoNotificacion, colorNotificacion } from '../utils/notifIcono';
 import { useTranslation } from 'react-i18next';
 import { emitDeepLink } from '../deepLink';
 
@@ -273,14 +274,7 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'success': return '#4CAF50';
-      case 'error': return '#F44336';
-      case 'promo': return BRAND_ORANGE;
-      default: return '#2196F3';
-    }
-  };
+  const getTypeColor = (type: string) => colorNotificacion(type);
 
   const getTimeAgo = (dateString: string) => {
     const date = new Date(dateString);
@@ -433,7 +427,7 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
             />
           )}
           <View style={[styles.iconContainer, { backgroundColor: typeColor + '20' }]}>
-            <Icon name={(item.icon || 'bell') as any} size={24} color={typeColor} />
+            <Icon name={iconoNotificacion(item.icon, item.type) as any} size={24} color={typeColor} />
           </View>
           
           <View style={styles.contentContainer}>
@@ -446,6 +440,19 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
 
           {!item.is_read && !selectionMode && (
             <View style={styles.unreadDot} />
+          )}
+          {/* Palomita: la marca leída y la deja en la lista. Antes la única
+              forma de quitar el punto naranja era archivarla, o sea perderla
+              de vista, o aplastar "leer todo" y barrer las demás. */}
+          {!selectionMode && !item.is_read && (
+            <IconButton
+              icon="check"
+              size={20}
+              iconColor={BRAND_ORANGE}
+              onPress={() => markAsRead(item.id)}
+              style={{ margin: 0 }}
+              accessibilityLabel="Marcar como leída"
+            />
           )}
           {!selectionMode && (
             <IconButton

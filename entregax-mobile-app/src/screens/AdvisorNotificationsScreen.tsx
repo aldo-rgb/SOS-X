@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../services/api';
+import { iconoNotificacionIon } from '../utils/notifIcono';
 
 const ARCHIVED_KEY = 'advisor_archived_notif_ids';
 
@@ -68,24 +69,6 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 // Map Material Design icon names to Ionicons equivalents
-const getIconName = (icon: string): string => {
-  const map: Record<string, string> = {
-    'package-variant': 'cube-outline',
-    'truck-delivery': 'car-outline',
-    'check-all': 'checkmark-done',
-    'cash-check': 'cash-outline',
-    'account-plus': 'person-add-outline',
-    'alert-circle': 'alert-circle-outline',
-    'headset': 'headset-outline',
-    'check-circle': 'checkmark-circle',
-    'bell': 'notifications-outline',
-    'tag': 'pricetag-outline',
-    'shield-check': 'shield-checkmark-outline',
-    'account-tie': 'person-outline',
-    'package-variant-closed': 'cube',
-  };
-  return map[icon] || 'notifications-outline';
-};
 
 export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   const { user, token } = route.params;
@@ -328,7 +311,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
         onLongPress={() => handleLongPress(item)}
       >
         <View style={[styles.notifIcon, { backgroundColor: color + '15' }]}>
-          <Ionicons name={getIconName(item.icon) as any} size={22} color={color} />
+          <Ionicons name={iconoNotificacionIon(item.icon, item.type) as any} size={22} color={color} />
         </View>
         <View style={styles.notifContent}>
           <View style={styles.notifHeader}>
@@ -353,6 +336,18 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
           )}
         </View>
         {isUnread && !selectionMode && <View style={styles.unreadDot} />}
+        {/* Palomita: acusa de leida sin sacarla de la lista. Solo en las
+            propias: las de actividad de clientes no tienen acuse. */}
+        {!selectionMode && isUnread && item.source === 'own' && (
+          <TouchableOpacity
+            onPress={() => markAsRead(item.id)}
+            style={{ padding: 6, marginLeft: 4 }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityLabel="Marcar como leida"
+          >
+            <Ionicons name="checkmark" size={20} color={ORANGE} />
+          </TouchableOpacity>
+        )}
         {!selectionMode && (
           <TouchableOpacity
             onPress={() => archiveOne(item.id)}

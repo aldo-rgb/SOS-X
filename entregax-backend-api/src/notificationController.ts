@@ -21,17 +21,37 @@ export const NOTIFICATION_TYPES = {
   SYSTEM: { type: 'info', icon: 'bell', title: 'Aviso del Sistema' },
 };
 
-// � Auto-migración: garantizar columna archived_at (silenciosa)
+// Auto-migración silenciosa de las columnas de acuse.
+//
+// `is_read` solo decía SI, no CUÁNDO ni CÓMO. Para saber quién lee de verdad
+// sus notificaciones hace falta distinguir a quien abre una por una de quien
+// entra y aplasta "leer todo": las dos dejan is_read = true y hasta ahora
+// parecían lo mismo. read_at guarda el momento del primer acuse (no se
+// sobrescribe) y read_source guarda por qué botón pasó.
 let _archivedColumnEnsured = false;
 const ensureArchivedColumn = async () => {
   if (_archivedColumnEnsured) return;
   try {
     await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS read_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS read_source VARCHAR(20)`);
+    // El panel de RH consulta por usuario y fecha de acuse.
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_notifications_read_at ON notifications (user_id, read_at)`);
     _archivedColumnEnsured = true;
   } catch (e) {
-    console.warn('No se pudo asegurar columna archived_at en notifications:', e);
+    console.warn('No se pudo asegurar columnas de acuse en notifications:', e);
   }
 };
+
+/**
+ * Fragmento SQL del acuse. Se pone read_at solo si estaba vacío: si alguien ya
+ * había leído la notificación y después la archiva, el dato que interesa es
+ * cuándo la leyó, no cuándo la barrió.
+ */
+const ACUSE = (fuente: string) =>
+  `is_read = true,
+   read_at = COALESCE(read_at, NOW()),
+   read_source = COALESCE(read_source, '${fuente}')`;
 
 // 📱 APP: Obtener mis notificaciones
 export const getMyNotifications = async (req: Request, res: Response): Promise<any> => {
@@ -41,7 +61,8 @@ export const getMyNotifications = async (req: Request, res: Response): Promise<a
     const { limit = 50, offset = 0, unreadOnly, includeArchived } = req.query;
 
     let query = `
-      SELECT id, title, message, type, icon, is_read, action_url, data, created_at, archived_at
+      SELECT id, title, message, type, icon, is_read, action_url, data, created_at, archived_at,
+             read_at, read_source
       FROM notifications
       WHERE user_id = $1
     `;
@@ -83,12 +104,15 @@ export const markAsRead = async (req: Request, res: Response): Promise<any> => {
     const userId = (req as any).user?.userId;
     const { notificationId } = req.params;
 
-    await pool.query(
-      'UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2',
+    await ensureArchivedColumn();
+    // 'manual' = el usuario tocó la palomita de ESA notificación. Es el único
+    // acuse que de verdad significa "la leí".
+    const r = await pool.query(
+      `UPDATE notifications SET ${ACUSE('manual')} WHERE id = $1 AND user_id = $2 RETURNING read_at`,
       [notificationId, userId]
     );
 
-    res.json({ success: true, message: 'Notificación marcada como leída' });
+    res.json({ success: true, message: 'Notificación marcada como leída', read_at: r.rows[0]?.read_at || null });
   } catch (error) {
     console.error('Error en markAsRead:', error);
     res.status(500).json({ success: false, error: 'Error al actualizar notificación' });
@@ -100,8 +124,9 @@ export const markAllAsRead = async (req: Request, res: Response): Promise<any> =
   try {
     const userId = (req as any).user?.userId;
 
+    await ensureArchivedColumn();
     const result = await pool.query(
-      'UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false RETURNING id',
+      `UPDATE notifications SET ${ACUSE('leer_todo')} WHERE user_id = $1 AND is_read = false RETURNING id`,
       [userId]
     );
 
@@ -145,7 +170,7 @@ export const archiveNotification = async (req: Request, res: Response): Promise<
 
     const result = await pool.query(
       `UPDATE notifications
-       SET archived_at = NOW(), is_read = true
+       SET archived_at = NOW(), ${ACUSE('archivar')}
        WHERE id = $1 AND user_id = $2 AND archived_at IS NULL
        RETURNING id`,
       [notificationId, userId]
@@ -166,7 +191,7 @@ export const archiveAllNotifications = async (req: Request, res: Response): Prom
 
     const result = await pool.query(
       `UPDATE notifications
-       SET archived_at = NOW(), is_read = true
+       SET archived_at = NOW(), ${ACUSE('archivar_todo')}
        WHERE user_id = $1 AND archived_at IS NULL
        RETURNING id`,
       [userId]
@@ -204,7 +229,7 @@ export const archiveBulkNotifications = async (req: Request, res: Response): Pro
 
     const result = await pool.query(
       `UPDATE notifications
-       SET archived_at = NOW(), is_read = true
+       SET archived_at = NOW(), ${ACUSE('archivar_lote')}
        WHERE user_id = $1 AND archived_at IS NULL AND id = ANY($2::int[])
        RETURNING id`,
       [userId, numericIds]
