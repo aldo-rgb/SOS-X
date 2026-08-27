@@ -1833,8 +1833,13 @@ function businessDaysSince(dateStr: string): number {
 function getTicketVisual(ticket: SupportTicket, isArchived: boolean) {
   if (isArchived) return TICKET_VISUAL.archived;
   if (ticket.ticket_status === 'finalizado' || ticket.status === 'resolved') return TICKET_VISUAL.finalizado;
-  // Más de 3 días HÁBILES sin resolver (sin contar sábados/domingos)
-  if (businessDaysSince(ticket.created_at) > 3) return TICKET_VISUAL.overdue;
+  // Más de 3 días HÁBILES sin resolver (sin contar sábados/domingos). La
+  // etiqueta dice CUÁNTOS lleva: "+3 días" se leía igual el que tenía cuatro
+  // que el que llevaba tres semanas, y son urgencias muy distintas.
+  const dias = businessDaysSince(ticket.created_at);
+  if (dias > 3) {
+    return { ...TICKET_VISUAL.overdue, label: `${dias} días sin resolver` };
+  }
   if (ticket.ticket_status === 'en_progreso') return TICKET_VISUAL.en_progreso;
   return TICKET_VISUAL.nuevo;
 }
