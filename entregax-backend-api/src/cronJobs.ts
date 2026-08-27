@@ -1793,17 +1793,21 @@ export const startTaskRemindersCron = () => {
   const sendReminder = async (kind: 'weekly' | 'urgent') => {
     try {
       const urgentCond = kind === 'urgent' ? `AND t.eisenhower = 'fuego'` : '';
+      // Solo lo que le toca HACER a la persona.
+      //
+      // Antes se contaba también donde era simple participante, así que a un
+      // director le sumaban las tareas de todo su equipo: "tienes 4 urgentes"
+      // cuando suya era una. Nadie puede atender una tarea de la que no es
+      // responsable, así que recordársela solo mete ruido — de la tarea ya se
+      // entera por los avisos de comentario y de cambio de estado.
+      //
+      // 'open' deja fuera las que están en espera de confirmación: esas ya se
+      // hicieron y no son pendiente de nadie.
       const rows = (await pool.query(`
-        SELECT x.uid, COUNT(DISTINCT x.task_id)::int AS n
-          FROM (
-            SELECT t.assignee_id AS uid, t.id AS task_id FROM tasks t
-             WHERE t.status = 'open' AND t.assignee_id IS NOT NULL ${urgentCond}
-            UNION
-            SELECT tp.user_id AS uid, tp.task_id FROM task_participants tp
-              JOIN tasks t ON t.id = tp.task_id
-             WHERE t.status = 'open' ${urgentCond}
-          ) x
-         GROUP BY x.uid HAVING COUNT(DISTINCT x.task_id) > 0
+        SELECT t.assignee_id AS uid, COUNT(*)::int AS n
+          FROM tasks t
+         WHERE t.status = 'open' AND t.assignee_id IS NOT NULL ${urgentCond}
+         GROUP BY t.assignee_id HAVING COUNT(*) > 0
       `)).rows;
       if (rows.length === 0) return;
       const { createCustomNotification } = await import('./notificationController');
@@ -1825,9 +1829,15 @@ export const startTaskRemindersCron = () => {
   };
   // Lunes 11:00 AM (MX) → pendientes generales.
   cron.schedule('0 11 * * 1', () => sendReminder('weekly'), { timezone: 'America/Mexico_City' });
-  // Diario 11:00 AM (MX) → urgentes.
-  cron.schedule('0 11 * * *', () => sendReminder('urgent'), { timezone: 'America/Mexico_City' });
-  console.log('📅 [CRON] Recordatorios de tareas: lunes 11am (pendientes) + diario 11am (urgentes)');
+  // Diario 11:15 AM (MX) → urgentes.
+  //
+  // A las 11:00 en punto, no: a esa misma hora corre el escalamiento de tickets
+  // atrasados, que CREA tareas urgentes. Los dos crons arrancaban juntos y el
+  // recordatorio ganaba la carrera por un cuarto de segundo, así que contaba el
+  // mundo de antes y nacía viejo. El 27-ago mandó "tienes 4" y dos segundos
+  // después ya eran 18.
+  cron.schedule('15 11 * * *', () => sendReminder('urgent'), { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Recordatorios de tareas: lunes 11am (pendientes) + diario 11:15am (urgentes)');
 };
 
 export const initCronJobs = () => {
