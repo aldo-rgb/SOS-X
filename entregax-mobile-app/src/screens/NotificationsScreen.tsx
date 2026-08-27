@@ -274,7 +274,9 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
-  const getTypeColor = (type: string) => colorNotificacion(type);
+  // El título es lo único que separa "Tareas urgentes" de "Te involucraron":
+  // las dos llegan como type='task'/'info' con icon='checkbox'.
+  const getTypeColor = (type: string, title?: string) => colorNotificacion(type, title);
 
   const getTimeAgo = (dateString: string) => {
     const date = new Date(dateString);
@@ -402,7 +404,7 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const renderNotification = ({ item }: { item: Notification }) => {
-    const typeColor = getTypeColor(item.type);
+    const typeColor = getTypeColor(item.type, item.title);
     const isSelected = selectedIds.has(item.id);
     const { title: notifTitle, message: notifMessage } = translateNotif(item, notifLang);
     
@@ -427,7 +429,7 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
             />
           )}
           <View style={[styles.iconContainer, { backgroundColor: typeColor + '20' }]}>
-            <Icon name={iconoNotificacion(item.icon, item.type) as any} size={24} color={typeColor} />
+            <Icon name={iconoNotificacion(item.icon, item.type, item.title) as any} size={24} color={typeColor} />
           </View>
           
           <View style={styles.contentContainer}>

@@ -39,7 +39,36 @@ const VALIDOS = new Set([
   'calendar', 'alert', 'gift', 'tag', 'shield-check', 'account-tie', 'account-plus',
   'clipboard-check-outline', 'credit-card-outline', 'card-account-details', 'bug',
   'airplane', 'cog-outline', 'information', 'store', 'map-marker',
+  'hours-24', 'check-decagram', 'spray', 'swap-horizontal', 'clock-alert-outline',
+  'comment-text-outline', 'account-arrow-right', 'party-popper', 'truck-alert',
 ]);
+
+/**
+ * Reglas por TÍTULO. Van primero porque son las únicas que distinguen entre
+ * notificaciones que comparten type e icon: "Tareas urgentes", "X completó una
+ * tarea" y "Te involucraron en una tarea" llegan las tres como
+ * type='info'/'task' con icon='checkbox', así que en la lista salían con el
+ * mismo portapapeles azul y no se podían separar de un vistazo.
+ *
+ * El emoji con el que arranca cada título es el discriminante confiable: lo
+ * pone quien crea la notificación y no ha cambiado.
+ */
+const POR_TITULO: Array<{ re: RegExp; icon: string; color: string }> = [
+  // Vencen en 24 horas: rojo y un icono que lo diga.
+  { re: /^🔥|tareas?\s+urgentes?/i, icon: 'hours-24', color: '#C62828' },
+  // Tarea terminada: palomita sola, sin portapapeles, en verde.
+  { re: /^(✅|👀).*(complet[oó]|termin[oó])/i, icon: 'check-decagram', color: '#2E7D46' },
+  // Error reportado: el bote de fumigar, que es lo que se hace con los bugs.
+  { re: /^🐛|error\s+reportad/i, icon: 'spray', color: '#D84315' },
+  // Cambio de tipo de producto: intercambio.
+  { re: /tipo\s+de\s+producto/i, icon: 'swap-horizontal', color: '#546E7A' },
+  // Resto del módulo de tareas, para que no sean todos el mismo portapapeles.
+  { re: /^⏳|esperando tu confirmaci/i, icon: 'clock-alert-outline', color: '#E08A00' },
+  { re: /^💬|coment[oó] en|te mencion/i, icon: 'comment-text-outline', color: '#1565C0' },
+  { re: /^📥|prospecto/i, icon: 'account-arrow-right', color: '#1565C0' },
+  { re: /^🎉|paquete entregado/i, icon: 'party-popper', color: '#2E7D46' },
+  { re: /^🚨.*flotilla|alertas de flotilla/i, icon: 'truck-alert', color: '#C62828' },
+];
 
 /** Respaldo por tipo: lo que sí describe de qué trata la notificación. */
 const POR_TIPO: Record<string, string> = {
@@ -63,7 +92,12 @@ const POR_TIPO: Record<string, string> = {
   info: 'information',
 };
 
-export function iconoNotificacion(icon?: string | null, type?: string | null): string {
+export function iconoNotificacion(icon?: string | null, type?: string | null, title?: string | null): string {
+  const t = String(title || '');
+  if (t) {
+    const regla = POR_TITULO.find(r => r.re.test(t));
+    if (regla) return regla.icon;
+  }
   const raw = String(icon || '').trim();
   if (ALIAS[raw]) return ALIAS[raw];
   if (VALIDOS.has(raw)) return raw;
@@ -71,7 +105,12 @@ export function iconoNotificacion(icon?: string | null, type?: string | null): s
 }
 
 /** Color del círculo. Antes solo distinguía success / error / promo. */
-export function colorNotificacion(type?: string | null): string {
+export function colorNotificacion(type?: string | null, title?: string | null): string {
+  const t = String(title || '');
+  if (t) {
+    const regla = POR_TITULO.find(r => r.re.test(t));
+    if (regla) return regla.color;
+  }
   switch (String(type || '')) {
     case 'success': return '#2E7D46';
     case 'error': return '#C62828';
@@ -125,8 +164,17 @@ const A_IONICONS: Record<string, string> = {
   information: 'information-circle-outline',
   store: 'storefront-outline',
   'map-marker': 'location-outline',
+  'hours-24': 'timer-outline',
+  'check-decagram': 'checkmark-circle',
+  spray: 'bug-outline',
+  'swap-horizontal': 'swap-horizontal-outline',
+  'clock-alert-outline': 'alarm-outline',
+  'comment-text-outline': 'chatbubble-ellipses-outline',
+  'account-arrow-right': 'person-add-outline',
+  'party-popper': 'gift-outline',
+  'truck-alert': 'car-outline',
 };
 
-export function iconoNotificacionIon(icon?: string | null, type?: string | null): string {
-  return A_IONICONS[iconoNotificacion(icon, type)] || 'notifications-outline';
+export function iconoNotificacionIon(icon?: string | null, type?: string | null, title?: string | null): string {
+  return A_IONICONS[iconoNotificacion(icon, type, title)] || 'notifications-outline';
 }

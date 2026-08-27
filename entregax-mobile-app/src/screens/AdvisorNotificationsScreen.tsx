@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../services/api';
-import { iconoNotificacionIon } from '../utils/notifIcono';
+import { iconoNotificacionIon, colorNotificacion } from '../utils/notifIcono';
 
 const ARCHIVED_KEY = 'advisor_archived_notif_ids';
 
@@ -300,7 +300,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   };
 
   const renderNotification = ({ item }: { item: Notification }) => {
-    const color = TYPE_COLORS[item.type] || '#666';
+    const color = colorNotificacion(item.type, item.title);
     const isUnread = (!item.is_read && item.source === 'own') || item.source === 'pending_verification' || item.source === 'own_verification';
     const isSelected = selectedIds.has(item.id);
 
@@ -311,7 +311,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
         onLongPress={() => handleLongPress(item)}
       >
         <View style={[styles.notifIcon, { backgroundColor: color + '15' }]}>
-          <Ionicons name={iconoNotificacionIon(item.icon, item.type) as any} size={22} color={color} />
+          <Ionicons name={iconoNotificacionIon(item.icon, item.type, item.title) as any} size={22} color={color} />
         </View>
         <View style={styles.notifContent}>
           <View style={styles.notifHeader}>
