@@ -1043,10 +1043,25 @@ export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { 
                 fetchBolsasDisponibles(),
                 fetchAnticiposContainer(container.id) // Cargar anticipos del contenedor
             ]);
-            setCosts(costsRes.data || { ...emptyCosts, container_id: container.id });
+            const costosCargados = costsRes.data || { ...emptyCosts, container_id: container.id };
+            // Otros gastos: se guardan consolidados en other_amount/other_description
+            // (así los leen los totales y los reportes) pero además queda el
+            // desglose en other_items. Sin rehidratarlo, al reabrir se veía un
+            // solo renglón con la suma y las descripciones pegadas con "|", y
+            // parecía que lo agregado se había perdido (tarea 372).
+            const renglones: { description: string; amount: number }[] = Array.isArray(costosCargados.other_items)
+                ? costosCargados.other_items
+                    .map((x: any) => ({ description: String(x?.description || ''), amount: Number(x?.amount) || 0 }))
+                    .filter((x: any) => x.amount > 0 || x.description)
+                : [];
+            if (renglones.length > 0) {
+                costosCargados.other_amount = renglones[0].amount;
+                costosCargados.other_description = renglones[0].description;
+            }
+            setCosts(costosCargados);
             setSelectedBolsas({ advance_1: null, advance_2: null, advance_3: null, advance_4: null });
             setOriginalBolsas({ advance_1: null, advance_2: null, advance_3: null, advance_4: null });
-            setExtraCosts([]); // Reset gastos adicionales
+            setExtraCosts(renglones.slice(1));
             // Limpiar desglose de utilidades del contenedor anterior para no mostrar
             // "otros" embarques bajo el título de este contenedor mientras carga.
             setProfitData(null);
@@ -1155,10 +1170,18 @@ export default function CostingPanelMaritimo({ initialNoReferenceNonce = 0 }: { 
             const fullDescription = descriptions.join(' | ');
             
             // Preparar costos con el total consolidado
+            // El desglose viaja aparte del consolidado: other_amount sigue siendo
+            // la suma (de ahí salen los totales del contenedor) y other_items
+            // guarda renglón por renglón para poder editarlos después.
+            const itemsOtros = [
+                { description: String(costs.other_description || ''), amount: parseFloat(String(costs.other_amount)) || 0 },
+                ...extraCosts.map(e => ({ description: String(e.description || ''), amount: Number(e.amount) || 0 })),
+            ].filter(x => x.amount > 0 || x.description.trim());
             const costsToSave = {
                 ...costs,
                 other_amount: totalOtherAmount,
-                other_description: fullDescription || costs.other_description
+                other_description: fullDescription || costs.other_description,
+                other_items: itemsOtros,
             };
             
             // Primero guardar los costos

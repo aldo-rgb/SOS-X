@@ -2275,6 +2275,10 @@ app.get('/api/migrate/container-docs', async (_req: Request, res: Response) => {
   try {
     await pool.query(`
       ALTER TABLE container_costs ADD COLUMN IF NOT EXISTS telex_release_pdf TEXT;
+      -- Desglose renglón por renglón de "Otros Gastos". other_amount sigue
+      -- siendo la suma (de ahí salen los totales); esto guarda las partidas
+      -- para poder editarlas después (tarea 372).
+      ALTER TABLE container_costs ADD COLUMN IF NOT EXISTS other_items JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE container_costs ADD COLUMN IF NOT EXISTS bl_document_pdf TEXT;
       ALTER TABLE maritime_reception_drafts ADD COLUMN IF NOT EXISTS telex_pdf_url TEXT;
       ALTER TABLE maritime_reception_drafts ADD COLUMN IF NOT EXISTS telex_pdf_filename TEXT;

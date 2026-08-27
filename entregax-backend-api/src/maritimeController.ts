@@ -584,11 +584,11 @@ export const updateContainerCosts = async (req: AuthRequest, res: Response): Pro
         advance_3_amount, advance_3_pdf,
         advance_4_amount, advance_4_pdf,
         transport_amount, transport_pdf,
-        other_amount, other_pdf, other_description,
+        other_amount, other_pdf, other_description, other_items,
         telex_release_pdf, bl_document_pdf,
         calculated_aa_cost, calculated_release_cost,
         is_fully_costed, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, NOW())
       ON CONFLICT (container_id) DO UPDATE SET
         debit_note_amount = EXCLUDED.debit_note_amount,
         debit_note_pdf = COALESCE(EXCLUDED.debit_note_pdf, container_costs.debit_note_pdf),
@@ -622,6 +622,7 @@ export const updateContainerCosts = async (req: AuthRequest, res: Response): Pro
         other_amount = EXCLUDED.other_amount,
         other_pdf = COALESCE(EXCLUDED.other_pdf, container_costs.other_pdf),
         other_description = EXCLUDED.other_description,
+        other_items = EXCLUDED.other_items,
         telex_release_pdf = COALESCE(EXCLUDED.telex_release_pdf, container_costs.telex_release_pdf),
         bl_document_pdf = COALESCE(EXCLUDED.bl_document_pdf, container_costs.bl_document_pdf),
         calculated_aa_cost = EXCLUDED.calculated_aa_cost,
@@ -645,6 +646,7 @@ export const updateContainerCosts = async (req: AuthRequest, res: Response): Pro
       ant4, costs.advance_4_pdf || null,
       transp, costs.transport_pdf || null,
       other, costs.other_pdf || null, costs.other_description || null,
+      JSON.stringify(Array.isArray(costs.other_items) ? costs.other_items : []),
       costs.telex_release_pdf || null, costs.bl_document_pdf || null,
       calculatedAA, calculatedRelease,
       isComplete
