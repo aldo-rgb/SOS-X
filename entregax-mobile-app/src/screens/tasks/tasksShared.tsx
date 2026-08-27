@@ -551,6 +551,10 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   // Programación que se está editando (null = alta nueva).
   const [editandoId, setEditandoId] = useState<number | null>(null);
   const [fechaTocada, setFechaTocada] = useState(false);
+  // Mes de la primera ejecución (0=enero). null = el más próximo, que era el
+  // único comportamiento posible: no había forma de programar "1 de enero"
+  // porque el selector solo elegía el día y el mes siempre era el actual.
+  const [mesElegido, setMesElegido] = useState<number | null>(null);
   const scrollProgRef = React.useRef<ScrollView>(null);
   const [checklist, setChecklist] = useState<string[]>([]);
   const [chkInput, setChkInput] = useState('');
@@ -578,7 +582,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
     .then(r => r.json()).then(d => setSchedules(d.schedules || [])).catch(() => {});
   useEffect(() => {
     if (!visible) return;
-    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setDiaMes(null); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setCatSection(null);
+    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setDiaMes(null); setMesElegido(null); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setCatSection(null);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => { setUsers(d.users || []); setFrequent(d.frequent || []); }).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H }).then(r => r.json()).then(d => {
       setCategories((d.categories || []).filter((c: any) => c.board_key !== 'personales'));
@@ -597,8 +601,21 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   const firstRunStamp = (): string => {
     const d = new Date();
     if (diaMes) {
-      // Día del mes elegido. Si ya pasó en el mes en curso, se va al siguiente.
       d.setHours(hour, 0, 0, 0);
+      if (mesElegido != null) {
+        // Mes explícito: si esa fecha ya pasó este año, se va al año siguiente.
+        // Así "1 de enero" queda en el próximo enero y no en el que ya pasó.
+        d.setMonth(mesElegido, 1);
+        const ultimo = new Date(d.getFullYear(), mesElegido + 1, 0).getDate();
+        d.setDate(Math.min(diaMes, ultimo));
+        if (d.getTime() <= Date.now()) {
+          d.setFullYear(d.getFullYear() + 1);
+          const ultimoProx = new Date(d.getFullYear(), mesElegido + 1, 0).getDate();
+          d.setMonth(mesElegido, Math.min(diaMes, ultimoProx));
+        }
+        return toStamp(d);
+      }
+      // Sin mes: el día elegido del mes en curso; si ya pasó, el mes siguiente.
       const ultimoDia = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
       d.setDate(Math.min(diaMes, ultimoDia));
       if (d.getTime() <= Date.now()) {
@@ -673,7 +690,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   const limpiarEdicion = () => {
     setEditandoId(null); setFechaTocada(false);
     setTitle(''); setDesc(''); setInvolved([]); setAssignee(0); setAssigneeTouched(false);
-    setChecklist([]); setChkInput(''); setRecurrence('none');
+    setChecklist([]); setChkInput(''); setRecurrence('none'); setDiaMes(null); setMesElegido(null);
   };
 
   /** Carga una programación existente en el formulario para editarla. */
@@ -694,6 +711,11 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
     const inv = Array.isArray(s.involved_ids) ? s.involved_ids.map((x: any) => Number(x)).filter((x: number) => x && x !== myId) : [];
     setInvolved(inv);
     setChecklist(Array.isArray(s.subtasks) ? s.subtasks.map((x: any) => String(x?.body ?? x ?? '')).filter(Boolean) : []);
+    // Día y mes de la próxima corrida, para que al abrirla se vea cuándo toca.
+    if (s.next_run_at) {
+      const n = new Date(s.next_run_at);
+      if (!isNaN(n.getTime())) { setDiaMes(n.getDate()); setMesElegido(n.getMonth()); setHour(n.getHours()); }
+    }
   };
 
   const DAY_OPTS = [{ k: 'today', l: 'Hoy' }, { k: 'tomorrow', l: 'Mañana' }, { k: 'd3', l: '+3 días' }, { k: 'week', l: 'Próx. semana' }];
@@ -703,6 +725,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   // Los 31 días del mes. Antes solo se podía elegir Hoy / Mañana / +3 / Próx.
   // semana, así que no había forma de programar "el 15 de cada mes".
   const DIAS_MES = Array.from({ length: 31 }, (_, i) => i + 1);
+  const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   const WEEKDAYS = [{ v: 1, l: 'Lun' }, { v: 2, l: 'Mar' }, { v: 3, l: 'Mié' }, { v: 4, l: 'Jue' }, { v: 5, l: 'Vie' }, { v: 6, l: 'Sáb' }, { v: 0, l: 'Dom' }];
   const WD_FULL = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const ORD_FULL: Record<number, string> = { 1: 'Primer', 2: 'Segundo', 3: 'Tercer', 4: 'Cuarto', [-1]: 'Último' };
@@ -831,6 +854,25 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
                 </TouchableOpacity>
               ))}
             </View>
+
+            {/* Mes de la primera ejecución. Solo aparece cuando ya se eligió un
+                día: sirve para fechas fijas del año ("1 de enero"), que antes
+                no se podían programar. */}
+            {!!diaMes && (
+              <>
+                <Text style={[styles.fieldLbl, { marginTop: 10 }]}>
+                  Mes{mesElegido != null ? ` · ${MESES[mesElegido]}` : ' · el más próximo'}
+                </Text>
+                <View style={styles.eisRow}>
+                  {MESES.map((m, i) => (
+                    <TouchableOpacity key={m} onPress={() => { setMesElegido(mesElegido === i ? null : i); setFechaTocada(true); }}
+                      style={[styles.dateChip, mesElegido === i && styles.dateChipOn]}>
+                      <Text style={[styles.dateChipTxt, mesElegido === i && { color: '#fff' }]}>{m}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
 
             <Text style={[styles.fieldLbl, { marginTop: 10 }]}>Hora</Text>
             <View style={styles.eisRow}>
