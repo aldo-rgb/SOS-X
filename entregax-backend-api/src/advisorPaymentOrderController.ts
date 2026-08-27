@@ -1385,12 +1385,17 @@ export const addClientFiscalProfile = async (req: Request, res: Response): Promi
     await ensureFiscalProfilesTable();
 
     const { razon_social, rfc, codigo_postal, regimen_fiscal, uso_cfdi } = req.body || {};
-    if (!razon_social || !rfc || !codigo_postal || !regimen_fiscal) {
-      return res.status(400).json({ error: 'Datos fiscales incompletos (razón social, RFC, CP y régimen son obligatorios)' });
-    }
-    const rfcU = String(rfc).toUpperCase().trim();
-    if (rfcU.length < 12 || rfcU.length > 13) return res.status(400).json({ error: 'RFC inválido' });
-    if (!/^\d{5}$/.test(String(codigo_postal).trim())) return res.status(400).json({ error: 'Código postal inválido (5 dígitos)' });
+    // Validación compartida con XPAY. La de antes solo medía el largo del RFC
+    // (12–13), y por ahí entró "AISC87041238": doce caracteres es válido para
+    // una empresa pero imposible para una persona física, y el proveedor lo
+    // rechazaba hasta el momento de operar. También cachaba nada cuando se
+    // capturaba el RFC en el campo de la razón social.
+    const { validarDatosFiscales, normalizarRfc } = await import('./datosFiscales');
+    const motivo = validarDatosFiscales({
+      rfc, razon_social, cp: codigo_postal, regimen_fiscal, uso_cfdi: uso_cfdi || 'G03',
+    });
+    if (motivo) return res.status(400).json({ error: motivo });
+    const rfcU = normalizarRfc(rfc);
 
     const cnt = await pool.query(`SELECT COUNT(*)::int AS n FROM client_fiscal_profiles WHERE user_id = $1`, [clientId]);
     const isDefault = (cnt.rows[0]?.n || 0) === 0; // el primero queda como predeterminado

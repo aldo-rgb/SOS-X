@@ -1205,74 +1205,44 @@ export const adminGetSupplierDetail = async (req: Request, res: Response): Promi
 // FLUJO V2: Perfil fiscal, pricing config, cotización, comprobante diferido
 // ===========================================================================
 
+/**
+ * Perfil fiscal del cliente. Antes leía `entangled_fiscal_profiles` y solo caía
+ * a `users.fiscal_*` si estaba vacío; en cuanto XPAY guardaba una vez, se
+ * quedaba con una copia congelada que ya no se enteraba de nada. Ahora lee la
+ * fuente única (ver datosFiscales.ts).
+ */
 export const getMyFiscalProfile = async (req: Request, res: Response, opts?: { ownerUserId?: number }): Promise<any> => {
   const userId = opts?.ownerUserId ?? getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   try {
-    // 1) Perfil ENTANGLED (si existe)
-    const r = await pool.query(
-      `SELECT rfc, razon_social, regimen_fiscal, cp, uso_cfdi, email, updated_at
-       FROM entangled_fiscal_profiles WHERE user_id = $1`,
-      [userId]
-    );
-    if (r.rows[0]) return res.json(r.rows[0]);
-
-    // 2) Fallback: datos fiscales generales del usuario (tabla users)
-    const u = await pool.query(
-      `SELECT fiscal_rfc, fiscal_razon_social, fiscal_regimen_fiscal,
-              fiscal_codigo_postal, fiscal_uso_cfdi, email
-       FROM users WHERE id = $1`,
-      [userId]
-    );
-    const row = u.rows[0];
-    if (row && (row.fiscal_rfc || row.fiscal_razon_social)) {
-      return res.json({
-        rfc: row.fiscal_rfc || '',
-        razon_social: row.fiscal_razon_social || '',
-        regimen_fiscal: row.fiscal_regimen_fiscal || '601',
-        cp: row.fiscal_codigo_postal || '',
-        uso_cfdi: row.fiscal_uso_cfdi || 'G03',
-        email: row.email || '',
-        updated_at: null,
-        _source: 'user_profile',
-      });
-    }
-    return res.json(null);
+    const { leerPerfilFiscal } = await import('./datosFiscales');
+    return res.json(await leerPerfilFiscal(userId));
   } catch (err) {
     console.error('[ENTANGLED] getMyFiscalProfile:', err);
     return res.status(500).json({ error: 'Error al consultar perfil fiscal' });
   }
 };
 
+/**
+ * Guarda el perfil fiscal en la fuente única, no en la copia de XPAY. La
+ * validación es la misma que usa el resto del sistema: antes web pedía unos
+ * campos, la app otros y el backend otros, y el mismo cliente pasaba en una
+ * pantalla para tronar con 400 en la siguiente.
+ */
 export const upsertMyFiscalProfile = async (req: Request, res: Response, opts?: { ownerUserId?: number }): Promise<any> => {
   const userId = opts?.ownerUserId ?? getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   const b = req.body || {};
   try {
-    const r = await pool.query(
-      `INSERT INTO entangled_fiscal_profiles (user_id, rfc, razon_social, regimen_fiscal, cp, uso_cfdi, email)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (user_id) DO UPDATE SET
-         rfc = EXCLUDED.rfc,
-         razon_social = EXCLUDED.razon_social,
-         regimen_fiscal = EXCLUDED.regimen_fiscal,
-         cp = EXCLUDED.cp,
-         uso_cfdi = EXCLUDED.uso_cfdi,
-         email = EXCLUDED.email,
-         updated_at = NOW()
-       RETURNING *`,
-      [
-        userId,
-        String(b.rfc || '').toUpperCase() || null,
-        b.razon_social || null,
-        b.regimen_fiscal || null,
-        b.cp ? String(b.cp) : null,
-        b.uso_cfdi || null,
-        b.email || null,
-      ]
-    );
-    return res.json(r.rows[0]);
-  } catch (err) {
+    const { validarDatosFiscales, guardarPerfilFiscal } = await import('./datosFiscales');
+    const datos = {
+      rfc: b.rfc, razon_social: b.razon_social, regimen_fiscal: b.regimen_fiscal,
+      cp: b.cp ?? b.codigo_postal, uso_cfdi: b.uso_cfdi, email: b.email,
+    };
+    const motivo = validarDatosFiscales(datos);
+    if (motivo) return res.status(400).json({ error: motivo });
+    return res.json(await guardarPerfilFiscal(userId, datos as any));
+  } catch (err: any) {
     console.error('[ENTANGLED] upsertMyFiscalProfile:', err);
     return res.status(500).json({ error: 'Error al guardar perfil fiscal' });
   }
