@@ -4845,6 +4845,13 @@ app.post('/api/packages/create-outbound', authenticateToken, requireMinLevel(ROL
 // Obtener instrucciones de reempaque pendientes (Staff o superior)
 app.get('/api/packages/repack-instructions', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getRepackInstructions);
 
+// ── Entrega en mostrador (PO Box · Hidalgo TX) ────────────────────────────
+// Cierra el pick-up: valida el pago y marca la guía como entregada, con el
+// nombre de quien la recibió. El cobro en efectivo lo sigue haciendo
+// /api/admin/finance/confirm-payment, que ya deja el movimiento en caja.
+app.get('/api/pobox/entrega-mostrador', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), poboxListarPendientesMostrador);
+app.post('/api/pobox/entrega-mostrador/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), poboxEntregarEnMostrador);
+
 // Bulk assign delivery with document uploads (client-facing)
 app.post('/api/packages/assign-delivery', authenticateToken, uploadDeliveryDocs, bulkAssignDelivery);
 app.get('/api/packages/saved-constancia', authenticateToken, getSavedConstancia);
@@ -14243,6 +14250,7 @@ import {
   verifyAuth as syncVerifyAuth,
 } from './syncController';
 import { ensureSyncSchema, dispatchOutbox, logSyncAttempt, reintentarAdjuntosPendientes } from './syncService';
+import { listarPendientesMostrador as poboxListarPendientesMostrador, entregarEnMostrador as poboxEntregarEnMostrador } from './poboxEntregaMostrador';
 import {
   uploadBrandAsset,
   activateBrandAsset,
@@ -15275,6 +15283,15 @@ async function ensureRequiredColumns() {
         icon = EXCLUDED.icon,
         category = EXCLUDED.category
     `);
+    // Módulo nuevo del panel de operaciones PO Box: cierra el pick-up cobrando
+    // el saldo y registrando la entrega en Hidalgo TX.
+    await pool.query(`
+      INSERT INTO admin_panel_modules (panel_key, module_key, module_name, description, icon, sort_order, is_active)
+      VALUES ('ops_usa_pobox', 'counter_delivery', 'Cobrar y Entregar',
+              'Cobrar el saldo y entregar al cliente en mostrador (Hidalgo TX)', 'Handshake', 10, TRUE)
+      ON CONFLICT (panel_key, module_key) DO NOTHING
+    `).catch(() => {});
+
     // Sembrar módulos del panel admin_usa_pobox en admin_panel_modules (idempotente)
     await pool.query(`
       INSERT INTO admin_panel_modules (panel_key, module_key, module_name, description, icon, sort_order, is_active)

@@ -59,6 +59,7 @@ import {
     Inventory as InventoryIcon,
     Warning as WarningIcon,
     AttachMoney as MoneyIcon,
+    Handshake as HandshakeIcon,
     Calculate as CalculateIcon,
     ArrowBack as BackIcon,
     LocalShipping as ShippingIcon,
@@ -91,6 +92,7 @@ import axios from 'axios';
 import ShipmentsPage from './ShipmentsPage';
 import OutboundControlPage from './OutboundControlPage';
 import POBoxCajaPage from './POBoxCajaPage';
+import POBoxEntregaMostradorPage from './POBoxEntregaMostradorPage';
 import POBoxQuoterPage from './POBoxQuoterPage';
 import RepackPage from './RepackPage';
 import POBoxInventoryPage from './POBoxInventoryPage';
@@ -208,7 +210,7 @@ const PAQUETERIAS = [
 
 const ORANGE = '#F05A28';
 
-const POBOX_MODULES = ['receive', 'receive_consolidation', 'entry', 'exit', 'collect', 'quote', 'repack', 'inventory', 'assign_client'];
+const POBOX_MODULES = ['receive', 'receive_consolidation', 'entry', 'exit', 'counter_delivery', 'collect', 'quote', 'repack', 'inventory', 'assign_client'];
 
 // Definición de las opciones del menú - ORDEN: Recibir, Entrada, Salida, Cobrar, Cotizar, Reempaque, Inventario
 const POBOX_MENU_OPTIONS = [
@@ -243,6 +245,16 @@ const POBOX_MENU_OPTIONS = [
         bgGradient: 'linear-gradient(135deg, #F57C00 0%, #FFB74D 100%)',
         bgColor: '#fff3e0',
         iconColor: '#FF9800',
+    },
+    {
+        // Cierra el pick-up: cobra el saldo (efectivo, pesos o dolares) y
+        // registra la entrega. Va junto a Cobrar porque es la misma caja.
+        id: 'counter_delivery',
+        icon: <HandshakeIcon sx={{ fontSize: 48 }} />,
+        color: '#2E7D46',
+        bgGradient: 'linear-gradient(135deg, #1B5E20 0%, #4CAF50 100%)',
+        bgColor: '#e8f5e9',
+        iconColor: '#2E7D46',
     },
     {
         id: 'collect',
@@ -1415,6 +1427,9 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             case 'exit':
                 // Salida - Control de salidas con wizard de escaneo
                 return <OutboundControlPage />;
+            case 'counter_delivery':
+                // Cobrar y Entregar en Mostrador - cierra el pick-up de Hidalgo
+                return <POBoxEntregaMostradorPage />;
             case 'collect':
                 // Cobrar - Panel de caja con búsqueda por referencia
                 return <POBoxCajaPage />;
@@ -3081,6 +3096,7 @@ function getDefaultTitle(id: string): string {
         receive_consolidation: 'Recibir Consolidación',
         entry: 'Entrada',
         exit: 'Salida',
+        counter_delivery: 'Cobrar y Entregar',
         collect: 'Cobrar',
         quote: 'Cotizar',
         repack: 'Reempaque',
