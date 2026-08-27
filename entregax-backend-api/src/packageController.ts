@@ -6526,6 +6526,24 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
         // que van a quedar "vacíos" tras el reempaque.
         // ─────────────────────────────────────────────────────────────
 
+        // Guard 0: un reempaque EN CURSO no es mercancía disponible para meter en
+        // otra caja. US-REPACK-5361 estaba abierto y se seleccionó como si fuera
+        // una guía normal: quedó colgado dentro de US-REPACK-2841 y, cuando days
+        // después se completó y salió despachado, el segundo reempaque se quedó
+        // esperando 24 días una caja que ya no estaba en la bodega (S1202).
+        const repacksEnCurso = packages.filter((p: any) =>
+            String(p.tracking_internal || '').toUpperCase().startsWith('US-REPACK-')
+            && String(p.status) === 'received'
+        );
+        if (repacksEnCurso.length > 0) {
+            const list = repacksEnCurso.map((p: any) => p.tracking_internal).join(', ');
+            res.status(400).json({
+                error: `Estos reempaques todavía están en proceso y no se pueden meter en otro: ${list}. `
+                     + `Espera a que se completen, o consolida directamente las guías que contienen.`
+            });
+            return;
+        }
+
         // Guard 1: rechazar si alguno de los IDs recibidos es un master con hijas.
         // Si el front no expandió, esto evita la jerarquía anidada REPACK → master → hijas.
         const stillMaster = packages.filter((p: any) =>
