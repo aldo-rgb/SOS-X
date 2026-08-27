@@ -744,11 +744,21 @@ function App() {
       return Object.keys(userPanelPermissions).some(key => key.startsWith('accounting_'));
     }
 
-    // Submenus de Caja (cajaChica, pettyCash, cobranza): admin/director/finanzas tienen acceso completo
+    // Submenus de Caja (cajaChica, pettyCash, cobranza).
+    //
+    // El respaldo por permisos buscaba llaves con prefijo 'caja_' o 'cobranza_'
+    // y NINGUNA existe: los paneles reales se llaman 'admin_petty_cash' y
+    // 'admin_finance_dashboard'. O sea que el acceso era solo por rol y
+    // otorgar el permiso en Permisos no servía de nada — por eso Leonardo
+    // reiniciaba sesión y seguía sin ver el cambio (tarea 374).
     if (['cajaChica', 'pettyCash', 'cobranza'].includes(category)) {
       const role = currentUser?.role || '';
       if (['super_admin', 'admin', 'director', 'finanzas'].includes(role)) return true;
-      return Object.keys(userPanelPermissions).some(key => key.startsWith('caja_') || key.startsWith('cobranza_'));
+      // El contador concilia el estado de cuenta completo: el backend ya se lo
+      // permite desde el 26-ago, faltaba que el menú lo dejara entrar.
+      if (category === 'cobranza' && role === 'accountant') return true;
+      const llave = category === 'cobranza' ? 'admin_finance_dashboard' : 'admin_petty_cash';
+      return !!userPanelPermissions[llave];
     }
 
     const categoryPrefixes: Record<string, string[]> = {
