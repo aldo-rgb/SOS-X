@@ -10995,7 +10995,9 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
     const { referencia } = req.params;
 
     const payRes = await pool.query(`
-      SELECT pp.amount, pp.created_at, u.box_id
+      SELECT pp.amount, pp.created_at, u.box_id,
+             (SELECT MIN(v.created_at) FROM payment_vouchers v WHERE v.payment_order_id = pp.id) AS voucher_min,
+             (SELECT MAX(v.created_at) FROM payment_vouchers v WHERE v.payment_order_id = pp.id) AS voucher_max
       FROM pobox_payments pp
       LEFT JOIN users u ON pp.user_id = u.id
       WHERE pp.payment_reference = $1
@@ -11012,8 +11014,17 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
     // Token de la referencia (RO-7419F736 -> 7419F736) para cruzar contra el concepto bancario.
     const refToken = String(referencia).replace(/^(RO|PP)-/i, '').replace(/[^A-Za-z0-9]/g, '');
 
-    // Ventana de fechas: el SPEI puede liquidar el mismo día o 1-2 días después.
-    const fecha = new Date(pay.created_at);
+    // Ventana de fechas. Se ancla en la orden Y en los comprobantes: un cliente
+    // puede pagar mucho después de que se le genera la orden. RO-40073868 se
+    // creó el 2-jul y el cliente subió sus dos comprobantes el 25-ago; con la
+    // ventana medida solo desde la orden, el selector llegaba hasta el 1-ago y
+    // el depósito real quedaba fuera, así que parecía no existir (tarea 374).
+    const DIA = 24 * 60 * 60 * 1000;
+    const creada = new Date(pay.created_at).getTime();
+    const vMin = pay.voucher_min ? new Date(pay.voucher_min).getTime() : creada;
+    const vMax = pay.voucher_max ? new Date(pay.voucher_max).getTime() : creada;
+    const desde = new Date(Math.min(creada, vMin) - 5 * DIA);
+    const hasta = new Date(Math.max(creada + 30 * DIA, vMax + 15 * DIA));
 
     // Regex que evita que "S88" haga match con "S889": el box_id no debe ir seguido de otro dígito.
     const boxRegex = boxId ? `${boxId}([^0-9]|$)` : null;
@@ -11037,7 +11048,7 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
         -- mostraba como si no existieran (tarea 374). Ampliarla casi no mete
         -- ruido: el promedio de candidatos pasa de 0.3 a 0.7 por orden, y el
         -- ORDER BY de abajo ya empuja arriba los que de verdad coinciden.
-        AND b.fecha BETWEEN ($4::date - INTERVAL '5 days') AND ($4::date + INTERVAL '30 days')
+        AND b.fecha BETWEEN $4::date AND $5::date
       ORDER BY (
                ($1::text IS NOT NULL AND (b.referencia ~* $1 OR b.concepto ~* $1))
                OR (b.abono IS NOT NULL AND ABS(CAST(b.abono AS numeric) - $2::numeric) <= 1)
@@ -11045,7 +11056,7 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
              ) DESC,
              b.fecha DESC, b.id DESC
       LIMIT 60
-    `, [boxRegex, monto, refToken, fecha]);
+    `, [boxRegex, monto, refToken, desde, hasta]);
 
     // Estado de conciliación de cada candidato: quien aprueba tiene que ver de
     // un vistazo qué abonos siguen libres y cuáles ya se gastaron en otra orden.
