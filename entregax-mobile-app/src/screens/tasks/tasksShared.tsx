@@ -293,6 +293,9 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   };
   const [eis, setEis] = useState(''); // en blanco: obligatorio elegir
   const [dueOpt, setDueOpt] = useState<string>(''); // en blanco: fecha obligatoria
+  // Fecha puesta en el calendario. Los atajos (Hoy, +3 días…) no alcanzaban
+  // para nada que cayera más allá de la próxima semana.
+  const [fechaCustom, setFechaCustom] = useState<Date | null>(null);
   const [involved, setInvolved] = useState<number[]>([]);
   const [assignee, setAssignee] = useState<number>(0); // responsable principal
   const [assigneeTouched, setAssigneeTouched] = useState(false); // el usuario eligió manualmente
@@ -323,7 +326,13 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   const dueStamp = (): string | null => {
     if (!dueOpt || dueOpt === 'none') return null;
     const d = new Date();
-    if (dueOpt === 'today') { d.setHours(18, 0, 0, 0); }
+    if (dueOpt === 'custom' && fechaCustom) {
+      d.setFullYear(fechaCustom.getFullYear(), fechaCustom.getMonth(), fechaCustom.getDate());
+      // Si la fecha elegida es hoy, el cierre del día; cualquier otra, en la mañana.
+      const esHoy = new Date().toDateString() === fechaCustom.toDateString();
+      d.setHours(esHoy ? 18 : 9, 0, 0, 0);
+    }
+    else if (dueOpt === 'today') { d.setHours(18, 0, 0, 0); }
     else if (dueOpt === 'tomorrow') { d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); }
     else if (dueOpt === 'd3') { d.setDate(d.getDate() + 3); d.setHours(9, 0, 0, 0); }
     else if (dueOpt === 'week') { d.setDate(d.getDate() + 7); d.setHours(9, 0, 0, 0); }
@@ -416,38 +425,22 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
               titulo="Categoría (flujo)"
               resumen={catId === null ? 'Personal' : (categories.find(c => c.id === catId)?.name || 'Sin elegir')}
             >
-            <View style={styles.eisRow}>
-              <TouchableOpacity onPress={() => setCatId(null)} style={[styles.dateChip, catId === null && styles.dateChipOn]}>
-                <Text style={[styles.dateChipTxt, catId === null && { color: '#fff' }]}>Personal</Text>
-              </TouchableOpacity>
-              {categories.map(c => {
-                const on = catId === c.id;
-                return (
-                  <TouchableOpacity key={c.id} onPress={() => { setCatId(c.id); setCatSection(null); }} style={[styles.dateChip, on && styles.dateChipOn]}>
-                    <Text style={[styles.dateChipTxt, on && { color: '#fff' }]}>{c.name}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            <SelectorLista
+              opciones={[{ k: null, l: 'Personal' }, ...categories.map(c => ({ k: c.id, l: c.name }))]}
+              valor={catId}
+              onChange={k => { setCatId(k); setCatSection(null); }}
+            />
             <Text style={styles.helpTxt}>«Personal» solo va a tu panel personal. Con categoría, aparece en ese flujo.</Text>
             {(() => {
               const secs = categories.find(c => c.id === catId)?.sections || [];
               return secs.length > 0 ? (
                 <>
                   <Text style={styles.fieldLbl}>Sub-sección</Text>
-                  <View style={styles.eisRow}>
-                    <TouchableOpacity onPress={() => setCatSection(null)} style={[styles.dateChip, !catSection && styles.dateChipOn]}>
-                      <Text style={[styles.dateChipTxt, !catSection && { color: '#fff' }]}>Sin sub-sección</Text>
-                    </TouchableOpacity>
-                    {secs.map(s => {
-                      const on = catSection === s.id;
-                      return (
-                        <TouchableOpacity key={s.id} onPress={() => setCatSection(s.id)} style={[styles.dateChip, on && styles.dateChipOn]}>
-                          <Text style={[styles.dateChipTxt, on && { color: '#fff' }]}>{s.name}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                  <SelectorLista
+                    opciones={[{ k: null, l: 'Sin sub-sección' }, ...secs.map((x: any) => ({ k: x.id, l: x.name }))]}
+                    valor={catSection ?? null}
+                    onChange={setCatSection}
+                  />
                 </>
               ) : null;
             })()}
@@ -457,14 +450,24 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
             <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
             <EisPicker value={eis} onChange={setEis} soloAlta />
-            <Plegable titulo="Fecha deseada" resumen={DUE_OPTS.find(o => o.k === dueOpt)?.l || ''}>
+            <Plegable
+              titulo="Fecha deseada"
+              resumen={
+                dueOpt === 'custom' && fechaCustom
+                  ? fechaCustom.toLocaleDateString('es-MX', { weekday: 'short', day: '2-digit', month: 'long' })
+                  : (DUE_OPTS.find(o => o.k === dueOpt)?.l || 'Sin elegir')
+              }
+            >
             <View style={styles.eisRow}>
               {DUE_OPTS.map(o => (
-                <TouchableOpacity key={o.k} onPress={() => setDueOpt(o.k)} style={[styles.dateChip, dueOpt === o.k && styles.dateChipOn]}>
+                <TouchableOpacity key={o.k} onPress={() => { setDueOpt(o.k); setFechaCustom(null); }}
+                  style={[styles.dateChip, dueOpt === o.k && styles.dateChipOn]}>
                   <Text style={[styles.dateChipTxt, dueOpt === o.k && { color: '#fff' }]}>{o.l}</Text>
                 </TouchableOpacity>
               ))}
             </View>
+            <Text style={[styles.fieldLbl, { marginTop: 10 }]}>O elígela en el calendario</Text>
+            <Calendario valor={fechaCustom} onChange={d => { setFechaCustom(d); setDueOpt('custom'); }} />
             </Plegable>
             {/* Checklist opcional. El backend ya la aceptaba al crear; la app
                 simplemente no la ofrecia, asi que habia que crear la tarea,
@@ -792,37 +795,21 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
               titulo="Categoría (flujo)"
               resumen={catId === null ? 'Personal' : (categories.find(c => c.id === catId)?.name || 'Sin elegir')}
             >
-            <View style={styles.eisRow}>
-              <TouchableOpacity onPress={() => { setCatId(null); setCatSection(null); }} style={[styles.dateChip, !catId && styles.dateChipOn]}>
-                <Text style={[styles.dateChipTxt, !catId && { color: '#fff' }]}>Personal</Text>
-              </TouchableOpacity>
-              {categories.map(c => {
-                const on = catId === c.id;
-                return (
-                  <TouchableOpacity key={c.id} onPress={() => { setCatId(c.id); setCatSection(null); }} style={[styles.dateChip, on && styles.dateChipOn]}>
-                    <Text style={[styles.dateChipTxt, on && { color: '#fff' }]}>{c.name}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            <SelectorLista
+              opciones={[{ k: null, l: 'Personal' }, ...categories.map(c => ({ k: c.id, l: c.name }))]}
+              valor={catId ?? null}
+              onChange={k => { setCatId(k); setCatSection(null); }}
+            />
             {(() => {
               const secs = categories.find(c => c.id === catId)?.sections || [];
               return secs.length > 0 ? (
                 <>
                   <Text style={styles.fieldLbl}>Sub-sección</Text>
-                  <View style={styles.eisRow}>
-                    <TouchableOpacity onPress={() => setCatSection(null)} style={[styles.dateChip, !catSection && styles.dateChipOn]}>
-                      <Text style={[styles.dateChipTxt, !catSection && { color: '#fff' }]}>Sin sub-sección</Text>
-                    </TouchableOpacity>
-                    {secs.map(s => {
-                      const on = catSection === s.id;
-                      return (
-                        <TouchableOpacity key={s.id} onPress={() => setCatSection(s.id)} style={[styles.dateChip, on && styles.dateChipOn]}>
-                          <Text style={[styles.dateChipTxt, on && { color: '#fff' }]}>{s.name}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                  <SelectorLista
+                    opciones={[{ k: null, l: 'Sin sub-sección' }, ...secs.map((x: any) => ({ k: x.id, l: x.name }))]}
+                    valor={catSection ?? null}
+                    onChange={setCatSection}
+                  />
                 </>
               ) : null;
             })()}
@@ -1052,6 +1039,96 @@ export const esperaMiConfirmacion = (t: any, myId?: number | null): boolean =>
  * muestra en el encabezado lo que ya está elegido, así se ve el estado
  * completo sin abrir nada.
  */
+/**
+ * Lista de una sola opción, con scroll propio. Sustituye a las filas de chips:
+ * con nueve flujos, los botones se envolvían en cuatro renglones y había que
+ * leerlos todos para encontrar el que buscabas.
+ */
+export function SelectorLista({ opciones, valor, onChange }: {
+  opciones: { k: number | null; l: string }[];
+  valor: number | null | undefined;
+  onChange: (k: number | null) => void;
+}) {
+  return (
+    <View style={styles.listaSel}>
+      <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
+        {opciones.map(o => {
+          const on = valor === o.k;
+          return (
+            <TouchableOpacity key={String(o.k)} onPress={() => onChange(o.k)} style={styles.listaOpt}>
+              <Ionicons name={on ? 'radio-button-on' : 'radio-button-off'} size={18} color={on ? ORANGE : '#C9CDD2'} />
+              <Text style={[styles.listaOptTxt, on && styles.listaOptTxtOn]}>{o.l}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
+const DOW = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+const MES_LARGO = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+/**
+ * Calendario de mes, escrito a mano: la app no trae datetimepicker y meter la
+ * dependencia a horas de un build de tienda no valía el riesgo. Empieza en
+ * lunes, no deja elegir días ya pasados y navega mes a mes, que es todo lo que
+ * hace falta para poner una fecha deseada.
+ */
+export function Calendario({ valor, onChange }: { valor: Date | null; onChange: (d: Date) => void }) {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const [cursor, setCursor] = useState(() => {
+    const b = valor || new Date();
+    return new Date(b.getFullYear(), b.getMonth(), 1);
+  });
+  const anio = cursor.getFullYear();
+  const mes = cursor.getMonth();
+  const diasDelMes = new Date(anio, mes + 1, 0).getDate();
+  // getDay() manda 0 en domingo; se corre para que la semana empiece en lunes.
+  const hueco = (new Date(anio, mes, 1).getDay() + 6) % 7;
+  const celdas: (number | null)[] = [
+    ...Array.from({ length: hueco }, () => null),
+    ...Array.from({ length: diasDelMes }, (_, i) => i + 1),
+  ];
+  const mesAnterior = new Date(anio, mes - 1, 1);
+  const puedeAtras = mesAnterior >= new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+
+  return (
+    <View style={styles.cal}>
+      <View style={styles.calCab}>
+        <TouchableOpacity hitSlop={10} disabled={!puedeAtras}
+          onPress={() => setCursor(new Date(anio, mes - 1, 1))}>
+          <Ionicons name="chevron-back" size={20} color={puedeAtras ? '#444' : '#DDD'} />
+        </TouchableOpacity>
+        <Text style={styles.calMes}>{MES_LARGO[mes]} {anio}</Text>
+        <TouchableOpacity hitSlop={10} onPress={() => setCursor(new Date(anio, mes + 1, 1))}>
+          <Ionicons name="chevron-forward" size={20} color="#444" />
+        </TouchableOpacity>
+      </View>
+      <View style={styles.calFila}>
+        {DOW.map((d, i) => <Text key={i} style={styles.calDow}>{d}</Text>)}
+      </View>
+      <View style={styles.calFila}>
+        {celdas.map((d, i) => {
+          if (d === null) return <View key={`h${i}`} style={styles.calCelda} />;
+          const fecha = new Date(anio, mes, d);
+          const pasado = fecha < hoy;
+          const esHoy = fecha.getTime() === hoy.getTime();
+          const on = !!valor && valor.getFullYear() === anio && valor.getMonth() === mes && valor.getDate() === d;
+          return (
+            <TouchableOpacity key={d} disabled={pasado} onPress={() => onChange(fecha)} style={styles.calCelda}>
+              <View style={[styles.calDia, on && styles.calDiaOn, !on && esHoy && styles.calDiaHoy]}>
+                <Text style={[styles.calTxt, pasado && { color: '#CFCFCF' }, on && { color: '#fff', fontWeight: '800' }]}>{d}</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 /**
  * Renglón compacto que sustituye a una parrilla ya resuelta: muestra lo elegido
  * y se vuelve a abrir al tocarlo. Sin esto, elegir "día 4 de enero" dejaba 43
@@ -2174,6 +2251,20 @@ export const styles = StyleSheet.create({
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 5 },
   chip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   chipTxt: { fontSize: 11, fontWeight: '700' },
+  cal: { marginTop: 8, borderWidth: 1, borderColor: '#ECECEC', borderRadius: 10, padding: 8, backgroundColor: '#FFF' },
+  calCab: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: 6 },
+  calMes: { fontSize: 14, fontWeight: '800', color: '#222' },
+  calFila: { flexDirection: 'row', flexWrap: 'wrap' },
+  calDow: { width: `${100 / 7}%`, textAlign: 'center', fontSize: 11, fontWeight: '700', color: '#9AA0A6', paddingBottom: 4 },
+  calCelda: { width: `${100 / 7}%`, alignItems: 'center', paddingVertical: 2 },
+  calDia: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  calDiaOn: { backgroundColor: ORANGE },
+  calDiaHoy: { borderWidth: 1.5, borderColor: ORANGE },
+  calTxt: { fontSize: 13.5, fontWeight: '600', color: '#333' },
+  listaSel: { maxHeight: 240, borderWidth: 1, borderColor: '#ECECEC', borderRadius: 10, backgroundColor: '#FFF' },
+  listaOpt: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#F0F0F0' },
+  listaOptTxt: { flex: 1, fontSize: 14, color: '#333' },
+  listaOptTxtOn: { fontWeight: '800', color: ORANGE },
   filaElegida: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10,
     paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10,
