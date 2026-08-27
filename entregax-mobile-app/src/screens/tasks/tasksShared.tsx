@@ -250,6 +250,20 @@ const EIS_ALTA = ['fuego', 'estrella'];
 // toca EIS: su `short` también pinta los chips de las tarjetas.
 const EIS_ALTA_NOTA: Record<string, string> = { fuego: '24 hrs' };
 
+// Palabras que delatan una tarea de dinero. Se compara sin acentos, así que
+// "depósito" y "deposito" caen igual.
+const RE_PAGO = /\b(pag(?:o|os|ar|are|aran|ando)|depos(?:ito|itos|itar)|abon(?:o|os|ar)|transferenc|liquidar|mensualidad|quincena|nomina)\b/;
+
+/**
+ * Prioridad de una tarea programada. Ya no se elige a mano: una programación
+ * siempre es "Importante" salvo que sea ir a pagar o depositar, que es lo único
+ * que no aguanta esperar (si la tarjeta se pasa de fecha, hay intereses).
+ */
+export function prioridadProgramada(titulo: string): string {
+  const t = String(titulo || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return RE_PAGO.test(t) ? 'fuego' : 'estrella';
+}
+
 function EisPicker({ value, onChange, soloAlta }: { value: string; onChange: (k: string) => void; soloAlta?: boolean }) {
   const opciones = soloAlta
     ? Object.entries(EIS).filter(([k]) => EIS_ALTA.includes(k))
@@ -582,7 +596,6 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
     setChecklist((prev) => [...prev, v]);
     setChkInput('');
   };
-  const [eis, setEis] = useState('estrella');
   const [dayOpt, setDayOpt] = useState('tomorrow');
   // Día del mes elegido (1..31). null = usar los atajos de arriba.
   const [diaMes, setDiaMes] = useState<number | null>(null);
@@ -600,7 +613,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
     .then(r => r.json()).then(d => setSchedules(d.schedules || [])).catch(() => {});
   useEffect(() => {
     if (!visible) return;
-    setTitle(''); setDesc(''); setEis('estrella'); setDayOpt('tomorrow'); setDiaMes(null); setMesElegido(null); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setCatSection(null);
+    setTitle(''); setDesc(''); setDayOpt('tomorrow'); setDiaMes(null); setMesElegido(null); setHour(9); setRecurrence('none'); setOrdinal(1); setWeekday(1); setInvolved([]); setAssignee(0); setAssigneeTouched(false); setCatSection(null);
     fetch(`${API_URL}/api/tasks/assignable-users`, { headers: H }).then(r => r.json()).then(d => { setUsers(d.users || []); setFrequent(d.frequent || []); }).catch(() => {});
     fetch(`${API_URL}/api/tasks/categories`, { headers: H }).then(r => r.json()).then(d => {
       setCategories((d.categories || []).filter((c: any) => c.board_key !== 'personales'));
@@ -657,7 +670,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
     setBusy(true);
     try {
       const involvedIds = myId ? [myId, ...involved] : involved;
-      const body: any = { title: title.trim(), description: desc || null, eisenhower: eis, involved_ids: involvedIds, assignee_id: assignee || myId || null, recurrence, board_id: catId, section_id: catSection };
+      const body: any = { title: title.trim(), description: desc || null, eisenhower: prioridadProgramada(title), involved_ids: involvedIds, assignee_id: assignee || myId || null, recurrence, board_id: catId, section_id: catSection };
       // El checklist se guarda en la programacion y se siembra en CADA tarea que
       // genere, para no recapturar los mismos pasos en cada repeticion.
       if (checklist.length) body.subtasks = checklist.map((b) => ({ body: b }));
@@ -720,7 +733,6 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
     setFechaTocada(false);
     setTitle(String(s.title || ''));
     setDesc(String(s.description || ''));
-    setEis(String(s.eisenhower || 'estrella'));
     setRecurrence(String(s.recurrence || 'none'));
     setAssignee(Number(s.assignee_id) || 0);
     setAssigneeTouched(true);
@@ -817,8 +829,24 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
             </>)}
             <Text style={styles.fieldLbl}>Descripción</Text>
             <TextInput style={[styles.input, styles.inputMulti]} placeholder="Detalles (opcional)…" value={desc} onChangeText={setDesc} multiline placeholderTextColor="#999" />
-            <Text style={styles.fieldLbl}>Prioridad (Eisenhower)</Text>
-            <EisPicker value={eis} onChange={setEis} />
+            <Text style={styles.fieldLbl}>Prioridad</Text>
+            {/* La prioridad de una programación ya no se elige: sale del título.
+                Todas son "Importante" menos las de pagar o depositar. */}
+            {(() => {
+              const k = prioridadProgramada(title);
+              const v = (EIS as any)[k];
+              return (
+                <View style={[styles.eisChip, { alignSelf: 'flex-start', backgroundColor: v.bg, borderColor: v.color }]}>
+                  <Text style={[styles.eisChipTxt, { color: v.color }]}>
+                    {v.short}{k === 'fuego' ? ' · es un pago' : ''}
+                  </Text>
+                </View>
+              );
+            })()}
+            <Text style={styles.helpTxt}>
+              Las programaciones se registran como Importante. Si el título habla de pagar o
+              depositar, se marca Urgente sola.
+            </Text>
             {/* Todo el "cuándo" en una sola sección plegable: repetición,
                 primera ejecución, día, mes y hora. Abiertos a la vez eran una
                 pared de ~50 botones y había que adivinar dónde estaba cada cosa. */}
