@@ -11050,6 +11050,18 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
     const desde = new Date(Math.min(creada, vMin) - 5 * DIA);
     const hasta = new Date(Math.max(creada + 30 * DIA, vMax + 15 * DIA));
 
+    // Montos de los comprobantes. Un cliente puede cubrir una orden con dos
+    // depósitos (RO-40073868: $3,000 + $6,650 contra una orden de $7,493.57),
+    // y buscando solo el monto de la ORDEN ninguno de los dos se marcaba como
+    // coincidencia: quedaban perdidos entre los demás movimientos del periodo.
+    const vRes = await pool.query(
+      `SELECT DISTINCT COALESCE(NULLIF(detected_amount, 0), declared_amount) AS monto
+         FROM payment_vouchers v
+         JOIN pobox_payments pp ON pp.id = v.payment_order_id
+        WHERE pp.payment_reference = $1 AND COALESCE(NULLIF(detected_amount, 0), declared_amount) > 0`,
+      [referencia]);
+    const montosComprobante: number[] = vRes.rows.map((x: any) => Number(x.monto)).filter((n: number) => n > 0);
+
     // Regex que evita que "S88" haga match con "S889": el box_id no debe ir seguido de otro dígito.
     const boxRegex = boxId ? `${boxId}([^0-9]|$)` : null;
 
@@ -11060,9 +11072,11 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
                ($1::text IS NOT NULL AND (b.referencia ~* $1 OR b.concepto ~* $1))
                OR (b.abono IS NOT NULL AND ABS(CAST(b.abono AS numeric) - $2::numeric) <= 1)
                OR (LENGTH($3) >= 5 AND (b.referencia ILIKE '%'||$3||'%' OR b.concepto ILIKE '%'||$3||'%'))
+               OR EXISTS (SELECT 1 FROM unnest($6::numeric[]) mv WHERE ABS(CAST(b.abono AS numeric) - mv) <= 1)
              ) AS match,
              ($1::text IS NOT NULL AND (b.referencia ~* $1 OR b.concepto ~* $1)) AS match_cliente,
-             (b.abono IS NOT NULL AND ABS(CAST(b.abono AS numeric) - $2::numeric) <= 1) AS match_monto
+             (b.abono IS NOT NULL AND ABS(CAST(b.abono AS numeric) - $2::numeric) <= 1) AS match_monto,
+             EXISTS (SELECT 1 FROM unnest($6::numeric[]) mv WHERE ABS(CAST(b.abono AS numeric) - mv) <= 1) AS match_comprobante
       FROM bank_statement_entries b
       LEFT JOIN fiscal_emitters fe ON fe.id = b.empresa_id
       WHERE b.abono IS NOT NULL
@@ -11077,10 +11091,11 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
                ($1::text IS NOT NULL AND (b.referencia ~* $1 OR b.concepto ~* $1))
                OR (b.abono IS NOT NULL AND ABS(CAST(b.abono AS numeric) - $2::numeric) <= 1)
                OR (LENGTH($3) >= 5 AND (b.referencia ILIKE '%'||$3||'%' OR b.concepto ILIKE '%'||$3||'%'))
+               OR EXISTS (SELECT 1 FROM unnest($6::numeric[]) mv WHERE ABS(CAST(b.abono AS numeric) - mv) <= 1)
              ) DESC,
              b.fecha DESC, b.id DESC
       LIMIT 60
-    `, [boxRegex, monto, refToken, desde, hasta]);
+    `, [boxRegex, monto, refToken, desde, hasta, montosComprobante]);
 
     // Estado de conciliación de cada candidato: quien aprueba tiene que ver de
     // un vistazo qué abonos siguen libres y cuáles ya se gastaron en otra orden.
@@ -11107,6 +11122,8 @@ app.get('/api/admin/finance/payment-bank-matches/:referencia', authenticateToken
         match: !!r.match,
         match_cliente: !!r.match_cliente,
         match_monto: !!r.match_monto,
+        // Coincide con el monto de un comprobante subido (pagos partidos).
+        match_comprobante: !!r.match_comprobante,
       };
     });
 
