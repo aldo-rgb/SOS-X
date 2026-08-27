@@ -553,10 +553,10 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
         <Box>
           <Typography variant="h4" fontWeight="bold" gutterBottom>
             <LocalAtmIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Caja PO Box USA
+            Control de Caja Chica · PO Box USA
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Control de efectivo con búsqueda por referencia
+            Movimientos del día, saldo en caja y corte
           </Typography>
         </Box>
         <Box display="flex" gap={1}>
