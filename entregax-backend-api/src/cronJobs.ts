@@ -1597,15 +1597,22 @@ export const startPaymentReminderCron = () => {
       let sent = 0;
 
       // 1) packages (aéreo China / TDI Express / PO Box / etc.)
+      // Aéreo China: la guía que el cliente conoce es la completa (child_no
+      // "AIR2618019APiJB-003"), no el código corto interno "CN-PiJB-003".
+      // EMBARQUE = esa guía sin el sufijo de caja: es UN aviso por embarque, no
+      // uno por caja. El filtro viejo (is_master = TRUE OR master_id IS NULL) no
+      // servía aquí porque estas cajas son hermanas sin fila master: pasaban
+      // todas. Un embarque de 89 cajas mandó 89 WhatsApps al mismo cliente.
+      const GUIA_CLIENTE = `CASE WHEN p.service_type = 'AIR_CHN_MX' AND COALESCE(p.child_no,'') <> ''
+                                 THEN p.child_no ELSE p.tracking_internal END`;
+      const EMBARQUE = `CASE WHEN p.service_type = 'AIR_CHN_MX' AND COALESCE(p.child_no,'') <> ''
+                             THEN REGEXP_REPLACE(p.child_no, '-[0-9]+$', '')
+                             ELSE p.tracking_internal END`;
       const rp = await pool.query(`
-        SELECT p.id,
-               -- Aéreo China: la guía que el cliente conoce es la completa
-               -- (child_no "AIR2618019APiJB-003"), no el código corto interno
-               -- "CN-PiJB-003". El WhatsApp llegaba con el corto y el cliente no
-               -- lo reconocía ni lo encontraba. Mismo criterio que ya usa el
-               -- recordatorio de instrucciones y el rastreo.
-               CASE WHEN p.service_type = 'AIR_CHN_MX' AND COALESCE(p.child_no,'') <> ''
-                    THEN p.child_no ELSE p.tracking_internal END AS trn,
+        SELECT DISTINCT ON (p.user_id, ${EMBARQUE})
+               p.id, p.user_id,
+               ${GUIA_CLIENTE} AS trn,
+               ${EMBARQUE} AS embarque,
                u.full_name AS client_name, u.phone AS client_phone,
                u.notif_whatsapp, u.phone_verified, u.whatsapp_verified
         FROM packages p
@@ -1616,15 +1623,23 @@ export const startPaymentReminderCron = () => {
           AND p.delivered_at IS NULL
           AND (p.is_master = TRUE OR p.master_id IS NULL)
           AND p.payment_reminder_sent_at IS NULL
-        ORDER BY p.received_at ASC NULLS LAST
+        ORDER BY p.user_id, ${EMBARQUE}, p.received_at ASC NULLS LAST
         LIMIT 300
       `);
       for (const row of rp.rows) {
         const wantWa = row.notif_whatsapp !== false && (row.phone_verified === true || row.whatsapp_verified === true);
         if (row.client_phone && wantWa) {
-          await sendPaymentReminder(row.client_phone, row.client_name || 'Cliente', row.trn || '').catch(() => {});
+          // Se manda la guía del embarque, sin el sufijo de caja: el aviso es
+          // por el embarque completo, no por una caja suelta.
+          await sendPaymentReminder(row.client_phone, row.client_name || 'Cliente', row.embarque || row.trn || '').catch(() => {});
         }
-        await pool.query(`UPDATE packages SET payment_reminder_sent_at = NOW() WHERE id = $1`, [row.id]).catch(() => {});
+        // Se marcan TODAS las cajas del embarque, no solo la elegida: si no, las
+        // hermanas volverían a calificar en la siguiente corrida.
+        await pool.query(
+          `UPDATE packages p SET payment_reminder_sent_at = NOW()
+            WHERE p.user_id = $1 AND ${EMBARQUE} = $2 AND p.payment_reminder_sent_at IS NULL`,
+          [row.user_id, row.embarque]
+        ).catch(() => {});
         sent++;
       }
 
