@@ -165,14 +165,25 @@ async function levantarTareaDeRetraso(t: TicketAtrasado): Promise<number | null>
   const yaExiste = await pool.query(`SELECT id FROM tasks WHERE title = $1 AND status <> 'cancelled' LIMIT 1`, [titulo]);
   if (yaExiste.rows[0]) return Number(yaExiste.rows[0].id);
 
-  // Responsable: un super_admin, preferentemente con dispositivo para que el
-  // aviso llegue de verdad (mismo criterio que los errores de sistema).
+  // Responsable de los retrasos: Juan Segura. Antes caían todas en el primer
+  // super_admin activo, o sea en Aldo, que no es quien las trabaja.
+  //
+  // Se busca por correo y no por id para que siga siendo legible; si un día la
+  // cuenta se desactiva, la tarea NO se pierde: cae de vuelta al super_admin,
+  // que es peor pero visible.
+  const CORREO_RESPONSABLE = 'juansegura01@entregax.com';
+  const jc = await pool.query(
+    `SELECT id FROM users WHERE LOWER(email) = $1 AND COALESCE(is_active, true) = true LIMIT 1`,
+    [CORREO_RESPONSABLE]);
   const sa = await pool.query(
     `SELECT u.id, EXISTS (SELECT 1 FROM user_push_tokens pt WHERE pt.user_id = u.id AND pt.is_active = TRUE) AS con_dispositivo
        FROM users u WHERE u.role = 'super_admin' AND COALESCE(u.is_active, true) = true
       ORDER BY con_dispositivo DESC, u.id`);
-  const superAdminId = Number(sa.rows[0]?.id || 0);
-  if (!superAdminId) { console.warn('[atrasos] no hay super_admin activo para asignar la tarea'); return null; }
+  const responsableId = Number(jc.rows[0]?.id || sa.rows[0]?.id || 0);
+  if (!jc.rows[0]) {
+    console.warn(`[atrasos] ${CORREO_RESPONSABLE} no está activo; la tarea se asigna al super_admin`);
+  }
+  if (!responsableId) { console.warn('[atrasos] no hay a quién asignar la tarea de retraso'); return null; }
 
   const desc = [
     `⏰ Reporte de retraso · ticket ${t.folio}`,
@@ -186,7 +197,9 @@ async function levantarTareaDeRetraso(t: TicketAtrasado): Promise<number | null>
     `SELECT id FROM task_boards WHERE name = 'Error de Sistema' AND is_active = TRUE ORDER BY id LIMIT 1`);
   const { createAssignedTaskInternal } = await import('./tasksController');
   const taskId = await createAssignedTaskInternal({
-    creatorId: superAdminId, assigneeId: superAdminId, title: titulo, description: desc,
+    // Creador y responsable son el mismo: así la cierra él solo, sin dejarle
+    // una confirmación pendiente a nadie más.
+    creatorId: responsableId, assigneeId: responsableId, title: titulo, description: desc,
     eisenhower: 'fuego',            // urgente e importante
     notifyAssignee: false,          // se avisa a todos abajo, sin duplicar
     ...(boardRes.rows[0]?.id ? { boardId: Number(boardRes.rows[0].id) } : {}),
