@@ -18,6 +18,7 @@ import {
   HourglassEmpty as PendingIcon,
   Refresh as RefreshIcon,
   Payment as PaymentIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -193,6 +194,49 @@ export default function AdvisorCommissionsLedgerPage() {
     .filter(r => selectedIds.includes(r.id))
     .reduce((sum, r) => sum + r.commissionAmount, 0);
 
+  /**
+   * Descarga lo que está en pantalla —con los filtros aplicados, o solo lo
+   * seleccionado si hay selección— como CSV que Excel abre bien.
+   *
+   * Se arma en el navegador y no en el servidor porque el reporte que piden es
+   * exactamente lo que están viendo: si se generara aparte habría que repetir
+   * los filtros y las dos cifras acabarían discrepando, que es justo el
+   * problema que originó esta tarea.
+   */
+  const descargarReporte = () => {
+    const filas = selectedIds.length > 0
+      ? records.filter(r => selectedIds.includes(r.id))
+      : records;
+    if (filas.length === 0) return;
+    const cols = [
+      'Fecha', 'Asesor', 'Líder', 'Servicio', 'Tracking', 'Cliente', 'Casillero',
+      'Orden de pago', 'Monto cobrado', '% comisión', 'Comisión', 'Override líder',
+      'Estatus', 'Pagada el',
+    ];
+    // El punto y coma separa mejor en Excel en español, y las comillas dobles
+    // se escapan para que un nombre con coma no rompa la columna.
+    const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lineas = filas.map(r => [
+      formatDate(r.createdAt), r.advisorName, r.leaderName || '',
+      serviceLabels[r.serviceType] || r.serviceType || '', r.tracking || '',
+      r.clientName || '', r.clientBox || '', r.paymentOrder || '',
+      r.paymentAmount, r.commissionRate, r.commissionAmount, r.leaderOverrideAmount,
+      r.awaitingClientPayment ? 'Esperando pago del cliente' : (r.status === 'paid' ? 'Pagada' : 'Pendiente'),
+      r.paidAt ? formatDate(r.paidAt) : '',
+    ].map(esc).join(';'));
+    const total = filas.reduce((a, r) => a + r.commissionAmount, 0);
+    lineas.push([...Array(10).fill(''), 'TOTAL', total, '', ''].map(esc).join(';'));
+    // El BOM es lo que hace que Excel respete los acentos.
+    const csv = '\uFEFF' + [cols.map(esc).join(';'), ...lineas].join('\r\n');
+    const nombreAsesor = advisorsList.find(a => a.id === Number(filterAdvisor))?.full_name;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `comisiones${nombreAsesor ? '-' + nombreAsesor.replace(/\s+/g, '_') : ''}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Agrupado por Orden de Pago: una fila por orden, con las guías compactadas.
   // Las comisiones sin orden quedan como fila individual (clave única por id).
   const groupedRows = (() => {
@@ -349,14 +393,35 @@ export default function AdvisorCommissionsLedgerPage() {
             <Button size="small" onClick={() => { setFilterAdvisor(''); setFilterService(''); setFilterStatus(''); setFilterFrom(''); setFilterTo(''); setFilterClientBox(''); setFilterTracking(''); setPage(0); }}>
               Limpiar
             </Button>
+            {/* Baja lo que está en pantalla con los filtros puestos: si se
+                generara aparte, el reporte y el panel podrían discrepar, que es
+                justo el problema que originó esta tarea. */}
+            <Button size="small" variant="outlined" startIcon={<DownloadIcon />}
+              onClick={descargarReporte} disabled={records.length === 0}
+              sx={{ ml: 'auto', borderColor: ORANGE, color: ORANGE }}>
+              Descargar reporte ({records.length})
+            </Button>
           </Paper>
 
           {/* Batch pay bar */}
+          {/* Se queda pegada arriba: la suma ya existía, pero al bajar por la
+              tabla desaparecía de la vista y no servía de nada. */}
           {selectedIds.length > 0 && (
-            <Paper sx={{ p: 1.5, mb: 2, borderRadius: 2, bgcolor: '#fff3e0', display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Paper elevation={3} sx={{
+              p: 1.5, mb: 2, borderRadius: 2, bgcolor: '#fff3e0', display: 'flex',
+              alignItems: 'center', gap: 2, position: 'sticky', top: 8, zIndex: 5,
+              border: '1px solid #FFCC9A',
+            }}>
               <Typography variant="body2" fontWeight={600}>
-                {selectedIds.length} seleccionadas · {formatMXN(selectedTotal)}
+                {selectedIds.length} seleccionadas ·{' '}
+                <Box component="span" sx={{ fontSize: 17, fontWeight: 800, color: '#B34700' }}>
+                  {formatMXN(selectedTotal)}
+                </Box>
               </Typography>
+              <Button size="small" startIcon={<DownloadIcon />} onClick={descargarReporte}
+                sx={{ color: '#B34700' }}>
+                Descargar selección
+              </Button>
               <Button
                 variant="contained"
                 size="small"
