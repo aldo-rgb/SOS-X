@@ -10765,10 +10765,20 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
     // que se pueda ignorar. Entre ambos casos quedaban ocultas 9 órdenes por
     // $487,420.45.
     //
-    // No hay riesgo de traer pagos ya resueltos: una orden liquidada en línea
-    // queda en 'paid'/'completed', nunca en 'vouchers_*'. Y el merge de abajo
-    // deduplica por referencia contra la fuente de webhooks.
-    let whereClause2 = "WHERE pp.status IN ('vouchers_submitted', 'vouchers_partial')";
+    // Y se excluye lo que la sucursal YA confirmó. La suposición anterior era
+    // que "una orden liquidada queda en 'paid'/'completed', nunca en
+    // 'vouchers_*'", y no se cumple: al confirmar en sucursal se marca el log
+    // como 'procesado' y se pone paid_at, pero el estado de la orden se queda
+    // en 'vouchers_submitted'. Resultado: 7 de 13 referencias salían con botón
+    // "Confirmar" y al abrirlas el modal decía "este pago ya fue procesado" con
+    // el botón inhabilitado (tarea 377). Si ya se cobró, no es algo por aprobar.
+    let whereClause2 = `WHERE pp.status IN ('vouchers_submitted', 'vouchers_partial')
+      AND pp.paid_at IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM openpay_webhook_logs _owl
+         WHERE _owl.transaction_id = pp.payment_reference
+           AND _owl.estatus_procesamiento = 'procesado'
+      )`;
     const params2: any[] = [];
     if (serviceList) {
       params2.push(serviceList);
