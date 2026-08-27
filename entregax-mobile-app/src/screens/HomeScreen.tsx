@@ -1794,13 +1794,15 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <View style={{ position: 'relative' }}>
               <TouchableOpacity
                 onPress={() => navigation.navigate('Notifications', { user, token })}
-                style={{ padding: 8 }}
-                hitSlop={8}
+                // El area de toque estaba en 40x40 con el globo encima
+                // tapandola: en el telefono se sentia que el boton no servia.
+                style={{ padding: 12 }}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
-                <Ionicons name="notifications-outline" size={24} color="white" />
+                <Ionicons name="notifications-outline" size={28} color="white" />
               </TouchableOpacity>
               {unreadNotifications > 0 && (
-                <View style={styles.notificationBadge}>
+                <View style={styles.notificationBadge} pointerEvents="none">
                   {unreadNotifications <= 9 ? (
                     <Text style={styles.notificationBadgeText}>{unreadNotifications}</Text>
                   ) : (
@@ -3283,8 +3285,10 @@ const styles = StyleSheet.create({
   // 🔔 Badge de notificaciones no leídas
   notificationBadge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
+    // Sigue la esquina del icono: el boton crecio de 40 a 52, si el globo se
+    // queda en 8 se despega de la campana.
+    top: 12,
+    right: 12,
     backgroundColor: '#FF3B30',
     borderRadius: 10,
     minWidth: 18,
