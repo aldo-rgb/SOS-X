@@ -188,6 +188,38 @@ const groupRank = (g: string): number => { const i = GROUP_ORDER.indexOf(g); ret
 const HIDDEN_GROUPS = new Set<string>(['Legal']);
 const isPickableGroup = (r?: string): boolean => !HIDDEN_GROUPS.has(roleGroup(r));
 
+
+// Folio de ticket (TKT-2026-1919) dentro del titulo o la descripcion de una
+// tarea. Las tareas que nacen de un ticket --"Error localizado TKT-…",
+// "Retraso TKT-…"-- lo traen en el texto y habia que copiarlo y buscarlo a
+// mano. En Mis Tareas ya era enlace; aqui faltaba.
+const TICKET_FOLIO_RE_T = /TKT-[A-Za-z0-9]+-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*/g;
+const abrirTicketPorFolio = (folio: string) => {
+  window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', {
+    detail: { action: 'service_tickets', ticketFolio: folio },
+  }));
+};
+const LinkTickets = ({ text, onNavigate }: { text?: string | null; onNavigate?: () => void }) => {
+  const src = String(text || '');
+  const re = new RegExp(TICKET_FOLIO_RE_T.source, 'g');
+  const partes: any[] = [];
+  let last = 0; let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    if (m.index > last) partes.push(src.slice(last, m.index));
+    const folio = m[0];
+    partes.push(
+      <Box component="span" key={`${m.index}-${folio}`} role="link" tabIndex={0}
+        onClick={(e: any) => { e.preventDefault(); e.stopPropagation(); abrirTicketPorFolio(folio); onNavigate?.(); }}
+        sx={{ color: '#D6521C', fontWeight: 800, textDecoration: 'underline', cursor: 'pointer', '&:hover': { color: '#B23F12' } }}>
+        {folio}
+      </Box>
+    );
+    last = m.index + folio.length;
+  }
+  if (last < src.length) partes.push(src.slice(last));
+  return <>{partes.length ? partes : src}</>;
+};
+
 export default function TareasPage() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -468,7 +500,7 @@ export default function TareasPage() {
         <Typography fontSize={13.5} fontWeight={600} sx={{ lineHeight: 1.3, textDecoration: t.status === 'completed' ? 'line-through' : 'none' }}>
           {/* Número de tarea visible para poder referenciarla en tickets y chats. */}
           <Box component="span" sx={{ color: '#8A8A8A', fontWeight: 800, mr: 0.5, textDecoration: 'none' }}>#{t.id}</Box>
-          {t.title}
+          <LinkTickets text={t.title} />
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75 }}>
           {(t.participant_names && t.participant_names.length > 0) ? (
@@ -1306,7 +1338,7 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
             </Box>
             <Typography fontWeight={800} fontSize={17}>
               <Box component="span" sx={{ color: '#8A8A8A', mr: 0.6 }}>#{t.id}</Box>
-              {t.title}
+              <LinkTickets text={t.title} onNavigate={onClose} />
             </Typography>
             <IconButton onClick={onClose} sx={{ position: 'absolute', right: 8, top: 8 }}><CloseIcon /></IconButton>
           </DialogTitle>
@@ -1323,7 +1355,7 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
                     color="text.secondary"
                     sx={{ mb: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
                   >
-                    {t.description}
+                    <LinkTickets text={t.description} onNavigate={onClose} />
                   </Typography>
                 )}
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1 }}>

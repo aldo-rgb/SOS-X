@@ -903,8 +903,9 @@ export function TaskCard({ task, onPress, showBoard }: { task: TaskT; onPress: (
  * abrirlo habia que copiarlo y buscarlo a mano. Aqui el folio se vuelve
  * tocable y lleva directo al ticket.
  */
-const RE_TKT_SPLIT = /(TKT-\d{4}-\d+)/g;   // con g: parte el texto
-const RE_TKT_ES = /^TKT-\d{4}-\d+$/;       // sin g: prueba cada pedazo
+// Hay dos formatos vivos: TKT-2026-1919 y TKT-ACQ-MPWYSX9X-4PW.
+const RE_TKT_SPLIT = /(TKT-[A-Za-z0-9]+-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)/g;  // con g: parte el texto
+const RE_TKT_ES = /^TKT-[A-Za-z0-9]+-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;      // sin g: prueba cada pedazo
 function TextoConTicket({ texto, style }: { texto: string; style?: any }) {
   const navigation = useNavigation<any>();
   const partes = String(texto).split(RE_TKT_SPLIT);
@@ -1231,7 +1232,8 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
         <View style={styles.modalCard}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle} numberOfLines={1}>
-              {!!taskId && <Text style={styles.cardFolio}>#{taskId} </Text>}{t?.title || 'Tarea'}
+              {!!taskId && <Text style={styles.cardFolio}>#{taskId} </Text>}
+              <TextoConTicket texto={String(t?.title || 'Tarea')} />
             </Text>
             {data?.can_edit && !editing && t && t.status !== 'completed' && (
               <TouchableOpacity onPress={beginEdit} hitSlop={10} style={{ marginRight: 12 }}>
