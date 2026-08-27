@@ -105,6 +105,19 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
 
   const inputRef = useRef<TextInput | null>(null);
   const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Espejos en ref del estado que necesita el auto-validado.
+  //
+  // El auto-validado corre dentro de un setTimeout, y el setTimeout se queda
+  // con la versión de processCode que existía cuando se programó. Si el
+  // siguiente escaneo entra antes de que React vuelva a renderizar, esa copia
+  // vieja todavía cree que va en la fase anterior y con el envío anterior: la
+  // guía del courier terminaba escrita sobre OTRO envío. Así salieron 33 guías
+  // cruzadas entre sí en las salidas de eVisa y Paquete Express. Con refs, el
+  // temporizador siempre lee el valor de AHORA.
+  const scanPhaseRef = useRef<ScanPhase>('internal');
+  const confirmedIdRef = useRef<number | string | null>(null);
+  const confirmedTrackingRef = useRef<string>('');
+  const enVueloRef = useRef(false);
 
   // Filtrar por modo:
   // recoleccion → solo paquetes en bodega (NO cargados en camioneta)
@@ -159,6 +172,9 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   }, [scannerActive, loading, processCode]);
 
   const resetToInternal = () => {
+    scanPhaseRef.current = 'internal';
+    confirmedIdRef.current = null;
+    confirmedTrackingRef.current = '';
     setScanPhase('internal');
     setConfirmedPackageId(null);
     setConfirmedTracking('');
@@ -213,12 +229,27 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
 
   const processCode = useCallback(async (rawCode: string) => {
     const code = normalizeBarcode(rawCode);
-    if (!code.trim() || loading) return;
+    // El candado es un ref, no el estado `loading`: una copia vieja de esta
+    // función veía loading=false aunque hubiera una petición en vuelo y mandaba
+    // el código de todos modos.
+    if (!code.trim()) return;
+    // Escaneo que llega con una petición en vuelo: se descarta, pero SE LIMPIA
+    // el campo. Antes se salía sin limpiarlo y el texto rechazado se quedaba
+    // adentro, así que la siguiente etiqueta se pegaba a la anterior y viajaba
+    // un solo código de 20 dígitos —"60300484151536054590"—. De ahí salieron
+    // las 103 guías nacionales con dos códigos encimados.
+    if (enVueloRef.current) {
+      setManualCode('');
+      showFeedback('warn', '⏳ Espera a que termine el escaneo anterior');
+      setTimeout(() => inputRef.current?.focus(), 200);
+      return;
+    }
+    enVueloRef.current = true;
     setLoading(true);
     Keyboard.dismiss();
     setManualCode('');
     try {
-      if (scanPhase === 'internal' || mode === 'cargar_unidad') {
+      if (scanPhaseRef.current === 'internal' || mode === 'cargar_unidad') {
         // Intentar match local primero para evitar error con scanner truncado
         const localMatch = findLocalMatch(code);
         const effectiveBarcode = localMatch ? localMatch.tracking_number : code.trim();
@@ -265,6 +296,9 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           setTimeout(() => inputRef.current?.focus(), 100);
         } else {
           // Phase 1 done — ask for carrier guide
+          confirmedIdRef.current = res.data.packageId;
+          confirmedTrackingRef.current = res.data.tracking;
+          scanPhaseRef.current = 'external';
           setConfirmedPackageId(res.data.packageId);
           setConfirmedTracking(res.data.tracking);
           setScanPhase('external');
@@ -272,22 +306,26 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           showFeedback('ok', `✅ ${res.data.tracking} — Ahora escanea guía de ${carrierLabel(carrier)}`);
           setTimeout(() => inputRef.current?.focus(), 300);
         }
-      } else if (scanPhase === 'external' && confirmedPackageId) {
+      } else if (scanPhaseRef.current === 'external' && confirmedIdRef.current) {
+        // Se congelan aquí: si la respuesta tarda, el ref pudo cambiar y el
+        // registro quedaría a nombre de otro envío.
+        const destinoId = confirmedIdRef.current;
+        const destinoTracking = confirmedTrackingRef.current;
         const res = await api.post('/api/driver/paqueteria-handoff/scan', {
           barcode: code.trim(),
           carrier,
           mode,
           phase: 'external',
-          packageId: confirmedPackageId,
+          packageId: destinoId,
           externalTracking: code.trim(),
         }, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
 
         setCompleted(prev => [...prev, {
-          packageId: confirmedPackageId,
-          tracking: confirmedTracking,
+          packageId: destinoId,
+          tracking: destinoTracking,
           externalTracking: code.trim(),
         }]);
-        showFeedback('ok', `✅ ${confirmedTracking} → ${code.trim()} — Enviado`);
+        showFeedback('ok', `✅ ${destinoTracking} → ${code.trim()} — Enviado`);
         resetToInternal();
       }
     } catch (e: any) {
@@ -296,9 +334,10 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
       showFeedback(isWarn ? 'warn' : 'err', msg);
       setTimeout(() => inputRef.current?.focus(), 200);
     } finally {
+      enVueloRef.current = false;
       setLoading(false);
     }
-  }, [scanPhase, mode, carrier, confirmedPackageId, confirmedTracking, token, loading]);
+  }, [mode, carrier, token]);
 
   const handleTextChange = (text: string) => {
     setManualCode(text);
