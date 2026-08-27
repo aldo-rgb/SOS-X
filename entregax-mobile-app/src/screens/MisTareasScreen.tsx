@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { API_URL } from '../services/api';
-import { ORANGE, BG, TaskCard, TaskDetailModal, ViewToggle, MatrixView, CreateTaskModal, ScheduleTaskModal, TaskT } from './tasks/tasksShared';
+import { ORANGE, BG, TaskCard, TaskDetailModal, ViewToggle, MatrixView, CreateTaskModal, ScheduleTaskModal, TaskT, esPendienteDeMi } from './tasks/tasksShared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MyTasks'>;
 
@@ -103,7 +103,9 @@ export default function MisTareasScreen({ navigation, route }: Props) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.hBtn} hitSlop={10}><Ionicons name="chevron-back" size={26} color="#fff" /></TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.hTitle}>Mis Tareas</Text>
-          <Text style={styles.hSub}>{tasks.filter(t => t.status !== 'completed').length} pendiente(s){showDone ? ' · con terminadas' : ''}</Text>
+          {/* Cuenta lo que espera algo de MI: lo asignado a mi, mas lo que yo
+              asigne y ya esta esperando que YO lo confirme. */}
+          <Text style={styles.hSub}>{tasks.filter(t => esPendienteDeMi(t, myId)).length} pendiente(s){showDone ? ' · con terminadas' : ''}</Text>
         </View>
         <TouchableOpacity onPress={() => { setRefreshing(true); load(); }} style={styles.hBtn} hitSlop={10}><Ionicons name="refresh" size={22} color="#fff" /></TouchableOpacity>
       </View>
@@ -243,7 +245,7 @@ export default function MisTareasScreen({ navigation, route }: Props) {
               return secs.filter(s => s.tasks.length > 0).map(s => (
                 <View key={s.key} style={{ gap: 8 }}>
                   <Text style={{ fontWeight: '800', fontSize: 13, color: s.color }}>{s.title} ({s.tasks.length})</Text>
-                  {s.tasks.map(t => <TaskCard key={t.id} task={t} onPress={() => setOpenId(t.id)} showBoard />)}
+                  {s.tasks.map(t => <TaskCard key={t.id} task={t} onPress={() => setOpenId(t.id)} showBoard myId={myId} />)}
                 </View>
               ));
             })()}

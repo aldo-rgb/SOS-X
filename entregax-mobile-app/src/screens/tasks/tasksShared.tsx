@@ -851,8 +851,28 @@ export interface TaskT {
   board_name?: string; board_key?: string; column_name?: string; participants_count?: number; unread_count?: number;
 }
 
+/**
+ * ¿Esta tarea está esperando algo de MÍ?
+ *
+ * Cuando una tarea queda "en espera de confirmación" deja de ser trabajo del
+ * responsable y pasa a ser trabajo de quien la asignó: le toca revisarla y
+ * cerrarla. Antes el conteo de pendientes solo miraba al responsable, así que
+ * quien las creó veía "Sin tareas pendientes" con cuatro esperando su
+ * confirmación, y el responsable las seguía cargando aunque ya no pudiera
+ * hacer nada con ellas.
+ */
+export function esPendienteDeMi(t: any, myId?: number | null): boolean {
+  if (!myId || !t || t.status === 'completed') return false;
+  if (t.status === 'awaiting_confirmation') return Number(t.created_by) === Number(myId);
+  return Number(t.assignee_id) === Number(myId);
+}
+
+/** ¿Soy yo quien tiene que confirmarla? (para rotular la etiqueta) */
+export const esperaMiConfirmacion = (t: any, myId?: number | null): boolean =>
+  !!myId && t?.status === 'awaiting_confirmation' && Number(t.created_by) === Number(myId);
+
 // ── Tarjeta de tarea ──
-export function TaskCard({ task, onPress, showBoard }: { task: TaskT; onPress: () => void; showBoard?: boolean }) {
+export function TaskCard({ task, onPress, showBoard, myId }: { task: TaskT; onPress: () => void; showBoard?: boolean; myId?: number | null }) {
   const eis = EIS[task.eisenhower];
   const tt = taskTime(task);
   const done = task.status === 'completed';
@@ -863,7 +883,11 @@ export function TaskCard({ task, onPress, showBoard }: { task: TaskT; onPress: (
           <Text style={[styles.chipTxt, { color: eis?.color }]}>{eis?.short || task.eisenhower}</Text>
         </View>
         {done && <View style={[styles.chip, { backgroundColor: '#E4F1E8' }]}><Text style={[styles.chipTxt, { color: '#2E7D46' }]}>✅ Completada</Text></View>}
-        {task.status === 'awaiting_confirmation' && <View style={[styles.chip, { backgroundColor: '#FBE9D0' }]}><Text style={[styles.chipTxt, { color: '#B07206' }]}>⏳ En espera</Text></View>}
+        {task.status === 'awaiting_confirmation' && (
+          esperaMiConfirmacion(task, myId)
+            ? <View style={[styles.chip, { backgroundColor: '#FDE7C7' }]}><Text style={[styles.chipTxt, { color: '#8A4B00' }]}>⏳ Esperando tu confirmación</Text></View>
+            : <View style={[styles.chip, { backgroundColor: '#FBE9D0' }]}><Text style={[styles.chipTxt, { color: '#B07206' }]}>⏳ En espera</Text></View>
+        )}
         {(task.unread_count || 0) > 0 && (
           <View style={styles.unreadChip}><Ionicons name="chatbubble-ellipses" size={11} color="#fff" /><Text style={styles.unreadTxt}>{task.unread_count} sin leer</Text></View>
         )}
@@ -1337,7 +1361,11 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
               <View style={styles.chipsRow}>
                 <View style={[styles.chip, { backgroundColor: eis?.bg }]}><Text style={[styles.chipTxt, { color: eis?.color }]}>{eis?.short}</Text></View>
                 {t.status === 'completed' && <View style={[styles.chip, { backgroundColor: '#E4F1E8' }]}><Text style={[styles.chipTxt, { color: '#2E7D46' }]}>✅ Completada</Text></View>}
-                {t.status === 'awaiting_confirmation' && <View style={[styles.chip, { backgroundColor: '#FBE9D0' }]}><Text style={[styles.chipTxt, { color: '#B07206' }]}>⏳ En espera de confirmación</Text></View>}
+                {t.status === 'awaiting_confirmation' && (
+                  esperaMiConfirmacion(t, myId)
+                    ? <View style={[styles.chip, { backgroundColor: '#FDE7C7' }]}><Text style={[styles.chipTxt, { color: '#8A4B00' }]}>⏳ Esperando tu confirmación</Text></View>
+                    : <View style={[styles.chip, { backgroundColor: '#FBE9D0' }]}><Text style={[styles.chipTxt, { color: '#B07206' }]}>⏳ En espera de confirmación</Text></View>
+                )}
               </View>
               {!!t.description && (
                 <View>

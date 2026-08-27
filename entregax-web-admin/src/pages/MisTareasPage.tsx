@@ -37,6 +37,16 @@ const getToken = () => localStorage.getItem('token') || '';
 const H = () => ({ headers: { Authorization: `Bearer ${getToken()}` } });
 const ME = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } })();
 const MY_ID = Number(ME?.id) || 0;
+
+// Cuando una tarea queda "en espera de confirmación" deja de ser trabajo del
+// responsable y pasa a serlo de quien la asignó: le toca revisarla y cerrarla.
+// La etiqueta lo dice para que no se lea como "ya no es mía".
+const esperaMiConfirmacion = (t: any): boolean =>
+  t?.status === 'awaiting_confirmation' && Number(t?.created_by) === MY_ID;
+const etiquetaEspera = (t: any, larga = false): string =>
+  esperaMiConfirmacion(t)
+    ? (larga ? '⏳ Esperando TU confirmación' : '⏳ Esperando tu confirmación')
+    : (larga ? '⏳ En espera de confirmación' : '⏳ En espera');
 // Los asesores no pueden involucrar a otras personas al crear una tarea.
 const IS_ASESOR = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'].includes(String(ME?.role || ''));
 // Alias de visualización en la sección de Tareas: Aldo Campos (Super Admin) se
@@ -586,7 +596,7 @@ export default function MisTareasPage() {
         <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
           <Chip label={eis?.short || t.eisenhower} size="small" sx={{ height: 20, fontSize: 11, bgcolor: eis?.bg, color: eis?.color, fontWeight: 700 }} />
           {done && <Chip label="✅ Completada" size="small" color="success" sx={{ height: 20, fontSize: 11 }} />}
-          {t.status === 'awaiting_confirmation' && <Chip label="⏳ En espera" size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700 }} />}
+          {t.status === 'awaiting_confirmation' && <Chip label={etiquetaEspera(t)} size="small" sx={{ height: 20, fontSize: 11, bgcolor: esperaMiConfirmacion(t) ? '#FDE7C7' : '#FBE9D0', color: esperaMiConfirmacion(t) ? '#8A4B00' : '#B07206', fontWeight: 700 }} />}
           {t.stalled && <Tooltip title="En curso +3 días sin movimiento (comenta o avanza para reactivar)"><Chip label="🛑 Detenida" size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#3A3A3A', color: '#fff', fontWeight: 700 }} /></Tooltip>}
           {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count} sin leer`} size="small" sx={{ height: 20, fontSize: 11, bgcolor: '#E53935', color: '#fff', fontWeight: 700 }} />}
         </Box>
@@ -650,7 +660,7 @@ export default function MisTareasPage() {
           <Box component="span" sx={{ color: '#8A8A8A', fontWeight: 800, mr: 0.4, textDecoration: 'none' }}>#{t.id}</Box>
           {t.title}
         </Typography>
-        {t.status === 'awaiting_confirmation' && <Chip label="⏳ En espera" size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, mr: 0.5, bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
+        {t.status === 'awaiting_confirmation' && <Chip label={etiquetaEspera(t)} size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, mr: 0.5, bgcolor: esperaMiConfirmacion(t) ? '#FDE7C7' : '#FBE9D0', color: esperaMiConfirmacion(t) ? '#8A4B00' : '#B07206', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         {t.stalled && <Chip label="🛑 Detenida" size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, mr: 0.5, bgcolor: '#3A3A3A', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         {(t.unread_count || 0) > 0 && <Chip label={`💬 ${t.unread_count}`} size="small" sx={{ height: 16, fontSize: 9.5, mt: 0.25, bgcolor: '#E53935', color: '#fff', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />}
         {mShown.length > 0 && (
@@ -1652,7 +1662,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5 }}>
               <Chip label={EIS[t.eisenhower]?.short} size="small" sx={{ height: 20, bgcolor: EIS[t.eisenhower]?.bg, color: EIS[t.eisenhower]?.color, fontWeight: 700 }} />
               {t.status === 'completed' && <Chip label="✅ Completada" size="small" color="success" />}
-              {t.status === 'awaiting_confirmation' && <Chip label="⏳ En espera de confirmación" size="small" sx={{ bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700 }} />}
+              {t.status === 'awaiting_confirmation' && <Chip label={etiquetaEspera(t, true)} size="small" sx={{ bgcolor: esperaMiConfirmacion(t) ? '#FDE7C7' : '#FBE9D0', color: esperaMiConfirmacion(t) ? '#8A4B00' : '#B07206', fontWeight: 700 }} />}
             </Box>
             <Typography fontWeight={800} fontSize={17}>
               <Box component="span" sx={{ color: '#8A8A8A', mr: 0.6 }}>#{t.id}</Box>

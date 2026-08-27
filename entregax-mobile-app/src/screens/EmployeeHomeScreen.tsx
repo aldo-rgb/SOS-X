@@ -39,6 +39,7 @@ import { registerForPushNotifications, subscribeNotificationListeners } from '..
 import { changeLanguage, getCurrentLanguage } from '../i18n';
 import { useBrandAsset } from '../hooks/useBrandAssets';
 import { useTranslation } from 'react-i18next';
+import { esPendienteDeMi } from './tasks/tasksShared';
 
 const { width } = Dimensions.get('window');
 const ORANGE = '#F05A28';
@@ -539,10 +540,12 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       const r = await fetch(`${API_URL}/api/tasks/mine`, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) { setMyTaskCount(null); return; }
       const d = await r.json();
-      // Solo las asignadas DIRECTAMENTE al usuario (responsable), no en las que
-      // solo estoy involucrado.
+      // Lo que espera algo de MI: lo asignado a mi, mas lo que yo asigne y ya
+      // esta esperando que YO lo confirme. Antes solo miraba al responsable, y
+      // quien asignaba veia "Sin tareas pendientes" con varias esperando su
+      // confirmacion, sin enterarse de que le tocaba cerrarlas.
       const uid = Number(user?.id);
-      const mine = Array.isArray(d.tasks) ? d.tasks.filter((t: any) => Number(t.assignee_id) === uid) : [];
+      const mine = Array.isArray(d.tasks) ? d.tasks.filter((t: any) => esPendienteDeMi(t, uid)) : [];
       setMyTaskCount(mine.length);
     } catch { setMyTaskCount(null); }
   }, [token, user?.id]);
