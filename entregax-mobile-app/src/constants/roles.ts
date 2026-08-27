@@ -4,6 +4,11 @@ export const EMPLOYEE_ROLES = [
   'warehouse_ops',
   'counter_staff',
   'customer_service',
+  // Soporte Técnico atiende los mismos tickets que Servicio a Cliente y en el
+  // panel de empleado ya tenía sus módulos asignados, pero no estaba en esta
+  // lista: al abrir la app caía en el panel de CLIENTE y no podía llegar a
+  // ellos.
+  'soporte_tecnico',
   'branch_manager',
   'director',
   'admin',
