@@ -1641,8 +1641,10 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
               return (
                 <View style={styles.modalFoot}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingBottom: 8 }}>
-                    <Ionicons name="hourglass-outline" size={14} color="#B07206" />
-                    <Text style={{ color: '#B07206', fontWeight: '700', fontSize: 12.5 }}>En espera de confirmación de quien la asignó</Text>
+                    <Ionicons name="hourglass-outline" size={14} color={iAmCreator ? '#8A4B00' : '#B07206'} />
+                    <Text style={{ color: iAmCreator ? '#8A4B00' : '#B07206', fontWeight: '700', fontSize: 12.5 }}>
+                      {iAmCreator ? 'Esperando TU confirmación · revísala y ciérrala' : 'En espera de confirmación de quien la asignó'}
+                    </Text>
                   </View>
                   <TouchableOpacity style={[styles.completeBtn, { backgroundColor: canConfirm ? '#2E7D46' : '#B07206' }, dis && { backgroundColor: '#B7C3BB' }]} onPress={() => complete(false)} disabled={dis}>
                     {busy ? <ActivityIndicator color="#fff" /> : <><Ionicons name="checkmark-done" size={18} color="#fff" /><Text style={styles.completeTxt}>{pending > 0 ? `Completa el checklist (${pending})` : (canConfirm ? 'Confirmar y cerrar' : 'Completar (en espera)')}</Text></>}

@@ -689,7 +689,9 @@ export default function MisTareasPage() {
   // Estado visible de una tarea (para la vista Equipo).
   const taskState = (t: Task): { key: string; label: string; bg: string; color: string; pct: number } => {
     if (t.status === 'completed') return { key: 'terminada', label: '✅ Terminada', bg: '#E6F4EA', color: '#1E7D34', pct: 100 };
-    if (t.status === 'awaiting_confirmation') return { key: 'espera', label: '⏳ En espera', bg: '#FBE9D0', color: '#B07206', pct: 85 };
+    if (t.status === 'awaiting_confirmation') return esperaMiConfirmacion(t)
+      ? { key: 'espera', label: '⏳ Esperando tu confirmación', bg: '#FDE7C7', color: '#8A4B00', pct: 85 }
+      : { key: 'espera', label: '⏳ En espera', bg: '#FBE9D0', color: '#B07206', pct: 85 };
     if (t.stalled) return { key: 'detenida', label: '🛑 Detenida', bg: '#3A3A3A', color: '#fff', pct: 45 };
     if (t.started_at) return { key: 'proceso', label: '⚙️ En proceso', bg: '#E3F0FB', color: '#1565C0', pct: 45 };
     return { key: 'nueva', label: '🆕 Nueva', bg: '#EEEEEE', color: '#555', pct: 0 };
@@ -1978,7 +1980,9 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 const canConfirm = iAmCreator || canManageTask;
                 return (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                    <Chip size="small" label="⏳ En espera de confirmación de quien la asignó" sx={{ bgcolor: '#FBE9D0', color: '#B07206', fontWeight: 700 }} />
+                    <Chip size="small"
+                      label={iAmCreator ? '⏳ Esperando TU confirmación · revísala y ciérrala' : '⏳ En espera de confirmación de quien la asignó'}
+                      sx={{ bgcolor: iAmCreator ? '#FDE7C7' : '#FBE9D0', color: iAmCreator ? '#8A4B00' : '#B07206', fontWeight: 700 }} />
                     <Button variant="contained" color={canConfirm ? 'success' : 'warning'} startIcon={<CheckCircleIcon />}
                       onClick={() => complete(false)} disabled={busy || pending > 0}>
                       {pending > 0 ? `Completa el checklist (${pending})` : (canConfirm ? 'Confirmar y cerrar' : 'Completar (en espera)')}
