@@ -1773,6 +1773,22 @@ export const startPaypalAutoInvoiceScheduleCron = () => {
 // Recordatorios de tareas (in-app siempre + push; 11am ya es horario laboral):
 //  · Lunes 11:00 AM (MX): cuántas tareas PENDIENTES tiene cada usuario.
 //  · Diario 11:00 AM (MX): cuántas tareas URGENTES (importante y urgente = 'fuego').
+/**
+ * Vigilancia de tickets atrasados: resumen a dirección de los que llevan más de
+ * 3 días hábiles, y escalamiento (aviso al equipo + tarea urgente con
+ * administración dentro) de los que pasan de 4. Ver ticketAtrasos.ts.
+ */
+export const startTicketAtrasosCron = () => {
+  const correr = async () => {
+    try {
+      const { revisarTicketsAtrasados } = await import('./ticketAtrasos');
+      await revisarTicketsAtrasados();
+    } catch (e) { console.error('[CRON] tickets atrasados:', e); }
+  };
+  cron.schedule('0 11 * * *', correr, { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Tickets atrasados: diario 11:00 am (MX)');
+};
+
 export const startTaskRemindersCron = () => {
   const sendReminder = async (kind: 'weekly' | 'urgent') => {
     try {
@@ -1851,6 +1867,7 @@ export const initCronJobs = () => {
   startAwaitingConfirmationReminderCron();
   startPagoParcialReminderCron();
   startCalendarReminderCron();
+  startTicketAtrasosCron();
 };
 
 export default initCronJobs;

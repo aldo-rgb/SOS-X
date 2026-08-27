@@ -7864,6 +7864,30 @@ app.get('/api/admin/support/tickets', authenticateToken, requireMinLevel(ROLES.A
 // Admin: Estadísticas de soporte
 app.get('/api/admin/support/stats', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), getSupportStats);
 
+// Disparo manual de la vigilancia de tickets atrasados (el cron corre a las
+// 11:00 MX). Sirve para probar y para forzar la revisión tras un cambio.
+app.post('/api/admin/support/tickets-atrasados/run', authenticateToken, requireMinLevel(ROLES.ADMIN), async (_req: Request, res: Response) => {
+  try {
+    const { escalarTicketsMuyAtrasados, resumenDiarioTicketsAtrasados } = await import('./ticketAtrasos');
+    const esc = await escalarTicketsMuyAtrasados();
+    const res1 = await resumenDiarioTicketsAtrasados();
+    res.json({ ok: true, escalados: esc.escalados, con_mas_de_3_dias: res1.total, usuarios_avisados: res1.avisados });
+  } catch (e: any) {
+    console.error('[atrasos] run manual:', e); res.status(500).json({ error: 'No se pudo revisar', detail: e?.message });
+  }
+});
+
+// Solo consulta: qué tickets están atrasados hoy (sin mandar nada).
+app.get('/api/admin/support/tickets-atrasados', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), async (req: Request, res: Response) => {
+  try {
+    const min = Math.max(0, parseInt(String(req.query.dias || '3')) || 3);
+    const { ticketsAtrasados } = await import('./ticketAtrasos');
+    res.json({ dias: min, tickets: await ticketsAtrasados(min) });
+  } catch (e: any) {
+    console.error('[atrasos] listado:', e); res.status(500).json({ error: 'No se pudo consultar' });
+  }
+});
+
 // Admin: Responder como agente (con adjuntos opcionales)
 app.post('/api/admin/support/ticket/:id/reply', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), uploadAdminReplyFiles, adminReplyTicket);
 
