@@ -5187,6 +5187,12 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                     // queda en cero y la diferencia se revisa aparte.
                     const yaPagadoPickup = parseFloat(pkg?.monto_pagado) || 0;
                     const saldoPickup = Math.max(0, Math.round((newTotalMxn - yaPagadoPickup) * 100) / 100);
+                    // Si ya había pagado MÁS de lo que ahora cuesta —pagó el flete
+                    // completo y luego cambió a recoger en mostrador— la diferencia
+                    // se le abona como saldo a favor del servicio, el mismo lugar
+                    // donde cae el excedente de una orden. Antes simplemente
+                    // desaparecía del cálculo.
+                    const sobrantePickup = Math.round((yaPagadoPickup - newTotalMxn) * 100) / 100;
                     
                     console.log(`📦 [Pick Up] Recalculando costos para paquete ${packageId}:`);
                     console.log(`   Pick Up Fee: ${totalBoxes} cajas × $3 USD × TC $${tc} = $${pickupFeeMxn.toFixed(2)} MXN`);
@@ -5208,6 +5214,24 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                         WHERE id = $4${ownerCondition}
                         RETURNING id, tracking_internal
                     `, [pickupFeeMxn, newTotalMxn, deliveryInstructions, packageId, saldoPickup]);
+
+                    if (sobrantePickup > 0.01) {
+                        try {
+                            const { abonarBilleteraServicio } = await import('./voucherController');
+                            const dueno = (await pool.query(`SELECT user_id, tracking_internal FROM packages WHERE id = $1`, [packageId])).rows[0];
+                            await abonarBilleteraServicio(pool, {
+                                userId: Number(dueno?.user_id),
+                                serviceType: 'POBOX_USA',
+                                monto: sobrantePickup,
+                                currency: 'MXN',
+                                concepto: `Cambio a recoger en mostrador de ${dueno?.tracking_internal || `guía ${packageId}`}: `
+                                        + `pagó $${yaPagadoPickup.toFixed(2)} y la maniobra cuesta $${newTotalMxn.toFixed(2)}`,
+                                createdBy: Number(userId) || null,
+                            });
+                        } catch (e: any) {
+                            console.error(`🚨 [Pick Up] No se pudo acreditar el sobrante de $${sobrantePickup.toFixed(2)} del paquete ${packageId}:`, e?.message);
+                        }
+                    }
                 } else {
                     // Entrega a domicilio - verificar si viene de Pick Up para recalcular costos
                     const currentPkg = await pool.query(

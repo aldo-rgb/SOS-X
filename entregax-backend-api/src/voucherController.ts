@@ -410,6 +410,39 @@ export const confirmVoucherAmount = async (req: AuthRequest, res: Response) => {
  *   comprobante subido, y midiendo contra payment_vouchers daría cero y no se
  *   acreditaría nada.
  */
+/**
+ * Abona saldo a favor en la billetera del servicio.
+ *
+ * Es el mismo destino que usa el excedente de una orden (billetera_servicio +
+ * su transacción), extraído para que otros caminos —como bajar el costo de una
+ * guía al cambiarla a pick-up— acrediten el dinero en el MISMO lugar y no
+ * aparezcan dos "saldos a favor" distintos según de dónde vino.
+ */
+export async function abonarBilleteraServicio(
+  db: any,
+  opts: { userId: number; serviceType: string; monto: number; currency?: string; concepto: string; createdBy?: number | null }
+): Promise<number> {
+  const monto = Math.round((Number(opts.monto) || 0) * 100) / 100;
+  if (!(monto > 0) || !opts.userId || !opts.serviceType) return 0;
+  const currency = opts.currency || 'MXN';
+  const w = await db.query(
+    `INSERT INTO billetera_servicio (user_id, service_type, saldo, currency)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id, service_type) DO UPDATE SET
+       saldo = billetera_servicio.saldo + $3, updated_at = NOW()
+     RETURNING id`,
+    [opts.userId, opts.serviceType, monto, currency]
+  );
+  await db.query(
+    `INSERT INTO billetera_servicio_transacciones
+       (billetera_servicio_id, user_id, service_type, tipo, monto, currency, concepto, created_by)
+     VALUES ($1, $2, $3, 'excedente', $4, $5, $6, $7)`,
+    [w.rows[0].id, opts.userId, opts.serviceType, monto, currency, opts.concepto, opts.createdBy ?? null]
+  );
+  console.log(`[SALDO A FAVOR] $${monto.toFixed(2)} ${currency} a user ${opts.userId} (${opts.serviceType}): ${opts.concepto}`);
+  return monto;
+}
+
 export async function acreditarSobranteOrden(
   db: any,
   orderId: number,
