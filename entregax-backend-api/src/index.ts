@@ -9993,14 +9993,22 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
                 tipo, monto, concepto, cliente_id, admin_id, admin_name, 
                 saldo_despues_movimiento, categoria, notas, currency, referencia, service_type
               ) VALUES (
-                'ingreso', $1, $2, $3, $4, $5, $6, 'cobro_guias', $7, 'MXN', $8, 'POBOX_USA'
+                -- 'cobro_mostrador' cuando el dinero se recibió EN FÍSICO en la
+                -- ventanilla; 'cobro_guias' cuando el pago ya venía del banco.
+                -- El tablero de caja excluye lo conciliado por banco (no es
+                -- dinero que esté en el cajón) pero sí debe contar el efectivo.
+                'ingreso', $1, $2, $3, $4, $5, $6,
+                CASE WHEN $9::text = 'efectivo' THEN 'cobro_mostrador' ELSE 'cobro_guias' END,
+                $7, $10, $8, 'POBOX_USA'
               )
             `, [
               montoPago,
               `Pago PO Box comprobante - ${packageIds.length} paquete(s) - ${poboxPay.cliente_nombre || 'Cliente'}`,
               poboxPay.user_id, adminId, adminName, nuevoSaldo,
               `Confirmado por ${adminName} - Voucher total: $${poboxPay.voucher_total || montoPago}`,
-              refStr
+              refStr,
+              String(metodo_confirmacion || ''),
+              currency
             ]);
           }
 
