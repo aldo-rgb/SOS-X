@@ -1598,7 +1598,14 @@ export const startPaymentReminderCron = () => {
 
       // 1) packages (aéreo China / TDI Express / PO Box / etc.)
       const rp = await pool.query(`
-        SELECT p.id, p.tracking_internal AS trn,
+        SELECT p.id,
+               -- Aéreo China: la guía que el cliente conoce es la completa
+               -- (child_no "AIR2618019APiJB-003"), no el código corto interno
+               -- "CN-PiJB-003". El WhatsApp llegaba con el corto y el cliente no
+               -- lo reconocía ni lo encontraba. Mismo criterio que ya usa el
+               -- recordatorio de instrucciones y el rastreo.
+               CASE WHEN p.service_type = 'AIR_CHN_MX' AND COALESCE(p.child_no,'') <> ''
+                    THEN p.child_no ELSE p.tracking_internal END AS trn,
                u.full_name AS client_name, u.phone AS client_phone,
                u.notif_whatsapp, u.phone_verified, u.whatsapp_verified
         FROM packages p
