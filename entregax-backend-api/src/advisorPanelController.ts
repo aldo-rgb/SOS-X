@@ -1242,6 +1242,12 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     const recentRes = await pool.query(`
       SELECT
         ac.id, ac.shipment_type, ac.service_type, ac.tracking,
+        -- Guía master de DHL, para acompañar a la hija. La comisión se calcula
+        -- por hija —una línea por cada una—, pero el asesor busca por la guía
+        -- de 10 dígitos, que es la que le dio al cliente.
+        (CASE ac.shipment_type
+           WHEN 'DHL' THEN (SELECT NULLIF(d.secondary_tracking, '') FROM dhl_shipments d WHERE d.id = ac.shipment_id)
+           ELSE NULL END) AS master_tracking,
         ac.client_name, cu.box_id AS client_box_id, ac.payment_amount_mxn, ac.commission_rate_pct,
         ac.commission_amount_mxn, ac.gex_commission_mxn,
         ac.status, ac.paid_to_advisor_at, ac.created_at
@@ -1326,6 +1332,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         shipmentType: r.shipment_type,
         serviceType: r.service_type,
         tracking: r.tracking,
+        masterTracking: r.master_tracking || null,
         clientName: r.client_name,
         clientBoxId: r.client_box_id || null,
         paymentAmount: parseFloat(r.payment_amount_mxn) || 0,

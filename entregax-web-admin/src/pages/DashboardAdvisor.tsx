@@ -279,6 +279,7 @@ interface CommissionRecent {
   shipmentType: string;
   serviceType: string;
   tracking: string;
+  masterTracking?: string | null;
   clientName: string;
   paymentAmount: number;
   commissionRate: number;
@@ -5278,6 +5279,13 @@ export default function DashboardAdvisor() {
                           <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
                             {r.tracking || '—'}
                           </Typography>
+                          {/* La comisión va por guía hija, pero el asesor busca
+                              por la de 10 dígitos que le dio al cliente. */}
+                          {r.masterTracking && (
+                            <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', color: 'text.secondary', display: 'block' }}>
+                              master {r.masterTracking}
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Typography variant="body2" noWrap sx={{ maxWidth: 120 }}>{r.clientName || '—'}</Typography>

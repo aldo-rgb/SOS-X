@@ -39,6 +39,7 @@ interface Commission {
   client_name: string;
   client_box_id: string;
   package_tracking: string;
+  master_tracking?: string | null;
   service_type: string;
   amount_mxn: number;
   commission_rate: number;
@@ -92,6 +93,7 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
         client_name: r.clientName || r.client_name || '',
         client_box_id: r.clientBoxId || r.client_box_id || '',
         package_tracking: r.tracking || r.package_tracking || '',
+        master_tracking: r.masterTracking || r.master_tracking || null,
         service_type: r.serviceType || r.service_type || '',
         amount_mxn: r.paymentAmount ?? r.amount_mxn ?? 0,
         commission_rate: r.commissionRate ?? r.commission_rate ?? 0,
@@ -192,6 +194,13 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
             </View>
             <Text style={styles.tracking}>{item.package_tracking || 'Sin tracking'}</Text>
           </View>
+          {/* La comisión va por guía hija; el asesor busca por la de 10
+              dígitos, que es la que le dio al cliente. */}
+          {!!item.master_tracking && (
+            <Text style={[styles.tracking, { fontSize: 10.5, color: '#9AA0A6', marginTop: 1 }]}>
+              master {item.master_tracking}
+            </Text>
+          )}
         </View>
         <View style={styles.commissionAmount}>
           <Text style={styles.amountLabel}>Comisión</Text>
