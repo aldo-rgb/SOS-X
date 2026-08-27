@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Modal, Alert,
-  ActivityIndicator, TextInput, Image, Platform, Linking, KeyboardAvoidingView,
+  ActivityIndicator, TextInput, Image, Platform, Linking, KeyboardAvoidingView, Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -276,6 +276,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [frequent, setFrequent] = useState<number[]>([]);
   const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
+  const altoTeclado = useAltoTeclado();
   const [catId, setCatId] = useState<number | null | undefined>(undefined); // undefined = sin elegir; null = Personal
   const [catSection, setCatSection] = useState<number | null>(null);
   const [title, setTitle] = useState('');
@@ -400,7 +401,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
+        <View style={[styles.modalCard, altoTeclado > 0 && { marginBottom: altoTeclado, maxHeight: '78%' }]}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle}>Nueva tarea</Text>
             <TouchableOpacity onPress={onClose} hitSlop={10}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
@@ -541,6 +542,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [frequent, setFrequent] = useState<number[]>([]);
   const [categories, setCategories] = useState<Array<{ id: number; name: string; board_key?: string; sections?: Array<{ id: number; name: string }> }>>([]);
+  const altoTeclado = useAltoTeclado();
   const [catId, setCatId] = useState<number | null>(null);
   const [catSection, setCatSection] = useState<number | null>(null);
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -663,7 +665,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
+        <View style={[styles.modalCard, altoTeclado > 0 && { marginBottom: altoTeclado, maxHeight: '78%' }]}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle}>📅 Programar tarea</Text>
             <TouchableOpacity onPress={onClose} hitSlop={10}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
@@ -897,6 +899,30 @@ export function TaskCard({ task, onPress, showBoard }: { task: TaskT; onPress: (
 }
 
 /**
+ * Alto del teclado abierto.
+ *
+ * app.json usa softwareKeyboardLayoutMode "pan", y en Android el sistema NO
+ * mueve el contenido de un Modal: las hojas de abajo se quedan donde estan y el
+ * teclado tapa justo el campo donde escribes. Con la altura real se levanta la
+ * hoja lo necesario, sin depender del comportamiento del sistema.
+ */
+function useAltoTeclado(): number {
+  const [alto, setAlto] = useState(0);
+  useEffect(() => {
+    const mostrar = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e: any) => setAlto(e?.endCoordinates?.height || 0),
+    );
+    const ocultar = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setAlto(0),
+    );
+    return () => { mostrar.remove(); ocultar.remove(); };
+  }, []);
+  return alto;
+}
+
+/**
  * Texto de tarea con el folio del ticket como enlace.
  *
  * Las tareas que nacen de un ticket traen "TKT-2026-2365" en el texto y para
@@ -931,6 +957,8 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   columns?: Array<{ id: number; name: string; is_done?: boolean }>;
   onClose: () => void; onChanged: () => void;
 }) {
+  const altoTeclado = useAltoTeclado();
+  const scrollRef = React.useRef<ScrollView>(null);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [comment, setComment] = useState('');
@@ -1229,7 +1257,9 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.modalCard}>
+        {/* La hoja se levanta el alto del teclado: en Android el sistema no lo
+            hace dentro de un Modal y el campo de comentario quedaba tapado. */}
+        <View style={[styles.modalCard, altoTeclado > 0 && { marginBottom: altoTeclado, maxHeight: '78%' }]}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle} numberOfLines={1}>
               {!!taskId && <Text style={styles.cardFolio}>#{taskId} </Text>}
@@ -1245,7 +1275,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
           {loading || !t ? (
             <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator size="large" color={ORANGE} /></View>
           ) : (
-            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+            <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
               {editing ? (
                 <View style={styles.editBox}>
                   <Text style={styles.fieldLbl}>Título</Text>
@@ -1552,7 +1582,10 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 );
               })()}
               <View style={styles.addSubRow}>
-                <TextInput style={styles.input} placeholder="Deja un comentario…  (@ para mencionar)" value={comment} onChangeText={onCommentChange} placeholderTextColor="#999" editable={!sendingComment} />
+                <TextInput style={styles.input} placeholder="Deja un comentario…  (@ para mencionar)" value={comment} onChangeText={onCommentChange} placeholderTextColor="#999" editable={!sendingComment}
+                  // Al abrirse el teclado la hoja se encoge; sin esto el campo
+                  // podia quedar fuera de la parte visible del scroll.
+                  onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250)} />
                 <TouchableOpacity
                   style={[styles.addBtn, (sendingComment || !comment.trim()) && { opacity: 0.5 }]}
                   onPress={addComment}
