@@ -2183,7 +2183,16 @@ export const reportTicketError = async (req: Request, res: Response): Promise<an
     const superAdminIds = saRes.rows.map((r: any) => Number(r.id));
     const superAdminId = superAdminIds[0]!; // responsable (prefiere con dispositivo)
 
-    const desc = `🐛 Error reportado desde el ticket ${folio}${ticket.client_name ? ' · ' + ticket.client_name : ''}.\n${ticket.subject || ''}`.trim();
+    // El cuerpo se toma del PRIMER mensaje del cliente, no del subject: el
+    // subject es un recorte del mensaje a ~50 caracteres para servir de título,
+    // y la tarea heredaba el recorte. La 415 quedó como "Buen dia al ..." —
+    // quien la abría no tenía forma de saber cuál era el error.
+    const primerMsg = (await pool.query(
+      `SELECT message FROM ticket_messages
+        WHERE ticket_id = $1 AND COALESCE(sender_type,'') <> 'agent'
+        ORDER BY id LIMIT 1`, [ticketId])).rows[0]?.message;
+    const cuerpo = String(primerMsg || ticket.subject || '').trim();
+    const desc = `🐛 Error reportado desde el ticket ${folio}${ticket.client_name ? ' · ' + ticket.client_name : ''}.\n${cuerpo}`.trim();
 
     // Tablero "Error de Sistema" (categoría). Si no existe, cae al personal.
     const boardRes = await pool.query(`SELECT id FROM task_boards WHERE name = 'Error de Sistema' AND is_active = TRUE ORDER BY id LIMIT 1`);

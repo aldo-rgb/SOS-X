@@ -200,10 +200,22 @@ export const resolverPaisDestino = (
 const MENSAJE_GENERICO_XPAY =
   'La comercializadora no está disponible en este momento, habla con tu asesor.';
 
-function friendlyEntangledError(code?: string | null): string {
+function friendlyEntangledError(code?: string | null, respuesta?: any): string {
   const raw = String(code || '').trim();
   if (!raw) return '';
   const key = raw.toLowerCase().replace(/\s+/g, '_');
+  // El RFC capturado no es el de la constancia. Es un dato que el asesor SÍ
+  // puede corregir, así que se le dicen los dos RFC en vez del genérico: con
+  // "la comercializadora no está disponible" el 27-ago un asesor reintentó
+  // tres veces la misma solicitud de 18,950 USD creyendo que era una caída,
+  // cuando al RFC guardado le faltaba un dígito.
+  if (key === 'rfc_no_coincide_constancia') {
+    const recibido = String(respuesta?.rfc_recibido || '').trim();
+    const constancia = String(respuesta?.rfc_constancia || '').trim();
+    return recibido && constancia
+      ? `El RFC registrado (${recibido}) no coincide con el de la constancia de situación fiscal del cliente (${constancia}). Corrige el RFC en los datos fiscales y vuelve a enviar la solicitud.`
+      : 'El RFC registrado no coincide con la constancia de situación fiscal del cliente. Corrige el RFC en los datos fiscales y vuelve a enviar la solicitud.';
+  }
   const MAP: Record<string, string> = {
     sin_disponibilidad:
       'El proveedor de facturación no tiene disponibilidad para este monto/concepto en este momento. Intenta más tarde o con otro concepto.',
@@ -874,7 +886,7 @@ export const createPaymentRequestV2 = async (
     return res.status(httpStatus).json({
       error: isEfectivoBug
         ? 'La modalidad Efectivo aún no está disponible en el proveedor de pagos (error del proveedor). Por favor usa Transferencia bancaria por ahora.'
-        : (friendlyEntangledError(remote.error) || 'No se devolvió un transaccion_id.'),
+        : (friendlyEntangledError(remote.error, remote.raw) || 'No se devolvió un transaccion_id.'),
       error_code: remote.error || null,
       request_id: requestId,
       referencia_pago: referenciaPago,
@@ -1809,7 +1821,7 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
       // nosotros. Antes se reenviaba tal cual y el asesor leía el texto que
       // ENTANGLED escribió para desarrolladores.
       return res.status(upstream).json({
-        error: friendlyEntangledError(result.error) || MENSAJE_GENERICO_XPAY,
+        error: friendlyEntangledError(result.error, result.raw) || MENSAJE_GENERICO_XPAY,
         error_code: result.error || null,
         upstream_status: upstream,
       });
