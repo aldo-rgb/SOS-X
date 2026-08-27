@@ -10,7 +10,7 @@ import {
   TableHead, TableRow, TablePagination, Chip, Button, CircularProgress,
   TextField, FormControl, InputLabel, Select, MenuItem, Alert, Snackbar,
   Checkbox, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions,
-  Card, CardContent, Avatar,
+  Card, CardContent, Avatar, IconButton,
 } from '@mui/material';
 import {
   AttachMoney as MoneyIcon,
@@ -19,6 +19,7 @@ import {
   Refresh as RefreshIcon,
   Payment as PaymentIcon,
   Download as DownloadIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -403,14 +404,19 @@ export default function AdvisorCommissionsLedgerPage() {
             </Button>
           </Paper>
 
-          {/* Batch pay bar */}
-          {/* Se queda pegada arriba: la suma ya existía, pero al bajar por la
-              tabla desaparecía de la vista y no servía de nada. */}
+          {/* Barra flotante de selección.
+              `sticky` no bastaba: el que hace scroll no es la ventana sino el
+              contenedor del panel, así que la barra se pegaba a un tope que
+              también se iba hacia arriba y desaparecía igual. Con `fixed` queda
+              anclada a la pantalla pase lo que pase. Va abajo y centrada para
+              no taparse con el botón de Cajito, que vive en la esquina. */}
           {selectedIds.length > 0 && (
-            <Paper elevation={3} sx={{
-              p: 1.5, mb: 2, borderRadius: 2, bgcolor: '#fff3e0', display: 'flex',
-              alignItems: 'center', gap: 2, position: 'sticky', top: 8, zIndex: 5,
-              border: '1px solid #FFCC9A',
+            <Paper elevation={8} sx={{
+              p: 1.5, borderRadius: 999, bgcolor: '#fff3e0', display: 'flex',
+              alignItems: 'center', gap: 2, flexWrap: 'wrap', justifyContent: 'center',
+              position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+              zIndex: 1300, border: '2px solid #FFB877', px: 2.5,
+              maxWidth: 'calc(100vw - 140px)',
             }}>
               <Typography variant="body2" fontWeight={600}>
                 {selectedIds.length} seleccionadas ·{' '}
@@ -427,12 +433,20 @@ export default function AdvisorCommissionsLedgerPage() {
                 size="small"
                 startIcon={<PaymentIcon />}
                 onClick={() => setPayDialogOpen(true)}
-                sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, ml: 'auto' }}
+                sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
               >
                 Marcar como Pagadas
               </Button>
+              <Tooltip title="Quitar la selección">
+                <IconButton size="small" onClick={() => setSelectedIds([])} sx={{ color: '#8A5B45' }}>
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
             </Paper>
           )}
+          {/* La barra flotante tapa el final de la tabla; este hueco deja ver
+              siempre la última fila. */}
+          {selectedIds.length > 0 && <Box sx={{ height: 88 }} />}
 
           {/* Toggle de vista: detalle vs agrupado por Orden de Pago */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
