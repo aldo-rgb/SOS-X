@@ -5058,8 +5058,20 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
         console.log(`📦 [Instrucciones Entrega] Usuario ${userId} (${userRole}) actualizando ${packageType}/${packageId}`);
         console.log(`   Carrier: ${carrier}, Costo: ${carrierCost}, Nombre: ${carrierName}`);
 
-        // Determinar si es Pick Up en sucursal
-        const isPickup = carrier === 'pickup_hidalgo';
+        // Determinar si es Pick Up en sucursal.
+        //
+        // El identificador no es uno solo: el módulo de etiquetado manda
+        // 'pickup_hidalgo' y el panel del cliente manda 'pickup'. Comparando
+        // contra un solo valor, la opción del cliente caía en la rama normal:
+        // no se aplicaba la regla de "solo $3 USD", se guardaba el 3 como si
+        // fueran pesos y la orden salía con el flete PO Box completo
+        // (US-9560882657: $9,101.11 en vez de ~$52, tarea 291).
+        const _carrierPickup = String(carrier || '').toLowerCase().replace(/[\s-]+/g, '_');
+        const isPickup = _carrierPickup === 'pickup'
+            || _carrierPickup === 'pick_up'
+            || _carrierPickup.startsWith('pickup_')
+            || _carrierPickup.startsWith('pick_up_')
+            || String(carrierName || '').toLowerCase().includes('pick up');
 
         // 🇺🇸 Guard: PO Box USA llega a CEDIS MTY; "EntregaX Local CDMX" NO aplica
         // (el mensajero local de CDMX no puede recoger de MTY). Rechazamos por si un

@@ -784,7 +784,7 @@ export default function DashboardClient() {
       return 'EntregaX Local MTY';
     }
     const map: Record<string, string> = {
-      'paquete_express': 'Paquete Express', 'local': 'EntregaX Local MTY', 'pickup': 'Pick Up Hidalgo TX',
+      'paquete_express': 'Paquete Express', 'local': 'EntregaX Local MTY', 'pickup': 'Pick Up Hidalgo TX', 'pickup_hidalgo': 'Pick Up Hidalgo TX',
       'pqtx_cod': 'Paquete Express Por Cobrar', 'paquete_express_pc': 'Paquete Express Por Cobrar',
       'entregax_local_cdmx': 'EntregaX CDMX', 'evisa': 'EVISA', 'tresguerras': 'Tres Guerras',
       'fedex': 'FedEx', 'estafeta': 'Estafeta', 'dhl': 'DHL', 'nacional': 'Nacional',
@@ -1154,7 +1154,10 @@ export default function DashboardClient() {
         const allServices = [
           { id: 'local', name: t('cd.carriers.local'), description: t('cd.carriers.localTime'), price: t('cd.carriers.localPrice'), icon: '🚛', forServices: ['china_air', 'china_sea', 'usa_pobox', 'dhl'] },
           { id: 'nacional', name: t('cd.carriers.nacional'), description: t('cd.carriers.nacionalTime'), price: t('cd.carriers.nacionalPrice'), subtext: t('cd.carriers.nacionalSubtext'), icon: '🚚', forServices: ['china_air', 'china_sea'] },
-          { id: 'pickup', name: t('cd.carriers.pickup'), description: t('cd.carriers.pickupDesc'), price: t('cd.carriers.pickupPrice'), subtext: '$3 x 1 caja', icon: '📍', forServices: ['usa_pobox'] },
+          // El backend identifica el pick-up como 'pickup_hidalgo' (igual que el
+          // modulo de etiquetado). Mandando 'pickup' a secas no aplicaba la
+          // regla de solo $3 USD y cobraba el flete completo (tarea 291).
+          { id: 'pickup_hidalgo', name: t('cd.carriers.pickup'), description: t('cd.carriers.pickupDesc'), price: t('cd.carriers.pickupPrice'), subtext: '$3 x 1 caja', icon: '📍', forServices: ['usa_pobox'] },
           { id: 'express', name: t('cd.carriers.express'), description: t('cd.carriers.expressTime'), price: t('cd.carriers.expressPrice'), subtext: '$350 x 1 caja', icon: '⚡', forServices: ['china_air', 'china_sea', 'usa_pobox', 'dhl'] },
         ];
         setCarrierServices(allServices.filter(s => s.forServices.includes(selectedServiceType)));
