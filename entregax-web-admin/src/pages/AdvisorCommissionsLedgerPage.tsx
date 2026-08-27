@@ -54,6 +54,7 @@ interface CommissionRecord {
   shipmentType: string;
   serviceType: string;
   tracking: string;
+  masterTracking: string | null;
   clientId: number;
   clientName: string;
   clientBox: string | null;
@@ -210,7 +211,7 @@ export default function AdvisorCommissionsLedgerPage() {
       : records;
     if (filas.length === 0) return;
     const cols = [
-      'Fecha', 'Asesor', 'Líder', 'Servicio', 'Tracking', 'Cliente', 'Casillero',
+      'Fecha', 'Asesor', 'Líder', 'Servicio', 'Tracking', 'Guía master', 'Cliente', 'Casillero',
       'Orden de pago', 'Monto cobrado', '% comisión', 'Comisión', 'Override líder',
       'Estatus', 'Pagada el',
     ];
@@ -219,14 +220,14 @@ export default function AdvisorCommissionsLedgerPage() {
     const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lineas = filas.map(r => [
       formatDate(r.createdAt), r.advisorName, r.leaderName || '',
-      serviceLabels[r.serviceType] || r.serviceType || '', r.tracking || '',
+      serviceLabels[r.serviceType] || r.serviceType || '', r.tracking || '', r.masterTracking || '',
       r.clientName || '', r.clientBox || '', r.paymentOrder || '',
       r.paymentAmount, r.commissionRate, r.commissionAmount, r.leaderOverrideAmount,
       r.awaitingClientPayment ? 'Esperando pago del cliente' : (r.status === 'paid' ? 'Pagada' : 'Pendiente'),
       r.paidAt ? formatDate(r.paidAt) : '',
     ].map(esc).join(';'));
     const total = filas.reduce((a, r) => a + r.commissionAmount, 0);
-    lineas.push([...Array(10).fill(''), 'TOTAL', total, '', ''].map(esc).join(';'));
+    lineas.push([...Array(11).fill(''), 'TOTAL', total, '', ''].map(esc).join(';'));
     // El BOM es lo que hace que Excel respete los acentos.
     const csv = '\uFEFF' + [cols.map(esc).join(';'), ...lineas].join('\r\n');
     const nombreAsesor = advisorsList.find(a => a.id === Number(filterAdvisor))?.full_name;
@@ -597,7 +598,17 @@ export default function AdvisorCommissionsLedgerPage() {
                               </Tooltip>
                             </TableCell>
                             <TableCell>
-                              <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{r.tracking || '—'}</Typography>
+                              <Box>
+                                <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block' }}>{r.tracking || '—'}</Typography>
+                                {/* La comisión va por guía hija —una línea por
+                                    cada una—, pero quien revisa busca por la
+                                    guía de 10 dígitos que se le dio al cliente. */}
+                                {r.masterTracking && (
+                                  <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', fontSize: 10, color: 'text.secondary' }}>
+                                    master {r.masterTracking}
+                                  </Typography>
+                                )}
+                              </Box>
                             </TableCell>
                             <TableCell>
                               {r.paymentOrder ? (

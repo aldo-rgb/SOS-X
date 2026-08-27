@@ -622,7 +622,14 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                         WHEN 'XPAY' THEN (SELECT epr.estatus_global FROM entangled_payment_requests epr WHERE epr.id = ac.shipment_id)
                         WHEN 'GEX' THEN (SELECT w.status FROM warranties w WHERE w.id = ac.shipment_id)
                         ELSE NULL END)
-                ) AS payment_order_status
+                ) AS payment_order_status,
+                -- Guía master de DHL. La comisión se calcula por guía HIJA —una
+                -- línea por cada una, si no se pierden renglones—, pero quien
+                -- revisa el reporte busca por la guía de 10 dígitos, que es la
+                -- que le dan al cliente. Se manda además de la hija, no en vez.
+                (CASE ac.shipment_type
+                    WHEN 'DHL' THEN (SELECT NULLIF(d.secondary_tracking, '') FROM dhl_shipments d WHERE d.id = ac.shipment_id)
+                    ELSE NULL END) AS master_tracking
             FROM advisor_commissions ac
             LEFT JOIN users cu ON cu.id = ac.client_id
             LEFT JOIN LATERAL (
@@ -669,6 +676,7 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                 shipmentId: r.shipment_id,
                 serviceType: r.service_type,
                 tracking: r.tracking,
+                masterTracking: r.master_tracking || null,
                 clientId: r.client_id,
                 clientName: r.client_name,
                 clientBox: r.client_box || null,
