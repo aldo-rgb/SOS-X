@@ -44,6 +44,10 @@ interface AdvisorBoardRow {
   // Desglose
   ownTotal: number;
   ownPending: number;
+  // De lo pendiente, lo retenido hasta que el cliente pague, y lo que sí se
+  // puede liquidar hoy. Ese último es el número que enseña el ledger.
+  ownCreditHold?: number;
+  ownCobrable?: number;
   ownPaid: number;
   overrideTotal: number;
   overridePending: number;
@@ -179,6 +183,11 @@ export default function CommissionsBoardTab() {
   const totalPending = displayRows.reduce((s, r) => s + r.ownPending, 0);
   const totalPaid = displayRows.reduce((s, r) => s + r.ownPaid, 0);
   const totalCommission = totalPending + totalPaid;
+  // Lo retenido hasta que el cliente pague. Se separa para que "por pagar" no
+  // se lea como dinero disponible: el ledger, que es donde se paga, solo
+  // ofrece la parte cobrable.
+  const totalCreditHold = displayRows.reduce((s, r) => s + (r.ownCreditHold || 0), 0);
+  const totalCobrable = totalPending - totalCreditHold;
   const activeAdvisors = displayRows.length;
 
   // Formateador de moneda simple para el PDF (evita símbolos raros de locale).
@@ -420,10 +429,13 @@ export default function CommissionsBoardTab() {
       {/* KPIs (grandes, para pantalla gigante) */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 4 }}>
         {[
-          { label: es ? 'Comisión por pagar' : 'Pending commission', value: totalPending, color: ORANGE, main: true },
+          { label: es ? 'Por pagar (cobrable)' : 'Payable now', value: totalCobrable, color: ORANGE, main: true,
+            nota: totalCreditHold > 0
+              ? (es ? `+ ${fmt(totalCreditHold)} en crédito, aún no cobrable` : `+ ${fmt(totalCreditHold)} on credit`)
+              : '' },
           { label: es ? 'Comisión pagada' : 'Paid commission', value: totalPaid, color: '#2e7d32' },
           { label: es ? 'Comisión total' : 'Total commission', value: totalCommission, color: '#1565c0' },
-        ].map((kpi) => (
+        ].map((kpi: any) => (
           <Paper key={kpi.label} sx={{
             flex: '1 1 260px', minWidth: 240, p: 3, borderRadius: 3,
             background: kpi.main ? `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` : '#fff',
@@ -436,6 +448,11 @@ export default function CommissionsBoardTab() {
             <Typography sx={{ fontWeight: 800, fontSize: { xs: 28, md: 40 }, lineHeight: 1.1, color: kpi.main ? '#fff' : kpi.color }}>
               {fmt(kpi.value)}
             </Typography>
+            {!!kpi.nota && (
+              <Typography variant="caption" sx={{ opacity: 0.9, display: 'block', mt: 0.5 }}>
+                {kpi.nota}
+              </Typography>
+            )}
           </Paper>
         ))}
         <Paper sx={{ flex: '1 1 200px', minWidth: 180, p: 3, borderRadius: 3, border: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
@@ -539,15 +556,37 @@ export default function CommissionsBoardTab() {
                         ? (es ? 'Comisión pagada' : 'Paid commission')
                         : (es ? 'Comisión por pagar' : 'Pending commission'))}
                 </Typography>
-                <Typography sx={{ fontWeight: 800, fontSize: 32, lineHeight: 1.1, color: status === 'paid' ? '#2e7d32' : ORANGE, mb: 1 }}>
+                <Typography sx={{ fontWeight: 800, fontSize: 32, lineHeight: 1.1, color: status === 'paid' ? '#2e7d32' : ORANGE, mb: 0.5 }}>
                   {fmt(metric(r))}
                 </Typography>
+                {/* El monto grande incluye lo que todavía no es cobrable. Decirlo
+                    aquí evita que alguien lo tome como el cheque a firmar. */}
+                {status !== 'paid' && (r.ownCreditHold || 0) > 0 && (
+                  <Typography variant="caption" sx={{ display: 'block', color: '#546E7A', mb: 1 }}>
+                    incluye {fmt(r.ownCreditHold || 0)} en crédito, aún no cobrable
+                  </Typography>
+                )}
 
                 {/* Desglose propia / subasesores (solo si es líder con subs) */}
                 {hasSubs && (
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
-                    <Chip size="small" label={`${es ? 'Propia' : 'Own'}: ${fmt(ownMetric)}`}
+                    {/* "Propia" enseña lo COBRABLE hoy, que es el mismo número
+                        del ledger. Lo retenido va en su propio chip: sumados dan
+                        lo que antes se mostraba junto y desconcertaba. */}
+                    <Chip size="small"
+                      label={`${es ? 'Propia' : 'Own'}: ${fmt(
+                        status !== 'paid' && r.ownCobrable != null ? r.ownCobrable : ownMetric
+                      )}`}
                       sx={{ bgcolor: '#FFF3E0', color: '#e65100', fontWeight: 700 }} />
+                    {/* Lo retenido hasta que el cliente pague su envío. Iba
+                        sumado dentro de "Propia" y por eso este panel no
+                        cuadraba con el ledger, que sí lo separa. */}
+                    {status !== 'paid' && (r.ownCreditHold || 0) > 0 && (
+                      <Tooltip title="Comisión ya generada, pero el cliente todavía no paga su envío. No se puede liquidar hasta entonces.">
+                        <Chip size="small" label={`${es ? 'En crédito' : 'On credit'}: ${fmt(r.ownCreditHold || 0)}`}
+                          sx={{ bgcolor: '#ECEFF1', color: '#546E7A', fontWeight: 700 }} />
+                      </Tooltip>
+                    )}
                     <Chip size="small" label={`${es ? 'A dispersar' : 'To disperse'}: ${fmt(ovMetric)}`}
                       sx={{ bgcolor: '#EDE7F6', color: '#5e35b1', fontWeight: 700 }} />
                   </Box>

@@ -804,7 +804,8 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
             WITH filtered AS (
                 SELECT ac.advisor_id, ac.advisor_name, ac.leader_id,
                        ac.commission_amount_mxn, COALESCE(ac.leader_override_amount, 0) AS leader_override_amount,
-                       ac.payment_amount_mxn, ac.status, ac.created_at
+                       ac.payment_amount_mxn, ac.status, ac.created_at,
+                       COALESCE(ac.awaiting_client_payment, FALSE) AS en_credito
                   FROM advisor_commissions ac
                   ${rowWhere}
             ),
@@ -814,6 +815,11 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
                        COALESCE(SUM(payment_amount_mxn), 0) AS total_volume,
                        COALESCE(SUM(commission_amount_mxn), 0) AS own_total,
                        COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'pending'), 0) AS own_pending,
+                       -- De lo pendiente, lo que NO se puede pagar todavía porque
+                       -- el cliente aún no paga su envío. El ledger ya lo separa
+                       -- en su propia tarjeta; aquí venía sumado dentro de
+                       -- "Propia" y por eso los dos paneles no coincidían.
+                       COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'pending' AND en_credito), 0) AS own_credit_hold,
                        COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'paid'), 0) AS own_paid,
                        COUNT(*) FILTER (WHERE status = 'pending') AS pending_count,
                        COUNT(*) FILTER (WHERE status = 'paid') AS paid_count,
@@ -824,6 +830,7 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
                 SELECT leader_id AS advisor_id,
                        COALESCE(SUM(leader_override_amount), 0) AS ov_total,
                        COALESCE(SUM(leader_override_amount) FILTER (WHERE status = 'pending'), 0) AS ov_pending,
+                       COALESCE(SUM(leader_override_amount) FILTER (WHERE status = 'pending' AND en_credito), 0) AS ov_credit_hold,
                        COALESCE(SUM(leader_override_amount) FILTER (WHERE status = 'paid'), 0) AS ov_paid,
                        COUNT(DISTINCT advisor_id) AS sub_count
                   FROM filtered
@@ -846,6 +853,8 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
                 COALESCE(o.total_volume, 0) AS total_volume,
                 COALESCE(o.own_total, 0) AS own_total,
                 COALESCE(o.own_pending, 0) AS own_pending,
+                COALESCE(o.own_credit_hold, 0) AS own_credit_hold,
+                COALESCE(v.ov_credit_hold, 0) AS ov_credit_hold,
                 COALESCE(o.own_paid, 0) AS own_paid,
                 COALESCE(o.pending_count, 0) AS pending_count,
                 COALESCE(o.paid_count, 0) AS paid_count,
@@ -867,6 +876,8 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
         res.json(result.rows.map(r => {
             const ownTotal = parseFloat(r.own_total) || 0;
             const ownPending = parseFloat(r.own_pending) || 0;
+            const ownCreditHold = parseFloat(r.own_credit_hold) || 0;
+            const ovCreditHold = parseFloat(r.ov_credit_hold) || 0;
             const ownPaid = parseFloat(r.own_paid) || 0;
             const ovTotal = parseFloat(r.ov_total) || 0;
             const ovPending = parseFloat(r.ov_pending) || 0;
@@ -886,6 +897,12 @@ export const getCommissionsByAdvisor = async (req: Request, res: Response): Prom
                 paidCommission: ownPaid + ovPaid,
                 // Desglose
                 ownTotal, ownPending, ownPaid,
+                // Parte de lo pendiente que está retenida hasta que el cliente
+                // pague. ownCobrable es lo que de verdad se puede liquidar hoy y
+                // es el número que enseña el ledger.
+                ownCreditHold,
+                ownCobrable: +(ownPending - ownCreditHold).toFixed(2),
+                creditHold: +(ownCreditHold + ovCreditHold).toFixed(2),
                 overrideTotal: ovTotal,
                 overridePending: ovPending,
                 overridePaid: ovPaid,
