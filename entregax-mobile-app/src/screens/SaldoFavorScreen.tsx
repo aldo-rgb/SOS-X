@@ -83,6 +83,12 @@ export default function SaldoFavorScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [resumen, setResumen] = useState<WalletResumen | null>(null);
+  /**
+   * Saldo a favor por servicio: lo que quedó a favor del cliente cuando pagó de
+   * más una orden. No es el monedero de referidos —esa es otra bolsa— y solo se
+   * puede usar en el mismo servicio que lo generó.
+   */
+  const [saldoFavor, setSaldoFavor] = useState<any | null>(null);
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
   const [showAllTransactions, setShowAllTransactions] = useState(false);
   const [totalReferidos, setTotalReferidos] = useState(0);
@@ -114,12 +120,19 @@ export default function SaldoFavorScreen({ navigation }: any) {
         'Authorization': `Bearer ${token}`,
       };
 
-      const [resumenRes, txRes, referidosRes, kitRes] = await Promise.all([
+      const [resumenRes, txRes, referidosRes, kitRes, favorRes] = await Promise.all([
         fetch(`${API_URL}/api/billetera/resumen`, { headers }),
         fetch(`${API_URL}/api/billetera/transacciones?limit=50`, { headers }),
         fetch(`${API_URL}/api/referidos/mis-referidos`, { headers }),
         fetch(`${API_URL}/api/welcome-kit/my-kit`, { headers }),
+        // Bolsa aparte: el excedente de un pago de más, separado por servicio.
+        fetch(`${API_URL}/api/saldo-favor`, { headers }),
       ]);
+
+      if (favorRes.ok) {
+        const d = await favorRes.json();
+        setSaldoFavor(d?.success ? d : null);
+      }
 
       if (kitRes.ok) {
         const kitData = await kitRes.json();
@@ -327,6 +340,35 @@ export default function SaldoFavorScreen({ navigation }: any) {
             </View>
           )}
         </LinearGradient>
+
+        {/* Saldo a favor por pagos de más. Va aparte del monedero de referidos
+            porque es otra bolsa y solo sirve en el servicio que lo generó: si
+            se mezclaran, el cliente creería que puede usarlo en cualquier envío. */}
+        {!!saldoFavor && Number(saldoFavor.total) > 0 && (
+          <View style={styles.favorCard}>
+            <View style={styles.favorHead}>
+              <Ionicons name="cash-outline" size={18} color="#1B5E20" />
+              <Text style={styles.favorTitle}>Saldo a favor por pagos de más</Text>
+            </View>
+            <Text style={styles.favorTotal}>{formatMoney(Number(saldoFavor.total))}</Text>
+            <Text style={styles.favorNota}>
+              Se genera cuando pagas más de lo que valía tu orden. Se descuenta solo al pagar
+              tu siguiente orden del mismo servicio.
+            </Text>
+            {(saldoFavor.saldos || []).map((sv: any) => (
+              <View key={sv.id} style={styles.favorFila}>
+                <Text style={styles.favorServicio}>{sv.servicioNombre}</Text>
+                <Text style={styles.favorMonto}>{formatMoney(Number(sv.saldo))}</Text>
+              </View>
+            ))}
+            {(saldoFavor.movimientos || []).filter((m: any) => m.entra).slice(0, 3).map((m: any) => (
+              <Text key={m.id} style={styles.favorMov} numberOfLines={2}>
+                • {m.orden ? `Orden ${m.orden}` : m.concepto} — {formatMoney(Number(m.monto))}
+              </Text>
+            ))}
+          </View>
+        )}
+
 
         {/* 🎁 Banner Kit de Bienvenida (regalo pendiente) */}
         {hasPendingKit && (
@@ -575,6 +617,21 @@ export default function SaldoFavorScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  favorCard: {
+    backgroundColor: '#E8F5E9', borderRadius: 14, padding: 14,
+    marginTop: 12, borderWidth: 1, borderColor: '#A5D6A7',
+  },
+  favorHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  favorTitle: { fontSize: 13.5, fontWeight: '800', color: '#1B5E20' },
+  favorTotal: { fontSize: 26, fontWeight: '800', color: '#1B5E20', marginTop: 4 },
+  favorNota: { fontSize: 11.5, color: '#33691E', lineHeight: 16, marginTop: 4 },
+  favorFila: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#C8E6C9',
+  },
+  favorServicio: { fontSize: 13, fontWeight: '700', color: '#1B5E20' },
+  favorMonto: { fontSize: 14.5, fontWeight: '800', color: '#2E7D32' },
+  favorMov: { fontSize: 11, color: '#558B2F', marginTop: 5 },
   kitBanner: { flexDirection: 'row', alignItems: 'center', borderRadius: 16, padding: 16, marginBottom: 16, gap: 12 },
   kitBannerIcon: { position: 'relative', width: 40, alignItems: 'center' },
   kitDot: { position: 'absolute', top: -2, right: 2, width: 12, height: 12, borderRadius: 6, backgroundColor: '#FFEB3B', borderWidth: 2, borderColor: '#FFF' },

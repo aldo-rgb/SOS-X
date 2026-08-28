@@ -46,6 +46,7 @@ if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEBUG_LOGS !== '
 import { pool } from './db';
 import { expandDhlGroupIds, markDhlGroupPaid } from './dhlGroup';
 import { previewCorte, cerrarCorte, excelCorte, listarCortes, misCortes, pdfMiCorte, proximoCorte } from './commissionCuts';
+import { misSaldosAFavor, saldoParaOrden, aplicarSaldoAFavor, saldosAFavorAdmin } from './saldoFavorServicio';
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
 import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
 import { translateTexts } from './translationController';
@@ -8746,6 +8747,12 @@ app.put('/api/admin/finance/clients/:clientId/credit', authenticateToken, requir
 // ========== BILLETERA DIGITAL Y SISTEMA DE REFERIDOS ==========
 
 // Billetera: Obtener saldo (disponible y pendiente)
+// 💰 Saldo a favor POR SERVICIO (excedentes de pago). Bolsa distinta del
+// monedero de referidos: solo se usa en el mismo servicio que lo generó.
+app.get('/api/saldo-favor', authenticateToken, misSaldosAFavor);
+app.get('/api/saldo-favor/para-orden/:orderId', authenticateToken, saldoParaOrden);
+app.post('/api/saldo-favor/aplicar', authenticateToken, aplicarSaldoAFavor);
+app.get('/api/admin/saldo-favor', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), saldosAFavorAdmin);
 app.get('/api/billetera/saldo', authenticateToken, getWalletBalance);
 
 // Billetera: Obtener resumen con últimas transacciones
