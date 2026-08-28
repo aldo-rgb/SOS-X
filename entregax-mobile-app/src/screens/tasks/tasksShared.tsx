@@ -2040,7 +2040,27 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
               </View>
             </ScrollView>
           )}
-          {t && t.status !== 'completed' && (() => {
+          {/* En modo edición el botón de abajo es GUARDAR, no Completar.
+              El de guardar vivía al final del formulario y había que
+              desplazarse a buscarlo, mientras el botón fijo seguía diciendo
+              "Completar": un toque de más y la tarea se cerraba cuando lo único
+              que se estaba haciendo era corregir el título. */}
+          {t && t.status !== 'completed' && editing && (
+            <View style={styles.modalFoot}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity style={[styles.cancelBtn, { flex: 1 }]} onPress={() => setEditing(false)} disabled={busy}>
+                  <Text style={styles.cancelBtnTxt}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.completeBtn, { flex: 2, backgroundColor: '#1F6FEB' }]} onPress={saveEdit} disabled={busy}>
+                  {busy ? <ActivityIndicator color="#fff" /> : <>
+                    <Ionicons name="save" size={18} color="#fff" />
+                    <Text style={styles.completeTxt}>Guardar cambios</Text>
+                  </>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+          {t && t.status !== 'completed' && !editing && (() => {
             const typing = comment.trim().length > 0;
             const iAmCreator = creatorId > 0 && Number(myId) === creatorId;
             const isAwaiting = t.status === 'awaiting_confirmation';
