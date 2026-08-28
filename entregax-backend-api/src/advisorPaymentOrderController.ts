@@ -469,6 +469,45 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     const { bloqueadoPorServicio } = await import('./servicioHabilitado');
     if (await bloqueadoPorServicio(res, serviceTypeForConfig, `orden de asesor ${aid}`)) return;
 
+    // ── 3b. Total del lado del servidor para órdenes DHL ──────────────────
+    //
+    // El total llega calculado por el navegador. En DHL el `monto` que el panel
+    // recibe ya es total_cost_mxn —importación + impuesto + nacional— y el
+    // navegador le volvía a sumar la paquetería nacional: el envío nacional se
+    // cobraba dos veces. Se corrigió en la pantalla el 26-ago, pero el 27
+    // siguieron saliendo órdenes dobles (UW-79899040 cobró $121,931.25 en vez
+    // de $111,931.25, exactamente los $10,000 de paquetería de sus 25 guías),
+    // porque un navegador con la versión vieja sigue mandando el total inflado.
+    //
+    // Aquí se recalcula con la fórmula canónica y, si el cliente mandó de más
+    // por el importe exacto de la paquetería, gana el servidor. Solo se corrige
+    // el cobro DOBLE: cualquier otra diferencia se respeta, porque el asesor
+    // puede haber agregado cargos que el servidor no conoce.
+    let totalFinal = Number(total_mxn);
+    if (dhlIds.length > 0 && allPackageIds.length > 0) {
+      try {
+        const canon = await pool.query(
+          // import_cost_mxn YA trae el impuesto; sumarle import_tax_mxn lo
+          // contaría dos veces. La fórmula canónica es importación + nacional.
+          `SELECT COALESCE(SUM(COALESCE(import_cost_mxn,0)),0) AS importacion,
+                  COALESCE(SUM(COALESCE(national_cost_mxn,0)),0) AS nacional
+             FROM dhl_shipments WHERE id = ANY($1::int[]) AND paid_at IS NULL`,
+          [allPackageIds]);
+        const importacion = Number(canon.rows[0]?.importacion) || 0;
+        const nacional = Number(canon.rows[0]?.nacional) || 0;
+        const esperado = importacion + nacional;
+        const doble = esperado + nacional;   // lo que manda un navegador viejo
+        if (nacional > 0 && Math.abs(totalFinal - doble) < 1 && Math.abs(totalFinal - esperado) > 1) {
+          console.warn(
+            `[orden-asesor] DHL con paquetería duplicada: llegó ${totalFinal}, se cobra ${esperado} ` +
+            `(paquetería ${nacional} contada dos veces). Asesor ${aid}, cliente ${client_id}.`);
+          totalFinal = esperado;
+        }
+      } catch (e: any) {
+        console.error('[orden-asesor] no se pudo validar el total DHL:', e?.message);
+      }
+    }
+
     // ── 4. Generate payment reference ────────────────────────────────────
     const words = (companyInfo.company_name || 'EX').trim().split(/\s+/)
       .filter((w: string) => !['sa','de','cv','s.a.','c.v.'].includes(w.toLowerCase()));
@@ -482,7 +521,7 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
       INSERT INTO pobox_payments (user_id, package_ids, amount, currency, payment_method, payment_reference, status, service_type, created_at)
       VALUES ($1, $2, $3, 'MXN', 'cash', $4, 'pending_payment', $5, CURRENT_TIMESTAMP)
       RETURNING id
-    `, [client_id, JSON.stringify(allPackageIds), Number(total_mxn), paymentRef, serviceTypeForConfig]);
+    `, [client_id, JSON.stringify(allPackageIds), totalFinal, paymentRef, serviceTypeForConfig]);
 
     const poboxPaymentId = ppRes.rows[0].id;
 
@@ -496,7 +535,7 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
           payment_method, payload_json, branch_id
         ) VALUES ($1,$2,$3,$4,$4,$5,CURRENT_TIMESTAMP,'pending_payment',$8,'cash',$6,$7)
       `, [
-        paymentRef, empresaId, client_id, Number(total_mxn),
+        paymentRef, empresaId, client_id, totalFinal,
         `Orden asesor - ${allPackageIds.length} guía(s): ${trackingStr}`,
         JSON.stringify({ packageIds: allPackageIds, pobox_payment_id: poboxPaymentId, trackings: trackings || [] }),
         null,
@@ -516,7 +555,7 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     `, [
       folio, aid, client_id, client_name || null, client_box_id || null,
       JSON.stringify(package_uids), JSON.stringify(trackings || []),
-      notes || null, Number(total_mxn),
+      notes || null, totalFinal,
       poboxPaymentId, paymentRef, serviceTypeForConfig,
     ]);
 
