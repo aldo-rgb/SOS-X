@@ -45,6 +45,7 @@ if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEBUG_LOGS !== '
 
 import { pool } from './db';
 import { expandDhlGroupIds, markDhlGroupPaid } from './dhlGroup';
+import { previewCorte, cerrarCorte, excelCorte, listarCortes, misCortes, pdfMiCorte } from './commissionCuts';
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
 import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
 import { translateTexts } from './translationController';
@@ -5879,6 +5880,15 @@ app.get('/api/admin/commissions/stats', authenticateToken, requireMinLevel(ROLES
 // Admin: Gestión de comisiones generadas
 app.get('/api/admin/commissions/ledger', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAdvisorCommissionsList);
 app.get('/api/admin/commissions/by-advisor', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionsByAdvisor);
+// 💰 Cortes de comisiones (viernes → jueves): calcular, cerrar, exportar y consultar.
+app.get('/api/admin/commissions/cut/preview', authenticateToken, requireMinLevel(ROLES.DIRECTOR), previewCorte);
+app.post('/api/admin/commissions/cut', authenticateToken, requireMinLevel(ROLES.DIRECTOR), cerrarCorte);
+app.get('/api/admin/commissions/cut/preview/excel', authenticateToken, requireMinLevel(ROLES.DIRECTOR), excelCorte);
+app.get('/api/admin/commissions/cut/:id/excel', authenticateToken, requireMinLevel(ROLES.DIRECTOR), excelCorte);
+app.get('/api/admin/commissions/cuts', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listarCortes);
+// El asesor consulta los cortes que ha recibido y baja su comprobante.
+app.get('/api/advisor/commission-cuts', authenticateToken, misCortes);
+app.get('/api/advisor/commission-cuts/:cutId/pdf', authenticateToken, pdfMiCorte);
 app.get('/api/admin/commissions/simulator-data', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionSimulatorData);
 // Metas del asesor (app): plan gamificado del propio asesor.
 app.get('/api/advisor/my-goals', authenticateToken, getMyGoals);

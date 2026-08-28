@@ -30,6 +30,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import ScienceIcon from '@mui/icons-material/Science';
 import AdvisorCommissionsLedgerPage from './AdvisorCommissionsLedgerPage';
 import CommissionsBoardTab from './CommissionsBoardTab';
+import CorteComisionesDialog from '../components/CorteComisionesDialog';
 import CommissionSimulatorTab from './CommissionSimulatorTab';
 import MetasTab from './MetasTab';
 import BonosTab from './BonosTab';
@@ -129,6 +130,7 @@ export default function CommissionsPage() {
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [tabValue, setTabValue] = useState(0);
+  const [corteOpen, setCorteOpen] = useState(false);
   // Asesor en el que se dio click en el board; el sello obliga a re-filtrar
   // aunque se vuelva a clickear al mismo.
   const [focoAsesor, setFocoAsesor] = useState<{ advisorId: number; desde: string; hasta: string; sello: number } | null>(null);
@@ -252,6 +254,18 @@ export default function CommissionsPage() {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 2 }}>
+          {/* El pago semanal a asesores: se revisa el corte, se baja el Excel
+              y al aceptar quedan liquidadas y notificadas. */}
+          {canSeeAsesores && (
+            <Button
+              variant="contained"
+              startIcon={<PaymentIcon />}
+              onClick={() => setCorteOpen(true)}
+              sx={{ bgcolor: '#2E7D46', '&:hover': { bgcolor: '#256238' } }}
+            >
+              {i18n.language === 'es' ? 'Hacer corte' : 'Run payout'}
+            </Button>
+          )}
           <Button 
             variant="contained" 
             startIcon={<PersonAddIcon />}
@@ -678,6 +692,18 @@ export default function CommissionsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <CorteComisionesDialog
+        open={corteOpen}
+        onClose={() => setCorteOpen(false)}
+        onDone={(r: any) => {
+          setSnackbar({
+            open: true, severity: 'success',
+            message: `Corte cerrado: ${r?.advisors || 0} asesores · $${Number(r?.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}. Ya se les notificó.`,
+          });
+          loadData();
+        }}
+      />
 
       <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>

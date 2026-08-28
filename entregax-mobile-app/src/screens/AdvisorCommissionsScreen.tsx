@@ -12,7 +12,11 @@ import {
   RefreshControl,
   TouchableOpacity,
   Dimensions,
+  Modal,
+  Alert,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Text,
@@ -191,6 +195,39 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
     }
   };
 
+  // ─── Historial de cortes ───
+  const [historialAbierto, setHistorialAbierto] = useState(false);
+  const [cortes, setCortes] = useState<any[]>([]);
+  const [cortesCargando, setCortesCargando] = useState(false);
+  const [corteAbierto, setCorteAbierto] = useState<number | null>(null);
+  const abrirHistorial = async () => {
+    setHistorialAbierto(true);
+    setCortesCargando(true);
+    try {
+      const r = await fetch(`${API_URL}/api/advisor/commission-cuts`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      setCortes(Array.isArray(d.cortes) ? d.cortes : []);
+    } catch { setCortes([]); } finally { setCortesCargando(false); }
+  };
+  // El PDF se abre en el navegador con el token en la URL firmada por el header:
+  // en RN no se puede mandar Authorization desde Linking, así que se descarga
+  // primero y se comparte el archivo local.
+  const bajarPdf = async (cutId: number) => {
+    try {
+      const destino = `${FileSystem.cacheDirectory}corte-${cutId}.pdf`;
+      const r = await FileSystem.downloadAsync(
+        `${API_URL}/api/advisor/commission-cuts/${cutId}/pdf`, destino,
+        { headers: { Authorization: `Bearer ${token}` } });
+      if (r.status !== 200) throw new Error();
+      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(r.uri, { mimeType: 'application/pdf' });
+      else Alert.alert('Listo', 'El comprobante se descargó.');
+    } catch { Alert.alert('Error', 'No se pudo descargar el comprobante'); }
+  };
+  const fechaCorta = (iso: string) => {
+    try { return new Date(iso + (String(iso).length === 10 ? 'T12:00:00' : '')).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }); }
+    catch { return String(iso); }
+  };
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -332,6 +369,16 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
         <Ionicons name="chevron-forward" size={22} color="#fff" />
       </TouchableOpacity>
 
+      {/* Historial de cortes: lo que YA se le pagó, corte por corte. */}
+      <TouchableOpacity activeOpacity={0.85} style={styles.historialBtn} onPress={abrirHistorial}>
+        <View style={styles.historialIcon}><Ionicons name="receipt-outline" size={20} color="#fff" /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.historialTitle}>Historial de cortes</Text>
+          <Text style={styles.historialSub}>Los pagos de comisiones que has recibido</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={22} color="#fff" />
+      </TouchableOpacity>
+
       {/* Filtros por estado */}
       <View style={styles.filtersContainer}>
         {filters.map(f => (
@@ -392,11 +439,123 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
           }
         />
       )}
+
+      {/* Historial de cortes: lo que ya se le pagó, corte por corte. */}
+      <Modal visible={historialAbierto} animationType="slide" transparent onRequestClose={() => setHistorialAbierto(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '88%' }}>
+            <View style={styles.histHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.histTitle}>🧾 Historial de cortes</Text>
+                <Text style={styles.histSub}>Cada corte es un pago de comisiones de viernes a jueves</Text>
+              </View>
+              <TouchableOpacity onPress={() => setHistorialAbierto(false)} hitSlop={10}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            {cortesCargando ? (
+              <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator size="large" color={ORANGE} /></View>
+            ) : cortes.length === 0 ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <Ionicons name="receipt-outline" size={44} color="#ccc" />
+                <Text style={{ color: '#888', marginTop: 10, textAlign: 'center' }}>
+                  Todavía no has recibido ningún corte.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 28 }}>
+                {cortes.map(c => {
+                  const abierto = corteAbierto === c.cutId;
+                  return (
+                    <View key={c.id} style={styles.corteCard}>
+                      <TouchableOpacity activeOpacity={0.8} onPress={() => setCorteAbierto(abierto ? null : c.cutId)}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.corteFecha}>
+                            {fechaCorta(c.desde)} — {fechaCorta(c.hasta)}
+                          </Text>
+                          <Text style={styles.corteMeta}>{c.guias} guías · corte #{c.cutId}</Text>
+                        </View>
+                        <Text style={styles.corteMonto}>
+                          ${Number(c.total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                        </Text>
+                        <Ionicons name={abierto ? 'chevron-up' : 'chevron-down'} size={18} color="#9AA0A6" />
+                      </TouchableOpacity>
+                      {abierto && (
+                        <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: '#EEE', paddingTop: 10 }}>
+                          <View style={styles.corteFila}>
+                            <Text style={styles.corteFilaLbl}>Comisión propia</Text>
+                            <Text style={styles.corteFilaVal}>${Number(c.propia).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Text>
+                          </View>
+                          {Number(c.override) > 0 && (
+                            <View style={styles.corteFila}>
+                              <Text style={styles.corteFilaLbl}>Override de subasesores</Text>
+                              <Text style={styles.corteFilaVal}>${Number(c.override).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Text>
+                            </View>
+                          )}
+                          {(c.subs || []).length > 0 && (
+                            <View style={{ marginTop: 8, backgroundColor: '#F3E5F5', borderRadius: 8, padding: 8 }}>
+                              <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#5E35B1', marginBottom: 4 }}>
+                                Lo que te toca dispersar
+                              </Text>
+                              {(c.subs || []).map((sb: any) => (
+                                <Text key={sb.subId} style={{ fontSize: 12, color: '#4A148C' }}>
+                                  · {sb.name} — {sb.guias} guías — ${Number(sb.monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                </Text>
+                              ))}
+                            </View>
+                          )}
+                          <TouchableOpacity onPress={() => bajarPdf(c.cutId)} style={styles.pdfBtn}>
+                            <Ionicons name="document-text-outline" size={16} color="#fff" />
+                            <Text style={styles.pdfBtnTxt}>Descargar comprobante PDF</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  historialBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginHorizontal: 16, marginBottom: 6, padding: 13, borderRadius: 14,
+    backgroundColor: '#37474F',
+  },
+  historialIcon: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center',
+  },
+  historialTitle: { color: '#fff', fontWeight: '800', fontSize: 14.5 },
+  historialSub: { color: 'rgba(255,255,255,0.85)', fontSize: 11.5 },
+  histHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#37474F', padding: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+  },
+  histTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  histSub: { color: 'rgba(255,255,255,0.8)', fontSize: 11.5, marginTop: 2 },
+  corteCard: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 13, marginBottom: 10,
+    borderWidth: 1, borderColor: '#E8EAED',
+  },
+  corteFecha: { fontSize: 14.5, fontWeight: '800', color: '#202124', textTransform: 'capitalize' },
+  corteMeta: { fontSize: 11.5, color: '#9AA0A6', marginTop: 1 },
+  corteMonto: { fontSize: 17, fontWeight: '800', color: '#2E7D46' },
+  corteFila: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  corteFilaLbl: { fontSize: 12.5, color: '#5F6368' },
+  corteFilaVal: { fontSize: 12.5, fontWeight: '700', color: '#202124' },
+  pdfBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
+    marginTop: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#C62828',
+  },
+  pdfBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 13 },
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
