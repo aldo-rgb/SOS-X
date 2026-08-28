@@ -1480,7 +1480,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                     onPress={openAltasBreakdown}>
                     <Text style={styles.leadNumber}>{leadsWidgets.month}</Text>
                     <Text style={styles.leadLabel}>Altas este mes</Text>
-                    <Text style={styles.leadSub}>toca para ver por asesor ›</Text>
+                    <Text style={styles.leadSub}>por asesor y gráfica anual ›</Text>
                   </TouchableOpacity>
                   <TouchableOpacity activeOpacity={0.85} style={styles.leadCard}
                     onPress={() => setSeriesConfig({ metric: 'altas', granularity: 'day', periods: 7, title: 'Altas por día', color: '#E65100' })}>
@@ -1884,6 +1884,22 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               </View>
               <TouchableOpacity onPress={() => setAltasModal(false)} hitSlop={10}><Text style={{ color: '#fff', fontSize: 22, fontWeight: '700' }}>✕</Text></TouchableOpacity>
             </View>
+            {/* El desglose contesta "quién", pero no "cómo venimos": desde aquí
+                se salta a la serie de los últimos 12 meses. */}
+            <TouchableOpacity activeOpacity={0.85}
+              onPress={() => {
+                setAltasModal(false);
+                setTimeout(() => setSeriesConfig({
+                  metric: 'altas', granularity: 'month', periods: 12,
+                  title: 'Altas por mes (12 meses)', color: '#2E9E9E',
+                }), 250);
+              }}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+                       marginHorizontal: 12, marginTop: 12, paddingVertical: 11, borderRadius: 12,
+                       borderWidth: 1.5, borderColor: '#2E9E9E', backgroundColor: '#E0F2F1' }}>
+              <Text style={{ fontSize: 15 }}>📊</Text>
+              <Text style={{ color: '#1B6E6E', fontWeight: '800', fontSize: 13.5 }}>Ver gráfica anual de altas</Text>
+            </TouchableOpacity>
             {altasLoading ? (
               <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator size="large" color="#2E9E9E" /></View>
             ) : (
