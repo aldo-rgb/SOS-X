@@ -70,8 +70,19 @@ export const uploadCarrierIcon = async (req: Request, res: Response) => {
 // =========================================
 export const getCarrierOptions = async (req: Request, res: Response) => {
   try {
+    // "Por cobrar" se marcó de dos formas distintas y quedaron desalineadas: la
+    // pestaña del panel filtra por carrier_type, pero las 8 paqueterías de por
+    // cobrar reales (EVISA, PITIC, Tres Guerras, Sendex, Fedex, Estafeta, DHL
+    // Express, PQTX Por Cobrar) tienen carrier_type='standard' y allows_collect
+    // = TRUE, que es lo que mira la pantalla del cliente. Resultado: la pestaña
+    // "Por cobrar" salía vacía y esas paqueterías aparecían en la de estándar.
+    // Se filtra por la regla efectiva, la misma que agrupa al cliente.
     const { carrier_type } = req.query;
-    const typeFilter = carrier_type ? `WHERE co.carrier_type = '${carrier_type === 'collect' ? 'collect' : 'standard'}'` : '';
+    const typeFilter = carrier_type
+      ? (carrier_type === 'collect'
+          ? `WHERE (co.carrier_type = 'collect' OR co.allows_collect = TRUE)`
+          : `WHERE (co.carrier_type IS DISTINCT FROM 'collect' AND COALESCE(co.allows_collect, FALSE) = FALSE)`)
+      : '';
     const result = await pool.query(`
       SELECT co.*,
         COALESCE(
@@ -182,7 +193,10 @@ export const createCarrierOption = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Ya existe una paquetería con esa clave' });
     }
 
-    const cType = carrier_type === 'collect' ? 'collect' : 'standard';
+    // Las dos banderas se guardan de acuerdo entre sí para que no vuelvan a
+    // desalinearse: una paquetería de por cobrar lo es en las dos columnas.
+    const esPorCobrar = carrier_type === 'collect' || allows_collect === true;
+    const cType = esPorCobrar ? 'collect' : 'standard';
     // max_weight_kg: null / undefined / '' / valores no numéricos = sin límite (NULL).
     const maxWeightNormalized =
       max_weight_kg == null || max_weight_kg === '' || !Number.isFinite(Number(max_weight_kg))
@@ -202,7 +216,7 @@ export const createCarrierOption = async (req: Request, res: Response) => {
       INSERT INTO carrier_service_options (carrier_key, name, description, price_label, subtext, icon, priority, allows_collect, carrier_type, max_weight_kg, price_per_package, free_from_qty)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
-    `, [carrier_key, name, description || null, price_label || null, subtext || null, icon || '🚛', priority || 0, allows_collect === true, cType, maxWeightNormalized, pricePerPackageNormalized, freeFromQtyNormalized]);
+    `, [carrier_key, name, description || null, price_label || null, subtext || null, icon || '🚛', priority || 0, esPorCobrar, cType, maxWeightNormalized, pricePerPackageNormalized, freeFromQtyNormalized]);
 
     const carrierId = result.rows[0].id;
 
@@ -245,6 +259,8 @@ export const updateCarrierOption = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { carrier_key, name, description, price_label, subtext, icon, is_active, priority, service_types, allows_collect, carrier_type, max_weight_kg, price_per_package, free_from_qty } = req.body;
+    // Mismo criterio que al crear: las dos banderas de "por cobrar" van juntas.
+    const esPorCobrarUpd = carrier_type === 'collect' || allows_collect === true;
 
     // Verificar que exista
     const existing = await pool.query('SELECT id FROM carrier_service_options WHERE id = $1', [id]);
@@ -320,7 +336,9 @@ export const updateCarrierOption = async (req: Request, res: Response) => {
     `, [
       carrier_key, name, description, price_label,
       subtext !== undefined ? subtext : null, icon, is_active, priority,
-      allows_collect, cType,
+      // Ambas banderas se mandan juntas: si viene una, la otra la acompaña.
+      (allows_collect === undefined && carrier_type === undefined) ? null : esPorCobrarUpd,
+      (allows_collect === undefined && carrier_type === undefined) ? null : (esPorCobrarUpd ? 'collect' : 'standard'),
       maxWeightForUpdate === undefined ? null : maxWeightForUpdate,
       maxWeightForUpdate !== undefined,
       pricePerPackageForUpdate === undefined ? null : pricePerPackageForUpdate,

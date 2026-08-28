@@ -123,12 +123,29 @@ const formatReceptionHoursDisplay = (raw?: string | null): string => {
   return parts.join(' · ');
 };
 
-// 🚚 Paqueterías disponibles por tipo de servicio
-// - Marítimo:    solo Entregax Local CDMX + Paquete Express
-// - Aéreo:       Entregax Local CDMX + Entregax Local MTY + Paquete Express
-// - USA:         Entregax Local MTY + Paquete Express
-// - TDI Express: Entregax Local MTY + Paquete Express (llega a Monterrey)
-const CARRIERS_BY_SERVICE: Record<string, { id: string; name: string; icon: string; cost: number; currency?: string; dynamic?: boolean }[]> = {
+/**
+ * 🚚 PAQUETERÍAS POR SERVICIO
+ *
+ * Salen del catálogo (Opciones de paquetería), NO de una lista fija. Antes
+ * estaban escritas aquí a mano con tres opciones por servicio, así que nada de
+ * lo que se diera de alta en el panel llegaba al cliente: EVISA y Evisa
+ * Prepagado nunca aparecieron, y DHL ni siquiera existía como servicio
+ * (TKT-2026-2385). El asesor sí las veía porque su pantalla sí consulta el
+ * catálogo.
+ */
+type CarrierOpt = { id: string; name: string; icon: string; cost: number; currency?: string; dynamic?: boolean; porCobrar?: boolean; priceLabel?: string };
+
+/** Servicio de esta pantalla → servicio del catálogo. */
+const SERVICIO_CATALOGO: Record<string, string> = {
+  usa: 'usa_pobox',
+  air: 'china_air',
+  maritime: 'china_sea',
+  tdi_express: 'tdi_express',
+  dhl: 'dhl',
+};
+
+/** Respaldo si el catálogo no responde: lo mínimo para no dejar la pantalla vacía. */
+const CARRIERS_FALLBACK: Record<string, CarrierOpt[]> = {
   usa: [
     { id: 'entregax_local_mty', name: 'Entregax Local MTY', icon: '🚛', cost: 0 },
     { id: 'pickup_hidalgo', name: 'Paso a recoger a Hidalgo', icon: '🏪', cost: 3, currency: 'USD' },
@@ -144,6 +161,10 @@ const CARRIERS_BY_SERVICE: Record<string, { id: string; name: string; icon: stri
   ],
   air: [
     { id: 'entregax_local_cdmx', name: 'Entregax Local CDMX', icon: '🚛', cost: 0 },
+    { id: 'entregax_local_mty', name: 'Entregax Local MTY', icon: '🚛', cost: 0 },
+    { id: 'paquete_express', name: 'Paquete Express', icon: '📦', cost: 0, dynamic: true },
+  ],
+  dhl: [
     { id: 'entregax_local_mty', name: 'Entregax Local MTY', icon: '🚛', cost: 0 },
     { id: 'paquete_express', name: 'Paquete Express', icon: '📦', cost: 0, dynamic: true },
   ],
@@ -402,6 +423,49 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
     setShowServiceModal(true);
   };
 
+  /**
+   * Catálogo de paqueterías por servicio, traído del backend. Se pide una vez
+   * por servicio y se guarda; si falla, se usa el respaldo para no dejar al
+   * cliente sin poder elegir.
+   */
+  const [carriersPorServicio, setCarriersPorServicio] = useState<Record<string, CarrierOpt[]>>({});
+  const cargarCarriers = useCallback(async (service: string): Promise<CarrierOpt[]> => {
+    if (carriersPorServicio[service]) return carriersPorServicio[service];
+    const svc = SERVICIO_CATALOGO[service] || service;
+    try {
+      const r = await fetch(`${API_URL}/api/carrier-options/by-service/${svc}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      const lista: CarrierOpt[] = (d?.data || []).map((c: any) => ({
+        id: c.carrier_key,
+        name: c.name,
+        icon: '🚛',
+        cost: Number(c.price_per_package) || 0,
+        dynamic: c.price_label === 'API',
+        porCobrar: c.allows_collect === true || c.carrier_type === 'collect',
+        priceLabel: c.price_label || '',
+      }));
+      if (lista.length > 0) {
+        setCarriersPorServicio(prev => ({ ...prev, [service]: lista }));
+        return lista;
+      }
+    } catch { /* se cae al respaldo */ }
+    const fb = CARRIERS_FALLBACK[service] || [];
+    setCarriersPorServicio(prev => ({ ...prev, [service]: fb }));
+    return fb;
+  }, [carriersPorServicio, token]);
+
+  /** Lo que se pinta hoy para ese servicio (catálogo o respaldo). */
+  const carriersDe = (service: string): CarrierOpt[] =>
+    carriersPorServicio[service] || CARRIERS_FALLBACK[service] || [];
+
+  // Al abrir el modal se precargan los servicios ya elegidos.
+  useEffect(() => {
+    if (!showServiceModal) return;
+    for (const svc of selectedServices) cargarCarriers(svc);
+  }, [showServiceModal, selectedServices, cargarCarriers]);
+
   const toggleService = (service: string) => {
     // ⚠️ Al activar TDI Express, advertir que se aceptan los costos de origen
     if (service === 'tdi_express' && !selectedServices.includes('tdi_express')) {
@@ -429,14 +493,13 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
         });
         return prev.filter(s => s !== service);
       } else {
-        // Al seleccionar, preseleccionar la primera paquetería disponible
-        const carriers = CARRIERS_BY_SERVICE[service];
-        if (carriers && carriers.length > 0) {
-          setSelectedCarriers(current => ({
-            ...current,
-            [service]: carriers[0].id
-          }));
-        }
+        // Al seleccionar, traer el catálogo y preseleccionar la primera.
+        cargarCarriers(service).then(carriers => {
+          if (carriers.length > 0) {
+            setSelectedCarriers(current =>
+              current[service] ? current : { ...current, [service]: carriers[0].id });
+          }
+        });
         return [...prev, service];
       }
     });
@@ -489,7 +552,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
 
   // 📦 Obtener nombre de la paquetería
   const getCarrierName = (service: string, carrierId: string): string => {
-    const carriers = CARRIERS_BY_SERVICE[service];
+    const carriers = carriersDe(service);
     const carrier = carriers?.find(c => c.id === carrierId);
     return carrier ? `${carrier.icon} ${carrier.name}` : carrierId;
   };
@@ -547,7 +610,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                       <View style={styles.serviceChipsRow}>
                         {getServiceChips(address.default_for_service).map((svc) => {
                           const carrierId = (address.carrier_config as Record<string, string> | undefined)?.[svc];
-                          const carrier = carrierId ? CARRIERS_BY_SERVICE[svc]?.find(c => c.id === carrierId) : null;
+                          const carrier = carrierId ? carriersDe(svc).find(c => c.id === carrierId) : null;
                           return (
                             <View key={svc} style={styles.serviceChipWithCarrier}>
                               <Text style={styles.serviceChipSmallText}>
@@ -891,7 +954,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
               {selectedServices.includes('maritime') && (
                 <View style={styles.carrierSelector}>
                   <Text style={styles.carrierSelectorLabel}>Paquetería para Marítimo:</Text>
-                  {CARRIERS_BY_SERVICE.maritime.map((carrier) => (
+                  {carriersDe('maritime').map((carrier) => (
                     <TouchableOpacity
                       key={carrier.id}
                       style={[
@@ -938,7 +1001,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
               {selectedServices.includes('air') && (
                 <View style={styles.carrierSelector}>
                   <Text style={styles.carrierSelectorLabel}>Paquetería para Aéreo:</Text>
-                  {CARRIERS_BY_SERVICE.air.map((carrier) => (
+                  {carriersDe('air').map((carrier) => (
                     <TouchableOpacity
                       key={carrier.id}
                       style={[
@@ -985,7 +1048,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
               {selectedServices.includes('usa') && (
                 <View style={styles.carrierSelector}>
                   <Text style={styles.carrierSelectorLabel}>Paquetería para USA:</Text>
-                  {CARRIERS_BY_SERVICE.usa.map((carrier) => (
+                  {carriersDe('usa').map((carrier) => (
                     <TouchableOpacity
                       key={carrier.id}
                       style={[
@@ -1032,7 +1095,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
               {selectedServices.includes('tdi_express') && (
                 <View style={styles.carrierSelector}>
                   <Text style={styles.carrierSelectorLabel}>Paquetería para TDI Express:</Text>
-                  {CARRIERS_BY_SERVICE.tdi_express.map((carrier) => (
+                  {carriersDe('tdi_express').map((carrier) => (
                     <TouchableOpacity
                       key={carrier.id}
                       style={[

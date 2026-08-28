@@ -375,7 +375,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
       name: 'Por Cobrar',
       price: 0,
       currency: 'MXN' as const,
-      estimatedDays: 'Pagas al recibir · 2-4 días hábiles',
+      estimatedDays: 'Elige la paquetería · pagas al recibir',
       isExternal: false,
     }] : []),
     ...(isPOBoxUS ? [{
@@ -388,6 +388,35 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     }] : []),
     // paquete_express se carga dinámicamente desde la API con cotización PQTX
   ];
+
+  /**
+   * "Por Cobrar" era UNA opción fija (Paquete Express Por Cobrar). Debe abrir y
+   * dejar elegir entre TODAS las de por cobrar del catálogo —EVISA, PITIC, Tres
+   * Guerras, Sendex, Fedex, Estafeta, DHL Express, PQTX Por Cobrar—, que es lo
+   * que el asesor sí ve y el cliente no (TKT-2026-2385).
+   */
+  const [collectCarriers, setCollectCarriers] = useState<Array<{ key: string; name: string }>>([]);
+  const [collectExpanded, setCollectExpanded] = useState(false);
+  const [selectedCollect, setSelectedCollect] = useState<string>('');
+  useEffect(() => {
+    const svc = ({
+      china_air: 'china_air', china_sea: 'china_sea', maritime: 'china_sea',
+      usa_pobox: 'usa_pobox', pobox: 'usa_pobox', usa: 'usa_pobox',
+      tdi_express: 'tdi_express', dhl: 'dhl', national: 'dhl',
+    } as Record<string, string>)[String(shipmentType || '')] || 'usa_pobox';
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/carrier-options/by-service/${svc}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const d = await r.json();
+        const lista = (d?.data || [])
+          .filter((c: any) => c.allows_collect === true || c.carrier_type === 'collect')
+          .map((c: any) => ({ key: String(c.carrier_key), name: String(c.name) }));
+        setCollectCarriers(lista);
+      } catch { setCollectCarriers([]); }
+    })();
+  }, [shipmentType, token]);
 
   const [selectedCarrier, setSelectedCarrier] = useState<string>(CARRIER_OPTIONS[0]?.id || localEntregaxOptions[0]?.id || 'entregax_local');
   const [loadingCarrierRates, setLoadingCarrierRates] = useState(false);
@@ -1113,7 +1142,9 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 20000);
           let response: Response;
-          try {
+          // ¿Va por cobrar? Entonces el flete no se cobra en la orden.
+        const esPorCobrar = selectedCarrier === 'paquete_express_pc';
+        try {
             response = await fetch(endpoint, {
               method: 'PUT',
               headers: {
@@ -1125,9 +1156,15 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                 deliveryInstructions: pqtxOcurreInfo?.usedZip
                   ? `Ocurre CP ${pqtxOcurreInfo.usedZip}${additionalNotes ? '\n' + additionalNotes : ''}`
                   : additionalNotes,
-                carrier: selectedCarrier,
-                carrierCost: pkgCarrierCost,
-                carrierName: carrierRates.find(c => c.id === selectedCarrier)?.name || localEntregaxOptions[0]?.name || 'EntregaX Local',
+                // Por cobrar: viaja la paquetería que eligió el cliente, no el
+                // 'paquete_express_pc' genérico, y con costo 0 porque el flete
+                // lo paga él al recibir.
+                carrier: esPorCobrar ? (selectedCollect || 'pqtx_cod') : selectedCarrier,
+                carrierCost: esPorCobrar ? 0 : pkgCarrierCost,
+                carrierName: esPorCobrar
+                  ? (collectCarriers.find(c => c.key === selectedCollect)?.name || 'Por cobrar')
+                  : (carrierRates.find(c => c.id === selectedCarrier)?.name || localEntregaxOptions[0]?.name || 'EntregaX Local'),
+                ...(esPorCobrar ? { isCollect: true } : {}),
                 ...(pqtxOcurreInfo?.usedZip ? { ocurreZip: pqtxOcurreInfo.usedZip } : {}),
               }),
               signal: controller.signal,
@@ -1590,7 +1627,13 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                       selectedCarrier === carrier.id && styles.carrierItemSelected,
                       isDisabled && { opacity: 0.5, backgroundColor: '#f5f5f5' },
                     ]}
-                    onPress={() => { if (!isDisabled) setSelectedCarrier(carrier.id); }}
+                    onPress={() => {
+                      if (isDisabled) return;
+                      setSelectedCarrier(carrier.id);
+                      // "Por Cobrar" abre el desplegable con todas las de por cobrar.
+                      if (carrier.id === 'paquete_express_pc') setCollectExpanded(true);
+                      else setCollectExpanded(false);
+                    }}
                     activeOpacity={isDisabled ? 1 : 0.7}
                   >
                     <RadioButton value={carrier.id} color={isDisabled ? '#ccc' : ORANGE} disabled={isDisabled} />
@@ -1635,6 +1678,32 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                         </View>
                       )}
                     </View>
+                      {/* Paqueterías de por cobrar: se eligen aquí adentro. */}
+                      {carrier.id === 'paquete_express_pc'
+                        && selectedCarrier === 'paquete_express_pc'
+                        && collectExpanded
+                        && collectCarriers.length > 0 && (
+                        <View style={styles.collectBox}>
+                          <Text style={styles.collectTitle}>¿Con cuál paquetería?</Text>
+                          {collectCarriers.map((cc) => (
+                            <TouchableOpacity
+                              key={cc.key}
+                              onPress={() => setSelectedCollect(cc.key)}
+                              style={[styles.collectItem, selectedCollect === cc.key && styles.collectItemSel]}
+                            >
+                              <Ionicons
+                                name={selectedCollect === cc.key ? 'radio-button-on' : 'radio-button-off'}
+                                size={17} color={selectedCollect === cc.key ? '#E65100' : '#B0B6BD'} />
+                              <Text style={[styles.collectName, selectedCollect === cc.key && { color: '#E65100', fontWeight: '800' }]}>
+                                {cc.name}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                          <Text style={styles.collectNota}>
+                            El costo del envío lo pagas directo a la paquetería al recibir.
+                          </Text>
+                        </View>
+                      )}
                     <View style={styles.carrierPriceContainer}>
                       {carrier.id === 'paquete_express_pc' ? (
                         <Text style={[styles.carrierPriceFree, { color: '#E65100' }]}>POR COBRAR</Text>
@@ -2068,6 +2137,19 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
 }
 
 const styles = StyleSheet.create({
+  collectBox: {
+    marginTop: 10, padding: 10, borderRadius: 10,
+    backgroundColor: '#FFF6EE', borderWidth: 1, borderColor: '#FFCC9A',
+  },
+  collectTitle: { fontSize: 12.5, fontWeight: '800', color: '#E65100', marginBottom: 6 },
+  collectItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 7, paddingHorizontal: 8, borderRadius: 8, marginBottom: 4,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#EFE2D6',
+  },
+  collectItemSel: { borderColor: '#E65100', backgroundColor: '#FFF0E2' },
+  collectName: { fontSize: 13, color: '#3C4043', fontWeight: '600' },
+  collectNota: { fontSize: 11, color: '#8D6E63', marginTop: 4, lineHeight: 15 },
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',

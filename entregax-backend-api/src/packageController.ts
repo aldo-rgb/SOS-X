@@ -5059,6 +5059,11 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
     try {
         const { packageId, packageType } = req.params; // packageType: 'usa' | 'maritime' | 'china_air' | 'dhl'
         const { deliveryAddressId, deliveryInstructions, carrier, carrierCost, carrierName, ocurreZip } = req.body;
+        // 🚚 Por cobrar: el cliente le paga el flete a la paquetería al recibir,
+        // así que nuestro cargo nacional es 0 y hay que dejar marcado con quién
+        // va. La app solo mandaba 'paquete_express_pc' y no podía elegir entre
+        // las de por cobrar del catálogo (TKT-2026-2385).
+        const isCollectReq = req.body.isCollect === true || req.body.isCollect === 'true';
         const nationalDeliveryZipMobile: string | null = ocurreZip ? String(ocurreZip).trim() : null;
         const userId = (req as any).user.userId;
         const userRole = (req as any).user.role;
@@ -5288,6 +5293,8 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                         // cuándo se genere la guía. Se cobra por caja del paquete.
                         const carrierNorm = String(carrier || '').toLowerCase().replace(/[\s_]+/g, '');
                         const isPqtxPaid = carrierNorm === 'paqueteexpress' || carrierNorm === 'pqtx' || carrierNorm === 'paquetexpress';
+                        // Por cobrar: nuestro flete es 0 pase lo que pase.
+                        if (isCollectReq) shippingCostMxn = 0;
                         if (isPqtxPaid && shippingCostMxn <= 0) {
                             try {
                                 const { quotePqtxClientPrice } = require('./paqueteExpressController');
@@ -5427,10 +5434,12 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                                 assigned_cost_mxn = $6,
                                 saldo_pendiente = $7,
                                 national_delivery_zip = $8,
+                                is_collect = $10,
+                                collect_carrier = $11,
                                 updated_at = CURRENT_TIMESTAMP
                             WHERE id = $3${ownerCondition}
                             RETURNING id, tracking_internal
-                        `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || 'EntregaX Local', shippingCostMxn, newTotalMxn, nuevoSaldo, nationalDeliveryZipMobile, userId]);
+                        `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || 'EntregaX Local', shippingCostMxn, newTotalMxn, nuevoSaldo, nationalDeliveryZipMobile, userId, isCollectReq, isCollectReq ? String(carrier || '') : null]);
                     }
                 }
                 // 🧒 Propagar dirección + carrier a TODAS las hijas del master
