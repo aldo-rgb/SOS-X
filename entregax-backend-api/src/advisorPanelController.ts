@@ -2176,6 +2176,17 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
     let pqtxPerBox = (carrierKey === 'paquete_express' && !isCollectBool)
       ? (parseFloat(req.body.nationalShippingCostPerBox) || 0)
       : 0;
+    /**
+     * Paqueterías que NO cobran envío nacional: la entrega local propia y el
+     * pick up. Hay que poner el costo en CERO, no dejarlo como está: el UPDATE
+     * de abajo solo escribe cuando hay un precio, así que al cambiar de Paquete
+     * Express a entrega local se conservaba el cobro viejo. Le pasó a S20 en
+     * RO-65105F71: eligió Entregax Local y la orden salió con $2,675.00 de
+     * paquetería —los $535 × 5 cajas de la cotización PQTX anterior— cuando la
+     * local es gratis desde 3 cajas (tarea 441).
+     */
+    const CARRIERS_GRATIS = ['local', 'entregax_local', 'entregax_local_mty', 'entregax_local_cdmx', 'pickup', 'pickup_hidalgo'];
+    let gratisNacional = CARRIERS_GRATIS.includes(String(carrierKey || '').toLowerCase());
     // Fallback autoritativo: si es Paquete Express (no collect) y el front no mandó
     // el costo precotizado, el backend precotiza aquí (regla $400 / override) para
     // no dejar la última milla en $0. Aplica a PKG, DHL y MAR: antes solo cubría
@@ -2270,6 +2281,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           const gratisDesde = Number(tarifa.rows[0]?.free_from_qty) || 0;
           const esGratis = gratisDesde > 0 && cajas >= gratisDesde;
           pqtxPerBox = esGratis ? 0 : precioPorPaquete;
+          if (esGratis) gratisNacional = true;
           console.log(
             `🚚 [Tarifa por paquete] ${uid} carrier=${carrierKey} cajas=${cajas} ` +
             `precio=$${precioPorPaquete}/paquete gratisDesde=${gratisDesde || '—'} → ` +
@@ -2416,7 +2428,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           -- asignó las instrucciones pero nunca cuándo (assignedAt llegaba NULL).
           instructions_assigned_at = COALESCE(instructions_assigned_at, NOW())
          WHERE id = $6`,
-        [addressId, effCarrier, isCollectBool, isCollectBool ? effCarrier : null, wantsFacturaBool, shipmentId, advisorId, ocurreZip, pqtxPerBox, (isCollectBool || forceEvisaZero)]
+        [addressId, effCarrier, isCollectBool, isCollectBool ? effCarrier : null, wantsFacturaBool, shipmentId, advisorId, ocurreZip, pqtxPerBox, (isCollectBool || forceEvisaZero || gratisNacional)]
       );
 
       // Propagar instrucciones a cajas hijas del mismo master (multipieza)
@@ -2443,7 +2455,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
               instructions_assigned_at = COALESCE(instructions_assigned_at, NOW())
              WHERE tracking_internal ~ ('^' || $7 || '-\\d{1,4}$')
                AND assigned_address_id IS NULL`,
-            [addressId, effCarrier, isCollectBool, isCollectBool ? effCarrier : null, wantsFacturaBool, advisorId, masterTracking, ocurreZip, pqtxPerBox, (isCollectBool || forceEvisaZero)]
+            [addressId, effCarrier, isCollectBool, isCollectBool ? effCarrier : null, wantsFacturaBool, advisorId, masterTracking, ocurreZip, pqtxPerBox, (isCollectBool || forceEvisaZero || gratisNacional)]
           );
         }
       }
