@@ -56,9 +56,8 @@ interface Package {
   client_name: string;
   total_boxes: number;
   status: string;
-  client_paid?: boolean;
-  saldo_pendiente?: string | number | null;
   instructions_assigned_at?: string | null;
+  received_at?: string | null;
 }
 
 interface ScannedPackage {
@@ -484,23 +483,23 @@ export default function OutboundControlPage() {
                         {pkg.tracking_provider}
                       </Typography>
                     )}
-                    {/* Pago e instrucciones. La lista no los traía, así que una
-                        guía lista para salir se veía igual que una que el
-                        cliente ni ha pagado: en Hidalgo no había manera de
-                        saber cuál mandar. */}
-                    <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
-                      {pkg.client_paid ? (
-                        <Chip label="PAGADA" size="small"
-                          sx={{ height: 18, fontSize: 10, fontWeight: 800, bgcolor: '#2E7D46', color: '#fff' }} />
-                      ) : (
-                        <Chip label="sin pagar" size="small" variant="outlined"
-                          sx={{ height: 18, fontSize: 10, color: '#B07206', borderColor: '#E8C39A' }} />
-                      )}
-                      {pkg.client_paid && pkg.instructions_assigned_at && (
-                        <Chip label="lista para enviar" size="small"
-                          sx={{ height: 18, fontSize: 10, fontWeight: 700, bgcolor: '#E8F5E9', color: '#2E7D46' }} />
-                      )}
-                    </Box>
+                    {/* Cuánto lleva pudiendo salir. NO se muestra el pago a
+                        propósito: la regla para enviar es tener instrucciones, y
+                        ver "sin pagar" solo invitaría a retener algo que sí se
+                        debe mandar. */}
+                    {(() => {
+                      const desde = pkg.instructions_assigned_at || pkg.received_at;
+                      if (!desde) return null;
+                      const dias = Math.floor((Date.now() - new Date(desde).getTime()) / 86400000);
+                      const urge = dias >= 2;
+                      return (
+                        <Chip
+                          label={dias <= 0 ? 'lista hoy' : `lista desde hace ${dias} día${dias === 1 ? '' : 's'}`}
+                          size="small"
+                          sx={{ mt: 0.5, height: 18, fontSize: 10, fontWeight: urge ? 800 : 600,
+                                bgcolor: urge ? '#C62828' : '#E8F5E9', color: urge ? '#fff' : '#2E7D46' }} />
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Chip 

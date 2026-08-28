@@ -1876,10 +1876,12 @@ export const startTaskRemindersCron = () => {
 /**
  * CRON: avisa a Hidalgo TX cuando una guía queda LISTA PARA ENVIAR.
  *
- * "Lista" = pagada + con instrucciones + todavía en la bodega de Hidalgo. Antes
- * nada cambiaba en su pantalla cuando el cliente pagaba, así que la caja se
- * quedaba ahí hasta que alguien reclamaba. Se nota sobre todo con PayPal: es el
- * único cobro sin una persona de EntregaX en medio que pueda avisarles.
+ * "Lista" = CON INSTRUCCIONES y todavía en la bodega de Hidalgo. El pago no
+ * interviene: la regla para enviar siempre ha sido tener instrucciones.
+ *
+ * Sí aparecen en su pantalla de salida —eso funciona—, pero aparecer no es lo
+ * mismo que enterarse: nadie recibe nada cuando una guía pasa a ser enviable, y
+ * entre las que llevan ahí semanas se pierde la que se volvió enviable hoy.
  *
  * Se avisa UNA vez por guía (hidalgo_aviso_enviado_at) y en un solo mensaje por
  * corrida: veinte guías listas no son veinte notificaciones.
@@ -1897,11 +1899,13 @@ export const startHidalgoListasParaEnviarCron = () => {
           LEFT JOIN users u ON u.id = p.user_id
          WHERE p.tracking_internal LIKE 'US-%'
            AND p.status::text = 'received'
-           AND COALESCE(p.client_paid, FALSE) = TRUE
-           AND p.instructions_assigned_at IS NOT NULL
+           AND (p.instructions_assigned_at IS NOT NULL
+                OR p.assigned_address_id IS NOT NULL
+                OR p.delivery_address_id IS NOT NULL
+                OR COALESCE(p.needs_instructions, TRUE) = FALSE)
            AND p.delivered_at IS NULL
            AND p.hidalgo_aviso_enviado_at IS NULL
-         ORDER BY p.instructions_assigned_at ASC
+         ORDER BY COALESCE(p.instructions_assigned_at, p.received_at) ASC
          LIMIT 100`);
       if (r.rows.length === 0) return;
 
@@ -1918,8 +1922,8 @@ export const startHidalgoListasParaEnviarCron = () => {
       const muestra = r.rows.slice(0, 3).map((x: any) => x.tracking_internal).join(', ');
       const titulo = `📦 ${n} guía${n === 1 ? '' : 's'} lista${n === 1 ? '' : 's'} para enviar`;
       const cuerpo = n === 1
-        ? `${muestra} está pagada y con instrucciones. Ya se puede mandar a Monterrey.`
-        : `${muestra}${n > 3 ? ` y ${n - 3} más` : ''} están pagadas y con instrucciones. Ya se pueden mandar.`;
+        ? `${muestra} ya tiene instrucciones. Se puede mandar a Monterrey.`
+        : `${muestra}${n > 3 ? ` y ${n - 3} más` : ''} ya tienen instrucciones. Se pueden mandar.`;
 
       const { createCustomNotification } = await import('./notificationController');
       const { sendPushToUsers } = await import('./pushService');

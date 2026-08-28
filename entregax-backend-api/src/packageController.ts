@@ -7030,17 +7030,10 @@ export const getOutboundReadyPackages = async (_req: Request, res: Response): Pr
                 p.instructions_assigned_at,
                 p.delivery_address_id,
                 p.assigned_address_id,
-                -- Estado de pago. La lista NO lo traía: una guía pagada se veía
-                -- idéntica a una que el cliente no ha pagado, así que en Hidalgo
-                -- no había forma de saber cuál ya se puede mandar. Con pagos por
-                -- PayPal se nota más porque el cliente paga solo desde la app, a
-                -- cualquier hora, sin que ningún humano de EntregaX se entere ni
-                -- pueda avisarles.
-                COALESCE(p.client_paid, FALSE) AS client_paid,
-                p.payment_status,
-                p.saldo_pendiente,
-                p.assigned_cost_mxn,
-                p.payment_reference,
+                -- Desde cuándo puede salir. La regla es tener instrucciones; el
+                -- pago NO interviene y por eso no se manda: verlo en esta
+                -- pantalla solo invita a no enviar algo que sí se debe enviar.
+                p.received_at,
                 COALESCE(u.box_id, lc.box_id, p.box_id) as box_id,
                 COALESCE(u.full_name, lc.full_name) as client_name
             FROM packages p
@@ -7063,11 +7056,11 @@ export const getOutboundReadyPackages = async (_req: Request, res: Response): Pr
                 -- Masters sin hijas (total_boxes = 1 o NULL): mostrar
                 (p.is_master = TRUE AND COALESCE(p.total_boxes, 1) <= 1 AND p.tracking_internal NOT LIKE 'US-REPACK-%')
               )
-            -- Lo pagado y con instrucciones va primero: es lo único que ya se
-            -- puede mandar, y antes quedaba mezclado entre lo que aún no paga
-            -- nadie, ordenado solo por fecha.
-            ORDER BY (COALESCE(p.client_paid, FALSE) AND p.instructions_assigned_at IS NOT NULL) DESC,
-                     p.created_at DESC
+            -- Primero lo que lleva MÁS TIEMPO pudiendo salir. La regla para
+            -- enviar es tener instrucciones —el pago no interviene—, así que lo
+            -- que manda es desde cuándo las tiene. Ordenar por fecha de llegada,
+            -- como antes, escondía abajo justo lo que más urgía.
+            ORDER BY COALESCE(p.instructions_assigned_at, p.received_at, p.created_at) ASC
         `);
         
         res.json({ packages: result.rows, require_instructions_to_load_pobox: requireInstructions });
