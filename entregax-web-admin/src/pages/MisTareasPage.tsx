@@ -10,7 +10,7 @@ import {
   Box, Typography, Button, IconButton, Chip, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, Menu, Select, FormControl, InputLabel, CircularProgress,
   Avatar, Divider, Checkbox, Snackbar, Alert, LinearProgress, ToggleButton, ToggleButtonGroup, Tooltip,
-  Autocomplete, Paper, InputAdornment,
+  Autocomplete, Paper, InputAdornment, Accordion, AccordionSummary, AccordionDetails,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
@@ -31,6 +31,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CheckIcon from '@mui/icons-material/Check';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SearchIcon from '@mui/icons-material/Search';
 import ComentarioAdjunto from '../components/ComentarioAdjunto';
 
@@ -1770,7 +1771,27 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             )}
             {!editing && (canInline ? (
               // ── Edición inline: prioridad, categoría, responsable, involucrados ──
-              <Box sx={{ mb: 1.5, p: 1.5, bgcolor: '#FBF8F4', border: '1px solid #ECE4D8', borderRadius: 1.5 }}>
+              //
+              // Plegada, igual que en la app. Abierta empujaba hacia abajo lo que
+              // uno viene a ver —la descripción, los comentarios y el botón de
+              // terminar—, y en el 90% de las veces que se abre una tarea no se
+              // viene a cambiar el responsable. El encabezado dice lo elegido,
+              // así que no hay que desplegar para consultarlo.
+              <Accordion disableGutters elevation={0}
+                sx={{ mb: 1.5, bgcolor: '#FBF8F4', border: '1px solid #ECE4D8', borderRadius: 1.5,
+                      '&:before': { display: 'none' } }}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="body2" fontWeight={700}>Prioridad, categoría y responsable</Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {(EIS as any)[t.eisenhower]?.label || '—'}
+                      {' · '}{cats.find((c: any) => c.id === curCat)?.name || 'Personal'}
+                      {' · '}{displayTaskName(t.assignee_name) || '—'}
+                      {partIds.length > 1 ? ` · ${partIds.length} involucrados` : ''}
+                    </Typography>
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails sx={{ pt: 0 }}>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.25 }}>
                   <FormControl size="small" fullWidth>
                     <InputLabel>Prioridad</InputLabel>
@@ -1800,7 +1821,8 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 <InvolvedPicker users={users} involvedIds={partIds}
                   setInvolvedIds={(ids: number[]) => patch({ involved_ids: ids, assignee_id: Number(t.assignee_id) || undefined })}
                   fixedId={Number(t.created_by) || undefined} fixedLabel={t.created_by_name || 'Creador'} frequent={frequent} />
-              </Box>
+                </AccordionDetails>
+              </Accordion>
             ) : (
               <>
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1.5 }}>
