@@ -213,13 +213,10 @@ async function levantarTareaDeRetraso(t: TicketAtrasado): Promise<number | null>
       `INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [taskId, uid]
     ).catch(() => {});
   }
-  await avisar(
-    mando,
-    `⏰ Retraso · ${t.folio}`,
-    `${t.folio} lleva ${t.dias} días hábiles sin resolverse (${t.departamento}). Se levantó la tarea "${titulo}".`,
-    { type: 'ticket_retraso', screen: 'MyTasks', task_id: String(taskId), ticket_id: String(t.id) },
-    '/tareas'
-  );
+  // El aviso a administración NO sale aquí: sale una sola vez por corrida, ya
+  // con todos los folios. Cuando el cron de las 11:00 encontraba diez tickets
+  // atrasados mandaba diez push seguidos y el teléfono se volvía loco; diez
+  // avisos iguales se ignoran, uno con la lista se lee.
 
   // Nota interna en el ticket, para que quede el rastro del escalamiento.
   await pool.query(
@@ -242,13 +239,44 @@ export async function escalarTicketsMuyAtrasados(): Promise<{ escalados: number 
   }
 
   let escalados = 0;
+  const creadas: Array<{ t: TicketAtrasado; taskId: number | null }> = [];
   for (const t of pendientes) {
     const taskId = await levantarTareaDeRetraso(t);
     await pool.query(
       `UPDATE support_tickets SET retraso_notified_at = NOW(), retraso_task_id = $2 WHERE id = $1`,
       [t.id, taskId]
     ).catch(() => {});
+    creadas.push({ t, taskId });
     escalados++;
+  }
+
+  // Un solo aviso a administración con todos los retrasos de la corrida.
+  const mando = await usuariosPorRol(['super_admin', 'admin']);
+  if (mando.length && creadas.length) {
+    if (creadas.length === 1) {
+      const { t, taskId } = creadas[0]!;
+      await avisar(
+        mando,
+        `⏰ Retraso · ${t.folio}`,
+        `${t.folio} lleva ${t.dias} días hábiles sin resolverse (${t.departamento}). Se levantó la tarea "Retraso ${t.folio}".`,
+        { type: 'ticket_retraso', screen: 'MyTasks', ...(taskId ? { task_id: String(taskId) } : {}), ticket_id: String(t.id) },
+        '/tareas'
+      );
+    } else {
+      // Por departamento, que es como se reparte el trabajo.
+      const porDepto = new Map<string, number>();
+      for (const { t } of creadas) porDepto.set(t.departamento, (porDepto.get(t.departamento) || 0) + 1);
+      const desgloseDeptos = [...porDepto.entries()].map(([d, n]) => `${d}: ${n}`).join(' · ');
+      const folios = creadas.map(c => c.t.folio);
+      await avisar(
+        mando,
+        `⏰ ${creadas.length} tickets atrasados`,
+        `${folios.slice(0, 4).join(', ')}${folios.length > 4 ? ` y ${folios.length - 4} más` : ''} llevan más de ${DIAS_ESCALA} días hábiles sin resolverse. `
+        + `${desgloseDeptos}. Se levantó una tarea por cada uno.`,
+        { type: 'ticket_retraso', screen: 'MyTasks', total: creadas.length },
+        '/tareas'
+      );
+    }
   }
 
   // Aviso a Servicio a Cliente y Soporte Técnico. Va UN solo mensaje con los
