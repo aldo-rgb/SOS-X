@@ -139,7 +139,19 @@ function throwFromResponse(prefix: string, r: { status: number; data: any }): ne
     }
 
     const httpHint = `HTTP ${r.status}${r.status === 401 ? ' (credenciales Facturama inválidas)' : r.status === 404 ? ' (endpoint no encontrado)' : ''}`;
-    const msg = [candidate, modelStateMsg].filter(Boolean).join(' — ') || httpHint;
+    let msg = [candidate, modelStateMsg].filter(Boolean).join(' — ') || httpHint;
+
+    // "ExpeditionPlace debe existir como código postal en tus Lugares de
+    // expedición" suena a problema del SAT y no lo es: significa que el CP que
+    // tenemos guardado del emisor no es el que está dado de alta en su cuenta de
+    // Facturama. Bombas Altona pasó meses sin poder facturar por esto —teníamos
+    // 64568 y su lugar de expedición es 66470— sin que el mensaje lo dijera.
+    if (/ExpeditionPlace/i.test(msg)) {
+        msg = 'El código postal del emisor no coincide con su Lugar de expedición en Facturama. '
+            + 'Entra a Empresas → Datos fiscales y pon el mismo CP que tiene dado de alta la cuenta '
+            + 'de Facturama de ese RFC (Perfil fiscal → Lugares de expedición). '
+            + `Detalle de Facturama: ${msg}`;
+    }
 
     throw new FacturamaError(`${prefix}: ${msg}`, {
         status: r.status,
