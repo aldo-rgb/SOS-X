@@ -1873,7 +1873,83 @@ export const startTaskRemindersCron = () => {
   console.log('📅 [CRON] Recordatorios de tareas: lunes 11am (pendientes) + diario 11:15am (urgentes)');
 };
 
+/**
+ * CRON: avisa a Hidalgo TX cuando una guía queda LISTA PARA ENVIAR.
+ *
+ * "Lista" = pagada + con instrucciones + todavía en la bodega de Hidalgo. Antes
+ * nada cambiaba en su pantalla cuando el cliente pagaba, así que la caja se
+ * quedaba ahí hasta que alguien reclamaba. Se nota sobre todo con PayPal: es el
+ * único cobro sin una persona de EntregaX en medio que pueda avisarles.
+ *
+ * Se avisa UNA vez por guía (hidalgo_aviso_enviado_at) y en un solo mensaje por
+ * corrida: veinte guías listas no son veinte notificaciones.
+ */
+export const startHidalgoListasParaEnviarCron = () => {
+  const correr = async () => {
+    try {
+      await pool.query(
+        `ALTER TABLE packages ADD COLUMN IF NOT EXISTS hidalgo_aviso_enviado_at TIMESTAMPTZ`
+      ).catch(() => {});
+
+      const r = await pool.query(`
+        SELECT p.id, p.tracking_internal, u.box_id
+          FROM packages p
+          LEFT JOIN users u ON u.id = p.user_id
+         WHERE p.tracking_internal LIKE 'US-%'
+           AND p.status::text = 'received'
+           AND COALESCE(p.client_paid, FALSE) = TRUE
+           AND p.instructions_assigned_at IS NOT NULL
+           AND p.delivered_at IS NULL
+           AND p.hidalgo_aviso_enviado_at IS NULL
+         ORDER BY p.instructions_assigned_at ASC
+         LIMIT 100`);
+      if (r.rows.length === 0) return;
+
+      // Personal activo de Mostrador Hidalgo TX.
+      const staff = (await pool.query(
+        `SELECT u.id FROM users u JOIN branches b ON b.id = u.branch_id
+          WHERE b.code = 'HGO' AND COALESCE(u.is_active, true) = true`)).rows.map((x: any) => Number(x.id));
+      if (staff.length === 0) {
+        console.warn('[CRON] Hidalgo: hay guías listas pero no hay personal con sucursal HGO');
+        return;
+      }
+
+      const n = r.rows.length;
+      const muestra = r.rows.slice(0, 3).map((x: any) => x.tracking_internal).join(', ');
+      const titulo = `📦 ${n} guía${n === 1 ? '' : 's'} lista${n === 1 ? '' : 's'} para enviar`;
+      const cuerpo = n === 1
+        ? `${muestra} está pagada y con instrucciones. Ya se puede mandar a Monterrey.`
+        : `${muestra}${n > 3 ? ` y ${n - 3} más` : ''} están pagadas y con instrucciones. Ya se pueden mandar.`;
+
+      const { createCustomNotification } = await import('./notificationController');
+      const { sendPushToUsers } = await import('./pushService');
+      for (const uid of staff) {
+        await createCustomNotification(
+          uid, titulo, cuerpo, 'info', 'package-variant',
+          { screen: 'OutboundControl' }, '/salidas'
+        ).catch(() => {});
+      }
+      // El push va aparte: la bodega necesita enterarse aunque no esté en la app.
+      await sendPushToUsers(staff, {
+        title: titulo, body: cuerpo, data: { screen: 'OutboundControl' },
+        notificationType: 'package_ready_to_ship',
+      }).catch(() => {});
+
+      await pool.query(
+        `UPDATE packages SET hidalgo_aviso_enviado_at = NOW() WHERE id = ANY($1::int[])`,
+        [r.rows.map((x: any) => x.id)]);
+      console.log(`📦 [CRON] Hidalgo: ${n} guías listas para enviar, ${staff.length} avisados`);
+    } catch (e: any) {
+      console.error('❌ [CRON] Hidalgo listas para enviar:', e?.message || e);
+    }
+  };
+  // Cada 20 min dentro del horario en que hay alguien en el mostrador.
+  cron.schedule('*/20 8-19 * * *', correr, { timezone: 'America/Monterrey' });
+  console.log('📅 [CRON] Hidalgo: guías listas para enviar, cada 20 min (8am-7pm MX)');
+};
+
 export const initCronJobs = () => {
+  startHidalgoListasParaEnviarCron();
   startRecoveryCronJob();
   startTaskRemindersCron();
   startWaSequenceCron();
