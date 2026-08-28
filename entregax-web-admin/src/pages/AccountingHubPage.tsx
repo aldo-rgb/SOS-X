@@ -2462,10 +2462,13 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
     try {
       const res = await api.post(`/accounting/${emitter.id}/pending-stamp/${r.id}/request-constancia`);
       if (res.data?.whatsapp_url) window.open(res.data.whatsapp_url, '_blank');
+      // El aviso va al asesor; solo cae al cliente si no tiene uno asignado.
+      const quien = res.data?.destinatario_nombre || 'el destinatario';
+      const rol = res.data?.destinatario === 'asesor' ? 'asesor' : 'cliente';
       setSnackbar({ open: true, severity: 'success',
         message: res.data?.whatsapp_url
-          ? `Aviso enviado a ${res.data.cliente}. Se abrió WhatsApp con el mensaje listo.`
-          : `Aviso enviado a ${res.data?.cliente || 'el cliente'} (no tiene teléfono registrado).` });
+          ? `Aviso enviado a ${quien} (${rol}). Se abrió WhatsApp con el mensaje listo.`
+          : `Aviso enviado a ${quien} (${rol}), pero no tiene teléfono registrado.` });
       load();
     } catch (e: any) {
       setSnackbar({ open: true, severity: 'error',

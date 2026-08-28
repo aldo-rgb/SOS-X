@@ -498,24 +498,40 @@ export const requestConstanciaForStamp = async (req: AuthRequest, res: Response)
 
         const pay = (await pool.query(
             `SELECT pp.id, pp.payment_reference, pp.amount, pp.factura_error, pp.user_id,
-                    u.full_name, u.phone, u.box_id
+                    u.full_name, u.phone, u.box_id,
+                    a.id AS advisor_id, a.full_name AS advisor_name, a.phone AS advisor_phone
                FROM pobox_payments pp
                LEFT JOIN users u ON u.id = pp.user_id
+               LEFT JOIN users a ON a.id = u.advisor_id AND COALESCE(a.is_active, true) = true
               WHERE pp.id = $1`, [paymentId])).rows[0];
         if (!pay) return res.status(404).json({ error: 'Pago no encontrado' });
         if (!pay.user_id) return res.status(400).json({ error: 'El pago no tiene cliente asociado' });
 
-        const nombre = String(pay.full_name || 'Cliente').split(' ')[0];
-        const cuerpo =
-            `Para poder emitir tu factura del pago ${pay.payment_reference} necesitamos tu `
-            + `constancia de situación fiscal actualizada: el SAT rechazó los datos que tenemos registrados. `
-            + `Puedes subirla desde la app, en tu perfil fiscal.`;
+        // La solicitud va al ASESOR, no al cliente: él tiene la relación y sabe
+        // cómo pedirle el documento. Solo cuando el cliente no tiene asesor
+        // asignado se le escribe directo, para que la factura no se quede
+        // detenida por no tener a quién dirigirse.
+        const conAsesor = !!pay.advisor_id;
+        const destinatarioId = conAsesor ? Number(pay.advisor_id) : Number(pay.user_id);
+        const tel = String((conAsesor ? pay.advisor_phone : pay.phone) || '').replace(/\D/g, '');
+        const cliente = String(pay.full_name || 'el cliente');
+        const casillero = pay.box_id ? ` (${pay.box_id})` : '';
+
+        const titulo = conAsesor
+            ? '🧾 Pide la constancia fiscal de tu cliente'
+            : '🧾 Necesitamos tu constancia fiscal actualizada';
+        const cuerpo = conAsesor
+            ? `El SAT rechazó la factura del pago ${pay.payment_reference} de ${cliente}${casillero}: `
+              + `los datos fiscales que tenemos ya no coinciden. Pídele su constancia de situación fiscal `
+              + `actualizada para poder timbrarla.`
+            : `Para poder emitir tu factura del pago ${pay.payment_reference} necesitamos tu `
+              + `constancia de situación fiscal actualizada: el SAT rechazó los datos que tenemos registrados. `
+              + `Puedes subirla desde la app, en tu perfil fiscal.`;
 
         const { createCustomNotification } = await import('./notificationController');
         await createCustomNotification(
-            Number(pay.user_id),
-            '🧾 Necesitamos tu constancia fiscal actualizada',
-            cuerpo, 'warning', 'file-document-edit', { payment_id: paymentId }, '/perfil-fiscal'
+            destinatarioId, titulo, cuerpo, 'warning', 'file-document-edit',
+            { payment_id: paymentId, client_id: pay.user_id }, '/perfil-fiscal'
         ).catch(() => {});
 
         // Se deja rastro en el propio pago para que no se pida dos veces sin
@@ -526,11 +542,15 @@ export const requestConstanciaForStamp = async (req: AuthRequest, res: Response)
               WHERE id = $1 AND COALESCE(factura_error,'') NOT LIKE '%Constancia solicitada%'`,
             [paymentId]).catch(() => {});
 
-        const tel = String(pay.phone || '').replace(/\D/g, '');
-        const texto = `Hola ${nombre}, ${cuerpo}`;
+        const saludo = String((conAsesor ? pay.advisor_name : pay.full_name) || '').split(' ')[0] || 'Hola';
+        const texto = `Hola ${saludo}, ${cuerpo}`;
         return res.json({
             success: true,
-            message: 'Se le avisó al cliente en la app',
+            destinatario: conAsesor ? 'asesor' : 'cliente',
+            destinatario_nombre: conAsesor ? pay.advisor_name : pay.full_name,
+            message: conAsesor
+                ? `Se le avisó a ${pay.advisor_name}, asesor de ${cliente}`
+                : `${cliente} no tiene asesor: se le avisó directo`,
             whatsapp_url: tel ? `https://wa.me/${tel}?text=${encodeURIComponent(texto)}` : null,
             cliente: pay.full_name, box_id: pay.box_id,
         });
