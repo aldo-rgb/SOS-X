@@ -2016,6 +2016,27 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     // la guía PQTX es de 1 sola pieza (no una por hija).
     const isRepack = String(pkg.tracking_internal || '').toUpperCase().startsWith('US-REPACK-');
 
+    // Una guía CANCELADA no vale como guía: si se deja, el botón "Generar" te
+    // devuelve la etiqueta muerta en vez de crear una nueva y la caja se queda
+    // sin poder salir. Se ignora y el flujo sigue de largo a generar otra.
+    if (pkg.national_tracking) {
+      try {
+        const cancelada = await pool.query(
+          `SELECT 1 FROM pqtx_shipments
+            WHERE tracking_number = $1 AND (status = 'cancelled' OR cancelled_at IS NOT NULL) LIMIT 1`,
+          [pkg.national_tracking]
+        );
+        if (cancelada.rows.length > 0) {
+          console.log(`[PQTX-GEN] ${pkg.national_tracking} está cancelada; se genera una nueva para ${pkg.id}`);
+          await pool.query(
+            `UPDATE ${persistTable} SET national_tracking = NULL, national_label_url = NULL, updated_at = NOW()
+              WHERE id = $1`, [pkg.id]);
+          pkg.national_tracking = null;
+          pkg.national_label_url = null;
+        }
+      } catch (e: any) { console.warn('[PQTX-GEN] no se pudo verificar cancelación:', e?.message); }
+    }
+
     // Si ya tiene guía nacional, devolverla (una sola guía multipieza para master + hijas)
     if (pkg.national_tracking) {
       const labelUrl = pkg.national_label_url || `/api/admin/paquete-express/label/pdf/${pkg.national_tracking}`;
