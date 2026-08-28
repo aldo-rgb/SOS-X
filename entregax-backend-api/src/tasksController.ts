@@ -1161,21 +1161,60 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
          FROM task_subtasks s LEFT JOIN users u ON u.id = s.done_by
          LEFT JOIN users au ON au.id = s.assignee_id
         WHERE s.task_id = $1 ORDER BY s.sort_order, s.id`, [id]);
+    await ensureCitasComentario();
+    // Se trae tambien lo citado (comentario o foto) ya resuelto, para pintar el
+    // bloque gris de arriba sin que el front tenga que ir a buscarlo.
     const commentRows = await pool.query(
-      `SELECT c.*, u.full_name AS author_name FROM task_comments c
-         LEFT JOIN users u ON u.id = c.author_id WHERE c.task_id = $1 ORDER BY c.created_at ASC`, [id]);
+      `SELECT c.*, u.full_name AS author_name,
+              qc.body            AS cita_body,
+              qc.attachment_url  AS cita_adjunto,
+              qu.full_name       AS cita_autor,
+              qa.file_name       AS cita_archivo_nombre,
+              qa.file_key        AS cita_archivo_key,
+              qau.full_name      AS cita_archivo_autor
+         FROM task_comments c
+         LEFT JOIN users u ON u.id = c.author_id
+         LEFT JOIN task_comments qc ON qc.id = c.reply_to_comment_id
+         LEFT JOIN users qu ON qu.id = qc.author_id
+         LEFT JOIN task_attachments qa ON qa.id = c.reply_to_attachment_id
+         LEFT JOIN users qau ON qau.id = qa.uploaded_by
+        WHERE c.task_id = $1 ORDER BY c.created_at ASC`, [id]);
     // El archivo de un comentario se guarda como key de S3 (bucket privado), así
     // que hay que firmarlo para poder mostrar la miniatura. Si es una URL
     // externa —de Grupo Rino, por ejemplo— se deja tal cual.
+    const firmar = async (v: any): Promise<string | null> => {
+      if (!v) return null;
+      try {
+        return /^https?:\/\//i.test(String(v))
+          ? await signS3UrlIfNeeded(v, 6 * 3600)
+          : await getSignedUrlForKey(v, 6 * 3600);
+      } catch { return null; }
+    };
     const comments = {
       rows: await Promise.all(commentRows.rows.map(async (c: any) => {
-        if (!c.attachment_url) return c;
-        try {
-          const firmada = /^https?:\/\//i.test(String(c.attachment_url))
-            ? await signS3UrlIfNeeded(c.attachment_url, 6 * 3600)
-            : await getSignedUrlForKey(c.attachment_url, 6 * 3600);
-          return { ...c, attachment_url: firmada || c.attachment_url };
-        } catch { return c; }
+        const attachment_url = c.attachment_url ? (await firmar(c.attachment_url)) || c.attachment_url : null;
+        // Lo citado, en una sola forma para el front: de quien es, que decia y
+        // —si aplica— la miniatura.
+        let reply: any = null;
+        if (c.reply_to_comment_id) {
+          reply = {
+            tipo: 'comentario', id: c.reply_to_comment_id,
+            autor: c.cita_autor || '—',
+            texto: c.cita_body || '',
+            url: await firmar(c.cita_adjunto),
+            file_name: null,
+          };
+        } else if (c.reply_to_attachment_id) {
+          reply = {
+            tipo: 'archivo', id: c.reply_to_attachment_id,
+            autor: c.cita_archivo_autor || '—',
+            texto: '',
+            url: await firmar(c.cita_archivo_key),
+            file_name: c.cita_archivo_nombre || 'archivo',
+          };
+        }
+        const { cita_body, cita_adjunto, cita_autor, cita_archivo_nombre, cita_archivo_key, cita_archivo_autor, ...limpio } = c;
+        return { ...limpio, attachment_url, reply };
       })),
     };
     const activity = await pool.query(
@@ -1194,7 +1233,7 @@ export const getTask = async (req: Request, res: Response): Promise<any> => {
         if (/^https?:\/\//i.test(String(a.file_key || ''))) url = await signS3UrlIfNeeded(a.file_key, 6 * 3600);
         else url = await getSignedUrlForKey(a.file_key, 6 * 3600);
       } catch { /* ignore */ }
-      return { id: a.id, file_name: a.file_name, uploaded_by_name: a.uploaded_by_name, created_at: a.created_at, url };
+      return { id: a.id, file_name: a.file_name, uploaded_by: a.uploaded_by, uploaded_by_name: a.uploaded_by_name, created_at: a.created_at, url };
     }));
     // Involucrados (participantes) de la tarea.
     const parts = await pool.query(
@@ -1952,6 +1991,20 @@ export const deleteSubtask = async (req: Request, res: Response): Promise<any> =
 };
 
 // ─── COMENTARIOS (rastro oficial + @menciones) ──────────────
+// Responder citando: a otro comentario o a una foto de la tarea, como en
+// WhatsApp. Sin esto, en una tarea con 5 fotos no habia forma de decir "hablo
+// de ESTA" y el hilo se perdia.
+let citasReady = false;
+async function ensureCitasComentario() {
+  if (citasReady) return;
+  try {
+    await pool.query(`ALTER TABLE task_comments
+      ADD COLUMN IF NOT EXISTS reply_to_comment_id INTEGER REFERENCES task_comments(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS reply_to_attachment_id INTEGER REFERENCES task_attachments(id) ON DELETE SET NULL`);
+    citasReady = true;
+  } catch (e: any) { console.warn('ensureCitasComentario:', e?.message); }
+}
+
 export const addComment = async (req: Request, res: Response): Promise<any> => {
   try {
     const uid = authUserId(req);
@@ -1982,9 +2035,13 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
       adjunto = key;   // se firma al leer, en getTask
     }
 
+    await ensureCitasComentario();
+    const citaComentario = Number(b.reply_to_comment_id) > 0 ? Number(b.reply_to_comment_id) : null;
+    const citaArchivo = Number(b.reply_to_attachment_id) > 0 ? Number(b.reply_to_attachment_id) : null;
     const r = await pool.query(
-      `INSERT INTO task_comments (task_id, author_id, body, mentions, attachment_url) VALUES ($1,$2,$3,$4::jsonb,$5) RETURNING *`,
-      [taskId, uid, String(b.body || '').trim(), JSON.stringify(mentions), adjunto]);
+      `INSERT INTO task_comments (task_id, author_id, body, mentions, attachment_url, reply_to_comment_id, reply_to_attachment_id)
+       VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7) RETURNING *`,
+      [taskId, uid, String(b.body || '').trim(), JSON.stringify(mentions), adjunto, citaComentario, citaArchivo]);
     await logActivity(taskId, uid, 'comment', {});
     // Comentar NO reabre la tarea.
     //

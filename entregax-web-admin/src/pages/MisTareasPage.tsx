@@ -33,6 +33,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SearchIcon from '@mui/icons-material/Search';
+import ReplyIcon from '@mui/icons-material/Reply';
 import ComentarioAdjunto from '../components/ComentarioAdjunto';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
@@ -1591,7 +1592,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     // Solo van las menciones que siguen escritas: si borras el "@Nombre" del
     // texto, no se le avisa a esa persona.
     const activeMentions = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
-    try { await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim(), mentions: activeMentions }, H()); setComment(''); setMentions([]); setMentionQuery(null); reload(); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */ }
+    try { await axios.post(`${API_URL}/tasks/${id}/comments`, { body: comment.trim(), mentions: activeMentions, ...citaCampos() }, H()); setComment(''); setMentions([]); setMentionQuery(null); setCitando(null); reload(); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */ }
     catch { notify('Error al comentar', 'error'); }
     finally { setSendingComment(false); }
   };
@@ -1612,13 +1613,24 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
       if (comment.trim()) fd.append('body', comment.trim());
       const activas = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
       if (activas.length) fd.append('mentions', JSON.stringify(activas));
+      const cita = citaCampos() as any;
+      if (cita.reply_to_comment_id) fd.append('reply_to_comment_id', String(cita.reply_to_comment_id));
+      if (cita.reply_to_attachment_id) fd.append('reply_to_attachment_id', String(cita.reply_to_attachment_id));
       await axios.post(`${API_URL}/tasks/${id}/comments`, fd, {
         headers: { ...H().headers, 'Content-Type': 'multipart/form-data' },
       });
-      setComment(''); setMentions([]); setMentionQuery(null); reload(); onChanged();
+      setComment(''); setMentions([]); setMentionQuery(null); setCitando(null); reload(); onChanged();
     } catch { notify('No se pudo enviar el archivo', 'error'); }
     finally { setSendingComment(false); }
   };
+  /**
+   * Mensaje o foto que se esta citando al responder. Sin esto, en una tarea con
+   * varias fotos no habia forma de decir "hablo de ESTA" y el hilo se perdia.
+   */
+  const [citando, setCitando] = useState<null | { tipo: 'comentario' | 'archivo'; id: number; autor: string; texto: string; url?: string | null; file_name?: string | null }>(null);
+  const citaCampos = () => citando
+    ? (citando.tipo === 'comentario' ? { reply_to_comment_id: citando.id } : { reply_to_attachment_id: citando.id })
+    : {};
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState('');
   const saveEditComment = async () => {
@@ -1888,51 +1900,37 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
               </Box>
             )}
 
-            {/* Archivos (fotos, PDF, Excel…) */}
             <Divider sx={{ my: 2 }} />
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-              <Typography fontWeight={800} fontSize={14}>Archivos {(data.attachments || []).length > 0 && `(${(data.attachments || []).length})`}</Typography>
+              <Typography fontWeight={800} fontSize={14}>Conversación</Typography>
               <Button component="label" size="small" startIcon={<AttachFileIcon />} sx={{ textTransform: 'none' }}>
                 Agregar archivo
                 <input hidden type="file" accept={ACCEPT_FILES} multiple onChange={e => uploadPhotos(e.target.files)} />
               </Button>
             </Box>
-            {(data.attachments || []).length === 0 ? (
-              <Typography variant="caption" color="text.secondary">Sin archivos.</Typography>
-            ) : (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
-                {(data.attachments || []).map((a: any) => (
-                  <Box key={a.id} sx={{ position: 'relative' }}>
-                    <a href={a.url || '#'} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
-                      {isImg(a.file_name) ? (
-                        <Box component="img" src={a.url} alt={a.file_name || 'foto'} sx={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
-                      ) : (
-                        <Box sx={{ width: 130, height: 80, borderRadius: 1, border: '1px solid #ddd', p: 0.75, display: 'flex', flexDirection: 'column', justifyContent: 'center', bgcolor: '#FAFAFA' }}>
-                          <Typography sx={{ fontSize: 24, lineHeight: 1 }}>{fileIcon(a.file_name)}</Typography>
-                          <Typography variant="caption" color="text.primary" noWrap title={a.file_name}>{a.file_name}</Typography>
-                          <Typography variant="caption" color="primary">Abrir</Typography>
-                        </Box>
-                      )}
-                    </a>
-                    <IconButton size="small" onClick={() => setDelAttId(a.id)} sx={{ position: 'absolute', top: -8, right: -8, bgcolor: '#fff', boxShadow: 1, p: 0.2, '&:hover': { bgcolor: '#fff' } }}>
-                      <CloseIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </Box>
-                ))}
-              </Box>
-            )}
-
-            <Divider sx={{ my: 2 }} />
-            <Typography fontWeight={800} fontSize={14} sx={{ mb: 1 }}>Comentarios</Typography>
-            {(data.comments || []).length === 0 && (
+            {(data.comments || []).length === 0 && (data.attachments || []).length === 0 && (
               <Typography variant="caption" color="text.secondary">Sin comentarios todavía.</Typography>
             )}
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-              {(data.comments || []).map((c: any) => {
-                const mine = MY_ID > 0 && Number(c.author_id) === Number(MY_ID);
-                const nameColor = authorColor(c.author_id, c.author_name);
+              {/* Comentarios y archivos en un solo hilo, por hora. Las fotos que
+                  llegan con el ticket ya no se quedan en una bandeja aparte:
+                  aparecen donde toca en la conversación. */}
+              {([
+                ...((data.comments || []) as any[]).map((c: any) => ({ tipo: 'c' as const, at: c.created_at, dato: c })),
+                ...((data.attachments || []) as any[]).map((a: any) => ({ tipo: 'a' as const, at: a.created_at, dato: a })),
+              ]).sort((x, y) => new Date(x.at || 0).getTime() - new Date(y.at || 0).getTime()).map(item => {
+                const esArchivo = item.tipo === 'a';
+                const d = item.dato;
+                const autorId = esArchivo ? d.uploaded_by : d.author_id;
+                const autorNombre = esArchivo ? d.uploaded_by_name : d.author_name;
+                const mine = MY_ID > 0 && Number(autorId) === Number(MY_ID);
+                const nameColor = authorColor(autorId, autorNombre);
+                const responder = () => setCitando(esArchivo
+                  ? { tipo: 'archivo', id: d.id, autor: autorNombre || '—', texto: '', url: d.url, file_name: d.file_name }
+                  : { tipo: 'comentario', id: d.id, autor: autorNombre || '—', texto: d.body || '', url: d.attachment_url });
                 return (
-                  <Box key={c.id} sx={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+                  <Box key={`${item.tipo}-${d.id}`} id={`hilo-${item.tipo}-${d.id}`}
+                    sx={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start', '&:hover .accHilo': { opacity: 1 } }}>
                     <Box sx={{
                       maxWidth: '78%',
                       px: 1.25, py: 0.75,
@@ -1943,10 +1941,48 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                     }}>
                       {!mine && (
                         <Typography sx={{ fontSize: 11.5, fontWeight: 800, color: nameColor, mb: 0.25 }}>
-                          {c.author_name || '—'}
+                          {autorNombre || '—'}
                         </Typography>
                       )}
-                      {editingCommentId === c.id ? (
+
+                      {/* Lo que se está citando: se puede clickear para saltar al original. */}
+                      {!esArchivo && !!d.reply && (
+                        <Box onClick={() => {
+                            const el = document.getElementById(d.reply.tipo === 'archivo' ? `hilo-a-${d.reply.id}` : `hilo-c-${d.reply.id}`);
+                            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }}
+                          sx={{ display: 'flex', gap: 1, alignItems: 'center', cursor: 'pointer', mb: 0.5, p: 0.75,
+                                borderLeft: '3px solid #D6521C', borderRadius: 1, bgcolor: 'rgba(0,0,0,0.05)' }}>
+                          <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography sx={{ fontSize: 11, fontWeight: 800, color: '#D6521C' }}>{d.reply.autor}</Typography>
+                            <Typography noWrap sx={{ fontSize: 11.5, color: '#555' }}>
+                              {d.reply.tipo === 'archivo'
+                                ? `${isImg(d.reply.file_name) ? '📷 Foto' : `${fileIcon(d.reply.file_name)} ${d.reply.file_name}`}`
+                                : (d.reply.texto || (d.reply.url ? '📷 Foto' : '—'))}
+                            </Typography>
+                          </Box>
+                          {!!d.reply.url && isImg(d.reply.file_name || d.reply.url || '') && (
+                            <Box component="img" src={d.reply.url} alt="" sx={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 0.75 }} />
+                          )}
+                        </Box>
+                      )}
+
+                      {esArchivo ? (
+                        <a href={d.url || '#'} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                          {isImg(d.file_name) ? (
+                            <Box component="img" src={d.url} alt={d.file_name || 'foto'}
+                              sx={{ maxWidth: 220, maxHeight: 220, borderRadius: 1, display: 'block' }} />
+                          ) : (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
+                              <Typography sx={{ fontSize: 26, lineHeight: 1 }}>{fileIcon(d.file_name)}</Typography>
+                              <Box sx={{ minWidth: 0 }}>
+                                <Typography variant="body2" noWrap title={d.file_name} sx={{ maxWidth: 220 }}>{d.file_name}</Typography>
+                                <Typography variant="caption" color="primary">Abrir</Typography>
+                              </Box>
+                            </Box>
+                          )}
+                        </a>
+                      ) : editingCommentId === d.id ? (
                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, minWidth: 220 }}>
                           <TextField
                             fullWidth size="small" multiline autoFocus
@@ -1962,22 +1998,29 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                         </Box>
                       ) : (
                         <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: mine ? '#0B3D1E' : '#1a1a1a' }}>
-                          {c.body}
+                          {d.body}
                         </Typography>
                       )}
                       {/* Un comentario puede traer archivo (los de Grupo Rino
                           llegan asi). Sin esto el comentario decia "Adjunto un
                           archivo" y no habia archivo por ningun lado. */}
-                      {!!c.attachment_url && <ComentarioAdjunto url={c.attachment_url} />}
+                      {!esArchivo && !!d.attachment_url && <ComentarioAdjunto url={d.attachment_url} />}
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5, mt: 0.25 }}>
-                        {mine && editingCommentId !== c.id && (
+                        <IconButton className="accHilo" size="small" sx={{ p: 0.25, color: '#5E35B1', opacity: 0.35 }}
+                          onClick={responder} title="Responder a esto">
+                          <ReplyIcon sx={{ fontSize: 15 }} />
+                        </IconButton>
+                        {esArchivo ? (
+                          <IconButton className="accHilo" size="small" sx={{ p: 0.25, color: '#C0392B', opacity: 0.35 }}
+                            onClick={() => setDelAttId(d.id)} title="Eliminar archivo"><DeleteIcon sx={{ fontSize: 15 }} /></IconButton>
+                        ) : mine && editingCommentId !== d.id && (
                           <>
-                            <IconButton size="small" sx={{ p: 0.25, color: '#3A7D53' }} onClick={() => { setEditingCommentId(c.id); setEditingText(c.body); }} title="Editar"><EditIcon sx={{ fontSize: 14 }} /></IconButton>
-                            <IconButton size="small" sx={{ p: 0.25, color: '#C0392B' }} onClick={() => deleteComment(c.id)} title="Borrar"><DeleteIcon sx={{ fontSize: 14 }} /></IconButton>
+                            <IconButton size="small" sx={{ p: 0.25, color: '#3A7D53' }} onClick={() => { setEditingCommentId(d.id); setEditingText(d.body); }} title="Editar"><EditIcon sx={{ fontSize: 14 }} /></IconButton>
+                            <IconButton size="small" sx={{ p: 0.25, color: '#C0392B' }} onClick={() => deleteComment(d.id)} title="Borrar"><DeleteIcon sx={{ fontSize: 14 }} /></IconButton>
                           </>
                         )}
                         <Typography sx={{ fontSize: 10.5, color: mine ? '#3A7D53' : '#9AA0A6' }}>
-                          {c.edited_at ? `editado · ${fmtDate(c.edited_at)}` : fmtDate(c.created_at)}
+                          {!esArchivo && d.edited_at ? `editado · ${fmtDate(d.edited_at)}` : fmtDate(d.created_at)}
                         </Typography>
                       </Box>
                     </Box>
@@ -2011,6 +2054,28 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 </Paper>
               );
             })()}
+            {/* A quién le estás contestando, visible mientras escribes. */}
+            {!!citando && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1.5, p: 1,
+                         borderLeft: '3px solid #D6521C', borderRadius: 1, bgcolor: '#FFF3EC' }}>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={{ fontSize: 11, fontWeight: 800, color: '#D6521C' }}>
+                    Respondiendo a {citando.autor}
+                  </Typography>
+                  <Typography noWrap sx={{ fontSize: 12, color: '#555' }}>
+                    {citando.tipo === 'archivo'
+                      ? (isImg(citando.file_name || '') ? '📷 Foto' : `${fileIcon(citando.file_name || '')} ${citando.file_name}`)
+                      : (citando.texto || (citando.url ? '📷 Foto' : '—'))}
+                  </Typography>
+                </Box>
+                {!!citando.url && isImg(citando.file_name || citando.url || '') && (
+                  <Box component="img" src={citando.url} alt="" sx={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 0.75 }} />
+                )}
+                <IconButton size="small" onClick={() => setCitando(null)} title="Quitar la cita">
+                  <CloseIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Box>
+            )}
             <Box sx={{ display: 'flex', gap: 1, mt: 1.5, alignItems: 'flex-end' }}>
               {/* "+" a la IZQUIERDA del campo, como en WhatsApp: el archivo se
                   manda dentro del comentario y sale en la conversación. */}

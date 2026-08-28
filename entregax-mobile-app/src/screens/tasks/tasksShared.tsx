@@ -1335,6 +1335,15 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   // Bandera específica del envío de comentario: deshabilita el botón y muestra spinner
   // mientras la petición POST está en curso para evitar envíos múltiples.
   const [sendingComment, setSendingComment] = useState(false);
+  /**
+   * Mensaje o foto que se está citando al responder. En una tarea con varias
+   * fotos no había forma de decir "hablo de ESTA" y el hilo se perdía.
+   * Se cita con "Responder" o dejando el dedo sobre el globo.
+   */
+  const [citando, setCitando] = useState<null | { tipo: 'comentario' | 'archivo'; id: number; autor: string; texto: string; url?: string | null; file_name?: string | null }>(null);
+  const citaCampos = () => citando
+    ? (citando.tipo === 'comentario' ? { reply_to_comment_id: citando.id } : { reply_to_attachment_id: citando.id })
+    : {};
   // Marca "sucio": se activa cuando el usuario hace CUALQUIER cambio en la tarea
   // (categoría, responsable, involucrados, checklist, archivos, comentarios, etc.)
   // y hace que el botón inferior cambie de "Completar" → "Guardar" para salir sin cerrar la tarea.
@@ -1520,7 +1529,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
     if (!comment.trim() || sendingComment) return;
     const activeMentions = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
     setSendingComment(true);
-    try { const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions }); const d = await r.json().catch(() => ({})); setComment(''); setMentions([]); setMentionQuery(null); setDirty(true); reload(true); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */ }
+    try { const r = await post(`${API_URL}/api/tasks/${taskId}/comments`, { body: comment.trim(), mentions: activeMentions, ...citaCampos() }); const d = await r.json().catch(() => ({})); setComment(''); setMentions([]); setMentionQuery(null); setCitando(null); setDirty(true); reload(true); onChanged(); /* comentar ya no reabre la tarea: devolver es un botón aparte */ }
     catch { /* */ }
     finally { setSendingComment(false); }
   };
@@ -1607,9 +1616,12 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
       if (comment.trim()) fd.append('body', comment.trim());
       const activas = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
       if (activas.length) fd.append('mentions', JSON.stringify(activas));
+      const cita: any = citaCampos();
+      if (cita.reply_to_comment_id) fd.append('reply_to_comment_id', String(cita.reply_to_comment_id));
+      if (cita.reply_to_attachment_id) fd.append('reply_to_attachment_id', String(cita.reply_to_attachment_id));
       const r = await fetch(`${API_URL}/api/tasks/${taskId}/comments`, { method: 'POST', headers: H, body: fd });
       if (!r.ok) throw new Error();
-      setComment(''); setMentions([]); setMentionQuery(null);
+      setComment(''); setMentions([]); setMentionQuery(null); setCitando(null);
       setDirty(true); reload(true); onChanged();
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 350);
     } catch { Alert.alert('Error', 'No se pudo enviar el archivo'); }
@@ -1886,9 +1898,11 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 </View>
               )}
 
-              {/* Archivos (fotos, PDF, Excel…) */}
+              {/* Conversación: comentarios Y archivos en un solo hilo, por hora.
+                  Las fotos que llegan con el ticket ya no viven en una bandeja
+                  aparte donde se pierde de qué se está hablando. */}
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
-                <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Archivos {atts.length > 0 && `(${atts.length})`}</Text>
+                <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Conversación</Text>
                 <View style={{ flexDirection: 'row', gap: 14 }}>
                   <TouchableOpacity onPress={addPhoto} disabled={busy} style={styles.photoBtn}>
                     <Ionicons name="camera-outline" size={16} color={ORANGE} /><Text style={styles.photoBtnTxt}>Foto</Text>
@@ -1898,40 +1912,60 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                   </TouchableOpacity>
                 </View>
               </View>
-              {atts.length === 0 ? <Text style={styles.metaMuted}>Sin archivos.</Text> : (
-                <View style={styles.photoGrid}>
-                  {atts.map((a: any) => (
-                    <View key={a.id} style={{ position: 'relative' }}>
-                      {isImgName(a.file_name) ? (
-                        <TouchableOpacity onPress={() => openAttachment(a.url)}>
-                          {a.url ? <Image source={{ uri: a.url }} style={styles.photo} /> : <View style={[styles.photo, { backgroundColor: '#EEE' }]} />}
-                        </TouchableOpacity>
-                      ) : (
-                        <TouchableOpacity style={styles.fileChip} onPress={() => openAttachment(a.url)}>
-                          <Text style={{ fontSize: 22 }}>{fileEmoji(a.file_name)}</Text>
-                          <Text style={styles.fileChipTxt} numberOfLines={2}>{a.file_name}</Text>
-                          <Text style={styles.fileChipOpen}>Abrir</Text>
-                        </TouchableOpacity>
-                      )}
-                      <TouchableOpacity onPress={() => deletePhoto(a.id)} style={styles.photoDel}><Ionicons name="close" size={12} color="#fff" /></TouchableOpacity>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {/* Comentarios — hilo estilo chat (mis mensajes a la derecha en verde) */}
-              <Text style={styles.sectionTitle}>Comentarios</Text>
-              {(data.comments || []).map((c: any) => {
-                const mine = myId != null && Number(c.author_id) === Number(myId);
+              {([
+                ...((data.comments || []) as any[]).map((c: any) => ({ tipo: 'c', at: c.created_at, dato: c })),
+                ...((atts || []) as any[]).map((a: any) => ({ tipo: 'a', at: a.created_at, dato: a })),
+              ]).sort((x, y) => new Date(x.at || 0).getTime() - new Date(y.at || 0).getTime()).map((item: any) => {
+                const esArchivo = item.tipo === 'a';
+                const c = item.dato;
+                const autorId = esArchivo ? c.uploaded_by : c.author_id;
+                const autorNombre = esArchivo ? c.uploaded_by_name : c.author_name;
+                const mine = myId != null && Number(autorId) === Number(myId);
+                const responder = () => setCitando(esArchivo
+                  ? { tipo: 'archivo', id: c.id, autor: autorNombre || '—', texto: '', url: c.url, file_name: c.file_name }
+                  : { tipo: 'comentario', id: c.id, autor: autorNombre || '—', texto: c.body || '', url: c.attachment_url });
                 return (
-                  <View key={c.id} style={[styles.msgRow, mine ? styles.msgRowMine : styles.msgRowOther]}>
-                    <View style={[styles.msgBubble, mine ? styles.msgBubbleMine : styles.msgBubbleOther]}>
+                  <View key={`${item.tipo}-${c.id}`} style={[styles.msgRow, mine ? styles.msgRowMine : styles.msgRowOther]}>
+                    <TouchableOpacity activeOpacity={0.9} onLongPress={responder} delayLongPress={250}
+                      style={[styles.msgBubble, mine ? styles.msgBubbleMine : styles.msgBubbleOther]}>
                       {!mine && (
-                        <Text style={[styles.msgAuthor, { color: authorColor(c.author_id, c.author_name) }]}>
-                          {c.author_name || '—'}
+                        <Text style={[styles.msgAuthor, { color: authorColor(autorId, autorNombre) }]}>
+                          {autorNombre || '—'}
                         </Text>
                       )}
-                      {editingCommentId === c.id ? (
+
+                      {/* Lo que se está citando */}
+                      {!esArchivo && !!c.reply && (
+                        <View style={styles.citaBloque}>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={styles.citaAutor}>{c.reply.autor}</Text>
+                            <Text style={styles.citaTexto} numberOfLines={1}>
+                              {c.reply.tipo === 'archivo'
+                                ? (isImgName(c.reply.file_name) ? '📷 Foto' : `${fileEmoji(c.reply.file_name)} ${c.reply.file_name}`)
+                                : (c.reply.texto || (c.reply.url ? '📷 Foto' : '—'))}
+                            </Text>
+                          </View>
+                          {!!c.reply.url && (
+                            <Image source={{ uri: String(c.reply.url) }} style={styles.citaMini} resizeMode="cover" />
+                          )}
+                        </View>
+                      )}
+
+                      {esArchivo ? (
+                        isImgName(c.file_name) ? (
+                          <TouchableOpacity onPress={() => openAttachment(c.url)}>
+                            {c.url
+                              ? <Image source={{ uri: c.url }} style={{ width: 220, height: 220, borderRadius: 10, backgroundColor: '#EEE' }} resizeMode="cover" />
+                              : <View style={{ width: 220, height: 220, borderRadius: 10, backgroundColor: '#EEE' }} />}
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity style={styles.fileChip} onPress={() => openAttachment(c.url)}>
+                            <Text style={{ fontSize: 22 }}>{fileEmoji(c.file_name)}</Text>
+                            <Text style={styles.fileChipTxt} numberOfLines={2}>{c.file_name}</Text>
+                            <Text style={styles.fileChipOpen}>Abrir</Text>
+                          </TouchableOpacity>
+                        )
+                      ) : editingCommentId === c.id ? (
                         <View>
                           <TextInput
                             style={[styles.input, { backgroundColor: '#fff', minWidth: 200 }]}
@@ -1958,7 +1992,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                           habia archivo por ningun lado. */}
                       {/* Se intenta como imagen salvo que la extension diga que
                           no lo es: sus enlaces no traen extension. */}
-                      {!!c.attachment_url && (
+                      {!esArchivo && !!c.attachment_url && (
                         !/\.(pdf|docx?|xlsx?|pptx?|zip|rar|csv|txt)(\?|$)/i.test(String(c.attachment_url)) ? (
                           <TouchableOpacity onPress={() => Linking.openURL(String(c.attachment_url))} style={{ marginTop: 6 }}>
                             {/* Vista previa dentro de la conversación, no en
@@ -1975,7 +2009,14 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                         )
                       )}
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 12, marginTop: 2 }}>
-                        {mine && editingCommentId !== c.id && (
+                        <TouchableOpacity onPress={responder} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Text style={{ fontSize: 11.5, color: '#5E35B1', fontWeight: '700' }}>Responder</Text>
+                        </TouchableOpacity>
+                        {esArchivo ? (
+                          <TouchableOpacity onPress={() => deletePhoto(c.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                            <Text style={{ fontSize: 11.5, color: '#C0392B', fontWeight: '700' }}>Borrar</Text>
+                          </TouchableOpacity>
+                        ) : mine && editingCommentId !== c.id && (
                           <>
                             <TouchableOpacity onPress={() => { setEditingCommentId(c.id); setEditingText(c.body); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                               <Text style={{ fontSize: 11.5, color: '#3A7D53', fontWeight: '700' }}>Editar</Text>
@@ -1986,14 +2027,14 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                           </>
                         )}
                         <Text style={[styles.msgTime, mine ? { color: '#3A7D53' } : { color: '#9AA0A6' }]}>
-                          {c.edited_at ? `editado · ${fmtDate(c.edited_at)}` : fmtDate(c.created_at)}
+                          {!esArchivo && c.edited_at ? `editado · ${fmtDate(c.edited_at)}` : fmtDate(c.created_at)}
                         </Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   </View>
                 );
               })}
-              {(data.comments || []).length === 0 && <Text style={styles.commentBody}>Sin comentarios todavía.</Text>}
+              {(data.comments || []).length === 0 && atts.length === 0 && <Text style={styles.commentBody}>Sin comentarios todavía.</Text>}
               {/* Selector de @menciones (involucrados de la tarea) */}
               {mentionQuery !== null && (() => {
                 const q = mentionQuery.toLowerCase();
@@ -2012,6 +2053,25 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                   </View>
                 );
               })()}
+              {/* A quién le estás contestando, visible mientras escribes. */}
+              {!!citando && (
+                <View style={styles.citaBarra}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.citaAutor}>Respondiendo a {citando.autor}</Text>
+                    <Text style={styles.citaTexto} numberOfLines={1}>
+                      {citando.tipo === 'archivo'
+                        ? (isImgName(citando.file_name || '') ? '📷 Foto' : `${fileEmoji(citando.file_name || '')} ${citando.file_name}`)
+                        : (citando.texto || (citando.url ? '📷 Foto' : '—'))}
+                    </Text>
+                  </View>
+                  {!!citando.url && (
+                    <Image source={{ uri: String(citando.url) }} style={styles.citaMini} resizeMode="cover" />
+                  )}
+                  <TouchableOpacity onPress={() => setCitando(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <Ionicons name="close" size={18} color="#9AA0A6" />
+                  </TouchableOpacity>
+                </View>
+              )}
               <View style={styles.addSubRow}>
                 {/* "+" para adjuntar, como en WhatsApp: la foto se manda dentro
                     del comentario y sale en la conversación. */}
@@ -2483,6 +2543,19 @@ export const styles = StyleSheet.create({
     backgroundColor: '#FFF3EC', borderWidth: 1, borderColor: '#F0B79A',
   },
   inputComentario: { height: undefined, minHeight: 40, maxHeight: 120, paddingTop: 10, paddingBottom: 10 },
+  citaBloque: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderLeftWidth: 3, borderLeftColor: ORANGE, borderRadius: 6,
+    backgroundColor: 'rgba(0,0,0,0.06)', padding: 6, marginBottom: 6,
+  },
+  citaBarra: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderLeftWidth: 3, borderLeftColor: ORANGE, borderRadius: 6,
+    backgroundColor: '#FFF3EC', padding: 8, marginTop: 10,
+  },
+  citaAutor: { fontSize: 11, fontWeight: '800', color: ORANGE },
+  citaTexto: { fontSize: 12, color: '#5F6368' },
+  citaMini: { width: 38, height: 38, borderRadius: 6, backgroundColor: '#EEE' },
   addBtn: { backgroundColor: ORANGE, borderRadius: 8, paddingHorizontal: 14, height: 40, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 4 },
   addBtnTxt: { color: '#fff', fontWeight: '700', fontSize: 13 },
   photoBtn: { flexDirection: 'row', alignItems: 'center', gap: 3 },
