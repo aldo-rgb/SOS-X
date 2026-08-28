@@ -929,10 +929,23 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             (sum: number, r: any) => sum + Number(r.assigned_cost_mxn || 0),
             0
         );
-        const finalTotalAmount =
+        let finalTotalAmount =
             recalculatedAmount > 0 && duplicateIds.size > 0
                 ? recalculatedAmount
                 : Number(totalAmount);
+
+        // DHL: el total lo calcula el navegador y una versión vieja le suma la
+        // paquetería nacional dos veces. El candado existía solo en el alta de
+        // órdenes del asesor, así que por aquí seguían pasando dobles
+        // (UW-1110AA0D cobró $19,509.00 en vez de $17,909.00, tarea 440).
+        if (String(serviceTypeForConfig) === 'AA_DHL') {
+            const { corregirTotalDhlDuplicado } = await import('./orderService');
+            const chk = await corregirTotalDhlDuplicado(pool, filteredPackageIds, finalTotalAmount);
+            if (chk.corregido) {
+                console.warn(`[orden-pago] paquetería DHL duplicada corregida para user ${userId}.`);
+                finalTotalAmount = chk.total;
+            }
+        }
 
         // ✨ Verificar si ya existe un pago pendiente para EXACTAMENTE estos paquetes (post-filtrado)
         const sortedPackageIds = [...filteredPackageIds].sort((a, b) => a - b);

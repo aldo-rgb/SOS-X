@@ -91,3 +91,55 @@ export const classifyOrderIds = (
     if (service === 'SEA_CHN_MX') return { pkgIds: [], dhlIds: [], marIds: ids };
     return { pkgIds: ids, dhlIds: [], marIds: [] };
 };
+
+
+/**
+ * Corrige el cobro DOBLE de paquetería nacional en órdenes DHL.
+ *
+ * En DHL el monto que recibe el panel ya es total_cost_mxn —importación (con
+ * impuesto) + nacional— y el navegador le volvía a sumar la nacional. Se
+ * corrigió en pantalla el 26-ago, pero un navegador con la versión vieja sigue
+ * mandando el total inflado, así que la última palabra tiene que ser del
+ * servidor.
+ *
+ * Vivía solo en el alta de órdenes del asesor. UW-1110AA0D se creó por otra
+ * ruta —sin fila en advisor_payment_orders— y cobró $19,509.00 en vez de
+ * $17,909.00: los $400 de nacional de sus 4 guías, dos veces (tarea 440).
+ *
+ * Solo corrige la duplicación exacta. Cualquier otra diferencia se respeta,
+ * porque el asesor puede haber agregado cargos que el servidor no conoce.
+ */
+export const corregirTotalDhlDuplicado = async (
+    db: Db,
+    dhlIds: number[],
+    totalRecibido: number
+): Promise<{ total: number; corregido: boolean; esperado: number; nacional: number }> => {
+    const total = Number(totalRecibido) || 0;
+    const ids = (dhlIds || []).map(Number).filter(Number.isFinite);
+    if (ids.length === 0) return { total, corregido: false, esperado: total, nacional: 0 };
+    try {
+        const r = await db.query(
+            // import_cost_mxn YA trae el impuesto; sumarle import_tax_mxn lo
+            // contaría dos veces. La fórmula canónica es importación + nacional.
+            `SELECT COALESCE(SUM(COALESCE(import_cost_mxn, 0)), 0) AS importacion,
+                    COALESCE(SUM(COALESCE(national_cost_mxn, 0)), 0) AS nacional
+               FROM dhl_shipments WHERE id = ANY($1::int[]) AND paid_at IS NULL`,
+            [ids]
+        );
+        const importacion = Number(r.rows[0]?.importacion) || 0;
+        const nacional = Number(r.rows[0]?.nacional) || 0;
+        const esperado = +(importacion + nacional).toFixed(2);
+        const doble = +(esperado + nacional).toFixed(2);
+        if (nacional > 0 && Math.abs(total - doble) < 1 && Math.abs(total - esperado) > 1) {
+            console.warn(
+                `[DHL] Paquetería duplicada: llegó ${total}, se cobra ${esperado} ` +
+                `(nacional ${nacional} contada dos veces).`
+            );
+            return { total: esperado, corregido: true, esperado, nacional };
+        }
+        return { total, corregido: false, esperado, nacional };
+    } catch (e: any) {
+        console.error('[DHL] no se pudo validar el total:', e?.message);
+        return { total, corregido: false, esperado: total, nacional: 0 };
+    }
+};

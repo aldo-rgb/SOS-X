@@ -485,26 +485,11 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     // puede haber agregado cargos que el servidor no conoce.
     let totalFinal = Number(total_mxn);
     if (dhlIds.length > 0 && allPackageIds.length > 0) {
-      try {
-        const canon = await pool.query(
-          // import_cost_mxn YA trae el impuesto; sumarle import_tax_mxn lo
-          // contaría dos veces. La fórmula canónica es importación + nacional.
-          `SELECT COALESCE(SUM(COALESCE(import_cost_mxn,0)),0) AS importacion,
-                  COALESCE(SUM(COALESCE(national_cost_mxn,0)),0) AS nacional
-             FROM dhl_shipments WHERE id = ANY($1::int[]) AND paid_at IS NULL`,
-          [allPackageIds]);
-        const importacion = Number(canon.rows[0]?.importacion) || 0;
-        const nacional = Number(canon.rows[0]?.nacional) || 0;
-        const esperado = importacion + nacional;
-        const doble = esperado + nacional;   // lo que manda un navegador viejo
-        if (nacional > 0 && Math.abs(totalFinal - doble) < 1 && Math.abs(totalFinal - esperado) > 1) {
-          console.warn(
-            `[orden-asesor] DHL con paquetería duplicada: llegó ${totalFinal}, se cobra ${esperado} ` +
-            `(paquetería ${nacional} contada dos veces). Asesor ${aid}, cliente ${client_id}.`);
-          totalFinal = esperado;
-        }
-      } catch (e: any) {
-        console.error('[orden-asesor] no se pudo validar el total DHL:', e?.message);
+      const { corregirTotalDhlDuplicado } = await import('./orderService');
+      const chk = await corregirTotalDhlDuplicado(pool, allPackageIds, totalFinal);
+      if (chk.corregido) {
+        console.warn(`[orden-asesor] paquetería duplicada corregida. Asesor ${aid}, cliente ${client_id}.`);
+        totalFinal = chk.total;
       }
     }
 
