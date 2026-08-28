@@ -1752,7 +1752,15 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                       onChange={(ids: number[]) => patchTask({ involved_ids: creatorId ? [creatorId, ...ids] : ids, assignee_id: Number(t.assignee_id) || undefined })}
                       fixedLabel={t.created_by_name || 'Creador'} frequent={eFrequent} />
                   </Plegable>
-                  {!!t.due_at && <Text style={[styles.metaLine, t.overdue && { color: '#C0392B' }, { marginTop: 8 }]}><Text style={styles.metaB}>Fecha deseada:</Text> {fmtDate(t.due_at)}</Text>}
+                  {/* Quién la asignó. Estaba solo en la vista de quien no puede
+                      editar, así que justo el responsable —que sí puede— no veía
+                      de quién venía el encargo. */}
+                  {!!t.created_by_name && (
+                    <Text style={[styles.metaLine, { marginTop: 8 }]}>
+                      <Text style={styles.metaB}>Asignada por:</Text> {t.created_by_name}
+                    </Text>
+                  )}
+                  {!!t.due_at && <Text style={[styles.metaLine, t.overdue && { color: '#C0392B' }]}><Text style={styles.metaB}>Fecha deseada:</Text> {fmtDate(t.due_at)}</Text>}
                   {busy && <ActivityIndicator color={ORANGE} style={{ marginTop: 6 }} />}
                 </View>
               ) : (
