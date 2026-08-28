@@ -12,7 +12,11 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
+  Modal,
+  Alert,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -134,6 +138,35 @@ export default function CommissionsSummaryScreen({ navigation, route }: any) {
   const [serviceFilter, setServiceFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  // ─── Cortes recibidos ───
+  // El total acumulado del histórico no le dice al asesor lo que le importa:
+  // cuánto le pagaron en el último corte. Eso es lo que va en la tarjeta grande.
+  const [cortes, setCortes] = useState<any[]>([]);
+  const [historialAbierto, setHistorialAbierto] = useState(false);
+  const [corteAbierto, setCorteAbierto] = useState<number | null>(null);
+  const cargarCortes = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/advisor/commission-cuts`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      setCortes(Array.isArray(d.cortes) ? d.cortes : []);
+    } catch { setCortes([]); }
+  }, [token]);
+  const bajarPdf = async (cutId: number) => {
+    try {
+      const destino = `${FileSystem.cacheDirectory}corte-${cutId}.pdf`;
+      const r = await FileSystem.downloadAsync(
+        `${API_URL}/api/advisor/commission-cuts/${cutId}/pdf`, destino,
+        { headers: { Authorization: `Bearer ${token}` } });
+      if (r.status !== 200) throw new Error();
+      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(r.uri, { mimeType: 'application/pdf' });
+      else Alert.alert('Listo', 'El comprobante se descargó.');
+    } catch { Alert.alert('Error', 'No se pudo descargar el comprobante'); }
+  };
+  const fechaCorta = (iso: string) => {
+    try { return new Date(String(iso).length === 10 ? `${iso}T12:00:00` : iso)
+      .toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }); } catch { return String(iso); }
+  };
+
   const load = useCallback(async () => {
     try {
       const params = new URLSearchParams();
@@ -168,16 +201,16 @@ export default function CommissionsSummaryScreen({ navigation, route }: any) {
   }, [token, datePreset, serviceFilter, statusFilter]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { cargarCortes(); }, [cargarCortes]);
 
-  const onRefresh = () => { setRefreshing(true); load(); };
+  const onRefresh = () => { setRefreshing(true); load(); cargarCortes(); };
 
   // Total combinado: comisión propia + override de subasesores.
   const own = totals?.totalCommission || 0;
   const ovr = leaderOverride?.total || 0;
   const combinedTotal = own + ovr;
   const combinedPending = (totals?.pendingCommission || 0) + (leaderOverride?.pending || 0);
-  const combinedPaid = (totals?.paidCommission || 0) + (leaderOverride?.paid || 0);
-  const hasSubs = (leaderOverride?.subCount || 0) > 0;
+
   // % por servicio se calcula sobre la comisión propia (el override no es por servicio).
   const ownServiceSum = byService.reduce((s, r) => s + r.totalCommission, 0) || 1;
 
@@ -225,38 +258,70 @@ export default function CommissionsSummaryScreen({ navigation, route }: any) {
           <Text style={styles.filterLabel}>ESTADO</Text>
           {renderChips(STATUS_FILTERS, statusFilter, setStatusFilter)}
 
-          {/* Total destacado */}
-          <LinearGradient colors={[ORANGE, RED]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.totalCard}>
-            <Text style={styles.totalLabel}>Total generado</Text>
-            <Text style={styles.totalAmount}>{fmt(combinedTotal)}</Text>
-            <Text style={styles.totalSub}>MXN · {totals?.totalCount || 0} comisiones{hasSubs ? ` · ${leaderOverride?.subCount} subasesor(es)` : ''}</Text>
+          {/* Último corte. El acumulado del histórico no le dice al asesor lo
+              que necesita —cuánto le pagaron la semana pasada—, así que la
+              tarjeta grande muestra el corte más reciente y lleva al historial. */}
+          {(() => {
+            const ultimo = cortes[0];
+            return (
+              <TouchableOpacity activeOpacity={0.9} onPress={() => setHistorialAbierto(true)}>
+                <LinearGradient colors={[ORANGE, RED]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.totalCard}>
+                  {ultimo ? (
+                    <>
+                      <Text style={styles.totalLabel}>
+                        Último corte · {fechaCorta(ultimo.desde)} — {fechaCorta(ultimo.hasta)}
+                      </Text>
+                      <Text style={styles.totalAmount}>{fmt(ultimo.total)}</Text>
+                      <Text style={styles.totalSub}>
+                        MXN · {ultimo.guias} guías · pagado el {fechaCorta(ultimo.fecha)}
+                      </Text>
+                      {Number(ultimo.override) > 0 && (
+                        <View style={styles.breakdownRow}>
+                          <View style={styles.breakdownItem}>
+                            <Text style={styles.breakdownLabel}>Propia</Text>
+                            <Text style={styles.breakdownValue}>{fmt(ultimo.propia)}</Text>
+                          </View>
+                          <View style={styles.breakdownItem}>
+                            <Text style={styles.breakdownLabel}>De subasesores</Text>
+                            <Text style={styles.breakdownValue}>{fmt(ultimo.override)}</Text>
+                          </View>
+                        </View>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.totalLabel}>Aún no has recibido un corte</Text>
+                      <Text style={styles.totalAmount}>{fmt(0)}</Text>
+                      <Text style={styles.totalSub}>
+                        Los cortes se hacen de viernes a jueves. Cuando se genere el tuyo, aparecerá aquí.
+                      </Text>
+                    </>
+                  )}
 
-            {/* Desglose propia / subasesores (solo líderes) */}
-            {hasSubs && (
-              <View style={styles.breakdownRow}>
-                <View style={styles.breakdownItem}>
-                  <Text style={styles.breakdownLabel}>Propia</Text>
-                  <Text style={styles.breakdownValue}>{fmt(own)}</Text>
-                </View>
-                <View style={styles.breakdownItem}>
-                  <Text style={styles.breakdownLabel}>De subasesores</Text>
-                  <Text style={styles.breakdownValue}>{fmt(ovr)}</Text>
-                </View>
-              </View>
-            )}
+                  {/* Lo que sigue vivo hoy, para no perderlo de vista. */}
+                  <View style={styles.totalSplit}>
+                    <View style={styles.totalSplitItem}>
+                      <Text style={styles.totalSplitLabel}>Por cobrar hoy</Text>
+                      <Text style={styles.totalSplitValue}>{fmt(combinedPending)}</Text>
+                    </View>
+                    <View style={styles.totalSplitDivider} />
+                    <View style={styles.totalSplitItem}>
+                      <Text style={styles.totalSplitLabel}>Acumulado histórico</Text>
+                      <Text style={styles.totalSplitValue}>{fmt(combinedTotal)}</Text>
+                    </View>
+                  </View>
 
-            <View style={styles.totalSplit}>
-              <View style={styles.totalSplitItem}>
-                <Text style={styles.totalSplitLabel}>Por cobrar</Text>
-                <Text style={styles.totalSplitValue}>{fmt(combinedPending)}</Text>
-              </View>
-              <View style={styles.totalSplitDivider} />
-              <View style={styles.totalSplitItem}>
-                <Text style={styles.totalSplitLabel}>Pagadas</Text>
-                <Text style={styles.totalSplitValue}>{fmt(combinedPaid)}</Text>
-              </View>
-            </View>
-          </LinearGradient>
+                  <View style={styles.verHistorial}>
+                    <Ionicons name="receipt-outline" size={15} color="#fff" />
+                    <Text style={styles.verHistorialTxt}>
+                      Ver historial de cortes{cortes.length > 0 ? ` (${cortes.length})` : ''}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={16} color="#fff" />
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            );
+          })()}
 
           {/* Subasesores (solo líderes) */}
           {subAdvisors.length > 0 && (
@@ -340,11 +405,111 @@ export default function CommissionsSummaryScreen({ navigation, route }: any) {
           )}
         </ScrollView>
       )}
+
+      {/* Historial de cortes recibidos */}
+      <Modal visible={historialAbierto} animationType="slide" transparent onRequestClose={() => setHistorialAbierto(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '88%' }}>
+            <View style={styles.histHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.histTitle}>🧾 Historial de cortes</Text>
+                <Text style={styles.histSub}>Cada corte es un pago de comisiones de viernes a jueves</Text>
+              </View>
+              <TouchableOpacity onPress={() => setHistorialAbierto(false)} hitSlop={10}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            {cortes.length === 0 ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <Ionicons name="receipt-outline" size={44} color="#ccc" />
+                <Text style={{ color: '#888', marginTop: 10, textAlign: 'center' }}>
+                  Todavía no has recibido ningún corte.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 28 }}>
+                {cortes.map((c: any) => {
+                  const abierto = corteAbierto === c.cutId;
+                  return (
+                    <View key={c.id} style={styles.corteCard}>
+                      <TouchableOpacity activeOpacity={0.8} onPress={() => setCorteAbierto(abierto ? null : c.cutId)}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.corteFecha}>{fechaCorta(c.desde)} — {fechaCorta(c.hasta)}</Text>
+                          <Text style={styles.corteMeta}>{c.guias} guías · corte #{c.cutId}</Text>
+                        </View>
+                        <Text style={styles.corteMonto}>{fmt(c.total)}</Text>
+                        <Ionicons name={abierto ? 'chevron-up' : 'chevron-down'} size={18} color="#9AA0A6" />
+                      </TouchableOpacity>
+                      {abierto && (
+                        <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: '#EEE', paddingTop: 10 }}>
+                          <View style={styles.corteFila}>
+                            <Text style={styles.corteFilaLbl}>Comisión propia</Text>
+                            <Text style={styles.corteFilaVal}>{fmt(c.propia)}</Text>
+                          </View>
+                          {Number(c.override) > 0 && (
+                            <View style={styles.corteFila}>
+                              <Text style={styles.corteFilaLbl}>Override de subasesores</Text>
+                              <Text style={styles.corteFilaVal}>{fmt(c.override)}</Text>
+                            </View>
+                          )}
+                          {(c.subs || []).length > 0 && (
+                            <View style={{ marginTop: 8, backgroundColor: '#F3E5F5', borderRadius: 8, padding: 8 }}>
+                              <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#5E35B1', marginBottom: 4 }}>
+                                Lo que te toca dispersar
+                              </Text>
+                              {(c.subs || []).map((sb: any) => (
+                                <Text key={sb.subId} style={{ fontSize: 12, color: '#4A148C' }}>
+                                  · {sb.name} — {sb.guias} guías — {fmt(sb.monto)}
+                                </Text>
+                              ))}
+                            </View>
+                          )}
+                          <TouchableOpacity onPress={() => bajarPdf(c.cutId)} style={styles.pdfBtn}>
+                            <Ionicons name="document-text-outline" size={16} color="#fff" />
+                            <Text style={styles.pdfBtnTxt}>Descargar comprobante PDF</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  verHistorial: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.3)',
+  },
+  verHistorialTxt: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  histHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#37474F', padding: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+  },
+  histTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  histSub: { color: 'rgba(255,255,255,0.8)', fontSize: 11.5, marginTop: 2 },
+  corteCard: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 13, marginBottom: 10,
+    borderWidth: 1, borderColor: '#E8EAED',
+  },
+  corteFecha: { fontSize: 14.5, fontWeight: '800', color: '#202124', textTransform: 'capitalize' },
+  corteMeta: { fontSize: 11.5, color: '#9AA0A6', marginTop: 1 },
+  corteMonto: { fontSize: 17, fontWeight: '800', color: '#2E7D46' },
+  corteFila: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  corteFilaLbl: { fontSize: 12.5, color: '#5F6368' },
+  corteFilaVal: { fontSize: 12.5, fontWeight: '700', color: '#202124' },
+  pdfBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
+    marginTop: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#C62828',
+  },
+  pdfBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 13 },
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
