@@ -295,7 +295,39 @@ export async function generateCommissionForShipment(
     }
 
     // 6. Insertar registro de comisión (ON CONFLICT DO NOTHING para evitar duplicados)
-    const creditHold = !!opts?.creditHold;
+    //
+    // El candado de crédito NO se deja al criterio de quien llama. Solo dos de
+    // las nueve rutas que generan comisión pasaban `creditHold`, así que una
+    // orden pagada con crédito por conciliación bancaria, caja chica o el panel
+    // manual generaba comisiones que se veían cobrables aunque el cliente no
+    // hubiera abonado un peso (71 comisiones por $23,425.50, tarea 442). Aquí se
+    // resuelve contra la propia orden: si la pagó con crédito y no está
+    // liquidada, la comisión nace retenida.
+    let creditHold = !!opts?.creditHold;
+    if (!creditHold) {
+      try {
+        const esDhl = shipmentType === 'DHL';
+        const cred = await pool.query(
+          `SELECT 1 FROM pobox_payments pp
+            WHERE LOWER(COALESCE(pp.payment_method, '')) = 'credit'
+              AND COALESCE(pp.credit_settled, false) = false
+              AND pp.status IN ('completed','paid')
+              AND pp.package_ids @> to_jsonb($1::int)
+              -- Los ids colisionan entre tablas: se distingue por el folio, que
+              -- en DHL es UW- y en PO Box RO-/PP-.
+              AND (($2::boolean AND (pp.payment_reference LIKE 'UW-%' OR pp.service_type = 'AA_DHL'))
+                OR (NOT $2::boolean AND NOT (pp.payment_reference LIKE 'UW-%' OR pp.service_type = 'AA_DHL')))
+            LIMIT 1`,
+          [shipmentId, esDhl]
+        );
+        if (cred.rows.length > 0) {
+          creditHold = true;
+          console.log(`[CommissionService] ${shipmentType}-${shipmentId}: la orden se pagó con crédito sin liquidar → comisión retenida`);
+        }
+      } catch (e: any) {
+        console.warn('[CommissionService] no se pudo verificar crédito:', e?.message);
+      }
+    }
     await pool.query(`
       INSERT INTO advisor_commissions (
         advisor_id, advisor_name, leader_id, leader_name,
