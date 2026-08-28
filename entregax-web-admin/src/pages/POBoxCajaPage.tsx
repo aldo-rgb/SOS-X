@@ -330,7 +330,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
     }
   };
 
-  const handleConfirmPayment = async () => {
+  const handleConfirmPayment = async (pagoParcial?: boolean) => {
     if (!searchResult) return;
 
     setConfirming(true);
@@ -346,7 +346,8 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
         notas: confirmNotes,
         moneda_recibida: paymentCurrency, // MXN o USD
         monto_recibido: montoRecibido,
-        tipo_cambio: exchangeRate
+        tipo_cambio: exchangeRate,
+        ...(pagoParcial ? { confirm_partial: true } : {}),
       });
 
       setSnackbar({
@@ -369,10 +370,23 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
 
     } catch (error: unknown) {
       console.error('Error confirming payment:', error);
-      const axiosError = error as { response?: { data?: { error?: string } } };
+      const d = (error as any)?.response?.data;
+      // Lo cubierto no alcanza. El backend ofrece darla por pagada de todos
+      // modos, pero esa salida vivía solo en el texto del error: sin este
+      // camino la confirmación se quedaba trabada.
+      if (d?.error === 'pago_insuficiente' && d?.requires_confirmation) {
+        setConfirming(false);
+        const falta = Number(d.remaining || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+        const ok = window.confirm(
+          `${d.message}\n\n¿Dar por pagada la orden con $${falta} MXN de diferencia?\n` +
+          `Las guías quedarán liberadas y la diferencia NO se le va a cobrar.`
+        );
+        if (ok) await handleConfirmPayment(true);
+        return;
+      }
       setSnackbar({
         open: true,
-        message: axiosError.response?.data?.error || 'Error al confirmar pago',
+        message: d?.message || d?.error || 'Error al confirmar pago',
         severity: 'error'
       });
     } finally {
@@ -1045,7 +1059,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
             <Button
               variant="contained"
               color="success"
-              onClick={handleConfirmPayment}
+              onClick={() => handleConfirmPayment()}
               disabled={confirming}
               startIcon={confirming ? <CircularProgress size={20} /> : <CheckCircleIcon />}
             >

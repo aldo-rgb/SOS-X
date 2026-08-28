@@ -994,7 +994,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   // comprobantes del cliente: el backend lo exige para que un mismo depósito no
   // pueda respaldar dos órdenes. En efectivo no hay nada que ligar y el flujo
   // sigue siendo de un solo clic.
-  const handleConfirmPayment = async (bankEntryIds?: number[], sinLigar?: boolean) => {
+  const handleConfirmPayment = async (bankEntryIds?: number[], sinLigar?: boolean, pagoParcial?: boolean) => {
     // Puede venir de la tabla (estructura plana) o de búsqueda (estructura anidada)
     const referencia = foundPayment?.payment?.referencia || foundPayment?.referencia;
     if (!referencia) return;
@@ -1007,6 +1007,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
         notas: 'Confirmado desde dashboard',
         ...(bankEntryIds && bankEntryIds.length ? { bank_entry_ids: bankEntryIds } : {}),
         ...(sinLigar ? { confirmar_sin_ligar: true } : {}),
+        ...(pagoParcial ? { confirm_partial: true } : {}),
       }, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1025,6 +1026,22 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       const d = error.response?.data;
       // El backend pide ligar el abono que respalda los comprobantes. En vez de
       // mostrar un error seco, se abre el selector con los candidatos.
+      // Lo cubierto no alcanza para la orden. El backend ya explica cuánto
+      // falta y ofrece darla por pagada de todos modos, pero esa salida vivía
+      // solo en el mensaje: no había forma de tomarla desde la pantalla y la
+      // confirmación se quedaba trabada (tarea 396, UW-92454301 con $586.81 de
+      // diferencia por una cotización del sistema viejo).
+      if (d?.error === 'pago_insuficiente' && d?.requires_confirmation) {
+        setConfirmingPayment(false);
+        const falta = Number(d.remaining || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+        const ok = window.confirm(
+          `${d.message}\n\n` +
+          `¿Dar por pagada la orden con $${falta} MXN de diferencia?\n` +
+          `Las guías quedarán liberadas y la diferencia NO se le va a cobrar.`
+        );
+        if (ok) await handleConfirmPayment(bankEntryIds, sinLigar, true);
+        return;
+      }
       if (d?.error === 'falta_movimiento_bancario' || d?.error === 'movimientos_insuficientes') {
         setConfirmingPayment(false);
         // Si faltó marcar un depósito se vuelve a abrir el selector con el
