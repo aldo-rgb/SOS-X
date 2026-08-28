@@ -1972,24 +1972,40 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     if (isDhl) {
       // Todas las guías del master (mismo secondary_tracking) = las cajas físicas,
       // cada una con su peso/medidas reales. Incluye la propia guía master.
+      // Solo las cajas que TODAVÍA no salieron. Una caja que ya se fue con su
+      // propia guía no puede volver a contarse: la 8467249221 mandó una caja el
+      // 27-ago con la guía 191250605414 (1 pieza, $638.24) y al llegar el
+      // complemento al día siguiente la nueva guía salió de 2 piezas y 84 kg
+      // ($1,276.44), cobrando de nuevo la que ya había viajado y pisando su
+      // guía anterior.
       const cRes = await pool.query(
         `SELECT id, inbound_tracking AS tracking_internal, weight_kg AS weight,
                 length_cm AS pkg_length, width_cm AS pkg_width, height_cm AS pkg_height,
-                description, id AS box_number, national_tracking, national_label_url
+                description, id AS box_number, national_tracking, national_label_url,
+                (dispatched_at IS NOT NULL OR status IN ('shipped','delivered','out_for_delivery')) AS ya_salio
            FROM dhl_shipments
           WHERE COALESCE(secondary_tracking, '') <> ''
             AND secondary_tracking = (SELECT secondary_tracking FROM dhl_shipments WHERE id = $1)
+            AND (id = $1 OR NOT (
+                  COALESCE(national_tracking, '') <> ''
+                  AND (dispatched_at IS NOT NULL OR status IN ('shipped','delivered','out_for_delivery'))
+                ))
           ORDER BY id`,
         [packageId]
       );
       // Si es una guía suelta (sin hermanas) tratamos el master como única caja.
       children = cRes.rows.length > 1 ? cRes.rows : [];
     } else {
+      // Mismo criterio que en DHL: una caja que ya salió con su propia guía no
+      // vuelve a contarse ni se le pisa la etiqueta.
       const childrenRes = await pool.query(
         `SELECT id, tracking_internal, weight, pkg_length, pkg_width, pkg_height,
-                description, box_number, national_tracking, national_label_url
+                description, box_number, national_tracking, national_label_url,
+                (status::text IN ('shipped','sent','delivered','out_for_delivery')) AS ya_salio
            FROM packages
           WHERE master_id = $1
+            AND NOT (COALESCE(national_tracking, '') <> ''
+                     AND status::text IN ('shipped','sent','delivered','out_for_delivery'))
           ORDER BY box_number, id`,
         [packageId]
       );
@@ -2008,7 +2024,12 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       ];
       // Asegurar que hijas estén alineadas al mismo tracking (sincronización)
       if (children.length > 0) {
-        const stale = children.filter((c: any) => c.national_tracking !== pkg.national_tracking).map((c: any) => c.id);
+        // Nunca pisar la guía de una caja que YA salió: esa etiqueta está
+        // impresa y pegada, y sobrescribirla borra el rastro del envío real.
+        const stale = children
+          .filter((c: any) => c.national_tracking !== pkg.national_tracking)
+          .filter((c: any) => !(String(c.national_tracking || '').trim() && c.id !== pkg.id && c.ya_salio === true))
+          .map((c: any) => c.id);
         if (stale.length > 0) {
           try {
             await pool.query(
