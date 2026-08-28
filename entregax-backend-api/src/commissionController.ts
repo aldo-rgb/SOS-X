@@ -558,7 +558,7 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                                 OR pp_o.payment_reference = NULLIF((SELECT p3.payment_reference FROM packages p3 WHERE p3.id = ac.shipment_id), '')))
                 OR EXISTS (SELECT 1 FROM pobox_payments pp_d
                             WHERE ac.shipment_type = 'DHL'
-                              AND pp_d.service_type = 'AA_DHL'
+                              AND (pp_d.payment_reference LIKE 'UW-%' OR pp_d.service_type = 'AA_DHL')
                               AND pp_d.status IN ('completed','paid')
                               AND pp_d.package_ids @> to_jsonb(ac.shipment_id))
                 OR EXISTS (SELECT 1 FROM advisor_payment_orders apo_o
@@ -681,13 +681,15 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
             ) bo ON TRUE
             -- 📮 DHL: su orden también vive en pobox_payments, pero los
             -- package_ids apuntan a dhl_shipments y COLISIONAN con los de
-            -- packages, así que hay que filtrar por service_type. Sin este
-            -- LATERAL la columna "Orden de pago" salía vacía en todo DHL.
+            -- packages. Se distingue por el folio: las órdenes DHL son UW-, las
+            -- de PO Box RO-/PP-. (service_type no sirve de marca: solo se
+            -- empezó a llenar el 19-ago; las 173 anteriores lo tienen en NULL.)
+            -- Sin este LATERAL la columna "Orden de pago" salía vacía en DHL.
             LEFT JOIN LATERAL (
                 SELECT pp.payment_reference, pp.status
                   FROM pobox_payments pp
                  WHERE ac.shipment_type = 'DHL'
-                   AND pp.service_type = 'AA_DHL'
+                   AND (pp.payment_reference LIKE 'UW-%' OR pp.service_type = 'AA_DHL')
                    AND pp.package_ids @> to_jsonb(ac.shipment_id)
                  ORDER BY (CASE WHEN pp.status IN ('completed','paid') THEN 0 WHEN pp.status = 'cancelled' THEN 2 ELSE 1 END),
                           pp.paid_at DESC NULLS LAST, pp.id DESC
