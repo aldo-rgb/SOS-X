@@ -1586,6 +1586,30 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
     catch { notify('Error al comentar', 'error'); }
     finally { setSendingComment(false); }
   };
+
+  /**
+   * Manda el archivo COMO COMENTARIO, igual que el "+" de la app: aparece en la
+   * conversación, en su lugar cronológico y con vista previa, en vez de irse a
+   * la lista de archivos donde se pierde el contexto.
+   *
+   * Lo que ya estaba escrito viaja como pie de foto.
+   */
+  const adjuntarEnComentario = async (file: File | null | undefined) => {
+    if (!file || sendingComment) return;
+    setSendingComment(true);
+    try {
+      const fd = new FormData();
+      fd.append('photo', file);
+      if (comment.trim()) fd.append('body', comment.trim());
+      const activas = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
+      if (activas.length) fd.append('mentions', JSON.stringify(activas));
+      await axios.post(`${API_URL}/tasks/${id}/comments`, fd, {
+        headers: { ...H().headers, 'Content-Type': 'multipart/form-data' },
+      });
+      setComment(''); setMentions([]); setMentionQuery(null); reload(); onChanged();
+    } catch { notify('No se pudo enviar el archivo', 'error'); }
+    finally { setSendingComment(false); }
+  };
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState('');
   const saveEditComment = async () => {
@@ -1979,6 +2003,19 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 }}
                 disabled={sendingComment}
               />
+              {/* "+" para adjuntar, como en WhatsApp: el archivo se manda
+                  dentro del comentario y sale en la conversación. */}
+              <input type="file" id={`adj-com-${id}`} style={{ display: 'none' }}
+                onChange={e => { adjuntarEnComentario(e.target.files?.[0]); e.target.value = ''; }} />
+              <Tooltip title="Adjuntar foto o archivo al comentario">
+                <span>
+                  <IconButton disabled={sendingComment}
+                    onClick={() => document.getElementById(`adj-com-${id}`)?.click()}
+                    sx={{ color: '#F05A28', border: '1px solid #F0B79A', bgcolor: '#FFF3EC', mr: 0.5 }}>
+                    <AddIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
               <IconButton color="primary" onClick={addComment} disabled={sendingComment || !comment.trim()}>
                 {sendingComment ? <CircularProgress size={18} /> : <SendIcon />}
               </IconButton>
