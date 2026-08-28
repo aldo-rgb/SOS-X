@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -48,10 +48,15 @@ interface Ticket {
 interface TicketMessage {
   id: number;
   sender_type: string;
+  sender_id?: number | null;
   message: string;
   attachment_url: string | null;
   attachments?: string[] | string | null;
   created_at: string;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+  /** Mensaje citado, ya resuelto por el backend. */
+  reply?: { id: number; autor: string; texto: string; url?: string | null } | null;
 }
 
 interface TicketStats {
@@ -219,6 +224,22 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
     }
   };
 
+  /** Mensaje que se está citando al responder (estilo WhatsApp). */
+  const [citando, setCitando] = useState<null | { id: number; autor: string; texto: string; url?: string | null }>(null);
+  const campoRespuesta = useRef<TextInput>(null);
+  const citar = (msg: TicketMessage) => {
+    let urls: string[] = Array.isArray(msg.attachments) ? (msg.attachments as string[]) : [];
+    if (!urls.length && msg.attachment_url) urls = [msg.attachment_url];
+    setCitando({
+      id: msg.id,
+      autor: msg.sender_type === 'user' || msg.sender_type === 'client' ? 'Cliente' : (msg.sender_type === 'ai' ? 'Orlando (IA)' : 'Agente'),
+      texto: String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim(),
+      url: urls[0] || null,
+    });
+    // Bajar al compositor y abrir el teclado.
+    setTimeout(() => campoRespuesta.current?.focus(), 120);
+  };
+
   const sendAdvisorReply = async () => {
     if (!selectedTicket) return;
     if (!replyText.trim() && replyAttachments.length === 0) return;
@@ -229,6 +250,7 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
         : `/api/admin/support/ticket/${selectedTicket.id}/reply`;
       const form = new FormData();
       form.append('message', replyText.trim());
+      if (citando) form.append('reply_to_id', String(citando.id));
       replyAttachments.forEach((f) => {
         form.append('images', { uri: f.uri, name: f.name, type: f.type } as any);
       });
@@ -243,6 +265,7 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
       }
       setReplyText('');
       setReplyAttachments([]);
+      setCitando(null);
       // Reload messages
       const res = viewMode === 'mine'
         ? await api.get(`/api/support/ticket/${selectedTicket.id}/messages`, { headers: { Authorization: `Bearer ${token}` } })
@@ -418,9 +441,21 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
             {formatTime(msg.created_at)}
           </Text>
         </View>
+        {/* Lo que se está citando */}
+        {!!msg.reply && (
+          <View style={[styles.citaBloque, isUser && { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.citaAutor, isUser && { color: '#fff' }]}>{msg.reply.autor}</Text>
+              <Text style={[styles.citaTexto, isUser && { color: 'rgba(255,255,255,0.85)' }]} numberOfLines={1}>
+                {msg.reply.texto || (msg.reply.url ? '📷 Foto' : '—')}
+              </Text>
+            </View>
+            {!!msg.reply.url && <Image source={{ uri: msg.reply.url }} style={styles.citaMini} resizeMode="cover" />}
+          </View>
+        )}
         {!!msg.message?.trim() && (
           <Text style={[styles.messageText, isUser && { color: '#fff' }]}>
-            {msg.message}
+            {String(msg.message).replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
           </Text>
         )}
         {attachUrls.length > 0 && (
@@ -455,6 +490,10 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
             })}
           </View>
         )}
+        <TouchableOpacity onPress={() => citar(msg)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={{ alignSelf: 'flex-end', marginTop: 4 }}>
+          <Text style={[styles.accionMsg, isUser && { color: '#fff' }]}>Responder</Text>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -708,6 +747,21 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
           {/* Reply bar */}
           {selectedTicket && (
             <View style={{ paddingBottom: insets.bottom + 8 }}>
+              {/* A quién le estás contestando, visible mientras escribes. */}
+              {!!citando && (
+                <View style={styles.citaBarra}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.citaAutor}>Respondiendo a {citando.autor}</Text>
+                    <Text style={styles.citaTexto} numberOfLines={1}>
+                      {citando.texto || (citando.url ? '📷 Foto' : '—')}
+                    </Text>
+                  </View>
+                  {!!citando.url && <Image source={{ uri: citando.url }} style={styles.citaMini} resizeMode="cover" />}
+                  <TouchableOpacity onPress={() => setCitando(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <Ionicons name="close" size={18} color="#9AA0A6" />
+                  </TouchableOpacity>
+                </View>
+              )}
               {replyAttachments.length > 0 && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}
                   style={{ paddingHorizontal: 12, paddingTop: 8 }}
@@ -747,6 +801,7 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
                   <Ionicons name="document-attach-outline" size={22} color={ORANGE} />
                 </TouchableOpacity>
                 <TextInput
+                  ref={campoRespuesta}
                   style={styles.replyInput}
                   placeholder="Escribe una respuesta..."
                   placeholderTextColor="#aaa"
@@ -775,6 +830,20 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
 }
 
 const styles = StyleSheet.create({
+  citaBloque: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderLeftWidth: 3, borderLeftColor: '#F05A28', borderRadius: 6,
+    backgroundColor: 'rgba(0,0,0,0.06)', padding: 6, marginBottom: 6,
+  },
+  citaBarra: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderLeftWidth: 3, borderLeftColor: '#F05A28', borderRadius: 6,
+    backgroundColor: '#FFF3EC', padding: 8, marginHorizontal: 10, marginTop: 8,
+  },
+  citaAutor: { fontSize: 11, fontWeight: '800', color: '#F05A28' },
+  citaTexto: { fontSize: 12, color: '#5F6368' },
+  citaMini: { width: 38, height: 38, borderRadius: 6, backgroundColor: '#EEE' },
+  accionMsg: { fontSize: 11.5, fontWeight: '700', color: '#5E35B1' },
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',

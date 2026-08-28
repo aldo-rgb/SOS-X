@@ -53,6 +53,8 @@ interface TicketMessage {
   sender_name?: string;
   sender_id?: number;
   edited_at?: string | null;
+  /** Mensaje citado, ya resuelto por el backend. */
+  reply?: { id: number; autor: string; texto: string; url?: string | null } | null;
   deleted_at?: string | null;
   read_at?: string | null;
 }
@@ -309,13 +311,31 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
       } },
     ]);
   };
+  /** Mensaje que se está citando al responder (estilo WhatsApp). */
+  const [citando, setCitando] = useState<null | { id: number; autor: string; texto: string; url?: string | null }>(null);
+  const campoRespuesta = useRef<TextInput>(null);
+  const citar = (msg: TicketMessage) => {
+    let urls: string[] = Array.isArray(msg.attachments) ? (msg.attachments as string[]) : [];
+    if (!urls.length && msg.attachment_url) urls = [msg.attachment_url];
+    setCitando({
+      id: msg.id,
+      autor: (msg.sender_type === 'client' ? 'Cliente' : (msg.sender_name || 'Agente')),
+      texto: String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim(),
+      url: urls[0] || null,
+    });
+    setTimeout(() => campoRespuesta.current?.focus(), 120);
+  };
   const menuMensaje = (msg: TicketMessage) => {
-    if (msg.deleted_at || !miUserId || Number(msg.sender_id) !== miUserId) return;
-    Alert.alert('Mensaje', undefined, [
-      { text: 'Editar', onPress: () => editarMensaje(msg) },
-      { text: 'Eliminar', style: 'destructive', onPress: () => eliminarMensaje(msg) },
-      { text: 'Cancelar', style: 'cancel' },
-    ]);
+    if (msg.deleted_at) return;
+    // Responder se puede sobre cualquier mensaje; editar y borrar solo el propio.
+    const esMio = !!miUserId && Number(msg.sender_id) === miUserId;
+    const opciones: any[] = [{ text: 'Responder', onPress: () => citar(msg) }];
+    if (esMio) {
+      opciones.push({ text: 'Editar', onPress: () => editarMensaje(msg) });
+      opciones.push({ text: 'Eliminar', style: 'destructive', onPress: () => eliminarMensaje(msg) });
+    }
+    opciones.push({ text: 'Cancelar', style: 'cancel' });
+    Alert.alert('Mensaje', undefined, opciones);
   };
 
   const pickImage = async () => {
@@ -382,6 +402,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     try {
       const formData = new FormData();
       formData.append('message', replyText.trim() || '');
+      if (citando) formData.append('reply_to_id', String(citando.id));
       // Mismo nombre de campo para todos: multer los recibe como arreglo.
       for (const f of attachedFiles) {
         formData.append('images', { uri: f.uri, name: f.name, type: f.mimeType } as any);
@@ -410,6 +431,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
       }
       setReplyText('');
       setAttachedFiles([]);
+      setCitando(null);
       await reloadMessages(selectedTicket.id);
     } catch (e) {
       Alert.alert('Error', 'No se pudo enviar el mensaje. Verifica tu conexión.');
@@ -547,6 +569,17 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
               </View>
             )}
           </View>
+          {!!msg.reply && (
+            <View style={[styles.citaBloque, isAgent && !isInternal && { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.citaAutor, isAgent && !isInternal && { color: '#fff' }]}>{msg.reply.autor}</Text>
+                <Text style={[styles.citaTexto, isAgent && !isInternal && { color: 'rgba(255,255,255,0.85)' }]} numberOfLines={1}>
+                  {msg.reply.texto || (msg.reply.url ? '📷 Foto' : '—')}
+                </Text>
+              </View>
+              {!!msg.reply.url && <Image source={{ uri: msg.reply.url }} style={styles.citaMini} resizeMode="cover" />}
+            </View>
+          )}
           <Text style={[styles.msgText, { color: textColor }, !!msg.deleted_at && { fontStyle: 'italic', opacity: 0.7 }]}>
             {msg.deleted_at ? `🚫 ${msg.message}` : msg.message?.replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
           </Text>
@@ -741,11 +774,27 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
                     ))}
                   </ScrollView>
                 )}
+                {/* A quién le estás contestando, visible mientras escribes. */}
+                {!!citando && (
+                  <View style={styles.citaBarra}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.citaAutor}>Respondiendo a {citando.autor}</Text>
+                      <Text style={styles.citaTexto} numberOfLines={1}>
+                        {citando.texto || (citando.url ? '📷 Foto' : '—')}
+                      </Text>
+                    </View>
+                    {!!citando.url && <Image source={{ uri: citando.url }} style={styles.citaMini} resizeMode="cover" />}
+                    <TouchableOpacity onPress={() => setCitando(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                      <Ionicons name="close" size={18} color="#9AA0A6" />
+                    </TouchableOpacity>
+                  </View>
+                )}
                 <View style={styles.replyBar}>
                   <TouchableOpacity style={styles.attachBtn} onPress={showAttachMenu}>
                     <Ionicons name="attach" size={22} color="#666" />
                   </TouchableOpacity>
                   <TextInput
+                    ref={campoRespuesta}
                     style={styles.replyInput}
                     placeholder="Escribe una respuesta interna..."
                     placeholderTextColor="#aaa"
@@ -822,6 +871,19 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
 }
 
 const styles = StyleSheet.create({
+  citaBloque: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderLeftWidth: 3, borderLeftColor: '#F05A28', borderRadius: 6,
+    backgroundColor: 'rgba(0,0,0,0.06)', padding: 6, marginBottom: 6,
+  },
+  citaBarra: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderLeftWidth: 3, borderLeftColor: '#F05A28', borderRadius: 6,
+    backgroundColor: '#FFF3EC', padding: 8, marginHorizontal: 10, marginTop: 8,
+  },
+  citaAutor: { fontSize: 11, fontWeight: '800', color: '#F05A28' },
+  citaTexto: { fontSize: 12, color: '#5F6368' },
+  citaMini: { width: 38, height: 38, borderRadius: 6, backgroundColor: '#EEE' },
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   header: {
     backgroundColor: '#3F51B5',

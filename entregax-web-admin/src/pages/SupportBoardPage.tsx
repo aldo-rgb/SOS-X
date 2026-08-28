@@ -60,6 +60,7 @@ import {
   Lock as LockIcon,
   OpenInFull as OpenInFullIcon,
   Edit as EditIcon,
+  Reply as ReplyIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material';
 import PackageDetailDialog from './PackageDetailDialog';
@@ -137,6 +138,8 @@ interface TicketMessage {
   edited_at?: string | null;
   deleted_at?: string | null;
   read_at?: string | null;
+  /** Mensaje citado, ya resuelto por el backend. */
+  reply?: { id: number; autor: string; texto: string; url?: string | null } | null;
 }
 
 interface SupportStats {
@@ -197,7 +200,13 @@ function ProtectedImage({ s3Url, alt, sx }: { s3Url: string; alt: string; sx: ob
   useEffect(() => {
     setSrc(null);
     setFailed(false);
-    const key = s3Url.includes('.amazonaws.com/') ? s3Url.split('.amazonaws.com/')[1] : null;
+    // El backend ya devuelve la URL FIRMADA. Antes se le arrancaba la key sin
+    // quitarle la query, se pedía firmar "support/foto.jpg?X-Amz-Algorithm=..."
+    // y eso fallaba: por eso el chat mostraba "🖼️ Ver imagen" en vez de la foto.
+    if (/[?&]X-Amz-(Signature|Algorithm)=/i.test(s3Url)) { setSrc(s3Url); return; }
+    const key = s3Url.includes('.amazonaws.com/')
+      ? decodeURIComponent(s3Url.split('.amazonaws.com/')[1].split('?')[0])
+      : null;
     if (!key) { setSrc(s3Url); return; }
     const token = localStorage.getItem('token');
     fetch(`${API_URL}/admin/support/image-sign?key=${encodeURIComponent(key)}`, {
@@ -410,6 +419,24 @@ export default function SupportBoardPage() {
   const defaultDeptSet = useRef(false);
 
   // ── Editar / eliminar el propio mensaje (tarea 261) ──
+  /** Mensaje que se está citando al responder (estilo WhatsApp). */
+  const [citando, setCitando] = useState<null | { id: number; autor: string; texto: string; url?: string | null }>(null);
+  const campoRespuesta = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
+  const citar = (msg: any) => {
+    const urls = Array.isArray(msg.attachments) ? msg.attachments : [];
+    setCitando({
+      id: msg.id,
+      autor: msg.sender_type === 'client' ? 'Cliente' : (msg.sender_type === 'ai' ? 'Cajito' : (msg.sender_name || 'Soporte')),
+      texto: String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim(),
+      url: urls[0] || msg.attachment_url || null,
+    });
+    // Bajar al compositor y dejar el cursor listo: quedarse arriba obligaba a
+    // buscar el campo y darle click para escribir.
+    setTimeout(() => {
+      campoRespuesta.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      campoRespuesta.current?.focus();
+    }, 60);
+  };
   const [editandoMsg, setEditandoMsg] = useState<number | null>(null);
   const [textoEdit, setTextoEdit] = useState('');
   const guardarEdicionMsg = async (msgId: number) => {
@@ -703,11 +730,13 @@ export default function SupportBoardPage() {
     setAttachedFiles([]);
     setOriginalText(null);
     setIsInternalNote(false);
+    setCitando(null);
     setSending(true);
     try {
       const body = new FormData();
       body.append('message', text);
       body.append('is_internal', isInternalNote ? 'true' : 'false');
+      if (citando) body.append('reply_to_id', String(citando.id));
       attachedFiles.forEach(f => body.append('images', f));
       const res = await fetch(`${API_URL}/admin/support/ticket/${ticketId}/reply`, {
         method: 'POST',
@@ -1398,6 +1427,7 @@ export default function SupportBoardPage() {
                   return (
                   <Box
                     key={msg.id}
+                    id={`tkt-msg-${msg.id}`}
                     sx={{ display: 'flex', justifyContent: msg.sender_type === 'client' ? 'flex-start' : 'flex-end', mb: 2 }}
                   >
                     <Box
@@ -1409,6 +1439,22 @@ export default function SupportBoardPage() {
                         border: msg.is_internal ? '1.5px dashed #F9A825' : '1px solid #ddd',
                       }}
                     >
+                      {/* Lo que se está citando: al darle click salta al original. */}
+                      {!!msg.reply && (
+                        <Box onClick={() => document.getElementById(`tkt-msg-${msg.reply?.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                          sx={{ display: 'flex', gap: 1, alignItems: 'center', cursor: 'pointer', mb: 1, p: 0.75,
+                                borderLeft: '3px solid #F05A28', borderRadius: 1, bgcolor: 'rgba(0,0,0,0.05)' }}>
+                          <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography sx={{ fontSize: 11, fontWeight: 800, color: '#F05A28' }}>{msg.reply.autor}</Typography>
+                            <Typography noWrap sx={{ fontSize: 11.5, color: '#555' }}>
+                              {msg.reply.texto || (msg.reply.url ? '📷 Foto' : '—')}
+                            </Typography>
+                          </Box>
+                          {!!msg.reply.url && (
+                            <Box component="img" src={msg.reply.url} alt="" sx={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 0.75 }} />
+                          )}
+                        </Box>
+                      )}
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                         {msg.sender_type === 'client' && <PersonIcon fontSize="small" color="action" />}
                         {msg.sender_type === 'agent' && <AgentIcon fontSize="small" sx={{ color: msg.is_internal ? '#F9A825' : '#4caf50' }} />}
@@ -1417,9 +1463,16 @@ export default function SupportBoardPage() {
                           {new Date(msg.created_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                           {msg.edited_at && !msg.deleted_at && ' · editado'}
                         </Typography>
+                        {/* Responder citando: sobre cualquier mensaje, propio o no. */}
+                        {!msg.deleted_at && (
+                          <IconButton size="small" title="Responder a este mensaje" sx={{ ml: 'auto' }}
+                            onClick={() => citar(msg)}>
+                            <ReplyIcon sx={{ fontSize: 15, color: '#5E35B1' }} />
+                          </IconButton>
+                        )}
                         {/* Editar / eliminar: solo el autor y solo si no está borrado (tarea 261). */}
                         {!msg.deleted_at && currentUserId > 0 && Number(msg.sender_id) === currentUserId && (
-                          <Box sx={{ display: 'flex', gap: 0.25, ml: 'auto' }}>
+                          <Box sx={{ display: 'flex', gap: 0.25 }}>
                             <IconButton size="small" title="Editar mensaje"
                               onClick={() => { setEditandoMsg(msg.id); setTextoEdit(msg.message || ''); }}>
                               <EditIcon sx={{ fontSize: 14 }} />
@@ -1635,10 +1688,29 @@ export default function SupportBoardPage() {
                     )}
                   </Box>
 
+                  {/* A quién le estás contestando, visible mientras escribes. */}
+                  {!!citando && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, p: 1,
+                               borderLeft: '3px solid #F05A28', borderRadius: 1, bgcolor: '#FFF3EC' }}>
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography sx={{ fontSize: 11, fontWeight: 800, color: '#F05A28' }}>Respondiendo a {citando.autor}</Typography>
+                        <Typography noWrap sx={{ fontSize: 12, color: '#555' }}>
+                          {citando.texto || (citando.url ? '📷 Foto' : '—')}
+                        </Typography>
+                      </Box>
+                      {!!citando.url && (
+                        <Box component="img" src={citando.url} alt="" sx={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 0.75 }} />
+                      )}
+                      <IconButton size="small" onClick={() => setCitando(null)} title="Quitar la cita">
+                        <CloseIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Box>
+                  )}
                   {/* Campo de texto + enviar */}
                   <Box sx={{ display: 'flex', gap: 1 }}>
                     <TextField
                       fullWidth multiline maxRows={4}
+                      inputRef={campoRespuesta}
                       placeholder={isInternalNote ? '🔒 Nota interna (solo visible para el equipo)...' : 'Escribe tu respuesta al cliente...'}
                       value={replyText}
                       onChange={(e) => { setReplyText(e.target.value); if (originalText !== null) setOriginalText(null); }}

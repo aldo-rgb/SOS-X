@@ -1005,7 +1005,8 @@ const ensureTicketMessageSchema = async (): Promise<void> => {
       ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP,
       ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP,
       ADD COLUMN IF NOT EXISTS deleted_by INTEGER,
-      ADD COLUMN IF NOT EXISTS read_at TIMESTAMP`);
+      ADD COLUMN IF NOT EXISTS read_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS reply_to_id INTEGER`);
     msgSchemaReady = true;
   } catch (e: any) {
     console.warn('[support] ensureTicketMessageSchema:', e?.message);
@@ -1181,16 +1182,23 @@ export const getTicketMessages = async (req: Request, res: Response): Promise<an
     // Vista cliente: solo mensajes NO internos. Un mensaje borrado conserva su
     // lugar en el hilo con el texto sustituido, no desaparece.
     const result = await pool.query(
-      `SELECT id, sender_type,
-              CASE WHEN deleted_at IS NOT NULL THEN $2::text ELSE message END AS message,
-              CASE WHEN deleted_at IS NOT NULL THEN NULL ELSE attachment_url END AS attachment_url,
-              CASE WHEN deleted_at IS NOT NULL THEN NULL ELSE attachments END AS attachments,
-              created_at, FALSE as is_internal,
-              edited_at, deleted_at, read_at
-       FROM ticket_messages
-       WHERE ticket_id = $1
-         AND COALESCE(is_internal, FALSE) = FALSE
-       ORDER BY created_at ASC`,
+      `SELECT tm.id, tm.sender_type,
+              CASE WHEN tm.deleted_at IS NOT NULL THEN $2::text ELSE tm.message END AS message,
+              CASE WHEN tm.deleted_at IS NOT NULL THEN NULL ELSE tm.attachment_url END AS attachment_url,
+              CASE WHEN tm.deleted_at IS NOT NULL THEN NULL ELSE tm.attachments END AS attachments,
+              tm.created_at, FALSE as is_internal, tm.sender_id,
+              tm.edited_at, tm.deleted_at, tm.read_at,
+              tm.reply_to_id,
+              q.sender_type AS cita_lado,
+              CASE WHEN q.deleted_at IS NOT NULL THEN $2::text ELSE q.message END AS cita_texto,
+              q.attachments AS cita_adjuntos,
+              qu.full_name AS cita_autor
+       FROM ticket_messages tm
+       LEFT JOIN ticket_messages q ON q.id = tm.reply_to_id
+       LEFT JOIN users qu ON qu.id = q.sender_id
+       WHERE tm.ticket_id = $1
+         AND COALESCE(tm.is_internal, FALSE) = FALSE
+       ORDER BY tm.created_at ASC`,
       [id, TEXTO_MENSAJE_ELIMINADO]
     );
 
@@ -1220,9 +1228,16 @@ export const getAdminTicketMessages = async (req: Request, res: Response): Promi
               tm.created_at,
               COALESCE(tm.is_internal, FALSE) as is_internal,
               tm.sender_id, tm.edited_at, tm.deleted_at, tm.read_at,
-              u.full_name as sender_name
+              u.full_name as sender_name,
+              tm.reply_to_id,
+              q.sender_type AS cita_lado,
+              CASE WHEN q.deleted_at IS NOT NULL THEN $2::text ELSE q.message END AS cita_texto,
+              q.attachments AS cita_adjuntos,
+              qu.full_name AS cita_autor
        FROM ticket_messages tm
        LEFT JOIN users u ON u.id = tm.sender_id
+       LEFT JOIN ticket_messages q ON q.id = tm.reply_to_id
+       LEFT JOIN users qu ON qu.id = q.sender_id
        WHERE tm.ticket_id = $1
        ORDER BY tm.created_at ASC`,
       [id, TEXTO_MENSAJE_ELIMINADO]
@@ -1241,17 +1256,32 @@ const signRowAttachments = async (row: any): Promise<any> => {
     if (row.attachment_url) {
       row.attachment_url = await signS3UrlIfNeeded(row.attachment_url);
     }
+    const listaAdjuntos = (v: any): string[] => {
+      if (Array.isArray(v)) return v;
+      if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; } }
+      return [];
+    };
     if (row.attachments) {
-      let urls: string[] = [];
-      if (Array.isArray(row.attachments)) urls = row.attachments;
-      else if (typeof row.attachments === 'string') {
-        try { const p = JSON.parse(row.attachments); if (Array.isArray(p)) urls = p; } catch { /* ignore */ }
-      }
+      const urls = listaAdjuntos(row.attachments);
       if (urls.length > 0) {
         const signed = await Promise.all(urls.map(u => signS3UrlIfNeeded(u)));
         row.attachments = signed.filter(Boolean);
       }
     }
+    // El mensaje citado, servido ya listo: de quién es, qué decía y su primera
+    // imagen para la miniatura. Así el front no tiene que ir a buscarlo.
+    if (row.reply_to_id) {
+      const citaUrls = await Promise.all(listaAdjuntos(row.cita_adjuntos).map((u: string) => signS3UrlIfNeeded(u)));
+      row.reply = {
+        id: row.reply_to_id,
+        autor: row.cita_autor || (row.cita_lado === 'client' ? 'Cliente' : (row.cita_lado === 'ai' ? 'Cajito' : 'Soporte')),
+        texto: row.cita_texto || '',
+        url: citaUrls.filter(Boolean)[0] || null,
+      };
+    } else {
+      row.reply = null;
+    }
+    delete row.cita_lado; delete row.cita_texto; delete row.cita_adjuntos; delete row.cita_autor;
   } catch (e) {
     console.warn('No se pudo firmar adjuntos:', e);
   }
@@ -1320,9 +1350,11 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
     const attachmentsJson = attachmentUrls.length > 0 ? JSON.stringify(attachmentUrls) : null;
 
     // Guardar mensaje del cliente / asesor
+    await ensureTicketMessageSchema();
+    const citaCliente = Number((req.body || {}).reply_to_id) > 0 ? Number((req.body as any).reply_to_id) : null;
     await pool.query(
-      `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message, attachments) VALUES ($1, $2, $3, $4, $5)`,
-      [id, senderType, userId, (message || '').trim(), attachmentsJson]
+      `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message, attachments, reply_to_id) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, senderType, userId, (message || '').trim(), attachmentsJson, citaCliente]
     );
 
     // Ticket concluido + mensaje nuevo → reabrir (tarea 297). El UPDATE de
@@ -1597,10 +1629,12 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
 
     const attachmentsJson = attachmentUrls.length > 0 ? JSON.stringify(attachmentUrls) : null;
 
+    await ensureTicketMessageSchema();
+    const citaAgente = Number((req.body || {}).reply_to_id) > 0 ? Number((req.body as any).reply_to_id) : null;
     await pool.query(
-      `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message, is_internal, attachments)
-       VALUES ($1, 'agent', $2, $3, $4, $5)`,
-      [id, agentId, message || '', isInternal, attachmentsJson]
+      `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message, is_internal, attachments, reply_to_id)
+       VALUES ($1, 'agent', $2, $3, $4, $5, $6)`,
+      [id, agentId, message || '', isInternal, attachmentsJson, citaAgente]
     );
 
     const newStatus = isInternal ? 'escalated_human' : 'waiting_client';

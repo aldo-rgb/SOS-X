@@ -1780,10 +1780,15 @@ export const getAdvisorTicketDetail = async (req: Request, res: Response): Promi
 
     // Obtener mensajes
     const messagesRes = await pool.query(`
-      SELECT id, sender_type, message, attachment_url, attachments, created_at
-      FROM ticket_messages
-      WHERE ticket_id = $1
-      ORDER BY created_at ASC
+      SELECT tm.id, tm.sender_type, tm.sender_id, tm.message, tm.attachment_url, tm.attachments,
+             tm.created_at, tm.edited_at, tm.deleted_at, tm.reply_to_id,
+             q.sender_type AS cita_lado, q.message AS cita_texto, q.attachments AS cita_adjuntos,
+             qu.full_name AS cita_autor
+      FROM ticket_messages tm
+      LEFT JOIN ticket_messages q ON q.id = tm.reply_to_id
+      LEFT JOIN users qu ON qu.id = q.sender_id
+      WHERE tm.ticket_id = $1
+      ORDER BY tm.created_at ASC
     `, [ticketId]);
 
     // Firmar URLs de S3 (bucket privado) para que las imágenes sean accesibles desde la app
@@ -1798,6 +1803,23 @@ export const getAdvisorTicketDetail = async (req: Request, res: Response): Promi
           typeof u === 'string' ? signS3UrlIfNeeded(u, SIGN_TTL) : u
         ));
       }
+      // El mensaje citado, servido ya listo (mismo formato que el resto del
+      // soporte): de quién es, qué decía y su primera imagen.
+      if (out.reply_to_id) {
+        const citaAdj = Array.isArray(out.cita_adjuntos) ? out.cita_adjuntos : [];
+        const firmadas = await Promise.all(citaAdj.map((u: any) =>
+          typeof u === 'string' ? signS3UrlIfNeeded(u, SIGN_TTL) : null
+        ));
+        out.reply = {
+          id: out.reply_to_id,
+          autor: out.cita_autor || (out.cita_lado === 'client' ? 'Cliente' : (out.cita_lado === 'ai' ? 'Cajito' : 'Soporte')),
+          texto: out.cita_texto || '',
+          url: firmadas.filter(Boolean)[0] || null,
+        };
+      } else {
+        out.reply = null;
+      }
+      delete out.cita_lado; delete out.cita_texto; delete out.cita_adjuntos; delete out.cita_autor;
       return out;
     }));
 

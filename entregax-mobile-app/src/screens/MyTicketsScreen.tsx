@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, RefreshControl, Modal, ScrollView,
-  TextInput, Alert, KeyboardAvoidingView, Platform, Image,
+  TextInput, Alert, KeyboardAvoidingView, Platform, Image, Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,13 +27,27 @@ interface Ticket {
 interface TicketMessage {
   id: number;
   sender_type: string;
+  sender_id?: number | null;
   message: string;
   attachment_url: string | null;
+  attachments?: string[] | string | null;
   created_at: string;
   edited_at?: string | null;
   deleted_at?: string | null;
   read_at?: string | null;
+  /** Mensaje citado, ya resuelto por el backend. */
+  reply?: { id: number; autor: string; texto: string; url?: string | null } | null;
 }
+
+/** Los adjuntos llegan como arreglo o como JSON en texto, segun el endpoint. */
+const listaAdjuntos = (m: TicketMessage): string[] => {
+  if (Array.isArray(m.attachments)) return m.attachments as string[];
+  if (typeof m.attachments === 'string') {
+    try { const p = JSON.parse(m.attachments); if (Array.isArray(p)) return p; } catch { /* ignore */ }
+  }
+  return m.attachment_url ? [m.attachment_url] : [];
+};
+const esImagenUrl = (u: string) => !/\.(pdf|docx?|xlsx?|pptx?|zip|rar|csv|txt)(\?|$)/i.test(String(u));
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: string; bg: string }> = {
   open_ai:        { label: 'IA Atendiendo',     color: '#2196F3', icon: 'chatbubble-ellipses', bg: '#E3F2FD' },
@@ -200,6 +214,44 @@ export default function MyTicketsScreen({ navigation, route }: any) {
     }
   };
 
+  /**
+   * Mensaje que se esta citando al responder. En un ticket con varias fotos no
+   * habia forma de decir "hablo de ESTA" y el hilo se perdia.
+   */
+  const [citando, setCitando] = useState<null | { id: number; autor: string; texto: string; url?: string | null }>(null);
+  const campoRespuesta = useRef<TextInput>(null);
+  const citar = (msg: TicketMessage) => {
+    setCitando({
+      id: msg.id,
+      autor: msg.sender_type === 'client' ? 'Tú' : (msg.sender_type === 'ai' ? 'Cajito' : 'Soporte'),
+      texto: String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim(),
+      url: listaAdjuntos(msg).filter(esImagenUrl)[0] || null,
+    });
+    // Bajar al compositor y abrir el teclado: quedarse arriba obligaba a buscar
+    // el campo y tocarlo para poder escribir.
+    setTimeout(() => campoRespuesta.current?.focus(), 120);
+  };
+
+  const [editandoId, setEditandoId] = useState<number | null>(null);
+  const [textoEdit, setTextoEdit] = useState('');
+  const editarMensaje = (msg: TicketMessage) => { setEditandoId(msg.id); setTextoEdit(msg.message || ''); };
+  const guardarEdicion = async () => {
+    const t = textoEdit.trim();
+    if (!t || !selectedTicket || editandoId == null) return;
+    try {
+      const r = await fetch(`${API_URL}/api/support/ticket/${selectedTicket.id}/messages/${editandoId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: t }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || 'Error'); }
+      setEditandoId(null); setTextoEdit('');
+      const res2 = await fetch(`${API_URL}/api/support/ticket/${selectedTicket.id}/messages`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res2.json();
+      setMessages(Array.isArray(data) ? data : []);
+    } catch (e: any) { Alert.alert('No se pudo editar', e?.message || ''); }
+  };
+
   const sendReply = async () => {
     if (!selectedTicket) return;
     if (!reply.trim() && replyAttachments.length === 0) return;
@@ -207,6 +259,7 @@ export default function MyTicketsScreen({ navigation, route }: any) {
     try {
       const form = new FormData();
       form.append('message', reply.trim());
+      if (citando) form.append('reply_to_id', String(citando.id));
       replyAttachments.forEach((f) => {
         form.append('images', { uri: f.uri, name: f.name, type: f.type } as any);
       });
@@ -219,6 +272,7 @@ export default function MyTicketsScreen({ navigation, route }: any) {
       const json = await res.json();
       setReply('');
       setReplyAttachments([]);
+      setCitando(null);
       // Si se reabrió, actualizar estado local del ticket
       if (json.reopened) {
         setSelectedTicket(prev => prev ? { ...prev, status: 'escalated_human' } : prev);
@@ -426,9 +480,62 @@ export default function MyTicketsScreen({ navigation, route }: any) {
                     const isClient = msg.sender_type === 'client';
                     return (
                       <View key={msg.id} style={[styles.bubble, isClient ? styles.bubbleClient : styles.bubbleAgent]}>
-                        <Text style={[styles.bubbleText, isClient ? styles.bubbleTextClient : styles.bubbleTextAgent, !!msg.deleted_at && { fontStyle: 'italic', opacity: 0.7 }]}>
-                          {msg.deleted_at ? `🚫 ${msg.message}` : msg.message}
-                        </Text>
+                        {/* Lo que se está citando */}
+                        {!!msg.reply && (
+                          <View style={styles.citaBloque}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <Text style={styles.citaAutor}>{msg.reply.autor}</Text>
+                              <Text style={styles.citaTexto} numberOfLines={1}>
+                                {msg.reply.texto || (msg.reply.url ? '📷 Foto' : '—')}
+                              </Text>
+                            </View>
+                            {!!msg.reply.url && <Image source={{ uri: msg.reply.url }} style={styles.citaMini} resizeMode="cover" />}
+                          </View>
+                        )}
+                        {editandoId === msg.id ? (
+                          <View>
+                            <TextInput style={styles.campoEdit} value={textoEdit} onChangeText={setTextoEdit} multiline autoFocus />
+                            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 14, marginTop: 6 }}>
+                              <TouchableOpacity onPress={() => { setEditandoId(null); setTextoEdit(''); }}>
+                                <Text style={[styles.accionMsg, { color: '#9AA0A6' }]}>Cancelar</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={guardarEdicion} disabled={!textoEdit.trim()}>
+                                <Text style={[styles.accionMsg, { color: '#2E7D46', opacity: textoEdit.trim() ? 1 : 0.5 }]}>Guardar</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        ) : (
+                          <Text style={[styles.bubbleText, isClient ? styles.bubbleTextClient : styles.bubbleTextAgent, !!msg.deleted_at && { fontStyle: 'italic', opacity: 0.7 }]}>
+                            {msg.deleted_at ? `🚫 ${msg.message}` : String(msg.message || '').replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
+                          </Text>
+                        )}
+                        {/* Fotos dentro de la conversación, no como enlace suelto:
+                            antes los adjuntos del ticket ni se veían aquí. */}
+                        {!msg.deleted_at && listaAdjuntos(msg).map((u, i) => (
+                          esImagenUrl(u) ? (
+                            <TouchableOpacity key={i} onPress={() => Linking.openURL(u)} style={{ marginTop: 6 }}>
+                              <Image source={{ uri: u }} style={styles.adjuntoFoto} resizeMode="cover" />
+                            </TouchableOpacity>
+                          ) : (
+                            <TouchableOpacity key={i} onPress={() => Linking.openURL(u)}
+                              style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                              <Ionicons name="document-text" size={16} color="#c62828" />
+                              <Text style={{ fontSize: 12, color: '#c62828', fontWeight: '700' }}>Abrir archivo</Text>
+                            </TouchableOpacity>
+                          )
+                        ))}
+                        {!msg.deleted_at && editandoId !== msg.id && (
+                          <View style={{ flexDirection: 'row', gap: 14, marginTop: 4 }}>
+                            <TouchableOpacity onPress={() => citar(msg)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Text style={styles.accionMsg}>Responder</Text>
+                            </TouchableOpacity>
+                            {isClient && (
+                              <TouchableOpacity onPress={() => editarMensaje(msg)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                <Text style={styles.accionMsg}>Editar</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        )}
                         <Text style={[styles.bubbleTime, { textAlign: isClient ? 'right' : 'left' }]}>
                           {new Date(msg.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                           {' · '}
@@ -451,6 +558,21 @@ export default function MyTicketsScreen({ navigation, route }: any) {
 
             {/* Reply box — always visible; sends reopen if resolved */}
             <View style={{ paddingBottom: insets.bottom + 10, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e0e0e0' }}>
+              {/* A quién le estás contestando, visible mientras escribes. */}
+              {!!citando && (
+                <View style={styles.citaBarra}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.citaAutor}>Respondiendo a {citando.autor}</Text>
+                    <Text style={styles.citaTexto} numberOfLines={1}>
+                      {citando.texto || (citando.url ? '📷 Foto' : '—')}
+                    </Text>
+                  </View>
+                  {!!citando.url && <Image source={{ uri: citando.url }} style={styles.citaMini} resizeMode="cover" />}
+                  <TouchableOpacity onPress={() => setCitando(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <Ionicons name="close" size={18} color="#9AA0A6" />
+                  </TouchableOpacity>
+                </View>
+              )}
               {replyAttachments.length > 0 && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}
                   style={{ paddingHorizontal: 10, paddingTop: 8 }}
@@ -509,6 +631,25 @@ export default function MyTicketsScreen({ navigation, route }: any) {
 }
 
 const styles = StyleSheet.create({
+  citaBloque: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderLeftWidth: 3, borderLeftColor: '#F05A28', borderRadius: 6,
+    backgroundColor: 'rgba(0,0,0,0.06)', padding: 6, marginBottom: 6,
+  },
+  citaBarra: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderLeftWidth: 3, borderLeftColor: '#F05A28', borderRadius: 6,
+    backgroundColor: '#FFF3EC', padding: 8, marginHorizontal: 10, marginTop: 8,
+  },
+  citaAutor: { fontSize: 11, fontWeight: '800', color: '#F05A28' },
+  citaTexto: { fontSize: 12, color: '#5F6368' },
+  citaMini: { width: 38, height: 38, borderRadius: 6, backgroundColor: '#EEE' },
+  adjuntoFoto: { width: 200, height: 200, borderRadius: 10, backgroundColor: '#EEE' },
+  accionMsg: { fontSize: 11.5, fontWeight: '700', color: '#5E35B1' },
+  campoEdit: {
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#DADCE0', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, minWidth: 200, color: '#202124',
+  },
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   header: {
     backgroundColor: BLACK,
