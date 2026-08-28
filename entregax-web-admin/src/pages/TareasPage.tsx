@@ -5,7 +5,7 @@
 // - Control de tiempo: cada tarea mide creación → término (métricas).
 // Solo super_admin / admin / director. Ver propuestas/tareas-diseno.html.
 // ============================================================
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import {
   Box, Typography, Button, IconButton, Chip, Paper, Switch, Dialog, DialogTitle, DialogContent,
@@ -1285,6 +1285,15 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
   };
   /** Mensaje o archivo al que se está contestando (cita estilo WhatsApp). */
   const [citando, setCitando] = useState<null | { tipo: 'comentario' | 'archivo'; id: number; autor: string; texto: string; url?: string | null; file_name?: string | null }>(null);
+  /**
+   * Al citar hay que bajar al compositor y dejar el cursor listo: quedarse
+   * arriba obligaba a buscar el campo y darle click para poder escribir.
+   */
+  const campoComentario = useRef<HTMLInputElement | null>(null);
+  const irAEscribir = () => setTimeout(() => {
+    campoComentario.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    campoComentario.current?.focus();
+  }, 60);
   const addComment = async () => {
     if (!comment.trim()) return;
     const cita = citando
@@ -1539,9 +1548,12 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
               const esArchivo = item.tipo === 'a';
               const d = item.dato;
               const autor = esArchivo ? d.uploaded_by_name : d.author_name;
-              const responder = () => setCitando(esArchivo
-                ? { tipo: 'archivo', id: d.id, autor: autor || '—', texto: '', url: d.url, file_name: d.file_name }
-                : { tipo: 'comentario', id: d.id, autor: autor || '—', texto: d.body || '', url: d.attachment_url });
+              const responder = () => {
+                setCitando(esArchivo
+                  ? { tipo: 'archivo', id: d.id, autor: autor || '—', texto: '', url: d.url, file_name: d.file_name }
+                  : { tipo: 'comentario', id: d.id, autor: autor || '—', texto: d.body || '', url: d.attachment_url });
+                irAEscribir();
+              };
               return (
                 <Box key={`${item.tipo}-${d.id}`} id={`hiloA-${item.tipo}-${d.id}`}
                   sx={{ mb: 1, '&:hover .accHilo': { opacity: 1 } }}>
@@ -1617,7 +1629,7 @@ function TaskDetail({ id, board, onClose, onChanged, notify }: any) {
               </Box>
             )}
             <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-              <TextField fullWidth size="small" placeholder="Deja un comentario…" value={comment}
+              <TextField fullWidth size="small" inputRef={campoComentario} placeholder="Deja un comentario…" value={comment}
                 onChange={e => setComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addComment(); }} />
               <IconButton color="primary" onClick={addComment}><SendIcon /></IconButton>
             </Box>

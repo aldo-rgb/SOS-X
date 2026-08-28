@@ -1344,6 +1344,15 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
   const citaCampos = () => citando
     ? (citando.tipo === 'comentario' ? { reply_to_comment_id: citando.id } : { reply_to_attachment_id: citando.id })
     : {};
+  /**
+   * Al citar hay que bajar al compositor y abrir el teclado: quedarse arriba
+   * obligaba a buscar el campo y tocarlo para poder escribir.
+   */
+  const campoComentario = React.useRef<TextInput>(null);
+  const irAEscribir = () => setTimeout(() => {
+    scrollRef.current?.scrollToEnd({ animated: true });
+    campoComentario.current?.focus();
+  }, 120);
   // Marca "sucio": se activa cuando el usuario hace CUALQUIER cambio en la tarea
   // (categoría, responsable, involucrados, checklist, archivos, comentarios, etc.)
   // y hace que el botón inferior cambie de "Completar" → "Guardar" para salir sin cerrar la tarea.
@@ -1921,9 +1930,12 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 const autorId = esArchivo ? c.uploaded_by : c.author_id;
                 const autorNombre = esArchivo ? c.uploaded_by_name : c.author_name;
                 const mine = myId != null && Number(autorId) === Number(myId);
-                const responder = () => setCitando(esArchivo
-                  ? { tipo: 'archivo', id: c.id, autor: autorNombre || '—', texto: '', url: c.url, file_name: c.file_name }
-                  : { tipo: 'comentario', id: c.id, autor: autorNombre || '—', texto: c.body || '', url: c.attachment_url });
+                const responder = () => {
+                  setCitando(esArchivo
+                    ? { tipo: 'archivo', id: c.id, autor: autorNombre || '—', texto: '', url: c.url, file_name: c.file_name }
+                    : { tipo: 'comentario', id: c.id, autor: autorNombre || '—', texto: c.body || '', url: c.attachment_url });
+                  irAEscribir();
+                };
                 return (
                   <View key={`${item.tipo}-${c.id}`} style={[styles.msgRow, mine ? styles.msgRowMine : styles.msgRowOther]}>
                     <TouchableOpacity activeOpacity={0.9} onLongPress={responder} delayLongPress={250}
@@ -2084,7 +2096,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                     para que no se coma la conversación.
                     multiline + blurOnSubmit=false hacen que Enter baje un
                     renglón en vez de cerrar el teclado y la tarea. */}
-                <TextInput style={[styles.input, styles.inputComentario]} placeholder="Deja un comentario…  (@ para mencionar)"
+                <TextInput ref={campoComentario} style={[styles.input, styles.inputComentario]} placeholder="Deja un comentario…  (@ para mencionar)"
                   value={comment} onChangeText={onCommentChange} placeholderTextColor="#999" editable={!sendingComment}
                   multiline blurOnSubmit={false} textAlignVertical="top" returnKeyType="default"
                   // Al abrirse el teclado la hoja se encoge; sin esto el campo

@@ -4,7 +4,7 @@
 // crear tareas personales y asignarlas a usuarios específicos.
 // Vistas: Lista y Matriz Eisenhower.
 // ============================================================
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import {
   Box, Typography, Button, IconButton, Chip, Dialog, DialogTitle, DialogContent,
@@ -1628,6 +1628,15 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
    * varias fotos no habia forma de decir "hablo de ESTA" y el hilo se perdia.
    */
   const [citando, setCitando] = useState<null | { tipo: 'comentario' | 'archivo'; id: number; autor: string; texto: string; url?: string | null; file_name?: string | null }>(null);
+  /**
+   * Al citar hay que bajar al compositor y dejar el cursor listo: quedarse
+   * arriba obligaba a buscar el campo y darle click para poder escribir.
+   */
+  const campoComentario = useRef<HTMLInputElement | null>(null);
+  const irAEscribir = () => setTimeout(() => {
+    campoComentario.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    campoComentario.current?.focus();
+  }, 60);
   const citaCampos = () => citando
     ? (citando.tipo === 'comentario' ? { reply_to_comment_id: citando.id } : { reply_to_attachment_id: citando.id })
     : {};
@@ -1926,9 +1935,12 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 const autorNombre = esArchivo ? d.uploaded_by_name : d.author_name;
                 const mine = MY_ID > 0 && Number(autorId) === Number(MY_ID);
                 const nameColor = authorColor(autorId, autorNombre);
-                const responder = () => setCitando(esArchivo
-                  ? { tipo: 'archivo', id: d.id, autor: autorNombre || '—', texto: '', url: d.url, file_name: d.file_name }
-                  : { tipo: 'comentario', id: d.id, autor: autorNombre || '—', texto: d.body || '', url: d.attachment_url });
+                const responder = () => {
+                  setCitando(esArchivo
+                    ? { tipo: 'archivo', id: d.id, autor: autorNombre || '—', texto: '', url: d.url, file_name: d.file_name }
+                    : { tipo: 'comentario', id: d.id, autor: autorNombre || '—', texto: d.body || '', url: d.attachment_url });
+                  irAEscribir();
+                };
                 return (
                   <Box key={`${item.tipo}-${d.id}`} id={`hilo-${item.tipo}-${d.id}`}
                     sx={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start', '&:hover .accHilo': { opacity: 1 } }}>
@@ -2096,6 +2108,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 size="small"
                 multiline
                 maxRows={6}
+                inputRef={campoComentario}
                 placeholder={sendingComment ? 'Enviando comentario…' : 'Deja un comentario…  (@ para mencionar · Shift+Enter = salto de línea)'}
                 value={comment}
                 onChange={e => {
