@@ -1258,8 +1258,8 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   attachImage: {
-    width: 180,
-    height: 180,
+    width: 240,
+    height: 260,
     borderRadius: 8,
     backgroundColor: '#eee',
   },

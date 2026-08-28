@@ -226,7 +226,7 @@ function ProtectedImage({ s3Url, alt, sx }: { s3Url: string; alt: string; sx: ob
       href={s3Url}
       target="_blank"
       rel="noreferrer"
-      sx={{ width: 100, height: 100, bgcolor: '#fff3e0', borderRadius: 1, border: '1px solid #ffcc80', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5, textDecoration: 'none', cursor: 'pointer' }}
+      sx={{ width: 240, height: 180, bgcolor: '#fff3e0', borderRadius: 1, border: '1px solid #ffcc80', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5, textDecoration: 'none', cursor: 'pointer' }}
     >
       <span style={{ fontSize: 24 }}>🖼️</span>
       <Typography variant="caption" color="warning.main">Ver imagen</Typography>
@@ -234,7 +234,7 @@ function ProtectedImage({ s3Url, alt, sx }: { s3Url: string; alt: string; sx: ob
   );
 
   if (!src) return (
-    <Box sx={{ width: 100, height: 100, bgcolor: '#f5f5f5', borderRadius: 1, border: '1px solid #ddd', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+    <Box sx={{ width: 240, height: 180, bgcolor: '#f5f5f5', borderRadius: 1, border: '1px solid #ddd', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
       <span style={{ fontSize: 24 }}>🖼️</span>
       <Typography variant="caption" color="text.secondary">Cargando...</Typography>
     </Box>
@@ -1560,8 +1560,10 @@ export default function SupportBoardPage() {
                                 </Box>
                               ) : (
                                 <Box key={i} sx={{ display: 'flex', flexDirection: 'column', gap: 0.3, alignItems: 'center' }}>
+                                  {/* Grande y completa: a 100px no se alcanzaba a
+                                      leer un comprobante sin abrirlo. */}
                                   <ProtectedImage s3Url={u} alt={`adj-${i}`}
-                                    sx={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd', cursor: 'pointer' }}
+                                    sx={{ width: 240, maxWidth: '100%', maxHeight: 320, objectFit: 'contain', borderRadius: 1, border: '1px solid #ddd', cursor: 'pointer', bgcolor: '#fff' }}
                                   />
                                   <a href={`${API_URL}/files/download?src=${encodeURIComponent(u)}&name=${encodeURIComponent(fileName)}`}
                                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '3px 8px', background: '#fff', borderRadius: 6, border: '1px solid #1976d2', textDecoration: 'none', color: '#1976d2', width: '100%' }}>

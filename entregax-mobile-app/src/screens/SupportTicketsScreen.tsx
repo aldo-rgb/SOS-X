@@ -962,7 +962,7 @@ const styles = StyleSheet.create({
     borderRadius: 6, borderWidth: 1, borderColor: '#FFE082',
   },
   internalBadgeText: { fontSize: 10, color: '#E65100', fontWeight: '700' },
-  attachImg: { width: '100%', height: 160, borderRadius: 8, marginTop: 6 },
+  attachImg: { width: '100%', height: 260, borderRadius: 8, marginTop: 6 },
   attachImgHint: { position: 'absolute', bottom: 10, right: 8, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#000000aa', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   attachImgHintTxt: { color: '#fff', fontSize: 10, fontWeight: '600' },
   // Barra de acciones del detalle

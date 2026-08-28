@@ -644,7 +644,7 @@ const styles = StyleSheet.create({
   citaAutor: { fontSize: 11, fontWeight: '800', color: '#F05A28' },
   citaTexto: { fontSize: 12, color: '#5F6368' },
   citaMini: { width: 38, height: 38, borderRadius: 6, backgroundColor: '#EEE' },
-  adjuntoFoto: { width: 200, height: 200, borderRadius: 10, backgroundColor: '#EEE' },
+  adjuntoFoto: { width: 240, height: 260, borderRadius: 10, backgroundColor: '#EEE' },
   accionMsg: { fontSize: 11.5, fontWeight: '700', color: '#5E35B1' },
   campoEdit: {
     backgroundColor: '#fff', borderWidth: 1, borderColor: '#DADCE0', borderRadius: 8,
