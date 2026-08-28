@@ -36,6 +36,14 @@ const ORANGE  = '#F05A28';
 const BLACK   = '#111111';
 const RED     = '#C62828';
 const CARD_BG = '#FFFFFF';
+
+/** "2026-08-28" → "28 ago". El asesor lee la semana, no la fecha ISO. */
+const diaCorto = (iso: string) => {
+  const [a, mes, d] = String(iso || '').split('-').map(Number);
+  if (!a || !mes || !d) return String(iso || '');
+  const M = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  return `${d} ${M[mes - 1]}`;
+};
 const BG      = '#F4F4F6';
 const TEXT    = '#111111';
 const SUBTEXT = '#666666';
@@ -84,6 +92,18 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [showLangModal, setShowLangModal] = useState(false);
   const [currentLang, setCurrentLang]   = useState(getCurrentLanguage());
   const [hideCommission, setHideCommission] = useState(false);
+  /**
+   * Lo que lleva acumulado y COBRABLE en la semana en curso: es lo que va a
+   * salir en el próximo corte. El acumulado del mes no le sirve para saber
+   * cuánto le van a pagar el jueves.
+   */
+  const [proxCorte, setProxCorte] = useState<{ from: string; to: string; total: number; propia: number; override: number; guias: number } | null>(null);
+  const loadProximoCorte = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/advisor/next-cut`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) setProxCorte(await r.json());
+    } catch { /* el widget cae al acumulado */ }
+  }, [token]);
   const [unreadNotif, setUnreadNotif]   = useState(0);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(user.profilePhotoUrl || null);
   const [showQrModal, setShowQrModal]   = useState(false);
@@ -250,7 +270,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
     }
   }, [token]);
 
-  useEffect(() => { loadDashboard(); loadChartback(); loadEmpProfile(); }, [loadDashboard, loadChartback, loadEmpProfile]);
+  useEffect(() => { loadDashboard(); loadChartback(); loadEmpProfile(); loadProximoCorte(); }, [loadDashboard, loadChartback, loadEmpProfile, loadProximoCorte]);
 
   // Refrescar contadores cada vez que vuelve esta pantalla (p.ej., tras crear orden de pago)
   useFocusEffect(
@@ -277,7 +297,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
     return () => { if (cleanup) cleanup(); };
   }, [token, user, navigation]);
 
-  const onRefresh = () => { setRefreshing(true); loadDashboard(); loadChartback(); loadEmpProfile(); };
+  const onRefresh = () => { setRefreshing(true); loadDashboard(); loadChartback(); loadEmpProfile(); loadProximoCorte(); };
 
   const openTransitClientPicker = async () => {
     setTransitClientSearch('');
@@ -817,23 +837,39 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           ))}
         </View>
 
-        {/* Comisiones */}
+        {/* Comisiones de la semana: lo que ya está listo para el próximo corte. */}
         <View style={s.sectionHeader}>
           <View style={s.sectionBar} />
-          <Text style={s.sectionTitle}>COMISIONES DEL MES</Text>
+          <Text style={s.sectionTitle}>COMISIONES DE LA SEMANA</Text>
         </View>
         <View style={s.commCard}>
           <View style={s.commRow}>
-            <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('AdvisorCommissionsSummary', { user, token })}>
-              <Text style={s.commSubLabel}>Total generado</Text>
+            <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }}
+              onPress={() => navigation.navigate('AdvisorCommissionsSummary', { user, token })}>
+              <Text style={s.commSubLabel}>Disponible para el próximo corte</Text>
               <Text style={s.commAmount}>
-                {hideCommission ? '• • • • •' : `$${(data.commissions.monthCommissionMxn || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`}
+                {hideCommission ? '• • • • •' : `$${(proxCorte?.total ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`}
               </Text>
+              {!hideCommission && (
+                <Text style={s.commPeriodo}>
+                  {proxCorte
+                    ? `${diaCorto(proxCorte.from)} al ${diaCorto(proxCorte.to)} · ${proxCorte.guias} guías`
+                    : 'Calculando…'}
+                  {proxCorte && proxCorte.override > 0
+                    ? ` · incluye $${proxCorte.override.toLocaleString('es-MX', { minimumFractionDigits: 2 })} de tus subasesores`
+                    : ''}
+                </Text>
+              )}
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setHideCommission(h => !h)} style={s.commEyeBtn}>
               <Ionicons name={hideCommission ? 'eye-off' : 'eye'} size={20} color="#888" />
             </TouchableOpacity>
           </View>
+          {/* Lo que aún no cuenta: sin orden de pago liquidada no es cobrable y
+              no entra al corte, por más que la comisión ya esté generada. */}
+          <Text style={s.commNota}>
+            Solo cuenta lo que ya tiene su orden de pago liquidada. El corte se cierra el jueves.
+          </Text>
           <TouchableOpacity style={s.commLink} onPress={() => navigation.navigate('AdvisorCommissions', { user, token })}>
             <Text style={s.commLinkText}>Ver historial completo</Text>
             <Ionicons name="arrow-forward" size={16} color={ORANGE} />
@@ -1751,6 +1787,8 @@ const s = StyleSheet.create({
   },
   commRow:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   commSubLabel: { color: '#666', fontSize: 12, fontWeight: '500', letterSpacing: 0.5 },
+  commPeriodo: { color: '#9AA0A6', fontSize: 11.5, marginTop: 3 },
+  commNota: { color: '#9AA0A6', fontSize: 11, marginTop: 8, lineHeight: 15 },
   commAmount:   { color: ORANGE, fontSize: 26, fontWeight: '900', marginTop: 4, letterSpacing: 0.5 },
   commEyeBtn:   { padding: 8 },
   commLink:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTopWidth: 1, borderTopColor: '#2A2A2A' },

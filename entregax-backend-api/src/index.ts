@@ -45,7 +45,7 @@ if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEBUG_LOGS !== '
 
 import { pool } from './db';
 import { expandDhlGroupIds, markDhlGroupPaid } from './dhlGroup';
-import { previewCorte, cerrarCorte, excelCorte, listarCortes, misCortes, pdfMiCorte } from './commissionCuts';
+import { previewCorte, cerrarCorte, excelCorte, listarCortes, misCortes, pdfMiCorte, proximoCorte } from './commissionCuts';
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
 import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
 import { translateTexts } from './translationController';
@@ -5887,6 +5887,7 @@ app.get('/api/admin/commissions/cut/preview/excel', authenticateToken, requireMi
 app.get('/api/admin/commissions/cut/:id/excel', authenticateToken, requireMinLevel(ROLES.DIRECTOR), excelCorte);
 app.get('/api/admin/commissions/cuts', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listarCortes);
 // El asesor consulta los cortes que ha recibido y baja su comprobante.
+app.get('/api/advisor/next-cut', authenticateToken, proximoCorte);
 app.get('/api/advisor/commission-cuts', authenticateToken, misCortes);
 app.get('/api/advisor/commission-cuts/:cutId/pdf', authenticateToken, pdfMiCorte);
 app.get('/api/admin/commissions/simulator-data', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionSimulatorData);

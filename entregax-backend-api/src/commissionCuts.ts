@@ -419,6 +419,47 @@ export const listarCortes = async (req: Request, res: Response): Promise<any> =>
   }
 };
 
+/**
+ * Periodo del corte EN CURSO: el viernes que ya arrancó y el jueves que viene.
+ * Es el que se le va a pagar al asesor en el siguiente corte.
+ */
+export function periodoEnCurso(hoy = new Date()): { from: string; to: string } {
+  const d = new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()));
+  const dia = d.getUTCDay();                 // 0=dom … 5=vie
+  const desdeViernes = ((dia - 5) + 7) % 7;  // días transcurridos desde el viernes
+  const viernes = new Date(d); viernes.setUTCDate(d.getUTCDate() - desdeViernes);
+  const jueves = new Date(viernes); jueves.setUTCDate(viernes.getUTCDate() + 6);
+  const iso = (x: Date) => x.toISOString().slice(0, 10);
+  return { from: iso(viernes), to: iso(jueves) };
+}
+
+/**
+ * GET /api/advisor/next-cut — lo que el asesor lleva acumulado y COBRABLE en la
+ * semana en curso, o sea lo que va a salir en el próximo corte. Es el dato que
+ * el asesor mira, no el acumulado histórico.
+ */
+export const proximoCorte = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureEsquema();
+    const uid = Number((req as any).user?.userId);
+    const { from, to } = periodoEnCurso();
+    const corte = await calcularCorte(from, to);
+    const mia = corte.lineas.find(l => l.advisorId === uid);
+    res.json({
+      success: true,
+      from, to,
+      total: mia?.total || 0,
+      propia: mia?.own || 0,
+      override: mia?.override || 0,
+      guias: mia?.guides || 0,
+      subs: mia?.subs || [],
+    });
+  } catch (e: any) {
+    console.error('[cortes] proximoCorte:', e);
+    res.status(500).json({ error: 'No se pudo calcular tu próximo corte' });
+  }
+};
+
 /** GET /api/advisor/commission-cuts — los cortes que ha recibido el asesor. */
 export const misCortes = async (req: Request, res: Response): Promise<any> => {
   try {
