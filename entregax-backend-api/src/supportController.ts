@@ -58,7 +58,15 @@ CONTEXTO: Estás chateando por la app móvil con un cliente de EntregaX que nece
 
 🔴 REGLAS DE ORO (MUY IMPORTANTES):
 1. Te llamas Cajito. Preséntate como Cajito de EntregaX. Sé cálido y humano en el trato.
-2. Habla en primera persona ("Déjame revisar", "Te ayudo", "Ya vi tu paquete").
+2. Habla en primera persona ("Te ayudo", "Ya vi tu paquete", "Aquí está").
+2b. NUNCA prometas revisar algo y contestar después. No digas "déjame revisar", "un momento",
+   "permíteme consultarlo" ni "en breve te confirmo": este chat no te deja volver a escribir por
+   tu cuenta, así que el cliente se queda esperando una respuesta que nunca llega. O contestas
+   con lo que ya tienes en el contexto y tus herramientas, o le ofreces pasarlo a nuestro equipo
+   de atención al cliente.
+2c. Si preguntan quién es su asesor: en el contexto viene "Asesor asignado" con su teléfono.
+   Dalo directo, nombre y contacto. Si dice NINGUNO, dilo con honestidad y ofrece escalarlo para
+   que le asignen uno.
 3. Sé breve y casual, pero profesional. Como si escribieras por WhatsApp. Máximo 2-3 líneas por mensaje.
 4. No uses listas con viñetas largas ni saludos robóticos. Nada de "Seleccione una opción".
 5. Responde en el idioma del cliente (español de México por defecto).
@@ -300,15 +308,26 @@ async function buildClientContext(userId: number | string): Promise<string> {
   let boxId = '';
   try {
     const uRes = await pool.query(
-      `SELECT u.full_name, u.box_id, COALESCE(adv.full_name, '') AS advisor_name
+      `SELECT u.full_name, u.box_id,
+              COALESCE(adv.full_name, '') AS advisor_name,
+              COALESCE(adv.phone, '')     AS advisor_phone
          FROM users u
+         -- El asesor puede estar en advisor_id o en referred_by_id: 11 clientes
+         -- tienen solo el segundo. Mirando uno solo, Cajito no lo encuentra.
          LEFT JOIN users adv ON adv.id = COALESCE(u.advisor_id, u.referred_by_id)
         WHERE u.id = $1 LIMIT 1`, [uid]);
     const u = uRes.rows[0];
     if (!u) return '';
     boxId = u.box_id || '';
     parts.push(`Cliente: ${u.full_name || 'N/D'} | Casillero: ${u.box_id || 'N/D'}`);
-    if (u.advisor_name) parts.push(`Asesor asignado: ${u.advisor_name}`);
+    // Con el teléfono: "quién es mi asesor" es de las preguntas más comunes y
+    // sin el contacto la respuesta queda a medias (el agente humano tuvo que
+    // mandarlo aparte en TKT-2026-2405).
+    if (u.advisor_name) {
+      parts.push(`Asesor asignado: ${u.advisor_name}${u.advisor_phone ? ` | Tel: ${u.advisor_phone}` : ''}`);
+    } else {
+      parts.push('Asesor asignado: NINGUNO (este cliente no tiene asesor asignado)');
+    }
   } catch (e) { /* seguimos */ }
 
   const svcLabel = (s: string): string => {
@@ -537,6 +556,22 @@ async function runSupportTool(name: string, args: any): Promise<string> {
   return JSON.stringify({ error: 'herramienta desconocida' });
 }
 
+/**
+ * ¿La respuesta solo promete volver, sin resolver nada? Son las frases con las
+ * que el modelo gana tiempo cuando no encontró el dato. En un chat donde no
+ * puede volver a escribir, equivalen a dejar al cliente colgado.
+ */
+const ESPERA_RE = /(d[ée]jame (revisar|checar|consultar|ver)|permíteme (un|revisar|consultar|checar)|un momento,? por favor|dame un (momento|minuto)|en (un momento|breve) te (confirmo|respondo|aviso|contesto)|voy a (revisar|checar|consultar)|estoy (revisando|checando|consultando)|enseguida te (confirmo|respondo|aviso)|te (confirmo|aviso|respondo) en (un momento|breve|unos minutos))/i;
+export function esRespuestaDeEspera(texto: string): boolean {
+  const t = String(texto || '').trim();
+  if (!t) return false;
+  if (!ESPERA_RE.test(t)) return false;
+  // Si además de la frase de espera trae contenido de verdad —una dirección, un
+  // status, un monto— no es una respuesta vacía: se respeta.
+  const sinFrase = t.replace(ESPERA_RE, ' ').replace(/[\s.,!¡¿?…]+/g, ' ').trim();
+  return sinFrase.length < 60;
+}
+
 async function getAIResponse(userMessage: string, chatHistory: any[], clientContext: string = ''): Promise<{ response: string; shouldEscalate: boolean }> {
   // Si no hay API key, usar respuesta de fallback
   if (!OPENAI_API_KEY) {
@@ -614,8 +649,19 @@ async function getAIResponse(userMessage: string, chatHistory: any[], clientCont
       break;
     }
 
-    const shouldEscalate = aiText.includes('[ESCALAR]');
+    let shouldEscalate = aiText.includes('[ESCALAR]');
     const cleanResponse = aiText.replace('[ESCALAR]', '').trim();
+
+    // Una respuesta que solo promete revisar NO es una respuesta. Cajito no
+    // puede volver a escribir por su cuenta, así que el ticket se cerraba como
+    // resuelto con el cliente esperando: pasó en TKT-2026-2405, donde contestó
+    // "Déjame revisar esa información para ti. Un momento, por favor." y el
+    // cliente estuvo tres horas sin saber quién era su asesor. Si la respuesta
+    // es de espera, se manda a una persona.
+    if (!shouldEscalate && esRespuestaDeEspera(cleanResponse)) {
+      console.warn(`[SOPORTE] Cajito contestó con una promesa de revisar; se escala en vez de cerrar: "${cleanResponse.slice(0, 80)}"`);
+      shouldEscalate = true;
+    }
 
     return { response: cleanResponse, shouldEscalate };
   } catch (error) {
