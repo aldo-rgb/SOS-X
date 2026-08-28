@@ -152,6 +152,14 @@ const ACT_LABEL: Record<string, string> = {
   subtask_done: '☑️ Palomeó una subtarea',
   subtask_undone: '⬜ Despalomeó una subtarea',
   attachment_added: '📷 Agregó una foto',
+  // Faltaban aquí también: el historial mostraba el nombre crudo del evento.
+  started: '▶️ Puso en proceso',
+  participants_updated: '👥 Cambió los involucrados',
+  awaiting_confirmation: '⏳ Terminó y espera confirmación',
+  confirmed: '✅ Confirmó el cierre',
+  moved_board: '🗂️ Cambió de categoría',
+  reverted_to_pending: '↩️ Regresó a pendientes',
+  cancelled: '🚫 Canceló la tarea',
 };
 const actLabel = (a: any): string => {
   const base = ACT_LABEL[a.action] || a.action;

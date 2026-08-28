@@ -180,6 +180,14 @@ const ACT_LABEL: Record<string, string> = {
   started: '▶️ Puso en proceso', completed: '✅ Completó la tarea', forced_close: '🔓 Forzó el cierre', reopened: '↩️ Reabrió la tarea',
   comment: '💬 Comentó', subtask_done: '☑️ Palomeó una subtarea', subtask_undone: '⬜ Despalomeó una subtarea',
   attachment_added: '📷 Agregó una foto',
+  // Estas seis salían crudas, en inglés y con guiones bajos, en el historial
+  // que lee el equipo: 448 renglones diciendo "participants_updated".
+  participants_updated: '👥 Cambió los involucrados',
+  awaiting_confirmation: '⏳ Terminó y espera confirmación',
+  confirmed: '✅ Confirmó el cierre',
+  moved_board: '🗂️ Cambió de categoría',
+  reverted_to_pending: '↩️ Regresó a pendientes',
+  cancelled: '🚫 Canceló la tarea',
 };
 const actLabel = (a: any): string => ACT_LABEL[a.action] || a.action;
 
@@ -2003,7 +2011,20 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 </Paper>
               );
             })()}
-            <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
+            <Box sx={{ display: 'flex', gap: 1, mt: 1.5, alignItems: 'flex-end' }}>
+              {/* "+" a la IZQUIERDA del campo, como en WhatsApp: el archivo se
+                  manda dentro del comentario y sale en la conversación. */}
+              <input type="file" id={`adj-com-${id}`} style={{ display: 'none' }}
+                onChange={e => { adjuntarEnComentario(e.target.files?.[0]); e.target.value = ''; }} />
+              <Tooltip title="Adjuntar foto o archivo al comentario">
+                <span>
+                  <IconButton disabled={sendingComment}
+                    onClick={() => document.getElementById(`adj-com-${id}`)?.click()}
+                    sx={{ color: '#F05A28', border: '1px solid #F0B79A', bgcolor: '#FFF3EC' }}>
+                    <AddIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
               <TextField
                 fullWidth
                 size="small"
@@ -2025,19 +2046,6 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
                 }}
                 disabled={sendingComment}
               />
-              {/* "+" para adjuntar, como en WhatsApp: el archivo se manda
-                  dentro del comentario y sale en la conversación. */}
-              <input type="file" id={`adj-com-${id}`} style={{ display: 'none' }}
-                onChange={e => { adjuntarEnComentario(e.target.files?.[0]); e.target.value = ''; }} />
-              <Tooltip title="Adjuntar foto o archivo al comentario">
-                <span>
-                  <IconButton disabled={sendingComment}
-                    onClick={() => document.getElementById(`adj-com-${id}`)?.click()}
-                    sx={{ color: '#F05A28', border: '1px solid #F0B79A', bgcolor: '#FFF3EC', mr: 0.5 }}>
-                    <AddIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
               <IconButton color="primary" onClick={addComment} disabled={sendingComment || !comment.trim()}>
                 {sendingComment ? <CircularProgress size={18} /> : <SendIcon />}
               </IconButton>
