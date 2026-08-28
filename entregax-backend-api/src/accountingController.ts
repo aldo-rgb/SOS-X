@@ -196,8 +196,37 @@ export const getEmitterSummary = async (req: AuthRequest, res: Response): Promis
              OR facturapi_id IS NOT NULL`
         ).catch(() => ({ rows: [{ total: 0, activas: 0, canceladas: 0, monto_activo: 0 }] }));
 
-        // Pendientes por timbrar: pagos marcados requiere_factura=true pero sin factura ni archivar
-        const pendCnt = await pool.query(`
+        // Pendientes por timbrar.
+        //
+        // Este conteo es GLOBAL sobre pobox_payments, así que solo tiene sentido
+        // para la empresa que factura PO Box. Sin esta guarda, la tarjeta le
+        // mostraba los 5 pendientes de Rodada a Urban Wod, a Bombas Altona y a
+        // todas las demás, mientras la lista de abajo —que sí valida la
+        // propiedad del servicio— decía "no hay pagos pendientes por timbrar".
+        // El contador y la lista se contradecían en la misma pantalla.
+        //
+        // La regla ya existía tres funciones más arriba, en
+        // getPendingStampSummary; aquí simplemente no se había aplicado.
+        let facturaPobox = false;
+        {
+            const a = await pool.query(
+                `SELECT 1 FROM service_company_config
+                  WHERE service_type = 'POBOX_USA' AND emitter_id = $1
+                    AND COALESCE(is_active, TRUE) = TRUE LIMIT 1`,
+                [emitterId]
+            ).catch(() => ({ rows: [] as any[] }));
+            facturaPobox = a.rows.length > 0;
+            if (!facturaPobox) {
+                const b = await pool.query(
+                    `SELECT 1 FROM service_fiscal_config
+                      WHERE service_type = 'POBOX_USA' AND fiscal_emitter_id = $1 LIMIT 1`,
+                    [emitterId]
+                ).catch(() => ({ rows: [] as any[] }));
+                facturaPobox = b.rows.length > 0;
+            }
+        }
+
+        const pendCnt = !facturaPobox ? { rows: [{ pendientes: 0 }] } : await pool.query(`
             SELECT COUNT(*)::int AS pendientes
             FROM pobox_payments pp
             WHERE pp.requiere_factura = TRUE
