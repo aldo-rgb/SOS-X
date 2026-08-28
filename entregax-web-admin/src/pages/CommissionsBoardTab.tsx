@@ -493,7 +493,53 @@ export default function CommissionsBoardTab() {
             const hasSubs = r.subCount > 0;
             const ownMetric = status === 'paid' ? r.ownPaid : r.ownPending;
             const ovMetric = status === 'paid' ? r.overridePaid : r.overridePending;
+
+            // Explicación al pasar el mouse. Los números de una tarjeta salen de
+            // tres bolsas distintas y nadie tiene por qué adivinar la fórmula:
+            // aquí se enseña de dónde sale cada uno y sobre qué fechas.
+            const cobrable = r.ownCobrable != null ? r.ownCobrable : r.ownPending;
+            const enCredito = r.ownCreditHold || 0;
+            const periodo = (fromDate || toDate)
+              ? `${fromDate || 'el inicio'} a ${toDate || 'hoy'}`
+              : (es ? 'todo el histórico (sin filtro de fechas)' : 'all time');
+            const Fila = ({ etq, val, nota, fuerte }: { etq: string; val: number; nota?: string; fuerte?: boolean }) => (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, py: 0.3 }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="caption" sx={{ fontWeight: fuerte ? 800 : 600 }}>{etq}</Typography>
+                  {nota && <Typography variant="caption" sx={{ display: 'block', opacity: 0.75, fontSize: 10.5 }}>{nota}</Typography>}
+                </Box>
+                <Typography variant="caption" sx={{ fontWeight: fuerte ? 800 : 700, whiteSpace: 'nowrap' }}>{fmt(val)}</Typography>
+              </Box>
+            );
+            const explicacion = (
+              <Box sx={{ p: 0.5, maxWidth: 340 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', mb: 0.5 }}>
+                  De dónde sale cada número
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', opacity: 0.8, mb: 1 }}>
+                  Periodo mostrado: {periodo}. Solo cuentan comisiones cuya orden de pago ya está pagada.
+                </Typography>
+                <Fila etq="Propia (cobrable)" val={cobrable} nota="Su comisión, con el envío ya pagado por el cliente" />
+                {enCredito > 0 && <Fila etq="+ En crédito" val={enCredito} nota="Su comisión, pero el cliente aún no paga su envío" />}
+                {hasSubs && <Fila etq="+ A dispersar" val={ovMetric} nota={`Comisión de sus ${r.subCount} subasesor(es); él la recibe y la reparte`} />}
+                <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.3)', mt: 0.5, pt: 0.5 }}>
+                  <Fila etq={hasSubs ? '= Entrega total' : '= Por pagar'} val={metric(r)} fuerte
+                    nota="Lo que se le entrega en este periodo" />
+                </Box>
+                <Box sx={{ mt: 1, pt: 0.5, borderTop: '1px solid rgba(255,255,255,0.3)' }}>
+                  <Fila etq="Pagado" val={r.paidCommission} nota="Ya liquidado, suyo y de sus subasesores" />
+                  <Fila etq="= Total" val={r.totalCommission} fuerte nota="Entrega + pagado: todo lo generado en el periodo" />
+                </Box>
+                <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.8, fontSize: 10.5 }}>
+                  {r.totalCount} guías. En el ledger, filtrando por este asesor, verás {fmt(cobrable)}:
+                  ahí solo salen sus guías y lo que ya es cobrable.
+                </Typography>
+              </Box>
+            );
+
             return (
+              <Tooltip key={`tt-${r.advisorId}`} title={explicacion} arrow placement="top"
+                componentsProps={{ tooltip: { sx: { bgcolor: '#263238', maxWidth: 360, p: 1.25 } } }}>
               <Paper key={r.advisorId} elevation={isPodium ? 6 : 1} sx={{
                 p: 2.5, borderRadius: 3, position: 'relative', overflow: 'hidden',
                 border: '2px solid', borderColor: isPodium ? ring : 'divider',
@@ -598,6 +644,7 @@ export default function CommissionsBoardTab() {
                   <Chip size="small" variant="outlined" label={`${r.totalCount} ${es ? 'guías' : 'shipments'}`} />
                 </Box>
               </Paper>
+              </Tooltip>
             );
           })}
         </Box>
