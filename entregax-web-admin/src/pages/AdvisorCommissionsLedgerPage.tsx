@@ -84,7 +84,12 @@ interface Summary {
   advisorCount: number;
 }
 
-export default function AdvisorCommissionsLedgerPage() {
+/** Filtro inicial al llegar desde una tarjeta del board de asesores. */
+interface Props {
+  focoAsesor?: { advisorId: number; desde: string; hasta: string; sello: number } | null;
+}
+
+export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {}) {
   // ─── State ───
   const [records, setRecords] = useState<CommissionRecord[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -104,13 +109,25 @@ export default function AdvisorCommissionsLedgerPage() {
   const [advisorsList, setAdvisorsList] = useState<{ id: number; full_name: string }[]>([]);
 
   // Filters
-  const [filterAdvisor, setFilterAdvisor] = useState('');
+  const [filterAdvisor, setFilterAdvisor] = useState(focoAsesor ? String(focoAsesor.advisorId) : '');
   const [filterService, setFilterService] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterFrom, setFilterFrom] = useState('');
-  const [filterTo, setFilterTo] = useState('');
+  // Llegando desde el board el interés es lo que falta por pagar, no el histórico.
+  const [filterStatus, setFilterStatus] = useState(focoAsesor ? 'pending' : '');
+  const [filterFrom, setFilterFrom] = useState(focoAsesor?.desde || '');
+  const [filterTo, setFilterTo] = useState(focoAsesor?.hasta || '');
   const [filterClientBox, setFilterClientBox] = useState('');
   const [filterTracking, setFilterTracking] = useState('');
+
+  // Al entrar desde el board (y en cada click nuevo) se re-aplica el filtro
+  // con las mismas fechas que traía la tarjeta, para que los números cuadren.
+  useEffect(() => {
+    if (!focoAsesor) return;
+    setFilterAdvisor(String(focoAsesor.advisorId));
+    setFilterFrom(focoAsesor.desde || '');
+    setFilterTo(focoAsesor.hasta || '');
+    setFilterStatus('pending');
+    setPage(0);
+  }, [focoAsesor?.sello]);
 
   // ─── Fetch data ───
   const fetchLedger = useCallback(async () => {

@@ -72,7 +72,12 @@ const initials = (name: string) =>
 // Colores del podio (top 3)
 const PODIUM = ['#FFD700', '#C0C0C0', '#CD7F32'];
 
-export default function CommissionsBoardTab() {
+/** El padre (CommissionsPage) recibe el click y salta al ledger ya filtrado. */
+interface Props {
+  onVerAsesor?: (advisorId: number, desde: string, hasta: string) => void;
+}
+
+export default function CommissionsBoardTab({ onVerAsesor }: Props = {}) {
   const { i18n } = useTranslation();
   const es = i18n.language === 'es';
   const [rows, setRows] = useState<AdvisorBoardRow[]>([]);
@@ -546,6 +551,11 @@ export default function CommissionsBoardTab() {
                   {r.totalCount} guías. En el ledger, filtrando por este asesor, verás {fmt(cobrable)}:
                   ahí solo salen sus guías y lo que ya es cobrable.
                 </Typography>
+                {onVerAsesor && (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 1, fontWeight: 700, color: '#80cbc4' }}>
+                    👆 Da click en la tarjeta para ver el detalle guía por guía
+                  </Typography>
+                )}
               </Box>
             );
 
@@ -563,13 +573,17 @@ export default function CommissionsBoardTab() {
                   },
                   tooltip: { sx: { bgcolor: '#263238', maxWidth: 360, p: 1.5 } },
                 }}>
-              <Paper key={r.advisorId} elevation={isPodium ? 6 : 1} sx={{
+              <Paper key={r.advisorId} elevation={isPodium ? 6 : 1}
+                onClick={onVerAsesor ? () => onVerAsesor(r.advisorId, fromDate, toDate) : undefined}
+                sx={{
                 p: 2.5, borderRadius: 3, position: 'relative', overflow: 'hidden',
                 border: '2px solid', borderColor: isPodium ? ring : 'divider',
                 borderLeft: isSub ? '6px solid' : (isPodium ? '2px solid' : '2px solid'),
                 borderLeftColor: isSub ? '#b0bec5' : (isPodium ? ring : 'divider'),
                 ml: isSub ? { xs: 0, sm: 2 } : 0,
-                transition: 'transform .15s', '&:hover': { transform: 'translateY(-3px)' },
+                cursor: onVerAsesor ? 'pointer' : 'default',
+                transition: 'transform .15s, box-shadow .15s',
+                '&:hover': { transform: 'translateY(-3px)', boxShadow: onVerAsesor ? 6 : undefined },
               }}>
                 {/* Badge esquina: trofeo (top 3) o # de subasesores */}
                 {isPodium ? (

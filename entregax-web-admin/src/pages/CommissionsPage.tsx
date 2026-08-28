@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import {
@@ -129,6 +129,10 @@ export default function CommissionsPage() {
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [tabValue, setTabValue] = useState(0);
+  // Asesor en el que se dio click en el board; el sello obliga a re-filtrar
+  // aunque se vuelva a clickear al mismo.
+  const [focoAsesor, setFocoAsesor] = useState<{ advisorId: number; desde: string; hasta: string; sello: number } | null>(null);
+  const focoSello = useRef(0);
   
   // Modal Alta de Asesores
   const [openModal, setOpenModal] = useState(false);
@@ -266,7 +270,7 @@ export default function CommissionsPage() {
 
       {/* Tabs */}
       <Paper sx={{ mb: 3, borderRadius: 2 }}>
-        <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <Tabs value={tabValue} onChange={(_, v) => { setFocoAsesor(null); setTabValue(v); }} sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tab value={0} icon={<DashboardIcon />} label={i18n.language === 'es' ? 'General' : 'Overview'} />
           <Tab value={1} icon={<PaymentIcon />} label={i18n.language === 'es' ? 'Comisiones Generadas' : 'Commissions Ledger'} />
           {/* Pestaña "Tarifas" ocultada a pedido; el contenido (tabValue===2) queda inaccesible. */}
@@ -294,12 +298,15 @@ export default function CommissionsPage() {
 
       {/* Tab General (board de asesores) */}
       {tabValue === 0 && (
-        <CommissionsBoardTab />
+        <CommissionsBoardTab onVerAsesor={(advisorId, desde, hasta) => {
+          setFocoAsesor({ advisorId, desde, hasta, sello: focoSello.current += 1 });
+          setTabValue(1);
+        }} />
       )}
 
       {/* Tab Comisiones Generadas */}
       {tabValue === 1 && (
-        <AdvisorCommissionsLedgerPage />
+        <AdvisorCommissionsLedgerPage focoAsesor={focoAsesor} />
       )}
 
       {/* Stats Cards */}
