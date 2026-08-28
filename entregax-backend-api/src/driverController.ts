@@ -1554,7 +1554,7 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
             const bcNorm = String(barcode).toUpperCase().trim();
             const bcCompact = bcNorm.replace(/[^A-Z0-9]/g, '');
             const dhlRes = await pool.query(
-                `SELECT id, inbound_tracking, secondary_tracking, status
+                `SELECT id, inbound_tracking, secondary_tracking, status, delivery_address_id
                    FROM dhl_shipments
                   WHERE UPPER(inbound_tracking) = $1
                      OR UPPER(COALESCE(secondary_tracking,'')) = $1
@@ -1568,6 +1568,24 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
                 const displayTn = d.secondary_tracking || d.inbound_tracking;
                 if (d.status === 'delivered') {
                     return res.status(400).json({ error: '⚠️ Esta guía DHL ya fue entregada.', barcode });
+                }
+                // La guía tiene que ir SALIENDO. Sin esto, escanear el código de
+                // una guía que sigue en bodega la marcaba entregada: pasó con dos
+                // guías sin instrucciones, sin salida y sin pagar, escaneadas con
+                // 29 segundos de diferencia. El camino de `packages` sí exige que
+                // el paquete esté en ruta; este no exigía nada.
+                const EN_RUTA = ['out_for_delivery', 'dispatched', 'shipped', 'in_transit'];
+                if (!EN_RUTA.includes(String(d.status || ''))) {
+                    return res.status(400).json({
+                        error: `⚠️ Esta guía no está en ruta (estado: ${d.status}). Primero hay que darle salida.`,
+                        barcode,
+                    });
+                }
+                if (!d.delivery_address_id) {
+                    return res.status(400).json({
+                        error: '⚠️ Esta guía no tiene instrucciones de entrega. No se puede cerrar como entregada.',
+                        barcode,
+                    });
                 }
                 if (!recipientNameTrimmed) {
                     return res.status(400).json({ error: '❌ El nombre de quien recibe es obligatorio.' });
