@@ -40,7 +40,7 @@ const VALIDOS = new Set([
   'clipboard-check-outline', 'credit-card-outline', 'card-account-details', 'bug',
   'airplane', 'cog-outline', 'information', 'store', 'map-marker',
   'hours-24', 'check-decagram', 'spray', 'swap-horizontal', 'clock-alert-outline',
-  'comment-text-outline', 'account-arrow-right', 'party-popper', 'truck-alert',
+  'comment-text-outline', 'account-arrow-right', 'party-popper', 'truck-alert', 'alarm',
 ]);
 
 /**
@@ -68,6 +68,10 @@ const POR_TITULO: Array<{ re: RegExp; icon: string; color: string }> = [
   { re: /^📥|prospecto/i, icon: 'account-arrow-right', color: '#1565C0' },
   { re: /^🎉|paquete entregado/i, icon: 'party-popper', color: '#2E7D46' },
   { re: /^🚨.*flotilla|alertas de flotilla/i, icon: 'truck-alert', color: '#C62828' },
+  // Tickets atrasados: despertador en rojo. Salían con el signo de admiración
+  // morado del type 'ticket' y se perdían entre lo demás, siendo lo que más
+  // corre prisa.
+  { re: /^⏰|retraso|tickets?\s+atrasad|d[ií]as\s+h[áa]biles/i, icon: 'alarm', color: '#C62828' },
 ];
 
 /** Respaldo por tipo: lo que sí describe de qué trata la notificación. */
@@ -173,6 +177,7 @@ const A_IONICONS: Record<string, string> = {
   'account-arrow-right': 'person-add-outline',
   'party-popper': 'gift-outline',
   'truck-alert': 'car-outline',
+  alarm: 'alarm',
 };
 
 export function iconoNotificacionIon(icon?: string | null, type?: string | null, title?: string | null): string {

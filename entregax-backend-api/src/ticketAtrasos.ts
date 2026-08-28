@@ -94,7 +94,9 @@ async function avisar(userIds: number[], titulo: string, cuerpo: string, data: a
   try {
     const { createCustomNotification } = await import('./notificationController');
     for (const uid of ids) {
-      await createCustomNotification(uid, titulo, cuerpo, 'ticket', 'alert-circle', data, ruta);
+      // Despertador, no el signo de admiracion generico de 'ticket': un
+      // retraso es lo que mas corre prisa y se perdia entre lo demas.
+      await createCustomNotification(uid, titulo, cuerpo, 'ticket', 'alarm', data, ruta);
     }
   } catch (e: any) { console.warn('[atrasos] in-app:', e?.message); }
   try {
