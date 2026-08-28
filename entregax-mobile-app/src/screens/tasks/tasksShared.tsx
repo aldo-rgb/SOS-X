@@ -2247,7 +2247,14 @@ export function MatrixView({ tasks, onOpen, showBoard, myId, onMove, preScoped }
         <Text style={[styles.mxTitle, { color: q.color }]} numberOfLines={2}>{q.title}</Text>
         <View style={styles.mxCount}><Text style={styles.mxCountTxt}>{qt.length}</Text></View>
       </View>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 5, paddingBottom: 4 }} showsVerticalScrollIndicator={false}>
+      {/* El scroll se apaga mientras se arrastra.
+          En Android el ScrollView nativo se queda con el gesto en cuanto el dedo
+          se mueve —onShouldBlockNativeResponder solo se consulta al conceder el
+          responder, cuando la pulsación larga todavía no ha disparado—, y al
+          robarlo llega onPanResponderTerminate: la tarjeta se soltaba sola.
+          Apagando el scroll al activar el arrastre, ya no hay quién lo robe. */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 5, paddingBottom: 4 }}
+        showsVerticalScrollIndicator={false} scrollEnabled={!arrastrando}>
         {qt.length === 0 ? <Text style={styles.mxEmpty}>—</Text> : qt.map(t => {
           const done = t.status === 'completed';
           return (
