@@ -12,7 +12,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Alert, ActivityIndicator, Vibration, TextInput, Keyboard,
-  FlatList, Modal,
+  FlatList, Modal, BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { setStringAsync as copyToClipboard } from 'expo-clipboard';
@@ -170,6 +170,37 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
       setTimeout(() => setScannerActive(true), 1500);
     });
   }, [scannerActive, loading, processCode]);
+
+  /**
+   * Candado de salida.
+   *
+   * La pistola integrada del celular no solo teclea el código: manda teclas de
+   * control alrededor, y Android interpreta una de ellas como BACK. Con 23
+   * cajas escaneadas eso sacaba de la pantalla y tiraba el avance en el peor
+   * momento —a media entrega en mostrador—. Ahora salir de aquí con trabajo sin
+   * cerrar exige confirmarlo, venga de la tecla o de un toque.
+   */
+  const salirConAviso = useCallback((): boolean => {
+    // Sin nada escaneado y sin guía a medias, salir es inofensivo.
+    if (completed.length === 0 && scanPhaseRef.current === 'internal') { navigation.goBack(); return false; }
+    const enMedio = scanPhaseRef.current === 'external';
+    Alert.alert(
+      '¿Salir del escaneo?',
+      enMedio
+        ? `Tienes ${confirmedTrackingRef.current} a medias: falta escanear la guía de ${carrierLabel(carrier)}. Si sales, esa guía no queda registrada.`
+        : `Llevas ${completed.length} guía(s) escaneadas en esta sesión.`,
+      [
+        { text: 'Seguir escaneando', style: 'cancel' },
+        { text: 'Salir', style: 'destructive', onPress: () => navigation.goBack() },
+      ]
+    );
+    return true;   // bloquea el back
+  }, [completed.length, carrier, navigation]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', salirConAviso);
+    return () => sub.remove();
+  }, [salirConAviso]);
 
   const resetToInternal = () => {
     scanPhaseRef.current = 'internal';
@@ -384,7 +415,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
       <ScrollView contentContainerStyle={{ paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity onPress={salirConAviso} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>

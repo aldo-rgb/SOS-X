@@ -144,10 +144,27 @@ export default function POBoxExitScreen({ route, navigation }: any) {
     setTimeout(() => scanInputRef.current?.focus(), 700);
   };
 
-  const closeWizard = () => {
+  const cerrarYLimpiar = () => {
     setWizardOpen(false);
     setScannedPackages([]);
     setScanInput('');
+  };
+  /**
+   * La pistola integrada del celular manda teclas de control alrededor del
+   * código, y Android interpreta una de ellas como BACK: eso cerraba el wizard
+   * y borraba TODO lo escaneado —23 cajas— sin preguntar. Ahora salir con
+   * trabajo adentro exige confirmarlo.
+   */
+  const closeWizard = () => {
+    if (scannedPackages.length === 0) { cerrarYLimpiar(); return; }
+    Alert.alert(
+      '¿Salir de la salida?',
+      `Llevas ${scannedPackages.length} paquete(s) escaneados. Si sales se pierden y hay que volver a escanearlos.`,
+      [
+        { text: 'Seguir escaneando', style: 'cancel' },
+        { text: 'Salir y borrar', style: 'destructive', onPress: cerrarYLimpiar },
+      ]
+    );
   };
 
   const normalizeTracking = (raw: string): string => {
