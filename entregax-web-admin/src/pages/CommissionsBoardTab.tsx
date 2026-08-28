@@ -167,9 +167,18 @@ export default function CommissionsBoardTab() {
   const top3 = filtered.slice().sort(metricSort).slice(0, 3).map(r => r.advisorId);
   const trophyRankById = new Map<number, number>(top3.map((id, i) => [id, i]));
 
-  const totalPending = displayRows.reduce((s, r) => s + r.pendingCommission, 0);
-  const totalPaid = displayRows.reduce((s, r) => s + r.paidCommission, 0);
-  const totalCommission = displayRows.reduce((s, r) => s + r.totalCommission, 0);
+  // Los totales suman SOLO la comisión propia de cada quien.
+  //
+  // `pendingCommission` de un líder ya trae dentro lo de sus subasesores, y esos
+  // subasesores aparecen además con su propio renglón: sumar el campo completo
+  // contaba ese dinero dos veces e inflaba el reporte. Con los datos del 27-ago
+  // decía $77,190.53 cuando lo que sale de caja son $63,921.36.
+  //
+  // El líder sí recibe todo junto —él lo dispersa— pero eso es una entrega, no
+  // dinero adicional: va por renglón, no en el gran total.
+  const totalPending = displayRows.reduce((s, r) => s + r.ownPending, 0);
+  const totalPaid = displayRows.reduce((s, r) => s + r.ownPaid, 0);
+  const totalCommission = totalPending + totalPaid;
   const activeAdvisors = displayRows.length;
 
   // Formateador de moneda simple para el PDF (evita símbolos raros de locale).
@@ -227,8 +236,11 @@ export default function CommissionsBoardTab() {
       { key: 'name',     label: 'Asesor',   w: 46, align: 'left' as const },
       { key: 'leader',   label: 'Líder',    w: 30, align: 'left' as const },
       { key: 'own',      label: 'Propia',   w: 26, align: 'right' as const },
-      { key: 'override', label: 'Subs',     w: 24, align: 'right' as const },
-      { key: 'pay',      label: payLabel,   w: 28, align: 'right' as const },
+      // "Subs" se leía como comisión extra del líder. Es la de sus subasesores,
+      // que él recibe para entregársela: dinero que ya está contado abajo, en el
+      // renglón de cada sub.
+      { key: 'override', label: 'A dispersar', w: 24, align: 'right' as const },
+      { key: 'pay',      label: `Entrega (${payLabel.toLowerCase()})`, w: 28, align: 'right' as const },
       { key: 'count',    label: 'Guías',    w: 10, align: 'right' as const },
     ];
 
@@ -290,11 +302,14 @@ export default function CommissionsBoardTab() {
       y += 7;
     });
 
-    // Fila de totales (Propia / Subs / Por pagar combinado)
+    // Fila de totales.
+    //
+    // La columna "Entrega" NO se totaliza: sumarla contaría dos veces lo de cada
+    // subasesor —una en el renglón del líder y otra en el suyo—. El dinero que
+    // sale de caja es la suma de la columna Propia, y esa es la que lleva total.
     if (y > pageH - 14) { doc.addPage(); y = 16; }
     const sumOwn = displayRows.reduce((s, r) => s + (status === 'paid' ? r.ownPaid : r.ownPending), 0);
     const sumOv = displayRows.reduce((s, r) => s + (status === 'paid' ? r.overridePaid : r.overridePending), 0);
-    const sumPay = displayRows.reduce((s, r) => s + metric(r), 0);
     doc.setFillColor(255, 240, 232);
     doc.rect(mL, y, pageW - mL * 2, 8, 'F');
     doc.setFont('helvetica', 'bold');
@@ -305,7 +320,27 @@ export default function CommissionsBoardTab() {
     xt += cols[3].w;
     doc.text(money(sumOv), xt + cols[4].w - 2, y + 5.5, { align: 'right' });
     xt += cols[4].w;
-    doc.text(money(sumPay), xt + cols[5].w - 2, y + 5.5, { align: 'right' });
+    doc.setFontSize(7);
+    doc.setTextColor(120, 120, 120);
+    doc.text('(ya contado)', xt + cols[5].w - 2, y + 5.5, { align: 'right' });
+    doc.setFontSize(8);
+    doc.setTextColor(240, 90, 40);
+    y += 12;
+
+    // Nota al pie: sin esto, la primera pregunta de quien lo lee es por qué la
+    // columna de entrega no cuadra con el total.
+    if (sumOv > 0) {
+      if (y > pageH - 20) { doc.addPage(); y = 16; }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(110, 110, 110);
+      doc.text(
+        'Entrega = comisión propia + la de sus subasesores, que el líder recibe para dispersar. Esa parte ya está',
+        mL, y);
+      doc.text(
+        `contada en el renglón de cada subasesor, por eso el total de caja es ${money(sumOwn)} y no incluye la entrega.`,
+        mL, y + 4);
+    }
 
     const fname = `Reporte_Comisiones_${now.toISOString().slice(0, 10)}.pdf`;
     doc.save(fname);
@@ -492,11 +527,17 @@ export default function CommissionsBoardTab() {
                   </Box>
                 </Box>
 
-                {/* Monto destacado (combinado: propia + override de subs) */}
+                {/* Monto destacado. En un líder es la ENTREGA: su comisión más
+                    la de sus subasesores, que él dispersa. Llamarlo "comisión
+                    por pagar" hacía creer que todo era suyo. */}
                 <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                  {status === 'paid'
-                    ? (es ? 'Comisión pagada' : 'Paid commission')
-                    : (es ? 'Comisión por pagar' : 'Pending commission')}
+                  {hasSubs
+                    ? (status === 'paid'
+                        ? (es ? 'Entrega (pagada)' : 'Handover (paid)')
+                        : (es ? 'Entrega: suya + de sus subasesores' : 'Handover: own + sub-advisors'))
+                    : (status === 'paid'
+                        ? (es ? 'Comisión pagada' : 'Paid commission')
+                        : (es ? 'Comisión por pagar' : 'Pending commission'))}
                 </Typography>
                 <Typography sx={{ fontWeight: 800, fontSize: 32, lineHeight: 1.1, color: status === 'paid' ? '#2e7d32' : ORANGE, mb: 1 }}>
                   {fmt(metric(r))}
@@ -507,7 +548,7 @@ export default function CommissionsBoardTab() {
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
                     <Chip size="small" label={`${es ? 'Propia' : 'Own'}: ${fmt(ownMetric)}`}
                       sx={{ bgcolor: '#FFF3E0', color: '#e65100', fontWeight: 700 }} />
-                    <Chip size="small" label={`${es ? 'Subasesores' : 'Sub-advisors'}: ${fmt(ovMetric)}`}
+                    <Chip size="small" label={`${es ? 'A dispersar' : 'To disperse'}: ${fmt(ovMetric)}`}
                       sx={{ bgcolor: '#EDE7F6', color: '#5e35b1', fontWeight: 700 }} />
                   </Box>
                 )}
