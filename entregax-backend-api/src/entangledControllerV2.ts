@@ -260,51 +260,6 @@ async function getGraciaHoras(): Promise<number> {
   } catch { return 12; }
 }
 
-/**
- * Deja constancia de que llegó un comprobante fuera de tiempo y avisa al equipo.
- *
- * EL TIPO DE CAMBIO DE LA ORDEN SE RESPETA DURANTE LAS 36 HORAS. La orden se ve
- * cancelada a las 24 nada más para no quedar comprometidos si el TC se movió una
- * barbaridad; salvo ese caso, se reactiva con el TC con el que se cotizó. Por
- * eso esto no reactiva solo: no es un problema de precio, es que la decisión de
- * reabrir la toma una persona.
- */
-async function marcarParaRevisionDeReactivacion(requestId: number, reqRow: any): Promise<void> {
-  try {
-    await pool.query(
-      `UPDATE entangled_payment_requests
-          SET comprobante_subido_at = COALESCE(comprobante_subido_at, NOW()),
-              error_message = 'comprobante_fuera_de_tiempo_en_revision',
-              updated_at = NOW()
-        WHERE id = $1`, [requestId]);
-
-    const ref = reqRow.referencia_pago || `#${requestId}`;
-    const monto = `${Number(reqRow.op_monto || 0).toLocaleString('es-MX')} ${reqRow.op_divisa_destino || ''}`.trim();
-    const cliente = (await pool.query(
-      `SELECT full_name, box_id FROM users WHERE id = $1`, [reqRow.user_id])).rows[0];
-    const quien = cliente ? `${cliente.full_name} (${cliente.box_id || 's/casillero'})` : 'un cliente';
-
-    const destinos = (await pool.query(
-      `SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'soporte_tecnico') AND COALESCE(is_active, true) = true`
-    )).rows.map((x: any) => Number(x.id));
-    if (destinos.length === 0) return;
-
-    const { createCustomNotification } = await import('./notificationController');
-    for (const uid of destinos) {
-      await createCustomNotification(
-        uid,
-        '⏳ Comprobante fuera de tiempo · XPAY',
-        `${ref} · ${quien} subió su comprobante de ${monto} dentro de las 36 h, pasado el plazo de 24. `
-          + `Se le respeta el TC de la orden: reactívala salvo que el tipo de cambio se haya movido una barbaridad.`,
-        'payment', 'alert-circle', { request_id: requestId, referencia: ref }, '/xpay'
-      ).catch(() => {});
-    }
-    console.log(`⏳ [XPAY] ${ref}: comprobante fuera de tiempo, ${destinos.length} avisados para revisión`);
-  } catch (e: any) {
-    console.error('[XPAY] marcarParaRevisionDeReactivacion:', e?.message || e);
-  }
-}
-
 async function getCongelamientoHoras(): Promise<number> {
   try {
     const r = await pool.query(
@@ -1146,45 +1101,29 @@ export async function sendPendingRequestToEntangled(
   const vencida = venceMs != null && venceMs < Date.now();
   const dentroDeGracia = finGraciaMs != null && Date.now() <= finGraciaMs;
 
+  // Comprobante llegado entre las 24 y las 36 horas.
+  //
+  // La operación SIGUE SU CURSO NORMAL: se manda al proveedor y se paga, con el
+  // tipo de cambio de la orden. No se cancela, no se detiene y no se le avisa a
+  // nadie internamente: no hay nada que decidir.
+  //
+  // Al cliente sí se le devuelve el aviso de que está "en proceso de
+  // cancelación". Es deliberado y es solo texto: nos deja la puerta abierta a no
+  // sostener el compromiso si algún día el TC se mueve una barbaridad, sin
+  // frenar el 99% de los casos en que da igual.
+  const fueraDeTiempo = vencida && dentroDeGracia;
+  const AVISO_FUERA_DE_TIEMPO =
+    'Recibimos tu comprobante, pero el plazo de esta operación ya venció y está en proceso de cancelación. '
+    + 'Ya avisamos al equipo de soporte para revisar si es posible reactivarla; te confirmamos en breve.';
+
   if (String(reqRow.estatus_global) === 'cancelado') {
-    // Cancelada por congelamiento y todavía dentro de la gracia → se acepta el
-    // comprobante y se pide revisión. Cualquier otra cancelación (manual, del
-    // proveedor) sigue siendo definitiva.
-    const porCongelamiento = String(reqRow.error_message || '') === 'congelamiento_vencido';
-    if (porCongelamiento && dentroDeGracia) {
-      await marcarParaRevisionDeReactivacion(requestId, reqRow);
-      return {
-        ok: false, status: 202,
-        payload: {
-          error: 'en_proceso_de_cancelacion',
-          message: 'Recibimos tu comprobante, pero el plazo de esta operación ya venció y está en proceso de cancelación. '
-            + 'Ya avisamos al equipo de soporte para revisar si es posible reactivarla; te confirmamos en breve.',
-          request_id: requestId,
-        },
-      };
-    }
+    // Cancelada de verdad (se acabó la gracia, o la canceló una persona o el
+    // proveedor): eso sí es definitivo.
     return { ok: false, status: 409, payload: { error: 'orden_cancelada', message: 'La orden fue cancelada (congelamiento vencido). Crea una nueva solicitud.' } };
   }
 
-  // Venció el congelamiento pero sigue dentro de la gracia: la orden NO se
-  // cancela —a esta altura solo se VE cancelada— y tampoco se le avisa al
-  // proveedor, que es lo que dejaría su transacción muerta e impediría
-  // reactivar. El comprobante se guarda y una persona la reabre.
-  if (vencida && dentroDeGracia) {
-    await marcarParaRevisionDeReactivacion(requestId, reqRow);
-    return {
-      ok: false, status: 202,
-      payload: {
-        error: 'en_proceso_de_cancelacion',
-        message: 'Recibimos tu comprobante, pero el plazo de esta operación ya venció y está en proceso de cancelación. '
-          + 'Ya avisamos al equipo de soporte para revisar si es posible reactivarla; te confirmamos en breve.',
-        request_id: requestId,
-      },
-    };
-  }
-
   // Se acabó la gracia: ahora sí se cancela de verdad y se le avisa al proveedor.
-  if (vencida && !reqRow.comprobante_subido_at) {
+  if (vencida && !dentroDeGracia && !reqRow.comprobante_subido_at) {
     await pool.query(
       `UPDATE entangled_payment_requests SET estatus_global='cancelado', error_message='congelamiento_vencido', updated_at=NOW() WHERE id=$1`,
       [requestId]
@@ -1500,7 +1439,10 @@ export async function sendPendingRequestToEntangled(
     ok: true,
     status: 200,
     payload: {
-      message: 'Comprobante recibido y solicitud enviada.',
+      // Fuera de plazo pero dentro de la gracia: la operación ya salió normal;
+      // el aviso es solo lo que lee el cliente.
+      message: fueraDeTiempo ? AVISO_FUERA_DE_TIEMPO : 'Comprobante recibido y solicitud enviada.',
+      fuera_de_tiempo: fueraDeTiempo,
       request: upd.rows[0],
       comision_cobrada_porcentaje: remote.comision_cobrada_porcentaje,
       tc_aplicado_usd: remote.tc_aplicado_usd,
