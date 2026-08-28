@@ -753,6 +753,15 @@ export const startXpayStatusSyncCron = () => {
 export const startXpayExpiryCron = () => {
   cron.schedule('*/15 * * * *', async () => {
     try {
+      // La cancelación REAL ocurre al terminar la gracia (vencimiento + horas de
+      // gracia = 36 h), no a las 24. A las 24 la orden solo se VE cancelada —eso
+      // lo resuelve la pantalla— para no quedar comprometidos si el TC se movió
+      // una barbaridad, pero el tipo de cambio se respeta las 36 horas completas
+      // y el comprobante se sigue recibiendo.
+      //
+      // Importante: mientras no se cancele de verdad, NO se le avisa al
+      // proveedor. Avisarle a las 24 era lo que mataba su transacción y hacía
+      // imposible reactivar después (le pasó a XP947643).
       const r = await pool.query(
         `UPDATE entangled_payment_requests
             SET estatus_global = 'cancelado',
@@ -760,7 +769,9 @@ export const startXpayExpiryCron = () => {
                 updated_at = NOW()
           WHERE estatus_global IN ('pendiente', 'esperando_comprobante')
             AND payment_deadline_at IS NOT NULL
-            AND payment_deadline_at < NOW()
+            AND payment_deadline_at
+                + (COALESCE((SELECT gracia_horas FROM entangled_service_config WHERE id = 1), 12)
+                   || ' hours')::interval < NOW()
             AND comprobante_subido_at IS NULL
           RETURNING id`
       );

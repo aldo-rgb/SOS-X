@@ -32,6 +32,10 @@ interface EntangledRow {
   op_monto: number;
   op_divisa_destino: string;
   estatus_global: string;
+  // Lo que se MUESTRA: pasadas las 24 h dice 'cancelado' aunque la orden siga
+  // viva hasta las 36. El estatus real se conserva para no quitarle al cliente
+  // el botón de subir comprobante.
+  estatus_visible?: string;
   estatus_factura: string;
   estatus_proveedor: string;
   entangled_transaccion_id?: string;
@@ -256,7 +260,19 @@ export default function EntangledAdminTab() {
                     <Typography fontWeight="bold">{Number(r.op_monto).toLocaleString()}</Typography>
                   </TableCell>
                   <TableCell>{r.op_divisa_destino}</TableCell>
-                  <TableCell><Chip size="small" color={statusColor(r.estatus_global)} label={r.estatus_global || '-'} /></TableCell>
+                  <TableCell>
+                    <Chip size="small"
+                      color={statusColor(r.estatus_visible || r.estatus_global)}
+                      label={r.estatus_visible || r.estatus_global || '-'} />
+                    {/* Ventana de gracia: se ve cancelada pero todavía admite
+                        comprobante. Sin esta nota, quien revisa cree que ya no
+                        hay nada que hacer. */}
+                    {r.estatus_visible === 'cancelado' && r.estatus_global !== 'cancelado' && (
+                      <Typography variant="caption" sx={{ display: 'block', color: '#B07206', fontWeight: 700, mt: 0.25 }}>
+                        aún admite comprobante
+                      </Typography>
+                    )}
+                  </TableCell>
                   {/* Días procesando: empieza al recibir el comprobante del
                       cliente, deja de contar cuando AMBOS factura_emitida_at
                       y proveedor_pagado_at están registrados. */}

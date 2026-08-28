@@ -261,9 +261,13 @@ async function getGraciaHoras(): Promise<number> {
 }
 
 /**
- * Deja constancia de que llegó un comprobante fuera de tiempo y avisa al equipo
- * para que valore reactivar. No reactiva nada: el tipo de cambio de la orden ya
- * venció y revivirla tiene un costo que solo una persona puede autorizar.
+ * Deja constancia de que llegó un comprobante fuera de tiempo y avisa al equipo.
+ *
+ * EL TIPO DE CAMBIO DE LA ORDEN SE RESPETA DURANTE LAS 36 HORAS. La orden se ve
+ * cancelada a las 24 nada más para no quedar comprometidos si el TC se movió una
+ * barbaridad; salvo ese caso, se reactiva con el TC con el que se cotizó. Por
+ * eso esto no reactiva solo: no es un problema de precio, es que la decisión de
+ * reabrir la toma una persona.
  */
 async function marcarParaRevisionDeReactivacion(requestId: number, reqRow: any): Promise<void> {
   try {
@@ -290,7 +294,8 @@ async function marcarParaRevisionDeReactivacion(requestId: number, reqRow: any):
       await createCustomNotification(
         uid,
         '⏳ Comprobante fuera de tiempo · XPAY',
-        `${ref} · ${quien} subió su comprobante de ${monto} después del plazo. La orden está cancelada por congelamiento; revisa si se puede reactivar.`,
+        `${ref} · ${quien} subió su comprobante de ${monto} dentro de las 36 h, pasado el plazo de 24. `
+          + `Se le respeta el TC de la orden: reactívala salvo que el tipo de cambio se haya movido una barbaridad.`,
         'payment', 'alert-circle', { request_id: requestId, referencia: ref }, '/xpay'
       ).catch(() => {});
     }
@@ -1128,9 +1133,13 @@ export async function sendPendingRequestToEntangled(
   // cron ya la marcó). Pero el comprobante se sigue recibiendo hasta las 36:
   // el cliente que pagó a las 25 horas pagó de verdad, y perder ese pago por
   // un cierre de reloj obliga a rehacer todo. Dentro de esa gracia el
-  // comprobante SE GUARDA, la orden NO se reactiva sola —eso lo decide una
-  // persona, porque el tipo de cambio ya no es el de la orden— y se le avisa
-  // al equipo para que valore reactivarla.
+  // comprobante SE GUARDA y se le avisa al equipo para que la reactive.
+  //
+  // El TC de la orden SE RESPETA durante las 36 horas: el cliente pagó lo que
+  // se le cotizó. Que a las 24 se vea cancelada es la salida que nos deja no
+  // comprometernos si el tipo de cambio se movió una barbaridad; fuera de ese
+  // caso se reactiva. No se reactiva sola porque reabrir es una decisión, no
+  // porque el precio haya dejado de valer.
   const graciaHoras = await getGraciaHoras();
   const venceMs = reqRow.payment_deadline_at ? new Date(reqRow.payment_deadline_at).getTime() : null;
   const finGraciaMs = venceMs != null ? venceMs + graciaHoras * 60 * 60 * 1000 : null;
@@ -1157,26 +1166,30 @@ export async function sendPendingRequestToEntangled(
     return { ok: false, status: 409, payload: { error: 'orden_cancelada', message: 'La orden fue cancelada (congelamiento vencido). Crea una nueva solicitud.' } };
   }
 
-  // Aún no la marcó el cron pero ya venció. Si sigue dentro de la gracia se
-  // trata igual: se guarda el comprobante y se manda a revisión.
+  // Venció el congelamiento pero sigue dentro de la gracia: la orden NO se
+  // cancela —a esta altura solo se VE cancelada— y tampoco se le avisa al
+  // proveedor, que es lo que dejaría su transacción muerta e impediría
+  // reactivar. El comprobante se guarda y una persona la reabre.
+  if (vencida && dentroDeGracia) {
+    await marcarParaRevisionDeReactivacion(requestId, reqRow);
+    return {
+      ok: false, status: 202,
+      payload: {
+        error: 'en_proceso_de_cancelacion',
+        message: 'Recibimos tu comprobante, pero el plazo de esta operación ya venció y está en proceso de cancelación. '
+          + 'Ya avisamos al equipo de soporte para revisar si es posible reactivarla; te confirmamos en breve.',
+        request_id: requestId,
+      },
+    };
+  }
+
+  // Se acabó la gracia: ahora sí se cancela de verdad y se le avisa al proveedor.
   if (vencida && !reqRow.comprobante_subido_at) {
     await pool.query(
       `UPDATE entangled_payment_requests SET estatus_global='cancelado', error_message='congelamiento_vencido', updated_at=NOW() WHERE id=$1`,
       [requestId]
     ).catch(() => {});
     void notifyCancelledRequestIds([requestId], 'congelamiento_vencido');
-    if (dentroDeGracia) {
-      await marcarParaRevisionDeReactivacion(requestId, reqRow);
-      return {
-        ok: false, status: 202,
-        payload: {
-          error: 'en_proceso_de_cancelacion',
-          message: 'Recibimos tu comprobante, pero el plazo de esta operación ya venció y está en proceso de cancelación. '
-            + 'Ya avisamos al equipo de soporte para revisar si es posible reactivarla; te confirmamos en breve.',
-          request_id: requestId,
-        },
-      };
-    }
     return { ok: false, status: 409, payload: { error: 'orden_vencida', message: 'El plazo de pago venció (congelamiento). Crea una nueva solicitud.' } };
   }
 
@@ -3063,6 +3076,15 @@ export const getAdvisorXpayRequests = async (req: Request, res: Response): Promi
               -- y no la clave SAT.
               r.op_conceptos,
               r.op_beneficiario_nombre, r.estatus_global, r.estatus_factura, r.estatus_proveedor,
+              -- Estatus para MOSTRAR. Pasadas las 24 h la orden se ve cancelada
+              -- aunque siga viva: es la salida que nos deja no comprometernos si
+              -- el TC se movió una barbaridad. El estatus real no se toca, si no
+              -- el cliente perdería el botón de subir comprobante, que es
+              -- justamente lo que la gracia le conserva hasta las 36.
+              CASE WHEN r.estatus_global IN ('pendiente', 'esperando_comprobante')
+                        AND r.payment_deadline_at IS NOT NULL
+                        AND r.payment_deadline_at < NOW()
+                   THEN 'cancelado' ELSE r.estatus_global END AS estatus_visible,
               r.created_at, r.user_id,
               r.entangled_transaccion_id,
               r.cf_rfc, r.cf_razon_social, r.cf_regimen_fiscal, r.cf_cp, r.cf_uso_cfdi, r.cf_email,
