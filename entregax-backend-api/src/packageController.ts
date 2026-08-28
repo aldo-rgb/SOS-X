@@ -7030,6 +7030,17 @@ export const getOutboundReadyPackages = async (_req: Request, res: Response): Pr
                 p.instructions_assigned_at,
                 p.delivery_address_id,
                 p.assigned_address_id,
+                -- Estado de pago. La lista NO lo traía: una guía pagada se veía
+                -- idéntica a una que el cliente no ha pagado, así que en Hidalgo
+                -- no había forma de saber cuál ya se puede mandar. Con pagos por
+                -- PayPal se nota más porque el cliente paga solo desde la app, a
+                -- cualquier hora, sin que ningún humano de EntregaX se entere ni
+                -- pueda avisarles.
+                COALESCE(p.client_paid, FALSE) AS client_paid,
+                p.payment_status,
+                p.saldo_pendiente,
+                p.assigned_cost_mxn,
+                p.payment_reference,
                 COALESCE(u.box_id, lc.box_id, p.box_id) as box_id,
                 COALESCE(u.full_name, lc.full_name) as client_name
             FROM packages p
@@ -7052,7 +7063,11 @@ export const getOutboundReadyPackages = async (_req: Request, res: Response): Pr
                 -- Masters sin hijas (total_boxes = 1 o NULL): mostrar
                 (p.is_master = TRUE AND COALESCE(p.total_boxes, 1) <= 1 AND p.tracking_internal NOT LIKE 'US-REPACK-%')
               )
-            ORDER BY p.created_at DESC
+            -- Lo pagado y con instrucciones va primero: es lo único que ya se
+            -- puede mandar, y antes quedaba mezclado entre lo que aún no paga
+            -- nadie, ordenado solo por fecha.
+            ORDER BY (COALESCE(p.client_paid, FALSE) AND p.instructions_assigned_at IS NOT NULL) DESC,
+                     p.created_at DESC
         `);
         
         res.json({ packages: result.rows, require_instructions_to_load_pobox: requireInstructions });
