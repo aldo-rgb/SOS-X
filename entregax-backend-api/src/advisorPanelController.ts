@@ -2350,6 +2350,48 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
         }
       }
 
+      // 🏪 Pick Up en mostrador: la caja NO viaja a Monterrey, así que el flete
+      // PO Box no existe en esa guía. Lo único que se cobra es la maniobra de
+      // $3 USD por caja. Esta rama ya existía en el panel del cliente
+      // (packageController), pero NO aquí: asignando desde el panel del asesor
+      // el carrier se guardaba como 'pickup', los $3 se escribían como si fueran
+      // pesos y assigned_cost_mxn conservaba el flete completo — la orden salía
+      // en $9,101.13 en vez de ~$52 (US-9560882657, tarea 291).
+      const _ckPickup = String(carrierKey || '').toLowerCase().replace(/[\s-]+/g, '_');
+      const esPickup = _ckPickup === 'pickup' || _ckPickup === 'pick_up'
+        || _ckPickup.startsWith('pickup_') || _ckPickup.startsWith('pick_up_');
+      if (esPickup) {
+        const tcRes = await pool.query(
+          "SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE LIMIT 1");
+        const tcPickup = parseFloat(tcRes.rows[0]?.tipo_cambio_final) || 18.00;
+        const datos = await pool.query(
+          `SELECT GREATEST(COALESCE(total_boxes, 1), 1) AS cajas, COALESCE(monto_pagado, 0) AS pagado
+             FROM packages WHERE id = $1`, [shipmentId]);
+        const cajasPickup = Number(datos.rows[0]?.cajas) || 1;
+        const totalPickup = 3 * cajasPickup * tcPickup;
+        const pagadoPickup = Number(datos.rows[0]?.pagado) || 0;
+        const saldoPickup = Math.max(0, Math.round((totalPickup - pagadoPickup) * 100) / 100);
+        await pool.query(
+          `UPDATE packages SET
+             assigned_address_id = $1,
+             status = 'ready_pickup',
+             carrier = 'Pick Up Hidalgo TX',
+             national_carrier = 'pickup_hidalgo',
+             national_shipping_cost = $2,
+             assigned_cost_mxn = $2,
+             saldo_pendiente = $3,
+             client_paid = ($3 <= 0.01),
+             needs_instructions = false,
+             is_collect = FALSE,
+             collect_carrier = NULL,
+             instructions_assigned_by_id = $4,
+             instructions_assigned_at = COALESCE(instructions_assigned_at, NOW())
+           WHERE id = $5`,
+          [addressId, totalPickup.toFixed(2), saldoPickup, advisorId, shipmentId]);
+        console.log(`🏪 [Pick Up asesor] ${uid}: ${cajasPickup} caja(s) × $3 USD × TC $${tcPickup} = $${totalPickup.toFixed(2)} MXN (sin flete PO Box)`);
+        return res.json({ success: true, pickup: true, total_mxn: Number(totalPickup.toFixed(2)) });
+      }
+
       await pool.query(
         `UPDATE packages SET
           assigned_address_id = $1,

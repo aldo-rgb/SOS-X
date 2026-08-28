@@ -2330,8 +2330,13 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
                 bodegaChina: bodegaChinaStats,
             },
             pendingDeliveries: pendingDeliveriesResult.rows.map(row => {
-                // Determinar si es Pick Up basado en el carrier
-                const isPickup = row.carrier === 'Pick Up Hidalgo TX';
+                // Determinar si es Pick Up basado en el carrier. Se compara
+                // tolerante porque el mismo pick up se guarda de tres formas
+                // segun quien asigno las instrucciones: 'Pick Up Hidalgo TX',
+                // 'pickup_hidalgo' o 'pickup'. Con la comparacion exacta, una
+                // guia asignada desde el panel del asesor no se reconocia como
+                // pick up en el mostrador.
+                const isPickup = /pick[\s_-]*up/i.test(String(row.carrier || ''));
                 const totalBoxes = parseInt(row.total_boxes) || 1;
                 
                 return {
