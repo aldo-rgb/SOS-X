@@ -561,6 +561,20 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                               AND (pp_d.payment_reference LIKE 'UW-%' OR pp_d.service_type = 'AA_DHL')
                               AND pp_d.status IN ('completed','paid')
                               AND pp_d.package_ids @> to_jsonb(ac.shipment_id))
+                -- Una orden DHL que cubre varias guías guarda UN SOLO id en
+                -- package_ids (UW-480474B1 cobró $21,457.50 = 5 guías y solo
+                -- listó una). Las otras cuatro quedaban como "sin orden" aunque
+                -- el dinero entró. El amarre fiable es el sello de pago: al
+                -- liquidar la orden, cada guía del grupo recibe el paid_at de la
+                -- orden, al mismo instante.
+                OR EXISTS (SELECT 1 FROM pobox_payments pp_g
+                             JOIN dhl_shipments d_g ON d_g.id = ac.shipment_id
+                            WHERE ac.shipment_type = 'DHL'
+                              AND pp_g.payment_reference LIKE 'UW-%'
+                              AND pp_g.status IN ('completed','paid')
+                              AND pp_g.user_id = d_g.user_id
+                              AND d_g.paid_at IS NOT NULL
+                              AND ABS(EXTRACT(EPOCH FROM (pp_g.paid_at - d_g.paid_at))) < 5)
                 OR EXISTS (SELECT 1 FROM advisor_payment_orders apo_o
                             WHERE apo_o.status = 'pagado'
                               AND (apo_o.package_uids ? ('PKG-' || ac.shipment_id::text)
