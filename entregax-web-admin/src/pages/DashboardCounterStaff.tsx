@@ -118,6 +118,11 @@ export default function DashboardCounterStaff() {
   
   // Estados para las acciones rápidas
   const [activeView, setActiveView] = useState<string | null>(null);
+  // Guías que ya se pueden mandar a Monterrey. La regla es tener instrucciones;
+  // el pago no interviene. Es el mismo endpoint que alimenta la pantalla de
+  // salida, así que el número y la lista nunca pueden discrepar de ella.
+  const [listas, setListas] = useState<any[]>([]);
+  const [listasOpen, setListasOpen] = useState(false);
   const [receptionModalOpen, setReceptionModalOpen] = useState(false);
   const [entryWizardOpen, setEntryWizardOpen] = useState(false);
   const [bulkReceiveOpen, setBulkReceiveOpen] = useState(false);
@@ -335,6 +340,18 @@ export default function DashboardCounterStaff() {
   const handleCloseDeliveryModal = () => {
     setDeliveryModalOpen(false);
     resetDeliveryState();
+  };
+
+  useEffect(() => {
+    api.get('/packages/outbound-ready')
+      .then((r: any) => setListas(r.data?.packages || []))
+      .catch(() => setListas([]));
+  }, [activeView]);
+
+  const diasEsperando = (p: any): number => {
+    const desde = p.instructions_assigned_at || p.received_at;
+    if (!desde) return 0;
+    return Math.max(0, Math.floor((Date.now() - new Date(desde).getTime()) / 86400000));
   };
 
   // Volver al dashboard
@@ -569,6 +586,76 @@ export default function DashboardCounterStaff() {
           />
         </Paper>
       </Box>
+
+      {/* Guías listas para enviar.
+          Aparecer en la pantalla de salida no bastaba: entre las que llevan ahí
+          semanas se pierde la que se volvió enviable hoy. Este widget pone el
+          número enfrente y lleva directo a armar la consolidación. */}
+      <Paper
+        onClick={() => listas.length > 0 && setListasOpen(true)}
+        sx={{
+          p: 2.5, mb: 3, borderRadius: 3, display: 'flex', alignItems: 'center', gap: 2,
+          cursor: listas.length > 0 ? 'pointer' : 'default',
+          background: listas.length > 0
+            ? 'linear-gradient(135deg, #2E7D46 0%, #43A047 100%)'
+            : 'linear-gradient(135deg, #90A4AE 0%, #B0BEC5 100%)',
+          color: '#fff',
+          '&:hover': listas.length > 0 ? { filter: 'brightness(1.06)' } : {},
+        }}
+      >
+        <ShippingIcon sx={{ fontSize: 44 }} />
+        <Box sx={{ flex: 1 }}>
+          <Typography variant="h3" fontWeight={900} lineHeight={1}>{listas.length}</Typography>
+          <Typography variant="body1" fontWeight={700}>
+            {listas.length === 1 ? 'guía lista para enviar' : 'guías listas para enviar'}
+          </Typography>
+          {listas.length > 0 && (
+            <Typography variant="caption" sx={{ opacity: 0.9 }}>
+              Toca para verlas y armar la salida
+            </Typography>
+          )}
+        </Box>
+        {listas.length > 0 && (
+          <Button variant="contained" size="large"
+            onClick={(e) => { e.stopPropagation(); setActiveView('exit'); }}
+            sx={{ bgcolor: '#fff', color: '#2E7D46', fontWeight: 800, '&:hover': { bgcolor: '#F1F8E9' } }}>
+            SALIDA
+          </Button>
+        )}
+      </Paper>
+
+      <Dialog open={listasOpen} onClose={() => setListasOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>
+          📦 {listas.length} {listas.length === 1 ? 'guía lista' : 'guías listas'} para enviar
+        </DialogTitle>
+        <DialogContent dividers>
+          {listas.map((p: any) => {
+            const d = diasEsperando(p);
+            return (
+              <Box key={p.id} sx={{ py: 1, borderBottom: '1px solid #F0F0F0', display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography fontWeight={700} sx={{ fontFamily: 'monospace' }}>{p.tracking_internal}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {p.box_id || 's/casillero'} · {p.total_boxes || 1} caja{(p.total_boxes || 1) === 1 ? '' : 's'}
+                  </Typography>
+                </Box>
+                <Chip size="small"
+                  label={d <= 0 ? 'lista hoy' : `${d} día${d === 1 ? '' : 's'}`}
+                  sx={{ height: 20, fontWeight: 700,
+                        bgcolor: d >= 2 ? '#C62828' : '#E8F5E9', color: d >= 2 ? '#fff' : '#2E7D46' }} />
+              </Box>
+            );
+          })}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setListasOpen(false)}>Cerrar</Button>
+          <Button variant="contained" startIcon={<ShippingIcon />}
+            onClick={() => { setListasOpen(false); setActiveView('exit'); }}
+            sx={{ bgcolor: '#2E7D46', '&:hover': { bgcolor: '#1B5E20' } }}>
+            Salida
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* KPIs Principales — ocultos para rol mostrador (counter_staff) */}
 
