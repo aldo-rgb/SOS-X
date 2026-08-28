@@ -393,7 +393,8 @@ export default function AdvisorCommissionsLedgerPage({ focoAsesor }: Props = {})
               <InputLabel>Estado</InputLabel>
               <Select value={filterStatus} label="Estado" onChange={e => { setFilterStatus(e.target.value); setPage(0); }}>
                 <MenuItem value="">Todos</MenuItem>
-                <MenuItem value="pending">Pendiente</MenuItem>
+                <MenuItem value="pending">Pendiente (cobrable)</MenuItem>
+                <MenuItem value="credit">En crédito</MenuItem>
                 <MenuItem value="paid">Pagado</MenuItem>
               </Select>
             </FormControl>

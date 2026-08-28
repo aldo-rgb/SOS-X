@@ -537,7 +537,15 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
             conditions.push(`ac.service_type = $${paramIdx++}`);
             params.push(service_type);
         }
-        if (status) {
+        // "Pendiente" = pendiente Y COBRABLE. Las de crédito también están en
+        // status 'pending', pero no se pueden pagar hasta que el cliente abone,
+        // así que salían mezcladas y ensuciaban el filtro. Ahora tienen su
+        // propio estado ('credit').
+        if (status === 'credit') {
+            conditions.push(`COALESCE(ac.awaiting_client_payment, FALSE) = TRUE`);
+        } else if (status === 'pending') {
+            conditions.push(`ac.status = 'pending' AND COALESCE(ac.awaiting_client_payment, FALSE) = FALSE`);
+        } else if (status) {
             conditions.push(`ac.status = $${paramIdx++}`);
             params.push(status);
         }
