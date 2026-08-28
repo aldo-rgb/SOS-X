@@ -545,6 +545,33 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
             conditions.push(`COALESCE(ac.awaiting_client_payment, FALSE) = TRUE`);
         } else if (status === 'pending') {
             conditions.push(`ac.status = 'pending' AND COALESCE(ac.awaiting_client_payment, FALSE) = FALSE`);
+            // "Cobrable" quiere decir que hay con qué cobrarla: una orden de pago
+            // real detrás. Sin orden —o con la orden cancelada— la comisión se ve
+            // pagable en pantalla y no lo es, que es justo lo que ensuciaba la
+            // lista. Las órdenes viven en tres lugares según el servicio.
+            conditions.push(`(
+                EXISTS (SELECT 1 FROM pobox_payments pp_o
+                         WHERE ac.shipment_type = 'PKG'
+                           AND pp_o.status IN ('completed','paid')
+                           AND (pp_o.package_ids @> to_jsonb(ac.shipment_id)
+                                OR pp_o.id = (SELECT p2.pobox_payment_id FROM packages p2 WHERE p2.id = ac.shipment_id)
+                                OR pp_o.payment_reference = NULLIF((SELECT p3.payment_reference FROM packages p3 WHERE p3.id = ac.shipment_id), '')))
+                OR EXISTS (SELECT 1 FROM pobox_payments pp_d
+                            WHERE ac.shipment_type = 'DHL'
+                              AND pp_d.service_type = 'AA_DHL'
+                              AND pp_d.status IN ('completed','paid')
+                              AND pp_d.package_ids @> to_jsonb(ac.shipment_id))
+                OR EXISTS (SELECT 1 FROM advisor_payment_orders apo_o
+                            WHERE apo_o.status = 'pagado'
+                              AND (apo_o.package_uids ? ('PKG-' || ac.shipment_id::text)
+                                   OR (ac.tracking IS NOT NULL AND apo_o.trackings ? ac.tracking)))
+                OR EXISTS (SELECT 1 FROM entangled_payment_requests epr_o
+                            WHERE ac.shipment_type = 'XPAY' AND epr_o.id = ac.shipment_id
+                              AND epr_o.estatus_global = 'completado')
+                OR EXISTS (SELECT 1 FROM warranties w_o
+                            WHERE ac.shipment_type = 'GEX' AND w_o.id = ac.shipment_id
+                              AND NULLIF(w_o.gex_folio, '') IS NOT NULL AND w_o.status = 'active')
+            )`);
         } else if (status) {
             conditions.push(`ac.status = $${paramIdx++}`);
             params.push(status);
@@ -618,14 +645,14 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                 -- prefiriendo la PAGADA sobre la cancelada/pendiente — así si el cliente
                 -- pagó con otro método a la mera hora (ej. PayPal PP-) se muestra esa,
                 -- no una RO- cancelada. Exponemos también el status de la orden.
-                COALESCE(bo.payment_reference,
+                COALESCE(bo.payment_reference, bd.payment_reference, ba.payment_reference,
                     (CASE ac.shipment_type
                         WHEN 'DHL' THEN (SELECT d.payment_reference FROM dhl_shipments d WHERE d.id = ac.shipment_id)
                         WHEN 'XPAY' THEN (SELECT epr.referencia_pago FROM entangled_payment_requests epr WHERE epr.id = ac.shipment_id)
                         WHEN 'GEX' THEN (SELECT w.gex_folio FROM warranties w WHERE w.id = ac.shipment_id)
                         ELSE NULL END)
                 ) AS payment_order,
-                COALESCE(bo.status,
+                COALESCE(bo.status, bd.status, ba.status,
                     (CASE ac.shipment_type
                         WHEN 'XPAY' THEN (SELECT epr.estatus_global FROM entangled_payment_requests epr WHERE epr.id = ac.shipment_id)
                         WHEN 'GEX' THEN (SELECT w.status FROM warranties w WHERE w.id = ac.shipment_id)
@@ -652,6 +679,31 @@ export const getAdvisorCommissionsList = async (req: Request, res: Response): Pr
                           pp.paid_at DESC NULLS LAST, pp.id DESC
                  LIMIT 1
             ) bo ON TRUE
+            -- 📮 DHL: su orden también vive en pobox_payments, pero los
+            -- package_ids apuntan a dhl_shipments y COLISIONAN con los de
+            -- packages, así que hay que filtrar por service_type. Sin este
+            -- LATERAL la columna "Orden de pago" salía vacía en todo DHL.
+            LEFT JOIN LATERAL (
+                SELECT pp.payment_reference, pp.status
+                  FROM pobox_payments pp
+                 WHERE ac.shipment_type = 'DHL'
+                   AND pp.service_type = 'AA_DHL'
+                   AND pp.package_ids @> to_jsonb(ac.shipment_id)
+                 ORDER BY (CASE WHEN pp.status IN ('completed','paid') THEN 0 WHEN pp.status = 'cancelled' THEN 2 ELSE 1 END),
+                          pp.paid_at DESC NULLS LAST, pp.id DESC
+                 LIMIT 1
+            ) bd ON TRUE
+            -- ✈️ Aéreo China: sus órdenes viven en advisor_payment_orders, no
+            -- en pobox_payments. Misma historia: la columna salía vacía.
+            LEFT JOIN LATERAL (
+                SELECT apo.folio AS payment_reference, apo.status
+                  FROM advisor_payment_orders apo
+                 WHERE ac.service_type = 'aereo_china_mx'
+                   AND (apo.package_uids ? ('PKG-' || ac.shipment_id::text)
+                        OR (ac.tracking IS NOT NULL AND apo.trackings ? ac.tracking))
+                 ORDER BY (CASE WHEN apo.status = 'pagado' THEN 0 WHEN apo.status = 'cancelado' THEN 2 ELSE 1 END), apo.id DESC
+                 LIMIT 1
+            ) ba ON TRUE
             ${whereClause}
             ORDER BY ac.created_at DESC
             LIMIT $${paramIdx++} OFFSET $${paramIdx++}
