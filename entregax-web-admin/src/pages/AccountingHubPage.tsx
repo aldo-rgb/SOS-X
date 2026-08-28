@@ -2453,6 +2453,26 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
   };
 
   // Ver el/los comprobante(s) de pago que subió el cliente.
+  /**
+   * Le pide al cliente su constancia actualizada. Deja el aviso en la app y,
+   * si tiene teléfono, abre WhatsApp con el texto listo: el aviso in-app puede
+   * tardar días en leerse y esto detiene una factura.
+   */
+  const pedirConstanciaAlCliente = async (r: any) => {
+    try {
+      const res = await api.post(`/accounting/${emitter.id}/pending-stamp/${r.id}/request-constancia`);
+      if (res.data?.whatsapp_url) window.open(res.data.whatsapp_url, '_blank');
+      setSnackbar({ open: true, severity: 'success',
+        message: res.data?.whatsapp_url
+          ? `Aviso enviado a ${res.data.cliente}. Se abrió WhatsApp con el mensaje listo.`
+          : `Aviso enviado a ${res.data?.cliente || 'el cliente'} (no tiene teléfono registrado).` });
+      load();
+    } catch (e: any) {
+      setSnackbar({ open: true, severity: 'error',
+        message: e?.response?.data?.error || 'No se pudo solicitar la constancia' });
+    }
+  };
+
   const openVouchers = async (r: any) => {
     setVoucherDialog({ open: true, loading: true, reference: r.payment_reference, vouchers: [] });
     try {
@@ -2566,12 +2586,34 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
                 <TableCell align="right" sx={{ fontWeight: 'bold' }}>{fmt(parseFloat(r.amount))}</TableCell>
                 <TableCell><Chip label={r.payment_method || '—'} size="small" variant="outlined" /></TableCell>
                 <TableCell>{fmtDate(r.paid_at)}</TableCell>
-                <TableCell>
-                  {r.factura_error ? (
-                    <Tooltip title={r.factura_error}>
-                      <Chip label="Error" size="small" sx={{ bgcolor: RED, color: 'white' }} />
-                    </Tooltip>
-                  ) : (
+                <TableCell sx={{ maxWidth: 260 }}>
+                  {r.factura_error ? (() => {
+                    // El motivo se lee sin tener que pasar el mouse: antes solo
+                    // decía "Error" y el texto del PAC vivía en el tooltip, así
+                    // que nadie sabía si el problema era del cliente o nuestro.
+                    const info = formatInvoiceError(r.factura_error);
+                    const motivo = info.issues[0]?.message || info.headline;
+                    const pedirConstancia = /receptor|regimen|régimen|nombre|c[oó]digo postal|rfc/i.test(motivo);
+                    return (
+                      <>
+                        <Tooltip title={r.factura_error}>
+                          <Chip label="Error" size="small" sx={{ bgcolor: RED, color: 'white' }} />
+                        </Tooltip>
+                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary', lineHeight: 1.3 }}>
+                          {motivo}
+                        </Typography>
+                        {/* Solo cuando el rechazo es por datos fiscales que ya no
+                            coinciden con el SAT: ahí el único camino es que el
+                            cliente mande su constancia al día. */}
+                        {pedirConstancia && (
+                          <Button size="small" variant="outlined" sx={{ mt: 0.5, fontSize: 11, py: 0.2 }}
+                            onClick={() => pedirConstanciaAlCliente(r)}>
+                            Pedir constancia
+                          </Button>
+                        )}
+                      </>
+                    );
+                  })() : (
                     <Chip label="Pendiente" size="small" sx={{ bgcolor: ORANGE, color: 'white' }} />
                   )}
                 </TableCell>

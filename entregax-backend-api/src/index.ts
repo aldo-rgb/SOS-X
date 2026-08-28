@@ -1419,6 +1419,7 @@ import {
   downloadEmittedInvoiceFile,
   listPendingStamp,
   archivePendingStamp,
+  requestConstanciaForStamp,
   resendInvoiceEmail,
   emitManualCFDI,
   searchFiscalClients,
@@ -5650,6 +5651,9 @@ app.get('/api/accounting/:emitterId/invoices', authenticateToken, listEmitterInv
 app.get('/api/accounting/:emitterId/invoices/:invoiceId/file', authenticateToken, downloadEmittedInvoiceFile);
 app.get('/api/accounting/:emitterId/pending-stamp', authenticateToken, listPendingStamp);
 app.post('/api/accounting/:emitterId/pending-stamp/:paymentId/archive', authenticateToken, archivePendingStamp);
+// Pide al cliente su constancia actualizada cuando el PAC rechaza por datos
+// fiscales que ya no coinciden con el SAT.
+app.post('/api/accounting/:emitterId/pending-stamp/:paymentId/request-constancia', authenticateToken, requestConstanciaForStamp);
 app.post('/api/fiscal/invoice/manual', authenticateToken, emitManualCFDI);
 app.get('/api/accounting/:emitterId/fiscal-clients', authenticateToken, searchFiscalClients);
 app.post('/api/accounting/:emitterId/invoices/manual', authenticateToken, createManualInvoice);

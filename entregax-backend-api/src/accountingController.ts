@@ -472,6 +472,75 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
 };
 
 /**
+ * POST /api/accounting/:emitterId/pending-stamp/:paymentId/request-constancia
+ *
+ * Le pide al cliente su constancia de situación fiscal actualizada.
+ *
+ * Cuando el PAC rechaza por nombre, régimen o CP que no coinciden con el SAT,
+ * el dato que tenemos quedó viejo —el cliente se cambió de domicilio o de
+ * régimen— y no hay forma de timbrar hasta que lo actualice. Antes el rechazo
+ * moría en un chip rojo: contabilidad veía "Error" y nadie le avisaba al
+ * cliente.
+ *
+ * Deja el aviso en la app y devuelve un texto de WhatsApp listo para mandar,
+ * porque el aviso in-app puede tardar días en leerse y esto suele correr prisa.
+ */
+export const requestConstanciaForStamp = async (req: AuthRequest, res: Response): Promise<any> => {
+    try {
+        const userId = req.user?.userId || (req.user as any)?.id;
+        const role = req.user?.role;
+        const emitterId = parseInt(String(req.params.emitterId), 10);
+        const paymentId = parseInt(String(req.params.paymentId), 10);
+        if (!emitterId || !paymentId) return res.status(400).json({ error: 'Parámetros inválidos' });
+
+        const access = await checkEmitterAccess(userId!, role, emitterId);
+        if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
+
+        const pay = (await pool.query(
+            `SELECT pp.id, pp.payment_reference, pp.amount, pp.factura_error, pp.user_id,
+                    u.full_name, u.phone, u.box_id
+               FROM pobox_payments pp
+               LEFT JOIN users u ON u.id = pp.user_id
+              WHERE pp.id = $1`, [paymentId])).rows[0];
+        if (!pay) return res.status(404).json({ error: 'Pago no encontrado' });
+        if (!pay.user_id) return res.status(400).json({ error: 'El pago no tiene cliente asociado' });
+
+        const nombre = String(pay.full_name || 'Cliente').split(' ')[0];
+        const cuerpo =
+            `Para poder emitir tu factura del pago ${pay.payment_reference} necesitamos tu `
+            + `constancia de situación fiscal actualizada: el SAT rechazó los datos que tenemos registrados. `
+            + `Puedes subirla desde la app, en tu perfil fiscal.`;
+
+        const { createCustomNotification } = await import('./notificationController');
+        await createCustomNotification(
+            Number(pay.user_id),
+            '🧾 Necesitamos tu constancia fiscal actualizada',
+            cuerpo, 'warning', 'file-document-edit', { payment_id: paymentId }, '/perfil-fiscal'
+        ).catch(() => {});
+
+        // Se deja rastro en el propio pago para que no se pida dos veces sin
+        // saberlo, sin pisar el error original que explica por qué falló.
+        await pool.query(
+            `UPDATE pobox_payments
+                SET factura_error = COALESCE(factura_error,'') || ' · Constancia solicitada al cliente ' || TO_CHAR(NOW(),'DD-MM HH24:MI')
+              WHERE id = $1 AND COALESCE(factura_error,'') NOT LIKE '%Constancia solicitada%'`,
+            [paymentId]).catch(() => {});
+
+        const tel = String(pay.phone || '').replace(/\D/g, '');
+        const texto = `Hola ${nombre}, ${cuerpo}`;
+        return res.json({
+            success: true,
+            message: 'Se le avisó al cliente en la app',
+            whatsapp_url: tel ? `https://wa.me/${tel}?text=${encodeURIComponent(texto)}` : null,
+            cliente: pay.full_name, box_id: pay.box_id,
+        });
+    } catch (e: any) {
+        console.error('requestConstanciaForStamp:', e);
+        res.status(500).json({ error: 'No se pudo solicitar la constancia', message: e.message });
+    }
+};
+
+/**
  * POST /api/accounting/:emitterId/pending-stamp/:paymentId/archive
  * Archiva (oculta) un pago con error que no se va a facturar. Solo super_admin.
  */
@@ -537,16 +606,42 @@ export const resendInvoiceEmail = async (req: AuthRequest, res: Response): Promi
     }
 };
 
-// Mapa de métodos de pago EntregaX → código SAT forma_pago
+// Mapa de métodos de pago EntregaX → código SAT forma_pago.
+//
+// Faltaban los nombres que la base usa de verdad. El mapa tenía 'transfer'
+// (inglés) pero pobox_payments guarda 'transferencia': 110 pagos contra 6, así
+// que el mapeo bueno casi nunca aplicaba y caían al 99 "Por definir". Con
+// método PUE el SAT rechaza el 99 —"Para PUE la Forma de pago no puede ser
+// 99"— y el CFDI no se timbraba. Eran 3 de los 5 pendientes por timbrar, y
+// otros 54 pagos por transferencia con factura pedida iban camino a lo mismo.
+//
+// 'credit' se timbra como PUE con forma 03: el cliente liquida por
+// transferencia, que es como se cobra el crédito en la práctica.
 const FORMA_PAGO_MAP: Record<string, string> = {
-    card: '04',        // Tarjeta de crédito
-    debit_card: '28',  // Tarjeta de débito
-    cash: '01',        // Efectivo
-    transfer: '03',    // Transferencia electrónica
+    card: '04',           // Tarjeta de crédito
+    debit_card: '28',     // Tarjeta de débito
+    cash: '01',           // Efectivo
+    efectivo: '01',
+    transfer: '03',       // Transferencia electrónica
+    transferencia: '03',
+    deposito: '03',
     spei: '03',
+    wallet: '03',         // Saldo a favor: entró por transferencia
+    credit: '03',         // Crédito liquidado por transferencia
+    credito: '03',
     openpay: '04',
-    paypal: '31',      // Intermediario de pagos
+    paypal: '31',         // Intermediario de pagos
 };
+
+/**
+ * Forma de pago SAT para un método de EntregaX.
+ *
+ * Nunca devuelve 99: ese código solo es válido con PPD, y aquí todo se timbra
+ * PUE. Ante un método desconocido se manda 03 (transferencia), que es como
+ * entra la mayoría del dinero, en vez de un CFDI que el PAC va a rechazar.
+ */
+const formaPagoSAT = (metodo?: string | null): string =>
+    FORMA_PAGO_MAP[String(metodo || '').trim().toLowerCase()] || '03';
 
 /**
  * POST /api/fiscal/invoice/manual
@@ -624,7 +719,7 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
         const receptorNombre = pay.razon_social?.trim() || pay.full_name?.trim() || 'Público en General';
         const regimenFiscal = pay.regimen_fiscal?.trim() || '616'; // 616 = Sin obligaciones fiscales (PF)
         const cpReceptor = pay.cfdi_zip?.trim() || '06600';
-        const formaPago = FORMA_PAGO_MAP[pay.payment_method] || '99'; // 99 = Por definir
+        const formaPago = formaPagoSAT(pay.payment_method);
 
         // 3. Crear cliente Facturama con credenciales del emisor
         const client = await FacturamaClient.fromEmitterId(fiscal_emitter_id);
@@ -865,8 +960,14 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
         if (!(Number(it.unit_price) >= 0)) return res.status(400).json({ error: `Concepto #${i + 1}: precio inválido` });
     }
 
-    const paymentForm = String(body.payment_form || '99').trim();
     const paymentMethod = (body.payment_method === 'PPD' ? 'PPD' : 'PUE') as 'PUE' | 'PPD';
+    // El 99 "Por definir" solo es válido con PPD. En PUE el PAC lo rechaza, así
+    // que si no viene forma de pago se manda 03 (transferencia) en lugar de
+    // emitir un CFDI que va a fallar.
+    const paymentFormRaw = String(body.payment_form || '').trim();
+    const paymentForm = paymentFormRaw && !(paymentMethod === 'PUE' && paymentFormRaw === '99')
+      ? paymentFormRaw
+      : (paymentMethod === 'PPD' ? '99' : '03');
     const currency = String(body.currency || 'MXN').toUpperCase();
     const serie = body.serie ? String(body.serie) : undefined;
     let folio: number | undefined = body.folio ? Number(body.folio) : undefined;
