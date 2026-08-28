@@ -1711,33 +1711,47 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
               )}
               {canInline ? (
                 // ── Edición inline: prioridad, categoría, responsable, involucrados ──
+                // Plegadas, igual que en el formulario de nueva tarea. Abiertas
+                // eran cuatro paredes de botones que empujaban hasta el fondo lo
+                // que uno viene a ver: la descripción, los comentarios y el
+                // botón de terminar. El encabezado ya dice lo que está elegido.
                 <View style={{ marginTop: 6, padding: 10, backgroundColor: '#FBF8F4', borderRadius: 10, borderWidth: 1, borderColor: '#ECE4D8' }}>
-                  <Text style={styles.fieldLbl}>Prioridad</Text>
-                  <EisPicker value={t.eisenhower} onChange={(v: string) => patchTask({ eisenhower: v })} />
-                  <Text style={styles.fieldLbl}>Categoría</Text>
-                  <View style={styles.eisRow}>
-                    <TouchableOpacity onPress={() => patchTask({ board_id: null })} style={[styles.dateChip, !curCat && styles.dateChipOn]}>
-                      <Text style={[styles.dateChipTxt, !curCat && { color: '#fff' }]}>Personal</Text>
-                    </TouchableOpacity>
-                    {eCats.map(c => (
-                      <TouchableOpacity key={c.id} onPress={() => patchTask({ board_id: c.id })} style={[styles.dateChip, curCat === c.id && styles.dateChipOn]}>
-                        <Text style={[styles.dateChipTxt, curCat === c.id && { color: '#fff' }]}>{c.name}</Text>
+                  <Plegable titulo="Prioridad" resumen={(EIS as any)[t.eisenhower]?.short || '—'}>
+                    <EisPicker value={t.eisenhower} onChange={(v: string) => patchTask({ eisenhower: v })} />
+                  </Plegable>
+                  <Plegable
+                    titulo="Categoría"
+                    resumen={!curCat ? 'Personal' : (eCats.find((c: any) => c.id === curCat)?.name || '—')}
+                  >
+                    <View style={styles.eisRow}>
+                      <TouchableOpacity onPress={() => patchTask({ board_id: null })} style={[styles.dateChip, !curCat && styles.dateChipOn]}>
+                        <Text style={[styles.dateChipTxt, !curCat && { color: '#fff' }]}>Personal</Text>
                       </TouchableOpacity>
-                    ))}
-                  </View>
-                  <Text style={styles.fieldLbl}>Responsable</Text>
-                  <View style={styles.eisRow}>
-                    {respCands.map(uid => (
-                      <TouchableOpacity key={uid} onPress={() => patchTask({ assignee_id: uid, involved_ids: Array.from(new Set<number>([creatorId, ...partIds, uid].filter(Boolean))) })}
-                        style={[styles.dateChip, Number(t.assignee_id) === uid && styles.dateChipOn]}>
-                        <Text style={[styles.dateChipTxt, Number(t.assignee_id) === uid && { color: '#fff' }]}>{nameFor(uid)}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                  <Text style={styles.fieldLbl}>Involucrados</Text>
-                  <InvolvedPicker users={eUsers} myId={creatorId} selected={involvedExtra}
-                    onChange={(ids: number[]) => patchTask({ involved_ids: creatorId ? [creatorId, ...ids] : ids, assignee_id: Number(t.assignee_id) || undefined })}
-                    fixedLabel={t.created_by_name || 'Creador'} frequent={eFrequent} />
+                      {eCats.map(c => (
+                        <TouchableOpacity key={c.id} onPress={() => patchTask({ board_id: c.id })} style={[styles.dateChip, curCat === c.id && styles.dateChipOn]}>
+                          <Text style={[styles.dateChipTxt, curCat === c.id && { color: '#fff' }]}>{c.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </Plegable>
+                  <Plegable titulo="Responsable" resumen={t.assignee_name || '—'}>
+                    <View style={styles.eisRow}>
+                      {respCands.map(uid => (
+                        <TouchableOpacity key={uid} onPress={() => patchTask({ assignee_id: uid, involved_ids: Array.from(new Set<number>([creatorId, ...partIds, uid].filter(Boolean))) })}
+                          style={[styles.dateChip, Number(t.assignee_id) === uid && styles.dateChipOn]}>
+                          <Text style={[styles.dateChipTxt, Number(t.assignee_id) === uid && { color: '#fff' }]}>{nameFor(uid)}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </Plegable>
+                  <Plegable
+                    titulo="Involucrados"
+                    resumen={involvedExtra.length === 0 ? 'Solo el creador' : `${involvedExtra.length} además del creador`}
+                  >
+                    <InvolvedPicker users={eUsers} myId={creatorId} selected={involvedExtra}
+                      onChange={(ids: number[]) => patchTask({ involved_ids: creatorId ? [creatorId, ...ids] : ids, assignee_id: Number(t.assignee_id) || undefined })}
+                      fixedLabel={t.created_by_name || 'Creador'} frequent={eFrequent} />
+                  </Plegable>
                   {!!t.due_at && <Text style={[styles.metaLine, t.overdue && { color: '#C0392B' }, { marginTop: 8 }]}><Text style={styles.metaB}>Fecha deseada:</Text> {fmtDate(t.due_at)}</Text>}
                   {busy && <ActivityIndicator color={ORANGE} style={{ marginTop: 6 }} />}
                 </View>
