@@ -244,6 +244,62 @@ function friendlyEntangledError(code?: string | null, respuesta?: any): string {
   return MENSAJE_GENERICO_XPAY;
 }
 
+/**
+ * Horas EXTRA después del vencimiento en las que todavía se recibe el
+ * comprobante. La orden ya se ve cancelada; esto solo evita perder el pago de
+ * quien depositó tarde. 24 de congelamiento + 12 de gracia = 36.
+ */
+async function getGraciaHoras(): Promise<number> {
+  try {
+    await pool.query(
+      `ALTER TABLE entangled_service_config ADD COLUMN IF NOT EXISTS gracia_horas INTEGER DEFAULT 12`
+    ).catch(() => {});
+    const r = await pool.query(`SELECT gracia_horas FROM entangled_service_config WHERE id = 1`);
+    const h = Number(r.rows[0]?.gracia_horas);
+    return Number.isFinite(h) && h >= 0 ? h : 12;
+  } catch { return 12; }
+}
+
+/**
+ * Deja constancia de que llegó un comprobante fuera de tiempo y avisa al equipo
+ * para que valore reactivar. No reactiva nada: el tipo de cambio de la orden ya
+ * venció y revivirla tiene un costo que solo una persona puede autorizar.
+ */
+async function marcarParaRevisionDeReactivacion(requestId: number, reqRow: any): Promise<void> {
+  try {
+    await pool.query(
+      `UPDATE entangled_payment_requests
+          SET comprobante_subido_at = COALESCE(comprobante_subido_at, NOW()),
+              error_message = 'comprobante_fuera_de_tiempo_en_revision',
+              updated_at = NOW()
+        WHERE id = $1`, [requestId]);
+
+    const ref = reqRow.referencia_pago || `#${requestId}`;
+    const monto = `${Number(reqRow.op_monto || 0).toLocaleString('es-MX')} ${reqRow.op_divisa_destino || ''}`.trim();
+    const cliente = (await pool.query(
+      `SELECT full_name, box_id FROM users WHERE id = $1`, [reqRow.user_id])).rows[0];
+    const quien = cliente ? `${cliente.full_name} (${cliente.box_id || 's/casillero'})` : 'un cliente';
+
+    const destinos = (await pool.query(
+      `SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'soporte_tecnico') AND COALESCE(is_active, true) = true`
+    )).rows.map((x: any) => Number(x.id));
+    if (destinos.length === 0) return;
+
+    const { createCustomNotification } = await import('./notificationController');
+    for (const uid of destinos) {
+      await createCustomNotification(
+        uid,
+        '⏳ Comprobante fuera de tiempo · XPAY',
+        `${ref} · ${quien} subió su comprobante de ${monto} después del plazo. La orden está cancelada por congelamiento; revisa si se puede reactivar.`,
+        'payment', 'alert-circle', { request_id: requestId, referencia: ref }, '/xpay'
+      ).catch(() => {});
+    }
+    console.log(`⏳ [XPAY] ${ref}: comprobante fuera de tiempo, ${destinos.length} avisados para revisión`);
+  } catch (e: any) {
+    console.error('[XPAY] marcarParaRevisionDeReactivacion:', e?.message || e);
+  }
+}
+
 async function getCongelamientoHoras(): Promise<number> {
   try {
     const r = await pool.query(
@@ -1066,26 +1122,61 @@ export async function sendPendingRequestToEntangled(
   }
   const reqRow = r.rows[0];
 
-  // Orden vencida o cancelada por congelamiento → no se acepta el comprobante.
-  // Alineado con el contrato (409 orden_cancelada / orden_vencida).
+  // ── Vencimiento y periodo de gracia ────────────────────────────────────
+  //
+  // La orden se ve CANCELADA a las 24 h (el congelamiento del TC venció y el
+  // cron ya la marcó). Pero el comprobante se sigue recibiendo hasta las 36:
+  // el cliente que pagó a las 25 horas pagó de verdad, y perder ese pago por
+  // un cierre de reloj obliga a rehacer todo. Dentro de esa gracia el
+  // comprobante SE GUARDA, la orden NO se reactiva sola —eso lo decide una
+  // persona, porque el tipo de cambio ya no es el de la orden— y se le avisa
+  // al equipo para que valore reactivarla.
+  const graciaHoras = await getGraciaHoras();
+  const venceMs = reqRow.payment_deadline_at ? new Date(reqRow.payment_deadline_at).getTime() : null;
+  const finGraciaMs = venceMs != null ? venceMs + graciaHoras * 60 * 60 * 1000 : null;
+  const vencida = venceMs != null && venceMs < Date.now();
+  const dentroDeGracia = finGraciaMs != null && Date.now() <= finGraciaMs;
+
   if (String(reqRow.estatus_global) === 'cancelado') {
+    // Cancelada por congelamiento y todavía dentro de la gracia → se acepta el
+    // comprobante y se pide revisión. Cualquier otra cancelación (manual, del
+    // proveedor) sigue siendo definitiva.
+    const porCongelamiento = String(reqRow.error_message || '') === 'congelamiento_vencido';
+    if (porCongelamiento && dentroDeGracia) {
+      await marcarParaRevisionDeReactivacion(requestId, reqRow);
+      return {
+        ok: false, status: 202,
+        payload: {
+          error: 'en_proceso_de_cancelacion',
+          message: 'Recibimos tu comprobante, pero el plazo de esta operación ya venció y está en proceso de cancelación. '
+            + 'Ya avisamos al equipo de soporte para revisar si es posible reactivarla; te confirmamos en breve.',
+          request_id: requestId,
+        },
+      };
+    }
     return { ok: false, status: 409, payload: { error: 'orden_cancelada', message: 'La orden fue cancelada (congelamiento vencido). Crea una nueva solicitud.' } };
   }
-  // Solo vence si AÚN no se había subido comprobante. Si ya hay comprobante
-  // previo, el cliente pagó dentro de la ventana → no cancelar (este reupload
-  // es un reemplazo/reintento, debe seguir su curso a en_proceso).
-  if (
-    reqRow.payment_deadline_at &&
-    new Date(reqRow.payment_deadline_at).getTime() < Date.now() &&
-    !reqRow.comprobante_subido_at
-  ) {
-    // Marcar cancelada de inmediato (el cron también lo haría) y rechazar.
+
+  // Aún no la marcó el cron pero ya venció. Si sigue dentro de la gracia se
+  // trata igual: se guarda el comprobante y se manda a revisión.
+  if (vencida && !reqRow.comprobante_subido_at) {
     await pool.query(
       `UPDATE entangled_payment_requests SET estatus_global='cancelado', error_message='congelamiento_vencido', updated_at=NOW() WHERE id=$1`,
       [requestId]
     ).catch(() => {});
-    // Fire-and-forget: avisar a ENTANGLED que cancelamos por congelamiento vencido.
     void notifyCancelledRequestIds([requestId], 'congelamiento_vencido');
+    if (dentroDeGracia) {
+      await marcarParaRevisionDeReactivacion(requestId, reqRow);
+      return {
+        ok: false, status: 202,
+        payload: {
+          error: 'en_proceso_de_cancelacion',
+          message: 'Recibimos tu comprobante, pero el plazo de esta operación ya venció y está en proceso de cancelación. '
+            + 'Ya avisamos al equipo de soporte para revisar si es posible reactivarla; te confirmamos en breve.',
+          request_id: requestId,
+        },
+      };
+    }
     return { ok: false, status: 409, payload: { error: 'orden_vencida', message: 'El plazo de pago venció (congelamiento). Crea una nueva solicitud.' } };
   }
 
