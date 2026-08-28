@@ -1631,6 +1631,7 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
   const citaCampos = () => citando
     ? (citando.tipo === 'comentario' ? { reply_to_comment_id: citando.id } : { reply_to_attachment_id: citando.id })
     : {};
+  const [histAbierto, setHistAbierto] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState('');
   const saveEditComment = async () => {
@@ -2117,22 +2118,48 @@ function TaskDetail({ id, onClose, onChanged, notify }: any) {
             </Box>
 
             <Divider sx={{ my: 2 }} />
-            <Typography fontWeight={800} fontSize={14} sx={{ mb: 1 }}>Historial de la tarea</Typography>
-            {(data.activity || []).length === 0 ? (
-              <Typography variant="caption" color="text.secondary">Sin actividad.</Typography>
-            ) : (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-                {(data.activity || []).map((a: any) => (
-                  <Box key={a.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: a.action === 'completed' ? '#2E7D46' : '#D6521C', mt: 0.75, flex: 'none' }} />
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="body2">{actLabel(a)}</Typography>
-                      <Typography variant="caption" color="text.secondary">{a.actor_name || '—'} · {fmtDate(a.created_at)}</Typography>
-                    </Box>
+            {/* Plegado a los 2 últimos movimientos: el historial crece con cada
+                comentario y empujaba fuera de la vista lo que sí se lee. */}
+            {(() => {
+              const acts = (data.activity || []) as any[];
+              const visibles = histAbierto ? acts : acts.slice(0, 2);
+              return (
+                <>
+                  <Box onClick={() => acts.length > 2 && setHistAbierto(v => !v)}
+                    sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1, cursor: acts.length > 2 ? 'pointer' : 'default' }}>
+                    <Typography fontWeight={800} fontSize={14}>Historial de la tarea</Typography>
+                    {acts.length > 2 && (
+                      <>
+                        <ExpandMoreIcon sx={{ fontSize: 18, color: '#5F6368', transform: histAbierto ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+                        <Typography variant="caption" color="text.secondary">
+                          {histAbierto ? 'ocultar' : `ver los ${acts.length}`}
+                        </Typography>
+                      </>
+                    )}
                   </Box>
-                ))}
-              </Box>
-            )}
+                  {acts.length === 0 ? (
+                    <Typography variant="caption" color="text.secondary">Sin actividad.</Typography>
+                  ) : (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                      {visibles.map((a: any) => (
+                        <Box key={a.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: a.action === 'completed' ? '#2E7D46' : '#D6521C', mt: 0.75, flex: 'none' }} />
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="body2">{actLabel(a)}</Typography>
+                            <Typography variant="caption" color="text.secondary">{a.actor_name || '—'} · {fmtDate(a.created_at)}</Typography>
+                          </Box>
+                        </Box>
+                      ))}
+                      {!histAbierto && acts.length > 2 && (
+                        <Button size="small" onClick={() => setHistAbierto(true)} sx={{ alignSelf: 'flex-start', textTransform: 'none' }}>
+                          Ver los {acts.length - 2} movimientos anteriores
+                        </Button>
+                      )}
+                    </Box>
+                  )}
+                </>
+              );
+            })()}
           </DialogContent>
           <DialogActions>
             {/* Sensación de guardado: al cambiar algo (que ya se guarda solo), el
