@@ -499,9 +499,16 @@ export default function CommissionsBoardTab() {
             // aquí se enseña de dónde sale cada uno y sobre qué fechas.
             const cobrable = r.ownCobrable != null ? r.ownCobrable : r.ownPending;
             const enCredito = r.ownCreditHold || 0;
+            // Fechas en formato legible: "2026-08-21" no se lee de un vistazo.
+            const dLarga = (iso: string) => {
+              const [a, m, d] = iso.split('-').map(Number);
+              if (!a || !m || !d) return iso;
+              const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+              return `${d} ${MESES[m - 1]} ${a}`;
+            };
             const periodo = (fromDate || toDate)
-              ? `${fromDate || 'el inicio'} a ${toDate || 'hoy'}`
-              : (es ? 'todo el histórico (sin filtro de fechas)' : 'all time');
+              ? `${fromDate ? dLarga(fromDate) : 'el inicio'} — ${toDate ? dLarga(toDate) : 'hoy'}`
+              : (es ? 'TODO el histórico · no hay filtro de fechas puesto' : 'all time · no date filter');
             const Fila = ({ etq, val, nota, fuerte }: { etq: string; val: number; nota?: string; fuerte?: boolean }) => (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, py: 0.3 }}>
                 <Box sx={{ minWidth: 0 }}>
@@ -516,19 +523,24 @@ export default function CommissionsBoardTab() {
                 <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', mb: 0.5 }}>
                   De dónde sale cada número
                 </Typography>
-                <Typography variant="caption" sx={{ display: 'block', opacity: 0.8, mb: 1 }}>
-                  Periodo mostrado: {periodo}. Solo cuentan comisiones cuya orden de pago ya está pagada.
-                </Typography>
+                <Box sx={{ bgcolor: 'rgba(255,255,255,0.12)', borderRadius: 1, px: 1, py: 0.6, mb: 1 }}>
+                  <Typography variant="caption" sx={{ display: 'block', fontWeight: 800 }}>
+                    📅 Periodo: {periodo}
+                  </Typography>
+                  <Typography variant="caption" sx={{ display: 'block', opacity: 0.85, fontSize: 10.5 }}>
+                    Se cuenta por fecha en que se generó la comisión, y solo si la orden de pago ya está pagada.
+                  </Typography>
+                </Box>
                 <Fila etq="Propia (cobrable)" val={cobrable} nota="Su comisión, con el envío ya pagado por el cliente" />
                 {enCredito > 0 && <Fila etq="+ En crédito" val={enCredito} nota="Su comisión, pero el cliente aún no paga su envío" />}
                 {hasSubs && <Fila etq="+ A dispersar" val={ovMetric} nota={`Comisión de sus ${r.subCount} subasesor(es); él la recibe y la reparte`} />}
                 <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.3)', mt: 0.5, pt: 0.5 }}>
                   <Fila etq={hasSubs ? '= Entrega total' : '= Por pagar'} val={metric(r)} fuerte
-                    nota="Lo que se le entrega en este periodo" />
+                    nota={`Lo que se le entrega por el periodo ${periodo}`} />
                 </Box>
                 <Box sx={{ mt: 1, pt: 0.5, borderTop: '1px solid rgba(255,255,255,0.3)' }}>
                   <Fila etq="Pagado" val={r.paidCommission} nota="Ya liquidado, suyo y de sus subasesores" />
-                  <Fila etq="= Total" val={r.totalCommission} fuerte nota="Entrega + pagado: todo lo generado en el periodo" />
+                  <Fila etq="= Total" val={r.totalCommission} fuerte nota={`Entrega + pagado: todo lo generado en ${periodo}`} />
                 </Box>
                 <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.8, fontSize: 10.5 }}>
                   {r.totalCount} guías. En el ledger, filtrando por este asesor, verás {fmt(cobrable)}:
@@ -537,9 +549,20 @@ export default function CommissionsBoardTab() {
               </Box>
             );
 
+            // Al costado, no arriba: encima de la tarjeta el desglose se salía
+            // de la pantalla y se cortaba justo donde empieza. El popper voltea
+            // solo al lado que tenga espacio.
             return (
-              <Tooltip key={`tt-${r.advisorId}`} title={explicacion} arrow placement="top"
-                componentsProps={{ tooltip: { sx: { bgcolor: '#263238', maxWidth: 360, p: 1.25 } } }}>
+              <Tooltip key={`tt-${r.advisorId}`} title={explicacion} arrow placement="right-start"
+                slotProps={{
+                  popper: {
+                    modifiers: [
+                      { name: 'flip', options: { fallbackPlacements: ['left-start', 'right', 'left'] } },
+                      { name: 'preventOverflow', options: { padding: 12, altAxis: true } },
+                    ],
+                  },
+                  tooltip: { sx: { bgcolor: '#263238', maxWidth: 360, p: 1.5 } },
+                }}>
               <Paper key={r.advisorId} elevation={isPodium ? 6 : 1} sx={{
                 p: 2.5, borderRadius: 3, position: 'relative', overflow: 'hidden',
                 border: '2px solid', borderColor: isPodium ? ring : 'divider',
