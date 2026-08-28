@@ -308,11 +308,14 @@ interface CommissionData {
     totalCount: number;
     totalCommission: number;
     pendingCommission: number;
+    /** Ya generada pero retenida: el cliente pagó a crédito y aún no abona. */
+    creditHoldCommission?: number;
     paidCommission: number;
     pendingCount: number;
+    creditHoldCount?: number;
     paidCount: number;
   };
-  leaderOverride?: { total: number; pending: number; paid: number; subCount: number };
+  leaderOverride?: { total: number; pending: number; creditHold?: number; paid: number; subCount: number };
   subAdvisors?: CommissionSubAdvisor[];
   recent: CommissionRecent[];
   conversion: { totalReferred: number; withShipments: number; rate: string };
@@ -5003,7 +5006,7 @@ export default function DashboardAdvisor() {
     };
 
     // Override que gana como líder por sus subasesores + totales combinados.
-    const ov = c.leaderOverride || { total: 0, pending: 0, paid: 0, subCount: 0 };
+    const ov = c.leaderOverride || { total: 0, pending: 0, creditHold: 0, paid: 0, subCount: 0 };
     const subs = c.subAdvisors || [];
     const hasSubs = ov.subCount > 0;
     const combinedPending = c.totals.pendingCommission + ov.pending;
@@ -5016,8 +5019,9 @@ export default function DashboardAdvisor() {
           {/* ── Totales generales ── */}
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid size={{ xs: 6, md: 3 }}>
+              <Tooltip title="Comisiones que ya se te pueden pagar: el cliente pagó su envío y la orden está liquidada. No incluye lo que está en crédito.">
               <Paper sx={{ p: 2, borderRadius: 2, borderLeft: 4, borderColor: 'warning.main', textAlign: 'center' }}>
-                <Typography variant="caption" color="text.secondary">Pendiente de Pago</Typography>
+                <Typography variant="caption" color="text.secondary">Pendiente de Pago (cobrable)</Typography>
                 <Typography variant="h5" fontWeight={700} color="warning.main">
                   {formatMXN(combinedPending)}
                 </Typography>
@@ -5025,7 +5029,25 @@ export default function DashboardAdvisor() {
                   {c.totals.pendingCount} comisiones{hasSubs ? ' + subs' : ''}
                 </Typography>
               </Paper>
+              </Tooltip>
             </Grid>
+            {/* El crédito ya no va sumado arriba: se contaba como cobrable dinero
+                que todavía no se puede pagar. */}
+            {(c.totals.creditHoldCommission || 0) > 0 && (
+              <Grid size={{ xs: 6, md: 3 }}>
+                <Tooltip title="Comisiones ya generadas de envíos que el cliente pagó con su línea de crédito. Pasan solas a “Pendiente de Pago” cuando el cliente abona.">
+                <Paper sx={{ p: 2, borderRadius: 2, borderLeft: 4, borderColor: '#7E57C2', textAlign: 'center' }}>
+                  <Typography variant="caption" color="text.secondary">En crédito (aún no cobrable)</Typography>
+                  <Typography variant="h5" fontWeight={700} sx={{ color: '#7E57C2' }}>
+                    {formatMXN((c.totals.creditHoldCommission || 0) + (ov.creditHold || 0))}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {c.totals.creditHoldCount || 0} comisiones · esperando al cliente
+                  </Typography>
+                </Paper>
+                </Tooltip>
+              </Grid>
+            )}
             <Grid size={{ xs: 6, md: 3 }}>
               <Paper sx={{ p: 2, borderRadius: 2, borderLeft: 4, borderColor: 'success.main', textAlign: 'center' }}>
                 <Typography variant="caption" color="text.secondary">Ya Pagado</Typography>

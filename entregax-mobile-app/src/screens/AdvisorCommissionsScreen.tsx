@@ -25,10 +25,20 @@ import { API_URL } from '../services/api';
 
 const { width } = Dimensions.get('window');
 const ORANGE = '#F05A28';
+const MORADO = '#7E57C2';
+
+/**
+ * Estado que le importa al asesor. En la base una comision de orden a credito
+ * sigue en 'pending', pero no se le puede pagar hasta que el cliente abone,
+ * asi que se muestra como estado propio y no revuelta con lo cobrable.
+ */
+const estadoReal = (c: { status: string; en_credito?: boolean }) =>
+  c.en_credito ? 'credit' : c.status;
 
 interface CommissionSummary {
   totalEarned: number;
   totalPending: number;
+  totalCreditHold: number;
   totalPaid: number;
   thisMonth: number;
   lastMonth: number;
@@ -45,6 +55,8 @@ interface Commission {
   commission_rate: number;
   commission_mxn: number;
   status: string;
+  /** Comision de una orden pagada a credito: existe pero aun no se puede cobrar. */
+  en_credito: boolean;
   paid_at: string | null;
   created_at: string;
 }
@@ -81,6 +93,7 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
         setSummary({
           totalEarned: data.totals.totalCommission || 0,
           totalPending: data.totals.pendingCommission || 0,
+          totalCreditHold: data.totals.creditHoldCommission || 0,
           totalPaid: data.totals.paidCommission || 0,
           thisMonth: monthly[0]?.commission || 0,
           lastMonth: monthly[1]?.commission || 0,
@@ -99,12 +112,13 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
         commission_rate: r.commissionRate ?? r.commission_rate ?? 0,
         commission_mxn: r.commissionAmount ?? r.commission_mxn ?? 0,
         status: r.status || '',
+        en_credito: r.awaitingClientPayment === true || r.awaiting_client_payment === true,
         paid_at: r.paidAt ?? r.paid_at ?? null,
         created_at: r.createdAt || r.created_at || '',
       });
 
       let list: Commission[] = (data.recent || data.commissions || []).map(normalize);
-      if (filter !== 'all') list = list.filter(c => c.status === filter);
+      if (filter !== 'all') list = list.filter(c => estadoReal(c) === filter);
       if (serviceFilter !== 'all') list = list.filter(c => c.service_type === serviceFilter);
 
       if (reset) {
@@ -153,6 +167,8 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
         return '#4CAF50';
       case 'pending':
         return '#FF9800';
+      case 'credit':
+        return '#7E57C2';
       case 'cancelled':
         return '#f44336';
       default:
@@ -165,7 +181,9 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
       case 'paid':
         return 'Pagada';
       case 'pending':
-        return 'Pendiente';
+        return 'Por cobrar';
+      case 'credit':
+        return 'En crédito';
       case 'cancelled':
         return 'Cancelada';
       default:
@@ -213,13 +231,13 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
       <View style={styles.commissionFooter}>
         <Text style={styles.dateText}>{formatDate(item.created_at)}</Text>
         <View style={{
-          backgroundColor: getStatusColor(item.status) + '20',
+          backgroundColor: getStatusColor(estadoReal(item)) + '20',
           borderRadius: 12,
           paddingHorizontal: 10,
           paddingVertical: 4,
         }}>
-          <Text style={{ fontSize: 11, color: getStatusColor(item.status), fontWeight: '600' }}>
-            {getStatusLabel(item.status)}
+          <Text style={{ fontSize: 11, color: getStatusColor(estadoReal(item)), fontWeight: '600' }}>
+            {getStatusLabel(estadoReal(item))}
           </Text>
         </View>
       </View>
@@ -228,7 +246,8 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
 
   const filters = [
     { key: 'all', label: 'Todas' },
-    { key: 'pending', label: 'Pendientes' },
+    { key: 'pending', label: 'Por cobrar' },
+    { key: 'credit', label: 'En crédito' },
     { key: 'paid', label: 'Pagadas' },
   ];
 
@@ -262,7 +281,16 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
             <Text style={[styles.summaryValue, { color: '#FF9800' }]} numberOfLines={1} adjustsFontSizeToFit>
               ${summary.totalPending?.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
             </Text>
-            <Text style={styles.summaryUnit}>MXN</Text>
+            <Text style={styles.summaryUnit}>ya cobrable</Text>
+          </TouchableOpacity>
+          {/* El credito no se suma a "Por Cobrar": el asesor terminaba contando
+              como suyo dinero que todavia no se le puede pagar. */}
+          <TouchableOpacity style={[styles.summaryCard, { backgroundColor: '#EDE7F6' }]} onPress={() => setFilter('credit')}>
+            <Text style={styles.summaryLabel}>En crédito</Text>
+            <Text style={[styles.summaryValue, { color: MORADO }]} numberOfLines={1} adjustsFontSizeToFit>
+              ${summary.totalCreditHold?.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            </Text>
+            <Text style={styles.summaryUnit}>aún no</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.summaryCard, { backgroundColor: '#E8F5E9' }]} onPress={() => setFilter('paid')}>
             <Text style={styles.summaryLabel}>Pagadas</Text>
@@ -278,6 +306,18 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
             </Text>
             <Text style={styles.summaryUnit}>MXN</Text>
           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Por que hay dinero que no puede cobrar todavia. Solo aparece si lo hay. */}
+      {!!summary && summary.totalCreditHold > 0 && (
+        <View style={styles.notaCredito}>
+          <Ionicons name="information-circle" size={18} color={MORADO} style={{ marginTop: 1 }} />
+          <Text style={styles.notaCreditoTxt}>
+            Tienes ${summary.totalCreditHold.toLocaleString('es-MX', { minimumFractionDigits: 2 })} en
+            crédito: son comisiones ya generadas de envíos que el cliente pagó con su línea de crédito.
+            Se pasan solas a "Por Cobrar" cuando el cliente abona.
+          </Text>
         </View>
       )}
 
@@ -386,9 +426,17 @@ const styles = StyleSheet.create({
   },
   summaryContainer: {
     flexDirection: 'row',
-    padding: 16,
-    gap: 12,
+    paddingHorizontal: 12,
+    paddingTop: 16,
+    paddingBottom: 8,
+    gap: 8,
   },
+  notaCredito: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    marginHorizontal: 12, marginBottom: 4, padding: 10, borderRadius: 10,
+    backgroundColor: '#EDE7F6',
+  },
+  notaCreditoTxt: { flex: 1, fontSize: 11.5, color: '#4527A0', lineHeight: 16 },
   goalsBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     marginHorizontal: 16, marginBottom: 6, padding: 14, borderRadius: 14,
@@ -402,13 +450,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
     alignItems: 'center',
     elevation: 1,
   },
   summaryLabel: {
-    fontSize: 11,
+    fontSize: 10.5,
     color: '#666',
+    textAlign: 'center',
   },
   summaryValue: {
     fontSize: 14,
@@ -417,8 +467,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   summaryUnit: {
-    fontSize: 10,
+    fontSize: 9.5,
     color: '#999',
+    textAlign: 'center',
   },
   filtersContainer: {
     flexDirection: 'row',

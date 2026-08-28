@@ -1115,7 +1115,11 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     const dateRx = /^\d{4}-\d{2}-\d{2}$/;
     const fromDate = dateRx.test(String(req.query.from_date || '')) ? String(req.query.from_date) : '';
     const toDate = dateRx.test(String(req.query.to_date || '')) ? String(req.query.to_date) : '';
-    const statusParam = (() => { const s = String(req.query.status || '').trim(); return (s === 'pending' || s === 'paid') ? s : ''; })();
+    // Las comisiones de ordenes a credito estan en status 'pending' pero NO se
+    // pueden cobrar hasta que el cliente abone. Se separan: 'pending' = cobrable,
+    // 'credit' = retenida. Asi el asesor no ve como suyo dinero que no puede pedir.
+    const statusParam = (() => { const s = String(req.query.status || '').trim(); return (s === 'pending' || s === 'paid' || s === 'credit') ? s : ''; })();
+    const EN_CREDITO = `COALESCE(ac.awaiting_client_payment, FALSE)`;
     const POBOX_PAID = `pp_x.status IN ('completed','paid') AND (LOWER(COALESCE(pp_x.payment_method,'')) <> 'credit' OR COALESCE(pp_x.credit_settled,false) = true)`;
     const PAID_ORDER_FILTER = `AND (
         ac.service_type <> 'pobox_usa_mx'
@@ -1133,7 +1137,9 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
       if (fromDate) { params.push(fromDate); sql += ` AND ac.created_at >= $${params.length}`; }
       if (toDate) { params.push(toDate); sql += ` AND ac.created_at <= $${params.length}::date + interval '1 day'`; }
       if (svcTypeParam) { params.push(svcTypeParam); sql += ` AND ac.service_type = $${params.length}`; }
-      if (statusParam) { params.push(statusParam); sql += ` AND ac.status = $${params.length}`; }
+      if (statusParam === 'credit') { sql += ` AND ${EN_CREDITO} = TRUE`; }
+      else if (statusParam === 'pending') { sql += ` AND ac.status = 'pending' AND ${EN_CREDITO} = FALSE`; }
+      else if (statusParam) { params.push(statusParam); sql += ` AND ac.status = $${params.length}`; }
       return sql;
     };
 
@@ -1175,7 +1181,8 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         MAX(su.profile_photo_url) AS sub_photo,
         COUNT(*) AS count,
         COALESCE(SUM(ac.leader_override_amount), 0) AS override_total,
-        COALESCE(SUM(ac.leader_override_amount) FILTER (WHERE ac.status = 'pending'), 0) AS override_pending,
+        COALESCE(SUM(ac.leader_override_amount) FILTER (WHERE ac.status = 'pending' AND COALESCE(ac.awaiting_client_payment, FALSE) = FALSE), 0) AS override_pending,
+        COALESCE(SUM(ac.leader_override_amount) FILTER (WHERE COALESCE(ac.awaiting_client_payment, FALSE) = TRUE), 0) AS override_credit_hold,
         COALESCE(SUM(ac.leader_override_amount) FILTER (WHERE ac.status = 'paid'), 0) AS override_paid
       FROM advisor_commissions ac
       LEFT JOIN users su ON su.id = ac.advisor_id
@@ -1216,9 +1223,11 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
       SELECT
         COUNT(*) as total_count,
         COALESCE(SUM(commission_amount_mxn), 0) as total_commission,
-        COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'pending'), 0) as pending_commission,
+        COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'pending' AND COALESCE(awaiting_client_payment, FALSE) = FALSE), 0) as pending_commission,
+        COALESCE(SUM(commission_amount_mxn) FILTER (WHERE COALESCE(awaiting_client_payment, FALSE) = TRUE), 0) as credit_hold_commission,
         COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'paid'), 0) as paid_commission,
-        COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
+        COUNT(*) FILTER (WHERE status = 'pending' AND COALESCE(awaiting_client_payment, FALSE) = FALSE) as pending_count,
+        COUNT(*) FILTER (WHERE COALESCE(awaiting_client_payment, FALSE) = TRUE) as credit_hold_count,
         COUNT(*) FILTER (WHERE status = 'paid') as paid_count
       FROM advisor_commissions ac
       WHERE ac.advisor_id = $1 AND COALESCE(ac.penalized, false) = false
@@ -1229,6 +1238,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     // Totales del OVERRIDE (lo que gana como líder por sus subasesores)
     const overrideTotal = subAdvisorsRes.rows.reduce((s, r) => s + (parseFloat(r.override_total) || 0), 0);
     const overridePending = subAdvisorsRes.rows.reduce((s, r) => s + (parseFloat(r.override_pending) || 0), 0);
+    const overrideCreditHold = subAdvisorsRes.rows.reduce((s, r) => s + (parseFloat(r.override_credit_hold) || 0), 0);
     const overridePaid = subAdvisorsRes.rows.reduce((s, r) => s + (parseFloat(r.override_paid) || 0), 0);
 
     // ─── Últimas 20 comisiones (detalle) ───
@@ -1238,7 +1248,9 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     const recentParams: any[] = [advisorId];
     let recentWhere = 'WHERE ac.advisor_id = $1 AND COALESCE(ac.penalized, false) = false';
     if (svcFilter) { recentParams.push(svcFilter); recentWhere += ` AND ac.service_type = $${recentParams.length}`; }
-    if (statusFilter === 'pending' || statusFilter === 'paid') { recentParams.push(statusFilter); recentWhere += ` AND ac.status = $${recentParams.length}`; }
+    if (statusFilter === 'credit') { recentWhere += ` AND ${EN_CREDITO} = TRUE`; }
+    else if (statusFilter === 'pending') { recentWhere += ` AND ac.status = 'pending' AND ${EN_CREDITO} = FALSE`; }
+    else if (statusFilter === 'paid') { recentParams.push(statusFilter); recentWhere += ` AND ac.status = $${recentParams.length}`; }
     const recentRes = await pool.query(`
       SELECT
         ac.id, ac.shipment_type, ac.service_type, ac.tracking,
@@ -1250,7 +1262,8 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
            ELSE NULL END) AS master_tracking,
         ac.client_name, cu.box_id AS client_box_id, ac.payment_amount_mxn, ac.commission_rate_pct,
         ac.commission_amount_mxn, ac.gex_commission_mxn,
-        ac.status, ac.paid_to_advisor_at, ac.created_at
+        ac.status, ac.paid_to_advisor_at, ac.created_at,
+        COALESCE(ac.awaiting_client_payment, FALSE) AS awaiting_client_payment
       FROM advisor_commissions ac
       LEFT JOIN users cu ON cu.id = ac.client_id
       ${recentWhere}
@@ -1306,15 +1319,19 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
       totals: {
         totalCount: parseInt(totals.total_count) || 0,
         totalCommission: parseFloat(totals.total_commission) || 0,
+        // "Por cobrar" = solo lo cobrable. Lo retenido por credito va aparte.
         pendingCommission: parseFloat(totals.pending_commission) || 0,
+        creditHoldCommission: parseFloat(totals.credit_hold_commission) || 0,
         paidCommission: parseFloat(totals.paid_commission) || 0,
         pendingCount: parseInt(totals.pending_count) || 0,
+        creditHoldCount: parseInt(totals.credit_hold_count) || 0,
         paidCount: parseInt(totals.paid_count) || 0,
       },
       // Override que gana como líder por sus subasesores + desglose por cada uno.
       leaderOverride: {
         total: overrideTotal,
         pending: overridePending,
+        creditHold: overrideCreditHold,
         paid: overridePaid,
         subCount: subAdvisorsRes.rows.length,
       },
@@ -1325,6 +1342,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         count: parseInt(r.count) || 0,
         overrideTotal: parseFloat(r.override_total) || 0,
         overridePending: parseFloat(r.override_pending) || 0,
+        overrideCreditHold: parseFloat(r.override_credit_hold) || 0,
         overridePaid: parseFloat(r.override_paid) || 0,
       })),
       recent: recentRes.rows.map(r => ({
@@ -1340,6 +1358,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
         commissionAmount: parseFloat(r.commission_amount_mxn) || 0,
         gexCommission: parseFloat(r.gex_commission_mxn) || 0,
         status: r.status,
+        awaitingClientPayment: r.awaiting_client_payment === true,
         paidAt: r.paid_to_advisor_at,
         createdAt: r.created_at,
       })),
