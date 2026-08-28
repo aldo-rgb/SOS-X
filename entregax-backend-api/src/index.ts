@@ -14439,7 +14439,9 @@ app.delete('/api/tasks/:id', authenticateToken, tasksDelete);
 app.post('/api/tasks/:id/subtasks', authenticateToken, tasksAddSubtask);
 app.put('/api/tasks/subtasks/:subId', authenticateToken, tasksToggleSubtask);
 app.delete('/api/tasks/subtasks/:subId', authenticateToken, tasksDeleteSubtask);
-app.post('/api/tasks/:id/comments', authenticateToken, tasksAddComment);
+// Acepta archivo opcional: el botón "+" de la app manda la foto dentro del
+// comentario para que salga en la conversación, no en una lista aparte.
+app.post('/api/tasks/:id/comments', authenticateToken, advisorProofUpload.single('photo'), tasksAddComment);
 app.patch('/api/tasks/:id/comments/:commentId', authenticateToken, tasksEditComment);
 app.delete('/api/tasks/:id/comments/:commentId', authenticateToken, tasksDeleteComment);
 // Admin

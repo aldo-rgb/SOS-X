@@ -1589,6 +1589,53 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
       reload();
     } catch { Alert.alert('Error', 'No se pudo subir el archivo'); } finally { setBusy(false); }
   };
+  /**
+   * Manda una foto o un archivo COMO COMENTARIO, estilo WhatsApp: aparece en la
+   * conversación, en su lugar cronológico y con vista previa, en vez de irse a
+   * una lista de archivos aparte donde se pierde el contexto de lo que se
+   * estaba hablando.
+   *
+   * El texto que ya se venía escribiendo viaja junto, como el pie de foto.
+   */
+  const enviarAdjuntoEnComentario = async (
+    file: { uri: string; name: string; type: string }
+  ) => {
+    setSendingComment(true);
+    try {
+      const fd = new FormData();
+      fd.append('photo', file as any);
+      if (comment.trim()) fd.append('body', comment.trim());
+      const activas = mentions.filter(m => comment.includes(`@${m.name}`)).map(m => m.id);
+      if (activas.length) fd.append('mentions', JSON.stringify(activas));
+      const r = await fetch(`${API_URL}/api/tasks/${taskId}/comments`, { method: 'POST', headers: H, body: fd });
+      if (!r.ok) throw new Error();
+      setComment(''); setMentions([]); setMentionQuery(null);
+      setDirty(true); reload(true); onChanged();
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 350);
+    } catch { Alert.alert('Error', 'No se pudo enviar el archivo'); }
+    finally { setSendingComment(false); }
+  };
+
+  const adjuntarEnComentario = () => {
+    Alert.alert('Adjuntar', '¿Qué quieres mandar?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: '📷 Foto', onPress: async () => {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) { Alert.alert('Permiso', 'Se necesita acceso a las fotos.'); return; }
+        const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
+        if (res.canceled || !res.assets?.[0]) return;
+        const a = res.assets[0];
+        enviarAdjuntoEnComentario({ uri: a.uri, name: a.fileName || 'foto.jpg', type: a.mimeType || 'image/jpeg' });
+      } },
+      { text: '📄 Archivo', onPress: async () => {
+        const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
+        if (res.canceled || !res.assets?.[0]) return;
+        const a = res.assets[0];
+        enviarAdjuntoEnComentario({ uri: a.uri, name: a.name || 'archivo', type: a.mimeType || 'application/octet-stream' });
+      } },
+    ]);
+  };
+
   const deletePhoto = async (id: number) => {
     try { await fetch(`${API_URL}/api/tasks/attachments/${id}`, { method: 'DELETE', headers: H }); setDirty(true); reload(); } catch { /* */ }
   };
@@ -1914,7 +1961,11 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                       {!!c.attachment_url && (
                         !/\.(pdf|docx?|xlsx?|pptx?|zip|rar|csv|txt)(\?|$)/i.test(String(c.attachment_url)) ? (
                           <TouchableOpacity onPress={() => Linking.openURL(String(c.attachment_url))} style={{ marginTop: 6 }}>
-                            <Image source={{ uri: String(c.attachment_url) }} style={{ width: 160, height: 160, borderRadius: 8, backgroundColor: '#EEE' }} resizeMode="cover" />
+                            {/* Vista previa dentro de la conversación, no en
+                                otra ventana. Se toca para verla en grande. */}
+                            <Image source={{ uri: String(c.attachment_url) }}
+                              style={{ width: 220, height: 220, borderRadius: 10, backgroundColor: '#EEE' }}
+                              resizeMode="cover" />
                           </TouchableOpacity>
                         ) : (
                           <TouchableOpacity onPress={() => Linking.openURL(String(c.attachment_url))} style={{ marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -1962,6 +2013,12 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 );
               })()}
               <View style={styles.addSubRow}>
+                {/* "+" para adjuntar, como en WhatsApp: la foto se manda dentro
+                    del comentario y sale en la conversación. */}
+                <TouchableOpacity onPress={adjuntarEnComentario} disabled={sendingComment}
+                  style={styles.adjuntarBtn} accessibilityLabel="Adjuntar foto o archivo">
+                  <Ionicons name="add" size={22} color={ORANGE} />
+                </TouchableOpacity>
                 {/* Crece con el texto en vez de dejar un solo renglón: un
                     comentario de tres líneas se escribía a ciegas. Tope de 120
                     para que no se coma la conversación.
@@ -2401,6 +2458,10 @@ export const styles = StyleSheet.create({
   input: { flex: 1, backgroundColor: '#F4F6F8', borderRadius: 8, paddingHorizontal: 12, height: 40, fontSize: 14, color: '#222' },
   // Sin altura fija: multiline crece solo. minHeight conserva el tamaño de
   // siempre cuando está vacío y maxHeight evita que tape la conversación.
+  adjuntarBtn: {
+    width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFF3EC', borderWidth: 1, borderColor: '#F0B79A',
+  },
   inputComentario: { height: undefined, minHeight: 40, maxHeight: 120, paddingTop: 10, paddingBottom: 10 },
   addBtn: { backgroundColor: ORANGE, borderRadius: 8, paddingHorizontal: 14, height: 40, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 4 },
   addBtnTxt: { color: '#fff', fontWeight: '700', fontSize: 13 },

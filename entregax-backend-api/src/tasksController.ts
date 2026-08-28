@@ -1959,11 +1959,32 @@ export const addComment = async (req: Request, res: Response): Promise<any> => {
     const t = await pool.query(`SELECT board_id, title, assignee_id, status FROM tasks WHERE id = $1`, [taskId]);
     if (t.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
     const b = req.body || {};
-    if (!String(b.body || '').trim()) return res.status(400).json({ error: 'Comentario vacío' });
-    const mentions: number[] = Array.isArray(b.mentions) ? b.mentions.map((x: any) => Number(x)).filter(Boolean) : [];
+    // El comentario puede traer archivo (el botón "+" de la app, estilo
+    // WhatsApp). Con archivo, el texto deja de ser obligatorio: mandar una foto
+    // sola es un comentario válido.
+    const archivo = (req as any).file;
+    if (!String(b.body || '').trim() && !archivo && !b.attachment_url) {
+      return res.status(400).json({ error: 'Comentario vacío' });
+    }
+    // multipart manda todo como texto: las menciones vienen en un JSON.
+    const mentions: number[] = Array.isArray(b.mentions)
+      ? b.mentions.map((x: any) => Number(x)).filter(Boolean)
+      : (() => { try { return JSON.parse(String(b.mentions || '[]')).map((x: any) => Number(x)).filter(Boolean); } catch { return []; } })();
+
+    let adjunto: string | null = b.attachment_url || null;
+    if (archivo?.buffer) {
+      // Misma normalización que los adjuntos de tarea: las fotos de iPhone
+      // llegan en .heic y ningún navegador las pinta.
+      const norm = await normalizarImagen(archivo.buffer, String(archivo.originalname || 'foto'), archivo.mimetype);
+      const orig = norm.fileName.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60);
+      const key = `task-comments/task-${taskId}-${Date.now()}-${orig}`;
+      await uploadToS3WithSignedUrl(norm.buffer, key, norm.contentType || 'image/jpeg', 6 * 3600);
+      adjunto = key;   // se firma al leer, en getTask
+    }
+
     const r = await pool.query(
       `INSERT INTO task_comments (task_id, author_id, body, mentions, attachment_url) VALUES ($1,$2,$3,$4::jsonb,$5) RETURNING *`,
-      [taskId, uid, String(b.body).trim(), JSON.stringify(mentions), b.attachment_url || null]);
+      [taskId, uid, String(b.body || '').trim(), JSON.stringify(mentions), adjunto]);
     await logActivity(taskId, uid, 'comment', {});
     // Comentar NO reabre la tarea.
     //
