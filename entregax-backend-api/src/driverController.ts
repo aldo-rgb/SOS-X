@@ -2725,9 +2725,20 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                 // REPACK master enviado → propagar el estado a sus hijas (viajan dentro).
                 if (/^US-REPACK-/i.test(String(pkgRow.rows[0]?.tracking_internal || ''))) {
                     const statusColRp = await getPackageStatusColumn();
+                    // Se actualizan LAS DOS columnas, igual que en el master.
+                    //
+                    // Antes solo se tocaba delivery_status, así que las hijas
+                    // quedaban con delivery_status='shipped' pero status
+                    // 'received_mty'. El panel del asesor lee el ENUM `status`,
+                    // y por eso toda guía REPACK enviada seguía apareciendo
+                    // "Recibido MTY" para siempre.
+                    const setsRp = [`${statusColRp} = $1`, 'updated_at = NOW()'];
+                    if (statusColRp !== 'status') setsRp.push('status = $3');
+                    const paramsRp: any[] = [sentStatus, confirmedId];
+                    if (statusColRp !== 'status') paramsRp.push(sentStatus);
                     await pool.query(
-                        `UPDATE packages SET ${statusColRp} = $1, updated_at = NOW() WHERE master_id = $2`,
-                        [sentStatus, confirmedId]
+                        `UPDATE packages SET ${setsRp.join(', ')} WHERE master_id = $2`,
+                        paramsRp
                     );
                 }
                 if (masterId) {
