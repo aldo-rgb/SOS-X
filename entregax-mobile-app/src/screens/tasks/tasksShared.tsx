@@ -429,7 +429,7 @@ export function CreateTaskModal({ visible, token, myId, onClose, onCreated, advi
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
-        <View style={[styles.modalCard, altoTeclado > 0 && { marginBottom: altoTeclado, maxHeight: '78%' }]}>
+        <View style={[styles.modalCard, altoTeclado > 0 && Platform.OS !== 'ios' && { marginBottom: altoTeclado, maxHeight: '78%' }]}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle}>Nueva tarea</Text>
             <TouchableOpacity onPress={onClose} hitSlop={10}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
@@ -777,7 +777,7 @@ export function ScheduleTaskModal({ visible, token, myId, onClose, onCreated, ad
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
-        <View style={[styles.modalCard, altoTeclado > 0 && { marginBottom: altoTeclado, maxHeight: '78%' }]}>
+        <View style={[styles.modalCard, altoTeclado > 0 && Platform.OS !== 'ios' && { marginBottom: altoTeclado, maxHeight: '78%' }]}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle}>📅 Programar tarea</Text>
             <TouchableOpacity onPress={onClose} hitSlop={10}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
@@ -1613,7 +1613,7 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
       <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {/* La hoja se levanta el alto del teclado: en Android el sistema no lo
             hace dentro de un Modal y el campo de comentario quedaba tapado. */}
-        <View style={[styles.modalCard, altoTeclado > 0 && { marginBottom: altoTeclado, maxHeight: '78%' }]}>
+        <View style={[styles.modalCard, altoTeclado > 0 && Platform.OS !== 'ios' && { marginBottom: altoTeclado, maxHeight: '78%' }]}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle} numberOfLines={1}>
               {!!taskId && <Text style={styles.cardFolio}>#{taskId} </Text>}
@@ -1954,7 +1954,14 @@ export function TaskDetailModal({ visible, taskId, token, canManage, columns, on
                 );
               })()}
               <View style={styles.addSubRow}>
-                <TextInput style={styles.input} placeholder="Deja un comentario…  (@ para mencionar)" value={comment} onChangeText={onCommentChange} placeholderTextColor="#999" editable={!sendingComment}
+                {/* Crece con el texto en vez de dejar un solo renglón: un
+                    comentario de tres líneas se escribía a ciegas. Tope de 120
+                    para que no se coma la conversación.
+                    multiline + blurOnSubmit=false hacen que Enter baje un
+                    renglón en vez de cerrar el teclado y la tarea. */}
+                <TextInput style={[styles.input, styles.inputComentario]} placeholder="Deja un comentario…  (@ para mencionar)"
+                  value={comment} onChangeText={onCommentChange} placeholderTextColor="#999" editable={!sendingComment}
+                  multiline blurOnSubmit={false} textAlignVertical="top" returnKeyType="default"
                   // Al abrirse el teclado la hoja se encoge; sin esto el campo
                   // podia quedar fuera de la parte visible del scroll.
                   onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250)} />
@@ -2382,8 +2389,11 @@ export const styles = StyleSheet.create({
   colChipTxt: { fontSize: 12, fontWeight: '700', color: '#444' },
   subRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
   subTxt: { flex: 1, fontSize: 13.5, color: '#333' },
-  addSubRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  addSubRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 8 },
   input: { flex: 1, backgroundColor: '#F4F6F8', borderRadius: 8, paddingHorizontal: 12, height: 40, fontSize: 14, color: '#222' },
+  // Sin altura fija: multiline crece solo. minHeight conserva el tamaño de
+  // siempre cuando está vacío y maxHeight evita que tape la conversación.
+  inputComentario: { height: undefined, minHeight: 40, maxHeight: 120, paddingTop: 10, paddingBottom: 10 },
   addBtn: { backgroundColor: ORANGE, borderRadius: 8, paddingHorizontal: 14, height: 40, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 4 },
   addBtnTxt: { color: '#fff', fontWeight: '700', fontSize: 13 },
   photoBtn: { flexDirection: 'row', alignItems: 'center', gap: 3 },
