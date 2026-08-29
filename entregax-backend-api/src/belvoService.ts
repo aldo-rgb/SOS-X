@@ -241,7 +241,7 @@ async function autoMatchTransaction(
   // Mismos prefijos y misma tolerancia que en Syncfy: el separador puede faltar
   // y la referencia venir en minúscula, tal como la escribió el cliente.
   const refPatterns = [
-    /(RO|PP|EP|GL|UW|US|CT)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/i,
+    /(SAF|CEX|RO|PP|EP|GL|UW|US)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/i,
     /\b(tr_[a-zA-Z0-9]+)\b/,
   ];
 
@@ -262,7 +262,7 @@ async function autoMatchTransaction(
     // reconoce solo para NO dejarlo caer al emparejamiento por monto si algún
     // día se enciende Belvo: la referencia es fija y del cliente, y adivinar por
     // importe le acreditaría a uno el depósito de otro.
-    if (extractedRef.startsWith('CT-')) {
+    if (extractedRef.startsWith('SAF-')) {
       console.warn(`[belvo] tx#${txId} es fondeo de cartera ${extractedRef}; se concilia por Syncfy. Sin emparejar aquí.`);
       return false;
     }

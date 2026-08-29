@@ -925,14 +925,15 @@ const CajaChicaPage: React.FC = () => {
   };
 
   // Confirmar pago encontrado por referencia
-  const handleConfirmRefPayment = async () => {
+  const handleConfirmRefPayment = async (confirmarDuplicado = false) => {
     if (!refFound) return;
     setProcesandoPago(true);
     try {
       const resp = await api.post('/caja-chica/confirmar-pago-referencia', {
         referencia: refFound.referencia,
         monto: parseMontoEs(montoRecibido),
-        notas: notasPago
+        notas: notasPago,
+        ...(confirmarDuplicado ? { confirmar_duplicado: true } : {}),
       });
       setSnackbar({
         open: true,
@@ -949,7 +950,17 @@ const CajaChicaPage: React.FC = () => {
       loadData();
     } catch (error: unknown) {
       console.error('Error confirmando pago:', error);
-      const axiosError = error as { response?: { data?: { error?: string } } };
+      const axiosError = error as { response?: { status?: number; data?: { error?: string; message?: string; duplicado_posible?: boolean } } };
+      // El backend frena un fondeo idéntico al de hace unos minutos. Puede ser
+      // real -el cliente volvió y dejó otro tanto- así que se pregunta en vez
+      // de bloquear.
+      if (axiosError.response?.status === 409 && axiosError.response?.data?.duplicado_posible) {
+        setProcesandoPago(false);
+        if (window.confirm(`${axiosError.response.data.message}\n\n¿Abonarlo de todas formas?`)) {
+          handleConfirmRefPayment(true);
+        }
+        return;
+      }
       setSnackbar({ open: true, message: axiosError.response?.data?.error || 'Error al confirmar pago', severity: 'error' });
     } finally {
       setProcesandoPago(false);
@@ -1399,7 +1410,7 @@ const CajaChicaPage: React.FC = () => {
               <TextField
                 fullWidth
                 label="Referencia de Pago"
-                placeholder="Ej: EF-0054-M7K9X2 · CT-A3F19B02 para fondear cartera"
+                placeholder="Ej: EF-0054-M7K9X2 · SAF-A3F19B02 para fondear cartera"
                 value={searchRef}
                 onChange={(e) => setSearchRef(e.target.value.toUpperCase())}
                 onKeyPress={(e) => e.key === 'Enter' && handleSearchByRef()}
@@ -1529,7 +1540,7 @@ const CajaChicaPage: React.FC = () => {
           <Button
             variant="contained"
             color="success"
-            onClick={handleConfirmRefPayment}
+            onClick={() => handleConfirmRefPayment()}
             disabled={!refFound || procesandoPago || !montoRecibido}
             startIcon={procesandoPago ? <CircularProgress size={20} /> : <CheckCircleIcon />}
           >

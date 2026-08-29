@@ -41,9 +41,13 @@ export const SERVICIO_CARTERA = 'CARTERA_GENERAL';
  * Las referencias de orden nacen con las iniciales de quien cobra (RO-, UW-…),
  * pero el fondeo no pertenece a ningún servicio: lo que lo identifica es que va
  * a la cartera. Un prefijo dedicado además hace la rama del conciliador
- * inequívoca —CT- solo puede ser cartera— y se lee solo en el estado de cuenta.
+ * inequívoca —SAF- solo puede ser fondeo— y se lee solo en el estado de cuenta.
  */
-export const PREFIJO_CARTERA = 'CT';
+export const PREFIJO_CARTERA = 'SAF';
+
+/** ¿La referencia tiene forma de fondeo? Chequeo barato, sin tocar la base. */
+export const esReferenciaDeFondeo = (ref: string): boolean =>
+  String(ref || '').trim().toUpperCase().startsWith(`${PREFIJO_CARTERA}-`);
 
 let schemaListo = false;
 
@@ -74,11 +78,14 @@ export async function ensureFundingSchema(): Promise<void> {
       syncfy_tx_id INTEGER,
       saldo_despues NUMERIC(12,2),
       nota TEXT,
+      caja_tx_id INTEGER,
       created_by INTEGER,
       created_by_nombre TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  // Instalaciones que ya crearon la tabla sin la columna.
+  await pool.query(`ALTER TABLE wallet_funding_deposits ADD COLUMN IF NOT EXISTS caja_tx_id INTEGER`).catch(() => {});
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_wfd_bank_entry
                       ON wallet_funding_deposits (bank_entry_id) WHERE bank_entry_id IS NOT NULL`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_wfd_syncfy_tx
@@ -140,7 +147,7 @@ export async function obtenerOCrearReferencia(userId: number): Promise<string> {
 /** ¿Esta referencia bancaria es de fondeo de cartera? Devuelve el dueño. */
 export async function buscarReferenciaFondeo(ref: string): Promise<{ userId: number; reference: string } | null> {
   const limpia = String(ref || '').trim().toUpperCase();
-  if (!limpia.startsWith(`${PREFIJO_CARTERA}-`)) return null;
+  if (!esReferenciaDeFondeo(limpia)) return null;
   await ensureFundingSchema();
   const r = await pool.query(
     `SELECT user_id, reference FROM wallet_funding_references WHERE reference = $1`, [limpia]);
@@ -172,6 +179,8 @@ export async function acreditarFondeoCartera(
     actorId?: number | null;
     actorNombre?: string;
     nota?: string | null;
+    /** Transacción de caja que respalda este fondeo, para poder revertirlo si se borra. */
+    cajaTxId?: number | null;
   }
 ): Promise<{ nuevoSaldo: number; monto: number; duplicado: boolean; depositoId?: number }> {
   await ensureFundingSchema();
@@ -201,12 +210,13 @@ export async function acreditarFondeoCartera(
 
   const dep = await db.query(
     `INSERT INTO wallet_funding_deposits
-       (user_id, reference, monto, origen, bank_entry_id, syncfy_tx_id, saldo_despues, nota, created_by, created_by_nombre)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       (user_id, reference, monto, origen, bank_entry_id, syncfy_tx_id, caja_tx_id,
+        saldo_despues, nota, created_by, created_by_nombre)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id`,
     [datos.userId, datos.reference, monto, datos.origen,
-     datos.bankEntryId ?? null, datos.syncfyTxId ?? null, nuevoSaldo,
-     datos.nota ?? null, datos.actorId ?? null, datos.actorNombre ?? null]
+     datos.bankEntryId ?? null, datos.syncfyTxId ?? null, datos.cajaTxId ?? null,
+     nuevoSaldo, datos.nota ?? null, datos.actorId ?? null, datos.actorNombre ?? null]
   );
 
   // Mismo historial que ve el cliente para cualquier otro movimiento de su
@@ -221,6 +231,77 @@ export async function acreditarFondeoCartera(
 
   console.log(`[CARTERA] +$${monto.toFixed(2)} a user ${datos.userId} (${datos.reference}, ${datos.origen}). Saldo: $${nuevoSaldo.toFixed(2)}`);
   return { nuevoSaldo, monto, duplicado: false, depositoId: Number(dep.rows[0].id) };
+}
+
+/**
+ * Revierte el fondeo que respaldaba una transacción de caja.
+ *
+ * Existe por un descuadre que se cuela solo: si el cajero captura dos veces el
+ * mismo efectivo, el super admin borra la transacción sobrante para cuadrar el
+ * cajón — y sin esto la caja quedaba bien pero el cliente se quedaba con el
+ * dinero abonado dos veces en su monedero.
+ *
+ * Si el cliente YA GASTÓ ese saldo, no se revierte: bajarlo dejaría el
+ * monedero en negativo o le quitaría dinero que sí era suyo. En ese caso lanza
+ * y quien borra tiene que decidir qué hacer, en vez de que el sistema elija
+ * solo. `nuevoMonto` sirve para las correcciones de importe: revierte solo la
+ * diferencia.
+ */
+export async function revertirFondeoDeCaja(
+  db: any,
+  cajaTxId: number,
+  opts?: { nuevoMonto?: number; actorNombre?: string }
+): Promise<{ revertido: number; nuevoSaldo: number } | null> {
+  const d = await db.query(
+    `SELECT id, user_id, reference, monto FROM wallet_funding_deposits
+      WHERE caja_tx_id = $1 FOR UPDATE`,
+    [cajaTxId]
+  );
+  if (d.rows.length === 0) return null; // no era un fondeo
+  const dep = d.rows[0];
+
+  const montoActual = Number(dep.monto) || 0;
+  const destino = opts?.nuevoMonto != null ? Math.round(Number(opts.nuevoMonto) * 100) / 100 : 0;
+  const aQuitar = Math.round((montoActual - destino) * 100) / 100;
+  if (aQuitar === 0) return { revertido: 0, nuevoSaldo: 0 };
+
+  const u = await db.query(
+    `SELECT COALESCE(wallet_balance, 0) AS saldo FROM users WHERE id = $1 FOR UPDATE`,
+    [dep.user_id]
+  );
+  const saldo = Number(u.rows[0]?.saldo) || 0;
+  if (aQuitar > 0 && saldo < aQuitar) {
+    throw new Error(
+      `No se puede revertir: el cliente ya gastó ese saldo. Se le abonaron $${montoActual.toFixed(2)} ` +
+      `y hoy solo le quedan $${saldo.toFixed(2)}. Ajusta primero con el equipo de finanzas.`
+    );
+  }
+
+  const upd = await db.query(
+    `UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) - $1 WHERE id = $2 RETURNING wallet_balance`,
+    [aQuitar, dep.user_id]
+  );
+  const nuevoSaldo = Number(upd.rows[0]?.wallet_balance) || 0;
+
+  if (destino > 0) {
+    await db.query(`UPDATE wallet_funding_deposits SET monto = $1 WHERE id = $2`, [destino, dep.id]);
+  } else {
+    await db.query(`DELETE FROM wallet_funding_deposits WHERE id = $1`, [dep.id]);
+  }
+
+  await db.query(
+    `INSERT INTO financial_transactions
+       (user_id, type, amount, balance_after, description, reference_id, reference_type, created_at)
+     VALUES ($1, 'refund', $2, $3, $4, $5, 'wallet_funding', NOW())`,
+    [dep.user_id, -aQuitar, nuevoSaldo,
+     destino > 0
+       ? `Corrección de fondeo ${dep.reference}: de $${montoActual.toFixed(2)} a $${destino.toFixed(2)}${opts?.actorNombre ? ` por ${opts.actorNombre}` : ''}`
+       : `Reversa de fondeo ${dep.reference} (transacción de caja eliminada)${opts?.actorNombre ? ` por ${opts.actorNombre}` : ''}`,
+     cajaTxId]
+  );
+
+  console.log(`[CARTERA] -$${aQuitar.toFixed(2)} a user ${dep.user_id} (${dep.reference}): reversa de caja #${cajaTxId}. Saldo: $${nuevoSaldo.toFixed(2)}`);
+  return { revertido: aQuitar, nuevoSaldo };
 }
 
 /**

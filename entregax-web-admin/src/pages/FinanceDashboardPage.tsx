@@ -462,9 +462,19 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
 
   // Prefijos válidos de referencias de pago (PP excluido — es para pagos en efectivo, no bancarios)
   // Detecta: RO-2957B7E6 | RO 2957B7E6 | 7069052981RO054735C0 (sin separador embebido)
-  // CT es el fondeo de cartera general: no es una orden sino la referencia FIJA
-  // del cliente, la misma toda su vida. Al autorizarla el importe se abona a su
+  //
+  // La lista quedó atrás de la del backend: aquí solo estaban RO y US, así que
+  // al pegar el estado de cuenta no se detectaban las UW —250 órdenes, y son de
+  // Urban Wod, la misma empresa que cobra los fondeos— ni las EP/GL. Es el mismo
+  // agujero que en Syncfy dejó 39 abonos casándose por monto. Ahora ambas listas
+  // dicen lo mismo, salvo PP, que se excluye a propósito.
+  // SAF es el fondeo de cartera: no es una orden sino la referencia FIJA del
+  // cliente, la misma toda su vida. Al autorizarla el importe se abona a su
   // Disponible general y de ahí lo puede gastar en cualquier servicio.
+  // CEX son los cargos extra cobrables: sí son órdenes, pero faltaban en esta
+  // lista, así que sus depósitos no se detectaban al pegar el estado de cuenta.
+  // Los prefijos de 3 letras van primero para que el motor no pruebe antes la
+  // alternativa corta (SA dentro de SAF).
 
   const extractReferences = (rows: EstadoCuentaRow[]): { ref: string; entries: EstadoCuentaRow[] }[] => {
     const refMap: Record<string, EstadoCuentaRow[]> = {};
@@ -474,7 +484,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       const referencia = (row.referencia || '').toUpperCase();
       const foundRefs = new Set<string>();
       for (const text of [concepto, referencia]) {
-        const matches = [...text.matchAll(/(?<![A-Z])(RO|US|CT)[-\s]?([A-F0-9]{6,8})(?![A-F0-9])/g)];
+        const matches = [...text.matchAll(/(?<![A-Z])(SAF|CEX|RO|EP|GL|UW|US)[-\s]?([A-F0-9]{6,8})(?![A-F0-9])/g)];
         for (const m of matches) {
           const ref = `${m[1]}-${m[2]}`;
           if (!foundRefs.has(ref)) {

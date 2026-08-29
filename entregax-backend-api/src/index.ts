@@ -11480,10 +11480,10 @@ app.post('/api/admin/finance/match-references', authenticateToken, requireMinLev
     // el abono a la cartera lo hace authorize-bank-payments.
     const carteraMatches: Record<string, any> = {};
     try {
-      const { buscarReferenciaFondeo, SERVICIO_CARTERA } = await import('./walletFundingController');
+      const { buscarReferenciaFondeo, esReferenciaDeFondeo, SERVICIO_CARTERA } = await import('./walletFundingController');
       for (const grupo of references) {
         const ref = String(grupo?.ref || '').toUpperCase();
-        if (!ref.startsWith('CT-')) continue;
+        if (!esReferenciaDeFondeo(ref)) continue;
         const duenio = await buscarReferenciaFondeo(ref);
         if (!duenio) continue;
         const cli = await pool.query(
@@ -11821,8 +11821,8 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
         //
         // El importe lo pone el banco. Igual se ocupan los abonos en el ledger:
         // es lo que impide que el mismo depósito respalde además una orden.
-        if (String(m.ref || '').toUpperCase().startsWith('CT-')) {
-          const { buscarReferenciaFondeo, acreditarFondeoCartera } = await import('./walletFundingController');
+        const { buscarReferenciaFondeo, esReferenciaDeFondeo, acreditarFondeoCartera } = await import('./walletFundingController');
+        if (esReferenciaDeFondeo(String(m.ref || ''))) {
           const duenio = await buscarReferenciaFondeo(String(m.ref));
           if (!duenio) {
             errors.push({ ref: m.ref, error: 'Esa referencia de cartera no pertenece a ningún cliente' });

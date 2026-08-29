@@ -455,9 +455,13 @@ async function autoMatchTransaction(
   // reconocía. Son 11 abonos así: 3 nunca se conciliaron —incluido el de
   // TKT-2026-2321— y los otros 8 se casaron por MONTO, que es justo el camino
   // que acaba aplicando el depósito a la orden de otro cliente.
-  // CT es el fondeo de cartera general: no es una orden sino la referencia fija
-  // del cliente, y se resuelve más abajo contra wallet_funding_references.
-  const prefixed = searchText.match(/(RO|PP|EP|GL|UW|US|CT)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/i);
+  // SAF es el fondeo de cartera: no es una orden sino la referencia fija del
+  // cliente, y se resuelve más abajo contra wallet_funding_references. CEX son
+  // los cargos extra cobrables, que sí son órdenes y llevaban tiempo cayendo al
+  // emparejamiento por monto por no estar en esta lista.
+  // Los prefijos de 3 letras van PRIMERO: con SA antes que SAF, el motor probaría
+  // la alternativa corta en cada posición antes de llegar a la larga.
+  const prefixed = searchText.match(/(SAF|CEX|RO|PP|EP|GL|UW|US)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/i);
   if (prefixed && prefixed[1] && prefixed[2]) {
     extractedRef = `${prefixed[1].toUpperCase()}-${prefixed[2].toUpperCase()}`;
   } else {

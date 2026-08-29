@@ -1137,13 +1137,13 @@ export const buscarPorReferencia = async (req: AuthRequest, res: Response): Prom
     const referencia = String(ref).trim().toUpperCase();
 
     // ── Fondeo de cartera general ──
-    // La referencia CT- es fija y del cliente, no de unas guías: la usa para
+    // La referencia SAF- es fija y del cliente, no de unas guías: la usa para
     // dejar efectivo en mostrador y que se le abone a su Disponible general,
     // que puede gastar después en cualquier servicio. No hay adeudo que
     // precargar —el cliente entrega lo que quiere— así que el monto lo teclea
     // quien cobra.
-    if (referencia.startsWith('CT-')) {
-      const { buscarReferenciaFondeo } = await import('./walletFundingController');
+    const { buscarReferenciaFondeo, esReferenciaDeFondeo } = await import('./walletFundingController');
+    if (esReferenciaDeFondeo(referencia)) {
       const duenio = await buscarReferenciaFondeo(referencia);
       if (!duenio) {
         res.json({ found: false, message: 'Esa referencia de cartera no pertenece a ningún cliente' });
@@ -1244,9 +1244,9 @@ export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): 
     // Lo que cambia es la categoría: va como 'fondeo_cartera' y no como
     // 'pago_cliente', porque este dinero todavía es del cliente. Contarlo como
     // cobro inflaría los ingresos del día con algo que aún no se ha vendido.
-    if (String(referencia).trim().toUpperCase().startsWith('CT-')) {
+    const { buscarReferenciaFondeo, esReferenciaDeFondeo, acreditarFondeoCartera } = await import('./walletFundingController');
+    if (esReferenciaDeFondeo(referencia)) {
       const ref = String(referencia).trim().toUpperCase();
-      const { buscarReferenciaFondeo, acreditarFondeoCartera } = await import('./walletFundingController');
       const duenio = await buscarReferenciaFondeo(ref);
       if (!duenio) {
         res.status(404).json({ error: 'Esa referencia de cartera no pertenece a ningún cliente' });
@@ -1255,6 +1255,29 @@ export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): 
 
       await pool.query(`ALTER TABLE caja_chica_transacciones ADD COLUMN IF NOT EXISTS saldo_despues_movimiento NUMERIC(14,2)`).catch(() => {});
       await pool.query(`ALTER TABLE caja_chica_transacciones ADD COLUMN IF NOT EXISTS categoria VARCHAR(50)`).catch(() => {});
+
+      // Freno a la captura doble. Un fondeo no tiene contra qué validarse -no
+      // hay adeudo ni guías-, así que dos capturas idénticas se ven exactamente
+      // igual que dos depósitos reales del mismo cliente. Antes de abonar dos
+      // veces se pregunta; si de verdad entregó el efectivo dos veces, se
+      // reenvía con confirmar_duplicado.
+      if (!req.body?.confirmar_duplicado) {
+        const reciente = await pool.query(`
+          SELECT id, monto, created_at FROM caja_chica_transacciones
+           WHERE categoria = 'fondeo_cartera' AND cliente_id = $1
+             AND monto = $2 AND created_at >= NOW() - INTERVAL '10 minutes'
+           ORDER BY id DESC LIMIT 1
+        `, [duenio.userId, monto]);
+        if (reciente.rows.length > 0) {
+          res.status(409).json({
+            error: 'Posible captura duplicada',
+            duplicado_posible: true,
+            message: `Hace unos minutos ya se registró un fondeo de $${Number(monto).toFixed(2)} para este cliente. ` +
+                     `Si de verdad entregó el efectivo dos veces, confirma para abonarlo otra vez.`,
+          });
+          return;
+        }
+      }
 
       const client = await pool.connect();
       try {
@@ -1284,6 +1307,7 @@ export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): 
           reference: duenio.reference,
           monto: parseFloat(String(monto)),
           origen: 'manual',
+          cajaTxId: tx.rows[0].id,
           actorId: adminId || null,
           actorNombre: adminName,
           nota: `Efectivo recibido en caja · transacción #${tx.rows[0].id}`,
@@ -1738,19 +1762,49 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
 export const deleteTransaccion = async (req: AuthRequest, res: Response): Promise<void> => {
   const txId = parseInt(req.params['id'] as string, 10);
   if (!txId) { res.status(400).json({ error: 'ID inválido' }); return; }
+  const adminName = (req.user as any)?.full_name || (req.user as any)?.name || 'Super admin';
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
+    await client.query('BEGIN');
+
+    // Si la transacción respaldaba un fondeo de cartera, hay que quitarle al
+    // cliente lo que se le abonó. Sin esto, borrar la captura duplicada de un
+    // efectivo cuadraba la caja pero le dejaba al cliente el dinero abonado dos
+    // veces: se quedaba con lo que nunca entregó.
+    const { revertirFondeoDeCaja } = await import('./walletFundingController');
+    let reversa: { revertido: number; nuevoSaldo: number } | null = null;
+    try {
+      reversa = await revertirFondeoDeCaja(client, txId, { actorNombre: adminName });
+    } catch (e: any) {
+      await client.query('ROLLBACK');
+      res.status(409).json({ error: e?.message || 'No se pudo revertir el fondeo asociado' });
+      return;
+    }
+
+    const result = await client.query(
       'DELETE FROM caja_chica_transacciones WHERE id = $1 RETURNING id',
       [txId]
     );
     if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
       res.status(404).json({ error: 'Transacción no encontrada' });
       return;
     }
-    res.json({ success: true, message: 'Transacción eliminada' });
+
+    await client.query('COMMIT');
+    res.json({
+      success: true,
+      message: reversa && reversa.revertido > 0
+        ? `Transacción eliminada. Se le quitaron $${reversa.revertido.toFixed(2)} a la cartera del cliente (saldo: $${reversa.nuevoSaldo.toFixed(2)}).`
+        : 'Transacción eliminada',
+      fondeo_revertido: reversa?.revertido || 0,
+    });
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error en deleteTransaccion:', error);
     res.status(500).json({ error: 'Error al eliminar transacción' });
+  } finally {
+    client.release();
   }
 };
 
@@ -1768,8 +1822,24 @@ export const updateTransaccion = async (req: AuthRequest, res: Response): Promis
     return;
   }
   const newDate = fecha ? new Date(fecha) : null;
+  const adminName = (req.user as any)?.full_name || (req.user as any)?.name || 'Super admin';
+  const client = await pool.connect();
   try {
-    const r = await pool.query(
+    await client.query('BEGIN');
+
+    // Mismo motivo que en el borrado: corregir el importe de un fondeo tiene
+    // que mover también el saldo del cliente, o la caja y el monedero cuentan
+    // historias distintas.
+    const { revertirFondeoDeCaja } = await import('./walletFundingController');
+    try {
+      await revertirFondeoDeCaja(client, txId, { nuevoMonto: n, actorNombre: adminName });
+    } catch (e: any) {
+      await client.query('ROLLBACK');
+      res.status(409).json({ error: e?.message || 'No se pudo ajustar el fondeo asociado' });
+      return;
+    }
+
+    const r = await client.query(
       newDate && !isNaN(newDate.getTime())
         ? `UPDATE caja_chica_transacciones SET monto = $1, created_at = $3 WHERE id = $2 RETURNING id, monto, tipo, created_at`
         : `UPDATE caja_chica_transacciones SET monto = $1 WHERE id = $2 RETURNING id, monto, tipo`,
@@ -1778,12 +1848,17 @@ export const updateTransaccion = async (req: AuthRequest, res: Response): Promis
         : [n.toFixed(2), txId]
     );
     if (r.rowCount === 0) {
+      await client.query('ROLLBACK');
       res.status(404).json({ error: 'Transacción no encontrada' });
       return;
     }
+    await client.query('COMMIT');
     res.json({ success: true, transaccion: r.rows[0] });
   } catch (error: any) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error en updateTransaccion:', error);
     res.status(500).json({ error: 'Error al actualizar transacción', detail: error?.message });
+  } finally {
+    client.release();
   }
 };
