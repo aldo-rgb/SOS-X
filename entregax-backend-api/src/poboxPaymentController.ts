@@ -1077,16 +1077,12 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             console.log('No se encontró config de empresa para', serviceTypeForConfig);
         }
 
-        // Generar prefijo con iniciales de la empresa (2 primeras letras de cada palabra)
-        let refPrefix = 'EF';
-        if (companyInfo?.company_name) {
-            const words = companyInfo.company_name.trim().split(/\s+/).filter((w: string) => !['sa', 'de', 'cv', 's.a.', 'S.A.', 'DE', 'CV', 'C.V.'].includes(w.toLowerCase()));
-            if (words.length >= 2) {
-                refPrefix = (words[0][0] + words[1][0]).toUpperCase();
-            } else if (words.length === 1 && words[0].length >= 2) {
-                refPrefix = words[0].substring(0, 2).toUpperCase();
-            }
-        }
+        // Prefijo con las iniciales de la empresa. La regla vive en
+        // referencePrefixes para que sea LA MISMA que usa el conciliador al
+        // reconocerlas: si las dos se separan, se emiten referencias con un
+        // prefijo que nadie sabe leer en el estado de cuenta.
+        const { prefijoDeEmpresa } = await import('./referencePrefixes');
+        const refPrefix = prefijoDeEmpresa(companyInfo?.company_name) || 'EF';
         const paymentRef = generatePaymentReference(refPrefix);
 
         if (!companyInfo || !companyInfo.bank_clabe) {

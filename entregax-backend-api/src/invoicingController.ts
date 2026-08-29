@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { invalidarCachePrefijos } from './referencePrefixes';
 import { FacturamaClient, FacturamaError } from './facturamaClient';
 
 // ============================================
@@ -38,6 +39,9 @@ export const createFiscalEmitter = async (req: Request, res: Response): Promise<
              show_in_cobranza ?? false, show_in_contabilidad ?? true]
         );
 
+        // El prefijo de la empresa nueva queda autorizado en la conciliación de
+        // inmediato: es lo que antes había que acordarse de agregar a mano.
+        invalidarCachePrefijos();
         res.status(201).json({ message: 'Empresa creada exitosamente', emitter: result.rows[0] });
     } catch (error) {
         console.error('Error creating fiscal emitter:', error);
@@ -65,6 +69,10 @@ export const updateFiscalEmitter = async (req: Request, res: Response): Promise<
             return res.status(404).json({ error: 'Empresa no encontrada' });
         }
 
+        // Cambiar el alias cambia el prefijo con el que nacen sus referencias,
+        // y activar/desactivar cambia si se concilia. En los dos casos hay que
+        // recalcular.
+        invalidarCachePrefijos();
         res.json({ message: 'Empresa actualizada', emitter: result.rows[0] });
     } catch (error) {
         console.error('Error updating fiscal emitter:', error);
@@ -76,11 +84,23 @@ export const updateFiscalEmitter = async (req: Request, res: Response): Promise<
 export const deleteFiscalEmitter = async (req: Request, res: Response): Promise<any> => {
     try {
         const { id } = req.params;
-        const result = await pool.query('DELETE FROM fiscal_emitters WHERE id = $1 RETURNING id, rfc', [id]);
+        // Baja lógica, no borrado. Un DELETE real dejaba huérfanas las facturas
+        // y las órdenes históricas que se emitieron con esa razón social, y
+        // solo se frenaba cuando una FK lo impedía —donde no había FK, el dato
+        // desaparecía—. Desactivar conserva el histórico y además saca su
+        // prefijo de los autorizados en la conciliación.
+        const result = await pool.query(
+            `UPDATE fiscal_emitters SET is_active = FALSE WHERE id = $1 RETURNING id, rfc, alias`,
+            [id]
+        );
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Empresa no encontrada' });
         }
-        res.json({ message: 'Empresa eliminada', id: result.rows[0].id });
+        invalidarCachePrefijos();
+        res.json({
+            message: 'Empresa desactivada. Su histórico se conserva y su prefijo de referencia deja de conciliarse.',
+            id: result.rows[0].id,
+        });
     } catch (error: any) {
         if (error.code === '23503') {
             return res.status(409).json({ error: 'No se puede eliminar: la empresa tiene datos relacionados (facturas, configuraciones, etc.)' });

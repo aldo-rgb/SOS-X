@@ -236,25 +236,11 @@ async function autoMatchTransaction(
   description: string,
   reference: string
 ): Promise<boolean> {
-  // Extract potential payment references from description/reference
-  // Common patterns: EP-XXXXXXXX, GL-XXXXXXXX, or Openpay transaction IDs
-  // Mismos prefijos y misma tolerancia que en Syncfy: el separador puede faltar
-  // y la referencia venir en minúscula, tal como la escribió el cliente.
-  const refPatterns = [
-    /(SAF|CEX|RO|PP|EP|GL|UW|US)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/i,
-    /\b(tr_[a-zA-Z0-9]+)\b/,
-  ];
-
-  let extractedRef: string | null = null;
+  // Prefijos desde el catálogo de empresas, igual que en Syncfy: una sola
+  // fuente para que dar de alta una empresa no deje su prefijo sin reconocer.
   const searchText = `${description} ${reference}`;
-  for (const pattern of refPatterns) {
-    const m = searchText.match(pattern);
-    if (!m) continue;
-    // El primer patrón captura prefijo y código por separado; el de tr_ captura
-    // el token completo en m[1].
-    if (m[2]) { extractedRef = `${String(m[1]).toUpperCase()}-${String(m[2]).toUpperCase()}`; break; }
-    if (m[1]) { extractedRef = m[1]; break; }
-  }
+  const { extraerReferencia } = await import('./referencePrefixes');
+  const extractedRef: string | null = await extraerReferencia(searchText);
 
   // Strategy 1: Match by payment reference in description
   if (extractedRef) {

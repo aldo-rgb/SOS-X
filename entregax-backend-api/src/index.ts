@@ -5964,6 +5964,26 @@ app.get('/api/admin/invoices/:invoiceId/cancellation-status', authenticateToken,
 app.post('/api/admin/invoices/respond-cancellation', authenticateToken, requireMinLevel(ROLES.DIRECTOR), respondInvoiceCancellation);
 
 // Admin: Configuración de servicios por empresa (qué empresa cobra cada servicio)
+// Prefijos de referencia vigentes, para que el extractor del estado de cuenta
+// se arme solo: cada empresa activa aporta sus iniciales. Antes la lista estaba
+// escrita a mano en el front y se quedaba atrás del catálogo.
+app.get('/api/admin/finance/reference-prefixes', authenticateToken, requireMinLevelOrRoles(ROLES.DIRECTOR, ROLES.ACCOUNTANT), async (_req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { getPrefijosVigentes, PREFIJOS_NO_BANCARIOS } = await import('./referencePrefixes');
+    const todos = await getPrefijosVigentes();
+    res.json({
+      success: true,
+      // El estado de cuenta solo trae transferencias: los prefijos de efectivo,
+      // Openpay y el de respaldo se quedan fuera para no generar ruido.
+      prefijos: todos.filter((p: string) => !PREFIJOS_NO_BANCARIOS.includes(p)),
+      excluidos: PREFIJOS_NO_BANCARIOS,
+    });
+  } catch (e: any) {
+    console.error('[prefijos] endpoint:', e?.message);
+    res.status(500).json({ error: 'No se pudieron cargar los prefijos' });
+  }
+});
+
 app.get('/api/admin/fiscal/service-config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getServiceCompanyConfig);
 app.put('/api/admin/fiscal/service-config/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateServiceCompanyConfig);
 app.get('/api/admin/fiscal/service-emitter/:service_type', authenticateToken, getEmitterByServiceType);

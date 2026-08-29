@@ -296,6 +296,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const [mesFilter, setMesFilter] = useState<string>('todos');
   const [tablePage, setTablePage] = useState(1);
   const TABLE_PAGE_SIZE = 30;
+  // Prefijos de referencia vigentes. Salen del catálogo de empresas: alta una
+  // empresa y su prefijo se reconoce solo al pegar el estado de cuenta.
+  const [refPrefijos, setRefPrefijos] = useState<string[]>([]);
   const [refMatchModal, setRefMatchModal] = useState<{ open: boolean; loading: boolean; matches: any[]; wrongAccount: any[]; unmatched: any[]; summary: any } | null>(null);
   const [amountMatchModal, setAmountMatchModal] = useState<{ open: boolean; loading: boolean; matches: any[]; ambiguous: any[]; unmatched: any[]; summary: any } | null>(null);
   const [confirmAuthorize, setConfirmAuthorize] = useState<{ open: boolean; toAuthorize: any[]; totalSurplus: number } | null>(null);
@@ -460,14 +463,14 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     return rows;
   };
 
-  // Prefijos válidos de referencias de pago (PP excluido — es para pagos en efectivo, no bancarios)
+  // Prefijos válidos de referencias de pago.
   // Detecta: RO-2957B7E6 | RO 2957B7E6 | 7069052981RO054735C0 (sin separador embebido)
   //
-  // La lista quedó atrás de la del backend: aquí solo estaban RO y US, así que
-  // al pegar el estado de cuenta no se detectaban las UW —250 órdenes, y son de
-  // Urban Wod, la misma empresa que cobra los fondeos— ni las EP/GL. Es el mismo
-  // agujero que en Syncfy dejó 39 abonos casándose por monto. Ahora ambas listas
-  // dicen lo mismo, salvo PP, que se excluye a propósito.
+  // Ya no se escriben a mano: los manda el backend desde el catálogo de
+  // empresas. Escritos aquí, la lista se quedaba atrás —solo tenía RO y US, así
+  // que no detectaba las UW, 250 órdenes de la empresa que más cobra— y cada
+  // empresa nueva nacía invisible. Los de efectivo y Openpay vienen ya
+  // filtrados: al estado de cuenta solo llegan transferencias.
   // SAF es el fondeo de cartera: no es una orden sino la referencia FIJA del
   // cliente, la misma toda su vida. Al autorizarla el importe se abona a su
   // Disponible general y de ahí lo puede gastar en cualquier servicio.
@@ -477,6 +480,10 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   // alternativa corta (SA dentro de SAF).
 
   const extractReferences = (rows: EstadoCuentaRow[]): { ref: string; entries: EstadoCuentaRow[] }[] => {
+    // Si el backend no respondió se usa la lista de respaldo: quedarse sin
+    // extractor dejaría toda la conciliación manual.
+    const lista = refPrefijos.length > 0 ? refPrefijos : ['SAF', 'CEX', 'RO', 'EP', 'GL', 'UW', 'US'];
+    const refRegex = new RegExp(`(?<![A-Z])(${lista.join('|')})[-\\s]?([A-F0-9]{6,8})(?![A-F0-9])`, 'g');
     const refMap: Record<string, EstadoCuentaRow[]> = {};
     for (const row of rows) {
       // Buscar en concepto y referencia por separado pero contar la fila solo una vez por referencia
@@ -484,7 +491,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       const referencia = (row.referencia || '').toUpperCase();
       const foundRefs = new Set<string>();
       for (const text of [concepto, referencia]) {
-        const matches = [...text.matchAll(/(?<![A-Z])(SAF|CEX|RO|EP|GL|UW|US)[-\s]?([A-F0-9]{6,8})(?![A-F0-9])/g)];
+        const matches = [...text.matchAll(refRegex)];
         for (const m of matches) {
           const ref = `${m[1]}-${m[2]}`;
           if (!foundRefs.has(ref)) {
@@ -908,6 +915,14 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     fetchDashboard(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, dateFrom, dateTo, filterServicio]);
+
+  // Prefijos vigentes desde el catálogo de empresas. Se cargan una vez al
+  // entrar: el catálogo cambia un par de veces al año.
+  useEffect(() => {
+    api.get('/admin/finance/reference-prefixes')
+      .then((r) => { if (Array.isArray(r.data?.prefijos)) setRefPrefijos(r.data.prefijos); })
+      .catch(() => { /* se usa la lista de respaldo del extractor */ });
+  }, []);
 
   // Debounce del buscador de cliente/box → recarga SILENCIOSA con el filtro server-side.
   const clienteFirstRun = useRef(true);

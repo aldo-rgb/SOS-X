@@ -441,33 +441,13 @@ export async function processTransactions(
 async function autoMatchTransaction(
   txId: number, emitterId: number, amount: number, description: string, reference: string
 ): Promise<boolean> {
-  let extractedRef: string | null = null;
+  // La lista de prefijos ya no vive aquí: sale del catálogo de empresas (ver
+  // referencePrefixes.ts). Estaba escrita a mano en tres archivos y se quedaba
+  // atrás cada vez que se daba de alta una empresa nueva, así que sus depósitos
+  // caían al emparejamiento por monto.
   const searchText = `${description} ${reference}`;
-  // Referencias + 8 hex, tolerando separador faltante o espacio en el concepto
-  // bancario (ej. "RO 2476D963", "RO65202C21", "UW6289E4E8").
-  // UW y US se agregaron después: sin ellos, 39 abonos que traían su referencia
-  // escrita en el concepto caían al emparejamiento por monto y podían acabar
-  // pagando la orden de otro cliente (tx#187822 decía UW6289E4E8 y se aplicó a
-  // UW-0475EBFC).
-  // El flag `i` importa: los clientes escriben la referencia como se les da la
-  // gana y el banco la copia tal cual. "...0725747582pp 57475823" es un pago
-  // real de PP-57475823 que el regex, al ser sensible a mayúsculas, no
-  // reconocía. Son 11 abonos así: 3 nunca se conciliaron —incluido el de
-  // TKT-2026-2321— y los otros 8 se casaron por MONTO, que es justo el camino
-  // que acaba aplicando el depósito a la orden de otro cliente.
-  // SAF es el fondeo de cartera: no es una orden sino la referencia fija del
-  // cliente, y se resuelve más abajo contra wallet_funding_references. CEX son
-  // los cargos extra cobrables, que sí son órdenes y llevaban tiempo cayendo al
-  // emparejamiento por monto por no estar en esta lista.
-  // Los prefijos de 3 letras van PRIMERO: con SA antes que SAF, el motor probaría
-  // la alternativa corta en cada posición antes de llegar a la larga.
-  const prefixed = searchText.match(/(SAF|CEX|RO|PP|EP|GL|UW|US)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/i);
-  if (prefixed && prefixed[1] && prefixed[2]) {
-    extractedRef = `${prefixed[1].toUpperCase()}-${prefixed[2].toUpperCase()}`;
-  } else {
-    const tr = searchText.match(/\b(tr_[a-zA-Z0-9]+)\b/);
-    if (tr && tr[1]) extractedRef = tr[1];
-  }
+  const { extraerReferencia } = await import('./referencePrefixes');
+  const extractedRef: string | null = await extraerReferencia(searchText);
 
   if (extractedRef) {
     // ── Fondeo de cartera general ──
