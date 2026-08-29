@@ -49,6 +49,8 @@ import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalance
 import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined';
 import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { useTranslation } from 'react-i18next';
 
 /* ── X-Pay CSS keyframes injected once ── */
@@ -1185,11 +1187,21 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
           || (err as Error)?.message
           || msg;
       }
-      setSnack({ open: true, severity: 'error', message: msg });
+      // Un snackbar rojo de "error" con el texto crudo se lee como que algo se
+      // rompió. Casi siempre es que el documento todavía no llega, así que va
+      // en su propio aviso, explicando qué sigue.
+      setDocError({ tipo, mensaje: msg });
     } finally {
       setDownloadingDoc(null);
     }
   };
+
+  /** Aviso con diseño cuando un documento aún no se puede descargar. */
+  const [docError, setDocError] = useState<{ tipo: string; mensaje: string } | null>(null);
+  const tituloDocError = (tipo?: string) =>
+    tipo === 'comprobante_proveedor' ? 'Comprobante en camino'
+      : tipo === 'factura_pdf' || tipo === 'factura_xml' ? 'Factura en camino'
+      : 'Documento en camino';
 
   // Sync manual contra ENTANGLED para una solicitud — útil cuando el webhook
   // de factura/pago se perdió y el estado local quedó atrás.
@@ -4344,6 +4356,39 @@ export default function EntangledPaymentRequest({ hideHeader = false, advisorCli
               : editingSupplier
               ? t('common.update', 'Actualizar')
               : t('common.save', 'Guardar')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Documento aún no disponible: no es una falla del sistema, es que el
+          documento todavía no llega. Se dice así y se explica qué sigue. */}
+      <Dialog open={!!docError} onClose={() => setDocError(null)} maxWidth="xs" fullWidth
+        slotProps={{ paper: { sx: { borderRadius: 3, p: 1 } } }}>
+        <DialogContent sx={{ textAlign: 'center', pt: 4, pb: 2 }}>
+          <Box sx={{
+            width: 66, height: 66, borderRadius: '50%', bgcolor: '#FFF3E0',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2,
+          }}>
+            <ScheduleIcon sx={{ fontSize: 32, color: '#B26A00' }} />
+          </Box>
+          <Typography fontWeight={800} fontSize={19}>{tituloDocError(docError?.tipo)}</Typography>
+          <Typography color="text.secondary" fontSize={14} sx={{ mt: 1, lineHeight: 1.5 }}>
+            {docError?.mensaje}
+          </Typography>
+          <Box sx={{
+            display: 'flex', gap: 1, alignItems: 'flex-start',
+            bgcolor: '#F5F6F8', borderRadius: 2, p: 1.5, mt: 2.5, textAlign: 'left',
+          }}>
+            <InfoOutlinedIcon sx={{ fontSize: 18, color: '#5F6368', mt: '1px' }} />
+            <Typography fontSize={12.5} color="text.secondary" sx={{ lineHeight: 1.45 }}>
+              En cuanto se procese aparece solo aquí. No hace falta volver a pedirlo.
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button fullWidth variant="contained" onClick={() => setDocError(null)}
+            sx={{ py: 1.3, borderRadius: 2, textTransform: 'none', fontWeight: 800 }}>
+            Entendido
           </Button>
         </DialogActions>
       </Dialog>

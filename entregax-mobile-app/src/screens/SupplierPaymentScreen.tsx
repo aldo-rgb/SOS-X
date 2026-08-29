@@ -1264,6 +1264,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   // Descarga documento (factura PDF/XML o comprobante proveedor) usando el
   // proxy backend contra ENTANGLED. Este endpoint valida al asesor vía
   // advisorOwnsClient() para poder acceder a docs de sus clientes.
+  /** Aviso con diseño cuando un documento no se puede bajar todavía. */
+  const [docError, setDocError] = useState<{ tipo: string; mensaje: string } | null>(null);
+
   const downloadEntangledDoc = async (
     requestId: number,
     tipo: 'factura_pdf' | 'factura_xml' | 'comprobante_proveedor' | 'comprobante_cliente'
@@ -1286,7 +1289,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           const parsed = JSON.parse(body);
           errMsg = parsed.error || parsed.message || errMsg;
         } catch { /* keep default */ }
-        Alert.alert('Error', errMsg);
+        // Un Alert de sistema que dice "Error" y suelta el texto crudo se lee
+        // como que algo se rompió. Casi siempre es que el documento todavía no
+        // llega, así que se muestra con su propio diseño y se explica qué sigue.
+        setDocError({ tipo, mensaje: errMsg });
         return;
       }
 
@@ -3356,11 +3362,66 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      {/* Documento aún no disponible. No es una falla: casi siempre el proveedor
+          todavía no lo manda, así que se explica qué sigue en vez de soltar un
+          "Error" seco. */}
+      <Modal visible={!!docError} transparent animationType="fade" onRequestClose={() => setDocError(null)}>
+        <View style={styles.docErrOverlay}>
+          <View style={styles.docErrCard}>
+            <View style={styles.docErrIcon}>
+              <Ionicons name="time-outline" size={30} color="#B26A00" />
+            </View>
+            <Text style={styles.docErrTitle}>
+              {docError?.tipo === 'comprobante_proveedor' ? 'Comprobante en camino'
+                : docError?.tipo === 'factura_pdf' || docError?.tipo === 'factura_xml' ? 'Factura en camino'
+                : 'Documento en camino'}
+            </Text>
+            <Text style={styles.docErrMsg}>{docError?.mensaje}</Text>
+            <View style={styles.docErrHint}>
+              <Ionicons name="information-circle-outline" size={15} color="#5F6368" />
+              <Text style={styles.docErrHintTxt}>
+                En cuanto se procese aparece solo aquí. No hace falta volver a pedirlo.
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.docErrBtn} onPress={() => setDocError(null)}>
+              <Text style={styles.docErrBtnTxt}>Entendido</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  docErrOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center', padding: 26,
+  },
+  docErrCard: {
+    width: '100%', maxWidth: 380, backgroundColor: '#fff', borderRadius: 20,
+    padding: 22, alignItems: 'center',
+    shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 22, shadowOffset: { width: 0, height: 10 }, elevation: 9,
+  },
+  docErrIcon: {
+    width: 62, height: 62, borderRadius: 31, backgroundColor: '#FFF3E0',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 14,
+  },
+  docErrTitle: { fontSize: 18, fontWeight: '800', color: '#202124', textAlign: 'center' },
+  docErrMsg: {
+    fontSize: 14, color: '#5F6368', textAlign: 'center', lineHeight: 20, marginTop: 8,
+  },
+  docErrHint: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 7,
+    backgroundColor: '#F5F6F8', borderRadius: 12, padding: 11, marginTop: 16,
+  },
+  docErrHintTxt: { flex: 1, fontSize: 12, color: '#5F6368', lineHeight: 17 },
+  docErrBtn: {
+    marginTop: 18, alignSelf: 'stretch', backgroundColor: ORANGE,
+    paddingVertical: 13, borderRadius: 12, alignItems: 'center',
+  },
+  docErrBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 15 },
   // Header
   header: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#000',
