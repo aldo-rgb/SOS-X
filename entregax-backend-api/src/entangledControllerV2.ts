@@ -1540,7 +1540,9 @@ export const proxyEntangledDocumento = async (req: Request, res: Response): Prom
   }
 
   const r = await pool.query(
-    `SELECT id, user_id, entangled_transaccion_id, referencia_pago
+    `SELECT id, user_id, entangled_transaccion_id, referencia_pago,
+            comprobante_proveedor_url, url_comprobante_cliente, op_comprobante_cliente_url,
+            factura_url, factura_nombre_archivo
        FROM entangled_payment_requests WHERE id = $1`,
     [id]
   );
@@ -1560,8 +1562,42 @@ export const proxyEntangledDocumento = async (req: Request, res: Response): Prom
 
   const remote = await getSolicitudDocumento(String(row.entangled_transaccion_id), tipo);
   if (!remote.ok || !remote.buffer) {
+    // El proveedor puede contestar que no tiene el documento aunque nosotros SÍ
+    // lo tengamos guardado: la URL nos llega por webhook y queda en la fila. Le
+    // pasó a XP386901, donde el asesor no pudo bajar un comprobante que ya
+    // existía de nuestro lado (tarea 447). Antes de rendirse, se intenta con lo
+    // que ya tenemos.
+    const GUARDADA: Record<string, string | null> = {
+      comprobante_proveedor: row.comprobante_proveedor_url,
+      comprobante_cliente: row.url_comprobante_cliente || row.op_comprobante_cliente_url,
+      factura_pdf: row.factura_url,
+    };
+    const guardada = GUARDADA[tipo];
+    if (guardada) {
+      try {
+        const { signS3UrlIfNeeded } = await import('./s3Service');
+        const firmada = await signS3UrlIfNeeded(String(guardada)).catch(() => null);
+        const resp = await fetch(String(firmada || guardada));
+        if (resp.ok) {
+          const buf = Buffer.from(await resp.arrayBuffer());
+          const ct = resp.headers.get('content-type') || 'application/octet-stream';
+          const sinQuery = String(guardada).split('?')[0] || '';
+          const ext = (sinQuery.match(/\.([a-z0-9]{3,4})$/i) || [])[1] || 'bin';
+          console.log(`[XPAY] ${row.referencia_pago}: el documento ${tipo} no vino del proveedor; se sirve el guardado.`);
+          res.setHeader('Content-Type', ct);
+          res.setHeader('Content-Disposition',
+            `attachment; filename="${(row.referencia_pago || `XP${id}`)}_${tipo}.${ext}"`);
+          res.setHeader('Content-Length', String(buf.length));
+          return res.send(buf);
+        }
+      } catch (e: any) {
+        console.warn(`[XPAY] no se pudo servir el ${tipo} guardado de ${row.referencia_pago}:`, e?.message);
+      }
+    }
+    // Sin respaldo: el mensaje se limpia para no exponer al proveedor.
     return res.status(remote.status && remote.status >= 400 && remote.status < 600 ? remote.status : 502).json({
-      error: remote.error || 'No se pudo descargar el documento',
+      error: friendlyEntangledError(remote.error, (remote as any).raw)
+        || 'Este documento todavía no está disponible. En cuanto se procese el pago aparecerá aquí.',
     });
   }
 
