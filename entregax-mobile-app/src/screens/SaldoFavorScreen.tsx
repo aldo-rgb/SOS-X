@@ -675,7 +675,10 @@ export default function SaldoFavorScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   fondeoCard: {
     backgroundColor: '#E3F2FD', borderRadius: 14, padding: 14,
-    marginTop: 12, borderWidth: 1, borderColor: '#90CAF9',
+    // El espacio de arriba lo pone el marginBottom de la tarjeta anterior; aquí
+    // solo el de abajo, para que todas las tarjetas de la pantalla separen 16 y
+    // no quede una pegada a la siguiente.
+    marginBottom: 16, borderWidth: 1, borderColor: '#90CAF9',
   },
   fondeoTitle: { fontSize: 13.5, fontWeight: '800', color: '#0D47A1' },
   fondeoNota: { fontSize: 11.5, color: '#1565C0', lineHeight: 16, marginTop: 4 },
@@ -688,7 +691,7 @@ const styles = StyleSheet.create({
   fondeoClabe: { fontSize: 15, fontWeight: '700', color: '#0D47A1' },
   favorCard: {
     backgroundColor: '#E8F5E9', borderRadius: 14, padding: 14,
-    marginTop: 12, borderWidth: 1, borderColor: '#A5D6A7',
+    marginBottom: 16, borderWidth: 1, borderColor: '#A5D6A7',
   },
   favorHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   favorTitle: { fontSize: 13.5, fontWeight: '800', color: '#1B5E20' },
