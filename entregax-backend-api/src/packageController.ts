@@ -7404,6 +7404,16 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
     const addrId = parseInt(addressId, 10);
     const nationalDeliveryZip: string | null = ocurreZip ? String(ocurreZip).trim() : null;
     const isCollectBool = isCollect === 'true' || isCollect === true;
+    // El pick up llega con distintos nombres según el panel: 'pickup',
+    // 'pickup_hidalgo', 'Pick Up Hidalgo TX'. Se reconocen todos.
+    const _ckBulk = String(carrierService || '').toLowerCase().replace(/[\s-]+/g, '_');
+    const esPickupBulk = _ckBulk === 'pickup' || _ckBulk === 'pick_up'
+      || _ckBulk.startsWith('pickup_') || _ckBulk.startsWith('pick_up_');
+    const tcPoboxVigente = async (): Promise<number> => {
+      const r = await pool.query(
+        "SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE LIMIT 1");
+      return parseFloat(r.rows[0]?.tipo_cambio_final) || 18.00;
+    };
     const wantsFacturaBool = wantsFacturaPaqueteria === 'true' || wantsFacturaPaqueteria === true;
     const saveConstanciaBool = saveConstanciaFlag === 'true' || saveConstanciaFlag === true;
     const carrierCostMxn = parseFloat(req.body.carrierCost) || 0;
@@ -7480,13 +7490,25 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
         );
         const pre = preRes.rows[0];
         const pkgBoxes = pre ? Math.max(1, parseInt(pre.total_boxes, 10) || 1) : 1;
-        const pkgShippingCost = +(carrierCostPerBox * pkgBoxes).toFixed(2);
+        let pkgShippingCost = +(carrierCostPerBox * pkgBoxes).toFixed(2);
         const ventaUsd = pre ? (parseFloat(pre.pobox_venta_usd) || 0) : 0;
         const tc = pre ? (parseFloat(pre.registered_exchange_rate) || 0) : 0;
         const gex = pre ? (parseFloat(pre.gex_total_cost) || 0) : 0;
         const pagado = pre ? (parseFloat(pre.monto_pagado) || 0) : 0;
         const ventaMxn = ventaUsd * tc;
-        const newTotal = +(ventaMxn + gex + pkgShippingCost).toFixed(2);
+        let newTotal = +(ventaMxn + gex + pkgShippingCost).toFixed(2);
+
+        // 🏪 PICK UP: la caja se recoge en el mostrador de Hidalgo y NUNCA viaja,
+        // así que el flete PO Box no existe: solo se cobra la maniobra de $3 USD
+        // por caja. La regla ya vivía en el panel del cliente y en el del asesor,
+        // pero NO aquí, y esta es la ruta que usa la asignación en lote: por eso
+        // la US-9560882657 volvía a $9,101.13 —los $9,098.13 de flete más los $3—
+        // cada vez que se le reasignaban instrucciones (tarea 291).
+        if (esPickupBulk) {
+          const tcPickup = tc > 0 ? tc : await tcPoboxVigente();
+          pkgShippingCost = +(3 * pkgBoxes * tcPickup).toFixed(2);
+          newTotal = pkgShippingCost;
+        }
         const newSaldo = Math.max(0, +(newTotal - pagado).toFixed(2));
 
         const result = await client.query(`
@@ -7506,7 +7528,18 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
               updated_at = CURRENT_TIMESTAMP
           WHERE id = $7 AND user_id = $8
           RETURNING id
-        `, [addrId, carrierService, notes || null, isCollectBool, isCollectBool ? carrierService : null, wantsFacturaBool, pkgId, ownerId, pkgShippingCost, newTotal, newSaldo, nationalDeliveryZip]);
+        `, [addrId,
+            // Nombre canónico del pick up: el mostrador identifica la guía por
+            // 'Pick Up Hidalgo TX' y con 'pickup' a secas no la reconocía.
+            esPickupBulk ? 'Pick Up Hidalgo TX' : carrierService,
+            notes || null, isCollectBool, isCollectBool ? carrierService : null, wantsFacturaBool, pkgId, ownerId, pkgShippingCost, newTotal, newSaldo, nationalDeliveryZip]);
+
+        // Pick up: la guía se queda esperando en mostrador, no sale a ruta.
+        if (esPickupBulk && result.rowCount) {
+          await client.query(
+            `UPDATE packages SET status = 'ready_pickup', national_carrier = 'pickup_hidalgo', updated_at = NOW()
+              WHERE id = $1 OR master_id = $1`, [pkgId]).catch(() => {});
+        }
 
         if (result.rowCount && result.rowCount > 0) {
           // Si es master multipieza, propagar TODO el estado de instrucciones a las hijas
