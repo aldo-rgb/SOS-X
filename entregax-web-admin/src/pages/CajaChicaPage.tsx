@@ -294,6 +294,10 @@ const CajaChicaPage: React.FC = () => {
     monto: number;
     cliente: { id: number; nombre: string; email: string; box_id: string };
     guias: Array<{ id: number; tracking: string; monto: number }>;
+    // Referencia CT-: el cliente deja efectivo para su cartera general, no
+    // paga guías. No hay adeudo, así que el monto lo teclea quien cobra.
+    es_fondeo_cartera?: boolean;
+    saldo_actual?: number;
   } | null>(null);
 
   // Egreso
@@ -904,8 +908,10 @@ const CajaChicaPage: React.FC = () => {
       const response = await api.get('/caja-chica/buscar-referencia', { params: { ref: searchRef.trim() } });
       if (response.data.found) {
         setRefFound(response.data);
-        // Pre-cargar el monto a recibir
-        setMontoRecibido(String(response.data.monto));
+        // En un cobro normal se precarga el adeudo de las guías. En un fondeo
+        // no hay adeudo: el cliente entrega lo que quiere y el campo arranca
+        // vacío para que se capture lo que realmente se recibió.
+        setMontoRecibido(response.data.es_fondeo_cartera ? '' : String(response.data.monto));
       } else {
         setSearchRefError('No se encontró ningún pago con esa referencia');
       }
@@ -923,12 +929,18 @@ const CajaChicaPage: React.FC = () => {
     if (!refFound) return;
     setProcesandoPago(true);
     try {
-      await api.post('/caja-chica/confirmar-pago-referencia', {
+      const resp = await api.post('/caja-chica/confirmar-pago-referencia', {
         referencia: refFound.referencia,
         monto: parseMontoEs(montoRecibido),
         notas: notasPago
       });
-      setSnackbar({ open: true, message: `✅ Pago de ${formatCurrency(parseMontoEs(montoRecibido))} registrado correctamente`, severity: 'success' });
+      setSnackbar({
+        open: true,
+        message: refFound.es_fondeo_cartera
+          ? `✅ ${resp.data?.message || 'Fondeo acreditado a la cartera del cliente'}`
+          : `✅ Pago de ${formatCurrency(parseMontoEs(montoRecibido))} registrado correctamente`,
+        severity: 'success',
+      });
       setPagoDialogOpen(false);
       setRefFound(null);
       setSearchRef('');
@@ -1387,7 +1399,7 @@ const CajaChicaPage: React.FC = () => {
               <TextField
                 fullWidth
                 label="Referencia de Pago"
-                placeholder="Ej: EF-0054-M7K9X2"
+                placeholder="Ej: EF-0054-M7K9X2 · CT-A3F19B02 para fondear cartera"
                 value={searchRef}
                 onChange={(e) => setSearchRef(e.target.value.toUpperCase())}
                 onKeyPress={(e) => e.key === 'Enter' && handleSearchByRef()}
@@ -1435,14 +1447,33 @@ const CajaChicaPage: React.FC = () => {
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
                     <Box sx={{ textAlign: 'right' }}>
-                      <Typography variant="overline" color="text.secondary">Monto a Cobrar</Typography>
-                      <Typography variant="h4" color="success.main" fontWeight="bold">
-                        {formatCurrency(refFound.monto)}
-                      </Typography>
+                      {refFound.es_fondeo_cartera ? (
+                        <>
+                          <Typography variant="overline" color="text.secondary">Saldo actual en su cartera</Typography>
+                          <Typography variant="h4" color="success.main" fontWeight="bold">
+                            {formatCurrency(refFound.saldo_actual || 0)}
+                          </Typography>
+                        </>
+                      ) : (
+                        <>
+                          <Typography variant="overline" color="text.secondary">Monto a Cobrar</Typography>
+                          <Typography variant="h4" color="success.main" fontWeight="bold">
+                            {formatCurrency(refFound.monto)}
+                          </Typography>
+                        </>
+                      )}
                       <Chip label={refFound.referencia} color="primary" size="small" sx={{ mt: 1 }} />
                     </Box>
                   </Grid>
                 </Grid>
+
+                {refFound.es_fondeo_cartera && (
+                  <Alert severity="info" sx={{ mt: 2 }}>
+                    <strong>Fondeo de cartera general.</strong> No cobra guías: el efectivo se abona
+                    al saldo disponible del cliente y lo puede usar después en cualquier servicio.
+                    Captura abajo lo que realmente estás recibiendo.
+                  </Alert>
+                )}
 
                 {/* Guías incluidas */}
                 {refFound.guias && refFound.guias.length > 0 && (
@@ -1464,7 +1495,7 @@ const CajaChicaPage: React.FC = () => {
 
               {/* Paso 3: Confirmar monto recibido */}
               <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                3. Confirmar Monto Recibido
+                {refFound.es_fondeo_cartera ? '3. Efectivo recibido para su cartera' : '3. Confirmar Monto Recibido'}
               </Typography>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
@@ -1502,7 +1533,11 @@ const CajaChicaPage: React.FC = () => {
             disabled={!refFound || procesandoPago || !montoRecibido}
             startIcon={procesandoPago ? <CircularProgress size={20} /> : <CheckCircleIcon />}
           >
-            {procesandoPago ? 'Procesando...' : `Registrar Pago de ${formatCurrency(parseMontoEs(montoRecibido) || 0)}`}
+            {procesandoPago
+              ? 'Procesando...'
+              : refFound?.es_fondeo_cartera
+                ? `Abonar ${formatCurrency(parseMontoEs(montoRecibido) || 0)} a su cartera`
+                : `Registrar Pago de ${formatCurrency(parseMontoEs(montoRecibido) || 0)}`}
           </Button>
         </DialogActions>
       </Dialog>

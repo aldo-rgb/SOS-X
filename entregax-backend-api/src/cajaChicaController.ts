@@ -1135,7 +1135,40 @@ export const buscarPorReferencia = async (req: AuthRequest, res: Response): Prom
     }
     
     const referencia = String(ref).trim().toUpperCase();
-    
+
+    // ── Fondeo de cartera general ──
+    // La referencia CT- es fija y del cliente, no de unas guías: la usa para
+    // dejar efectivo en mostrador y que se le abone a su Disponible general,
+    // que puede gastar después en cualquier servicio. No hay adeudo que
+    // precargar —el cliente entrega lo que quiere— así que el monto lo teclea
+    // quien cobra.
+    if (referencia.startsWith('CT-')) {
+      const { buscarReferenciaFondeo } = await import('./walletFundingController');
+      const duenio = await buscarReferenciaFondeo(referencia);
+      if (!duenio) {
+        res.json({ found: false, message: 'Esa referencia de cartera no pertenece a ningún cliente' });
+        return;
+      }
+      const cli = await pool.query(
+        `SELECT id, full_name, email, box_id, COALESCE(wallet_balance, 0) AS wallet_balance
+           FROM users WHERE id = $1`, [duenio.userId]);
+      if (cli.rows.length === 0) {
+        res.json({ found: false, message: 'El cliente de esa referencia ya no existe' });
+        return;
+      }
+      const c = cli.rows[0];
+      res.json({
+        found: true,
+        es_fondeo_cartera: true,
+        referencia: duenio.reference,
+        monto: 0,
+        saldo_actual: parseFloat(c.wallet_balance) || 0,
+        cliente: { id: c.id, nombre: c.full_name, email: c.email, box_id: c.box_id },
+        guias: [],
+      });
+      return;
+    }
+
     // Buscar en la tabla de pagos pendientes (payment_references o referencias generadas)
     // Primero buscar en packages que tengan esta referencia de pago asignada
     const result = await pool.query(`
@@ -1205,6 +1238,76 @@ export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): 
       return;
     }
     
+    // ── Fondeo de cartera general ──
+    // A diferencia del depósito bancario, aquí el efectivo SÍ entra al cajón,
+    // así que la transacción de caja tiene que existir o el corte no cuadra.
+    // Lo que cambia es la categoría: va como 'fondeo_cartera' y no como
+    // 'pago_cliente', porque este dinero todavía es del cliente. Contarlo como
+    // cobro inflaría los ingresos del día con algo que aún no se ha vendido.
+    if (String(referencia).trim().toUpperCase().startsWith('CT-')) {
+      const ref = String(referencia).trim().toUpperCase();
+      const { buscarReferenciaFondeo, acreditarFondeoCartera } = await import('./walletFundingController');
+      const duenio = await buscarReferenciaFondeo(ref);
+      if (!duenio) {
+        res.status(404).json({ error: 'Esa referencia de cartera no pertenece a ningún cliente' });
+        return;
+      }
+
+      await pool.query(`ALTER TABLE caja_chica_transacciones ADD COLUMN IF NOT EXISTS saldo_despues_movimiento NUMERIC(14,2)`).catch(() => {});
+      await pool.query(`ALTER TABLE caja_chica_transacciones ADD COLUMN IF NOT EXISTS categoria VARCHAR(50)`).catch(() => {});
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const saldoRes = await client.query(`
+          SELECT COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0) AS saldo
+            FROM caja_chica_transacciones
+           WHERE COALESCE(currency, 'MXN') = 'MXN'
+        `);
+        const saldoCaja = parseFloat(saldoRes.rows[0].saldo) + parseFloat(String(monto));
+
+        const cliente = await client.query(
+          `SELECT full_name, box_id FROM users WHERE id = $1`, [duenio.userId]);
+        const nombre = cliente.rows[0]?.full_name || 'Cliente';
+
+        const tx = await client.query(`
+          INSERT INTO caja_chica_transacciones (
+            tipo, monto, concepto, categoria, cliente_id, admin_id, admin_name,
+            saldo_despues_movimiento, notas, currency
+          ) VALUES ('ingreso', $1, $2, 'fondeo_cartera', $3, $4, $5, $6, $7, 'MXN')
+          RETURNING id
+        `, [monto, `Fondeo de cartera ${ref} — ${nombre}`, duenio.userId, adminId, adminName,
+            saldoCaja, notas || null]);
+
+        const abono = await acreditarFondeoCartera(client, {
+          userId: duenio.userId,
+          reference: duenio.reference,
+          monto: parseFloat(String(monto)),
+          origen: 'manual',
+          actorId: adminId || null,
+          actorNombre: adminName,
+          nota: `Efectivo recibido en caja · transacción #${tx.rows[0].id}`,
+        });
+
+        await client.query('COMMIT');
+        res.json({
+          success: true,
+          es_fondeo_cartera: true,
+          transaccion_id: tx.rows[0].id,
+          monto: abono.monto,
+          saldo_cliente: abono.nuevoSaldo,
+          message: `Fondeo de $${abono.monto.toFixed(2)} acreditado. Saldo de ${nombre}: $${abono.nuevoSaldo.toFixed(2)}`,
+        });
+      } catch (e: any) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('[caja] fondeo de cartera:', e);
+        res.status(500).json({ error: e?.message || 'No se pudo acreditar el fondeo' });
+      } finally {
+        client.release();
+      }
+      return;
+    }
+
     // Buscar los paquetes con esa referencia
     const packagesResult = await pool.query(`
       SELECT 
