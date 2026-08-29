@@ -59,9 +59,11 @@ export async function ensureFundingSchema(): Promise<void> {
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
       reference VARCHAR(16) NOT NULL UNIQUE,
+      habilitada BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await pool.query(`ALTER TABLE wallet_funding_references ADD COLUMN IF NOT EXISTS habilitada BOOLEAN DEFAULT FALSE`).catch(() => {});
   // Historial de fondeos y candado contra el doble abono. Los índices únicos
   // parciales son el candado real: el mismo movimiento del estado de cuenta, o
   // la misma transacción de Syncfy, no pueden acreditarse dos veces aunque el
@@ -318,10 +320,24 @@ export const miReferenciaDeFondeo = async (req: any, res: Response): Promise<any
     const userId = Number(req.user?.userId || req.user?.id);
     if (!userId) return res.status(401).json({ error: 'No autorizado' });
 
-    const reference = await obtenerOCrearReferencia(userId);
+    // El fondeo se prende cliente por cliente desde Control de Clientes. Sin
+    // solicitarlo, el cliente no ve una CLABE y una referencia que no pidió y
+    // no sabría para qué son. No se crea nada aquí: la referencia nace cuando
+    // soporte se la habilita.
+    await ensureFundingSchema();
+    const fila = await pool.query(
+      `SELECT reference, habilitada FROM wallet_funding_references WHERE user_id = $1`,
+      [userId]
+    );
+    if (fila.rows.length === 0 || !fila.rows[0].habilitada) {
+      return res.json({ success: true, habilitada: false, configurada: false, reference: null, banco: null });
+    }
+
+    const reference = String(fila.rows[0].reference);
     const empresa = await empresaDeCartera();
 
     res.json({
+      habilitada: true,
       success: true,
       reference,
       // Sin empresa asignada la referencia existe pero no hay a dónde depositar:

@@ -2021,6 +2021,8 @@ export const getCRMClients = async (req: Request, res: Response): Promise<any> =
         u.is_verified,
         u.is_active,
         COALESCE(u.is_broker, false) as is_broker,
+        COALESCE(wfr.habilitada, false) as funding_enabled,
+        wfr.reference as funding_reference,
         u.referred_by_id,
         COALESCE(u.advisor_id, u.referred_by_id) as advisor_id,
         u.first_transaction_date,
@@ -2044,6 +2046,9 @@ export const getCRMClients = async (req: Request, res: Response): Promise<any> =
       FROM users u
       LEFT JOIN users advisor ON COALESCE(u.advisor_id, u.referred_by_id) = advisor.id
       LEFT JOIN users leader ON advisor.team_leader_id = leader.id
+      -- Estado del interruptor de la referencia de fondeo. Sin fila = apagada,
+      -- que es como nacen todos.
+      LEFT JOIN wallet_funding_references wfr ON wfr.user_id = u.id
       ${whereClause}
       ORDER BY 
         CASE 
@@ -3602,6 +3607,59 @@ export const toggleClientBroker = async (req: Request, res: Response): Promise<a
     await pool.query(`UPDATE users SET is_broker = $1 WHERE id = $2`, [newState, id]);
     res.json({ success: true, is_broker: newState });
   } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * PATCH /api/admin/crm/clients/:id/toggle-funding
+ * Prende o apaga la REFERENCIA DE FONDEO para un cliente.
+ *
+ * Nace apagada para todos: el fondeo de cartera no es para el catálogo entero,
+ * solo para quien lo pide. Un cliente que no lo solicitó no debería ver en su
+ * monedero una CLABE y una referencia que no sabe para qué son.
+ *
+ * Apagar NO borra la referencia: la deja guardada para que, si vuelve a
+ * pedirla, sea la misma que ya tenía en su banco. Y tampoco frena el dinero —
+ * si llega un depósito con esa referencia se le acredita igual. Este
+ * interruptor decide qué VE el cliente, no si su dinero entra.
+ */
+export const toggleClientFunding = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const cur = await pool.query(
+      `SELECT id FROM users WHERE id = $1 AND role = 'client'`, [id]);
+    if (cur.rows.length === 0) {
+      return res.status(404).json({ error: 'Cliente no encontrado' });
+    }
+
+    const { ensureFundingSchema, obtenerOCrearReferencia } = await import('./walletFundingController');
+    await ensureFundingSchema();
+
+    const existente = await pool.query(
+      `SELECT habilitada FROM wallet_funding_references WHERE user_id = $1`, [id]);
+    const nuevoEstado = existente.rows.length === 0 ? true : !existente.rows[0].habilitada;
+
+    if (existente.rows.length === 0) {
+      // Primera vez que se le prende: se le asigna su referencia de por vida.
+      await obtenerOCrearReferencia(Number(id));
+      await pool.query(
+        `UPDATE wallet_funding_references SET habilitada = TRUE WHERE user_id = $1`, [id]);
+    } else {
+      await pool.query(
+        `UPDATE wallet_funding_references SET habilitada = $1 WHERE user_id = $2`,
+        [nuevoEstado, id]);
+    }
+
+    const r = await pool.query(
+      `SELECT reference, habilitada FROM wallet_funding_references WHERE user_id = $1`, [id]);
+    res.json({
+      success: true,
+      funding_enabled: !!r.rows[0]?.habilitada,
+      funding_reference: r.rows[0]?.reference || null,
+    });
+  } catch (error: any) {
+    console.error('[crm] toggleClientFunding:', error);
     res.status(500).json({ error: error.message });
   }
 };

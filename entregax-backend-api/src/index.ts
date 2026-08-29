@@ -677,7 +677,8 @@ import {
   changeClientAdvisor,
   resetClientPassword,
   toggleClientActive,
-  toggleClientBroker
+  toggleClientBroker,
+  toggleClientFunding
 } from './crmController';
 import {
   getWelcomeKits,
@@ -7869,6 +7870,9 @@ app.patch('/api/admin/crm/clients/:id/advisor', authenticateToken, requireMinLev
 app.post('/api/admin/crm/clients/:id/reset-password', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resetClientPassword);
 app.patch('/api/admin/crm/clients/:id/toggle-active', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), toggleClientActive);
 app.patch('/api/admin/crm/clients/:id/toggle-broker', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), toggleClientBroker);
+// Prende/apaga la referencia de fondeo de cartera de un cliente. Nace apagada:
+// solo la ve quien la solicita.
+app.patch('/api/admin/crm/clients/:id/toggle-funding', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), toggleClientFunding);
 
 // Módulo 3: Prospectos (Leads mejorado)
 app.get('/api/admin/crm/prospects', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProspects);

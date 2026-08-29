@@ -53,6 +53,7 @@ import LockResetIcon from '@mui/icons-material/LockReset';
 import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
+import SavingsIcon from '@mui/icons-material/Savings';
 import * as XLSX from 'xlsx';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
@@ -67,6 +68,10 @@ interface Client {
   is_verified: boolean;
   is_active: boolean;
   is_broker?: boolean;
+  // Interruptor de la referencia de fondeo de cartera. Apagado para todos
+  // salvo quien la solicita.
+  funding_enabled?: boolean;
+  funding_reference?: string | null;
   referred_by_id: number | null;
   advisor_id: number | null;
   first_transaction_date: string | null;
@@ -385,6 +390,30 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
       setSnackbar({ open: true, message: 'Error al resetear contraseña', severity: 'error' });
     } finally {
       setResetPwdLoading(false);
+    }
+  };
+
+  // Prende/apaga la referencia de fondeo. Nace apagada para todos: el fondeo de
+  // cartera es para quien lo solicita, no para el catálogo entero.
+  const handleToggleFunding = async (client: Client) => {
+    try {
+      const res = await axios.patch(
+        `${API_URL}/admin/crm/clients/${client.id}/toggle-funding`,
+        {},
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setClients(prev => prev.map(c => c.id === client.id
+        ? { ...c, funding_enabled: res.data.funding_enabled, funding_reference: res.data.funding_reference }
+        : c));
+      setSnackbar({
+        open: true,
+        message: res.data.funding_enabled
+          ? `💰 Fondeo habilitado — su referencia es ${res.data.funding_reference}. Ya la ve en su monedero.`
+          : 'Fondeo deshabilitado. Deja de ver la referencia, pero se le guarda por si vuelve a pedirla.',
+        severity: 'success',
+      });
+    } catch {
+      setSnackbar({ open: true, message: 'Error al cambiar el fondeo', severity: 'error' });
     }
   };
 
@@ -740,6 +769,19 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
                               onClick={() => handleToggleBroker(client)}
                             >
                               <BusinessCenterIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {canEditClients && (
+                          <Tooltip title={client.funding_enabled
+                            ? `Fondeo de cartera ✓ — referencia ${client.funding_reference || ''}. Clic para quitar`
+                            : 'Habilitar fondeo de cartera (le muestra su referencia para depositar)'}>
+                            <IconButton
+                              size="small"
+                              color={client.funding_enabled ? 'success' : 'default'}
+                              onClick={() => handleToggleFunding(client)}
+                            >
+                              <SavingsIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
                         )}
