@@ -16,6 +16,7 @@ import {
   Modal,
   Image,
   Dimensions,
+  Clipboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -89,6 +90,9 @@ export default function SaldoFavorScreen({ navigation }: any) {
    * puede usar en el mismo servicio que lo generó.
    */
   const [saldoFavor, setSaldoFavor] = useState<any | null>(null);
+  // Referencia FIJA para fondear la cartera general. No cambia nunca: el
+  // cliente la guarda en su banco y deposita con ella cuantas veces quiera.
+  const [fondeo, setFondeo] = useState<any | null>(null);
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
   const [showAllTransactions, setShowAllTransactions] = useState(false);
   const [totalReferidos, setTotalReferidos] = useState(0);
@@ -120,18 +124,27 @@ export default function SaldoFavorScreen({ navigation }: any) {
         'Authorization': `Bearer ${token}`,
       };
 
-      const [resumenRes, txRes, referidosRes, kitRes, favorRes] = await Promise.all([
+      const [resumenRes, txRes, referidosRes, kitRes, favorRes, fondeoRes] = await Promise.all([
         fetch(`${API_URL}/api/billetera/resumen`, { headers }),
         fetch(`${API_URL}/api/billetera/transacciones?limit=50`, { headers }),
         fetch(`${API_URL}/api/referidos/mis-referidos`, { headers }),
         fetch(`${API_URL}/api/welcome-kit/my-kit`, { headers }),
         // Bolsa aparte: el excedente de un pago de más, separado por servicio.
         fetch(`${API_URL}/api/saldo-favor`, { headers }),
+        // Su referencia fija para meterle dinero a la cartera general.
+        fetch(`${API_URL}/api/wallet/funding-reference`, { headers }),
       ]);
 
       if (favorRes.ok) {
         const d = await favorRes.json();
         setSaldoFavor(d?.success ? d : null);
+      }
+
+      if (fondeoRes.ok) {
+        const d = await fondeoRes.json();
+        // Sin empresa asignada en el panel no hay CLABE a dónde depositar, así
+        // que no se muestra: una referencia sin cuenta no sirve de nada.
+        setFondeo(d?.success && d?.configurada ? d : null);
       }
 
       if (kitRes.ok) {
@@ -340,6 +353,49 @@ export default function SaldoFavorScreen({ navigation }: any) {
             </View>
           )}
         </LinearGradient>
+
+        {/* Referencia fija para fondear la cartera general.
+            Va arriba de todo lo demás porque es lo accionable: es la forma que
+            tiene el cliente de MENTERLE dinero, no de ver el que ya tiene. */}
+        {!!fondeo?.banco && (
+          <View style={styles.fondeoCard}>
+            <View style={styles.favorHead}>
+              <Ionicons name="business-outline" size={18} color="#0D47A1" />
+              <Text style={styles.fondeoTitle}>Fondea tu saldo</Text>
+            </View>
+            <Text style={styles.fondeoNota}>
+              Deposita a esta cuenta poniendo tu referencia como concepto. El monto se abona a tu
+              saldo disponible y lo puedes usar en cualquier servicio. Siempre es la misma
+              referencia: guárdala en tu banco.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.fondeoFila}
+              activeOpacity={0.7}
+              onPress={() => { Clipboard.setString(fondeo.reference); Alert.alert('Copiado', 'Tu referencia se copió al portapapeles'); }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fondeoEtiqueta}>Tu referencia</Text>
+                <Text style={styles.fondeoRef}>{fondeo.reference}</Text>
+              </View>
+              <Ionicons name="copy-outline" size={20} color="#0D47A1" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.fondeoFila}
+              activeOpacity={0.7}
+              onPress={() => { Clipboard.setString(fondeo.banco.bank_clabe); Alert.alert('Copiado', 'La CLABE se copió al portapapeles'); }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fondeoEtiqueta}>
+                  CLABE {fondeo.banco.bank_name} · {fondeo.banco.beneficiario}
+                </Text>
+                <Text style={styles.fondeoClabe}>{fondeo.banco.bank_clabe}</Text>
+              </View>
+              <Ionicons name="copy-outline" size={20} color="#0D47A1" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Saldo a favor por pagos de más. Va aparte del monedero de referidos
             porque es otra bolsa y solo sirve en el servicio que lo generó: si
@@ -617,6 +673,19 @@ export default function SaldoFavorScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  fondeoCard: {
+    backgroundColor: '#E3F2FD', borderRadius: 14, padding: 14,
+    marginTop: 12, borderWidth: 1, borderColor: '#90CAF9',
+  },
+  fondeoTitle: { fontSize: 13.5, fontWeight: '800', color: '#0D47A1' },
+  fondeoNota: { fontSize: 11.5, color: '#1565C0', lineHeight: 16, marginTop: 4 },
+  fondeoFila: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#BBDEFB',
+  },
+  fondeoEtiqueta: { fontSize: 11, color: '#1565C0' },
+  fondeoRef: { fontSize: 19, fontWeight: '800', color: '#0D47A1', letterSpacing: 1 },
+  fondeoClabe: { fontSize: 15, fontWeight: '700', color: '#0D47A1' },
   favorCard: {
     backgroundColor: '#E8F5E9', borderRadius: 14, padding: 14,
     marginTop: 12, borderWidth: 1, borderColor: '#A5D6A7',
