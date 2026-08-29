@@ -1477,10 +1477,7 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
 export const getAdminTickets = async (req: Request, res: Response): Promise<any> => {
   try {
     await ensureDepartmentsSchema();
-    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP`);
-    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS ticket_status VARCHAR(20) DEFAULT 'nuevo'`);
-    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS first_response_at TIMESTAMP`);
-    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolution_time_minutes INTEGER`);
+    await ensureColumnasTicket();
     const { status, limit = 100, department_id, creator_type, archived, search } = req.query;
 
     const conditions: string[] = [];
@@ -1918,6 +1915,39 @@ export const assignTicket = async (req: Request, res: Response): Promise<any> =>
 
 let _deptTableEnsured = false;
 let _deptTableEnsuring: Promise<void> | null = null;
+/**
+ * Columnas del tablero de tickets, UNA VEZ por proceso.
+ *
+ * Estos cuatro ALTER se corrían en CADA carga del tablero. Un ALTER que no
+ * cambia nada es instantáneo... mientras el disco responda: cada uno pide un
+ * lock EXCLUSIVO sobre support_tickets. Con el almacenamiento de Railway
+ * degradado se quedaron 32 segundos esperando el WAL y dejaron atrás toda
+ * lectura de la tabla — el sistema entero se sintió lentísimo. Corriendo una
+ * sola vez al arranque, un mal día de la infraestructura ya no se multiplica
+ * por cada request.
+ */
+let _colsTicketListas = false;
+let _colsTicketEnCurso: Promise<void> | null = null;
+export const ensureColumnasTicket = async (): Promise<void> => {
+  if (_colsTicketListas) return;
+  if (_colsTicketEnCurso) return _colsTicketEnCurso;
+  _colsTicketEnCurso = (async () => {
+    try {
+      await pool.query(`ALTER TABLE support_tickets
+        ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS ticket_status VARCHAR(20) DEFAULT 'nuevo',
+        ADD COLUMN IF NOT EXISTS first_response_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS resolution_time_minutes INTEGER`);
+      _colsTicketListas = true;
+    } catch (e: any) {
+      console.warn('[support] ensureColumnasTicket:', e?.message);
+    } finally {
+      _colsTicketEnCurso = null;
+    }
+  })();
+  return _colsTicketEnCurso;
+};
+
 export const ensureDepartmentsSchema = async () => {
   if (_deptTableEnsured) return;
   // Evitar race condition: si ya está corriendo la migración, esperar a que termine
