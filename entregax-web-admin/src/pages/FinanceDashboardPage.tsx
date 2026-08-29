@@ -462,6 +462,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
 
   // Prefijos válidos de referencias de pago (PP excluido — es para pagos en efectivo, no bancarios)
   // Detecta: RO-2957B7E6 | RO 2957B7E6 | 7069052981RO054735C0 (sin separador embebido)
+  // CT es el fondeo de cartera general: no es una orden sino la referencia FIJA
+  // del cliente, la misma toda su vida. Al autorizarla el importe se abona a su
+  // Disponible general y de ahí lo puede gastar en cualquier servicio.
 
   const extractReferences = (rows: EstadoCuentaRow[]): { ref: string; entries: EstadoCuentaRow[] }[] => {
     const refMap: Record<string, EstadoCuentaRow[]> = {};
@@ -471,7 +474,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       const referencia = (row.referencia || '').toUpperCase();
       const foundRefs = new Set<string>();
       for (const text of [concepto, referencia]) {
-        const matches = [...text.matchAll(/(?<![A-Z])(RO|US)[-\s]?([A-F0-9]{6,8})(?![A-F0-9])/g)];
+        const matches = [...text.matchAll(/(?<![A-Z])(RO|US|CT)[-\s]?([A-F0-9]{6,8})(?![A-F0-9])/g)];
         for (const m of matches) {
           const ref = `${m[1]}-${m[2]}`;
           if (!foundRefs.has(ref)) {
@@ -2616,16 +2619,36 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                         </Box>
                         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
                           <Chip
-                            label={m.status === 'paid' ? 'Pagado' : m.status === 'vouchers_submitted' ? 'Comprobantes enviados' : m.status}
+                            label={m.es_fondeo_cartera ? '💰 Fondeo de cartera'
+                              : m.status === 'paid' ? 'Pagado'
+                              : m.status === 'vouchers_submitted' ? 'Comprobantes enviados' : m.status}
                             size="small"
-                            color={m.status === 'paid' ? 'success' : 'warning'}
+                            color={m.es_fondeo_cartera ? 'info' : m.status === 'paid' ? 'success' : 'warning'}
                           />
-                          {m.status !== 'paid' && m.total_bank_abonos < m.amount && (
+                          {!m.es_fondeo_cartera && m.status !== 'paid' && m.total_bank_abonos < m.amount && (
                             <Chip label="⚠️ Pago insuficiente" size="small" sx={{ bgcolor: '#d32f2f', color: 'white', fontWeight: 'bold' }} />
                           )}
                         </Box>
                       </Box>
                       <Divider sx={{ my: 1 }} />
+                      {m.es_fondeo_cartera ? (
+                        // Un fondeo no se compara contra nada: no hay orden previa,
+                        // el importe lo pone el depósito. Mostrar "monto orden $0" y
+                        // una diferencia se leería como un cobro mal hecho.
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Se abona al Disponible general ({m.payment_count} depósito{m.payment_count !== 1 ? 's' : ''}) · usable en cualquier servicio
+                          </Typography>
+                          <Typography variant="h6" fontWeight="bold" color="success.main">
+                            {formatCurrency(m.total_bank_abonos)}
+                          </Typography>
+                          {Number(m.fondeado_historico) > 0 && (
+                            <Typography variant="caption" color="text.secondary">
+                              Fondeos previos de este cliente: {formatCurrency(m.fondeado_historico)}
+                            </Typography>
+                          )}
+                        </Box>
+                      ) : (
                       <Grid container spacing={2}>
                         <Grid size={{ xs: 4 }}>
                           <Typography variant="caption" color="text.secondary">Monto orden</Typography>
@@ -2642,6 +2665,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                           </Typography>
                         </Grid>
                       </Grid>
+                      )}
                       {/* Detalle de pagos */}
                       {m.bank_entries.filter((e: any) => e.abono).length > 1 && (
                         <Box sx={{ mt: 1.5 }}>

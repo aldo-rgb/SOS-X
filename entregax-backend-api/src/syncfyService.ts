@@ -455,7 +455,9 @@ async function autoMatchTransaction(
   // reconocía. Son 11 abonos así: 3 nunca se conciliaron —incluido el de
   // TKT-2026-2321— y los otros 8 se casaron por MONTO, que es justo el camino
   // que acaba aplicando el depósito a la orden de otro cliente.
-  const prefixed = searchText.match(/(RO|PP|EP|GL|UW|US)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/i);
+  // CT es el fondeo de cartera general: no es una orden sino la referencia fija
+  // del cliente, y se resuelve más abajo contra wallet_funding_references.
+  const prefixed = searchText.match(/(RO|PP|EP|GL|UW|US|CT)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/i);
   if (prefixed && prefixed[1] && prefixed[2]) {
     extractedRef = `${prefixed[1].toUpperCase()}-${prefixed[2].toUpperCase()}`;
   } else {
@@ -464,6 +466,76 @@ async function autoMatchTransaction(
   }
 
   if (extractedRef) {
+    // ── Fondeo de cartera general ──
+    // No hay orden que buscar: la referencia es fija y del cliente, así que el
+    // abono entra directo a su cartera. La transacción queda 'matched' sin
+    // matched_payment_id, con lo que el auto-autorizador —que JOINea contra
+    // pobox_payments— no la vuelve a tocar.
+    try {
+      const { buscarReferenciaFondeo, acreditarFondeoCartera } = await import('./walletFundingController');
+      const duenio = await buscarReferenciaFondeo(extractedRef);
+      if (duenio) {
+        // El abono se ancla a la fila del ESTADO DE CUENTA, no a la transacción
+        // de Syncfy. Son dos ids distintos para el mismo depósito: si aquí se
+        // guardara el de Syncfy, el mismo dinero se acreditaría otra vez cuando
+        // el contador pegara ese estado de cuenta en Cobranza. Es el mismo
+        // anclaje que usan las órdenes auto-autorizadas.
+        const { ensureLedgerSchema, entryDeSyncfyTx, aplicarAbono } = await import('./bankEntryLedger');
+        await ensureLedgerSchema();
+        const bankEntryId = await entryDeSyncfyTx(txId);
+        if (!bankEntryId) {
+          // Sin poder identificar el movimiento no se acredita: queda para
+          // Cobranza, que es donde se autoriza con el estado de cuenta enfrente.
+          console.warn(`[syncfy] tx#${txId} (${extractedRef}) es fondeo de cartera pero no se identificó su movimiento en el estado de cuenta. Queda para Cobranza.`);
+          return false;
+        }
+
+        const cliente = await pool.connect();
+        let r: any;
+        try {
+          await cliente.query('BEGIN');
+          await aplicarAbono(cliente, {
+            bankEntryId,
+            montoAplicado: amount,
+            origen: 'auto_syncfy',
+            paymentReference: duenio.reference,
+            aplicadoPorNombre: 'Sistema (auto-sync banco)',
+            nota: 'Fondeo de cartera general',
+          });
+          r = await acreditarFondeoCartera(cliente, {
+            userId: duenio.userId,
+            reference: duenio.reference,
+            monto: amount,
+            origen: 'auto_syncfy',
+            bankEntryId,
+            syncfyTxId: txId,
+            actorNombre: 'Sistema (auto-sync banco)',
+            nota: `Depósito detectado en la sincronización bancaria · Movimiento bancario #${bankEntryId}`,
+          });
+          await cliente.query('COMMIT');
+        } catch (e: any) {
+          await cliente.query('ROLLBACK').catch(() => {});
+          console.warn(`[syncfy] tx#${txId} (${extractedRef}) no se acreditó a cartera: ${e?.message}`);
+          return false;
+        } finally {
+          cliente.release();
+        }
+        await pool.query(
+          `UPDATE syncfy_transactions SET match_status='matched', matched_at=NOW() WHERE id=$1`,
+          [txId]
+        );
+        console.log(
+          r.duplicado
+            ? `[syncfy] tx#${txId} (${extractedRef}) ya estaba acreditada a cartera. Sin doble abono.`
+            : `[syncfy] tx#${txId} acreditada a la cartera de ${extractedRef}: $${r.monto.toFixed(2)}`
+        );
+        return true;
+      }
+    } catch (e: any) {
+      console.error(`[syncfy] tx#${txId}: fallo al acreditar fondeo de cartera ${extractedRef}:`, e?.message);
+      return false;
+    }
+
     const pobox = await pool.query(
       `SELECT id, status FROM pobox_payments WHERE payment_reference = $1`,
       [extractedRef]

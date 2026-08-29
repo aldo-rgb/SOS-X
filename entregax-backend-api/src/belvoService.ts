@@ -241,7 +241,7 @@ async function autoMatchTransaction(
   // Mismos prefijos y misma tolerancia que en Syncfy: el separador puede faltar
   // y la referencia venir en minúscula, tal como la escribió el cliente.
   const refPatterns = [
-    /(RO|PP|EP|GL|UW|US)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/i,
+    /(RO|PP|EP|GL|UW|US|CT)[\s-]*([A-Fa-f0-9]{8})(?![A-Fa-f0-9])/i,
     /\b(tr_[a-zA-Z0-9]+)\b/,
   ];
 
@@ -258,6 +258,15 @@ async function autoMatchTransaction(
 
   // Strategy 1: Match by payment reference in description
   if (extractedRef) {
+    // El fondeo de cartera (CT-) lo concilia Syncfy, que es la vía viva. Aquí se
+    // reconoce solo para NO dejarlo caer al emparejamiento por monto si algún
+    // día se enciende Belvo: la referencia es fija y del cliente, y adivinar por
+    // importe le acreditaría a uno el depósito de otro.
+    if (extractedRef.startsWith('CT-')) {
+      console.warn(`[belvo] tx#${txId} es fondeo de cartera ${extractedRef}; se concilia por Syncfy. Sin emparejar aquí.`);
+      return false;
+    }
+
     // Check pobox_payments
     const pobox = await pool.query(
       `SELECT id FROM pobox_payments WHERE payment_reference = $1 AND status IN ('pending', 'pending_payment')`,

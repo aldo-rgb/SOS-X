@@ -1471,6 +1471,13 @@ export default function DashboardClient() {
   // Wallet Status
   const [walletStatus, setWalletStatus] = useState<WalletStatus | null>(null);
 
+  // Referencia FIJA para fondear la cartera general. Ocupa el lugar de la CLABE
+  // virtual de Openpay, que nunca se aprovisionó y quedaba escondida.
+  const [fundingRef, setFundingRef] = useState<{
+    reference: string; configurada: boolean;
+    banco: { empresa: string; beneficiario: string; bank_name: string; bank_clabe: string } | null;
+  } | null>(null);
+
   // Saldo a favor POR SERVICIO (billetera_servicio). Bolsa distinta de
   // wallet_balance: son los excedentes de pago y cada uno solo se puede usar en
   // el servicio que lo generó. Hasta ahora la web no lo leía y el cliente que
@@ -1698,6 +1705,7 @@ export default function DashboardClient() {
     loadPaymentMethods();
     loadWalletStatus();
     loadServiceSaldos();
+    loadFundingRef();
     loadReferralData();
     loadPendingPayments();
     loadPaymentOrders();
@@ -2061,6 +2069,16 @@ export default function DashboardClient() {
       }
     } catch (error) {
       console.error('Error cargando monedero:', error);
+    }
+  };
+
+  // Cargar la referencia de fondeo de cartera
+  const loadFundingRef = async () => {
+    try {
+      const response = await api.get('/wallet/funding-reference');
+      if (response.data?.success) setFundingRef(response.data);
+    } catch (error) {
+      console.error('Error cargando referencia de fondeo:', error);
     }
   };
 
@@ -7905,22 +7923,48 @@ export default function DashboardClient() {
                     </Typography>
                     <Divider sx={{ my: 2 }} />
                     
-                    {/* CLABE Virtual */}
-                    {walletStatus?.virtual_clabe && (
-                      <Alert severity="success" sx={{ mb: 2 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {/* Referencia de fondeo de cartera.
+                        Sustituye a la CLABE virtual de Openpay: esa nunca se
+                        aprovisionó, así que el bloque quedaba oculto y el cliente
+                        no tenía forma de meterle dinero a su cartera. Esta
+                        referencia es fija —siempre la misma— y lo que deposite
+                        con ella se le abona al Disponible general. */}
+                    {fundingRef?.configurada && fundingRef.banco && (
+                      <Alert severity="success" icon={false} sx={{ mb: 2 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                           <Box>
-                            <Typography variant="caption">{t('cd.account.virtualClabe')}</Typography>
-                            <Typography variant="body1" fontWeight="bold" fontFamily="monospace">
-                              {walletStatus.virtual_clabe}
+                            <Typography variant="caption">Tu referencia para fondear</Typography>
+                            <Typography variant="h6" fontWeight="bold" fontFamily="monospace" sx={{ letterSpacing: 1 }}>
+                              {fundingRef.reference}
                             </Typography>
                           </Box>
-                          <Tooltip title={t('cd.account.copyClabe')}>
-                            <IconButton size="small" onClick={() => copyClabe(walletStatus.virtual_clabe!)}>
+                          <Tooltip title="Copiar referencia">
+                            <IconButton size="small" onClick={() => copyClabe(fundingRef.reference)}>
                               <CopyIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
                         </Box>
+                        <Divider sx={{ my: 1 }} />
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              CLABE {fundingRef.banco.bank_name} · {fundingRef.banco.beneficiario}
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold" fontFamily="monospace">
+                              {fundingRef.banco.bank_clabe}
+                            </Typography>
+                          </Box>
+                          <Tooltip title={t('cd.account.copyClabe')}>
+                            <IconButton size="small" onClick={() => copyClabe(fundingRef.banco!.bank_clabe)}>
+                              <CopyIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                        <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
+                          Transfiere a esa CLABE poniendo <strong>{fundingRef.reference}</strong> como concepto.
+                          El monto se abona a tu saldo disponible y lo puedes usar en cualquier servicio.
+                          Siempre es la misma referencia: guárdala en tu banco.
+                        </Typography>
                       </Alert>
                     )}
                     

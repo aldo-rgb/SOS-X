@@ -47,6 +47,7 @@ import { pool } from './db';
 import { expandDhlGroupIds, markDhlGroupPaid } from './dhlGroup';
 import { previewCorte, cerrarCorte, excelCorte, listarCortes, misCortes, pdfMiCorte, proximoCorte } from './commissionCuts';
 import { misSaldosAFavor, saldoParaOrden, aplicarSaldoAFavor, saldosAFavorAdmin } from './saldoFavorServicio';
+import { miReferenciaDeFondeo, ensureFundingSchema } from './walletFundingController';
 import { resolveCreditService, restoreServiceCredit } from './creditRestore';
 import { generateCommissionsForPackages, generateGexCommissionFromWarranty } from './commissionService';
 import { translateTexts } from './translationController';
@@ -8720,6 +8721,12 @@ app.post('/api/webhooks/openpay', handleOpenpayWebhook);
 // Cliente: Estado de su monedero y crédito
 app.get('/api/wallet/status', authenticateToken, getWalletStatus);
 
+// 🏦 Referencia FIJA para fondear la cartera general. Se genera la primera vez
+// que el cliente la pide y no cambia nunca: la guarda en su banco como
+// destinatario frecuente. Ocupa el lugar de la CLABE virtual de Openpay, que
+// sigue sin aprovisionarse.
+app.get('/api/wallet/funding-reference', authenticateToken, miReferenciaDeFondeo);
+
 // Cliente: Historial de transacciones
 app.get('/api/wallet/transactions', authenticateToken, getTransactionHistory);
 
@@ -11466,6 +11473,48 @@ app.post('/api/admin/finance/match-references', authenticateToken, requireMinLev
 
     const refCodes = references.map((r: any) => r.ref);
 
+    // ── Fondeo de cartera general ──
+    // Estas referencias no corresponden a ninguna orden y nunca la van a tener:
+    // son la referencia fija del cliente. Se resuelven aparte para que Cobranza
+    // las pinte como un match normal y las pueda autorizar con el mismo botón;
+    // el abono a la cartera lo hace authorize-bank-payments.
+    const carteraMatches: Record<string, any> = {};
+    try {
+      const { buscarReferenciaFondeo, SERVICIO_CARTERA } = await import('./walletFundingController');
+      for (const grupo of references) {
+        const ref = String(grupo?.ref || '').toUpperCase();
+        if (!ref.startsWith('CT-')) continue;
+        const duenio = await buscarReferenciaFondeo(ref);
+        if (!duenio) continue;
+        const cli = await pool.query(
+          `SELECT id, full_name, box_id, email FROM users WHERE id = $1`, [duenio.userId]);
+        if (cli.rows.length === 0) continue;
+        const yaAcreditado = await pool.query(
+          `SELECT COALESCE(SUM(monto), 0) AS total FROM wallet_funding_deposits WHERE user_id = $1`,
+          [duenio.userId]
+        ).catch(() => ({ rows: [{ total: 0 }] }));
+        carteraMatches[ref] = {
+          ref,
+          cliente: cli.rows[0].full_name || 'Desconocido',
+          box_id: cli.rows[0].box_id,
+          email: cli.rows[0].email,
+          // El importe de un fondeo lo pone el banco, no una orden previa.
+          amount: 0,
+          status: 'fondeo_cartera',
+          service_type: SERVICIO_CARTERA,
+          user_id: duenio.userId,
+          empresa_id: null,
+          created_at: null,
+          voucher_total: 0,
+          voucher_count: 0,
+          es_fondeo_cartera: true,
+          fondeado_historico: Number(yaAcreditado.rows[0]?.total) || 0,
+        };
+      }
+    } catch (e: any) {
+      console.error('[cartera] match-references:', e?.message);
+    }
+
     // Buscar en pobox_payments
     const poboxRes = await pool.query(`
       SELECT pp.id, pp.payment_reference, pp.amount, pp.status, pp.user_id, pp.created_at,
@@ -11490,7 +11539,7 @@ app.post('/api/admin/finance/match-references', authenticateToken, requireMinLev
     `, [refCodes]);
 
     // Mapear por referencia
-    const dbMatches: Record<string, any> = {};
+    const dbMatches: Record<string, any> = { ...carteraMatches };
     for (const row of [...poboxRes.rows, ...webhookRes.rows]) {
       const ref = row.payment_reference;
       if (!dbMatches[ref]) {
@@ -11762,6 +11811,97 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
+
+        // ── FONDEO DE CARTERA GENERAL ──
+        //
+        // Estas referencias no tienen orden y nunca la van a tener: el cliente
+        // manda dinero a SU referencia fija y se le abona al Disponible general,
+        // que puede gastar en cualquier servicio. Va antes de buscar la orden
+        // porque buscarla siempre daría "no encontrada".
+        //
+        // El importe lo pone el banco. Igual se ocupan los abonos en el ledger:
+        // es lo que impide que el mismo depósito respalde además una orden.
+        if (String(m.ref || '').toUpperCase().startsWith('CT-')) {
+          const { buscarReferenciaFondeo, acreditarFondeoCartera } = await import('./walletFundingController');
+          const duenio = await buscarReferenciaFondeo(String(m.ref));
+          if (!duenio) {
+            errors.push({ ref: m.ref, error: 'Esa referencia de cartera no pertenece a ningún cliente' });
+            await client.query('ROLLBACK');
+            client.release();
+            continue;
+          }
+          const montoFondeo = Number(m.total_bank_abonos) || 0;
+          if (!(montoFondeo > 0)) {
+            errors.push({ ref: m.ref, error: 'El movimiento no trae abono: no hay nada que acreditar' });
+            await client.query('ROLLBACK');
+            client.release();
+            continue;
+          }
+          const entryIdsFondeo: number[] = Array.isArray(m.bank_entries)
+            ? Array.from(new Set(
+                m.bank_entries
+                  .filter((e: any) => e && (e.id != null || e.db_id != null) && Number(e.abono) > 0)
+                  .map((e: any) => Number(e.id ?? e.db_id))
+                  .filter((n: number) => Number.isFinite(n))
+              )) as number[]
+            : [];
+          if (entryIdsFondeo.length === 0 && !permiteSinLigar) {
+            errors.push({
+              ref: m.ref,
+              error: esSuperAdmin
+                ? 'No se identificó el movimiento bancario. Puedes autorizarlo marcando "autorizar sin ligar movimiento".'
+                : 'No se identificó el movimiento bancario que respalda este fondeo. Solo un super admin puede autorizar sin ligarlo.',
+              requiere_override: true,
+            });
+            await client.query('ROLLBACK');
+            client.release();
+            continue;
+          }
+          try {
+            if (entryIdsFondeo.length > 0) {
+              await aplicarAbonos(client, entryIdsFondeo, montoFondeo, {
+                origen: 'estado_cuenta',
+                paymentReference: m.ref,
+                aplicadoPor: adminId,
+                aplicadoPorNombre: adminName,
+                nota: 'Fondeo de cartera general',
+              });
+            }
+            const abono = await acreditarFondeoCartera(client, {
+              userId: duenio.userId,
+              reference: duenio.reference,
+              monto: montoFondeo,
+              origen: 'estado_cuenta',
+              bankEntryId: entryIdsFondeo[0] ?? null,
+              actorId: adminId,
+              actorNombre: adminName,
+              nota: entryIdsFondeo.length > 0
+                ? `Movimiento(s) bancario(s) #${entryIdsFondeo.join(', #')}`
+                : `⚠️ Acreditado SIN ligar movimiento bancario (override de super admin: ${adminName})`,
+            });
+            await client.query('COMMIT');
+            client.release();
+            results.push({
+              ref: m.ref,
+              status: abono.duplicado ? 'already_paid' : 'authorized',
+              amount: montoFondeo,
+              bank_total: montoFondeo,
+              surplus: 0,
+              message: abono.duplicado
+                ? 'Ese depósito ya se había acreditado a la cartera'
+                : `Fondeo acreditado al Disponible general. Nuevo saldo: $${abono.nuevoSaldo.toFixed(2)}`,
+            });
+          } catch (e: any) {
+            await client.query('ROLLBACK');
+            client.release();
+            errors.push({
+              ref: m.ref,
+              error: e?.message || 'No se pudo acreditar el fondeo',
+              abono_agotado: e instanceof AbonoAgotadoError,
+            });
+          }
+          continue;
+        }
 
         // Buscar la orden de pago
         const orderRes = await client.query(
@@ -17041,6 +17181,10 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 
   // Asegurar tablas de departamentos de soporte
   ensureDepartmentsSchema();
+
+  // Fondeo de cartera: tabla de referencias fijas + alta del servicio en el
+  // catálogo de empresas, para que aparezca su selector en Fiscal.
+  ensureFundingSchema().catch((e: any) => console.warn('[cartera] ensureFundingSchema:', e?.message));
 
   // Columnas opcionales de addresses (idempotente)
   Promise.all([
