@@ -1471,6 +1471,14 @@ export default function DashboardClient() {
   // Wallet Status
   const [walletStatus, setWalletStatus] = useState<WalletStatus | null>(null);
 
+  // Saldo a favor POR SERVICIO (billetera_servicio). Bolsa distinta de
+  // wallet_balance: son los excedentes de pago y cada uno solo se puede usar en
+  // el servicio que lo generó. Hasta ahora la web no lo leía y el cliente que
+  // pagaba de más no veía su dinero en ningún lado (TKT-2026-2440).
+  const [serviceSaldos, setServiceSaldos] = useState<{
+    servicio: string; servicioNombre: string; saldo: number; currency: string;
+  }[]>([]);
+
   // Referidos / Invita y Gana
   const [referralCode, setReferralCode] = useState<string>('');
   // Tarifas de referencia (para el recuadro informativo): USD/m³ marítimo y USD/kg aéreo.
@@ -1689,6 +1697,7 @@ export default function DashboardClient() {
     loadDeliveryAddresses();
     loadPaymentMethods();
     loadWalletStatus();
+    loadServiceSaldos();
     loadReferralData();
     loadPendingPayments();
     loadPaymentOrders();
@@ -2052,6 +2061,18 @@ export default function DashboardClient() {
       }
     } catch (error) {
       console.error('Error cargando monedero:', error);
+    }
+  };
+
+  // Cargar saldo a favor por servicio
+  const loadServiceSaldos = async () => {
+    try {
+      const response = await api.get('/saldo-favor');
+      const saldos = response?.data?.saldos;
+      setServiceSaldos(Array.isArray(saldos) ? saldos : []);
+    } catch (error) {
+      // Sin saldo por servicio la tarjeta sigue mostrando el monedero general.
+      console.error('Error cargando saldo a favor por servicio:', error);
     }
   };
 
@@ -7952,25 +7973,88 @@ export default function DashboardClient() {
                       return (
                     <Grid container spacing={2}>
                       <Grid size={hasAnyCredit ? 6 : 12}>
-                        <Paper
-                          sx={{
-                            p: 2,
-                            bgcolor: GREEN + '20',
-                            textAlign: 'center',
-                            borderRadius: 2,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            gap: 1,
-                            minHeight: 120,
-                          }}
-                        >
-                          <Typography variant="caption" color="text.secondary">{t('cd.account.balanceFavor')}</Typography>
-                          <Typography variant="h5" fontWeight="bold" color="success.main">
-                            {formatCurrency(walletStatus?.wallet_balance || stats?.financiero.saldo_favor || 0)}
-                          </Typography>
-                        </Paper>
+                        {(() => {
+                          // Dos bolsas: el monedero general (wallet_balance, sirve para
+                          // cualquier servicio) y los excedentes de pago, que solo se
+                          // pueden usar en el servicio que los generó. El total suma las
+                          // dos y el desglose vive en el tooltip para no romper la tarjeta.
+                          const general = Number(walletStatus?.wallet_balance || stats?.financiero.saldo_favor || 0);
+                          // Solo se suma lo que está en la misma moneda que el monedero;
+                          // un saldo en USD se lista aparte en vez de inflar el total.
+                          const enMxn = serviceSaldos.filter((sv) => (sv.currency || 'MXN') === 'MXN');
+                          const otraMoneda = serviceSaldos.filter((sv) => (sv.currency || 'MXN') !== 'MXN');
+                          const totalMxn = enMxn.reduce((acc, sv) => acc + Number(sv.saldo || 0), 0);
+                          const hayDesglose = serviceSaldos.length > 0;
+
+                          const card = (
+                            <Paper
+                              sx={{
+                                p: 2,
+                                bgcolor: GREEN + '20',
+                                textAlign: 'center',
+                                borderRadius: 2,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                gap: 1,
+                                minHeight: 120,
+                                cursor: hayDesglose ? 'help' : 'default',
+                              }}
+                            >
+                              <Typography variant="caption" color="text.secondary">{t('cd.account.balanceFavor')}</Typography>
+                              <Typography variant="h5" fontWeight="bold" color="success.main">
+                                {formatCurrency(general + totalMxn)}
+                              </Typography>
+                              {hayDesglose && (
+                                <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+                                  Incluye saldo por servicio · pasa el mouse
+                                </Typography>
+                              )}
+                            </Paper>
+                          );
+
+                          if (!hayDesglose) return card;
+
+                          return (
+                            <Tooltip
+                              arrow
+                              placement="top"
+                              enterTouchDelay={0}
+                              leaveTouchDelay={4000}
+                              title={
+                                <Box sx={{ p: 0.5, minWidth: 220 }}>
+                                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>
+                                    Desglose de tu saldo
+                                  </Typography>
+                                  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                                    <Typography variant="caption">Disponible general</Typography>
+                                    <Typography variant="caption" sx={{ fontWeight: 700 }}>{formatCurrency(general)}</Typography>
+                                  </Box>
+                                  {enMxn.map((sv) => (
+                                    <Box key={sv.servicio} sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                                      <Typography variant="caption">{sv.servicioNombre}</Typography>
+                                      <Typography variant="caption" sx={{ fontWeight: 700 }}>{formatCurrency(Number(sv.saldo))}</Typography>
+                                    </Box>
+                                  ))}
+                                  {otraMoneda.map((sv) => (
+                                    <Box key={sv.servicio} sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                                      <Typography variant="caption">{sv.servicioNombre}</Typography>
+                                      <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                        {formatCurrency(Number(sv.saldo), sv.currency)}
+                                      </Typography>
+                                    </Box>
+                                  ))}
+                                  <Typography variant="caption" sx={{ display: 'block', mt: 0.75, opacity: 0.85 }}>
+                                    El saldo de un servicio solo se puede usar en órdenes de ese mismo servicio.
+                                  </Typography>
+                                </Box>
+                              }
+                            >
+                              {card}
+                            </Tooltip>
+                          );
+                        })()}
                       </Grid>
                       {hasAnyCredit && (
                       <Grid size={6}>
