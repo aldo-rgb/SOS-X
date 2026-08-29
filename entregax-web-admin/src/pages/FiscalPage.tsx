@@ -278,6 +278,16 @@ export default function FiscalPage() {
     setOpenModal(true);
   };
 
+  // Misma regla que usa el backend para derivar el prefijo, solo para que el
+  // usuario vea con qué va a nacer la referencia antes de guardar.
+  const prefijoDe = (nombre: string): string => {
+    const ignorar = ['sa', 'de', 'cv', 's.a.', 'c.v.'];
+    const w = String(nombre || '').trim().split(/\s+/).filter((x) => !ignorar.includes(x.toLowerCase()));
+    if (w.length >= 2) return (w[0][0] + w[1][0]).toUpperCase();
+    if (w.length === 1 && w[0].length >= 2) return w[0].substring(0, 2).toUpperCase();
+    return '—';
+  };
+
   const handleSaveEmitter = async () => {
     if (!emitterForm.rfc || !emitterForm.business_name) {
       setSnackbar({ open: true, message: 'RFC y Razón Social son requeridos', severity: 'error' });
@@ -286,11 +296,17 @@ export default function FiscalPage() {
     setSaving(true);
     try {
       if (editingEmitter) {
-        await axios.put(`${API_URL}/admin/fiscal/emitters`, 
+        const r = await axios.put(`${API_URL}/admin/fiscal/emitters`,
           { id: editingEmitter.id, ...emitterForm },
           { headers: { Authorization: `Bearer ${getToken()}` } }
         );
-        setSnackbar({ open: true, message: 'Empresa actualizada', severity: 'success' });
+        // Si el super admin renombró, el backend dice cuántas referencias
+        // quedan con el prefijo anterior.
+        setSnackbar({
+          open: true,
+          message: r.data?.advertencia ? `⚠️ ${r.data.advertencia}` : 'Empresa actualizada',
+          severity: r.data?.advertencia ? 'warning' : 'success',
+        });
       } else {
         await axios.post(`${API_URL}/admin/fiscal/emitters`, emitterForm, { 
           headers: { Authorization: `Bearer ${getToken()}` } 
@@ -301,7 +317,9 @@ export default function FiscalPage() {
       loadData();
     } catch (error) {
       console.error('Error saving emitter:', error);
-      setSnackbar({ open: true, message: 'Error al guardar empresa', severity: 'error' });
+      const err = error as { response?: { data?: { error?: string; message?: string } } };
+      const msg = err.response?.data?.message || err.response?.data?.error;
+      setSnackbar({ open: true, message: msg || 'Error al guardar empresa', severity: 'error' });
     } finally {
       setSaving(false);
     }
@@ -1541,11 +1559,23 @@ export default function FiscalPage() {
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            {/* El nombre define el prefijo de las referencias de pago (Rodada →
+                RO-). Renombrar una empresa que ya emitió deja sin reconocer las
+                referencias viejas, así que al EDITAR solo lo mueve el super
+                admin. Al crear no hay nada que romper, así que va libre. */}
+            {editingEmitter && !isSuperAdmin && (
+              <Alert severity="info" sx={{ mb: 0 }}>
+                El nombre y la razón social definen el prefijo de las referencias de pago de esta
+                empresa. Solo un super admin puede cambiarlos; el resto de los datos sí los puedes editar.
+              </Alert>
+            )}
             <TextField
               label={i18n.language === 'es' ? 'Alias (Nombre corto)' : 'Alias (Short name)'}
               value={emitterForm.alias}
               onChange={(e) => setEmitterForm({ ...emitterForm, alias: e.target.value })}
               placeholder="Ej: Empresa Aérea"
+              disabled={!!editingEmitter && !isSuperAdmin}
+              helperText={emitterForm.alias ? `Prefijo de referencias: ${prefijoDe(emitterForm.alias)}-` : undefined}
               fullWidth
             />
             <TextField
@@ -1559,6 +1589,7 @@ export default function FiscalPage() {
               label={i18n.language === 'es' ? 'Razón Social' : 'Business Name'}
               value={emitterForm.business_name}
               onChange={(e) => setEmitterForm({ ...emitterForm, business_name: e.target.value })}
+              disabled={!!editingEmitter && !isSuperAdmin}
               fullWidth required
             />
             <FormControl fullWidth>

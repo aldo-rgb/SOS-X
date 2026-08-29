@@ -54,6 +54,39 @@ export const updateFiscalEmitter = async (req: Request, res: Response): Promise<
     try {
         const { id, alias, rfc, business_name, fiscal_regime, zip_code, api_key, is_active, show_in_cobranza, show_in_contabilidad } = req.body;
 
+        // ── Candado sobre el NOMBRE ──
+        //
+        // El prefijo de las referencias se deriva de las iniciales del alias:
+        // Rodada → RO-. Cambiarle el nombre a una empresa que ya emitió
+        // referencias deja huérfanas todas las viejas —el conciliador dejaría
+        // de reconocer 690 órdenes RO- si Rodada pasara a llamarse otra cosa— y
+        // esos depósitos caerían al emparejamiento por monto sin que truene
+        // nada. Por eso renombrar queda reservado al super admin, que es quien
+        // puede medir la consecuencia; el resto de los campos siguen abiertos
+        // a dirección.
+        const rol = String((req as any).user?.role || '').toLowerCase();
+        const esSuperAdmin = rol === 'super_admin';
+        const actual = await pool.query(
+            `SELECT alias, business_name FROM fiscal_emitters WHERE id = $1`, [id]);
+        if (actual.rows.length === 0) {
+            return res.status(404).json({ error: 'Empresa no encontrada' });
+        }
+        const aliasPrevio: string | null = actual.rows[0]?.alias ?? null;
+        if (!esSuperAdmin) {
+            const previo = actual.rows[0];
+            const cambiaAlias = alias !== undefined && String(alias ?? '') !== String(previo.alias ?? '');
+            const cambiaRazon = business_name !== undefined && String(business_name ?? '') !== String(previo.business_name ?? '');
+            if (cambiaAlias || cambiaRazon) {
+                return res.status(403).json({
+                    error: 'Solo un super admin puede cambiar el nombre de una empresa',
+                    message: 'El nombre define el prefijo de las referencias de pago (Rodada → RO-). '
+                           + 'Cambiarlo deja sin reconocer las referencias ya emitidas con el prefijo anterior. '
+                           + 'Puedes editar el resto de los datos.',
+                    campo: cambiaAlias ? 'alias' : 'business_name',
+                });
+            }
+        }
+
         const result = await pool.query(
             `UPDATE fiscal_emitters
              SET alias = $1, rfc = $2, business_name = $3, fiscal_regime = $4,
@@ -73,7 +106,31 @@ export const updateFiscalEmitter = async (req: Request, res: Response): Promise<
         // y activar/desactivar cambia si se concilia. En los dos casos hay que
         // recalcular.
         invalidarCachePrefijos();
-        res.json({ message: 'Empresa actualizada', emitter: result.rows[0] });
+
+        // Si un super admin renombró, se cuenta y se avisa cuántas referencias
+        // quedan con el prefijo viejo. Renombrar sigue siendo su decisión, pero
+        // que no sea a ciegas: son las órdenes que el conciliador dejaría de
+        // reconocer.
+        let advertencia: string | null = null;
+        try {
+            const { prefijoDeEmpresa } = await import('./referencePrefixes');
+            const previo = await pool.query(`SELECT alias, business_name FROM fiscal_emitters WHERE id = $1`, [id]);
+            const antes = prefijoDeEmpresa(aliasPrevio ?? previo.rows[0]?.alias);
+            const ahora = prefijoDeEmpresa(result.rows[0]?.alias || result.rows[0]?.business_name);
+            if (antes && ahora && antes !== ahora) {
+                const n = await pool.query(
+                    `SELECT COUNT(*)::int AS n FROM pobox_payments WHERE payment_reference LIKE $1`,
+                    [`${antes}-%`]
+                );
+                const total = Number(n.rows[0]?.n) || 0;
+                advertencia = total > 0
+                    ? `El prefijo de sus referencias pasa de ${antes}- a ${ahora}-. Hay ${total} orden(es) con el prefijo anterior que el conciliador dejará de reconocer.`
+                    : `El prefijo de sus referencias pasa de ${antes}- a ${ahora}-. No hay órdenes con el prefijo anterior.`;
+                console.warn(`[prefijos] empresa ${id} renombrada: ${antes}- → ${ahora}- (${total} órdenes con el prefijo viejo)`);
+            }
+        } catch { /* el aviso es informativo: si falla, la edición ya se guardó */ }
+
+        res.json({ message: 'Empresa actualizada', emitter: result.rows[0], advertencia });
     } catch (error) {
         console.error('Error updating fiscal emitter:', error);
         res.status(500).json({ error: 'Error al actualizar empresa' });
