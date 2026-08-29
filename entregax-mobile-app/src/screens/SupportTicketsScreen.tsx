@@ -255,7 +255,10 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   // Llegada desde una tarea: "TKT-2026-2365" en el texto abre el ticket aqui.
   // Se busca por folio en vez de depender de la lista del departamento, que
   // puede no incluirlo.
-  const folioPedido = (route.params as any)?.openFolio as string | undefined;
+  // Llega el folio (desde una tarea) o el id (desde una notificación): con
+  // cualquiera de los dos se abre el ticket.
+  const folioPedido = ((route.params as any)?.openFolio
+    || ((route.params as any)?.openTicketId ? String((route.params as any).openTicketId) : undefined)) as string | undefined;
   const [folioAbierto, setFolioAbierto] = useState<string | null>(null);
   useEffect(() => {
     if (!folioPedido || folioAbierto === folioPedido) return;
@@ -266,7 +269,9 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
           headers: { Authorization: `Bearer ${token}` },
         });
         const lista: Ticket[] = Array.isArray(res.data) ? res.data : (res.data.tickets || []);
-        const t = lista.find(x => String(x.ticket_folio) === folioPedido) || lista[0];
+        const t = lista.find(x => String(x.ticket_folio) === folioPedido)
+          || lista.find(x => String((x as any).id) === folioPedido)
+          || lista[0];
         if (t) openDetail(t);
         else Alert.alert('No encontrado', `No se encontró el ticket ${folioPedido}.`);
       } catch {

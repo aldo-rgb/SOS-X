@@ -350,13 +350,29 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
       return;
     }
 
-    // Ticket de soporte: creado o respuesta → abrir SupportChat con el ticketId
-    if ((item.type === 'ticket_created' || item.type === 'support_reply') && item.data?.ticket_id) {
-      (navigation as any).navigate('SupportChat', {
-        user,
-        token,
-        ticketId: Number(item.data.ticket_id),
-      });
+    // 🎫 Cualquier aviso de TICKET abre el ticket. Antes solo lo hacían los de
+    // tipo ticket_created/support_reply: los del departamento y los del asesor
+    // traen el ticket_id pero con otro tipo, así que al darles click no pasaba
+    // nada y había que ir a buscar el folio a mano.
+    const folioNotif = item.data?.ticket_folio
+      || (String(item.title || '').match(/TKT-\d{4}-\d+/) || [])[0]
+      || (String(item.message || '').match(/TKT-\d{4}-\d+/) || [])[0];
+    if (item.data?.ticket_id || folioNotif) {
+      const rol = String((user as any)?.role || '').toLowerCase();
+      const esCliente = rol === 'client' || rol === 'cliente' || !rol;
+      const esAsesor = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider', 'sub_asesor'].includes(rol);
+      if (esCliente) {
+        (navigation as any).navigate('SupportChat', { user, token, ticketId: Number(item.data?.ticket_id) });
+      } else if (esAsesor) {
+        (navigation as any).navigate('AdvisorClientTickets', {
+          user, token,
+          openTicketId: item.data?.ticket_id ? Number(item.data.ticket_id) : undefined,
+          openFolio: folioNotif,
+        });
+      } else {
+        // Soporte / admin: el tablero ya sabe abrir por folio.
+        (navigation as any).navigate('SupportTickets', { user, token, openFolio: folioNotif, openTicketId: item.data?.ticket_id ? Number(item.data.ticket_id) : undefined });
+      }
       return;
     }
 

@@ -682,6 +682,20 @@ function App() {
       }
     }
 
+    // 🎫 Notificaciones de TICKET → abrir el ticket en el tablero de soporte.
+    // El aviso traía el folio y el id pero nadie los usaba: al darle click no
+    // pasaba nada y había que ir a buscarlo a mano.
+    const ticketFolio = notif.data?.ticket_folio
+      || (String(notif.title || '').match(/TKT-\d{4}-\d+/) || [])[0]
+      || (String(notif.message || '').match(/TKT-\d{4}-\d+/) || [])[0];
+    const ticketId = notif.data?.ticket_id ?? notif.data?.ticketId;
+    if (ticketFolio || ticketId) {
+      window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', {
+        detail: { action: 'service_tickets', ...(ticketFolio ? { ticketFolio } : {}), ...(ticketId ? { ticketId } : {}) },
+      }));
+      return;
+    }
+
     if (notif.action_url) {
       handleNotificationNavigate(notif.action_url);
     }
@@ -863,7 +877,7 @@ function App() {
   // Navegación rápida desde DashboardBranchManager
   useEffect(() => {
     const quickNavHandler = (rawEvent: Event) => {
-      const event = rawEvent as CustomEvent<{ action?: string; employeeId?: number; emitterId?: number; service?: string; ticketFolio?: string }>;
+      const event = rawEvent as CustomEvent<{ action?: string; employeeId?: number; emitterId?: number; service?: string; ticketFolio?: string; ticketId?: number }>;
       const action = event.detail?.action;
       if (!action) return;
 
@@ -1029,7 +1043,26 @@ function App() {
         // tablero puede tardar en montarse (transiciones/carga), dejamos el
         // folio en localStorage; SupportBoardPage lo recoge en su onMount
         // aunque el evento haya llegado antes de que el listener existiera.
-        const ticketFolio = event.detail?.ticketFolio;
+        // Puede llegar folio (tareas) o id (notificaciones): con el id se busca
+        // el folio para reusar el mismo mecanismo del tablero.
+        let ticketFolio = event.detail?.ticketFolio;
+        const ticketId = event.detail?.ticketId;
+        if (!ticketFolio && ticketId) {
+          (async () => {
+            try {
+              const r = await fetch(`${API_URL}/admin/support/tickets?search=${encodeURIComponent(String(ticketId))}&limit=5`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+              });
+              const d = await r.json();
+              const lista = Array.isArray(d) ? d : (d.tickets || []);
+              const t = lista.find((x: any) => Number(x.id) === Number(ticketId));
+              if (t?.ticket_folio) {
+                localStorage.setItem('pending_open_ticket_folio', String(t.ticket_folio));
+                window.dispatchEvent(new CustomEvent('open-support-ticket', { detail: { folio: t.ticket_folio } }));
+              }
+            } catch { /* el tablero queda abierto igual */ }
+          })();
+        }
         if (ticketFolio) {
           try { localStorage.setItem('pending_open_ticket_folio', String(ticketFolio)); } catch { /* quota */ }
           // Reintentos: si el tablero se monta rápido, el evento lo abre

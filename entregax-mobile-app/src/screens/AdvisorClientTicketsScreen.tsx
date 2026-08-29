@@ -158,6 +158,21 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
     loadTickets();
   };
 
+  /**
+   * Llegando desde una notificación de ticket, se abre ese ticket en cuanto
+   * carga la lista. Antes el aviso traía el id pero al tocarlo no pasaba nada.
+   */
+  const ticketPedido = (route.params as any)?.openTicketId as number | undefined;
+  const folioPedido = (route.params as any)?.openFolio as string | undefined;
+  const yaAbierto = useRef(false);
+  useEffect(() => {
+    if (yaAbierto.current || (!ticketPedido && !folioPedido) || tickets.length === 0) return;
+    const t = tickets.find(x =>
+      (ticketPedido && Number(x.id) === Number(ticketPedido)) ||
+      (folioPedido && String((x as any).ticket_folio) === folioPedido));
+    if (t) { yaAbierto.current = true; openTicketDetail(t); }
+  }, [tickets, ticketPedido, folioPedido]);
+
   const openTicketDetail = async (ticket: Ticket | MyTicket) => {
     setSelectedTicket(ticket);
     setShowDetail(true);
