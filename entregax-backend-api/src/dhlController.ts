@@ -1906,9 +1906,14 @@ export const crossDhlTaxNote = async (tracking: string | null | undefined, noteA
           AND COALESCE(payment_reference,'') <> '' AND concepto ILIKE 'Impuestos DHL%' LIMIT 1`, [tk]);
     if (dup.rows.length > 0) return 0;
     const { createCexCollectible } = await import('./customerServiceController');
+    // El concepto dice de dónde sale el cargo. Sin esto el asesor solo veía
+    // "Impuestos DHL (diferencia por cobrar)" en una orden a su nombre y no
+    // tenía forma de saber que la generó el sistema al llegar la nota real
+    // (TKT-2026-2395: "me aparecen como si las hubiese creado yo").
     const cex = await createCexCollectible({
       servicio: 'dhl', guia_id: Number(row.id), guia_tracking: tk, cliente_id: Number(row.user_id),
-      montoMxn: diff, concepto: `Impuestos DHL (diferencia por cobrar)`,
+      montoMxn: diff,
+      concepto: `Impuestos DHL guía ${tk}: la nota real fue $${effective.toFixed(2)} y se habían cobrado $${alreadyCharged.toFixed(2)}`,
     });
     if (cex.ok) console.log(`  🧾 [DHL tax] Guía pagada ${tk} → CEX por diferencia ${cex.reference}: $${diff} (real ${effective} − cobrado ${alreadyCharged})`);
     else console.warn(`  ⚠️ [DHL tax] No se pudo generar CEX para ${tk}: ${cex.error}`);

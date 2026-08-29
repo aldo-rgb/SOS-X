@@ -692,7 +692,15 @@ export const deleteAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     if (!check.rows.length) return res.status(404).json({ error: 'Orden no encontrada' });
     // 🔒 Un cargo extra cobrable (CEX-) no lo puede eliminar el asesor.
     if (String(check.rows[0].payment_reference || '').startsWith('CEX-')) {
-      return res.status(403).json({ error: 'Un cargo extra no se puede eliminar. Si hay un error, contacta a administración.' });
+      // Explicar en vez de solo negar: el asesor no la creó y no puede borrarla,
+      // pero merece saber de dónde salió (TKT-2026-2395).
+      return res.status(403).json({
+        error: 'Este cargo lo generó el sistema, no tú',
+        message: 'Los cargos extra (CEX-) nacen de un costo real ya registrado —por ejemplo la nota de impuestos '
+          + 'de DHL cuando llega más alta de lo cobrado—. Aparece bajo tu nombre porque eres el asesor del cliente, '
+          + 'no porque lo hayas creado, y por eso no se puede eliminar desde aquí. Si crees que está mal, pásalo a '
+          + 'administración con el folio.',
+      });
     }
     if (check.rows[0].status === 'pagado') {
       return res.status(400).json({ error: 'No se puede cancelar una orden ya pagada/aprobada.' });

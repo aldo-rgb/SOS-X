@@ -326,7 +326,12 @@ export async function createCexCollectible(opts: {
       await pool.query(
         `INSERT INTO advisor_payment_orders (folio, advisor_id, client_id, client_name, client_box_id, package_uids, trackings, notes, total_mxn, status, pobox_payment_id, payment_reference, service_type_cfg)
          VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,$6,$7,$8,'pendiente',$9,$10,$11)`,
-        [`CEX-${advisorId}-${Date.now()}`, advisorId, opts.cliente_id, cli.full_name || null, cli.box_id || null, JSON.stringify([guia_tracking]), `Cargo extra: ${concepto}`, montoMxn, poboxPaymentId, ref, cfgServiceType]
+        // La nota deja claro que NO la creó el asesor: la orden aparece bajo su
+        // nombre solo porque es el asesor del cliente, y sin decirlo se lee como
+        // que él la generó (TKT-2026-2395).
+        [`CEX-${advisorId}-${Date.now()}`, advisorId, opts.cliente_id, cli.full_name || null, cli.box_id || null, JSON.stringify([guia_tracking]),
+         `Cargo extra generado por el sistema (no lo creó el asesor) · ${concepto}`,
+         montoMxn, poboxPaymentId, ref, cfgServiceType]
       );
     } catch (e) { console.error('CEX advisor order:', e); }
   }
