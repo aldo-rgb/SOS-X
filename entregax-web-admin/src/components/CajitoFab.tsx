@@ -375,6 +375,47 @@ function TrackResult({ data, tracking }: { data: PackageData; tracking: string }
             ✈️ AWB DHL: {(m as any).internationalTracking}
           </Typography>
         )}
+        {/* 🧾 Se rastreó un CARGO EXTRA (CEX-): antes no encontraba nada porque
+            su orden no referencia guías. Ahora se explica de dónde salió y se
+            muestra abajo la guía a la que pertenece. */}
+        {(m as any).searchedOrder?.cargoExtra && (() => {
+          const ce = (m as any).searchedOrder.cargoExtra;
+          const ord = (m as any).searchedOrder;
+          const pagado = ['paid', 'completed'].includes(String(ord.status || '').toLowerCase());
+          return (
+            <Box sx={{ mt: 1, p: 1.25, borderRadius: 1.5, bgcolor: '#FFF8E1', border: '1px solid #FFD54F' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                <Typography variant="caption" sx={{ color: '#8D6E00', fontWeight: 800 }}>
+                  🧾 Cargo extra {ord.referencia}
+                </Typography>
+                <Chip size="small" label={pagado ? 'Pagado' : 'Por cobrar'}
+                  color={pagado ? 'success' : 'warning'} variant={pagado ? 'filled' : 'outlined'}
+                  sx={{ height: 20, fontSize: 10.5 }} />
+              </Box>
+              <Typography sx={{ fontSize: 18, fontWeight: 800, color: '#6D4C00', mt: 0.25 }}>
+                ${Number(ce.monto ?? ord.monto ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+              </Typography>
+              <Typography variant="caption" sx={{ display: 'block', color: '#5D4037', lineHeight: 1.45 }}>
+                {ce.concepto}
+              </Typography>
+              {!!ce.guia && (
+                <Typography variant="caption" sx={{ display: 'block', color: '#8D6E63', fontFamily: 'monospace', mt: 0.25 }}>
+                  Guía: {ce.guia}{ce.servicio ? ` · ${String(ce.servicio).toUpperCase()}` : ''}
+                </Typography>
+              )}
+              {!!ce.fecha && (
+                <Typography variant="caption" sx={{ display: 'block', color: '#8D6E63' }}>
+                  Generado: {new Date(ce.fecha).toLocaleString('es-MX')}
+                </Typography>
+              )}
+              {ce.automatico && (
+                <Typography variant="caption" sx={{ display: 'block', color: '#5D4037', mt: 0.5 }}>
+                  Lo generó el sistema al registrarse un costo real mayor al cobrado. No lo captura nadie a mano.
+                </Typography>
+              )}
+            </Box>
+          );
+        })()}
         {(m as any).searchedOrder?.cancelada && (
           <Box sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: '#FDECEA', border: '1px solid #F5C6C2' }}>
             <Typography variant="caption" sx={{ display: 'block', color: '#C62828', fontWeight: 800 }}>

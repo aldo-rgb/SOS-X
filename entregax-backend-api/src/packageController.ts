@@ -1310,6 +1310,41 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     payment_method: orow.payment_method || null,
                 };
             }
+            // 🧾 CARGO EXTRA (CEX-): su orden no referencia guías —package_ids va
+            // vacío— porque nace de un costo real sobre una guía YA pagada. Sin
+            // esto, rastrear un CEX no encontraba nada. La guía y el motivo
+            // viven en la bitácora de ajustes.
+            if (searchedOrder && /^CEX-/i.test(String(searchedOrder.referencia || ''))) {
+                try {
+                    const aj = await pool.query(
+                        `SELECT guia_tracking, servicio, monto::text AS monto, concepto, fecha_registro, guia_id
+                           FROM guias_ajustes_financieros
+                          WHERE UPPER(payment_reference) = $1 AND activo = TRUE
+                          ORDER BY id DESC LIMIT 1`,
+                        [String(searchedOrder.referencia).toUpperCase()]
+                    );
+                    const a = aj.rows[0];
+                    if (a) {
+                        searchedOrder.cargoExtra = {
+                            guia: a.guia_tracking,
+                            servicio: a.servicio,
+                            monto: a.monto != null ? parseFloat(a.monto) : null,
+                            concepto: a.concepto,
+                            fecha: a.fecha_registro,
+                            // Un cargo extra SIEMPRE lo genera el sistema a partir de
+                            // un costo ya registrado; nadie lo captura a mano.
+                            automatico: true,
+                        };
+                        // Se rastrea la guía a la que pertenece, para que además del
+                        // cargo se vea el envío completo.
+                        if (a.guia_tracking) {
+                            trackingUpper = String(a.guia_tracking).toUpperCase();
+                            trackingCompact = trackingUpper.replace(/[^A-Z0-9]/g, '');
+                        }
+                    }
+                } catch (e: any) { console.warn('[track] CEX:', e?.message); }
+            }
+
             if (refRes.rows[0]?.ids) {
                 const orow0 = refRes.rows[0];
                 const rawIds = typeof orow0.ids === 'string' ? JSON.parse(orow0.ids) : orow0.ids;
@@ -1941,6 +1976,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         clientPaid: fallbackKind === 'dhl' ? !!fallbackRow.paid_at : false,
                         clientPaidAt: (fallbackKind === 'dhl' ? fallbackRow.paid_at : null) || null,
                         serviceType: fallbackKind === 'dhl' ? 'AA_DHL' : (fallbackKind === 'national' ? 'NACIONAL' : 'SEA_CHN_MX'),
+                        // Si se rastreó una referencia (orden o cargo extra), va su
+                        // detalle: casi todos los CEX son de guías DHL y caen aquí.
+                        searchedOrder,
                         totalCost: fallbackKind === 'dhl' ? dhlTotalCost : null,
                         ajustes: fallbackKind === 'dhl' ? dhlAjustes : null,
                         ajustesNeto: fallbackKind === 'dhl' ? dhlAjustesNeto : null,
