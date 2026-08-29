@@ -1805,7 +1805,7 @@ export const startPaypalAutoInvoiceScheduleCron = () => {
 
 // Recordatorios de tareas (in-app siempre + push; 11am ya es horario laboral):
 //  · Lunes 11:00 AM (MX): cuántas tareas PENDIENTES tiene cada usuario.
-//  · Diario 11:00 AM (MX): cuántas tareas URGENTES (importante y urgente = 'fuego').
+//  · Lunes a sábado 11:15 AM (MX): cuántas tareas URGENTES (importante y urgente = 'fuego').
 /**
  * Vigilancia de tickets atrasados: resumen a dirección de los que llevan más de
  * 3 días hábiles, y escalamiento (aviso al equipo + tarea urgente con
@@ -1869,8 +1869,12 @@ export const startTaskRemindersCron = () => {
   // recordatorio ganaba la carrera por un cuarto de segundo, así que contaba el
   // mundo de antes y nacía viejo. El 27-ago mandó "tienes 4" y dos segundos
   // después ya eran 18.
-  cron.schedule('15 11 * * *', () => sendReminder('urgent'), { timezone: 'America/Mexico_City' });
-  console.log('📅 [CRON] Recordatorios de tareas: lunes 11am (pendientes) + diario 11:15am (urgentes)');
+  //
+  // Domingo no: es el único día en que nadie está trabajando las tareas, así que
+  // el aviso llegaba a un teléfono en descanso y para el lunes ya estaba viejo.
+  // Sábado sí se conserva porque las sucursales abren.
+  cron.schedule('15 11 * * 1-6', () => sendReminder('urgent'), { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Recordatorios de tareas: lunes 11am (pendientes) + lun-sáb 11:15am (urgentes)');
 };
 
 /**
