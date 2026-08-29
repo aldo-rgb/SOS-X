@@ -93,10 +93,14 @@ export async function ensureFundingSchema(): Promise<void> {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_wfd_user ON wallet_funding_deposits (user_id, created_at DESC)`);
   // El renglón hace que la empresa aparezca sola en Fiscal → Configuración de
   // servicios, con el mismo selector del catálogo que usan los demás servicios.
+  // Los ::varchar no son adorno: sin ellos Postgres intenta deducir el tipo de
+  // $1 a la vez desde la lista del SELECT y desde la comparación del WHERE, y
+  // responde "inconsistent types deduced for parameter $1". La función entera
+  // reventaba por esto y el 500 se comía la referencia del cliente.
   await pool.query(`
     INSERT INTO service_company_config (service_type, service_name, emitter_id, is_active)
-    SELECT $1, 'Fondeo de Cartera General', NULL, TRUE
-     WHERE NOT EXISTS (SELECT 1 FROM service_company_config WHERE service_type = $1)
+    SELECT $1::varchar, 'Fondeo de Cartera General', NULL::integer, TRUE
+     WHERE NOT EXISTS (SELECT 1 FROM service_company_config WHERE service_type = $1::varchar)
   `, [SERVICIO_CARTERA]);
   schemaListo = true;
 }

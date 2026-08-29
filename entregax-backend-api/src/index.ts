@@ -17204,7 +17204,11 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 
   // Fondeo de cartera: tabla de referencias fijas + alta del servicio en el
   // catálogo de empresas, para que aparezca su selector en Fiscal.
-  ensureFundingSchema().catch((e: any) => console.warn('[cartera] ensureFundingSchema:', e?.message));
+  // Se traga el error para no tumbar el arranque, pero como ERROR: un warn aquí
+  // pasó desapercibido mientras la función fallaba al 100% y el endpoint del
+  // cliente devolvía 500 en cada llamada.
+  ensureFundingSchema().catch((e: any) =>
+    console.error('🚨 [cartera] ensureFundingSchema falló, el fondeo no va a funcionar:', e?.message));
 
   // Columnas opcionales de addresses (idempotente)
   Promise.all([
