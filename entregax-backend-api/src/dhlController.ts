@@ -704,21 +704,51 @@ export const getDhlShipments = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Preparación de la tabla de DHL: UNA VEZ por proceso.
+ *
+ * Esto corría en CADA recepción de caja, y traía dos cosas caras:
+ *  · dos ALTER TABLE, que aunque no cambien nada piden lock EXCLUSIVO sobre
+ *    dhl_shipments;
+ *  · un UPDATE con LIKE '%¿%' sobre TODA la tabla —sin índice posible— que
+ *    ademas escribe WAL.
+ *
+ * Con el disco de Railway degradado (incidente US West del 29-ago) eso hacía
+ * que recibir una caja tardara una eternidad y bloqueara al resto: cada escaneo
+ * barría la tabla completa y se formaba detrás de un lock exclusivo. La
+ * limpieza de caracteres del escáner español es una reparación de datos vieja,
+ * no algo que deba correr por cada caja.
+ */
+let _recepcionDhlLista = false;
+let _recepcionDhlEnCurso: Promise<void> | null = null;
+const ensureRecepcionDhlLista = async (): Promise<void> => {
+  if (_recepcionDhlLista) return;
+  if (_recepcionDhlEnCurso) return _recepcionDhlEnCurso;
+  _recepcionDhlEnCurso = (async () => {
+    try {
+      await pool.query(`ALTER TABLE dhl_shipments
+        ADD COLUMN IF NOT EXISTS secondary_tracking VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS import_tax_mxn NUMERIC(10,2) DEFAULT 0`);
+      await pool.query(`
+        UPDATE dhl_shipments
+           SET inbound_tracking   = REPLACE(REPLACE(inbound_tracking, '¿', '+'), '?', '+'),
+               secondary_tracking = REPLACE(REPLACE(secondary_tracking, '¿', '+'), '?', '+')
+         WHERE inbound_tracking   LIKE '%¿%' OR inbound_tracking   LIKE '%?%'
+            OR secondary_tracking LIKE '%¿%' OR secondary_tracking LIKE '%?%'`);
+      _recepcionDhlLista = true;
+    } catch (e: any) {
+      console.warn('[dhl] ensureRecepcionDhlLista:', e?.message);
+    } finally {
+      _recepcionDhlEnCurso = null;
+    }
+  })();
+  return _recepcionDhlEnCurso;
+};
+
 // POST /api/admin/dhl/receive - Recibir y auditar paquete
 export const receiveDhlPackage = async (req: Request, res: Response) => {
   try {
-    // Auto-migrate: asegurar columnas
-    await pool.query(`ALTER TABLE dhl_shipments ADD COLUMN IF NOT EXISTS secondary_tracking VARCHAR(100)`).catch(() => {});
-    await pool.query(`ALTER TABLE dhl_shipments ADD COLUMN IF NOT EXISTS import_tax_mxn NUMERIC(10,2) DEFAULT 0`).catch(() => {});
-
-    // Limpiar caracteres erróneos (¿ y ?) de guías existentes (scanner en teclado español)
-    await pool.query(`
-      UPDATE dhl_shipments
-      SET inbound_tracking   = REPLACE(REPLACE(inbound_tracking, '¿', '+'), '?', '+'),
-          secondary_tracking = REPLACE(REPLACE(secondary_tracking, '¿', '+'), '?', '+')
-      WHERE inbound_tracking   LIKE '%¿%' OR inbound_tracking   LIKE '%?%'
-         OR secondary_tracking LIKE '%¿%' OR secondary_tracking LIKE '%?%'
-    `).catch(() => {/* no-op */});
+    await ensureRecepcionDhlLista();
 
     const {
       inbound_tracking,
