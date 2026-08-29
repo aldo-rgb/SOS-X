@@ -220,8 +220,29 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
     return matchesSearch && matchesRole;
   });
 
+  /**
+   * Las cuentas de mando quedan al principio para el super admin.
+   *
+   * La lista viene ordenada por fecha de alta descendente y los super_admin son
+   * las cuentas MÁS VIEJAS del sistema (5-feb), así que con 774 usuarios caían
+   * en la última página: parecía que no estaban. Ahora el super admin las tiene
+   * a la vista para gestionarlas —cambiar contraseña, teléfono, rol— sin
+   * buscarlas. Para el resto de los roles el orden no cambia.
+   */
+  const ordenMando = ['super_admin', 'admin', 'director'];
+  const usersOrdenados = isSuperAdmin && roleFilter === 'all'
+    ? [...filteredUsers].sort((a, b) => {
+        const ra = ordenMando.indexOf(String(a.role || ''));
+        const rb = ordenMando.indexOf(String(b.role || ''));
+        if (ra === rb) return 0;
+        if (ra === -1) return 1;
+        if (rb === -1) return -1;
+        return ra - rb;
+      })
+    : filteredUsers;
+
   // Paginación
-  const paginatedUsers = filteredUsers.slice(
+  const paginatedUsers = usersOrdenados.slice(
     page * rowsPerPage,
     page * rowsPerPage + rowsPerPage
   );
