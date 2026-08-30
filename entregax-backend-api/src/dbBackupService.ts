@@ -10,7 +10,20 @@ const s3Client = new S3Client({
   },
 });
 
-const BUCKET = process.env.AWS_S3_BUCKET || 'entregax-uploads';
+/**
+ * Bucket DEDICADO a respaldos, aparte del de subidas.
+ *
+ * Antes vivían en `entregax-uploads`, junto a las fotos de entrega y los INE,
+ * y ese bucket no tiene versionado: si la llave de la app se filtraba o alguien
+ * se equivocaba con un borrado masivo, se iban los respaldos sin vuelta atrás.
+ * `entregax-db-backups` tiene versionado activo, cifrado y acceso público
+ * bloqueado, así que un borrado se puede deshacer.
+ *
+ * Queda pendiente lo que no se puede hacer desde aquí: darle credenciales
+ * propias. Hoy escribe con la misma llave de la app; separarlas requiere crear
+ * un usuario de IAM con permiso solo sobre este bucket.
+ */
+const BUCKET = process.env.AWS_S3_BACKUP_BUCKET || 'entregax-db-backups';
 
 /** Carpeta y forma del nombre de un respaldo: entregax_2026-08-29.sql.gz */
 const PREFIJO_BACKUPS = 'db-backups/';
