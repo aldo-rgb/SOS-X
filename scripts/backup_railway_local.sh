@@ -6,8 +6,11 @@ set -euo pipefail
 
 PG_BIN="/Applications/Postgres.app/Contents/Versions/17/bin"
 ENV_FILE="/Users/aldokmps/SOS-X-5/entregax-backend-api/.env"
-BACKUP_DIR="/Users/aldokmps/backups/entregax"
-LOG_FILE="/Users/aldokmps/backups/entregax/backup.log"
+# El nombre grita a proposito: esta carpeta se ve en el Finder junto a
+# Documentos y Descargas, y llamarse "backups" a secas invitaba a borrarla en
+# una limpieza de disco. Dentro hay un LEEME explicando que es.
+BACKUP_DIR="/Users/aldokmps/BACKUPS ENTREGAX - NO BORRAR"
+LOG_FILE="$BACKUP_DIR/backup.log"
 RETENTION_DAYS=14
 
 mkdir -p "$BACKUP_DIR"
