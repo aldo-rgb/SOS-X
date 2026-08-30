@@ -78,9 +78,147 @@ async function ensureChatTables() {
       updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_cajito_knowledge_active ON cajito_knowledge(is_active);
+
+    -- Bitácora de lo que Cajito NO supo resolver. Es su lista de tareas para
+    -- aprender: cada fila es una pregunta real que se quedó sin respuesta, y
+    -- 'veces' dice cuántas personas la han hecho. Se enseña escribiendo la
+    -- entrada de conocimiento que la contesta, y la fila queda ligada a ella.
+    CREATE TABLE IF NOT EXISTS cajito_gaps (
+      id              SERIAL PRIMARY KEY,
+      folio           TEXT UNIQUE,            -- CJD-2026-0001, visible para todos
+      conversation_id INTEGER REFERENCES cajito_conversations(id) ON DELETE SET NULL,
+      user_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      pregunta        TEXT NOT NULL,
+      pregunta_norm   TEXT NOT NULL,          -- para agrupar repeticiones
+      motivo          TEXT NOT NULL,          -- sin_conocimiento | sin_permiso | no_pudo
+      detalle         TEXT,
+      tool_name       TEXT,
+      respuesta       TEXT,                   -- lo que acabó contestando
+      estado          TEXT NOT NULL DEFAULT 'pendiente', -- pendiente | resuelta | descartada
+      knowledge_id    INTEGER REFERENCES cajito_knowledge(id) ON DELETE SET NULL,
+      veces           INTEGER NOT NULL DEFAULT 1,
+      first_seen_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      resolved_at     TIMESTAMPTZ,
+      resolved_by     INTEGER REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_cajito_gaps_estado ON cajito_gaps(estado, veces DESC, last_seen_at DESC);
+    ALTER TABLE cajito_gaps ADD COLUMN IF NOT EXISTS folio TEXT;
+    -- Una sola fila por pregunta+motivo mientras siga pendiente: lo que interesa
+    -- es cuántas veces la preguntan, no tener mil filas iguales.
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_cajito_gaps_pendiente
+      ON cajito_gaps(pregunta_norm, motivo) WHERE estado = 'pendiente';
   `);
   _tablesReady = true;
 }
+
+// --- Bitácora de lo que no supo ---------------------------------------------
+
+/** Normaliza para agrupar: sin acentos, sin signos, minúsculas, espacios simples. */
+function normalizarPregunta(p: string): string {
+  return String(p || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9ñ\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300);
+}
+
+/**
+ * Registra una pregunta que Cajito no pudo resolver.
+ *
+ * Si esa misma pregunta ya está pendiente, no crea otra fila: suma una a
+ * `veces`. Así la lista se ordena sola por lo que más falta hace enseñarle,
+ * en vez de convertirse en un historial plano que nadie lee.
+ */
+async function registrarHueco(datos: {
+  conversationId: number | null;
+  userId: number;
+  pregunta: string;
+  motivo: 'sin_conocimiento' | 'sin_permiso' | 'no_pudo';
+  detalle?: string | null;
+  toolName?: string | null;
+  respuesta?: string | null;
+}): Promise<{ nueva: boolean; veces: number; folio: string } | null> {
+  try {
+    const norm = normalizarPregunta(datos.pregunta);
+    if (!norm) return null;
+    const r = await pool.query(
+      `INSERT INTO cajito_gaps
+         (conversation_id, user_id, pregunta, pregunta_norm, motivo, detalle, tool_name, respuesta)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (pregunta_norm, motivo) WHERE estado = 'pendiente'
+       DO UPDATE SET veces = cajito_gaps.veces + 1,
+                     last_seen_at = NOW(),
+                     conversation_id = EXCLUDED.conversation_id,
+                     respuesta = COALESCE(EXCLUDED.respuesta, cajito_gaps.respuesta)
+       RETURNING id, veces, folio`,
+      [datos.conversationId, datos.userId, datos.pregunta.slice(0, 2000), norm,
+       datos.motivo, datos.detalle ?? null, datos.toolName ?? null,
+       (datos.respuesta || '').slice(0, 2000) || null]
+    );
+    const veces = Number(r.rows[0]?.veces) || 1;
+    const id = Number(r.rows[0]?.id);
+    let folio = r.rows[0]?.folio as string | null;
+    // El folio se asigna con el id ya generado. Una duda repetida conserva el
+    // suyo: quien vuelve a preguntar recibe el mismo número, que es lo que
+    // permite darle seguimiento.
+    if (!folio) {
+      const f = await pool.query(
+        `UPDATE cajito_gaps
+            SET folio = 'CJD-' || to_char(first_seen_at, 'YYYY') || '-' || LPAD(id::text, 4, '0')
+          WHERE id = $1 RETURNING folio`,
+        [id]
+      );
+      folio = f.rows[0]?.folio || `CJD-${id}`;
+    }
+    return { nueva: veces === 1, veces, folio: String(folio) };
+  } catch (e: any) {
+    // Nunca romper el chat por no poder anotar el hueco.
+    console.warn('[CAJITO-GAP] no se pudo registrar:', e?.message);
+    return null;
+  }
+}
+
+/**
+ * Avisa a los super admin que a Cajito le faltó saber algo.
+ *
+ * Solo en la PRIMERA aparición de esa duda: si se notificara cada repetición,
+ * una pregunta popular llenaría las notificaciones y se dejarían de leer, que
+ * es como se pierde justo la información que queremos aprovechar.
+ */
+async function avisarDudaASuperAdmins(pregunta: string, quien: number, folio: string): Promise<void> {
+  try {
+    const admins = await pool.query(`SELECT id FROM users WHERE role = 'super_admin' AND COALESCE(is_active, TRUE) = TRUE`);
+    if (admins.rows.length === 0) return;
+    const autor = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [quien]);
+    const nombre = autor.rows[0]?.full_name || 'Un usuario';
+    const corta = pregunta.length > 120 ? pregunta.slice(0, 120) + '…' : pregunta;
+    const { createCustomNotification } = await import('./notificationController');
+    for (const a of admins.rows) {
+      await createCustomNotification(
+        Number(a.id),
+        `🤖 Cajito tiene una duda · ${folio}`,
+        `${nombre} preguntó: "${corta}" y Cajito no supo responder. Enséñale desde Cajito → Pendientes.`,
+        'system', 'help',
+        { screen: 'CajitoGaps' },
+        '/cajito/pendientes'
+      ).catch(() => {});
+    }
+  } catch (e: any) {
+    console.warn('[CAJITO-GAP] no se pudo avisar a super admin:', e?.message);
+  }
+}
+
+/** Frases con las que un modelo admite que no puede. Señal de respaldo. */
+const FRASES_NO_PUDO = [
+  'no tengo acceso', 'no tengo esa informacion', 'no tengo información',
+  'no puedo ayudarte con', 'no cuento con', 'no dispongo de',
+  'no tengo permiso', 'no tengo la capacidad', 'no esta documentado',
+  'no está documentado', 'no encontre informacion', 'no encontré información',
+  'no tengo información documentada', 'no puedo realizar', 'no puedo hacer',
+];
 
 // --- Capacidades del usuario ------------------------------------------------
 async function getUserCapabilities(userId: number, role: string): Promise<Set<string>> {
@@ -754,6 +892,9 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
 
     const toolCallsLog: { name: string; args: any; resultPreview: any }[] = [];
     let finalReply = '';
+    // Señales de "no supe" recogidas durante las llamadas a herramientas.
+    const senales: { motivo: string; detalle?: string; tool?: string }[] = [];
+    let usoHerramientas = false;
     let totalIn = 0, totalOut = 0;
 
     for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
@@ -779,6 +920,7 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
 
         // Ejecutar cada tool y appendear resultados como user/tool_result
         const toolResultBlocks: LlmContentBlock[] = [];
+        usoHerramientas = true;
         for (const tc of completion.toolCalls) {
           const toolDef = TOOLS.find(t => t.name === tc.name);
           const parsedArgs = tc.input || {};
@@ -798,6 +940,17 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
             } catch (err: any) {
               result = { error: String(err?.message || err) };
             }
+          }
+
+          // ¿Esta llamada dejó ver un hueco? Se anota la señal y al final del
+          // turno se registra una sola: interesa la pregunta que quedó sin
+          // resolver, no cada tropiezo intermedio.
+          if (tc.name === 'search_knowledge' && Array.isArray(result?.results) && result.results.length === 0) {
+            // La más precisa de todas: preguntaron un procedimiento y la base
+            // de conocimiento no tenía nada.
+            senales.push({ motivo: 'sin_conocimiento', detalle: String(parsedArgs?.query || ''), tool: tc.name });
+          } else if (typeof result?.error === 'string' && result.error.startsWith('Sin capacidad')) {
+            senales.push({ motivo: 'sin_permiso', detalle: result.error, tool: tc.name });
           }
 
           // Persistir auditoría de tool-call
@@ -830,6 +983,48 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
     }
 
     if (!finalReply) finalReply = '(Cajito no generó respuesta)';
+
+    // ── Bitácora de aprendizaje ──
+    // La señal más fiable es que search_knowledge no encontró nada: alguien
+    // preguntó un procedimiento y no está documentado. Si no hubo señal de
+    // herramienta, se mira si la propia respuesta admite que no pudo — eso
+    // cubre las preguntas que el modelo ni siquiera intentó resolver.
+    const senalPrincipal = senales.find(x => x.motivo === 'sin_conocimiento') || senales[0];
+    let hueco: { nueva: boolean; veces: number; folio: string } | null = null;
+    if (senalPrincipal) {
+      hueco = await registrarHueco({
+        conversationId, userId, pregunta: message,
+        motivo: senalPrincipal.motivo as any,
+        detalle: senalPrincipal.detalle ?? null, toolName: senalPrincipal.tool ?? null,
+        respuesta: finalReply,
+      });
+    } else {
+      const respLower = finalReply.toLowerCase();
+      if (FRASES_NO_PUDO.some(f => respLower.includes(f))) {
+        hueco = await registrarHueco({
+          conversationId, userId, pregunta: message, motivo: 'no_pudo',
+          detalle: usoHerramientas ? 'Consultó datos pero no resolvió' : 'No consultó ninguna herramienta',
+          respuesta: finalReply,
+        });
+      }
+    }
+
+    if (hueco) {
+      // Se le dice al usuario, con folio, que su duda quedó anotada. Sin esto
+      // la conversación termina en "no sé" y la persona no tiene forma de
+      // saber que alguien la va a atender ni con qué referencia preguntar.
+      finalReply += `\n\n---\n📌 **Duda registrada · ${hueco.folio}**\n` +
+        `Ya guardé lo que no te pude resolver y avisé al equipo. En cuanto me lo expliquen, ` +
+        `la próxima vez que me lo preguntes ya voy a saber contestarte.` +
+        (hueco.veces > 1 ? ` (Es la ${hueco.veces}ª vez que me preguntan esto.)` : '');
+
+      // El aviso al super admin va SOLO la primera vez. Notificar cada
+      // repetición convertiría una pregunta popular en spam y se dejarían de
+      // leer justo las notificaciones que queremos que se lean.
+      if (hueco.nueva) {
+        avisarDudaASuperAdmins(message, userId, hueco.folio).catch(() => {});
+      }
+    }
 
     // Guardar respuesta final
     await saveMessage(conversationId!, {
@@ -1503,5 +1698,131 @@ export const deleteKnowledge = async (req: AuthRequest, res: Response): Promise<
     res.json({ success: true });
   } catch (err: any) {
     console.error('[cajito/knowledge:delete]', err); res.status(500).json({ error: 'Error al eliminar conocimiento' });
+  }
+};
+
+// ============================================================
+// BITÁCORA DE DUDAS — consultar y enseñar (solo super_admin)
+// ============================================================
+
+/** GET /api/cajito/gaps?estado=pendiente — lo que Cajito no supo resolver. */
+export const listGaps = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await ensureChatTables();
+    const estado = String(req.query.estado || 'pendiente');
+    const validos = ['pendiente', 'resuelta', 'descartada', 'todas'];
+    if (!validos.includes(estado)) { res.status(400).json({ error: 'Estado inválido' }); return; }
+
+    const r = await pool.query(
+      `SELECT g.id, g.folio, g.pregunta, g.motivo, g.detalle, g.tool_name, g.respuesta,
+              g.estado, g.veces, g.first_seen_at, g.last_seen_at, g.resolved_at,
+              g.knowledge_id, k.title AS knowledge_title,
+              u.full_name AS pregunto, r.full_name AS resolvio
+         FROM cajito_gaps g
+         LEFT JOIN users u ON u.id = g.user_id
+         LEFT JOIN users r ON r.id = g.resolved_by
+         LEFT JOIN cajito_knowledge k ON k.id = g.knowledge_id
+        ${estado === 'todas' ? '' : 'WHERE g.estado = $1'}
+        -- Primero lo que más gente ha preguntado: es lo que más urge enseñarle.
+        ORDER BY g.estado = 'pendiente' DESC, g.veces DESC, g.last_seen_at DESC
+        LIMIT 200`,
+      estado === 'todas' ? [] : [estado]
+    );
+
+    const resumen = await pool.query(
+      `SELECT estado, COUNT(*)::int n, COALESCE(SUM(veces),0)::int preguntas
+         FROM cajito_gaps GROUP BY estado`
+    );
+
+    res.json({
+      success: true,
+      gaps: r.rows,
+      resumen: resumen.rows.reduce((acc: any, x: any) => {
+        acc[x.estado] = { dudas: x.n, preguntas: x.preguntas }; return acc;
+      }, {}),
+    });
+  } catch (err: any) {
+    console.error('[CAJITO-GAPS]', err?.message);
+    res.status(500).json({ error: err?.message || 'Error al listar dudas' });
+  }
+};
+
+/** PATCH /api/cajito/gaps/:id — descartar o reabrir una duda. */
+export const updateGap = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await ensureChatTables();
+    const id = parseInt(String(req.params.id), 10);
+    const estado = String(req.body?.estado || '');
+    if (!id || !['pendiente', 'descartada'].includes(estado)) {
+      res.status(400).json({ error: 'Estado inválido (pendiente | descartada)' });
+      return;
+    }
+    const r = await pool.query(
+      `UPDATE cajito_gaps
+          SET estado = $1,
+              resolved_at = CASE WHEN $1 = 'pendiente' THEN NULL ELSE NOW() END,
+              resolved_by = CASE WHEN $1 = 'pendiente' THEN NULL ELSE $2 END
+        WHERE id = $3 RETURNING id, folio, estado`,
+      [estado, req.user?.userId ?? null, id]
+    );
+    if (r.rows.length === 0) { res.status(404).json({ error: 'Duda no encontrada' }); return; }
+    res.json({ success: true, gap: r.rows[0] });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Error al actualizar la duda' });
+  }
+};
+
+/**
+ * POST /api/cajito/gaps/:id/ensenar { title, content, tags }
+ * Le enseña la respuesta: crea la entrada de conocimiento y marca la duda como
+ * resuelta, dejándolas ligadas. Es el cierre del ciclo — a partir de aquí
+ * search_knowledge ya encuentra algo cuando se lo vuelvan a preguntar.
+ */
+export const teachGap = async (req: AuthRequest, res: Response): Promise<void> => {
+  const client = await pool.connect();
+  try {
+    await ensureChatTables();
+    const id = parseInt(String(req.params.id), 10);
+    const title = String(req.body?.title || '').trim();
+    const content = String(req.body?.content || '').trim();
+    const tags = String(req.body?.tags || '').trim() || null;
+    if (!id || !title || !content) {
+      res.status(400).json({ error: 'Se requieren título y contenido' });
+      return;
+    }
+
+    await client.query('BEGIN');
+    const g = await client.query(`SELECT id, folio, pregunta FROM cajito_gaps WHERE id = $1 FOR UPDATE`, [id]);
+    if (g.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Duda no encontrada' });
+      return;
+    }
+
+    const k = await client.query(
+      `INSERT INTO cajito_knowledge (title, content, tags, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $4) RETURNING id, title`,
+      [title, content, tags, req.user?.userId ?? null]
+    );
+
+    await client.query(
+      `UPDATE cajito_gaps
+          SET estado = 'resuelta', knowledge_id = $1, resolved_at = NOW(), resolved_by = $2
+        WHERE id = $3`,
+      [k.rows[0].id, req.user?.userId ?? null, id]
+    );
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: `Duda ${g.rows[0].folio} resuelta. Cajito ya sabe responderla.`,
+      knowledge: k.rows[0],
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[CAJITO-TEACH]', err?.message);
+    res.status(500).json({ error: err?.message || 'Error al enseñar la respuesta' });
+  } finally {
+    client.release();
   }
 };

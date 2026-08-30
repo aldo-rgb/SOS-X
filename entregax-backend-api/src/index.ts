@@ -993,6 +993,9 @@ import {
   createKnowledge as cajitoCreateKnowledge,
   updateKnowledge as cajitoUpdateKnowledge,
   deleteKnowledge as cajitoDeleteKnowledge,
+  listGaps as cajitoListGaps,
+  updateGap as cajitoUpdateGap,
+  teachGap as cajitoTeachGap,
 } from './cajitoController';
 import {
   listAwbCosts,
@@ -17091,6 +17094,12 @@ app.get('/api/cajito/knowledge', authenticateToken, requireRole('super_admin'), 
 app.post('/api/cajito/knowledge', authenticateToken, requireRole('super_admin'), cajitoCreateKnowledge);
 app.put('/api/cajito/knowledge/:id', authenticateToken, requireRole('super_admin'), cajitoUpdateKnowledge);
 app.delete('/api/cajito/knowledge/:id', authenticateToken, requireRole('super_admin'), cajitoDeleteKnowledge);
+
+// 🤖 Bitácora de aprendizaje: lo que le preguntan y no supo resolver, con folio.
+// Se enseña creando la entrada de conocimiento que la contesta.
+app.get('/api/cajito/gaps', authenticateToken, requireRole('super_admin'), cajitoListGaps);
+app.patch('/api/cajito/gaps/:id', authenticateToken, requireRole('super_admin'), cajitoUpdateGap);
+app.post('/api/cajito/gaps/:id/ensenar', authenticateToken, requireRole('super_admin'), cajitoTeachGap);
 
 // ============================================================
 // MIDDLEWARES FINALES — deben ir DESPUÉS de TODAS las rutas

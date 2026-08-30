@@ -18,6 +18,7 @@ import {
   CircularProgress,
   Slide,
   Chip,
+  Badge,
   Divider,
   InputAdornment,
   Dialog,
@@ -29,6 +30,7 @@ import {
   Alert,
 } from '@mui/material';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditIcon from '@mui/icons-material/Edit';
@@ -1212,9 +1214,16 @@ export default function CajitoFab() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   // Base de conocimiento (curada, solo super_admin)
-  const [kbDialog, setKbDialog] = useState<{ id?: number; title: string; content: string; tags: string } | null>(null);
+  const [kbDialog, setKbDialog] = useState<{ id?: number; title: string; content: string; tags: string; gapId?: number; folio?: string } | null>(null);
   const [kbSaving, setKbSaving] = useState(false);
   const [kbManagerOpen, setKbManagerOpen] = useState(false);
+
+  // Bitácora de dudas: lo que le preguntaron y no supo resolver. Cada una trae
+  // su folio para poder darle seguimiento.
+  const [gapsOpen, setGapsOpen] = useState(false);
+  const [gapsList, setGapsList] = useState<any[]>([]);
+  const [gapsLoading, setGapsLoading] = useState(false);
+  const [gapsPendientes, setGapsPendientes] = useState(0);
   const [kbList, setKbList] = useState<any[]>([]);
   const [kbLoading, setKbLoading] = useState(false);
   const [kbToast, setKbToast] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
@@ -1308,7 +1317,11 @@ export default function CajitoFab() {
     if (!kbDialog.title.trim() || !kbDialog.content.trim()) return;
     setKbSaving(true);
     try {
-      if (kbDialog.id) {
+      if (kbDialog.gapId) {
+        // Cierra el ciclo: crea el conocimiento y marca la duda como resuelta.
+        await api.post(`/cajito/gaps/${kbDialog.gapId}/ensenar`, { title: kbDialog.title.trim(), content: kbDialog.content.trim(), tags: kbDialog.tags.trim() || null });
+        loadGaps();
+      } else if (kbDialog.id) {
         await api.put(`/cajito/knowledge/${kbDialog.id}`, { title: kbDialog.title.trim(), content: kbDialog.content.trim(), tags: kbDialog.tags.trim() || null });
       } else {
         await api.post('/cajito/knowledge', { title: kbDialog.title.trim(), content: kbDialog.content.trim(), tags: kbDialog.tags.trim() || null });
@@ -1326,6 +1339,25 @@ export default function CajitoFab() {
     catch { /* */ } finally { setKbLoading(false); }
   };
   const openKbManager = () => { setKbManagerOpen(true); loadKb(); };
+
+  const loadGaps = async () => {
+    setGapsLoading(true);
+    try {
+      const r = await api.get('/cajito/gaps?estado=pendiente');
+      setGapsList(r.data?.gaps || []);
+      setGapsPendientes(Number(r.data?.resumen?.pendiente?.dudas) || 0);
+    } catch { /* */ } finally { setGapsLoading(false); }
+  };
+  const openGaps = () => { setGapsOpen(true); loadGaps(); };
+  const descartarGap = async (id: number) => {
+    try { await api.patch(`/cajito/gaps/${id}`, { estado: 'descartada' }); loadGaps(); } catch { /* */ }
+  };
+  // Enseñar = escribir la respuesta que faltaba. Se abre el mismo formulario de
+  // conocimiento, precargado con la pregunta real que hizo la persona.
+  const ensenarGap = (g: any) => {
+    setGapsOpen(false);
+    setKbDialog({ title: g.pregunta.slice(0, 120), content: '', tags: '', gapId: g.id, folio: g.folio });
+  };
   const deleteKb = async (id: number) => {
     try { await api.delete(`/cajito/knowledge/${id}`); loadKb(); } catch { /* */ }
   };
@@ -1527,6 +1559,15 @@ export default function CajitoFab() {
               <Typography variant="caption" sx={{ opacity: 0.9 }}>Asistente IA · Solo lectura{isSuperAdmin ? ' · Super Admin' : (isAdvisor ? ' · Mis clientes' : (isCustomerService ? ' · Servicio a cliente' : ''))}</Typography>
             </Box>
             {mode === 'chat' && isSuperAdmin && (
+              <Tooltip title={gapsPendientes > 0 ? `${gapsPendientes} duda(s) que Cajito no supo resolver` : 'Dudas de Cajito'}>
+                <IconButton size="small" onClick={openGaps} sx={{ color: 'white', mr: 0.5 }}>
+                  <Badge badgeContent={gapsPendientes} color="error" max={99}>
+                    <HelpOutlineIcon fontSize="small" />
+                  </Badge>
+                </IconButton>
+              </Tooltip>
+            )}
+            {mode === 'chat' && isSuperAdmin && (
               <Tooltip title="Base de conocimiento">
                 <IconButton size="small" onClick={openKbManager} sx={{ color: 'white', mr: 0.5 }}>
                   <MenuBookIcon fontSize="small" />
@@ -1715,7 +1756,9 @@ export default function CajitoFab() {
       {/* Guardar / editar conocimiento (curado, solo super_admin) */}
       <Dialog open={kbDialog != null} onClose={() => setKbDialog(null)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <BookmarkAddIcon sx={{ color: CAJITO_RING }} /> {kbDialog?.id ? 'Editar conocimiento' : 'Guardar como conocimiento'}
+          <BookmarkAddIcon sx={{ color: CAJITO_RING }} /> {kbDialog?.gapId
+            ? `Enseñarle la respuesta · ${kbDialog.folio || ''}`
+            : (kbDialog?.id ? 'Editar conocimiento' : 'Guardar como conocimiento')}
         </DialogTitle>
         <DialogContent>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
@@ -1737,6 +1780,56 @@ export default function CajitoFab() {
       </Dialog>
 
       {/* Administrar base de conocimiento */}
+      {/* Bitácora de dudas: la lista de tareas de aprendizaje de Cajito. Se
+          ordena por cuántas veces se la han preguntado, no por fecha: lo que
+          más gente pregunta es lo que más urge enseñarle. */}
+      <Dialog open={gapsOpen} onClose={() => setGapsOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <HelpOutlineIcon sx={{ color: CAJITO_RING }} /> Dudas que Cajito no supo resolver
+        </DialogTitle>
+        <DialogContent dividers>
+          {gapsLoading ? (
+            <Box sx={{ textAlign: 'center', py: 3 }}><CircularProgress size={22} sx={{ color: CAJITO_RING }} /></Box>
+          ) : gapsList.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+              No hay dudas pendientes. Cuando alguien le pregunte algo que no sepa, aparecerá aquí con su folio.
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {gapsList.map((g) => (
+                <Box key={g.id} sx={{ border: '1px solid #eee', borderRadius: 1.5, p: 1.25 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5, flexWrap: 'wrap' }}>
+                    <Chip label={g.folio || `#${g.id}`} size="small" sx={{ fontFamily: 'monospace', fontWeight: 700, bgcolor: '#1565C0', color: 'white' }} />
+                    {g.veces > 1 && <Chip label={`${g.veces} veces`} size="small" color="error" />}
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={g.motivo === 'sin_conocimiento' ? 'No está documentado'
+                        : g.motivo === 'sin_permiso' ? 'Sin permiso' : 'No pudo resolverlo'}
+                    />
+                  </Box>
+                  <Typography variant="body2" fontWeight={700}>{g.pregunta}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {g.pregunto || 'Alguien'} · última vez {new Date(g.last_seen_at).toLocaleDateString('es-MX')}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                    <Button size="small" variant="contained" startIcon={<BookmarkAddIcon />}
+                      onClick={() => ensenarGap(g)}
+                      sx={{ bgcolor: CAJITO_RING, '&:hover': { bgcolor: CAJITO_RING } }}>
+                      Enseñarle
+                    </Button>
+                    <Button size="small" color="inherit" onClick={() => descartarGap(g.id)}>Descartar</Button>
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGapsOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={kbManagerOpen} onClose={() => setKbManagerOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
           <MenuBookIcon sx={{ color: CAJITO_RING }} /> Base de conocimiento de Cajito
