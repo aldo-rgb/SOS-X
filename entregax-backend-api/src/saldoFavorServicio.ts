@@ -214,14 +214,25 @@ export const aplicarSaldoAFavor = async (req: any, res: Response): Promise<any> 
        VALUES ($1, $2, $3, 'egreso', $4, $5, $6, $7, $8)`,
       [w.rows[0].id, userId, servicio, aplicar, orden.currency || 'MXN',
        `Saldo a favor aplicado a la orden ${orden.payment_reference}`, orderId, userId]);
+    // Se apunta en metadata de qué bolsa salió. Comparte la columna
+    // wallet_applied con el monedero general, y sin esta marca al revertir se
+    // devolvía a users.wallet_balance: el dinero saltaba de la billetera del
+    // servicio a la general y se volvía gastable en cualquier otro servicio,
+    // que es justo lo que la regla del saldo por servicio impide.
     const upd = await client.query(
       `UPDATE pobox_payments
           SET amount = GREATEST(0, COALESCE(amount, 0) - $1),
               wallet_applied = COALESCE(wallet_applied, 0) + $1,
-              wallet_applied_at = NOW()
+              wallet_applied_at = NOW(),
+              metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'saldo_servicio_aplicado',
+                jsonb_build_object(
+                  'servicio', $3::text,
+                  'monto', (COALESCE((metadata->'saldo_servicio_aplicado'->>'monto')::numeric, 0) + $1)
+                ))
         WHERE id = $2
         RETURNING amount`,
-      [aplicar, orderId]);
+      [aplicar, orderId, servicio]);
 
     await client.query('COMMIT');
     res.json({

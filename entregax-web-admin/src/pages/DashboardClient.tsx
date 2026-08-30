@@ -102,6 +102,7 @@ import {
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon,
   ChevronRight as ChevronRightIcon,
+  Savings as SavingsIcon,
   Share as ShareIcon,
   CardGiftcard as GiftIcon,
   People as PeopleIcon,
@@ -1562,6 +1563,16 @@ export default function DashboardClient() {
   // Aplicación parcial de saldo a favor: el usuario puede aplicar parte (o todo) del wallet
   // y combinar con crédito y/o una pasarela externa.
   const [walletPartial, setWalletPartial] = useState<{ walletAmount: number; applied: boolean } | null>(null);
+
+  // Saldo a favor POR SERVICIO aplicable a la orden que se está pagando.
+  // Es otra bolsa que el monedero general: se genera al pagar de más y solo
+  // sirve en el mismo servicio. Hasta ahora se podía ver pero no gastar —el
+  // endpoint existía y ningún botón lo llamaba— y por eso el cliente con
+  // $80,279 de DHL no encontraba cómo usarlos (TKT-2026-2452).
+  const [saldoServicioOrden, setSaldoServicioOrden] = useState<{
+    servicio: string; servicioNombre: string; disponible: number; aplicable: number;
+  } | null>(null);
+  const [aplicandoSaldoServicio, setAplicandoSaldoServicio] = useState(false);
   // Edición manual del monto de crédito a aplicar (redistribuye saldo+crédito vs pasarela)
   const [adjustingGateway, setAdjustingGateway] = useState(false);
   const [editingCreditAmount, setEditingCreditAmount] = useState(false);
@@ -2293,6 +2304,14 @@ export default function DashboardClient() {
     // Refrescar saldo y créditos para que aparezcan métodos internos actualizados
     try { loadWalletStatus(); } catch {}
     try { loadServiceCredits(); } catch {}
+    // ¿Tiene saldo a favor del MISMO servicio de esta orden? El backend resuelve
+    // el servicio de la orden y devuelve 0 si el saldo es de otro: no se mezclan.
+    setSaldoServicioOrden(null);
+    api.get(`/saldo-favor/para-orden/${order.id}`)
+      .then((r: any) => {
+        if (r.data?.success && Number(r.data.aplicable) > 0) setSaldoServicioOrden(r.data);
+      })
+      .catch(() => { /* sin saldo aplicable, la opción no se muestra */ });
     // Si la orden ya tiene crédito aplicado previamente (pago externo que no se concretó),
     // hidratar el estado para mostrar el banner y permitir revertir.
     const preApplied = Number(order?.credit_applied || 0);
@@ -2785,6 +2804,36 @@ export default function DashboardClient() {
       const msg = e?.response?.data?.message || e?.response?.data?.error || e.message;
       setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
       return null;
+    }
+  };
+
+  // Aplicar el saldo a favor del servicio a esta orden. Baja el monto a pagar;
+  // si lo cubre por completo, la orden queda saldada y no hace falta pagar nada.
+  const handleAplicarSaldoServicio = async () => {
+    const order = onlinePayDialog.order;
+    if (!order || !saldoServicioOrden) return;
+    setAplicandoSaldoServicio(true);
+    try {
+      const res = await api.post('/saldo-favor/aplicar', { orderId: order.id });
+      const nuevoMonto = Number(res.data?.nuevoMonto) || 0;
+      const aplicado = Number(res.data?.aplicado) || 0;
+      setOnlinePayDialog((prev) => prev.order ? { ...prev, order: { ...prev.order, amount: nuevoMonto } } : prev);
+      setSaldoServicioOrden(null);
+      setSnackbar({
+        open: true,
+        message: nuevoMonto <= 0
+          ? `✅ Se aplicaron ${formatCurrency(aplicado)} de tu saldo de ${res.data?.servicioNombre}. La orden queda cubierta.`
+          : `✅ Se aplicaron ${formatCurrency(aplicado)}. Restan ${formatCurrency(nuevoMonto)} por pagar.`,
+        severity: 'success',
+      });
+      loadPaymentOrders();
+      if (typeof loadServiceSaldos === 'function') loadServiceSaldos();
+      if (nuevoMonto <= 0) setOnlinePayDialog({ open: false, order: null });
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || 'No se pudo aplicar el saldo';
+      setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
+    } finally {
+      setAplicandoSaldoServicio(false);
     }
   };
 
@@ -13921,6 +13970,42 @@ export default function DashboardClient() {
               <ChevronRightIcon sx={{ color: '#999' }} />
             )}
           </Paper>
+
+          {/* Saldo a favor DEL SERVICIO de esta orden. Va primero porque es
+              dinero que ya es del cliente y solo sirve aquí: si tiene saldo de
+              DHL y está pagando una orden DHL, no tiene sentido ofrecerle antes
+              una tarjeta. */}
+          {saldoServicioOrden && (
+            <Paper
+              onClick={() => { if (!aplicandoSaldoServicio) handleAplicarSaldoServicio(); }}
+              sx={{
+                p: 2, mb: 2, borderRadius: 2, cursor: aplicandoSaldoServicio ? 'default' : 'pointer',
+                border: '2px solid ' + GREEN, bgcolor: GREEN + '12',
+                display: 'flex', alignItems: 'center', gap: 2,
+                transition: 'all 0.2s',
+                '&:hover': aplicandoSaldoServicio ? {} : { bgcolor: GREEN + '22', transform: 'translateY(-1px)', boxShadow: 2 },
+              }}
+            >
+              <Avatar sx={{ bgcolor: GREEN, width: 48, height: 48 }}>
+                <SavingsIcon />
+              </Avatar>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="body1" fontWeight="bold">
+                  Usar mi saldo a favor de {saldoServicioOrden.servicioNombre}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Disponible {formatCurrency(saldoServicioOrden.disponible)} · se aplicarán{' '}
+                  {formatCurrency(saldoServicioOrden.aplicable)} a esta orden
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Este saldo salió de un pago de más en {saldoServicioOrden.servicioNombre} y solo se usa en ese servicio.
+                </Typography>
+              </Box>
+              {aplicandoSaldoServicio
+                ? <CircularProgress size={24} sx={{ color: GREEN }} />
+                : <ChevronRightIcon sx={{ color: GREEN }} />}
+            </Paper>
+          )}
 
           {/* Opción Saldo a Favor (solo si tiene saldo) */}
           {Number(walletStatus?.wallet_balance || 0) > 0 && (() => {

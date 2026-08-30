@@ -3097,7 +3097,7 @@ export const revertWalletFromPoboxOrder = async (req: AuthRequest, res: Response
         await client.query('BEGIN');
 
         const orderRes = await client.query(
-            `SELECT id, user_id, status, amount, wallet_applied, payment_reference
+            `SELECT id, user_id, status, amount, wallet_applied, payment_reference, metadata
              FROM pobox_payments WHERE id = $1 AND user_id = $2 FOR UPDATE`,
             [orderId, userId]
         );
@@ -3135,11 +3135,36 @@ export const revertWalletFromPoboxOrder = async (req: AuthRequest, res: Response
             });
         }
 
-        // Reintegrar al wallet del usuario
-        const uRes = await client.query(
-            `UPDATE users SET wallet_balance = COALESCE(wallet_balance,0) + $1 WHERE id = $2 RETURNING wallet_balance`,
-            [walletApplied, userId]
-        );
+        // ¿De qué bolsa salió? El saldo POR SERVICIO comparte esta columna con el
+        // monedero general, y devolverlo todo a users.wallet_balance convertía un
+        // saldo amarrado a DHL en dinero gastable en cualquier servicio. Lo que
+        // vino de la billetera del servicio se regresa a esa misma billetera.
+        const marca = (order.metadata && (order.metadata as any).saldo_servicio_aplicado) || null;
+        const montoServicio = Math.min(walletApplied, Math.max(0, Number(marca?.monto) || 0));
+        const servicioOrigen = marca?.servicio ? String(marca.servicio) : null;
+        const montoGeneral = +(walletApplied - montoServicio).toFixed(2);
+
+        if (montoServicio > 0 && servicioOrigen) {
+            const { abonarBilleteraServicio } = await import('./voucherController');
+            await abonarBilleteraServicio(client, {
+                userId,
+                serviceType: servicioOrigen,
+                monto: montoServicio,
+                concepto: `Reversa de saldo aplicado a la orden ${order.payment_reference}`,
+            });
+            await client.query(
+                `UPDATE pobox_payments SET metadata = COALESCE(metadata, '{}'::jsonb) - 'saldo_servicio_aplicado' WHERE id = $1`,
+                [orderId]
+            );
+        }
+
+        // Reintegrar al monedero general solo lo que de ahí salió.
+        const uRes = montoGeneral > 0
+            ? await client.query(
+                `UPDATE users SET wallet_balance = COALESCE(wallet_balance,0) + $1 WHERE id = $2 RETURNING wallet_balance`,
+                [montoGeneral, userId]
+              )
+            : await client.query(`SELECT COALESCE(wallet_balance,0) AS wallet_balance FROM users WHERE id = $1`, [userId]);
         const newBalance = parseFloat(uRes.rows[0]?.wallet_balance || 0);
 
         try {
