@@ -2,11 +2,22 @@ import * as zlib from 'zlib';
 import { spawn } from 'child_process';
 import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 
+/**
+ * Credenciales PROPIAS del respaldo, si existen.
+ *
+ * La idea es que la llave que sube los respaldos no sea la misma que usa la app
+ * para las fotos: si la de la app se filtra, quien la tenga no debe poder tocar
+ * los respaldos. Mientras no se configuren, cae a las de la app y todo sigue
+ * funcionando igual — así el cambio de credenciales se puede hacer sin
+ * coordinar un despliegue.
+ */
+const usaLlavePropia = !!(process.env.AWS_S3_BACKUP_ACCESS_KEY_ID && process.env.AWS_S3_BACKUP_SECRET_ACCESS_KEY);
+
 const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'us-east-1',
+  region: process.env.AWS_S3_BACKUP_REGION || process.env.AWS_REGION || 'us-east-1',
   credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+    accessKeyId: (usaLlavePropia ? process.env.AWS_S3_BACKUP_ACCESS_KEY_ID : process.env.AWS_ACCESS_KEY_ID) || '',
+    secretAccessKey: (usaLlavePropia ? process.env.AWS_S3_BACKUP_SECRET_ACCESS_KEY : process.env.AWS_SECRET_ACCESS_KEY) || '',
   },
 });
 
@@ -87,7 +98,7 @@ export const runDatabaseBackup = async (): Promise<void> => {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL no definida');
 
-  console.log('[BACKUP] Iniciando pg_dump completo...');
+  console.log(`[BACKUP] Iniciando pg_dump completo... (llave ${usaLlavePropia ? 'propia del respaldo' : 'compartida con la app'})`);
 
   const sqlBuffer: Buffer = await new Promise((resolve, reject) => {
     const proc = spawn('pg_dump', [
