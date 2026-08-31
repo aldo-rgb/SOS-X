@@ -792,12 +792,24 @@ export const deleteVoucher = async (req: AuthRequest, res: Response) => {
  */
 export const getAdminPendingVouchers = async (req: AuthRequest, res: Response) => {
   try {
-    const { service_type, page = 1, limit = 50 } = req.query;
+    const { service_type, page = 1, limit = 50, vista = 'pendientes' } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
+    // La cola mezclaba comprobantes de órdenes YA PAGADAS con los que sí
+    // requieren revisión: 103 de 128 estaban sobre órdenes liquidadas por otra
+    // vía —conciliación bancaria, efectivo, otro comprobante— y no había nada
+    // que hacer con ellos. Ordenados del más viejo al más nuevo, esos quedaban
+    // arriba para siempre y enterraban los 21 reales. La cola dejó de usarse
+    // por acumulación, no por falta de tiempo.
+    //
+    // Por default se muestran solo los accionables. 'obsoletos' saca los otros
+    // para poder cerrarlos, y 'todas' conserva el comportamiento anterior.
+    const ORDEN_CERRADA = `p.status IN ('paid', 'cancelled')`;
     let whereClause = `v.status = 'pending_review'`;
-    const params: any[] = [Number(limit), offset];
+    if (vista === 'obsoletos') whereClause += ` AND ${ORDEN_CERRADA}`;
+    else if (vista !== 'todas') whereClause += ` AND NOT ${ORDEN_CERRADA}`;
 
+    const params: any[] = [Number(limit), offset];
     if (service_type) {
       whereClause += ` AND v.service_type = $3`;
       params.push(service_type);
@@ -821,15 +833,40 @@ export const getAdminPendingVouchers = async (req: AuthRequest, res: Response) =
       params
     );
 
+    // El conteo va con el MISMO join y los MISMOS parámetros que el listado.
+    // Antes contaba sin unir a la orden —lo que ahora reventaría, porque el
+    // filtro usa p.status— e interpolaba service_type directo en el SQL con un
+    // .replace('$3'), que era una inyección esperando a alguien que escribiera
+    // una comilla en la URL.
+    const countParams: any[] = service_type ? [service_type] : [];
+    const countWhere = whereClause.replace('$3', '$1');
     const countRes = await pool.query(
-      `SELECT COUNT(*) FROM payment_vouchers v WHERE ${whereClause.replace('$3', `'${service_type}'`)}`,
+      `SELECT COUNT(*) FROM payment_vouchers v
+         JOIN pobox_payments p ON p.id = v.payment_order_id
+        WHERE ${countWhere}`,
+      countParams
     );
+
+    // Cuántos quedaron fuera por estar sobre órdenes ya cerradas: sirve para
+    // ofrecer la vista 'obsoletos' sin que el usuario tenga que adivinar.
+    const obsoletosRes = await pool.query(
+      `SELECT COUNT(*)::int n, COALESCE(SUM(v.declared_amount), 0)::numeric(12,2) monto
+         FROM payment_vouchers v
+         JOIN pobox_payments p ON p.id = v.payment_order_id
+        WHERE v.status = 'pending_review' AND ${ORDEN_CERRADA}`
+    ).catch(() => ({ rows: [{ n: 0, monto: 0 }] }));
 
     return res.json({
       vouchers: result.rows,
       total: parseInt(countRes.rows[0].count),
       page: Number(page),
       limit: Number(limit),
+      vista,
+      obsoletos: {
+        count: Number(obsoletosRes.rows[0]?.n) || 0,
+        amount: Number(obsoletosRes.rows[0]?.monto) || 0,
+        nota: 'Comprobantes pendientes sobre órdenes ya pagadas o canceladas. No requieren acción; consúltalos con ?vista=obsoletos.',
+      },
     });
   } catch (error: any) {
     console.error('[VOUCHER-ADMIN] Pending list error:', error);
