@@ -104,6 +104,7 @@ async function ensureChatTables() {
     );
     CREATE INDEX IF NOT EXISTS idx_cajito_gaps_estado ON cajito_gaps(estado, veces DESC, last_seen_at DESC);
     ALTER TABLE cajito_gaps ADD COLUMN IF NOT EXISTS folio TEXT;
+    ALTER TABLE cajito_gaps ADD COLUMN IF NOT EXISTS task_id INTEGER;
     -- Una sola fila por pregunta+motivo mientras siga pendiente: lo que interesa
     -- es cuántas veces la preguntan, no tener mil filas iguales.
     CREATE UNIQUE INDEX IF NOT EXISTS uq_cajito_gaps_pendiente
@@ -140,7 +141,7 @@ async function registrarHueco(datos: {
   detalle?: string | null;
   toolName?: string | null;
   respuesta?: string | null;
-}): Promise<{ nueva: boolean; veces: number; folio: string } | null> {
+}): Promise<{ nueva: boolean; veces: number; folio: string; id: number } | null> {
   try {
     const norm = normalizarPregunta(datos.pregunta);
     if (!norm) return null;
@@ -173,7 +174,7 @@ async function registrarHueco(datos: {
       );
       folio = f.rows[0]?.folio || `CJD-${id}`;
     }
-    return { nueva: veces === 1, veces, folio: String(folio) };
+    return { nueva: veces === 1, veces, folio: String(folio), id };
   } catch (e: any) {
     // Nunca romper el chat por no poder anotar el hueco.
     console.warn('[CAJITO-GAP] no se pudo registrar:', e?.message);
@@ -188,26 +189,79 @@ async function registrarHueco(datos: {
  * una pregunta popular llenaría las notificaciones y se dejarían de leer, que
  * es como se pierde justo la información que queremos aprovechar.
  */
-async function avisarDudaASuperAdmins(pregunta: string, quien: number, folio: string): Promise<void> {
+async function avisarDudaASuperAdmins(
+  gapId: number, pregunta: string, quien: number, folio: string, motivo: string
+): Promise<void> {
   try {
-    const admins = await pool.query(`SELECT id FROM users WHERE role = 'super_admin' AND COALESCE(is_active, TRUE) = TRUE`);
+    const admins = await pool.query(
+      `SELECT u.id, EXISTS (SELECT 1 FROM user_push_tokens pt WHERE pt.user_id = u.id AND pt.is_active = TRUE) AS con_dispositivo
+         FROM users u WHERE u.role = 'super_admin' AND COALESCE(u.is_active, TRUE) = TRUE
+        ORDER BY con_dispositivo DESC, u.id`
+    );
     if (admins.rows.length === 0) return;
     const autor = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [quien]);
     const nombre = autor.rows[0]?.full_name || 'Un usuario';
     const corta = pregunta.length > 120 ? pregunta.slice(0, 120) + '…' : pregunta;
+    const responsableId = Number(admins.rows[0].id);
+
+    // ── Tarea urgente, igual que un error de sistema reportado en ticket ──
+    // Mismo tablero y misma prioridad: es lo que hace que la promesa de las 24
+    // horas tenga a alguien detrás. El vencimiento se pone a 24h exactas, que
+    // es lo que Cajito le prometió al usuario.
+    const titulo = `Cajito · ${folio}`;
+    const yaExiste = await pool.query(
+      `SELECT id FROM tasks WHERE title = $1 AND status <> 'cancelled' LIMIT 1`, [titulo]);
+    let taskId: number | null = yaExiste.rows[0] ? Number(yaExiste.rows[0].id) : null;
+
+    if (!taskId) {
+      const desc = [
+        `🤖 Cajito no supo responder esta pregunta.`,
+        ``,
+        `Pregunta: "${pregunta}"`,
+        `La hizo: ${nombre}`,
+        `Motivo: ${motivo === 'sin_conocimiento' ? 'No está documentado en la base de conocimiento'
+          : motivo === 'sin_permiso' ? 'Le faltó una capacidad para consultarlo'
+          : 'No pudo resolverlo'}`,
+        ``,
+        `Se le prometió al usuario que lo aprendería en menos de 24 horas.`,
+        `Para cerrarla: abre Cajito → ícono de dudas → "Enseñarle" en ${folio}.`,
+      ].join('\n');
+
+      const boardRes = await pool.query(
+        `SELECT id FROM task_boards WHERE name = 'Error de Sistema' AND is_active = TRUE ORDER BY id LIMIT 1`);
+      const { createAssignedTaskInternal } = await import('./tasksController');
+      taskId = await createAssignedTaskInternal({
+        creatorId: responsableId, assigneeId: responsableId,
+        title: titulo, description: desc,
+        eisenhower: 'fuego',
+        dueAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+        notifyAssignee: false, // el aviso propio de abajo dice más
+        ...(boardRes.rows[0]?.id ? { boardId: Number(boardRes.rows[0].id) } : {}),
+      });
+      if (taskId) {
+        await pool.query(`UPDATE cajito_gaps SET task_id = $1 WHERE id = $2`, [taskId, gapId]);
+        // Todos los super admin dentro: cualquiera puede enseñarle.
+        for (const a of admins.rows) {
+          await pool.query(
+            `INSERT INTO task_participants (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+            [taskId, Number(a.id)]).catch(() => {});
+        }
+      }
+    }
+
     const { createCustomNotification } = await import('./notificationController');
     for (const a of admins.rows) {
       await createCustomNotification(
         Number(a.id),
         `🤖 Cajito tiene una duda · ${folio}`,
-        `${nombre} preguntó: "${corta}" y Cajito no supo responder. Enséñale desde Cajito → Pendientes.`,
-        'system', 'help',
-        { screen: 'CajitoGaps' },
-        '/cajito/pendientes'
+        `${nombre} preguntó: "${corta}" y Cajito no supo responder. Se levantó tarea urgente con vencimiento en 24 h.`,
+        'task', 'help',
+        { screen: 'MyTasks', task_id: taskId },
+        '/tareas'
       ).catch(() => {});
     }
   } catch (e: any) {
-    console.warn('[CAJITO-GAP] no se pudo avisar a super admin:', e?.message);
+    console.warn('[CAJITO-GAP] no se pudo levantar la tarea:', e?.message);
   }
 }
 
@@ -990,7 +1044,7 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
     // herramienta, se mira si la propia respuesta admite que no pudo — eso
     // cubre las preguntas que el modelo ni siquiera intentó resolver.
     const senalPrincipal = senales.find(x => x.motivo === 'sin_conocimiento') || senales[0];
-    let hueco: { nueva: boolean; veces: number; folio: string } | null = null;
+    let hueco: { nueva: boolean; veces: number; folio: string; id: number } | null = null;
     if (senalPrincipal) {
       hueco = await registrarHueco({
         conversationId, userId, pregunta: message,
@@ -1022,7 +1076,10 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
       // repetición convertiría una pregunta popular en spam y se dejarían de
       // leer justo las notificaciones que queremos que se lean.
       if (hueco.nueva) {
-        avisarDudaASuperAdmins(message, userId, hueco.folio).catch(() => {});
+        avisarDudaASuperAdmins(
+          hueco.id, message, userId, hueco.folio,
+          senalPrincipal ? senalPrincipal.motivo : 'no_pudo'
+        ).catch(() => {});
       }
     }
 
@@ -1762,10 +1819,19 @@ export const updateGap = async (req: AuthRequest, res: Response): Promise<void> 
           SET estado = $1,
               resolved_at = CASE WHEN $1 = 'pendiente' THEN NULL ELSE NOW() END,
               resolved_by = CASE WHEN $1 = 'pendiente' THEN NULL ELSE $2 END
-        WHERE id = $3 RETURNING id, folio, estado`,
+        WHERE id = $3 RETURNING id, folio, estado, task_id`,
       [estado, req.user?.userId ?? null, id]
     );
     if (r.rows.length === 0) { res.status(404).json({ error: 'Duda no encontrada' }); return; }
+
+    // Descartar una duda también cierra su tarea: si no, el tablero se llena de
+    // urgentes que ya nadie va a trabajar.
+    const tid = Number(r.rows[0]?.task_id) || 0;
+    if (tid && estado === 'descartada') {
+      await pool.query(
+        `UPDATE tasks SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+          WHERE id = $1 AND status <> 'cancelled'`, [tid]).catch(() => {});
+    }
     res.json({ success: true, gap: r.rows[0] });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Error al actualizar la duda' });
@@ -1792,7 +1858,7 @@ export const teachGap = async (req: AuthRequest, res: Response): Promise<void> =
     }
 
     await client.query('BEGIN');
-    const g = await client.query(`SELECT id, folio, pregunta FROM cajito_gaps WHERE id = $1 FOR UPDATE`, [id]);
+    const g = await client.query(`SELECT id, folio, pregunta, task_id FROM cajito_gaps WHERE id = $1 FOR UPDATE`, [id]);
     if (g.rows.length === 0) {
       await client.query('ROLLBACK');
       res.status(404).json({ error: 'Duda no encontrada' });
@@ -1811,6 +1877,18 @@ export const teachGap = async (req: AuthRequest, res: Response): Promise<void> =
         WHERE id = $3`,
       [k.rows[0].id, req.user?.userId ?? null, id]
     );
+
+    // Cierra la tarea urgente que se levantó por esta duda. Si no, quedaría
+    // abierta y venciendo aunque el trabajo ya esté hecho, y el recordatorio
+    // diario de urgentes seguiría contándola.
+    const taskId = Number(g.rows[0]?.task_id) || 0;
+    if (taskId) {
+      await client.query(
+        `UPDATE tasks SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+          WHERE id = $1 AND status <> 'cancelled'`,
+        [taskId]
+      );
+    }
     await client.query('COMMIT');
 
     res.json({
