@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { cobroDhlMxn } from './dhlCosting';
 import { isMtyMetroZip } from './mtyMetroController';
 import { PoolClient, Pool } from 'pg';
 import multer from 'multer';
@@ -4576,22 +4577,18 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 paid_at: pkg.paid_at,
                 // Costos para módulo cliente — GEX incluido en assigned/saldo para consistencia
                 national_shipping_cost: 0, // ya está dentro de total_cost_mxn
+                // El cobro sale de dhlCosting, la fuente única: importación
+                // (que YA trae el impuesto) + paquetería. Antes la ruta de
+                // respaldo hacía imp + tax + nat y cobraba el impuesto dos
+                // veces — $5,175.75 donde eran $4,785.75 (TKT-2026-2399).
                 assigned_cost_mxn: (() => {
                     const gex = parseFloat(pkg.gex_cost) || 0;
-                    if (pkg.total_cost_mxn) return parseFloat(pkg.total_cost_mxn) + gex;
-                    const imp = parseFloat(pkg.import_cost_mxn) || 0;
-                    const tax = parseFloat(pkg.import_tax_mxn) || 0;
-                    const nat = parseFloat(pkg.national_cost_mxn) || 0;
-                    return imp + tax + nat + gex;
+                    return Math.round((cobroDhlMxn(pkg) + gex) * 100) / 100;
                 })(),
                 saldo_pendiente: (() => {
                     const gex = parseFloat(pkg.gex_cost) || 0;
-                    const imp = parseFloat(pkg.import_cost_mxn) || 0;
-                    const tax = parseFloat(pkg.import_tax_mxn) || 0;
-                    const nat = parseFloat(pkg.national_cost_mxn) || 0;
-                    const base = pkg.total_cost_mxn ? parseFloat(pkg.total_cost_mxn) : (imp + tax + nat);
                     const paid = parseFloat(pkg.monto_pagado) || 0;
-                    return Math.max(0, base + gex - paid);
+                    return Math.max(0, Math.round((cobroDhlMxn(pkg) + gex - paid) * 100) / 100);
                 })(),
                 monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
                 // GEX — ya en assigned_cost_mxn; gex_total_cost=0 evita doble conteo

@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { cobroDhlSql } from './dhlCosting';
 import { signS3UrlIfNeeded } from './s3Service';
 import { AEREO_PAID_ORDER_SQL, XPAY_COMPLETED_SQL, GEX_PAID_SQL } from './commissionController';
 import { isMtyMetroZip } from './mtyMetroController';
@@ -787,8 +788,13 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
                          AND dp.user_id IS NOT DISTINCT FROM ds.user_id
                          AND dp.paid_at IS NULL)
                  THEN 0
-            ELSE COALESCE(ds.total_cost_mxn, ds.saldo_pendiente,
-            NULLIF(COALESCE(ds.import_cost_mxn,0) + COALESCE(ds.import_tax_mxn,0) + COALESCE(ds.national_cost_mxn,0), 0), 0)
+            -- Fórmula canónica (ver dhlCosting.ts). Antes hacía
+            -- import_cost_mxn + import_tax_mxn + national, y como el impuesto
+            -- YA vive dentro de import_cost_mxn, lo cobraba dos veces: la
+            -- instrucción decía $5,712.65 donde eran $4,785.75 (TKT-2026-2399).
+            -- Tampoco se parte de total_cost_mxn: esa columna a veces trae la
+            -- paquetería y a veces no, así que no sirve para decidir un cobro.
+            ELSE COALESCE(NULLIF(${cobroDhlSql('ds')}, 0), ds.saldo_pendiente, 0)
             + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END END
             ) as monto,
         -- Pagado solo si TODAS las cajas lo están. MIN() ignora los NULL, así que
