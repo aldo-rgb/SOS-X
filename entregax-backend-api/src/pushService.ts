@@ -42,6 +42,44 @@ export async function filterRecipientsForPush(userIds: number[], workHoursGated:
   } catch { return []; }
 }
 
+/**
+ * Silenciador de ráfagas.
+ *
+ * Varios crons mandan un push POR CADA elemento: el recordatorio de
+ * confirmación, por ejemplo, manda uno por tarea pendiente. Con 7 tareas
+ * llegaban 7 notificaciones seguidas y cada una con su tono — "una
+ * metralleta de sonidos". Las 7 notificaciones sí se quieren, el escándalo no.
+ *
+ * Regla: al mismo usuario solo le suena la PRIMERA de una ráfaga. Las que
+ * lleguen dentro de la ventana entran silenciosas; siguen apareciendo, con su
+ * texto y su badge, pero sin tono.
+ */
+const VENTANA_SILENCIO_MS = 45_000;
+const ultimoSonidoPorUsuario = new Map<number, number>();
+
+/** Decide a quién le suena y a quién no, y deja marcado el momento. */
+function repartirPorSonido(userIds: number[]): { conSonido: Set<number>; enSilencio: Set<number> } {
+  const ahora = Date.now();
+  const conSonido = new Set<number>();
+  const enSilencio = new Set<number>();
+  for (const uid of userIds) {
+    const previo = ultimoSonidoPorUsuario.get(uid) || 0;
+    if (ahora - previo < VENTANA_SILENCIO_MS) {
+      enSilencio.add(uid);
+    } else {
+      conSonido.add(uid);
+      ultimoSonidoPorUsuario.set(uid, ahora);
+    }
+  }
+  // Limpieza barata para que el Map no crezca sin fin en un proceso longevo.
+  if (ultimoSonidoPorUsuario.size > 5000) {
+    for (const [uid, ts] of ultimoSonidoPorUsuario) {
+      if (ahora - ts > VENTANA_SILENCIO_MS * 4) ultimoSonidoPorUsuario.delete(uid);
+    }
+  }
+  return { conSonido, enSilencio };
+}
+
 let firebaseAdmin: any = null;
 let initialized = false;
 let initPromise: Promise<void> | null = null;
@@ -207,59 +245,79 @@ export async function sendPushToUsers(userIds: number[], payload: PushPayload): 
 
   // Recoger tokens activos
   const r = await pool.query(
-    `SELECT id, token, platform FROM user_push_tokens
+    `SELECT id, token, platform, user_id FROM user_push_tokens
       WHERE user_id = ANY($1::int[]) AND is_active = TRUE`,
     [recipientIds]
   );
-  const allTokens: { id: number; token: string; platform: string }[] = r.rows;
+  const allTokens: { id: number; token: string; platform: string; user_id: number }[] = r.rows;
   if (allTokens.length === 0) return;
+
+  // Quién alcanza a sonar y quién entra en silencio.
+  const { enSilencio } = repartirPorSonido(recipientIds);
+  const esSilencioso = (t: { user_id?: number }) => enSilencio.has(Number(t.user_id));
+  // 'null' es lo que Expo y APNs entienden por "sin tono"; en Android el canal
+  // silencioso hace lo propio sin quitar la notificación de la bandeja.
+  const payloadSilencioso: PushPayload = { ...payload, sound: null as any, channelId: 'silent' };
 
   const expoTokens = allTokens.filter((t) => isExpoToken(t.token));
   const nativeTokens = allTokens.filter((t) => !isExpoToken(t.token));
 
   const invalidAll: string[] = [];
 
-  // 1) Enviar Expo tokens
+  // 1) Enviar Expo tokens — en dos tandas: con tono y sin tono
   if (expoTokens.length > 0) {
-    const inv = await sendExpoPush(expoTokens, payload);
-    invalidAll.push(...inv);
+    const conTono = expoTokens.filter((t) => !esSilencioso(t));
+    const sinTono = expoTokens.filter((t) => esSilencioso(t));
+    if (conTono.length > 0) invalidAll.push(...await sendExpoPush(conTono, payload));
+    if (sinTono.length > 0) invalidAll.push(...await sendExpoPush(sinTono, payloadSilencioso));
   }
 
   // 2) Enviar tokens nativos FCM/APNs (si tenemos firebase-admin)
   if (nativeTokens.length > 0) {
     await ensureInitialized();
     if (firebaseAdmin) {
-      const message = {
-        notification: { title: payload.title, body: payload.body },
-        data: payload.data || {},
-        tokens: nativeTokens.map((t) => t.token),
-        android: {
-          priority: 'high' as const,
-          notification: { sound: payload.sound || 'default', channelId: payload.channelId || 'chat' },
-        },
-        apns: {
-          payload: { aps: { sound: payload.sound || 'default', badge: 1 } },
-        },
-      };
-      try {
-        const response = await firebaseAdmin.messaging().sendEachForMulticast(message);
-        if (response?.responses) {
-          response.responses.forEach((res: any, idx: number) => {
-            if (!res.success) {
-              const code = res.error?.code || '';
-              if (
-                code.includes('registration-token-not-registered') ||
-                code.includes('invalid-registration-token') ||
-                code.includes('invalid-argument')
-              ) {
-                const t = nativeTokens[idx];
-                if (t) invalidAll.push(t.token);
+      // Igual que en Expo: dos envíos, uno con tono y otro mudo. En APNs se
+      // omite `sound` por completo; mandar cadena vacía no silencia.
+      const tandas: { toks: typeof nativeTokens; mudo: boolean }[] = [
+        { toks: nativeTokens.filter((t) => !esSilencioso(t)), mudo: false },
+        { toks: nativeTokens.filter((t) => esSilencioso(t)), mudo: true },
+      ];
+      for (const tanda of tandas) {
+        if (tanda.toks.length === 0) continue;
+        const message: any = {
+          notification: { title: payload.title, body: payload.body },
+          data: payload.data || {},
+          tokens: tanda.toks.map((t) => t.token),
+          android: {
+            priority: 'high' as const,
+            notification: tanda.mudo
+              ? { channelId: 'silent' }
+              : { sound: payload.sound || 'default', channelId: payload.channelId || 'chat' },
+          },
+          apns: {
+            payload: { aps: tanda.mudo ? { badge: 1 } : { sound: payload.sound || 'default', badge: 1 } },
+          },
+        };
+        try {
+          const response = await firebaseAdmin.messaging().sendEachForMulticast(message);
+          if (response?.responses) {
+            response.responses.forEach((res: any, idx: number) => {
+              if (!res.success) {
+                const code = res.error?.code || '';
+                if (
+                  code.includes('registration-token-not-registered') ||
+                  code.includes('invalid-registration-token') ||
+                  code.includes('invalid-argument')
+                ) {
+                  const t = tanda.toks[idx];
+                  if (t) invalidAll.push(t.token);
+                }
               }
-            }
-          });
+            });
+          }
+        } catch (err: any) {
+          console.error('[push][fcm] error enviando:', err.message);
         }
-      } catch (err: any) {
-        console.error('[push][fcm] error enviando:', err.message);
       }
     }
   }

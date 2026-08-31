@@ -97,6 +97,19 @@ export async function registerForPushNotifications(authToken: string): Promise<s
         lightColor: '#F05A28',
         sound: 'default',
       });
+      // Canal 'silent': notificación visible pero MUDA y sin vibrar.
+      // Lo usa el backend para las ráfagas: cuando llegan varias seguidas al
+      // mismo usuario, solo la primera suena y el resto entra por aquí. Sin
+      // este canal, Android las tocaría todas y quedaba la metralleta de tonos.
+      // Los canales son inmutables tras crearse: si hay que cambiarlo, usar
+      // otro id (silent_v2).
+      await Notifications.setNotificationChannelAsync('silent', {
+        name: 'Avisos agrupados (sin tono)',
+        importance: Notifications.AndroidImportance.DEFAULT,
+        vibrationPattern: [0],
+        lightColor: '#F05A28',
+        sound: null,
+      });
       // Canales por-tono personalizados (deben coincidir con `channel` de
       // BUNDLED_SOUNDS del backend). Android usa el sonido del canal; los .wav se
       // empaquetan vía app.json → expo-notifications sounds. Canales inmutables:
