@@ -1014,8 +1014,8 @@ export const chat = async (req: AuthRequest, res: Response): Promise<void> => {
       // la conversación termina en "no sé" y la persona no tiene forma de
       // saber que alguien la va a atender ni con qué referencia preguntar.
       finalReply += `\n\n---\n📌 **Duda registrada · ${hueco.folio}**\n` +
-        `Ya guardé lo que no te pude resolver y avisé al equipo. En cuanto me lo expliquen, ` +
-        `la próxima vez que me lo preguntes ya voy a saber contestarte.` +
+        `Ya guardé lo que no te pude resolver y avisé al equipo. Lo aprendo antes de 24 horas: ` +
+        `vuelve a preguntármelo y ya voy a saber contestarte.` +
         (hueco.veces > 1 ? ` (Es la ${hueco.veces}ª vez que me preguntan esto.)` : '');
 
       // El aviso al super admin va SOLO la primera vez. Notificar cada

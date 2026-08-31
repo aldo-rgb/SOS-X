@@ -1273,11 +1273,16 @@ export default function CajitoFab() {
   useEffect(() => {
     if (open && mode === 'chat' && messages.length === 0) {
       const userName = user?.full_name?.split(' ')?.[0] || 'aquí';
+      // El aviso de entrenamiento va SIEMPRE y de entrada, no al final ni solo
+      // cuando falla: sirve para que la persona pregunte sin miedo a "gastar"
+      // la consulta, y para que un "no sé" no se lea como que Cajito no sirve,
+      // sino como que todavía no se lo han enseñado.
+      const entrenamiento = `\n\n🎓 Estoy en entrenamiento y en constante aprendizaje. Pregúntame lo que quieras: si no lo sé hacer, lo registro con un folio y lo aprendo antes de 24 horas.`;
       setMessages([{
         id: Date.now(), role: 'cajito', ts: Date.now(),
-        text: isSuperAdmin
+        text: (isSuperAdmin
           ? `¡Hola ${userName}! Soy Cajito. Tengo acceso de SOLO LECTURA al sistema: paquetes, clientes, rutas, choferes e inventarios. Pregúntame, por ejemplo: ¿dónde está el tracking TDX-...? o muestra los paquetes recibidos hoy.`
-          : `¡Hola ${userName}! Soy Cajito, asistente IA de solo lectura. Tu administrador decide qué puedo consultar desde Permisos > Cajito (IA). Pregúntame por un tracking o un cliente.`,
+          : `¡Hola ${userName}! Soy Cajito, asistente IA de solo lectura. Tu administrador decide qué puedo consultar desde Permisos > Cajito (IA). Pregúntame por un tracking o un cliente.`) + entrenamiento,
       }]);
     }
   }, [open, mode]); // eslint-disable-line react-hooks/exhaustive-deps
