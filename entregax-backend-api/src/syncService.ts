@@ -314,10 +314,13 @@ export async function emitTaskEventIfExternal(event: string, taskId: number, act
               t.started_at, t.completed_at, t.description,
               t.assignee_id, t.created_by, b.board_key,
               au.external_id AS assignee_external_id, au.source_app AS assignee_source,
-              au.full_name AS assignee_name
+              au.full_name AS assignee_name,
+              t.forced_close_by, t.forced_reason,
+              fu.full_name AS forced_by_name
          FROM tasks t
          LEFT JOIN task_boards b ON b.id = t.board_id
          LEFT JOIN users au ON au.id = t.assignee_id
+         LEFT JOIN users fu ON fu.id = t.forced_close_by
         WHERE t.id = $1`, [taskId])).rows[0];
     if (!t) return false;
     // ¿Hay algún stakeholder de Grupo Rino? (responsable o participante)
@@ -357,6 +360,13 @@ export async function emitTaskEventIfExternal(event: string, taskId: number, act
         assignee_is_external: t.assignee_id ? t.assignee_source === EXTERNAL_APP : null,
         assignee_name: t.assignee_name || null,
         assignee_org: t.assignee_id ? (t.assignee_source === EXTERNAL_APP ? EXTERNAL_APP : 'entregax') : null,
+        // Un cierre forzado no es lo mismo que una tarea terminada: distingue
+        // "se hizo" de "dirección la dio por terminada". Grupo Rino ya nos lo
+        // manda así; se los devolvemos con los mismos nombres para que la
+        // integración se lea igual en los dos sentidos.
+        forced: !!t.forced_close_by,
+        forced_reason: t.forced_reason || null,
+        forced_by_name: t.forced_by_name || null,
         created_by: t.created_by,
         due_at: t.due_at, commitment_date: t.commitment_date,
         started_at: t.started_at, completed_at: t.completed_at,
@@ -459,11 +469,14 @@ export async function syncListTasks(req: any, res: any): Promise<any> {
              t.commitment_date, t.started_at, t.completed_at, t.created_at, t.updated_at,
              t.assignee_id, t.created_by, b.board_key,
              au.external_id AS assignee_external_id, au.source_app AS assignee_source,
-              au.full_name AS assignee_name
+              au.full_name AS assignee_name,
+              t.forced_close_by, t.forced_reason,
+              fu.full_name AS forced_by_name
         FROM sync_shared_tasks s
         LEFT JOIN tasks t ON t.id = s.task_id
         LEFT JOIN task_boards b ON b.id = t.board_id
         LEFT JOIN users au ON au.id = t.assignee_id
+        LEFT JOIN users fu ON fu.id = t.forced_close_by
        WHERE TRUE ${filtro}
        ORDER BY COALESCE(t.updated_at, s.deleted_at, s.shared_at) DESC
        LIMIT 500`, params);
@@ -495,6 +508,13 @@ export async function syncListTasks(req: any, res: any): Promise<any> {
         assignee_is_external: t.assignee_id ? t.assignee_source === EXTERNAL_APP : null,
         assignee_name: t.assignee_name || null,
         assignee_org: t.assignee_id ? (t.assignee_source === EXTERNAL_APP ? EXTERNAL_APP : 'entregax') : null,
+        // Un cierre forzado no es lo mismo que una tarea terminada: distingue
+        // "se hizo" de "dirección la dio por terminada". Grupo Rino ya nos lo
+        // manda así; se los devolvemos con los mismos nombres para que la
+        // integración se lea igual en los dos sentidos.
+        forced: !!t.forced_close_by,
+        forced_reason: t.forced_reason || null,
+        forced_by_name: t.forced_by_name || null,
         created_by: t.created_by,
         due_at: t.due_at, commitment_date: t.commitment_date,
         started_at: t.started_at, completed_at: t.completed_at,
