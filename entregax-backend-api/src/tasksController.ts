@@ -1581,7 +1581,13 @@ export const updateTask = async (req: Request, res: Response): Promise<any> => {
       for (const p of participants) if (p !== creator && !prev.includes(p)) await notify(p, '📋 Te involucraron en una tarea', updated.title, { task_id: id }, 'task_new');
       await logActivity(id, uid, 'participants_updated', { participants, assignee: primary });
     }
-    emitTaskEventIfExternal('task.updated', id, uid).catch(() => {});
+    // Quitar el responsable emite su propio evento. Del otro lado, "le quitamos
+    // el responsable a propósito" y "el responsable que mandaron no existe aquí"
+    // se veían idénticos —los dos como "Sin asignar"—, y son cosas distintas:
+    // una es una decisión que hay que respetar y la otra un error que corregir.
+    // Una tarea así quedó huérfana tres semanas sin que nadie la notara.
+    const quedoSinResponsable = b.assignee_id !== undefined && !b.assignee_id && !!task.assignee_id;
+    emitTaskEventIfExternal(quedoSinResponsable ? 'task.unassigned' : 'task.updated', id, uid).catch(() => {});
     res.json({ task: updated });
   } catch (e: any) {
     console.error('[tasks] updateTask:', e); res.status(500).json({ error: 'Error al actualizar tarea' });

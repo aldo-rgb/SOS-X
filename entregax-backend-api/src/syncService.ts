@@ -313,7 +313,8 @@ export async function emitTaskEventIfExternal(event: string, taskId: number, act
       `SELECT t.id, t.title, t.status, t.eisenhower, t.due_at, t.commitment_date,
               t.started_at, t.completed_at, t.description,
               t.assignee_id, t.created_by, b.board_key,
-              au.external_id AS assignee_external_id, au.source_app AS assignee_source
+              au.external_id AS assignee_external_id, au.source_app AS assignee_source,
+              au.full_name AS assignee_name
          FROM tasks t
          LEFT JOIN task_boards b ON b.id = t.board_id
          LEFT JOIN users au ON au.id = t.assignee_id
@@ -349,6 +350,13 @@ export async function emitTaskEventIfExternal(event: string, taskId: number, act
         eisenhower: t.eisenhower, board_key: t.board_key,
         assignee_id: t.assignee_id,
         assignee_external_id: t.assignee_source === EXTERNAL_APP ? t.assignee_external_id : null,
+        // Cuando el responsable es NUESTRO, del otro lado solo llegaba un número
+        // que no está en su padrón, y la tarea se veía "Sin asignar" — idéntica
+        // a una huérfana. Con estos tres campos pueden mostrar "Responsable:
+        // Juan Segura (EntregaX)" y distinguir "es de ellos" de "no sé quién es".
+        assignee_is_external: t.assignee_id ? t.assignee_source === EXTERNAL_APP : null,
+        assignee_name: t.assignee_name || null,
+        assignee_org: t.assignee_id ? (t.assignee_source === EXTERNAL_APP ? EXTERNAL_APP : 'entregax') : null,
         created_by: t.created_by,
         due_at: t.due_at, commitment_date: t.commitment_date,
         started_at: t.started_at, completed_at: t.completed_at,
@@ -450,7 +458,8 @@ export async function syncListTasks(req: any, res: any): Promise<any> {
              t.id, t.title, t.description, t.status, t.eisenhower, t.due_at,
              t.commitment_date, t.started_at, t.completed_at, t.created_at, t.updated_at,
              t.assignee_id, t.created_by, b.board_key,
-             au.external_id AS assignee_external_id, au.source_app AS assignee_source
+             au.external_id AS assignee_external_id, au.source_app AS assignee_source,
+              au.full_name AS assignee_name
         FROM sync_shared_tasks s
         LEFT JOIN tasks t ON t.id = s.task_id
         LEFT JOIN task_boards b ON b.id = t.board_id
@@ -479,6 +488,13 @@ export async function syncListTasks(req: any, res: any): Promise<any> {
         eisenhower: t.eisenhower, board_key: t.board_key,
         assignee_id: t.assignee_id,
         assignee_external_id: t.assignee_source === EXTERNAL_APP ? t.assignee_external_id : null,
+        // Cuando el responsable es NUESTRO, del otro lado solo llegaba un número
+        // que no está en su padrón, y la tarea se veía "Sin asignar" — idéntica
+        // a una huérfana. Con estos tres campos pueden mostrar "Responsable:
+        // Juan Segura (EntregaX)" y distinguir "es de ellos" de "no sé quién es".
+        assignee_is_external: t.assignee_id ? t.assignee_source === EXTERNAL_APP : null,
+        assignee_name: t.assignee_name || null,
+        assignee_org: t.assignee_id ? (t.assignee_source === EXTERNAL_APP ? EXTERNAL_APP : 'entregax') : null,
         created_by: t.created_by,
         due_at: t.due_at, commitment_date: t.commitment_date,
         started_at: t.started_at, completed_at: t.completed_at,
