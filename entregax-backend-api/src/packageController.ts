@@ -1861,7 +1861,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 if (masterTk) {
                     const sib = await pool.query(`
                         SELECT id, inbound_tracking, weight_kg, status, length_cm, width_cm, height_cm,
-                               total_cost_mxn, import_tax_mxn, import_cost_usd, exchange_rate, saldo_pendiente, monto_pagado
+                               total_cost_mxn, import_cost_mxn, import_tax_mxn, import_cost_usd, exchange_rate,
+                               saldo_pendiente, monto_pagado, paid_at
                         FROM dhl_shipments WHERE secondary_tracking = $1 ORDER BY id
                     `, [masterTk]);
                     if (sib.rows.length > 1) boxes = sib.rows;
@@ -1891,7 +1892,18 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     if (usdTc > 0) return usdTc + (Number(b.import_tax_mxn) || 0);
                     return Number(b.total_cost_mxn) || 0;
                 };
-                dhlTotalCost = boxes.reduce((s, b) => s + importeDeCaja(b), 0);
+                // Una caja YA PAGADA no se vuelve a cobrar. Se sumaban todas las
+                // del envío, así que al ponerle instrucciones a una caja
+                // complemento aparecía el monto de las hermanas que ya se
+                // habían pagado y despachado: la guía 9473629550 pedía
+                // $12,423.75 cuando lo pendiente eran $4,266.75 (TKT-2026-2519).
+                //
+                // Si TODAS están pagadas se suman igual: ahí el total ya no es
+                // un cobro, es el valor del envío liquidado. Es la misma regla
+                // que aplica el panel del asesor.
+                const hayPendientes = boxes.some((b: any) => !b.paid_at);
+                const cajasACobrar = hayPendientes ? boxes.filter((b: any) => !b.paid_at) : boxes;
+                dhlTotalCost = cajasACobrar.reduce((s, b) => s + importeDeCaja(b), 0);
                 // La paquetería se cobra a nivel guía (no por caja).
                 const nationalCostForTotal = Number(fallbackRow.national_cost_mxn) || 0;
                 if (nationalCostForTotal > 0) dhlTotalCost = (dhlTotalCost || 0) + nationalCostForTotal;
