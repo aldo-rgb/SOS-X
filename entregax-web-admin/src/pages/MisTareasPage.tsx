@@ -383,6 +383,8 @@ export default function MisTareasPage() {
   // responsable, involucrados o id (T-XXX). Se normaliza sin acentos para
   // que "cotizacion" encuentre "cotización", etc.
   const [searchText, setSearchText] = useState('');
+  // Se consulta al servidor con retraso para no pegarle en cada tecla.
+  const [debouncedQ, setDebouncedQ] = useState('');
   const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' });
   const notify = (msg: string, sev: 'success' | 'error' = 'success') => setSnack({ open: true, msg, sev });
 
@@ -446,13 +448,26 @@ export default function MisTareasPage() {
       // Traemos SIEMPRE todas (all=true) para que la búsqueda pueda encontrar
       // completadas aunque "Ver completadas" esté apagado. En la vista normal
       // filtramos las 'completed' del lado cliente cuando showDone=false.
-      const r = await axios.get(`${API_URL}/tasks/mine?all=true`, H());
+      //
+      // Al buscar se manda ?q=: el backend amplía el alcance —todas las del
+      // equipo si eres super admin, las propias para el resto— porque el pool
+      // local solo tiene las tuyas y una tarea de otro nunca aparecería.
+      const qs = debouncedQ ? `?q=${encodeURIComponent(debouncedQ)}` : '?all=true';
+      const r = await axios.get(`${API_URL}/tasks/mine${qs}`, H());
       setTasks(r.data?.tasks || []);
       setEvents(r.data?.events || []);
     } catch { notify('No se pudieron cargar las tareas', 'error'); }
     finally { setLoading(false); }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQ]);
   useEffect(() => { load(); }, [load]);
+
+  // Rebote del buscador: al escribir se vuelve a consultar con ?q=, que es lo
+  // que amplía el alcance más allá del pool local.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(searchText.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchText]);
 
   // Drag & drop en la Matriz Eisenhower: arrastrar una tarjeta a otro cuadrante
   // cambia su prioridad (eisenhower). Actualización optimista para respuesta inmediata.

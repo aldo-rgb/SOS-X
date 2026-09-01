@@ -1051,10 +1051,42 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
     const uid = authUserId(req);
     if (!uid) return res.status(401).json({ error: 'No autenticado' });
     // ?all=true incluye las completadas (historial); por defecto solo abiertas.
-    const includeAll = String(req.query.all || '') === 'true';
+    // ?q=texto busca. Buscar SIEMPRE alcanza las terminadas: quien escribe
+    // "bbva" quiere encontrar esa tarea, no solo si sigue abierta.
+    const q = String(req.query.q || '').trim();
+    const buscando = q.length > 0;
+    const includeAll = buscando || String(req.query.all || '') === 'true';
     // Las tareas en espera de confirmación siguen siendo "pendientes" (aún no se
     // cierran): deben aparecer en la lista hasta que quien asignó las confirme.
     const statusCond = includeAll ? `t.status <> 'cancelled'` : `t.status IN ('open','awaiting_confirmation')`;
+
+    // El super admin busca en TODAS las tareas del equipo; los demás, solo entre
+    // las suyas. Fuera de una búsqueda nadie ve tareas ajenas: el alcance amplio
+    // se abre únicamente cuando hay algo que buscar.
+    const rol = String((req as any).user?.role || '').toLowerCase();
+    const verTodo = buscando && rol === 'super_admin';
+    const dueñoCond = verTodo ? 'TRUE' : `(t.assignee_id = $1
+              OR EXISTS (SELECT 1 FROM task_participants tp WHERE tp.task_id = t.id AND tp.user_id = $1)
+              -- Quien ASIGNÓ la tarea debe verla cuando el responsable ya
+              -- terminó y falta solo su confirmación, aunque no se haya
+              -- agregado como participante: si no, la tarea queda parada sin
+              -- que aparezca en la lista de nadie.
+              OR (t.created_by = $1 AND t.status = 'awaiting_confirmation'))`;
+
+    // Busca en título, descripción, folio y nombre del responsable — que es como
+    // la gente recuerda una tarea: "la de bbva", "#392", "la de Alan".
+    const params: any[] = [uid];
+    let buscaCond = '';
+    if (buscando) {
+      params.push(`%${q}%`);          // texto libre
+      const iLike = params.length;
+      params.push(q.replace(/^#/, '')); // folio exacto: "#392" y "392" llegan igual
+      const iFolio = params.length;
+      buscaCond = ` AND (t.title ILIKE $${iLike}
+                         OR COALESCE(t.description,'') ILIKE $${iLike}
+                         OR COALESCE(au.full_name,'') ILIKE $${iLike}
+                         OR t.id::text = $${iFolio})`;
+    }
     await ensureTaskReadsTable();
     const r = await pool.query(`
       SELECT t.*, b.name AS board_name, b.board_key, col.name AS column_name, col.is_done AS column_is_done,
@@ -1099,14 +1131,8 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
         LEFT JOIN task_columns col ON col.id = t.column_id
         LEFT JOIN users au ON au.id = t.assignee_id
         LEFT JOIN users cu ON cu.id = t.created_by
-       WHERE (t.assignee_id = $1
-              OR EXISTS (SELECT 1 FROM task_participants tp WHERE tp.task_id = t.id AND tp.user_id = $1)
-              -- Quien ASIGNÓ la tarea debe verla cuando el responsable ya
-              -- terminó y falta solo su confirmación, aunque no se haya
-              -- agregado como participante: si no, la tarea queda parada sin
-              -- que aparezca en la lista de nadie.
-              OR (t.created_by = $1 AND t.status = 'awaiting_confirmation'))
-         AND ${statusCond}
+       WHERE ${dueñoCond}
+         AND ${statusCond}${buscaCond}
        ORDER BY (t.status='open') DESC,
                 -- Las tareas con comentarios más recientes (o actividad reciente) suben.
                 GREATEST(
@@ -1114,7 +1140,7 @@ export const myTasks = async (req: Request, res: Response): Promise<any> => {
                   t.created_at,
                   COALESCE((SELECT MAX(created_at) FROM task_comments cc WHERE cc.task_id = t.id), t.created_at)
                 ) DESC NULLS LAST,
-                (t.eisenhower='fuego') DESC, t.due_at NULLS LAST, t.id DESC`, [uid]);
+                (t.eisenhower='fuego') DESC, t.due_at NULLS LAST, t.id DESC`, params);
     // Eventos del calendario que ocurren HOY (hora Monterrey) donde el usuario es
     // creador o involucrado → aparecen en Mis Tareas ese día. Se evalúa el día en
     // tz local; start_at/end_at son timestamp-naive en UTC.

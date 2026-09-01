@@ -40,14 +40,27 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [schedOpen, setSchedOpen] = useState(false);
 
+  // La búsqueda la resuelve el servidor, no el filtro local: filtrando aquí solo
+  // se encontraba lo que ya estaba cargado —o sea, las abiertas— y el super
+  // admin no podía dar con una tarea del equipo. Con ?q= el backend busca en las
+  // terminadas también, y para el super admin en todas las del equipo.
+  const [debouncedQ, setDebouncedQ] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(searchText.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchText]);
+
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`${API_URL}/api/tasks/mine${showDone ? '?all=true' : ''}`, { headers: { Authorization: `Bearer ${token}` } });
+      const params = debouncedQ
+        ? `?q=${encodeURIComponent(debouncedQ)}`
+        : (showDone ? '?all=true' : '');
+      const r = await fetch(`${API_URL}/api/tasks/mine${params}`, { headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
       setTasks(d.tasks || []);
       setEvents(d.events || []);
     } catch { /* */ } finally { setLoading(false); setRefreshing(false); }
-  }, [token, showDone]);
+  }, [token, showDone, debouncedQ]);
   useEffect(() => { load(); }, [load]);
   // Abrir una tarea específica al llegar desde una notificación ("te involucraron en una tarea").
   useEffect(() => { if (route.params?.openTaskId) setOpenId(route.params.openTaskId); }, [route.params?.openTaskId]);
@@ -77,11 +90,18 @@ export default function MisTareasScreen({ navigation, route }: Props) {
   const isMine = (t: TaskT) => Number(t.assignee_id) === myId
     || (t.unread_count || 0) > 0
     || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === myId);
-  const mineTasks = globalView ? catTasks : catTasks.filter(isMine);
+  // Buscando NO se aplica el filtro de "mías": el servidor ya definió el alcance
+  // —las propias para todos, todas las del equipo para el super admin— y
+  // recortarlo aquí volvería a esconder justo lo que se está buscando.
+  const hayBusqueda = searchText.trim().length > 0;
+  const mineTasks = (globalView || hayBusqueda) ? catTasks : catTasks.filter(isMine);
   // Filtro de búsqueda: normaliza sin acentos y compara contra título,
   // descripción, categoría, responsable, involucrados e ID.
   const stripAccents = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const normSearch = (s: any) => stripAccents(String(s ?? '')).toLowerCase();
+  // El backend ya filtró por texto; aquí solo se afina mientras se escribe, para
+  // que la lista responda sin esperar al debounce. Si el término aún no llega al
+  // servidor, este filtro evita mostrar resultados que no corresponden.
   const searchQ = normSearch(searchText).trim();
   const visibleTasks = !searchQ ? mineTasks : mineTasks.filter(t => {
     const parts: string[] = [
