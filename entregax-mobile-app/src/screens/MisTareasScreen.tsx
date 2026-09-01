@@ -87,9 +87,16 @@ export default function MisTareasScreen({ navigation, route }: Props) {
     new Map(tasks.filter(t => t.board_id).map(t => [Number(t.board_id), t.board_name || 'Sin categoría'])).entries()
   ).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   const catTasks = catFilter === 'all' ? personalOk : personalOk.filter(t => Number(t.board_id) === catFilter);
-  const isMine = (t: TaskT) => Number(t.assignee_id) === myId
-    || (t.unread_count || 0) > 0
-    || (t.status === 'awaiting_confirmation' && Number((t as any).created_by) === myId);
+  // Si te involucraron, la tarea se queda en tu lista. Antes solo aparecía
+  // mientras tuviera mensajes sin leer: contestabas, el contador se ponía en
+  // cero y la tarea desaparecía —quedaba bajo el botón del globo, pero nadie
+  // sabía que estaba ahí—. Contestar no puede ser la razón por la que algo
+  // deja de verse.
+  //
+  // El endpoint ya devuelve SOLO tareas donde estás involucrado (responsable,
+  // participante, o creador esperando confirmación), así que basta con no
+  // recortarlas aquí.
+  const isMine = (_t: TaskT) => true;
   // Buscando NO se aplica el filtro de "mías": el servidor ya definió el alcance
   // —las propias para todos, todas las del equipo para el super admin— y
   // recortarlo aquí volvería a esconder justo lo que se está buscando.
@@ -252,9 +259,21 @@ export default function MisTareasScreen({ navigation, route }: Props) {
           <View style={{ gap: 16 }}>
             {(() => {
               const ms = (s?: string) => (s ? new Date(s).getTime() : 0);
-              const nueva = visibleTasks.filter(t => t.status === 'open' && !t.started_at).sort((a, b) => ms(b.created_at) - ms(a.created_at));
-              const proceso = visibleTasks.filter(t => t.status === 'open' && !!t.started_at).sort((a, b) => ms(a.started_at) - ms(b.started_at));
-              const espera = visibleTasks.filter(t => t.status === 'awaiting_confirmation').sort((a, b) => ms(a.updated_at) - ms(b.updated_at));
+              // Lo urgente manda dentro de cada sección. Antes solo pesaba la
+              // fecha, así que una tarea 🔥 recién creada podía quedar hasta
+              // abajo detrás de otras más viejas y perderse de vista.
+              // Orden dentro de cada sección: primero lo tuyo, y dentro de lo
+              // tuyo lo urgente. Así arriba queda siempre aquello de lo que
+              // respondes tú, y hasta abajo lo que solo sigues.
+              const esMia = (t: TaskT) => Number(t.assignee_id) === Number(myId);
+              const miaPrimero = (a: TaskT, b: TaskT) => Number(esMia(b)) - Number(esMia(a));
+              const urgentePrimero = (a: TaskT, b: TaskT) =>
+                Number(b.eisenhower === 'fuego') - Number(a.eisenhower === 'fuego');
+              const porUrgencia = (cmp: (a: TaskT, b: TaskT) => number) =>
+                (a: TaskT, b: TaskT) => miaPrimero(a, b) || urgentePrimero(a, b) || cmp(a, b);
+              const nueva = visibleTasks.filter(t => t.status === 'open' && !t.started_at).sort(porUrgencia((a, b) => ms(b.created_at) - ms(a.created_at)));
+              const proceso = visibleTasks.filter(t => t.status === 'open' && !!t.started_at).sort(porUrgencia((a, b) => ms(a.started_at) - ms(b.started_at)));
+              const espera = visibleTasks.filter(t => t.status === 'awaiting_confirmation').sort(porUrgencia((a, b) => ms(a.updated_at) - ms(b.updated_at)));
               const terminadas = visibleTasks.filter(t => t.status === 'completed').sort((a, b) => ms(b.completed_at) - ms(a.completed_at));
               const secs = [
                 { key: 'nueva', title: '🆕 Nueva', color: '#1D6FB8', tasks: nueva },

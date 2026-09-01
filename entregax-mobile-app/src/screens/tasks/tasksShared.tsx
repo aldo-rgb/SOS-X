@@ -1206,6 +1206,14 @@ export function TaskCard({ task, onPress, showBoard, myId }: { task: TaskT; onPr
   return (
     <TouchableOpacity style={[styles.card, done && { opacity: 0.72 }, task.overdue && styles.cardOverdue]} onPress={onPress} activeOpacity={0.8}>
       <View style={styles.chipsRow}>
+        {/* Distintivo de "es tuya". Ahora la lista también trae tareas donde
+            solo estás involucrado, y sin esta marca las dos se veían iguales:
+            no se distinguía lo que te toca hacer de lo que solo sigues. */}
+        {myId != null && Number(task.assignee_id) === Number(myId) && (
+          <View style={[styles.chip, { backgroundColor: '#E8EEFB' }]}>
+            <Text style={[styles.chipTxt, { color: '#1D4ED8' }]}>👤 Tu responsabilidad</Text>
+          </View>
+        )}
         <View style={[styles.chip, { backgroundColor: eis?.bg }]}>
           <Text style={[styles.chipTxt, { color: eis?.color }]}>{eis?.short || task.eisenhower}</Text>
         </View>
