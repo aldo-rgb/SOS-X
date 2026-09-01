@@ -1242,9 +1242,30 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
       if (packageIds.length > 0 && isDhlOrder) {
         await markDhlGroupPaid(pool, packageIds, { onlyUnpaid: true });
       } else if (packageIds.length > 0) {
+        // Esta consulta tenía DOS defectos y ninguno se había notado porque el
+        // primero tapaba al segundo:
+        //
+        //   1. `usa_pobox_packages` NO EXISTE. Nunca existió: la línea está rota
+        //      desde que se escribió, así que aprobar un comprobante de una
+        //      orden PO Box reventaba aquí —después de marcar la orden y ANTES
+        //      de acreditar el excedente y liberar el crédito—. El cliente veía
+        //      su carga como CRÉDITO aunque ya hubiera pagado (TKT-2026-2458).
+        //      Las órdenes DHL no se veían afectadas: toman la otra rama.
+        //
+        //   2. Marcaba `costing_paid`, que significa "ya se le pagó AL
+        //      PROVEEDOR", no "el cliente nos pagó". Con esa marca el paquete
+        //      sale de la cola de lo que se le debe al proveedor. O sea que
+        //      "arreglarlo" cambiando solo el nombre de la tabla habría dado de
+        //      baja deuda con proveedores en cada pago de cliente. La tabla
+        //      inexistente estuvo protegiendo ese pasivo por accidente.
+        //
+        // Se usa la forma canónica del resto del sistema (la misma que la
+        // conciliación bancaria), que además cascadea a las cajas hijas — cosa
+        // que la versión rota tampoco hacía.
         await pool.query(
-          `UPDATE usa_pobox_packages SET payment_status = 'paid', costing_paid = TRUE, costing_paid_at = NOW()
-           WHERE id = ANY($1::int[])`,
+          `UPDATE packages SET client_paid = TRUE, client_paid_at = CURRENT_TIMESTAMP,
+                  saldo_pendiente = 0, payment_status = 'paid'
+            WHERE id = ANY($1::int[]) OR master_id = ANY($1::int[])`,
           [packageIds]
         );
       }
@@ -1323,7 +1344,14 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error('[VOUCHER-ADMIN] Approve error:', error);
-    return res.status(500).json({ error: 'Error al aprobar comprobante' });
+    // El motivo viaja en la respuesta. Con el mensaje genérico, la aprobación
+    // de comprobantes PO Box llevaba meses fallando por una tabla inexistente
+    // y desde fuera solo se veía "Error al aprobar comprobante": imposible
+    // saber si era permisos, el abono o un bug.
+    return res.status(500).json({
+      error: 'Error al aprobar comprobante',
+      detalle: String(error?.message || error).slice(0, 300),
+    });
   }
 };
 
