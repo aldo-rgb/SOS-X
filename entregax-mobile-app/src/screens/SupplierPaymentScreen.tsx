@@ -653,6 +653,17 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const advisorBelowMin = isAdvisorMode && advisorCommissionPct.trim() !== ''
     && Number(advisorCommissionPct) < ventaFijaPct - 0.001;
 
+  // Si la divisa seleccionada se quedó sin tipo de cambio —porque se suspendió
+  // o el proveedor cambió—, se mueve sola a una que sí opere en vez de dejar la
+  // calculadora en ceros.
+  useEffect(() => {
+    if (!pricing) return;
+    if (!motivoDivisaNoDisponible(divisa)) return;
+    const alternativa = (['USD', 'RMB', 'MXN'] as const).find(d => d !== divisa && !motivoDivisaNoDisponible(d));
+    if (alternativa) setDivisa(alternativa);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pricing, divisa]);
+
   const quote = (() => {
     const m = parseFloat(monto);
     if (!pricing || !m || m <= 0) return null;
@@ -2366,15 +2377,27 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
             <Text style={styles.label}>{t('entangled.fields.currency', 'Divisa')}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
-              {DIVISAS.map(d => (
-                <TouchableOpacity
-                  key={d}
-                  style={[styles.chip, divisa === d && styles.chipActive]}
-                  onPress={() => setDivisa(d as 'USD' | 'RMB')}
-                >
-                  <Text style={[styles.chipText, divisa === d && styles.chipTextActive]}>{d}</Text>
-                </TouchableOpacity>
-              ))}
+              {/* Una divisa sin tipo de cambio no se puede elegir. Antes sí:
+                  el asesor la seleccionaba, capturaba monto, beneficiario y
+                  datos fiscales, y hasta el último paso se topaba con que no
+                  se podía —la calculadora mientras tanto mostraba ceros
+                  (TKT-2026-2505)—. Ahora se ve deshabilitada desde el
+                  principio y dice por qué. */}
+              {DIVISAS.map(d => {
+                const sinTc = !!motivoDivisaNoDisponible(d as 'USD' | 'RMB' | 'MXN');
+                return (
+                  <TouchableOpacity
+                    key={d}
+                    style={[styles.chip, divisa === d && styles.chipActive, sinTc && { opacity: 0.4 }]}
+                    disabled={sinTc}
+                    onPress={() => setDivisa(d as 'USD' | 'RMB')}
+                  >
+                    <Text style={[styles.chipText, divisa === d && styles.chipTextActive]}>
+                      {d}{sinTc ? ' · no disponible' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
             {/* Comisión XPAY editable — SOLO para asesor (mínimo = venta fija) */}
