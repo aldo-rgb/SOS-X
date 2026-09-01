@@ -1712,6 +1712,11 @@ export const completeTask = async (req: Request, res: Response): Promise<any> =>
       await logActivity(id, uid, 'forced_close', { pending, reason });
       await notifyCompleted();
       await notifyTicketFixed();
+      // El cierre forzado también es un cierre. Sin este aviso la tarea se
+      // quedaba abierta para siempre del lado de Grupo Rino: aquí terminada,
+      // allá pendiente y sin que nadie supiera por qué. Es la misma salida que
+      // usan las otras dos rutas, solo que esta retornaba antes de emitir.
+      emitTaskEventIfExternal('task.completed', id, uid).catch(() => {});
       return res.json({ success: true, forced: true, awaiting_confirmation: false });
     }
 
