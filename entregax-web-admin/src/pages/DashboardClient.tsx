@@ -3469,8 +3469,16 @@ export default function DashboardClient() {
       setSupportImages([]);
       setTrackingValidation({ status: 'idle', message: '' });
       setSupportOpen(false);
-    } catch (error) {
-      setSnackbar({ open: true, message: t('cd.snackbar.ticketError'), severity: 'error' });
+    } catch (error: any) {
+      // El catch mostraba siempre "Error al crear ticket. Intenta de nuevo",
+      // asi que un cliente podia reintentar veinte veces sin enterarse de que
+      // el problema era la categoria que eligio (tarea 479, cliente S186).
+      const detalle = error?.response?.data?.error;
+      setSnackbar({
+        open: true,
+        message: detalle || t('cd.snackbar.ticketError'),
+        severity: 'error',
+      });
     }
   };
 
