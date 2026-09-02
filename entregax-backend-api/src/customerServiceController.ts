@@ -2262,6 +2262,31 @@ export const createSaldoFavorRequest = async (req: Request, res: Response) => {
       }
     }
 
+    // Freno al saldo a favor repetido. Cuando el abono no se ve reflejado como
+    // se espera, el reflejo es volver a levantarlo: asi ALEX HUANG acabo con
+    // dos notas de 60 USD por el mismo descuento (tarea 471). Se avisa y se
+    // exige confirmar; no se bloquea, porque a veces si son dos distintos.
+    const repetido = await pool.query(
+      `SELECT id, estado, fecha_solicitud FROM saldo_a_favor_pendientes
+        WHERE cliente_id = $1 AND monto = $2 AND COALESCE(moneda,'MXN') = $3
+          AND estado IN ('pendiente','aprobado')
+          AND fecha_solicitud > NOW() - INTERVAL '60 days'
+        ORDER BY id DESC LIMIT 1`,
+      [cliente_id, montoNum, moneda || 'MXN']
+    );
+    const confirmarRepetido = req.body?.confirmar_repetido === true || req.body?.confirmar_repetido === 'true';
+    if (repetido.rows.length > 0 && !confirmarRepetido) {
+      const r = repetido.rows[0];
+      return res.status(409).json({
+        error: 'Ya existe un saldo a favor igual para este cliente',
+        message: `La solicitud #${r.id} por el mismo monto está ${r.estado} desde el ` +
+          `${new Date(r.fecha_solicitud).toLocaleDateString('es-MX')}. Revisa si es la misma antes de duplicarla: ` +
+          `si el abono anterior no se vio reflejado, el problema es otro y volver a levantarlo le daría el doble al cliente.`,
+        solicitud_existente: r.id,
+        requiere_confirmacion: true,
+      });
+    }
+
     const result = await pool.query(
       `INSERT INTO saldo_a_favor_pendientes
        (cliente_id, cliente_nombre, monto, moneda, motivo, proof_file_url, proof_file_key, solicitado_por, solicitado_nombre)
@@ -2328,8 +2353,35 @@ export const getSaldoFavorStats = async (_req: Request, res: Response) => {
   }
 };
 
+/**
+ * Convierte a MXN el monto de un saldo a favor.
+ *
+ * `users.wallet_balance` es una sola columna de pesos: no tiene divisa. La
+ * solicitud SI la tiene (`saldo_a_favor_pendientes.moneda`), y al aprobar se
+ * sumaba el numero tal cual, asi que 60 USD se volvian 60 pesos —el cliente
+ * recibia el 6% de lo autorizado—. Peor: el mensaje de exito decia "USD", asi
+ * que quien autorizaba creia que habia funcionado. Yliana lo hizo dos veces
+ * por eso (tarea 471, ALEX HUANG S219).
+ *
+ * Una divisa que no sepamos convertir se rechaza en vez de acreditarse mal:
+ * negarse es recuperable, acreditar de menos en silencio no.
+ */
+async function saldoFavorAMxn(monto: number, moneda: string): Promise<{ mxn: number; tc: number }> {
+  const div = String(moneda || 'MXN').toUpperCase();
+  if (div === 'MXN') return { mxn: monto, tc: 1 };
+  if (div !== 'USD') throw new Error(`No se puede acreditar en ${div}: solo MXN y USD.`);
+
+  const tcRes = await pool.query(
+    `SELECT tipo_cambio_final FROM exchange_rate_config
+      WHERE servicio = 'pobox_usa' AND estado = TRUE LIMIT 1`
+  );
+  const tc = parseFloat(tcRes.rows[0]?.tipo_cambio_final);
+  if (!tc || tc <= 0) throw new Error('No hay tipo de cambio configurado; no se puede convertir el saldo a favor a pesos.');
+  return { mxn: Math.round(monto * tc * 100) / 100, tc };
+}
+
 // Aprobar/Rechazar saldo a favor (requiere PIN de director/super_admin).
-// Al aprobar: abona el monto a users.wallet_balance del cliente.
+// Al aprobar: abona el monto a users.wallet_balance del cliente, EN PESOS.
 export const resolveSaldoFavorRequest = async (req: Request, res: Response) => {
   const { id } = req.params;
   const { accion, pin, motivo_rechazo } = req.body;
@@ -2360,29 +2412,50 @@ export const resolveSaldoFavorRequest = async (req: Request, res: Response) => {
     }
 
     if (accion === 'aprobar') {
+      // La conversión va ANTES de marcar aprobada: si truena, la solicitud
+      // sigue pendiente y se puede volver a intentar. Al revés quedaría
+      // aprobada sin haber abonado nada.
+      let conv: { mxn: number; tc: number };
+      try {
+        conv = await saldoFavorAMxn(Number(sf.monto) || 0, sf.moneda);
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
+      }
+
       await pool.query(
         `UPDATE saldo_a_favor_pendientes SET estado = 'aprobado', aprobado_por = $1, aprobado_nombre = $2, fecha_resolucion = NOW() WHERE id = $3`,
         [autorizador.id, autorizador.full_name, id]
       );
 
-      // Abonar a la billetera (saldo a favor) del cliente
+      // Abonar a la billetera (saldo a favor) del cliente, siempre en pesos.
       await pool.query(
         `UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + $1 WHERE id = $2`,
-        [sf.monto, sf.cliente_id]
+        [conv.mxn, sf.cliente_id]
       );
 
-      // Registrar la transacción financiera
+      // Registrar la transacción financiera. El concepto deja escrito el
+      // original y el tipo de cambio: sin eso, dentro de un mes nadie puede
+      // reconstruir por qué se abonaron $1,031.40 por una nota de 60 USD.
+      const detalleTc = conv.tc === 1 ? '' : ` (${sf.monto} ${sf.moneda} × TC ${conv.tc})`;
       try {
         await pool.query(
           `INSERT INTO financial_transactions (user_id, type, amount, description, reference_id, reference_type, created_at)
            VALUES ($1, 'credit', $2, $3, $4, 'saldo_a_favor', NOW())`,
-          [sf.cliente_id, sf.monto, `Saldo a favor aprobado por ${autorizador.full_name}: ${sf.motivo}`, sf.id]
+          [sf.cliente_id, conv.mxn, `Saldo a favor aprobado por ${autorizador.full_name}${detalleTc}: ${sf.motivo}`, sf.id]
         );
       } catch (e) {
         console.warn('No se pudo registrar financial_transactions del saldo a favor:', e);
       }
 
-      res.json({ success: true, message: `Saldo a favor de $${sf.monto} ${sf.moneda} abonado al cliente por ${autorizador.full_name}` });
+      // El mensaje dice lo que REALMENTE quedó en la billetera. Antes decía
+      // "$60.00 USD abonado" cuando habían entrado 60 pesos, y esa frase fue
+      // la que hizo que se repitiera la operación.
+      res.json({
+        success: true,
+        monto_abonado_mxn: conv.mxn,
+        tipo_cambio: conv.tc,
+        message: `Se abonaron $${conv.mxn.toFixed(2)} MXN a la billetera del cliente${detalleTc}. Autorizó ${autorizador.full_name}.`,
+      });
     } else {
       await pool.query(
         `UPDATE saldo_a_favor_pendientes SET estado = 'rechazado', aprobado_por = $1, aprobado_nombre = $2, motivo_rechazo = $3, fecha_resolucion = NOW() WHERE id = $4`,
